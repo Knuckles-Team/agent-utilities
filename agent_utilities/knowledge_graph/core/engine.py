@@ -1089,6 +1089,126 @@ class IntelligenceGraphEngine(
                 self.graph_compute.add_node(node_id, props)
             return result if result is not None else {"id": node_id, **props}
 
+    def batch_typed_mutations(
+        self,
+        mutations: list[dict[str, Any]],
+        *,
+        session: GraphSession | None = None,
+    ) -> bool:
+        """Apply prepared typed node/edge mutations through one native batch.
+
+        ``GraphComputeEngine.batch_update`` is an atomic, ordered native
+        transaction.  This high-level seam preserves the public ``add_node`` and
+        ``link_nodes`` governance contract before reaching it: verified write
+        authority, label normalization, ownership/classification stamping, and
+        edge defaults/bitemporal fields all remain identical.  It returns
+        ``False`` only when the configured backend has no native typed-batch
+        capability; a supported backend's failed batch raises so callers never
+        reinterpret an all-or-nothing failure as a partial success.
+
+        Each mutation is either ``{"kind": "node", "id", "node_type",
+        "properties"}`` or ``{"kind": "edge", "source", "target",
+        "rel_type", "properties"}``.  The list order is preserved exactly.
+        """
+        if not mutations:
+            return True
+        if not self.backend:
+            return False
+        # A separate compute scratchpad must still receive each public write
+        # after the backend commit.  It has no atomic companion batch contract,
+        # so preserve that established behavior through the portable path rather
+        # than silently making the scratchpad stale.
+        if not self._compute_is_authority:
+            return False
+        apply = getattr(self.backend, "apply_typed_batch", None)
+        if not callable(apply):
+            return False
+
+        from agent_utilities.security.brain_context import use_actor
+
+        from .bitemporal import stamp_bitemporal
+        from .session import resolve_session
+        from .tenant_sharing import stamp_classification, stamp_ownership
+
+        session = resolve_session(session, required_scope="kg:write")
+        operations: list[dict[str, Any]] = []
+        with use_actor(session.actor):
+            for mutation in mutations:
+                if not isinstance(mutation, dict):
+                    raise ValueError("typed batch mutations must be mappings")
+                kind = str(mutation.get("kind") or "")
+                raw_properties = mutation.get("properties") or {}
+                if not isinstance(raw_properties, dict):
+                    raise ValueError(
+                        "typed batch mutation properties must be a mapping"
+                    )
+                if kind == "node":
+                    node_id = str(mutation.get("id") or "").strip()
+                    node_type = str(mutation.get("node_type") or "").strip()
+                    if not node_id or not node_type:
+                        raise ValueError("typed node batch requires id and node_type")
+                    props = dict(raw_properties)
+                    if "type" in props:
+                        raise retired_node_type_property_error()
+                    node_type = self._normalize_label(node_type)
+                    props["node_type"] = node_type
+                    self._audit_candidate_type("node", node_type)
+                    prepared = self._prepare_node_props(
+                        node_type, {"id": node_id, **props}
+                    )
+                    prepared.setdefault("id", node_id)
+                    try:
+                        stamp_ownership(prepared)
+                        stamp_classification(prepared, node_type)
+                    except PermissionError:
+                        pass
+                    operations.append(
+                        {
+                            "op": "upsert_node",
+                            "id": node_id,
+                            "properties": {
+                                **prepared,
+                                "id": node_id,
+                                "node_type": prepared.get("node_type", node_type),
+                            },
+                        }
+                    )
+                    continue
+
+                if kind == "edge":
+                    source_id = str(mutation.get("source") or "").strip()
+                    target_id = str(mutation.get("target") or "").strip()
+                    rel_type = str(mutation.get("rel_type") or "").strip()
+                    if not source_id or not target_id or not rel_type:
+                        raise ValueError(
+                            "typed edge batch requires source, target, and rel_type"
+                        )
+                    props = dict(raw_properties)
+                    aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
+                    if aliases:
+                        raise retired_edge_relationship_property_error(aliases)
+                    self._audit_candidate_type("edge", rel_type)
+                    rel_type = validate_identifier(
+                        rel_type.upper(), kind="relationship type"
+                    )
+                    props.setdefault("confidence", 1.0)
+                    props.setdefault("source", "system")
+                    stamp_bitemporal(props, event_time=props.get("event_time"))
+                    operations.append(
+                        {
+                            "op": "upsert_edge",
+                            "source": source_id,
+                            "target": target_id,
+                            "properties": {**props, "relationship": rel_type},
+                        }
+                    )
+                    continue
+
+                raise ValueError(f"unsupported typed batch mutation kind: {kind!r}")
+
+            apply(operations)
+        return True
+
     def add_edge(
         self,
         source: str,
