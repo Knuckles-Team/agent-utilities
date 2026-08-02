@@ -282,14 +282,18 @@ def test_ensure_topics_creates_missing(confluent_stub):
     _kafka_backend(admin, partitions=4)
     assert ("kg_tasks", 4) in admin.created
     assert ("kg_staging", 1) in admin.created
+    # D-42: the hydration-priority notification topic is provisioned alongside
+    # the ordinary task/staging topics, idempotently, from the same startup path.
+    assert ("kg_tasks_hydration", 3) in admin.created
 
 
 def test_ensure_topics_grows_but_never_shrinks(confluent_stub):
-    admin = _FakeAdmin({"kg_tasks": 3, "kg_staging": 1})
+    admin = _FakeAdmin({"kg_tasks": 3, "kg_staging": 1, "kg_tasks_hydration": 3})
     _kafka_backend(admin, partitions=8)
     assert ("kg_tasks", 8) in admin.grown  # 3 → 8 grows
+    assert admin.grown.count(("kg_tasks_hydration", 3)) == 0  # already at target, not grown
 
-    admin2 = _FakeAdmin({"kg_tasks": 12, "kg_staging": 1})
+    admin2 = _FakeAdmin({"kg_tasks": 12, "kg_staging": 1, "kg_tasks_hydration": 3})
     _kafka_backend(admin2, partitions=8)
     assert admin2.grown == [] and admin2.created == []  # 12 stays 12
 
@@ -393,6 +397,32 @@ def test_put_many_uses_one_delivery_confirmed_flush(confluent_stub):
     backend.put_many([_envelope(f"job-{index}") for index in range(3)])
     assert len(producer.messages) == 3
     assert producer.flush_calls == 1
+
+
+# ── D-42: hydration-priority notification topic ──────────────────────────
+
+
+def test_put_hydration_produces_to_hydration_topic(confluent_stub, monkeypatch):
+    """put_hydration (the D-42 seam) publishes to kg_tasks_hydration, not
+    kg_tasks — same keyed-envelope shape, different destination topic."""
+    from agent_utilities.security import brain_context
+
+    monkeypatch.setattr(
+        brain_context, "current_actor", lambda: SimpleNamespace(tenant_id="")
+    )
+    producer = _FakeProducer()
+    backend = _kafka_backend(
+        _FakeAdmin({"kg_tasks": 6, "kg_staging": 1, "kg_tasks_hydration": 3}),
+        producer=producer,
+    )
+    backend.put_hydration(_envelope("hydration-job-1", full_path="org/repo"))
+    (topic, value, key) = producer.messages[0]
+    assert topic == "kg_tasks_hydration"
+    assert key.startswith(b"corpus:pref_corpus_")
+    assert json.loads(value)["job_id"] == "hydration-job-1"
+    # put() on the SAME backend is unaffected — still the ordinary topic.
+    backend.put(_envelope("ordinary-job-1", full_path="org/repo"))
+    assert producer.messages[1][0] == "kg_tasks"
 
 
 def test_concurrent_puts_coalesce_behind_one_flush(confluent_stub, monkeypatch):
@@ -738,6 +768,16 @@ def test_consumer_pool_spreads_messages_and_closes():
         consumers.append(c)
         return c
 
+    hydration_consumers: list[_FakeConsumer] = []
+
+    def hydration_factory():
+        # No hydration-priority work pending in this test; the reserved
+        # worker's hydration poll must never set the shared stop event on its
+        # own (that would race the general consumers' own on_empty).
+        c = _FakeConsumer([], stop, on_empty=lambda: None)
+        hydration_consumers.append(c)
+        return c
+
     actor = ActorContext(
         actor_id="test-worker",
         actor_type=ActorType.SYSTEM,
@@ -757,12 +797,222 @@ def test_consumer_pool_spreads_messages_and_closes():
         worker_count=2,
         stop_event=stop,
         consumer_factory=factory,
+        hydration_consumer_factory=hydration_factory,
         background_session=session,
     )
     for t in threads:
         t.join(timeout=5.0)
     assert sorted(e[0] for e in engine.executed) == ["job-1", "job-2"]
     assert all(c.closed for c in consumers)
+    assert all(c.closed for c in hydration_consumers)
+
+
+# ── D-42: hydration-reserved consumer subset ─────────────────────────────
+
+
+def test_consumer_loop_polls_hydration_first():
+    """A reserved worker's hydration_consumer is checked BEFORE the general
+    consumer every iteration: the hydration job is processed even though it
+    is enqueued LAST, and the general consumer is never touched until the
+    hydration one is drained (D-42's own acceptance bar — a genuine priority
+    floor, not just a second topic that happens to exist)."""
+    from agent_utilities.knowledge_graph.ingest_worker import run_ingest_consumer_loop
+
+    engine = _FakeEngine()
+    _seed_work_item(engine, "job-general", target="g.py")
+    _seed_work_item(engine, "job-hydration", target="h.py")
+    stop = threading.Event()
+
+    hydration_consumer = _FakeConsumer(
+        [_FakeMsg({"job_id": "job-hydration"})], stop, on_empty=lambda: None
+    )
+    general_consumer = _FakeConsumer(
+        [_FakeMsg({"job_id": "job-general"})], stop
+    )  # default on_empty stops the loop once drained
+
+    run_ingest_consumer_loop(
+        engine, general_consumer, stop, hydration_consumer=hydration_consumer
+    )
+
+    assert [e[0] for e in engine.executed] == ["job-hydration", "job-general"]
+    assert len(hydration_consumer.commits) == 1
+    assert len(general_consumer.commits) == 1
+
+
+def test_consumer_pool_reserves_a_hydration_subset():
+    """start_ingest_consumer_pool gives a small reserved SUBSET of the pool a
+    second, hydration-topic-bound consumer — sized with the SAME
+    SchedulerConfig.reserved knob the in-process pool's hydration_reserved
+    floor uses — while every worker still gets its ordinary consumer."""
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.knowledge_graph.core.worker_scheduler import (
+        scheduler_config_from_env,
+    )
+    from agent_utilities.knowledge_graph.ingest_worker import (
+        start_ingest_consumer_pool,
+    )
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    engine = _FakeEngine()
+    stop = threading.Event()
+    general_consumers: list[_FakeConsumer] = []
+    hydration_consumers: list[_FakeConsumer] = []
+
+    def general_factory():
+        c = _FakeConsumer([], stop)  # empty -> its on_empty stops the pool
+        general_consumers.append(c)
+        return c
+
+    def hydration_factory():
+        c = _FakeConsumer([], stop, on_empty=lambda: None)
+        hydration_consumers.append(c)
+        return c
+
+    actor = ActorContext(
+        actor_id="test-worker",
+        actor_type=ActorType.SYSTEM,
+        roles=("system",),
+        tenant_id="test-tenant",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        scopes=frozenset({"kg:admin"}),
+        policy_version="current",
+        audience="test-runtime",
+    )
+    worker_count = 3
+    threads = start_ingest_consumer_pool(
+        engine,
+        worker_count=worker_count,
+        stop_event=stop,
+        consumer_factory=general_factory,
+        hydration_consumer_factory=hydration_factory,
+        background_session=session,
+    )
+    for t in threads:
+        t.join(timeout=5.0)
+
+    expected_reserved = min(
+        max(1, scheduler_config_from_env(worker_count).reserved), worker_count - 1
+    )
+    assert len(general_consumers) == worker_count  # every worker gets one
+    assert len(hydration_consumers) == expected_reserved  # only the reserved subset
+    assert all(c.closed for c in general_consumers)
+    assert all(c.closed for c in hydration_consumers)
+
+
+def test_consumer_pool_single_worker_reserves_none():
+    """A 1-worker pool reserves 0 (mirrors the in-process pool's D-43 floor:
+    a lone worker cannot dedicate its only thread to hydration-first without a
+    second thread to still guarantee general-work coverage)."""
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+    from agent_utilities.knowledge_graph.ingest_worker import (
+        start_ingest_consumer_pool,
+    )
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    engine = _FakeEngine()
+    stop = threading.Event()
+    hydration_consumers: list[_FakeConsumer] = []
+
+    def general_factory():
+        return _FakeConsumer([], stop)
+
+    def hydration_factory():
+        c = _FakeConsumer([], stop, on_empty=lambda: None)
+        hydration_consumers.append(c)
+        return c
+
+    actor = ActorContext(
+        actor_id="test-worker",
+        actor_type=ActorType.SYSTEM,
+        roles=("system",),
+        tenant_id="test-tenant",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        scopes=frozenset({"kg:admin"}),
+        policy_version="current",
+        audience="test-runtime",
+    )
+    threads = start_ingest_consumer_pool(
+        engine,
+        worker_count=1,
+        stop_event=stop,
+        consumer_factory=general_factory,
+        hydration_consumer_factory=hydration_factory,
+        background_session=session,
+    )
+    for t in threads:
+        t.join(timeout=5.0)
+    assert hydration_consumers == []
+
+
+# ── D-42: Kafka notification routing (engine_tasks.py::submit_task's Kafka leg) ──
+
+
+def test_kafka_notification_routes_hydration_task_type_to_put_hydration():
+    from agent_utilities.knowledge_graph.core.engine_tasks import (
+        _submit_kafka_notification,
+    )
+
+    calls: dict[str, list] = {"put": [], "put_hydration": []}
+
+    class _Queue:
+        def put(self, item):
+            calls["put"].append(item)
+
+        def put_hydration(self, item):
+            calls["put_hydration"].append(item)
+
+    envelope = {"job_id": "j1"}
+    _submit_kafka_notification(_Queue(), "capability_hydration", envelope)
+    assert calls["put_hydration"] == [envelope]
+    assert calls["put"] == []
+
+
+def test_kafka_notification_routes_ordinary_task_type_to_put():
+    from agent_utilities.knowledge_graph.core.engine_tasks import (
+        _submit_kafka_notification,
+    )
+
+    calls: dict[str, list] = {"put": [], "put_hydration": []}
+
+    class _Queue:
+        def put(self, item):
+            calls["put"].append(item)
+
+        def put_hydration(self, item):
+            calls["put_hydration"].append(item)
+
+    envelope = {"job_id": "j1"}
+    _submit_kafka_notification(_Queue(), "document", envelope)
+    assert calls["put"] == [envelope]
+    assert calls["put_hydration"] == []
+
+
+def test_kafka_notification_falls_back_to_put_without_put_hydration():
+    """A queue that never grew a ``put_hydration`` (a plain test double, or a
+    future non-Kafka caller) must still work — falls back to ``put``."""
+    from agent_utilities.knowledge_graph.core.engine_tasks import (
+        _submit_kafka_notification,
+    )
+
+    calls: list = []
+
+    class _Queue:
+        def put(self, item):
+            calls.append(item)
+
+    envelope = {"job_id": "j1"}
+    _submit_kafka_notification(_Queue(), "capability_hydration", envelope)
+    assert calls == [envelope]
 
 
 # ── autosizing ───────────────────────────────────────────────────────────

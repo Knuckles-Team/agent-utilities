@@ -269,6 +269,32 @@ def _resolve_task_target(value: str) -> Path:
     return get_workspace_path(raw.removeprefix(_WORKSPACE_TARGET_PREFIX))
 
 
+def _submit_kafka_notification(
+    queue: Any, task_type: str, envelope: dict[str, Any]
+) -> None:
+    """Publish a Kafka task-submission notification, routed by task type
+    (D-42, CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness).
+
+    A :data:`~agent_utilities.core.resource_priority.HYDRATION_TASK_TYPES` task
+    goes to the queue's ``put_hydration`` (the dedicated hydration-priority
+    topic the reserved consumer subset polls first — see
+    ``ingest_worker.py::start_ingest_consumer_pool``); everything else uses the
+    ordinary ``put``. ``put_hydration`` only exists on the Kafka backend
+    (:class:`~agent_utilities.knowledge_graph.core.kafka_queue_backend.
+    KafkaQueueBackend`), so a queue without it (a test double, or a future
+    non-Kafka caller of this helper) transparently falls back to ``put`` —
+    this function is only ever reached from the Kafka branch of
+    :meth:`TaskManagerMixin.submit_task`.
+    """
+    from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
+
+    put_hydration = getattr(queue, "put_hydration", None)
+    if task_type in HYDRATION_TASK_TYPES and callable(put_hydration):
+        put_hydration(envelope)
+    else:
+        queue.put(envelope)
+
+
 def _coerce_prio_bucket(value: Any, default: int = 2) -> int:
     """Validate a current WorkItem claim bucket in the closed interval 0..3."""
     if value is None:
@@ -3135,13 +3161,15 @@ class TaskManagerMixin(GraphEngineProtocol):
                 persistence_reference,
             )
 
-            self._submission_queue.put(
+            _submit_kafka_notification(
+                self._submission_queue,
+                task_type,
                 {
                     "job_id": job_id,
                     "partition_ref": persistence_reference(
                         "ingest_partition", durable_target, namespace=tenant
                     ),
-                }
+                },
             )
 
         # Pre-ingestion: drop ONLY the HNSW indexes for tables this task writes to.
