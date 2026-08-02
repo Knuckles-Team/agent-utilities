@@ -40,6 +40,14 @@ class _FakeClient:
         self.timeseries = _FakeTimeSeries()
 
 
+def test_utc_gap_fill_reuses_the_already_canonical_series() -> None:
+    """The common UTC path avoids rebuilding a large index before gap filling."""
+    index = pd.date_range("2026-01-01", periods=2, freq="h", tz="UTC")
+    series = pd.Series([10.0, 20.0], index=index, name="close")
+
+    assert engine_series._utc_series(series) is series
+
+
 @pytest.mark.parametrize(
     "step",
     [

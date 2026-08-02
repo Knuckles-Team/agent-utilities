@@ -28,6 +28,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from datetime import UTC
 from numbers import Integral
 
 try:
@@ -82,6 +83,11 @@ def _normalize_step(step: str | int | pd.Timedelta) -> pd.Timedelta:
 
 def _utc_series(series: pd.Series) -> pd.Series:
     """Return a non-mutating UTC-indexed view for both gap-fill implementations."""
+    # ``pd.to_datetime(..., utc=True)`` rebuilds even an already canonical UTC index.
+    # Neither gap-fill route mutates its input, so retaining that view avoids an
+    # otherwise dominant O(n) conversion on the common UTC market-data path.
+    if isinstance(series.index, pd.DatetimeIndex) and series.index.tz == UTC:
+        return series
     normalized = series.copy(deep=False)
     normalized.index = pd.to_datetime(series.index, utc=True)
     return normalized
