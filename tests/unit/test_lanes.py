@@ -249,6 +249,28 @@ def test_partitioned_paths_differ_per_lane_and_never_use_refs_stash(
     assert one.stash_ref == "refs/lane/lane-g/stash" != "refs/stash"
 
 
+def test_partitioned_paths_creates_the_temp_root_on_disk(canonical: Path) -> None:
+    """Reproduces the real failure: a lane whose ``~/.al/<token>`` had never
+    been created before exported ``PYTEST_ADDOPTS=--basetemp=<token>/pytest``
+    that pointed at a nonexistent parent. Pytest's own basetemp creation is
+    ``mkdir(exist_ok=True)`` with no ``parents=True``, so the very first
+    ``pytest`` run under a fresh lane's ``env`` output failed with a raw
+    ``FileNotFoundError`` before any test collected — observed for real via
+    ``guardrail-prod-profile`` in a freshly created worktree. ``env`` must
+    leave both the pytest-basetemp parent and the scratch (``TMPDIR``)
+    directory itself already present, exactly as ``workspace_arbitration_dir``
+    already guarantees for the shared-venv lease root.
+    """
+    lane = _add_worktree(canonical, "lane-fresh-temp")
+    parts = lanes.partitioned_paths(lane)
+    assert parts.pytest_basetemp.parent.is_dir()
+    assert parts.scratch_dir.is_dir()
+    # Round-trips pytest's own creation step for the leaf itself, proving the
+    # parent is genuinely walkable and not merely reported as existing.
+    parts.pytest_basetemp.mkdir(mode=0o700, exist_ok=True)
+    assert parts.pytest_basetemp.is_dir()
+
+
 def test_park_gives_a_clean_tree_without_touching_refs_stash(canonical: Path) -> None:
     """The affordance that makes `git stash` unnecessary rather than merely banned."""
     lane = _add_worktree(canonical, "lane-park")

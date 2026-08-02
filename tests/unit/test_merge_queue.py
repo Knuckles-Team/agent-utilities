@@ -577,7 +577,7 @@ def test_prune_without_repository_manager_deletes_a_genuinely_landed_branch(
         ["git", "rev-parse", "--verify", "--quiet", "refs/lane-backup/lane-a"],
         canonical,
     )
-    assert anchor == landed["outcomes"][0]["commit"] or anchor  # anchor resolved
+    assert anchor == landed["outcomes"][0]["to"] or anchor  # anchor resolved
 
 
 def test_prune_without_repository_manager_refuses_unmerged_commits(
