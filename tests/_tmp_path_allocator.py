@@ -26,21 +26,35 @@ _ALLOCATION_TOKEN_BITS = 64
 _ALLOCATION_TOKEN_LIMIT = 1 << _ALLOCATION_TOKEN_BITS
 _ALLOCATION_TOKEN_MASK = _ALLOCATION_TOKEN_LIMIT - 1
 _ALLOCATION_TOKEN_CHARACTERS = (_ALLOCATION_TOKEN_BITS + 5) // 6
-_LEAF_TOKEN_WIDTH = 1
-# A 64-bit value occupies eleven base64 characters.  The final character
-# carries four data bits, so that leaf directory has sixteen possible names;
-# every earlier character has the ordinary URL-safe base64 fanout of 64.
-_MAX_LEAF_DIRECTORY_FANOUT = 1 << 4
-_MAX_TOKEN_DIRECTORY_FANOUT = 1 << 6
+_ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS = (3, 3, 3)
+_LEAF_TOKEN_WIDTH = 2
+# A 64-bit value occupies eleven URL-safe base64 characters. The final token
+# character carries four data bits, so the final two-character leaf has exactly
+# ten bits of fanout. Each three-character parent is hard-bounded at 262,144
+# children, avoiding directory enumeration while keeping the hot path shallow.
+_MAX_LEAF_DIRECTORY_FANOUT = 1 << (_LEAF_TOKEN_WIDTH * 6 - 2)
+_MAX_TOKEN_DIRECTORY_FANOUT = 1 << (max(_ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS) * 6)
 _MAX_ROOT_DIRECTORY_FANOUT = 1 << (_NODE_SHARD_WIDTH * 4)
 _MAX_LEAF_MKDIR_PROBES = 4
+_ALLOCATION_TOKEN_PARENT_COMPONENTS = len(_ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS)
+_ALLOCATION_PATH_COMPONENTS = 2 + _ALLOCATION_TOKEN_PARENT_COMPONENTS + 1
 # A collision can cross the modular 64-bit boundary, so every probe may need a
-# distinct token branch.  The bound covers ``t``, the node shard, ten token
+# distinct token branch. The bound covers ``t``, the node shard, three token
 # parents, and the final leaf for each fixed collision probe.
 _MAX_MKDIR_CALLS_PER_ALLOCATION = 1 + _MAX_LEAF_MKDIR_PROBES * (
-    _ALLOCATION_TOKEN_CHARACTERS + 1
+    _ALLOCATION_TOKEN_PARENT_COMPONENTS + 2
 )
 _test_result_key = pytest.StashKey[dict[str, bool]]()
+
+
+class _DirectoryBranch:
+    """One cached allocator directory and its bounded direct descendants."""
+
+    __slots__ = ("children", "path")
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.children: dict[str, _DirectoryBranch] = {}
 
 
 class BoundedTempPathAllocator:
@@ -50,10 +64,10 @@ class BoundedTempPathAllocator:
     bounding ``t`` at 256 children.  A random 64-bit origin chooses a cyclic
     permutation of a separate 64-bit ordinal stream: ``(origin + ordinal) mod
     2**64``.  Thus a high random origin does not shorten the stream; every
-    allocator can consume all ``2**64`` ordinals exactly once.  Each character
-    of the fixed-width URL-safe base64 token becomes a radix-tree level, which
-    bounds every lower allocator-managed directory at 64 children (and the
-    four-bit final character at 16).
+    allocator can consume all ``2**64`` ordinals exactly once. Fixed-width
+    URL-safe-base64 token groups become radix-tree levels, which bounds every
+    lower allocator-managed directory at 262,144 children (and each final
+    two-character leaf group at 1,024).
 
     Atomic ``mkdir`` remains the authority across threads and processes: four
     distinct token candidates are attempted before the allocator raises rather
@@ -71,7 +85,7 @@ class BoundedTempPathAllocator:
         # namespace.  It always has the complete 64-bit allocation range.
         self._next_token = 0
         self._root_created = False
-        self._created_directories: set[Path] = set()
+        self._directory_tree: dict[str, _DirectoryBranch] = {}
         self._lock = threading.Lock()
 
     @staticmethod
@@ -100,11 +114,28 @@ class BoundedTempPathAllocator:
     def _allocation_parent(self, node_shard: str, token: str) -> Path:
         """Create the bounded token branch and return its final parent."""
         parent = self._root
-        for component in (node_shard, *token[:-_LEAF_TOKEN_WIDTH]):
-            parent /= component
-            if parent not in self._created_directories:
-                parent.mkdir(mode=0o700, exist_ok=True)
-                self._created_directories.add(parent)
+        branches = self._directory_tree
+        branch = branches.get(node_shard)
+        if branch is None:
+            directory = parent / node_shard
+            directory.mkdir(mode=0o700, exist_ok=True)
+            branch = _DirectoryBranch(directory)
+            branches[node_shard] = branch
+        parent = branch.path
+        branches = branch.children
+
+        token_index = 0
+        for component_width in _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS:
+            component = token[token_index : token_index + component_width]
+            branch = branches.get(component)
+            if branch is None:
+                directory = parent / component
+                directory.mkdir(mode=0o700, exist_ok=True)
+                branch = _DirectoryBranch(directory)
+                branches[component] = branch
+            parent = branch.path
+            branches = branch.children
+            token_index += component_width
         return parent
 
     def allocate(self, node_id: str) -> Path:

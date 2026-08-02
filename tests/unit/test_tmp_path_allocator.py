@@ -14,8 +14,10 @@ from pathlib import Path
 
 import pytest
 from _tmp_path_allocator import (
-    _ALLOCATION_TOKEN_CHARACTERS,
+    _ALLOCATION_PATH_COMPONENTS,
     _ALLOCATION_TOKEN_LIMIT,
+    _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS,
+    _LEAF_TOKEN_WIDTH,
     _MAX_LEAF_DIRECTORY_FANOUT,
     _MAX_LEAF_MKDIR_PROBES,
     _MAX_MKDIR_CALLS_PER_ALLOCATION,
@@ -79,7 +81,7 @@ def _retention_paths(record_directory: Path) -> dict[str, Path]:
 
 def _allocator_root(path: Path) -> Path:
     """Return the fixed-depth ``t`` root for one allocator-created path."""
-    root = path.parents[_ALLOCATION_TOKEN_CHARACTERS]
+    root = path.parents[_ALLOCATION_PATH_COMPONENTS - 2]
     assert root.name == "t"
     return root
 
@@ -95,9 +97,12 @@ def _assert_bounded_fixture_paths(paths: dict[str, Path]) -> None:
     for path in paths.values():
         parts = _allocator_relative_parts(path)
         assert parts[0] == "t"
-        assert len(parts) == _ALLOCATION_TOKEN_CHARACTERS + 2
+        assert len(parts) == _ALLOCATION_PATH_COMPONENTS
         assert len(parts[1]) == 2
-        assert all(len(part) == 1 for part in parts[2:])
+        assert tuple(len(part) for part in parts[2:-1]) == (
+            _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
+        )
+        assert len(parts[-1]) == _LEAF_TOKEN_WIDTH
 
 
 def _assert_every_allocator_directory_is_bounded(root: Path) -> None:
@@ -106,13 +111,16 @@ def _assert_every_allocator_directory_is_bounded(root: Path) -> None:
     while pending:
         directory = pending.pop()
         child_directories = [child for child in directory.iterdir() if child.is_dir()]
-        cap = (
-            _MAX_ROOT_DIRECTORY_FANOUT
-            if directory == root
-            else _MAX_TOKEN_DIRECTORY_FANOUT
-        )
+        relative_depth = len(directory.relative_to(root).parts)
+        if relative_depth == 0:
+            cap = _MAX_ROOT_DIRECTORY_FANOUT
+        elif relative_depth == _ALLOCATION_PATH_COMPONENTS - 2:
+            cap = _MAX_LEAF_DIRECTORY_FANOUT
+        else:
+            cap = _MAX_TOKEN_DIRECTORY_FANOUT
         assert len(child_directories) <= cap
-        pending.extend(child_directories)
+        if relative_depth < _ALLOCATION_PATH_COMPONENTS - 2:
+            pending.extend(child_directories)
 
 
 _RETENTION_SUITE = """
@@ -199,11 +207,14 @@ def test_allocator_uses_deterministic_bounded_fanout(tmp_path: Path) -> None:
     assert {path.parts[0] for path in relative_paths} == {"t"}
     assert len({path.parts[1] for path in relative_paths}) == 256
     assert all(
-        len(path.parts) == _ALLOCATION_TOKEN_CHARACTERS + 2 for path in relative_paths
+        len(path.parts) == _ALLOCATION_PATH_COMPONENTS for path in relative_paths
     )
     assert all(len(path.parts[1]) == 2 for path in relative_paths)
     assert all(
-        all(len(part) == 1 for part in path.parts[2:]) for path in relative_paths
+        tuple(len(part) for part in path.parts[2:-1])
+        == _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
+        and len(path.parts[-1]) == _LEAF_TOKEN_WIDTH
+        for path in relative_paths
     )
     assert set(tmp_path.iterdir()) == {root}
     assert len([child for child in root.iterdir() if child.is_dir()]) == 256
@@ -435,6 +446,7 @@ def test_allocator_creates_active_root_and_parent_once(
     """Avoid a redundant ``mkdir(..., exist_ok=True)`` syscall per allocation."""
     mkdir_calls: list[Path] = []
     original_mkdir = Path.mkdir
+    monkeypatch.setattr("_tmp_path_allocator.secrets.randbits", lambda _: 0)
 
     def observe_mkdir(path: Path, *args, **kwargs) -> None:
         mkdir_calls.append(path)
@@ -489,9 +501,12 @@ def test_tmp_path_fixture_is_wired_to_bounded_allocator(
     relative_path = tmp_path.relative_to(tmp_path_factory.getbasetemp())
 
     assert relative_path.parts[0] == "t"
-    assert len(relative_path.parts) == _ALLOCATION_TOKEN_CHARACTERS + 2
+    assert len(relative_path.parts) == _ALLOCATION_PATH_COMPONENTS
     assert len(relative_path.parts[1]) == 2
-    assert all(len(part) == 1 for part in relative_path.parts[2:])
+    assert tuple(len(part) for part in relative_path.parts[2:-1]) == (
+        _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
+    )
+    assert len(relative_path.parts[-1]) == _LEAF_TOKEN_WIDTH
 
 
 def test_tmp_path_factory_api_remains_pytest_owned(tmp_path_factory) -> None:
