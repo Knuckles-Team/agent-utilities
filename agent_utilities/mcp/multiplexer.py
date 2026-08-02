@@ -493,7 +493,7 @@ def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
     return tools
 
 
-def _tool_catalog_digest(tools: list[mcp_types.Tool]) -> str:
+def _tool_catalog_digest(tools: list[MCPTool]) -> str:
     """Return a stable digest of the client-visible portion of one child catalog.
 
     A child generation already pays for ``tools/list`` as part of its bounded
@@ -1092,6 +1092,14 @@ class MCPMultiplexer:
         # category is intentionally fixed-vocabulary: raw provider details
         # belong only in the server-side redacted log.
         self._child_schema_refresh_errors: dict[str, str] = {}
+        # A child recovery runs on a detached supervisor task, where a request
+        # context is unsafe to retain or reuse.  Queue changed exposed schemas
+        # for each affected client session and deliver its standard MCP
+        # ``tools/list_changed`` notification on that session's next request.
+        # Entries are bounded by the existing per-session visibility state and
+        # disappear with it, so an idle client cannot accumulate revisions.
+        self._tool_list_change_revision = 0
+        self._pending_tool_list_changes: dict[str, int] = {}
         # Incremented before a hot catalog reload tears down child runtimes so
         # a late callback from an old generation can never repopulate fresh
         # routing state with a stale declaration.
@@ -1237,11 +1245,13 @@ class MCPMultiplexer:
         ):
             raise ToolError("MCP child tool is not admitted by runtime policy")
         if server_name in self._child_schema_refresh_errors:
-            return mcp_types.CallToolResult(
-                content=[
-                    mcp_types.TextContent(type="text", text="schema_refresh_failed")
-                ],
-                isError=True,
+            return mcp_types.CallToolResult.model_validate(
+                {
+                    "content": [
+                        mcp_types.TextContent(type="text", text="schema_refresh_failed")
+                    ],
+                    "isError": True,
+                }
             )
 
         try:
@@ -1253,21 +1263,24 @@ class MCPMultiplexer:
             # runtime's ready gate.  Do not let that freshly recovered child
             # serve through a route whose outer schema could not be refreshed.
             if server_name in self._child_schema_refresh_errors:
-                return mcp_types.CallToolResult(
-                    content=[
-                        mcp_types.TextContent(type="text", text="schema_refresh_failed")
-                    ],
-                    isError=True,
+                return mcp_types.CallToolResult.model_validate(
+                    {
+                        "content": [
+                            mcp_types.TextContent(
+                                type="text", text="schema_refresh_failed"
+                            )
+                        ],
+                        "isError": True,
+                    }
                 )
             if (
                 self._host_mcp is not None
                 and self._child_schema_revisions.get(server_name, 0) != revision_before
             ):
                 # This call supplied the request context that observed the
-                # reconnect, so it is the reliable place to ask the client to
-                # re-list the now-replaced forwarding schema.  The helper is
-                # explicitly fail-soft when there is no attached client.
-                await _notify_tools_changed(self._host_mcp)
+                # reconnect.  A detached recovery queues a durable revision;
+                # use this live request to deliver it to this session.
+                await self.notify_pending_tools_changed()
             _mediate_langfuse_kg_ingestion(
                 child_config=child_config,
                 original_name=original_name,
@@ -1816,7 +1829,7 @@ class MCPMultiplexer:
                 runtime,
                 cfg,
                 catalog_epoch,
-                cast(list[mcp_types.Tool], live_tools),
+                cast("list[MCPTool]", live_tools),
             )
 
         runtime = ChildRuntime(
@@ -2030,6 +2043,7 @@ class MCPMultiplexer:
         self._child_tool_digests.clear()
         self._child_schema_revisions.clear()
         self._child_schema_refresh_errors.clear()
+        self._pending_tool_list_changes.clear()
         self.sessions.clear()
         self.tool_to_server.clear()
         self.aggregated_tools.clear()
@@ -2162,13 +2176,13 @@ class MCPMultiplexer:
     def _prefixed_child_tools(
         self,
         server_name: str,
-        tools: list[mcp_types.Tool],
+        tools: list[MCPTool],
         cfg: dict,
-    ) -> tuple[list[mcp_types.Tool], dict[str, str]]:
+    ) -> tuple[list[MCPTool], dict[str, str]]:
         """Filter and prefix one child catalog without mutating live state."""
         disabled_tools = cfg.get("disabledTools", [])
         enabled_tools = cfg.get("enabledTools", None)
-        registered: list[mcp_types.Tool] = []
+        registered: list[MCPTool] = []
         originals: dict[str, str] = {}
         for tool in tools:
             if enabled_tools is not None:
@@ -2223,15 +2237,18 @@ class MCPMultiplexer:
 
     def _replace_exposed_forwarders(
         self,
-        old_tools: dict[str, mcp_types.Tool],
-        new_tools: dict[str, mcp_types.Tool],
-    ) -> None:
-        """Atomically replace only changed schemas already exposed to clients.
+        old_tools: dict[str, MCPTool],
+        new_tools: dict[str, MCPTool],
+    ) -> set[str]:
+        """Replace changed exposed schemas without ever removing their fallback.
 
         FastMCP owns the client-visible JSON schema.  Rebuilding only the
         changed names keeps an equivalent provider reconnect free of provider
-        registration churn while retaining existing progressive-disclosure
-        visibility for tools the caller had explicitly loaded.
+        registration churn while retaining progressive-disclosure visibility.
+        Its normal duplicate policy replaces an existing provider component,
+        so register a replacement *before* removing a deleted name.  A failed
+        ``add_tool`` therefore leaves the old real FastMCP tool and all mux
+        routing state intact; map mutations happen only after this returns.
         """
         exposed = set(old_tools) & self._exposed
         changed = {
@@ -2242,38 +2259,81 @@ class MCPMultiplexer:
             != _tool_catalog_digest([new_tools[name]])
         }
         if not changed or self._host_mcp is None:
-            return
+            return set()
 
+        replacements = sorted(name for name in changed if name in new_tools)
+        removed = sorted(changed - set(replacements))
+        replaced: list[str] = []
         try:
-            for name in changed:
+            for name in replacements:
+                _register_forwarder(self._host_mcp, self, new_tools[name], replace=True)
+                replaced.append(name)
+            for name in removed:
                 self._remove_host_forwarder(name)
-            for name in changed:
-                replacement = new_tools.get(name)
-                if replacement is not None:
-                    _register_forwarder(self._host_mcp, self, replacement)
         except Exception:
-            # The schema state below has not changed yet.  Restore the exact
-            # old outer tools before reporting the failure so one malformed
-            # child update cannot corrupt a working child or any sibling.
-            for name in changed:
+            # The aggregation maps below have not changed.  Restore anything
+            # that did reach the host, but preserve the primary exception: a
+            # host whose ``add_tool`` is persistently failing still retains the
+            # old component because it was never removed before its first add.
+            for name in [*replaced, *removed]:
                 try:
-                    self._remove_host_forwarder(name)
-                except Exception:  # noqa: BLE001 - best-effort rollback
-                    logger.error("Could not remove partial MCP forwarding schema")
-            for name in changed:
-                prior = old_tools[name]
-                try:
-                    _register_forwarder(self._host_mcp, self, prior)
-                except Exception:  # noqa: BLE001 - surface the original failure
+                    _register_forwarder(
+                        self._host_mcp, self, old_tools[name], replace=True
+                    )
+                except Exception:  # noqa: BLE001 - best-effort host rollback
                     logger.error("Could not restore prior MCP forwarding schema")
             raise
+        return changed
+
+    def _queue_tools_changed(self, changed_names: set[str]) -> None:
+        """Record one detached schema refresh for sessions that exposed it.
+
+        A child supervisor has no valid request context: reusing the context
+        inherited when it was spawned can write to a completed response stream.
+        Keep the notification durable until each affected session makes its
+        next request, where :meth:`notify_pending_tools_changed` can use that
+        request's own outbound channel.
+        """
+        if not changed_names:
+            return
+        affected_sessions = [
+            session_key
+            for session_key, loaded in self._session_loaded.items()
+            if changed_names & loaded
+        ]
+        if not affected_sessions:
+            return
+        self._tool_list_change_revision += 1
+        for session_key in affected_sessions:
+            self._pending_tool_list_changes[session_key] = (
+                self._tool_list_change_revision
+            )
+
+    async def notify_pending_tools_changed(self) -> bool:
+        """Deliver this live session's queued ``tools/list_changed`` event.
+
+        Returning ``False`` retains the revision for a later request; a failed
+        notification is never misreported as delivered.  A newer background
+        refresh that arrives while the send awaits remains queued after this
+        older revision is acknowledged.
+        """
+        session_key = _session_key()
+        revision = self._pending_tool_list_changes.get(session_key)
+        if revision is None:
+            return True
+        if self._host_mcp is None or not await _notify_tools_changed(self._host_mcp):
+            return False
+        if self._pending_tool_list_changes.get(session_key) == revision:
+            self._pending_tool_list_changes.pop(session_key, None)
+            self.prune_session_visibility(session_key)
+        return True
 
     def _replace_child_tools(
         self,
         server_name: str,
-        tools: list[mcp_types.Tool],
+        tools: list[MCPTool],
         cfg: dict,
-    ) -> tuple[list[mcp_types.Tool], bool]:
+    ) -> tuple[list[MCPTool], bool]:
         """Replace cached tools for one child when its live schema changed.
 
         This runs only at initial mount or after a child connection generation
@@ -2293,7 +2353,9 @@ class MCPMultiplexer:
 
         current_by_name = {tool.name: tool for tool in current}
         refreshed_by_name = {tool.name: tool for tool in refreshed}
-        self._replace_exposed_forwarders(current_by_name, refreshed_by_name)
+        changed_exposed = self._replace_exposed_forwarders(
+            current_by_name, refreshed_by_name
+        )
 
         stale_names = {
             prefixed
@@ -2322,6 +2384,8 @@ class MCPMultiplexer:
         ]:
             self._tool_embeddings.pop(key, None)
 
+        self._queue_tools_changed(changed_exposed)
+
         removed = stale_names - set(refreshed_by_name)
         if removed:
             for loaded in self._session_loaded.values():
@@ -2338,7 +2402,7 @@ class MCPMultiplexer:
         runtime: ChildRuntime,
         cfg: dict,
         catalog_epoch: int,
-        tools: list[mcp_types.Tool],
+        tools: list[MCPTool],
     ) -> None:
         """Publish a recovered child generation's schema before it serves calls."""
         if (
@@ -3555,8 +3619,12 @@ class MCPMultiplexer:
         if not self._auto_unload.get(session_key):
             self._auto_unload.pop(session_key, None)
         if not self._session_loaded.get(session_key):
-            self._session_loaded.pop(session_key, None)
             self._auto_unload.pop(session_key, None)
+            # Keep an empty visibility record only while a detached recovery
+            # still owes this client a schema-removal notification. The record
+            # is removed by ``notify_pending_tools_changed`` after delivery.
+            if session_key not in self._pending_tool_list_changes:
+                self._session_loaded.pop(session_key, None)
 
     def requested_prefixed(
         self, tools: list[str] | None, servers: list[str] | None
@@ -3671,6 +3739,7 @@ class MCPMultiplexer:
             self._child_tool_digests.clear()
             self._child_schema_revisions.clear()
             self._child_schema_refresh_errors.clear()
+            self._pending_tool_list_changes.clear()
             for policy in policies:
                 _close_runtime_child_policy(policy)
         if self._catalog_reload_tasks:
@@ -3736,14 +3805,18 @@ def _tool_is_verbose(tool: MCPTool) -> bool:
     return "verbose" in tags
 
 
-def _register_forwarder(mcp, mux: MCPMultiplexer, tool: MCPTool) -> bool:
+def _register_forwarder(
+    mcp, mux: MCPMultiplexer, tool: MCPTool, *, replace: bool = False
+) -> bool:
     """Register ONE aggregated child tool as a live FastMCP forwarding tool.
 
     Idempotent via ``mux._exposed`` so lazy mounts never double-register.
-    Returns True if a new tool was added. Shared by eager startup and the
-    dynamic ``load_tools`` meta-tool.
+    ``replace=True`` uses FastMCP's native duplicate-replace behavior for an
+    already exposed tool; it never clears the mux marker before the new host
+    tool has been accepted. Returns True if FastMCP was asked to register a
+    tool. Shared by eager startup and the dynamic ``load_tools`` meta-tool.
     """
-    if tool.name in mux._exposed:
+    if tool.name in mux._exposed and not replace:
         return False
     schema = tool.input_schema or {"type": "object", "properties": {}}
     mcp.add_tool(
@@ -4003,6 +4076,10 @@ class SessionVisibilityMiddleware(Middleware):
     async def on_list_tools(self, context, call_next):
         await self._ensure_always_loaded()
         tools = await call_next(context)
+        # A child recovery is detached from the request that originally
+        # mounted it.  Its schema update is queued until this real client
+        # request can safely carry MCP's standard list-changed notification.
+        await self.mux.notify_pending_tools_changed()
         return [t for t in tools if self._visible(t.name)]
 
     async def on_call_tool(self, context, call_next):
@@ -4028,6 +4105,7 @@ class SessionVisibilityMiddleware(Middleware):
             self.mux.prune_session_visibility(session_key)
             if self._mcp is not None:
                 await _notify_tools_changed(self._mcp)
+        await self.mux.notify_pending_tools_changed()
         return result
 
 
