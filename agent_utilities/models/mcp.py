@@ -75,6 +75,7 @@ class MCPToolInfo(BaseModel):
         default=0,
         ge=0,
         le=100,
+        strict=True,
         description="Deterministic quality score (0-100)",
     )
     requires_approval: bool = Field(

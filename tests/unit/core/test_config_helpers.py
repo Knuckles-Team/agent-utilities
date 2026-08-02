@@ -862,6 +862,19 @@ def test_tool_relevance_score_preserves_canonical_bounds() -> None:
             name="negative", description="", mcp_server="srv", relevance_score=-1
         )
 
+    with pytest.raises(ValidationError):
+        MCPToolInfo(
+            name="boolean", description="", mcp_server="srv", relevance_score=True
+        )
+
+    with pytest.raises(ValidationError):
+        MCPToolInfo(
+            name="fractional-writer",
+            description="",
+            mcp_server="srv",
+            relevance_score=80.0,
+        )
+
 
 def test_missing_backend_is_treated_as_degraded_not_cached(
     monkeypatch: pytest.MonkeyPatch,
