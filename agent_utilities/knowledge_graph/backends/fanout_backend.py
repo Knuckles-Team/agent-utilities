@@ -321,7 +321,7 @@ class FanOutBackend(GraphBackend):
                     if self._admission_waiters == 0:
                         try:
                             self._handoff.put_nowait((op, payload))
-                        except queue.Full:
+                        except queue.Full:  # noqa: BLE001 — expected saturation; fall through to ordered overflow admission
                             pass
                         else:
                             # Increment while the hand-off condition excludes the
@@ -854,9 +854,7 @@ class FanOutBackend(GraphBackend):
                     ) or not backend.verify_node_embedding(
                         p["node_id"], p["embedding"]
                     ):
-                        raise RuntimeError(
-                            "mirror embedding replay was not verified"
-                        )
+                        raise RuntimeError("mirror embedding replay was not verified")
                     return
 
             # Standard mirrors do not implement either optional CAS contract.
