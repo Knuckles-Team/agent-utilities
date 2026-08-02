@@ -23,6 +23,24 @@ from agent_utilities.orchestration.response_format import (
     ResponseFormat,
     validate_response_format,
 )
+from agent_utilities.security.config_sensitivity import (
+    ENDPOINT_KEY_PARTS as _ENDPOINT_MCP_KEY_PARTS,
+)
+from agent_utilities.security.config_sensitivity import (
+    PATH_KEY_PARTS as _PATH_MCP_KEY_PARTS,
+)
+from agent_utilities.security.config_sensitivity import (
+    SENSITIVE_KEY_PARTS as _SENSITIVE_MCP_KEY_PARTS,
+)
+from agent_utilities.security.config_sensitivity import (
+    configuration_key_is_sensitive as _configuration_key_is_sensitive,
+)
+from agent_utilities.security.config_sensitivity import (
+    normalised_key_parts as _normalised_key_parts,
+)
+from agent_utilities.security.config_sensitivity import (
+    runtime_reference as _runtime_reference,
+)
 from agent_utilities.security.error_surface import public_error_json, public_error_text
 
 logger = logging.getLogger(__name__)
@@ -43,65 +61,12 @@ _MCP_CONFIG_MAX_BYTES = 1024 * 1024
 _MCP_REGISTRATION_MAX_ITEMS = 2048
 _MCP_REGISTRATION_MAX_DEPTH = 16
 _MCP_SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
-_RUNTIME_REFERENCE_RE = re.compile(
-    r"^(?:\$\{[A-Za-z_][A-Za-z0-9_]*\}|(?:vault|env|secret)://[A-Za-z0-9_./#-]+)$"
-)
 _URI_LITERAL_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
 _WINDOWS_ABSOLUTE_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 _INLINE_SECRET_RE = re.compile(
     r"(?i)^(?:bearer\s+\S+|basic\s+\S+|sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9_-]{8,})$"
 )
 _EMAIL_LITERAL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
-_SENSITIVE_MCP_KEY_PARTS = frozenset(
-    {
-        "authorization",
-        "credential",
-        "credentials",
-        "email",
-        "identity",
-        "password",
-        "secret",
-        "tenant",
-        "token",
-        "user",
-        "username",
-    }
-)
-_ENDPOINT_MCP_KEY_PARTS = frozenset(
-    {
-        "address",
-        "baseurl",
-        "broker",
-        "brokers",
-        "endpoint",
-        "endpoints",
-        "host",
-        "hostname",
-        "hosts",
-        "server",
-        "servers",
-        "uri",
-        "uris",
-        "url",
-        "urls",
-    }
-)
-_PATH_MCP_KEY_PARTS = frozenset(
-    {
-        "bundle",
-        "ca",
-        "cert",
-        "certificate",
-        "cwd",
-        "directory",
-        "dir",
-        "file",
-        "keyfile",
-        "path",
-        "root",
-        "workspace",
-    }
-)
 _SAFE_INLINE_MCP_ENV_KEYS = frozenset(
     {
         "APP_PROFILE",
@@ -299,57 +264,6 @@ async def execute_focused_analysis(
         target=target,
     )
     return EvidenceBundle.from_payload(raw, operation=action)
-
-
-def _configuration_key_is_sensitive(
-    env_key: str, metadata: dict[str, Any] | None = None
-) -> bool:
-    """Classify durable settings whose values must not cross the MCP surface."""
-
-    parts = _normalised_key_parts(env_key)
-    if bool((metadata or {}).get("secret")):
-        return True
-    if parts & (
-        _SENSITIVE_MCP_KEY_PARTS | _ENDPOINT_MCP_KEY_PARTS | _PATH_MCP_KEY_PARTS
-    ):
-        return True
-    if env_key.upper() == "MCP_CONFIG":
-        return True
-    if "id" in parts and parts & {
-        "actor",
-        "agent",
-        "client",
-        "identity",
-        "tenant",
-        "user",
-    }:
-        return True
-    return "key" in parts and bool(
-        parts
-        & {"api", "auth", "client", "encryption", "hmac", "private", "signing", "tls"}
-    )
-
-
-def _runtime_reference(value: Any) -> bool:
-    """Return whether ``value`` is a non-literal runtime reference.
-
-    MCP clients already expand ``${VAR}`` placeholders.  Secret-store URI refs
-    are also accepted for child servers which resolve them themselves.  Defaults
-    inside placeholders are intentionally rejected: they put the supposedly
-    external value back into the durable JSON document.
-    """
-
-    return isinstance(value, str) and bool(_RUNTIME_REFERENCE_RE.fullmatch(value))
-
-
-def _normalised_key_parts(key: str) -> set[str]:
-    normalised = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", key).lower()
-    parts = {part for part in re.split(r"[^a-z0-9]+", normalised) if part}
-    if "base" in parts and "url" in parts:
-        parts.add("baseurl")
-    if "key" in parts and "file" in parts:
-        parts.add("keyfile")
-    return parts
 
 
 def _validate_mcp_server_definition(definition: Any) -> dict[str, Any]:

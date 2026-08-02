@@ -1833,7 +1833,7 @@ def _auto_embed_envelopes(envelopes: list[ChangeEnvelope]) -> dict[int, list[flo
 
 def _index_embedded_vectors(
     authority: Any,
-    node_ids: dict[int, str],
+    node_ids: dict[int, str | None],
     vectors: dict[int, list[float]],
 ) -> None:
     """Best-effort ANN-index registration for freshly embedded, freshly
@@ -1841,6 +1841,11 @@ def _index_embedded_vectors(
     the ``embedding`` node property, which the write above already set: the
     engine's ``semantic_search`` reads the ANN/HNSW index, not the property, so
     both are needed for a new entity to actually be retrievable).
+
+    ``node_ids`` is deliberately ``str | None``-valued: callers build it from a
+    result payload's ``node_id``, which is absent for a skipped/failed record.
+    The loop below already skips those, so the annotation states the contract
+    the body implements rather than one the callers cannot satisfy.
     """
     compute = getattr(authority, "compute", None)
     add_embedding = getattr(compute, "add_embedding", None)

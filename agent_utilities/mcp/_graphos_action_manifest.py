@@ -1239,6 +1239,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "posture",
         "name": "graph_compliance_posture",
     },
+    {"tool": "graph_config", "action": "describe", "name": "graph_config_describe"},
+    {"tool": "graph_config", "action": "diff", "name": "graph_config_diff"},
+    {"tool": "graph_config", "action": "get", "name": "graph_config_get"},
+    {"tool": "graph_config", "action": "reload", "name": "graph_config_reload"},
+    {"tool": "graph_config", "action": "set", "name": "graph_config_set"},
     {
         "tool": "graph_configure",
         "action": "add_connection",

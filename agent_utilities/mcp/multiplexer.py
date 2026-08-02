@@ -38,7 +38,7 @@ import time
 import weakref
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NotRequired, TypedDict, cast
 from urllib.parse import urlsplit
 
 from fastmcp.exceptions import ToolError
@@ -1136,6 +1136,18 @@ class MCPMultiplexer:
         self._auto_unload: dict[str, set[str]] = {}
         self._catalog_reload_tasks: set[asyncio.Task[Any]] = set()
         self._authority_scope: Any = None
+        # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — the ONE bounded eager posture.
+        # Catalog server names (``MCP_ALWAYS_LOAD``) and server-qualified or
+        # prefixed tool names (``MCP_ALWAYS_LOAD_TOOLS``) that are mounted on a
+        # session's FIRST contact instead of costing a ``find_tools`` round
+        # trip. Populated by :func:`attach_fleet_loader` from AgentConfig;
+        # empty (fully lazy) for a bare multiplexer.
+        self._always_load_servers: list[str] = []
+        self._always_load_tool_specs: list[str] = []
+        # Per-session "already attempted" marker. Eager mounting runs at most
+        # once per session even when every entry failed — a fleet outage must
+        # not turn every tools/list into a fresh round of doomed connections.
+        self._always_load_done: dict[str, dict[str, Any]] = {}
         _LIVE_MULTIPLEXERS.add(self)
         _register_child_health_sampler()
 
@@ -2143,6 +2155,51 @@ class MCPMultiplexer:
                 continue
             server_name, payload, tools, cfg = result
             self._register_child_result(server_name, payload, tools, cfg)
+
+    # ------------------------------------------------------------------
+    # Always-load (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
+    # ------------------------------------------------------------------
+
+    def always_load_tool_owner(self, spec: str) -> tuple[str | None, str | None]:
+        """Resolve one ``MCP_ALWAYS_LOAD_TOOLS`` entry to ``(server, original)``.
+
+        Two accepted forms (see ``AgentConfig.mcp_always_load_tools``):
+
+        * ``"<server>:<tool>"`` — server-qualified ORIGINAL tool name. Resolved
+          without consulting the derived prefix map, so a prefix that shifts
+          when a new server joins the catalog cannot silently break a
+          configured entry. ``original`` is the child's own tool name.
+        * ``"<prefix>__<tool>"`` — an aggregated prefixed name; the owner comes
+          from the reverse prefix map and ``original`` is ``None`` (the spec
+          IS the prefixed name).
+
+        Returns ``(None, None)`` for an entry that resolves to no known server.
+        """
+        text = str(spec or "").strip()
+        if not text:
+            return None, None
+        if ":" in text:
+            server, _, original = text.partition(":")
+            server = server.strip()
+            original = original.strip()
+            return (server or None), (original or None)
+        return self._server_for_prefixed(text), None
+
+    def prefixed_for_original(self, server_name: str, original: str) -> str | None:
+        """The aggregated prefixed name a child's ORIGINAL tool name maps to.
+
+        Only answerable once ``server_name`` is mounted (``tool_to_server`` is
+        populated by :meth:`_register_child_result`); returns ``None`` before
+        that, or when the child never registered a tool by that name.
+        """
+        for prefixed, entry in self.tool_to_server.items():
+            if entry == (server_name, original):
+                return prefixed
+        return None
+
+    def always_load_declared(self) -> bool:
+        """True when this multiplexer has any eager always-load declaration."""
+        return bool(self._always_load_servers or self._always_load_tool_specs)
 
     # ------------------------------------------------------------------
     # Dynamic tool gateway (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
@@ -3575,11 +3632,44 @@ class SessionVisibilityMiddleware(Middleware):
         # are structurally the same computation, never two that can drift.
         return self.mux.tool_dispatchable(name)
 
+    async def _ensure_always_loaded(self) -> None:
+        """Eagerly mount the configured always-load set for this session
+        (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+        Runs here rather than at ``attach_fleet_loader`` time because that is
+        synchronous (it drops into graph-os's ``mcp.run(...)`` with no event
+        loop) and children must bind to the SERVING loop. This is the first
+        point inside it, so "loaded by default when graph-os first connects"
+        holds for the client's very first ``tools/list``.
+
+        Fail-soft is the whole contract: :func:`ensure_always_loaded` never
+        raises, and this is a belt-and-braces second guard, because an eager
+        convenience must never be able to break a request.
+        """
+        if not self.mux.always_load_declared():
+            return
+        try:
+            await ensure_always_loaded(self._mcp, self.mux)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:  # noqa: BLE001 - never fail the request
+            logger.error(
+                "always-load pass could not run for this session; the fleet "
+                "remains reachable via find_tools/load_tools "
+                "(exception_type=%s): %s",
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+
     async def on_list_tools(self, context, call_next):
+        await self._ensure_always_loaded()
         tools = await call_next(context)
         return [t for t in tools if self._visible(t.name)]
 
     async def on_call_tool(self, context, call_next):
+        # Before the dispatch gate: a client that calls an always-load tool
+        # without a preceding tools/list must still find it dispatchable.
+        await self._ensure_always_loaded()
         name = getattr(context.message, "name", None)
         # A tool this session hasn't loaded behaves as "unknown" until load_tools.
         if name and not self.mux.tool_dispatchable(name):
@@ -3679,6 +3769,204 @@ async def load_session_tools(
         "auto_unload": bool(auto_unload) and newly,
         "notified": notified,
     }
+
+
+class AlwaysLoadResult(TypedDict):
+    """The result contract of one session's always-load pass.
+
+    A named shape rather than a bare ``dict`` because three separate consumers
+    read these keys — the middleware, ``multiplexer_status``-style reporting,
+    and the regression tests — and a producer/consumer key drift here would
+    silently report an always-load server as mounted when it is not
+    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+    """
+
+    #: Servers whose child actually mounted, in declaration order.
+    mounted_servers: list[str]
+    #: Prefixed tool names newly made visible to THIS session.
+    exposed: list[str]
+    #: Entry (server name or tool spec) -> why it fell back to lazy discovery.
+    degraded: dict[str, str]
+    #: Whether the client was actually told its tool list changed.
+    notified: NotRequired[bool]
+
+
+def _empty_always_load_result() -> AlwaysLoadResult:
+    return {"mounted_servers": [], "exposed": [], "degraded": {}}
+
+
+async def _perform_always_load(
+    mcp, mux: MCPMultiplexer, session_key: str
+) -> AlwaysLoadResult:
+    """One session's eager always-load pass. Every step is individually
+    fail-soft (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+    Each declared server is mounted on its OWN try/except so a server that is
+    missing from the catalog, unreachable, or crash-looping degrades to the
+    normal lazy path and is reported in ``degraded`` — it can never prevent the
+    remaining always-load entries from mounting, and it can never propagate out
+    of a ``tools/list``. This is not hypothetical: a fastmcp-version mismatch
+    has put dozens of fleet pods into a crash loop at once, and eager-loading
+    them must not take graph-os down with them.
+    """
+    degraded: dict[str, str] = {}
+    mounted: list[str] = []
+    expose: set[str] = set()
+
+    # Group the tool-level specs by owning server so each server is mounted once
+    # whether it was named wholesale, per-tool, or both.
+    per_server_tools: dict[str, list[tuple[str, str | None]]] = {}
+    for spec in mux._always_load_tool_specs:
+        server, original = mux.always_load_tool_owner(spec)
+        if not server:
+            degraded[spec] = "tool is not resolvable to any catalog server"
+            logger.error(
+                "always-load tool spec could not be resolved to a fleet server; "
+                "it will remain lazily discoverable only (spec=%s)",
+                redact_for_log(spec),
+            )
+            continue
+        per_server_tools.setdefault(server, []).append((spec, original))
+
+    whole = [str(s).strip() for s in mux._always_load_servers if str(s).strip()]
+    for server in list(dict.fromkeys([*whole, *per_server_tools])):
+        try:
+            await mux.mount_child(server)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:  # noqa: BLE001 - eager mount must fail soft
+            degraded[server] = _format_probe_error(exc)
+            logger.error(
+                "always-load server failed to mount and is DEGRADED to lazy "
+                "discovery; graph-os continues serving without it "
+                "(server=%s, error=%s)",
+                server,
+                degraded[server],
+            )
+            continue
+        if server not in mux.children:
+            degraded[server] = "could not mount (not in catalog, or unreachable)"
+            logger.error(
+                "always-load server did not mount and is DEGRADED to lazy "
+                "discovery; graph-os continues serving without it (server=%s)",
+                server,
+            )
+            continue
+        mounted.append(server)
+        if server in whole:
+            # Mirror the server-level ``load_tools`` contract: expose the
+            # condensed action surface only, never the verbose 1:1 tools —
+            # always-load exists to save a round trip, not to flood context.
+            for tool in mux.prefixed_tools_for_server(server):
+                if _tool_is_verbose(tool):
+                    continue
+                expose.add(tool.name)
+        for spec, original in per_server_tools.get(server, ()):
+            prefixed = (
+                mux.prefixed_for_original(server, original)
+                if original is not None
+                else (spec if spec in mux.tool_to_server else None)
+            )
+            if prefixed is None:
+                degraded[spec] = (
+                    "tool is not registered by its owning server "
+                    "(disabled by config or rejected by its runtime policy)"
+                )
+                logger.error(
+                    "always-load tool is absent from its mounted server and is "
+                    "DEGRADED to lazy discovery (spec=%s)",
+                    redact_for_log(spec),
+                )
+                continue
+            expose.add(prefixed)
+
+    for name in sorted(expose):
+        tool_obj = mux.tool_object(name)
+        if tool_obj is not None and name not in mux._exposed:
+            _register_forwarder(mcp, mux, tool_obj)
+    loaded = mux.session_loaded(session_key)
+    newly = [n for n in sorted(expose) if n in mux.tool_to_server and n not in loaded]
+    loaded.update(newly)
+    notified = await _notify_tools_changed(mcp) if newly else True
+    result: AlwaysLoadResult = {
+        "mounted_servers": mounted,
+        "exposed": newly,
+        "degraded": degraded,
+        "notified": notified,
+    }
+    if degraded:
+        logger.warning(
+            "graph-os always-load completed DEGRADED: %d of %d entries "
+            "unavailable and left to lazy discovery",
+            len(degraded),
+            len(mounted) + len(degraded),
+        )
+    else:
+        logger.info(
+            "graph-os always-load ready: %d server(s), %d tool(s) pre-mounted",
+            len(mounted),
+            len(newly),
+        )
+    return result
+
+
+async def ensure_always_loaded(
+    mcp, mux: MCPMultiplexer, *, session_key: str | None = None
+) -> AlwaysLoadResult:
+    """Mount the configured always-load servers/tools for THIS session, once.
+
+    Idempotent per session and safe under concurrency: the first caller runs
+    the pass while any concurrent caller awaits the same future, so a client
+    that fires ``tools/list`` and a ``tools/call`` back to back cannot start two
+    mounting passes. A pass that raises (or is cancelled) never poisons the
+    session — the marker is cleared so a later call can retry.
+
+    NEVER raises. The caller is a middleware on the serving hot path; an eager
+    convenience must not be able to fail a request
+    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+    """
+    key = session_key or _session_key()
+    pending = mux._always_load_done.get(key)
+    if pending is not None:
+        inflight = pending.get("future")
+        if isinstance(inflight, asyncio.Future) and not inflight.done():
+            try:
+                return cast(AlwaysLoadResult, await asyncio.shield(inflight))
+            except asyncio.CancelledError:
+                raise
+            except BaseException:  # noqa: BLE001 - never fail the request
+                return _empty_always_load_result()
+        settled = pending.get("result")
+        if isinstance(settled, dict):
+            return cast(AlwaysLoadResult, settled)
+        return _empty_always_load_result()
+
+    loop = asyncio.get_running_loop()
+    barrier: asyncio.Future = loop.create_future()
+    record: dict[str, Any] = {"future": barrier, "result": None}
+    mux._always_load_done[key] = record
+    try:
+        result = await _perform_always_load(mcp, mux, key)
+    except asyncio.CancelledError:
+        mux._always_load_done.pop(key, None)
+        if not barrier.done():
+            barrier.cancel()
+        raise
+    except BaseException as exc:  # noqa: BLE001 - eager mount must fail soft
+        logger.error(
+            "graph-os always-load pass failed entirely; every declared server "
+            "remains reachable through find_tools/load_tools "
+            "(exception_type=%s): %s",
+            type(exc).__name__,
+            redact_for_log(exc),
+        )
+        result = _empty_always_load_result()
+        result["degraded"] = {"*": _format_probe_error(exc)}
+    record["result"] = result
+    record["future"] = None
+    if not barrier.done():
+        barrier.set_result(result)
+    return result
 
 
 async def unload_session_tools(
@@ -3957,6 +4245,65 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     _register_status_tool(mcp, mux)
 
 
+def _always_load_setting(field: str, alias: str) -> list[str]:
+    """Read one always-load list from the effective configuration.
+
+    The typed ``AgentConfig`` field is the source of truth — that is what
+    carries the shipped defaults and the validated coercion — but it is parsed
+    once, so a LIVE ``setting()`` value (a runtime ``graph_config set``, a
+    ``monkeypatch.setenv``) takes precedence when present. Accepts a real list,
+    a JSON array, or a comma-separated string, so ``MCP_ALWAYS_LOAD=a,b`` in a
+    pod env is as valid as a JSON array in ``config.json``.
+
+    Never raises: an unreadable or malformed value degrades to fully-lazy and
+    is logged (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+    """
+    raw: Any = None
+    try:
+        raw = setting(alias)
+    except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
+        logger.error(
+            "always-load setting %s unreadable (exception_type=%s): %s",
+            alias,
+            type(exc).__name__,
+            redact_for_log(exc),
+        )
+        raw = None
+    if raw is None:
+        try:
+            from agent_utilities.core.config import config as agent_config
+
+            raw = getattr(agent_config, field, None)
+        except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
+            logger.error(
+                "always-load field %s unreadable (exception_type=%s): %s",
+                field,
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+            return []
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        if text[:1] == "[":
+            try:
+                raw = json.loads(text)
+            except ValueError:
+                logger.error("always-load setting %s is not valid JSON", alias)
+                return []
+        else:
+            raw = text.split(",")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple, set)):
+        logger.error("always-load setting %s is not a list", alias)
+        return []
+    return [str(item).strip() for item in raw if str(item).strip()]
+
+
 def attach_fleet_loader(
     mcp,
     *,
@@ -4003,6 +4350,23 @@ def attach_fleet_loader(
     if embed_fn is not None:
         mux._embed_fn = embed_fn
     mux.load_catalog()  # parse the fleet config into the catalog; spawns nothing
+    # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — the always-load declaration is READ here
+    # (synchronously, no I/O) but ACTED ON in the serving loop, on a session's
+    # first request, by ``SessionVisibilityMiddleware``. Nothing is spawned at
+    # attach time, so a broken always-load server cannot fail startup.
+    mux._always_load_servers = _always_load_setting(
+        "mcp_always_load", "MCP_ALWAYS_LOAD"
+    )
+    mux._always_load_tool_specs = _always_load_setting(
+        "mcp_always_load_tools", "MCP_ALWAYS_LOAD_TOOLS"
+    )
+    if mux.always_load_declared():
+        logger.info(
+            "graph-os always-load declared: %d server(s), %d tool(s); mounted on "
+            "a session's first request, fail-soft to lazy discovery",
+            len(mux._always_load_servers),
+            len(mux._always_load_tool_specs),
+        )
     _register_meta_tools(mcp, mux)
     # The always-visible surface: the meta-tools. graph-os's own tools are registered
     # natively by ``register_tool_surface`` and are always on; every OTHER server is

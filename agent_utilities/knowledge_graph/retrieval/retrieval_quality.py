@@ -316,6 +316,7 @@ class RetrievalQualityGate:
         """
         now = time.monotonic()
         cached = self._population_ratio_cache
+        ratio: float | None
         if cached is not None and (now - cached[0]) < _POPULATION_CACHE_TTL_S:
             ratio = cached[1]
         else:

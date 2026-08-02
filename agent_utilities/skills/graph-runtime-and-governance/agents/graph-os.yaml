@@ -5,6 +5,7 @@ claims:
     - graph_argument
     - graph_audit
     - graph_compliance
+    - graph_config
     - graph_configure
     - graph_governance
     - graph_incident

@@ -1813,6 +1813,33 @@ class ProviderRuntimeProfile(BaseModel):
 # _load_xdg_json_config() is called dynamically via _ensure_env_loaded().
 
 
+#: Fleet servers graph-os mounts EAGERLY on a session's first contact
+#: (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Deliberately short: these are the
+#: cross-cutting operational servers an agent needs for almost any real task
+#: (remote hosts, host/system state, git repositories, containers), so paying a
+#: ``find_tools`` round trip for them is pure overhead. Every name here is a
+#: catalog server name verified against the deployed fleet config. Mounting is
+#: fail-soft — see ``AgentConfig.mcp_always_load``.
+DEFAULT_MCP_ALWAYS_LOAD: tuple[str, ...] = (
+    "tunnel-manager-mcp",
+    "systems-manager-mcp",
+    "repository-manager-mcp",
+    "container-manager-mcp",
+)
+
+#: Individual fleet tools graph-os mounts eagerly, for servers too large to
+#: mount whole. ``github-mcp``/``gitlab-mcp`` carry dozens of tools each; only
+#: the issue and pull/merge-request surfaces are core enough to be always-on.
+#: Server-qualified ORIGINAL tool names, so a shift in the multiplexer's derived
+#: prefixes cannot silently break the defaults.
+DEFAULT_MCP_ALWAYS_LOAD_TOOLS: tuple[str, ...] = (
+    "github-mcp:github_issues",
+    "github-mcp:github_pulls",
+    "gitlab-mcp:gitlab_issues",
+    "gitlab-mcp:gitlab_merge_requests",
+)
+
+
 class AgentConfig(BaseSettings):
     """Configuration schema for the AI Agent server.
 
@@ -3133,7 +3160,11 @@ class AgentConfig(BaseSettings):
 
     # GraphOS has one strict-current fleet posture: its own tools and the fleet
     # meta-tools are registered at boot, while child servers are mounted lazily.
-    # There is deliberately no alternate eager/standalone fleet posture.
+    # The ONE bounded exception is the explicitly-declared always-load set below
+    # (``MCP_ALWAYS_LOAD`` / ``MCP_ALWAYS_LOAD_TOOLS``): a short, operator-chosen
+    # list of core capability that is mounted eagerly on a session's first
+    # contact. There is deliberately still no "eager everything" posture — the
+    # fleet is far too large for that to be anything but a context flood.
 
     mcp_dynamic_top_k: int = Field(default=8, alias="MCP_DYNAMIC_TOP_K")
     """Default number of ranked tool candidates ``find_tools`` returns when the
@@ -3151,6 +3182,64 @@ class AgentConfig(BaseSettings):
     per-server probe timeout. Full ingestion remains an explicit, unbounded
     operation through ``probe_catalog()``.
     """
+
+    mcp_always_load: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_MCP_ALWAYS_LOAD),
+        alias="MCP_ALWAYS_LOAD",
+    )
+    """Fleet servers mounted EAGERLY on a session's first contact with graph-os,
+    before any ``find_tools`` round trip (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+    Core operational capability should not cost a discovery hop. The motivating
+    reason is concrete: semantic ``find_tools`` ranking degrades to noise
+    whenever the graph's tool embeddings are sparse relative to its node count
+    (observed returning six results all scored *exactly* 0.25, none related to
+    the query). Capability an operator considers core must not be reachable only
+    through a ranker that can silently regress — this list is the deterministic
+    path that always works.
+
+    Names are catalog server names (e.g. ``tunnel-manager-mcp``), not prefixes.
+    Mounting is ALWAYS fail-soft: a server that is missing, unreachable, or
+    crash-looping is logged loudly and left to the normal lazy path; it can
+    never block graph-os startup or a session's first ``tools/list``. Set to
+    ``[]`` to restore fully-lazy behaviour. Accepts a JSON array or a
+    comma-separated string."""
+
+    mcp_always_load_tools: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_MCP_ALWAYS_LOAD_TOOLS),
+        alias="MCP_ALWAYS_LOAD_TOOLS",
+    )
+    """INDIVIDUAL fleet tools mounted eagerly, for servers too large to mount
+    whole (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+    ``MCP_ALWAYS_LOAD`` exposes a server's entire condensed surface. Some
+    servers are far too large for that — ``github-mcp`` and ``gitlab-mcp``
+    carry dozens of tools, and mounting either whole to reach issues and
+    pull/merge requests would flood exactly the context the multiplexer exists
+    to protect. This list is the finer granularity: name the two or three tools
+    that are genuinely core and leave the rest lazy.
+
+    Two accepted entry forms:
+
+    * ``"<server>:<tool>"`` — server-qualified ORIGINAL tool name, e.g.
+      ``"github-mcp:github_issues"``. Preferred, because it survives a change in
+      the multiplexer's computed prefix (prefixes are derived and can shift when
+      a new server collides).
+    * ``"<prefix>__<tool>"`` — an already-prefixed aggregated name, e.g.
+      ``"gith__issues"``.
+
+    Fail-soft exactly like ``MCP_ALWAYS_LOAD``. Accepts a JSON array or a
+    comma-separated string."""
+
+    @field_validator("mcp_always_load", "mcp_always_load_tools", mode="before")
+    @classmethod
+    def _coerce_always_load(cls, v: Any) -> Any:
+        """Accept comma-separated or JSON-encoded always-load lists via the
+        canonical ``to_list`` so env wiring matches the rest of the fleet's list
+        flags (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+        if v is None or isinstance(v, list):
+            return v
+        return [str(item).strip() for item in to_list(v) if str(item).strip()]
 
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
 
