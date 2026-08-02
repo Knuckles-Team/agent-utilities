@@ -1,0 +1,74 @@
+"""Warning-clean regression coverage for engine-native finance time series."""
+
+from __future__ import annotations
+
+import warnings
+
+import pandas as pd
+import pytest
+
+from agent_utilities.domains.finance import engine_series
+
+
+class _FakeTimeSeries:
+    """Enough of the native time-series surface to prove the accelerated route."""
+
+    def __init__(self) -> None:
+        self._points: dict[str, dict[int, float]] = {}
+        self.gap_fill_steps: list[int] = []
+
+    def append(self, series_id: str, points: list[tuple[int, list[float]]]) -> None:
+        self._points[series_id] = {timestamp: values[0] for timestamp, values in points}
+
+    def gap_fill(
+        self, series_id: str, start_ns: int, end_ns: int, step_ns: int
+    ) -> list[tuple[int, float, int]]:
+        self.gap_fill_steps.append(step_ns)
+        points = self._points[series_id]
+        rows: list[tuple[int, float, int]] = []
+        last_value: float | None = None
+        for timestamp in range(start_ns, end_ns, step_ns):
+            if timestamp in points:
+                last_value = points[timestamp]
+            if last_value is not None:
+                rows.append((timestamp, last_value, 0))
+        return rows
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.timeseries = _FakeTimeSeries()
+
+
+@pytest.mark.parametrize(
+    "step",
+    [
+        pytest.param(1_000_000_000, id="bare-nanoseconds"),
+        pytest.param("1s", id="frequency-string"),
+        pytest.param(pd.to_timedelta(1, unit="s"), id="pandas-timedelta"),
+    ],
+)
+def test_gap_fill_normalizes_supported_steps_without_generic_timedelta_warnings(
+    monkeypatch: pytest.MonkeyPatch, step: str | int | pd.Timedelta
+) -> None:
+    """All supported forms retain exact LOCF parity on engine and fallback routes."""
+    index = pd.date_range("2026-01-01", periods=4, freq="s", tz="UTC")
+    series = pd.Series([10.0, 20.0, 40.0], index=index[[0, 1, 3]], name="close")
+    expected = pd.Series([10.0, 20.0, 20.0, 40.0], index=index, name="close")
+    client = _FakeClient()
+
+    # Treat the NumPy generic-unit deprecation as an error.  The accelerated
+    # path must still execute; otherwise its broad fallback handler could hide it.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        accelerated = engine_series.gap_fill_series(series, step, client=client)
+
+    pd.testing.assert_series_equal(accelerated, expected, check_freq=False)
+    assert client.timeseries.gap_fill_steps == [1_000_000_000]
+
+    monkeypatch.setattr(engine_series, "_client", lambda: None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        fallback = engine_series.gap_fill_series(series, step)
+
+    pd.testing.assert_series_equal(fallback, expected, check_freq=False)

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from numbers import Integral
 
 try:
     import pandas as pd
@@ -53,21 +54,39 @@ def _to_ns(index: pd.Index) -> list[int]:
     return [int(v.value) for v in ts]  # pandas Timestamp.value is ns since epoch
 
 
-def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.Series:
+def _normalize_step(step: str | int | pd.Timedelta) -> pd.Timedelta:
+    """Return a canonical interval without NumPy's deprecated generic unit."""
+    if isinstance(step, str):
+        # The vector parser preserves the unit encoded in a frequency string and
+        # avoids pandas' scalar path through NumPy's generic timedelta unit.
+        return pd.to_timedelta([step])[0]
+    if isinstance(step, Integral) and not isinstance(step, bool):
+        # ``pd.Timedelta(int)`` historically means nanoseconds; keep that contract
+        # explicit so newer NumPy versions never infer the deprecated generic unit.
+        return pd.Timedelta(int(step), unit="ns")
+    return pd.Timedelta(step)
+
+
+def gap_fill_series(
+    series: pd.Series, step: str | int | pd.Timedelta = "1D", *, client=None
+) -> pd.Series:
     """LOCF gap-fill ``series`` onto a fixed ``step`` grid, computed IN-ENGINE.
 
     The engine's ``timeseries.gap_fill`` carries the last observation forward on a
     regular grid (the clear win over hand-rolled pandas reindex+ffill on irregular
-    input). Returns a new pandas Series on the regular grid; falls back to a pandas
-    reindex+ffill only when no engine is reachable (so callers always get a result).
+    input). ``step`` accepts a pandas frequency string, an integer nanosecond interval,
+    or a pandas ``Timedelta``. Returns a new pandas Series on the regular grid; falls
+    back to a pandas reindex+ffill only when no engine is reachable (so callers always
+    get a result).
     """
     if series.empty:
         return series
+    normalized_step = _normalize_step(step)
     client = client or _client()
     if client is None:
         # No engine — degrade to the pandas equivalent so the caller still works.
         grid = pd.date_range(
-            series.index.min(), series.index.max(), freq=step, tz="UTC"
+            series.index.min(), series.index.max(), freq=normalized_step, tz="UTC"
         )
         return series.reindex(series.index.union(grid)).ffill().reindex(grid)
     sid = f"finseries:{uuid.uuid4().hex}"
@@ -76,7 +95,7 @@ def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.S
         client.timeseries.append(
             sid, [(t, [float(v)]) for t, v in zip(ns, series.to_numpy(), strict=False)]
         )
-        step_ns = int(pd.Timedelta(step).value)
+        step_ns = int(normalized_step.value)
         rows = client.timeseries.gap_fill(sid, ns[0], ns[-1] + 1, step_ns)
         idx = pd.to_datetime([t for t, _v, _f in rows], utc=True)
         vals = [v for _t, v, _f in rows]
@@ -87,7 +106,7 @@ def gap_fill_series(series: pd.Series, step: str = "1D", *, client=None) -> pd.S
             e,
         )
         grid = pd.date_range(
-            series.index.min(), series.index.max(), freq=step, tz="UTC"
+            series.index.min(), series.index.max(), freq=normalized_step, tz="UTC"
         )
         return series.reindex(series.index.union(grid)).ffill().reindex(grid)
 
