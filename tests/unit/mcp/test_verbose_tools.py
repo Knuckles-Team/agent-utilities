@@ -88,7 +88,7 @@ def test_domain_methods_excludes_base_and_private():
 # --- A github-agent-shaped client: domain methods over a Base*-PREFIXED infra
 # class. Regression: the exclusion originally matched only the *Base SUFFIX
 # convention, so a prefix-named base (``BaseApiClient`` — the shared
-# agent_utilities.http.client base and 16+ per-connector api_client_base.py
+# agent_utilities.httpsupport.client base and 16+ per-connector api_client_base.py
 # modules, e.g. github-agent's ``BaseApiClient.close()``) leaked its public
 # infra methods as spurious verbose tools (e.g. ``github_close``). ------------
 class _BaseApiClient:

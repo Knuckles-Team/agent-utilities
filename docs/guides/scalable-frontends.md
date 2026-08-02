@@ -70,7 +70,7 @@ it already follows the standard: the `BackendAdapter`
 (`geniusbot/services/backend_adapter.py`) is **gateway-first** — it routes through the
 HTTP `GatewayClient` and only lazy-imports the `agent_utilities` engine inside the one
 method that needs a local fallback, so the UI never eagerly loads the backend. The
-`gateway_client` SDK it consumes (AU-ECO.interop.gateway-client-sdk) imports only `httpx` + `agent_utilities.http`,
+`gateway_client` SDK it consumes (AU-ECO.interop.gateway-client-sdk) imports only `httpx` + `agent_utilities.httpsupport`,
 not the engine.
 
 ## Why webui can't be as small as terminal-ui (and that's fine)

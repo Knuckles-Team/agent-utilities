@@ -1,11 +1,11 @@
 # Building Fleet API Clients
 
-**CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library** (`agent_utilities.http`)
+**CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library** (`agent_utilities.httpsupport`)
 
 The consolidation audit found a ~95%-identical `api_client_base.py` duplicated
 across 10+ connector repos (kafka-mcp, portainer-agent, okta-agent,
 dockerhub-api, ...) — none with retry, rate-limit capture, or log redaction.
-`agent_utilities.http` is the single shared base those repos strangle their
+`agent_utilities.httpsupport` is the single shared base those repos strangle their
 local copies onto, built on the canonical `agent_utilities.core.http_client`
 factory so every fleet client inherits the unified safety defaults (finite
 timeout, TLS verification on, standard `User-Agent`, optional
@@ -14,7 +14,7 @@ timeout, TLS verification on, standard `User-Agent`, optional
 ## Quickstart
 
 ```python
-from agent_utilities.http import BaseApiClient, TokenAuth
+from agent_utilities.httpsupport import BaseApiClient, TokenAuth
 
 client = BaseApiClient(
     "https://portainer.example.test/api",
@@ -81,7 +81,7 @@ for user in client.paginate(
 - `cursor` — cursor param + dotted response path (`cursor_param`,
   `cursor_path`); semantics match the AU-KG.ingest.mcp-tool-connector `mcp_tool` connector so
   configurations translate 1:1 (the implementations stay parallel — see the
-  `agent_utilities/http/pagination.py` module docstring for why).
+  `agent_utilities/httpsupport/pagination.py` module docstring for why).
 - `page` — `page_param`/`page_size_param`, stops on a short page.
 - `offset` — `offset_param`/`limit_param`, advances by items received.
 - `link` — RFC 5988 `Link: <...>; rel="next"` (Okta, GitHub).
@@ -93,7 +93,7 @@ Okta-style `{data, count, truncated, next_cursor}` envelope.
 
 ## Log redaction
 
-The `agent_utilities.http.client` logger carries a `LogRedactor` filter by
+The `agent_utilities.httpsupport.client` logger carries a `LogRedactor` filter by
 default, and clients register their literal secrets with it at
 construction. `LogRedactor` / `redact_text` are importable for connector
 loggers too — they promote the per-repo `scripts/security_sanitizer.py`

@@ -1,4 +1,4 @@
-"""Tests for agent_utilities.http.auth strategies (CONCEPT:AU-ECO.ui.fleet-http-client-library)."""
+"""Tests for agent_utilities.httpsupport.auth strategies (CONCEPT:AU-ECO.ui.fleet-http-client-library)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import base64
 
 import pytest
 
-from agent_utilities.http.auth import (
+from agent_utilities.httpsupport.auth import (
     AuthHeaderInjector,
     BasicAuth,
     QueryApiKeyAuth,

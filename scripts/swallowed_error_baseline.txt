@@ -328,7 +328,7 @@ agent_utilities/harness/trace_backend.py	KGTraceBackend.record_event	Exception	l
 agent_utilities/harness/trace_backend.py	KGTraceBackend.emit_trace	Exception	log_type_name_only	0	# agent_utilities/harness/trace_backend.py:1219 except Exception as exc:  # pragma: no cover - persistence best-effort
 agent_utilities/harness/tracing.py	_emit_trace	Exception	log_type_name_only	0	# agent_utilities/harness/tracing.py:547 except Exception as e:  # pragma: no cover - tracing must never break callers
 agent_utilities/harness/tracing.py	_emit_trace	Exception	log_type_name_only	1	# agent_utilities/harness/tracing.py:619 except Exception as e:
-agent_utilities/http/rate_limit.py	_retry_after_to_seconds	ValueError	pass	0	# agent_utilities/http/rate_limit.py:107 except ValueError:
+agent_utilities/httpsupport/rate_limit.py	_retry_after_to_seconds	ValueError	pass	0	# agent_utilities/httpsupport/rate_limit.py:107 except ValueError:
 agent_utilities/ingestion/agent_sources/_jsonl.py	read_jsonl	OSError	return_none	0	# agent_utilities/ingestion/agent_sources/_jsonl.py:25 except OSError:
 agent_utilities/ingestion/collector.py	push_local_sessions._flush	Exception	log_type_name_only	0	# agent_utilities/ingestion/collector.py:142 except Exception as exc:  # noqa: BLE001
 agent_utilities/knowledge_graph/adaptation/anomaly_consumer.py	_unconsumed_anomalies	Exception	debug_only_swallow	0	# agent_utilities/knowledge_graph/adaptation/anomaly_consumer.py:46 except Exception as e:  # noqa: BLE001

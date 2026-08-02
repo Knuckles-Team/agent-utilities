@@ -21,7 +21,7 @@ pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.openai-catalog-verification
 # SYNTHETIC_TOKEN_MARKERS) uses to tell a test double from live credential
 # material, while keeping the exact `sk-proj-` shape the redactors match
 # (`agent_utilities/security/persistence_privacy.py`,
-# `agent_utilities/http/redaction.py`), so the test still exercises the
+# `agent_utilities/httpsupport/redaction.py`), so the test still exercises the
 # real redaction path.
 _FAKE_KEY = "sk-proj-example-abcdefghijklmnopqrstuvwxyz0123456789"
 

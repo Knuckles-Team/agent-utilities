@@ -15,17 +15,15 @@ from pathlib import Path
 
 import pytest
 
-# APPEND (not insert(0, ...)): tests/unit/ contains a real `http/` package
-# (tests/unit/http/, covering agent_utilities/http's client). Inserting
-# tests/unit at sys.path[0] shadows the stdlib `http` package for the rest
-# of this pytest process -- any later `import http.server` (e.g. inside
-# agent_utilities.security.browser_auth, imported transitively by the
-# capability-ratchet's own sandboxed-validation path in
-# change_synthesis.py) resolves to tests/unit/http instead, raising
-# ModuleNotFoundError inside the RLM forkserver sandbox's child process
-# and failing TestVerifiedRollback's assertions. Appending still makes
-# fleet_autonomy_fakes importable (nothing else provides that name) without
-# taking priority over the standard library.
+# APPEND (not insert(0, ...)): tests/unit/httpsupport/ (formerly tests/unit/http/,
+# renamed under D-ORC-24 alongside agent_utilities/http/ -> agent_utilities/httpsupport/
+# to stop a local `http/` package dir from ever shadowing the stdlib `http` package
+# on sys.path) covers agent_utilities.httpsupport's client. This append is now
+# defense-in-depth rather than a required workaround: inserting tests/unit at
+# sys.path[0] would still be safe post-rename, but keeping fleet_autonomy_fakes
+# importable via append (nothing else provides that name) avoids taking priority
+# over the standard library on principle, in case any other stdlib-named package
+# is ever added under tests/unit.
 sys.path.append(str(Path(__file__).resolve().parents[1]))
 
 from fleet_autonomy_fakes import FakeEngine  # noqa: E402

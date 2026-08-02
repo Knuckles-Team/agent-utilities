@@ -46,7 +46,7 @@ from typing import Any
 
 from pydantic_ai_harness import GuardrailResult, InputGuardrail, OutputGuardrail
 
-from agent_utilities.http.redaction import contains_secret, redact_text
+from agent_utilities.httpsupport.redaction import contains_secret, redact_text
 from agent_utilities.security.guardrails import PiiSanitizer
 from agent_utilities.security.threat_defense_engine import PromptInjectionScanner
 

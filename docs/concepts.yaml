@@ -2179,12 +2179,12 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
-  - agent_utilities/http/__init__.py
-  - agent_utilities/http/auth.py
-  - agent_utilities/http/client.py
-  - agent_utilities/http/pagination.py
-  - agent_utilities/http/rate_limit.py
-  - agent_utilities/http/redaction.py
+  - agent_utilities/httpsupport/__init__.py
+  - agent_utilities/httpsupport/auth.py
+  - agent_utilities/httpsupport/client.py
+  - agent_utilities/httpsupport/pagination.py
+  - agent_utilities/httpsupport/rate_limit.py
+  - agent_utilities/httpsupport/redaction.py
   doc: Fleet HTTP Client Library
 - id: AU-ECO.ui.mcp-apps-host
   name: the MCP Apps entry-point tool + its

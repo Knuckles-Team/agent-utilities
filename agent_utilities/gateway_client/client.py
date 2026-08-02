@@ -3,7 +3,7 @@
 CONCEPT:AU-ECO.interop.gateway-client-sdk — Surface Gateway Client SDK
 
 One client for every surface. Unary calls go through
-:class:`agent_utilities.http.AsyncBaseApiClient` (auth, 429 backoff, redaction);
+:class:`agent_utilities.httpsupport.AsyncBaseApiClient` (auth, 429 backoff, redaction);
 the streaming channel reuses that client's underlying ``httpx`` connection so a
 single pool serves both. Methods return the *body* of the gateway's response
 envelope (the SDK unwraps ``{"status_code", "data", ...}`` for the caller).
@@ -18,7 +18,7 @@ from typing import Any
 
 import httpx
 
-from agent_utilities.http import AsyncBaseApiClient, TokenAuth
+from agent_utilities.httpsupport import AsyncBaseApiClient, TokenAuth
 
 logger = logging.getLogger("agent_utilities.gateway_client")
 

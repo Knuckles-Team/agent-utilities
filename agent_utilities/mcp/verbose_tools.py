@@ -190,7 +190,7 @@ def _is_base_infra_class_name(name: str) -> bool:
     Two conventions coexist across the ~60-package connector fleet for the class
     that holds auth/pagination/retry machinery (never a real API operation): a
     **suffix** (``ServiceNowApiBase``, ``ApiClientBase``) and a **prefix**
-    (``BaseApiClient`` — both the shared :class:`agent_utilities.http.client.
+    (``BaseApiClient`` — both the shared :class:`agent_utilities.httpsupport.client.
     BaseApiClient`/``AsyncBaseApiClient`` and the 16+ per-connector
     ``api/api_client_base.py`` modules still being strangled onto it, e.g.
     github-agent's ``BaseApiClient.close()``). Matching only the suffix let a
