@@ -361,3 +361,51 @@ def test_delegate_stage_raises_after_printing_degraded_required_summary(
         asyncio.run(probe._stage_delegate(args))
 
     assert '"outcome": "degraded"' in capsys.readouterr().out
+
+
+def test_provenance_recovers_required_tool_by_canonical_run_identity() -> None:
+    probe = _probe()
+    trace_ref = "trace:pref_run_canonical"
+
+    class _Backend:
+        def execute(
+            self, query: str, params: dict[str, str]
+        ) -> list[dict[str, object]]:
+            if "RETURN t.id AS id" in query:
+                return (
+                    [{"id": trace_ref, "status": "completed"}]
+                    if params["trace_id"] == trace_ref
+                    else []
+                )
+            if "-[]->(c:ToolCall)" in query:
+                return []
+            if "c.run_id = $trace_id" in query:
+                return (
+                    [
+                        {
+                            "id": "tool-call:test",
+                            "tool": "servicenow_get_incidents",
+                            "status": "ok",
+                        }
+                    ]
+                    if params["trace_id"] == trace_ref
+                    else []
+                )
+            return []
+
+    probe._STATE.update(
+        {
+            "engine": SimpleNamespace(backend=_Backend()),
+            "run_id": "probe-raw-run-id",
+            "trace_ref": trace_ref,
+        }
+    )
+    args = argparse.Namespace(
+        run_id=None,
+        require_tool=True,
+        tool="servicenow_get_incidents",
+    )
+
+    result = asyncio.run(probe._stage_provenance(args))
+
+    assert "tool_calls=1" in result

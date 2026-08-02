@@ -597,7 +597,7 @@ _PROVENANCE_QUERIES: tuple[tuple[str, str], ...] = (
     ),
     (
         "tool_calls_by_run",
-        "MATCH (c:ToolCall) WHERE c.run_id = $run_id "
+        "MATCH (c:ToolCall) WHERE c.run_id = $trace_id "
         "RETURN c.id AS id, c.tool_name AS tool, c.status AS status LIMIT 20",
     ),
     (
