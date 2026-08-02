@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import os
@@ -24,7 +23,6 @@ from _tmp_path_allocator import (
     _MAX_MKDIR_CALLS_PER_ALLOCATION,
     _MAX_ROOT_DIRECTORY_FANOUT,
     _MAX_TOKEN_DIRECTORY_FANOUT,
-    _TOKEN_DIRECTORY_COMPONENT_PREFIX,
     BoundedTempPathAllocator,
 )
 
@@ -106,13 +104,7 @@ def _allocator_relative_parts(path: Path) -> tuple[str, ...]:
 
 def _allocation_token_from_parts(parts: tuple[str, ...]) -> str:
     """Recover the encoded token from its filesystem-safe path components."""
-    return (
-        "".join(
-            component.removeprefix(_TOKEN_DIRECTORY_COMPONENT_PREFIX)
-            for component in parts[2:-1]
-        )
-        + parts[-1]
-    )
+    return "".join(parts[2:])
 
 
 def _assert_bounded_fixture_paths(paths: dict[str, Path]) -> None:
@@ -122,12 +114,8 @@ def _assert_bounded_fixture_paths(paths: dict[str, Path]) -> None:
         assert parts[0] == "t"
         assert len(parts) == _ALLOCATION_PATH_COMPONENTS
         assert len(parts[1]) == 2
-        assert tuple(len(part) for part in parts[2:-1]) == tuple(
-            len(_TOKEN_DIRECTORY_COMPONENT_PREFIX) + width
-            for width in _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
-        )
-        assert all(
-            part.startswith(_TOKEN_DIRECTORY_COMPONENT_PREFIX) for part in parts[2:-1]
+        assert tuple(len(part) for part in parts[2:-1]) == (
+            _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
         )
         assert len(parts[-1]) == _LEAF_TOKEN_WIDTH
 
@@ -239,14 +227,7 @@ def test_allocator_uses_deterministic_bounded_fanout(tmp_path: Path) -> None:
     assert all(len(path.parts[1]) == 2 for path in relative_paths)
     assert all(
         tuple(len(part) for part in path.parts[2:-1])
-        == tuple(
-            len(_TOKEN_DIRECTORY_COMPONENT_PREFIX) + width
-            for width in _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
-        )
-        and all(
-            part.startswith(_TOKEN_DIRECTORY_COMPONENT_PREFIX)
-            for part in path.parts[2:-1]
-        )
+        == _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
         and len(path.parts[-1]) == _LEAF_TOKEN_WIDTH
         for path in relative_paths
     )
@@ -255,28 +236,55 @@ def test_allocator_uses_deterministic_bounded_fanout(tmp_path: Path) -> None:
     _assert_every_allocator_directory_is_bounded(root)
 
 
-@pytest.mark.parametrize("reserved_name", ("CON", "PRN", "AUX", "NUL"))
-def test_allocator_avoids_windows_reserved_token_directories(
-    tmp_path: Path, reserved_name: str
-) -> None:
-    """A token prefix cannot create a Windows device-name path component."""
-    encoded_token = f"{reserved_name}{'A' * 8}"
-    token_value = int.from_bytes(
-        base64.urlsafe_b64decode(f"{encoded_token}="), byteorder="big"
-    )
+def test_allocator_uses_casefold_safe_hex_token_directories(tmp_path: Path) -> None:
+    """Lowercase hex components cannot spell Windows device names."""
+    token_value = int("abcdef0123456789", 16)
     allocator = BoundedTempPathAllocator(tmp_path)
     allocator._token_origin = token_value
 
     path = allocator.allocate("tests/unit/test_case.py::test_windows_names")
     parts = _allocator_relative_parts(path)
 
-    assert allocator._encode_token(token_value) == encoded_token
-    assert parts[2] == f"{_TOKEN_DIRECTORY_COMPONENT_PREFIX}{reserved_name}"
+    assert allocator._encode_token(token_value) == "abcdef0123456789"
+    assert _allocation_token_from_parts(parts) == allocator._encode_token(token_value)
+    assert all(component == component.casefold() for component in parts[1:])
+    assert all(set(component) <= set("0123456789abcdef") for component in parts[1:])
     assert all(
         component.upper() not in _WINDOWS_RESERVED_DIRECTORY_NAMES
         for component in parts[1:]
     )
-    assert _allocation_token_from_parts(parts) == encoded_token
+    assert all(
+        not set(reserved_name.casefold()) <= set("0123456789abcdef")
+        for reserved_name in _WINDOWS_RESERVED_DIRECTORY_NAMES
+    )
+
+
+def test_allocator_stays_unique_on_a_casefold_filesystem(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The former Base64 416th-allocation collision cannot recur on a casefolding FS."""
+    created_paths: set[str] = set()
+    original_mkdir = Path.mkdir
+
+    def casefold_mkdir(path: Path, *args, **kwargs) -> None:
+        casefolded = str(path).casefold()
+        if casefolded in created_paths:
+            if kwargs.get("exist_ok"):
+                return
+            raise FileExistsError(path)
+        original_mkdir(path, *args, **kwargs)
+        created_paths.add(casefolded)
+
+    monkeypatch.setattr(Path, "mkdir", casefold_mkdir)
+    allocator = BoundedTempPathAllocator(tmp_path)
+    allocator._token_origin = 0
+    paths = [
+        allocator.allocate("tests/unit/test_case.py::test_casefold") for _ in range(420)
+    ]
+
+    assert len(paths) == len(set(paths)) == 420
+    assert len({str(path).casefold() for path in paths}) == 420
+    assert all(path.is_dir() for path in paths)
 
 
 def test_allocator_bounds_every_directory_under_adversarial_node_prefix_spread(
@@ -563,13 +571,8 @@ def test_tmp_path_fixture_is_wired_to_bounded_allocator(
     assert relative_path.parts[0] == "t"
     assert len(relative_path.parts) == _ALLOCATION_PATH_COMPONENTS
     assert len(relative_path.parts[1]) == 2
-    assert tuple(len(part) for part in relative_path.parts[2:-1]) == tuple(
-        len(_TOKEN_DIRECTORY_COMPONENT_PREFIX) + width
-        for width in _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
-    )
-    assert all(
-        part.startswith(_TOKEN_DIRECTORY_COMPONENT_PREFIX)
-        for part in relative_path.parts[2:-1]
+    assert tuple(len(part) for part in relative_path.parts[2:-1]) == (
+        _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
     )
     assert len(relative_path.parts[-1]) == _LEAF_TOKEN_WIDTH
 

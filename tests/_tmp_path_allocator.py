@@ -10,7 +10,6 @@ at every allocator-managed directory.
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import secrets
 import shutil
@@ -25,19 +24,14 @@ _NODE_SHARD_WIDTH = 2
 _ALLOCATION_TOKEN_BITS = 64
 _ALLOCATION_TOKEN_LIMIT = 1 << _ALLOCATION_TOKEN_BITS
 _ALLOCATION_TOKEN_MASK = _ALLOCATION_TOKEN_LIMIT - 1
-_ALLOCATION_TOKEN_CHARACTERS = (_ALLOCATION_TOKEN_BITS + 5) // 6
-_ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS = (3, 3, 3)
-_TOKEN_DIRECTORY_COMPONENT_PREFIX = "d"
-_LEAF_TOKEN_WIDTH = 2
-# A 64-bit value occupies eleven URL-safe base64 characters. The final token
-# character carries four data bits, so the final two-character leaf has exactly
-# ten bits of fanout. Each three-character parent is hard-bounded at 262,144
-# children, avoiding directory enumeration while keeping the hot path shallow.
-# Every token-directory component also has a fixed safe prefix. Base64 can
-# encode Windows device names such as ``CON``; the prefix makes them impossible
-# without changing the token stream or any branch's fanout.
-_MAX_LEAF_DIRECTORY_FANOUT = 1 << (_LEAF_TOKEN_WIDTH * 6 - 2)
-_MAX_TOKEN_DIRECTORY_FANOUT = 1 << (max(_ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS) * 6)
+_ALLOCATION_TOKEN_CHARACTERS = _ALLOCATION_TOKEN_BITS // 4
+_ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS = (4, 4, 4)
+_LEAF_TOKEN_WIDTH = 4
+# A 64-bit value occupies sixteen lowercase hexadecimal characters. The
+# fixed-width 4/4/4/4 radix layout keeps every token component case-fold stable
+# and outside the Windows device-name alphabet while preserving a shallow tree.
+_MAX_LEAF_DIRECTORY_FANOUT = 1 << (_LEAF_TOKEN_WIDTH * 4)
+_MAX_TOKEN_DIRECTORY_FANOUT = 1 << (max(_ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS) * 4)
 _MAX_ROOT_DIRECTORY_FANOUT = 1 << (_NODE_SHARD_WIDTH * 4)
 _MAX_LEAF_MKDIR_PROBES = 4
 _ALLOCATION_TOKEN_PARENT_COMPONENTS = len(_ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS)
@@ -69,10 +63,9 @@ class BoundedTempPathAllocator:
     permutation of a separate 64-bit ordinal stream: ``(origin + ordinal) mod
     2**64``.  Thus a high random origin does not shorten the stream; every
     allocator can consume all ``2**64`` ordinals exactly once. Fixed-width
-    URL-safe-base64 token groups become radix-tree levels, each with a fixed
-    filesystem-safe prefix. This bounds every lower allocator-managed directory
-    at 262,144 children (and each final two-character leaf group at 1,024) while
-    excluding Windows device-name components such as ``CON``.
+    Lowercase hexadecimal token groups become radix-tree levels. This bounds
+    every lower allocator-managed directory at 65,536 children while using a
+    case-fold-stable alphabet that cannot encode Windows device-name components.
 
     Atomic ``mkdir`` remains the authority across threads and processes: four
     distinct token candidates are attempted before the allocator raises rather
@@ -95,12 +88,8 @@ class BoundedTempPathAllocator:
 
     @staticmethod
     def _encode_token(value: int) -> str:
-        """Return one fixed-width URL-safe base64 representation of ``value``."""
-        return (
-            base64.urlsafe_b64encode(value.to_bytes(_ALLOCATION_TOKEN_BITS // 8, "big"))
-            .decode("ascii")
-            .rstrip("=")
-        )
+        """Return one fixed-width lowercase-hex representation of ``value``."""
+        return f"{value:0{_ALLOCATION_TOKEN_CHARACTERS}x}"
 
     def _take_allocation_token(self) -> str:
         """Return one token from a full ordinal stream, permuted by its origin."""
@@ -131,10 +120,7 @@ class BoundedTempPathAllocator:
 
         token_index = 0
         for component_width in _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS:
-            component = (
-                _TOKEN_DIRECTORY_COMPONENT_PREFIX
-                + token[token_index : token_index + component_width]
-            )
+            component = token[token_index : token_index + component_width]
             branch = branches.get(component)
             if branch is None:
                 directory = parent / component

@@ -101,21 +101,20 @@ prefer that narrower form whenever you do not need every hook re-run.
 `agent-utilities lane env` remains the authority for the per-lane pytest
 `--basetemp`; pytest-xdist further gives each worker a child basetemp.  The
 root test `conftest.py` loads a `tmp_path` plugin that allocates each test below
-`t/<two SHA-1 hex digits>/<d+three URL-safe-base64 characters>/<...>`. The
-eleven characters of one fixed-width 64-bit allocation token form three
-three-character radix-tree parents, each with a fixed `d` prefix, followed by a
-final two-character leaf. The prefix prevents URL-safe-base64 groups such as
-`CON`, `PRN`, `AUX`, or `NUL` from becoming Windows device-name directories
-without changing the encoded ordinal or fanout. The deterministic test shard
-bounds `t/` itself at 256 direct children. Every lower allocator-managed parent
-has a hard cap of 262,144 children; the final ten-bit leaf group caps its leaves
-at 1,024. A random 64-bit origin selects a cyclic
+`t/<two SHA-1 hex digits>/<four lowercase hexadecimal characters>/<...>`. The
+sixteen characters of one fixed-width 64-bit allocation token form three
+four-character radix-tree parents followed by a final four-character leaf. The
+lowercase hexadecimal alphabet is stable on case-folding filesystems and cannot
+spell a Windows device name, so it avoids both reserved-name and `AA`/`aA`-style
+collisions. The deterministic test shard bounds `t/` itself at 256 direct
+children. Every lower allocator-managed parent has a hard cap of 65,536
+children. A random 64-bit origin selects a cyclic
 permutation of a separate 64-bit ordinal stream, so `origin + ordinal (mod
 2**64)` keeps fresh allocators collision-resistant without shortening the stream
-when the origin is high. All components are ASCII hex or prefixed URL-safe
-base64, and the resulting socket path remains shorter than pytest's stock
-31-byte temporary leaf, including non-ASCII test ids. This leaves pytest's
-basetemp lifecycle and the separate `tmp_path_factory` API unchanged.
+when the origin is high. All components are lowercase ASCII hex, and the
+resulting socket path remains shorter than pytest's stock 31-byte temporary leaf,
+including non-ASCII test ids. This leaves pytest's basetemp lifecycle and the
+separate `tmp_path_factory` API unchanged.
 
 The allocator avoids directory enumeration; it does not claim zero filesystem
 probes. Its ordinal always starts at zero and is bounded only after all `2**64`
