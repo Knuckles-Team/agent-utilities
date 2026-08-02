@@ -14,10 +14,13 @@ from pathlib import Path
 
 import pytest
 from _tmp_path_allocator import (
+    _ALLOCATION_TOKEN_CHARACTERS,
     _ALLOCATION_TOKEN_LIMIT,
     _MAX_LEAF_DIRECTORY_FANOUT,
     _MAX_LEAF_MKDIR_PROBES,
     _MAX_MKDIR_CALLS_PER_ALLOCATION,
+    _MAX_ROOT_DIRECTORY_FANOUT,
+    _MAX_TOKEN_DIRECTORY_FANOUT,
     BoundedTempPathAllocator,
 )
 
@@ -74,12 +77,42 @@ def _retention_paths(record_directory: Path) -> dict[str, Path]:
     return paths
 
 
+def _allocator_root(path: Path) -> Path:
+    """Return the fixed-depth ``t`` root for one allocator-created path."""
+    root = path.parents[_ALLOCATION_TOKEN_CHARACTERS]
+    assert root.name == "t"
+    return root
+
+
+def _allocator_relative_parts(path: Path) -> tuple[str, ...]:
+    """Return the allocator's fixed-width relative layout components."""
+    root = _allocator_root(path)
+    return path.relative_to(root.parent).parts
+
+
 def _assert_bounded_fixture_paths(paths: dict[str, Path]) -> None:
     """Assert real fixture paths use the documented bounded-fanout layout."""
     for path in paths.values():
-        assert path.parents[1].name == "t"
-        assert len(path.parent.name) == 22
-        assert len(path.name) == 2
+        parts = _allocator_relative_parts(path)
+        assert parts[0] == "t"
+        assert len(parts) == _ALLOCATION_TOKEN_CHARACTERS + 2
+        assert len(parts[1]) == 2
+        assert all(len(part) == 1 for part in parts[2:])
+
+
+def _assert_every_allocator_directory_is_bounded(root: Path) -> None:
+    """Check the hard fanout cap at every allocator-managed tree level."""
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        child_directories = [child for child in directory.iterdir() if child.is_dir()]
+        cap = (
+            _MAX_ROOT_DIRECTORY_FANOUT
+            if directory == root
+            else _MAX_TOKEN_DIRECTORY_FANOUT
+        )
+        assert len(child_directories) <= cap
+        pending.extend(child_directories)
 
 
 _RETENTION_SUITE = """
@@ -161,13 +194,35 @@ def test_allocator_uses_deterministic_bounded_fanout(tmp_path: Path) -> None:
     ]
 
     relative_paths = [path.relative_to(tmp_path) for path in paths]
+    root = tmp_path / "t"
     assert len(set(paths)) == 256
     assert {path.parts[0] for path in relative_paths} == {"t"}
     assert len({path.parts[1] for path in relative_paths}) == 256
-    assert all(len(path.parts) == 3 for path in relative_paths)
-    assert all(len(path.parts[1]) == 22 for path in relative_paths)
-    assert all(len(path.parts[2]) == 2 for path in relative_paths)
-    assert set(tmp_path.iterdir()) == {tmp_path / "t"}
+    assert all(
+        len(path.parts) == _ALLOCATION_TOKEN_CHARACTERS + 2 for path in relative_paths
+    )
+    assert all(len(path.parts[1]) == 2 for path in relative_paths)
+    assert all(
+        all(len(part) == 1 for part in path.parts[2:]) for path in relative_paths
+    )
+    assert set(tmp_path.iterdir()) == {root}
+    assert len([child for child in root.iterdir() if child.is_dir()]) == 256
+    _assert_every_allocator_directory_is_bounded(root)
+
+
+def test_allocator_bounds_every_directory_under_adversarial_node_prefix_spread(
+    tmp_path: Path,
+) -> None:
+    """All 256 node shards cannot grow ``t`` beyond its fixed radix cap."""
+    allocator = BoundedTempPathAllocator(tmp_path)
+    node_ids = _node_ids_covering_all_buckets()
+    paths = [allocator.allocate(node_id) for node_id in node_ids for _ in range(20)]
+    root = tmp_path / "t"
+
+    assert len(paths) == len(set(paths)) == 5_120
+    root_children = [child for child in root.iterdir() if child.is_dir()]
+    assert len(root_children) == _MAX_ROOT_DIRECTORY_FANOUT
+    _assert_every_allocator_directory_is_bounded(root)
 
 
 def test_allocator_keeps_reruns_and_fresh_instances_isolated(
@@ -199,13 +254,11 @@ def test_allocator_bounds_fresh_recovery_after_many_retained_attempts(
     retained_allocator = BoundedTempPathAllocator(tmp_path)
     retained_paths = [retained_allocator.allocate(node_id) for _ in range(2_048)]
     fresh_allocator = BoundedTempPathAllocator(tmp_path)
-    leaf_mkdir_calls: list[Path] = []
+    mkdir_calls: list[Path] = []
     original_mkdir = Path.mkdir
-    bucket = retained_paths[0].parents[1]
 
     def observe_mkdir(path: Path, *args, **kwargs) -> None:
-        if path.parent.parent == bucket:
-            leaf_mkdir_calls.append(path)
+        mkdir_calls.append(path)
         original_mkdir(path, *args, **kwargs)
 
     monkeypatch.setattr(Path, "mkdir", observe_mkdir)
@@ -214,10 +267,10 @@ def test_allocator_bounds_fresh_recovery_after_many_retained_attempts(
     assert len(retained_paths) == 2_048
     assert allocated not in retained_paths
     leaf_counts = Counter(path.parent for path in retained_paths)
-    assert len(leaf_counts) == 2
-    assert set(leaf_counts.values()) == {_MAX_LEAF_DIRECTORY_FANOUT}
-    assert leaf_mkdir_calls == [allocated]
-    assert len(leaf_mkdir_calls) <= _MAX_LEAF_MKDIR_PROBES
+    assert max(leaf_counts.values()) <= _MAX_LEAF_DIRECTORY_FANOUT
+    assert allocated.is_dir()
+    assert len(mkdir_calls) <= _MAX_MKDIR_CALLS_PER_ALLOCATION
+    _assert_every_allocator_directory_is_bounded(tmp_path / "t")
 
 
 def test_allocator_keeps_independent_allocators_concurrently_unique(
@@ -312,7 +365,7 @@ def test_allocator_refuses_after_its_fixed_collision_budget(
 def test_allocator_bounds_collision_calls_across_a_group_boundary(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """A four-probe collision window creates at most two allocation parents."""
+    """A four-probe collision window remains bounded across a leaf radix edge."""
     node_id = "tests/unit/test_case.py::test_group_boundary"
     token_origins = iter((0, 0))
     monkeypatch.setattr(
@@ -337,7 +390,7 @@ def test_allocator_bounds_collision_calls_across_a_group_boundary(
         fresh_allocator.allocate(node_id)
 
     assert len({path.parent for path in retained_paths}) == 2
-    assert len(mkdir_calls) == _MAX_MKDIR_CALLS_PER_ALLOCATION
+    assert len(mkdir_calls) <= _MAX_MKDIR_CALLS_PER_ALLOCATION
 
 
 def test_allocator_refuses_token_stream_overflow(tmp_path: Path) -> None:
@@ -347,6 +400,33 @@ def test_allocator_refuses_token_stream_overflow(tmp_path: Path) -> None:
 
     with pytest.raises(RuntimeError, match="token space exhausted"):
         allocator.allocate("tests/unit/test_case.py::test_token_stream_overflow")
+
+
+def test_allocator_full_stream_is_independent_of_max_random_origin(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A maximal random seed wraps tokens but never shortens the ordinal stream."""
+    maximum_origin = _ALLOCATION_TOKEN_LIMIT - 1
+    monkeypatch.setattr(
+        "_tmp_path_allocator.secrets.randbits", lambda _: maximum_origin
+    )
+    allocator = BoundedTempPathAllocator(tmp_path)
+    node_id = "tests/unit/test_case.py::test_max_origin"
+
+    first = allocator.allocate(node_id)
+    second = allocator.allocate(node_id)
+    assert "".join(_allocator_relative_parts(first)[2:]) == allocator._encode_token(
+        maximum_origin
+    )
+    assert "".join(_allocator_relative_parts(second)[2:]) == allocator._encode_token(0)
+
+    allocator._next_token = _ALLOCATION_TOKEN_LIMIT - 1
+    final = allocator.allocate(node_id)
+    assert "".join(_allocator_relative_parts(final)[2:]) == allocator._encode_token(
+        _ALLOCATION_TOKEN_LIMIT - 2
+    )
+    with pytest.raises(RuntimeError, match="token space exhausted"):
+        allocator.allocate(node_id)
 
 
 def test_allocator_creates_active_root_and_parent_once(
@@ -363,14 +443,19 @@ def test_allocator_creates_active_root_and_parent_once(
     monkeypatch.setattr(Path, "mkdir", observe_mkdir)
     allocator = BoundedTempPathAllocator(tmp_path)
     first = allocator.allocate("tests/unit/test_case.py::test_same_bucket")
-    root_mkdir_calls = mkdir_calls.count(first.parents[1])
+    root = _allocator_root(first)
+    node_directory = root / _allocator_relative_parts(first)[1]
+    root_mkdir_calls = mkdir_calls.count(root)
+    node_mkdir_calls = mkdir_calls.count(node_directory)
     allocation_parent_mkdir_calls = mkdir_calls.count(first.parent)
     second = allocator.allocate("tests/unit/test_case.py::test_same_bucket")
 
     assert first.parent == second.parent
     assert root_mkdir_calls >= 1
+    assert node_mkdir_calls >= 1
     assert allocation_parent_mkdir_calls >= 1
-    assert mkdir_calls.count(first.parents[1]) == root_mkdir_calls
+    assert mkdir_calls.count(root) == root_mkdir_calls
+    assert mkdir_calls.count(node_directory) == node_mkdir_calls
     assert mkdir_calls.count(first.parent) == allocation_parent_mkdir_calls
 
 
@@ -387,10 +472,14 @@ def test_allocator_4000_allocation_measurement(tmp_path: Path) -> None:
 
     print(f"bounded_tmp_path_4000_allocations={elapsed:.6f}s")
     assert len(paths) == len(set(paths)) == 4000
-    allocation_parents = [path for path in (tmp_path / "t").iterdir() if path.is_dir()]
-    assert len(allocation_parents) <= 256 * 4
+    root = tmp_path / "t"
+    assert (
+        len([path for path in root.iterdir() if path.is_dir()])
+        <= _MAX_ROOT_DIRECTORY_FANOUT
+    )
     leaf_counts = Counter(path.parent for path in paths)
     assert max(leaf_counts.values()) <= _MAX_LEAF_DIRECTORY_FANOUT
+    _assert_every_allocator_directory_is_bounded(root)
 
 
 def test_tmp_path_fixture_is_wired_to_bounded_allocator(
@@ -400,9 +489,9 @@ def test_tmp_path_fixture_is_wired_to_bounded_allocator(
     relative_path = tmp_path.relative_to(tmp_path_factory.getbasetemp())
 
     assert relative_path.parts[0] == "t"
-    assert len(relative_path.parts) == 3
-    assert len(relative_path.parts[1]) == 22
-    assert len(relative_path.parts[2]) == 2
+    assert len(relative_path.parts) == _ALLOCATION_TOKEN_CHARACTERS + 2
+    assert len(relative_path.parts[1]) == 2
+    assert all(len(part) == 1 for part in relative_path.parts[2:])
 
 
 def test_tmp_path_factory_api_remains_pytest_owned(tmp_path_factory) -> None:
@@ -553,8 +642,10 @@ def test_tmp_path_fixture_handles_a_real_retry_lifecycle(pytester, monkeypatch) 
     paths = [Path(record["path"]) for record in records]
     assert attempts == ["0", "1"]
     assert paths[0] != paths[1]
-    assert paths[0].parents[1] == paths[1].parents[1]
-    assert paths[0].parent.name[:2] == paths[1].parent.name[:2]
+    assert _allocator_root(paths[0]) == _allocator_root(paths[1])
+    assert (
+        _allocator_relative_parts(paths[0])[1] == _allocator_relative_parts(paths[1])[1]
+    )
     assert paths[0].is_dir()
     assert not paths[1].exists()
     _assert_bounded_fixture_paths(
@@ -610,11 +701,10 @@ def test_tmp_path_fixture_keeps_xdist_workers_isolated(pytester, monkeypatch) ->
         path = Path(record["path"])
         worker = record["worker"]
         assert path.is_dir()
-        assert path.parents[1].name == "t"
-        assert len(path.parent.name) == 22
-        assert len(path.name) == 2
-        worker_bases.setdefault(worker, path.parents[2])
-        assert worker_bases[worker] == path.parents[2]
+        _assert_bounded_fixture_paths({record["case"]: path})
+        root = _allocator_root(path)
+        worker_bases.setdefault(worker, root.parent)
+        assert worker_bases[worker] == root.parent
 
     assert set(worker_bases) == {"gw0", "gw1"}
     assert len(set(worker_bases.values())) == 2

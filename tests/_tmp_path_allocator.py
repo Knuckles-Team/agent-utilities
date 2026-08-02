@@ -3,10 +3,9 @@
 Pytest's stock fixture places every test directory directly below one session
 basetemp and enumerates that growing directory on each allocation.  Large
 suites then turn otherwise independent test setup into quadratic directory
-enumeration.
-This plugin keeps pytest's per-session/per-xdist-worker basetemp authority, but
-places a deterministic test-id shard below its own root and uses bounded token
-slots for the allocation leaves.
+enumeration.  This plugin keeps pytest's per-session/per-xdist-worker basetemp
+authority, but places each allocation in a compact radix tree with a hard cap
+at every allocator-managed directory.
 """
 
 from __future__ import annotations
@@ -25,41 +24,54 @@ _ALLOCATION_ROOT_DIRECTORY = "t"
 _NODE_SHARD_WIDTH = 2
 _ALLOCATION_TOKEN_BITS = 64
 _ALLOCATION_TOKEN_LIMIT = 1 << _ALLOCATION_TOKEN_BITS
+_ALLOCATION_TOKEN_MASK = _ALLOCATION_TOKEN_LIMIT - 1
 _ALLOCATION_TOKEN_CHARACTERS = (_ALLOCATION_TOKEN_BITS + 5) // 6
-_LEAF_TOKEN_WIDTH = 2
-_ALLOCATION_GROUP_TOKEN_WIDTH = _ALLOCATION_TOKEN_CHARACTERS - _LEAF_TOKEN_WIDTH
-# A 64-bit value occupies eleven base64 characters: the final character carries
-# four data bits, so the final two-character slot has exactly ten bits of fanout.
-_MAX_LEAF_DIRECTORY_FANOUT = 1 << (_LEAF_TOKEN_WIDTH * 6 - 2)
+_LEAF_TOKEN_WIDTH = 1
+# A 64-bit value occupies eleven base64 characters.  The final character
+# carries four data bits, so that leaf directory has sixteen possible names;
+# every earlier character has the ordinary URL-safe base64 fanout of 64.
+_MAX_LEAF_DIRECTORY_FANOUT = 1 << 4
+_MAX_TOKEN_DIRECTORY_FANOUT = 1 << 6
+_MAX_ROOT_DIRECTORY_FANOUT = 1 << (_NODE_SHARD_WIDTH * 4)
 _MAX_LEAF_MKDIR_PROBES = 4
-# A candidate may cross one 1,024-slot group boundary, creating the allocation
-# root and two allocation parents before the fixed leaf probe budget is exhausted.
-_MAX_MKDIR_CALLS_PER_ALLOCATION = _MAX_LEAF_MKDIR_PROBES + 3
+# A collision can cross the modular 64-bit boundary, so every probe may need a
+# distinct token branch.  The bound covers ``t``, the node shard, ten token
+# parents, and the final leaf for each fixed collision probe.
+_MAX_MKDIR_CALLS_PER_ALLOCATION = 1 + _MAX_LEAF_MKDIR_PROBES * (
+    _ALLOCATION_TOKEN_CHARACTERS + 1
+)
 _test_result_key = pytest.StashKey[dict[str, bool]]()
 
 
 class BoundedTempPathAllocator:
     """Allocate unique test paths without directory enumeration.
 
-    The first two SHA-1 hex characters deterministically shard a test node id.
-    Each allocator starts a 64-bit counter at a random origin instead of ``0``;
-    its full URL-safe base64 origin and the origin-relative group select an
-    allocation parent.  The two-character relative slot is the leaf name, so
-    every allocation parent has at most 1,024 possible child directories even
-    across retained runs and independent processes.  Atomic ``mkdir`` remains
-    the authority across threads and processes: four distinct token candidates
-    are attempted before the allocator raises rather than reusing an existing
-    test directory.  Xdist workers already receive separate pytest basetemps,
-    so their allocation trees remain isolated by pytest's normal worker contract.
+    The first two SHA-1 hex characters deterministically shard a test node id,
+    bounding ``t`` at 256 children.  A random 64-bit origin chooses a cyclic
+    permutation of a separate 64-bit ordinal stream: ``(origin + ordinal) mod
+    2**64``.  Thus a high random origin does not shorten the stream; every
+    allocator can consume all ``2**64`` ordinals exactly once.  Each character
+    of the fixed-width URL-safe base64 token becomes a radix-tree level, which
+    bounds every lower allocator-managed directory at 64 children (and the
+    four-bit final character at 16).
+
+    Atomic ``mkdir`` remains the authority across threads and processes: four
+    distinct token candidates are attempted before the allocator raises rather
+    than reusing an existing test directory.  Xdist workers already receive
+    separate pytest basetemps, so their allocation trees remain isolated by
+    pytest's normal worker contract.
     """
 
     def __init__(self, basetemp: Path) -> None:
         self._root = basetemp / _ALLOCATION_ROOT_DIRECTORY
-        self._token_origin = secrets.randbits(_ALLOCATION_TOKEN_BITS)
-        self._origin_token = self._encode_token(self._token_origin)
-        self._next_token = self._token_origin
+        self._token_origin = (
+            secrets.randbits(_ALLOCATION_TOKEN_BITS) & _ALLOCATION_TOKEN_MASK
+        )
+        # The ordinal is deliberately independent of the random collision
+        # namespace.  It always has the complete 64-bit allocation range.
+        self._next_token = 0
         self._root_created = False
-        self._created_allocation_parents: set[Path] = set()
+        self._created_directories: set[Path] = set()
         self._lock = threading.Lock()
 
     @staticmethod
@@ -72,16 +84,28 @@ class BoundedTempPathAllocator:
         )
 
     def _take_allocation_token(self) -> str:
-        """Return one origin-relative token from this allocator's random stream."""
+        """Return one token from a full ordinal stream, permuted by its origin."""
         if self._next_token >= _ALLOCATION_TOKEN_LIMIT:
             raise RuntimeError(
                 "bounded tmp_path allocation token space exhausted; "
                 "start a fresh pytest basetemp"
             )
 
-        token = self._encode_token(self._next_token - self._token_origin)
+        token = self._encode_token(
+            (self._token_origin + self._next_token) & _ALLOCATION_TOKEN_MASK
+        )
         self._next_token += 1
         return token
+
+    def _allocation_parent(self, node_shard: str, token: str) -> Path:
+        """Create the bounded token branch and return its final parent."""
+        parent = self._root
+        for component in (node_shard, *token[:-_LEAF_TOKEN_WIDTH]):
+            parent /= component
+            if parent not in self._created_directories:
+                parent.mkdir(mode=0o700, exist_ok=True)
+                self._created_directories.add(parent)
+        return parent
 
     def allocate(self, node_id: str) -> Path:
         """Create and return an empty, unique path for ``node_id``."""
@@ -94,16 +118,9 @@ class BoundedTempPathAllocator:
                 self._root_created = True
 
             for _ in range(_MAX_LEAF_MKDIR_PROBES):
-                relative_token = self._take_allocation_token()
-                allocation_parent = self._root / (
-                    f"{node_shard}{self._origin_token}"
-                    f"{relative_token[:_ALLOCATION_GROUP_TOKEN_WIDTH]}"
-                )
-                if allocation_parent not in self._created_allocation_parents:
-                    allocation_parent.mkdir(mode=0o700, exist_ok=True)
-                    self._created_allocation_parents.add(allocation_parent)
-
-                path = allocation_parent / relative_token[-_LEAF_TOKEN_WIDTH:]
+                token = self._take_allocation_token()
+                allocation_parent = self._allocation_parent(node_shard, token)
+                path = allocation_parent / token[-_LEAF_TOKEN_WIDTH:]
                 try:
                     path.mkdir(mode=0o700)
                 except FileExistsError:
