@@ -330,18 +330,35 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         if not points:
             return
         client = self._ensure_client()
-        # Group points by (symbol, tags) -> series, with a stable metric-field order.
+        # Group raw points before encoding their vectors.  A series has one field
+        # schema for the entire append batch, so an earlier sparse point must be
+        # widened when a later point introduces another metric.  Encoding during
+        # this discovery pass would otherwise produce mixed-width vectors that a
+        # strict engine append rejects as one failed durability batch (D-CDX-67).
+        grouped: dict[str, list[TimeSeriesDataPoint]] = {}
+        for point in points:
+            grouped.setdefault(_series_id(point.symbol, point.tags), []).append(point)
+
         by_series: dict[str, list[tuple[int, list[float]]]] = {}
         meta: dict[str, tuple[str, list[str], dict[str, str] | None]] = {}
-        for p in points:
-            fields = sorted(p.metrics.keys())
-            sid = _series_id(p.symbol, p.tags)
-            known = self._fields.get(sid)
-            if known is not None:
-                fields = known + [f for f in fields if f not in known]
-            meta[sid] = (p.symbol, fields, p.tags)
-            vec = [float(p.metrics.get(f, 0.0)) for f in fields]
-            by_series.setdefault(sid, []).append((_to_ns(p.timestamp), vec))
+        for sid, series_points in grouped.items():
+            known = list(self._fields.get(sid, ()))
+            discovered = {
+                field
+                for point in series_points
+                for field in point.metrics
+                if field not in known
+            }
+            fields = [*known, *sorted(discovered)]
+            first = series_points[0]
+            meta[sid] = (first.symbol, fields, first.tags)
+            by_series[sid] = [
+                (
+                    _to_ns(point.timestamp),
+                    [float(point.metrics.get(field, 0.0)) for field in fields],
+                )
+                for point in series_points
+            ]
         registered: set[str] = set()
         for sid, (symbol, fields, tags) in meta.items():
             if self._register(sid, symbol, fields, tags):

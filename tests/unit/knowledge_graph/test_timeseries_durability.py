@@ -131,8 +131,121 @@ class _FailingAsyncTimeSeries:
         return len(points)
 
 
+class _StrictTimeSeriesState:
+    def __init__(self) -> None:
+        self.fields: dict[str, list[str]] = {}
+        self.batches: list[list[tuple[int, list[float]]]] = []
+
+    def record_registration(self, series_id: str, field_names: list[str]) -> None:
+        self.fields[series_id] = field_names
+
+    def record_append(
+        self,
+        series_id: str,
+        points: list[tuple[int, list[float]]],
+        field_names: list[str] | None,
+    ) -> int:
+        assert field_names == self.fields[series_id]
+        assert all(len(values) == len(field_names) for _, values in points)
+        self.batches.append(points)
+        return len(points)
+
+
+class _StrictSyncTimeSeries(_StrictTimeSeriesState):
+    """Engine-shaped client that rejects vectors outside the registered schema."""
+
+    def register_series(
+        self,
+        series_id: str,
+        *,
+        entity_id: str,
+        field_names: list[str],
+        metadata: dict[str, str],
+    ) -> None:
+        self.record_registration(series_id, field_names)
+
+    def append(
+        self,
+        series_id: str,
+        points: list[tuple[int, list[float]]],
+        *,
+        field_names: list[str] | None,
+    ) -> int:
+        return self.record_append(series_id, points, field_names)
+
+
+class _StrictAsyncTimeSeries(_StrictTimeSeriesState):
+    async def register_series(
+        self,
+        series_id: str,
+        *,
+        entity_id: str,
+        field_names: list[str],
+        metadata: dict[str, str],
+    ) -> None:
+        self.record_registration(series_id, field_names)
+
+    async def append(
+        self,
+        series_id: str,
+        points: list[tuple[int, list[float]]],
+        *,
+        field_names: list[str] | None,
+    ) -> int:
+        return self.record_append(series_id, points, field_names)
+
+
 def _client(timeseries: object) -> SimpleNamespace:
     return SimpleNamespace(timeseries=timeseries)
+
+
+def _metrics_point(**metrics: float) -> TimeSeriesDataPoint:
+    return TimeSeriesDataPoint(
+        symbol="expanding-telemetry",
+        timestamp=datetime(2026, 8, 2, tzinfo=UTC),
+        metrics=metrics,
+    )
+
+
+def test_sync_batch_encodes_every_point_against_the_expanded_schema() -> None:
+    timeseries = _StrictSyncTimeSeries()
+    backend = EngineTimeSeriesBackend(client=_client(timeseries))
+
+    backend.insert(
+        [
+            _metrics_point(tokens=12.0),
+            _metrics_point(tokens=15.0, latency=3.0),
+        ]
+    )
+
+    sid = "ts:expanding-telemetry"
+    assert timeseries.fields[sid] == ["latency", "tokens"]
+    assert [values for _, values in timeseries.batches[0]] == [
+        [0.0, 12.0],
+        [3.0, 15.0],
+    ]
+
+
+async def test_async_batch_preserves_known_order_and_widens_every_vector() -> None:
+    timeseries = _StrictAsyncTimeSeries()
+    backend = EngineTimeSeriesBackend(client=_client(timeseries))
+    sid = "ts:expanding-telemetry"
+    backend._fields[sid] = ["tokens"]
+
+    backend.insert(
+        [
+            _metrics_point(tokens=12.0, latency=3.0),
+            _metrics_point(tokens=15.0, errors=2.0),
+        ]
+    )
+    tail = backend._pending_writes[sid]
+    assert await asyncio.wait_for(tail, timeout=1.0) is True
+
+    assert timeseries.fields[sid] == ["tokens", "errors", "latency"]
+    assert [values for _, values in timeseries.batches[0]] == [
+        [12.0, 0.0, 3.0],
+        [15.0, 2.0, 0.0],
+    ]
 
 
 @pytest.mark.filterwarnings("error::RuntimeWarning")
