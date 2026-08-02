@@ -23,6 +23,7 @@ No alternate spelling, numeric ID, alias, or implicit hierarchy is accepted.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -39,15 +40,58 @@ _SEG = r"[a-z0-9]+(?:-[a-z0-9]+)*"
 OKF_ID_RE = re.compile(
     rf"^(?P<slug>[A-Z]{{2}})-(?P<pillar>{_PILLAR_ALT})(?P<segs>(?:\.{_SEG}){{2,}})$"
 )
-#: The ``CONCEPT:<id>`` marker form — the one canonical marker regex.
+#: Adjacent text that historical authors appended to a canonical id without a
+#: separator. It is metadata or a malformed suffix, never part of the id or its
+#: human-readable description. Keeping it in the full match prevents scanners
+#: that use ``match.end()`` from leaking it into generated names and docs.
+_MARKER_TAIL = r"(?:[/_][A-Za-z0-9._/-]*|[A-Z][A-Za-z0-9._/-]*)"
+
+#: The ``CONCEPT:<id>`` marker form — the one canonical lexical regex. The only
+#: capture remains ``id`` so existing ``findall`` callers still receive strings.
+#: New scanners should use :func:`iter_okf_markers` for explicit tail semantics.
 OKF_MARKER_RE = re.compile(
     rf"CONCEPT:(?P<id>[A-Z]{{2}}-(?:{_PILLAR_ALT})(?:\.{_SEG}){{2,}})"
+    rf"(?:{_MARKER_TAIL})?"
 )
 
 #: Canonical ecosystem IRI roots.
 CONCEPT_IRI_BASE = "http://knuckles.team/kg/concept"
 PILLAR_IRI_BASE = "http://knuckles.team/kg/pillar"
 SCHEME_IRI_BASE = "http://knuckles.team/kg/scheme"
+
+
+@dataclass(frozen=True)
+class OkfMarker:
+    """One marker occurrence with its canonical id and adjacent tail separated.
+
+    ``tail`` preserves slash annotations and malformed underscore/uppercase
+    suffixes that were historically truncated by :data:`OKF_MARKER_RE`. It is
+    included in ``raw`` and the marker span, but never in ``id``.
+    """
+
+    id: str
+    tail: str
+    raw: str
+    start: int
+    end: int
+
+
+def parse_okf_marker(match: re.Match[str]) -> OkfMarker:
+    """Project a canonical lexical match into explicit marker semantics."""
+    id_end = match.end("id")
+    return OkfMarker(
+        id=match.group("id"),
+        tail=match.string[id_end : match.end()],
+        raw=match.group(0),
+        start=match.start(),
+        end=match.end(),
+    )
+
+
+def iter_okf_markers(text: str) -> Iterator[OkfMarker]:
+    """Yield every marker in *text* without conflating an adjacent tail with docs."""
+    for match in OKF_MARKER_RE.finditer(text):
+        yield parse_okf_marker(match)
 
 
 @dataclass(frozen=True)

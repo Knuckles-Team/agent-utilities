@@ -27,21 +27,27 @@ def scan(root: Path) -> list[str]:
     for p in root.rglob("*"):
         if p.suffix not in _EXT or any(s in p.parts for s in _SKIP):
             continue
-        if p.name in {"check_domain_vocab.py", "domain_vocab.yaml", "slug_registry.yaml"}:
+        if p.name in {
+            "check_domain_vocab.py",
+            "domain_vocab.yaml",
+            "slug_registry.yaml",
+        }:
             continue
         try:
             text = p.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
             continue
-        for m in ch.OKF_MARKER_RE.finditer(text):
-            cid = m.group("id")
+        for marker in ch.iter_okf_markers(text):
+            cid = marker.id
             try:
                 parsed = ch.parse_okf_id(cid)
             except ValueError as ex:
                 errs.append(f"{p.relative_to(root)}: {cid} — {ex}")
                 continue
             if parsed.slug not in known_slugs:
-                errs.append(f"{p.relative_to(root)}: {cid} — SLUG {parsed.slug!r} not registered")
+                errs.append(
+                    f"{p.relative_to(root)}: {cid} — SLUG {parsed.slug!r} not registered"
+                )
             if not ch.is_valid_domain(parsed.pillar, parsed.domain):
                 errs.append(
                     f"{p.relative_to(root)}: {cid} — domain {parsed.domain!r} not in "
@@ -56,7 +62,9 @@ def main(argv: list[str]) -> int:
     for r in roots:
         errs.extend(scan(r))
     if errs:
-        print(f"FAIL: {len(errs)} OKF-CIS marker(s) violate the closed vocab / grammar:")
+        print(
+            f"FAIL: {len(errs)} OKF-CIS marker(s) violate the closed vocab / grammar:"
+        )
         for e in errs[:60]:
             print("  " + e)
         if len(errs) > 60:
