@@ -15,11 +15,18 @@ DataFusion. This module routes exactly those, keeping the public feature API in 
 A throwaway series is staged in the engine tsdb, the primitive runs server-side, and
 the result returns as a pandas object — one round-trip per primitive (a batch), never
 per row.
+
+``gap_fill_series`` treats naive input timestamps as UTC and converts timezone-aware
+timestamps to UTC instants before either the engine or pandas route runs. This keeps
+DST gaps and folds unambiguous and makes the returned regular grid identical between
+routes. Legacy pandas interval suffixes ``H`` and ``T`` are normalized to ``h`` and
+``min`` before pandas parses them.
 """
 
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from numbers import Integral
 
@@ -31,6 +38,7 @@ except ImportError as e:  # pragma: no cover - finance extra not installed
     ) from e
 
 logger = logging.getLogger(__name__)
+_LEGACY_INTERVAL_ALIAS = re.compile(r"(?P<count>\d*)(?P<unit>[HT])\Z")
 
 
 def _client():
@@ -57,6 +65,11 @@ def _to_ns(index: pd.Index) -> list[int]:
 def _normalize_step(step: str | int | pd.Timedelta) -> pd.Timedelta:
     """Return a canonical interval without NumPy's deprecated generic unit."""
     if isinstance(step, str):
+        legacy_alias = _LEGACY_INTERVAL_ALIAS.fullmatch(step)
+        if legacy_alias is not None:
+            count = legacy_alias.group("count") or "1"
+            unit = "h" if legacy_alias.group("unit") == "H" else "min"
+            step = f"{count}{unit}"
         # The vector parser preserves the unit encoded in a frequency string and
         # avoids pandas' scalar path through NumPy's generic timedelta unit.
         return pd.to_timedelta([step])[0]
@@ -67,6 +80,19 @@ def _normalize_step(step: str | int | pd.Timedelta) -> pd.Timedelta:
     return pd.Timedelta(step)
 
 
+def _utc_series(series: pd.Series) -> pd.Series:
+    """Return a non-mutating UTC-indexed view for both gap-fill implementations."""
+    normalized = series.copy(deep=False)
+    normalized.index = pd.to_datetime(series.index, utc=True)
+    return normalized
+
+
+def _pandas_gap_fill(series: pd.Series, step: pd.Timedelta) -> pd.Series:
+    """Run the UTC LOCF fallback shared by unavailable and failed engine paths."""
+    grid = pd.date_range(series.index.min(), series.index.max(), freq=step, tz="UTC")
+    return series.reindex(series.index.union(grid)).ffill().reindex(grid)
+
+
 def gap_fill_series(
     series: pd.Series, step: str | int | pd.Timedelta = "1D", *, client=None
 ) -> pd.Series:
@@ -75,20 +101,20 @@ def gap_fill_series(
     The engine's ``timeseries.gap_fill`` carries the last observation forward on a
     regular grid (the clear win over hand-rolled pandas reindex+ffill on irregular
     input). ``step`` accepts a pandas frequency string, an integer nanosecond interval,
-    or a pandas ``Timedelta``. Returns a new pandas Series on the regular grid; falls
-    back to a pandas reindex+ffill only when no engine is reachable (so callers always
-    get a result).
+    or a pandas ``Timedelta``. Legacy ``H`` and ``T`` suffixes are normalized to
+    ``h`` and ``min`` before pandas parses them. Naive timestamps are interpreted as
+    UTC; timezone-aware inputs are converted to UTC instants, and both routes return
+    a UTC-indexed Series. The function falls back to pandas reindex+ffill only when
+    no engine is reachable (so callers always get a result).
     """
+    series = _utc_series(series)
     if series.empty:
         return series
     normalized_step = _normalize_step(step)
     client = client or _client()
     if client is None:
         # No engine — degrade to the pandas equivalent so the caller still works.
-        grid = pd.date_range(
-            series.index.min(), series.index.max(), freq=normalized_step, tz="UTC"
-        )
-        return series.reindex(series.index.union(grid)).ffill().reindex(grid)
+        return _pandas_gap_fill(series, normalized_step)
     sid = f"finseries:{uuid.uuid4().hex}"
     try:
         ns = _to_ns(series.index)
@@ -105,10 +131,7 @@ def gap_fill_series(
             "[CONCEPT:AU-KG.domains.ohlcv-gap-fill] gap_fill_series engine path failed: %s",
             e,
         )
-        grid = pd.date_range(
-            series.index.min(), series.index.max(), freq=normalized_step, tz="UTC"
-        )
-        return series.reindex(series.index.union(grid)).ffill().reindex(grid)
+        return _pandas_gap_fill(series, normalized_step)
 
 
 def asof_align(series: pd.Series, at: pd.Index, *, client=None) -> pd.Series:
