@@ -14,6 +14,7 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
+from types import ModuleType
 from typing import Any, cast
 
 from agent_utilities.core.config import setting
@@ -25,8 +26,11 @@ from agent_utilities.models.knowledge_graph import (
 from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
 from agent_utilities.security.log_redaction import redact_for_log
 
+_otel_trace: ModuleType | None
 try:
-    from opentelemetry import trace as _otel_trace
+    from opentelemetry import trace
+
+    _otel_trace = trace
 except ImportError:  # pragma: no cover - exercised by the OTel-absent import-guard test
     _otel_trace = None
 
@@ -2727,8 +2731,7 @@ class GraphComputeEngine:
                 )
             rows = unified_fn(plan) or []
         if rows and any(
-            isinstance(operation, dict) and "Rank" in operation
-            for operation in plan
+            isinstance(operation, dict) and "Rank" in operation for operation in plan
         ):
             # The engine currently publishes GraphCore fields before its
             # SemanticStore projection inside a cross-modal transaction.  Rank

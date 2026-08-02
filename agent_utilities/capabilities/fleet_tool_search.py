@@ -36,6 +36,8 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+from pydantic_ai.toolsets import AbstractToolset
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pydantic_ai import RunContext
     from pydantic_ai.capabilities import ToolSearch
@@ -79,7 +81,7 @@ def fleet_relevance_search(
     return [name for _, name in scored]
 
 
-class FleetToolset:
+class FleetToolset(AbstractToolset[Any]):
     """Exposes the mcp-multiplexer's fleet catalog as a native pydantic-ai toolset.
 
     Every fleet tool is registered ``defer_loading=True`` — hidden from the model

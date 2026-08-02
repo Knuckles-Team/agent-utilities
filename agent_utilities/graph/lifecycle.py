@@ -16,16 +16,19 @@ Extracted from the monolithic steps.py for maintainability.
 
 
 import logging
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from pydantic_graph import End
 
 from agent_utilities.core.contextual_model import create_context_agent
 
-try:
+if TYPE_CHECKING:
     from pydantic_graph.step import StepContext
-except ImportError:
-    from pydantic_graph.beta import StepContext
+else:
+    try:
+        from pydantic_graph.step import StepContext
+    except ImportError:
+        from pydantic_graph.beta import StepContext
 
 from agent_utilities.core.config import emit_graph_event, load_specialized_prompts
 

@@ -53,14 +53,14 @@ import logging
 import math
 import os
 import re
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
 
 from agent_utilities.core.config import AgentConfig, resolve_langfuse_host, setting
 from agent_utilities.security.persistence_privacy import persistence_reference
 
 if TYPE_CHECKING:
-    pass
+    from opentelemetry.sdk.trace.export import SpanExporter
 
 
 from agent_utilities.core.config import (
@@ -536,7 +536,7 @@ def _create_otlp_span_processor(
         )
 
         processor = BatchSpanProcessor(
-            exporter,
+            cast("SpanExporter", exporter),
             max_queue_size=2048,
             max_export_batch_size=512,
             schedule_delay_millis=5000,

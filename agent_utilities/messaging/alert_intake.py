@@ -167,8 +167,12 @@ async def serve_alert_intake(engine: Any, port: int) -> None:
     app["engine"] = engine
     app["alert_intake_token"] = str(token)
     app["alert_intake_deliveries"] = asyncio.Semaphore(_MAX_CONCURRENT_DELIVERIES)
+
+    async def _health(_request: web.Request) -> web.Response:
+        return web.json_response({"ok": True})
+
     app.router.add_post("/alert", _handle)
-    app.router.add_get("/health", lambda r: web.json_response({"ok": True}))
+    app.router.add_get("/health", _health)
     runner = web.AppRunner(app)
     try:
         await runner.setup()

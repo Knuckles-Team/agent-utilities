@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import UsageLimitExceeded
 from pydantic_graph import End
@@ -20,10 +20,13 @@ from pydantic_graph import End
 from agent_utilities.core.config import setting
 from agent_utilities.core.contextual_model import create_context_agent
 
-try:
+if TYPE_CHECKING:
     from pydantic_graph.step import StepContext
-except ImportError:
-    from pydantic_graph.beta import StepContext
+else:
+    try:
+        from pydantic_graph.step import StepContext
+    except ImportError:
+        from pydantic_graph.beta import StepContext
 
 from agent_utilities.core.config import (
     config,
