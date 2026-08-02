@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
-from agent_utilities.models.graph import GraphExecutionEvidence
+from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+    get_company_brain,
+    reset_company_brain,
+)
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
+from agent_utilities.models.company_brain import ActorType, DataClassification, NodeACL
+from agent_utilities.models.graph import (
+    GraphExecutionEvidence,
+    GraphTaskEvidence,
+    GraphTransitionEvidence,
+)
 from agent_utilities.models.schema_definition import SCHEMA
 from agent_utilities.observability.trace_ontology import (
     TRACE_PRODUCED_OUTCOME_EDGE,
@@ -18,6 +31,7 @@ from agent_utilities.observability.trace_ontology import (
     tool_call_properties,
     trace_properties,
 )
+from agent_utilities.security.brain_context import ActorContext, use_actor
 
 _GRAPH_EVIDENCE = GraphExecutionEvidence(
     topology="multi_agent",
@@ -26,23 +40,83 @@ _GRAPH_EVIDENCE = GraphExecutionEvidence(
     runtime_version="2.21.0",
     node_sequence=["router", "dispatcher", "__end__"],
     transitions=[
-        {
-            "sequence": 1,
-            "scheduled_tasks": [{"node_id": "router", "task_id": "task:router"}],
-        },
-        {
-            "sequence": 2,
-            "scheduled_tasks": [
-                {"node_id": "dispatcher", "task_id": "task:dispatcher"}
+        GraphTransitionEvidence(
+            sequence=1,
+            scheduled_tasks=[
+                GraphTaskEvidence(node_id="router", task_id="task:router")
             ],
-        },
-        {
-            "sequence": 3,
-            "scheduled_tasks": [{"node_id": "__end__", "task_id": "task:end"}],
-        },
+        ),
+        GraphTransitionEvidence(
+            sequence=2,
+            scheduled_tasks=[
+                GraphTaskEvidence(node_id="dispatcher", task_id="task:dispatcher")
+            ],
+        ),
+        GraphTransitionEvidence(
+            sequence=3,
+            scheduled_tasks=[GraphTaskEvidence(node_id="__end__", task_id="task:end")],
+        ),
     ],
     checkpoint_ids=["ckpt:fixture:1"],
 )
+
+
+@dataclass
+class _TraceBackend:
+    """Capture the governed temporal query without replacing its read seam."""
+
+    rows: list[dict[str, Any]]
+    calls: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
+
+    def execute_read(self, query: str, params: dict[str, Any]) -> list[dict[str, Any]]:
+        self.calls.append((query, params))
+        return list(self.rows)
+
+
+class _TraceQueryHarness:
+    """Minimal host that invokes the production ``QueryMixin`` read path."""
+
+    def __init__(self, backend: _TraceBackend) -> None:
+        # The test backend deliberately implements only the governed read seam;
+        # the production mixin's broader engine protocol is not exercised here.
+        self.backend: Any = backend
+        self.control_backend = None
+
+    def query_cypher(
+        self,
+        query: str,
+        params: dict[str, Any] | None = None,
+        clearance_level: int = 999,
+        as_of: str | None = None,
+        *,
+        session: GraphSession | None = None,
+        include_epistemic: bool = False,
+    ) -> list[dict[str, Any]]:
+        return QueryMixin.query_cypher(
+            cast(QueryMixin, self),
+            query,
+            params,
+            clearance_level,
+            as_of,
+            session=session,
+            include_epistemic=include_epistemic,
+        )
+
+    def retrieve_orthogonal_context(
+        self,
+        query: str,
+        views: list[str] | None = None,
+    ) -> dict[str, Any]:
+        return QueryMixin.retrieve_orthogonal_context(
+            cast(QueryMixin, self), query, views
+        )
+
+
+@pytest.fixture
+def trace_brain():
+    reset_company_brain()
+    yield get_company_brain()
+    reset_company_brain()
 
 
 def test_canonical_trace_edges_are_single_authority() -> None:
@@ -50,6 +124,73 @@ def test_canonical_trace_edges_are_single_authority() -> None:
     assert TRACE_PRODUCED_OUTCOME_EDGE == "PRODUCED_OUTCOME"
     used_tool = next(edge for edge in SCHEMA.edges if edge.type == TRACE_USED_TOOL_EDGE)
     assert used_tool.connections == [{"from": "RunTrace", "to": "ToolCall"}]
+
+
+def test_temporal_view_returns_ordered_canonical_traces_under_tenant_scope(
+    trace_brain,
+) -> None:
+    """The active consumer keeps its result rows and governed query boundary."""
+    trace_ids = ("trace:latest", "trace:middle", "trace:earliest")
+    rows: list[dict[str, dict[str, Any]]] = [
+        {
+            "r": {
+                "id": "trace:latest",
+                "event_sequence": 30,
+                "tenant_id": "tenant-a",
+            }
+        },
+        {
+            "r": {
+                "id": "trace:middle",
+                "event_sequence": 20,
+                "tenant_id": "tenant-a",
+            }
+        },
+        {
+            "r": {
+                "id": "trace:earliest",
+                "event_sequence": 10,
+                "tenant_id": "tenant-a",
+            }
+        },
+    ]
+    for node_id in trace_ids:
+        trace_brain.permissions.set_acl(
+            NodeACL(
+                node_id=node_id,
+                classification=DataClassification.PUBLIC,
+            )
+        )
+    backend = _TraceBackend(rows=rows)
+    engine = _TraceQueryHarness(backend)
+    actor = ActorContext(
+        actor_id="agent:temporal-reader",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("kg:read",),
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        scopes=frozenset({"kg:read"}),
+        policy_version="trace-test",
+        audience="agent-services",
+    )
+
+    with use_actor(actor), use_session(session):
+        context = engine.retrieve_orthogonal_context(
+            "recent activity", views=["temporal"]
+        )
+
+    assert context == {"query": "recent activity", "views": {"temporal": rows}}
+    assert len(backend.calls) == 1
+    cypher, params = backend.calls[0]
+    assert "MATCH (r:RunTrace)" in cypher
+    assert "ORDER BY r.event_sequence DESC LIMIT 5" in cypher
+    assert "Episode" not in cypher
+    assert "r.tenant_id = $_tenant_scope_id" in cypher
+    assert params["_tenant_scope_id"] == "tenant-a"
 
 
 def test_trace_cursor_advances_numerically_from_rows() -> None:
