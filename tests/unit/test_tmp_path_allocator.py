@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import os
@@ -23,6 +24,7 @@ from _tmp_path_allocator import (
     _MAX_MKDIR_CALLS_PER_ALLOCATION,
     _MAX_ROOT_DIRECTORY_FANOUT,
     _MAX_TOKEN_DIRECTORY_FANOUT,
+    _TOKEN_DIRECTORY_COMPONENT_PREFIX,
     BoundedTempPathAllocator,
 )
 
@@ -35,6 +37,16 @@ _RETENTION_EXPECTATIONS = {
     "failed": {"call_pass": False, "call_failure": True, "setup_failure": False},
     "none": {"call_pass": True, "call_failure": True, "setup_failure": True},
 }
+_WINDOWS_RESERVED_DIRECTORY_NAMES = frozenset(
+    {
+        "CON",
+        "PRN",
+        "AUX",
+        "NUL",
+        *(f"COM{number}" for number in range(1, 10)),
+        *(f"LPT{number}" for number in range(1, 10)),
+    }
+)
 
 
 def _install_allocator_plugin(pytester, directory: str) -> Path:
@@ -92,6 +104,17 @@ def _allocator_relative_parts(path: Path) -> tuple[str, ...]:
     return path.relative_to(root.parent).parts
 
 
+def _allocation_token_from_parts(parts: tuple[str, ...]) -> str:
+    """Recover the encoded token from its filesystem-safe path components."""
+    return (
+        "".join(
+            component.removeprefix(_TOKEN_DIRECTORY_COMPONENT_PREFIX)
+            for component in parts[2:-1]
+        )
+        + parts[-1]
+    )
+
+
 def _assert_bounded_fixture_paths(paths: dict[str, Path]) -> None:
     """Assert real fixture paths use the documented bounded-fanout layout."""
     for path in paths.values():
@@ -99,8 +122,12 @@ def _assert_bounded_fixture_paths(paths: dict[str, Path]) -> None:
         assert parts[0] == "t"
         assert len(parts) == _ALLOCATION_PATH_COMPONENTS
         assert len(parts[1]) == 2
-        assert tuple(len(part) for part in parts[2:-1]) == (
-            _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
+        assert tuple(len(part) for part in parts[2:-1]) == tuple(
+            len(_TOKEN_DIRECTORY_COMPONENT_PREFIX) + width
+            for width in _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
+        )
+        assert all(
+            part.startswith(_TOKEN_DIRECTORY_COMPONENT_PREFIX) for part in parts[2:-1]
         )
         assert len(parts[-1]) == _LEAF_TOKEN_WIDTH
 
@@ -212,13 +239,44 @@ def test_allocator_uses_deterministic_bounded_fanout(tmp_path: Path) -> None:
     assert all(len(path.parts[1]) == 2 for path in relative_paths)
     assert all(
         tuple(len(part) for part in path.parts[2:-1])
-        == _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
+        == tuple(
+            len(_TOKEN_DIRECTORY_COMPONENT_PREFIX) + width
+            for width in _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
+        )
+        and all(
+            part.startswith(_TOKEN_DIRECTORY_COMPONENT_PREFIX)
+            for part in path.parts[2:-1]
+        )
         and len(path.parts[-1]) == _LEAF_TOKEN_WIDTH
         for path in relative_paths
     )
     assert set(tmp_path.iterdir()) == {root}
     assert len([child for child in root.iterdir() if child.is_dir()]) == 256
     _assert_every_allocator_directory_is_bounded(root)
+
+
+@pytest.mark.parametrize("reserved_name", ("CON", "PRN", "AUX", "NUL"))
+def test_allocator_avoids_windows_reserved_token_directories(
+    tmp_path: Path, reserved_name: str
+) -> None:
+    """A token prefix cannot create a Windows device-name path component."""
+    encoded_token = f"{reserved_name}{'A' * 8}"
+    token_value = int.from_bytes(
+        base64.urlsafe_b64decode(f"{encoded_token}="), byteorder="big"
+    )
+    allocator = BoundedTempPathAllocator(tmp_path)
+    allocator._token_origin = token_value
+
+    path = allocator.allocate("tests/unit/test_case.py::test_windows_names")
+    parts = _allocator_relative_parts(path)
+
+    assert allocator._encode_token(token_value) == encoded_token
+    assert parts[2] == f"{_TOKEN_DIRECTORY_COMPONENT_PREFIX}{reserved_name}"
+    assert all(
+        component.upper() not in _WINDOWS_RESERVED_DIRECTORY_NAMES
+        for component in parts[1:]
+    )
+    assert _allocation_token_from_parts(parts) == encoded_token
 
 
 def test_allocator_bounds_every_directory_under_adversarial_node_prefix_spread(
@@ -426,16 +484,18 @@ def test_allocator_full_stream_is_independent_of_max_random_origin(
 
     first = allocator.allocate(node_id)
     second = allocator.allocate(node_id)
-    assert "".join(_allocator_relative_parts(first)[2:]) == allocator._encode_token(
-        maximum_origin
-    )
-    assert "".join(_allocator_relative_parts(second)[2:]) == allocator._encode_token(0)
+    assert _allocation_token_from_parts(
+        _allocator_relative_parts(first)
+    ) == allocator._encode_token(maximum_origin)
+    assert _allocation_token_from_parts(
+        _allocator_relative_parts(second)
+    ) == allocator._encode_token(0)
 
     allocator._next_token = _ALLOCATION_TOKEN_LIMIT - 1
     final = allocator.allocate(node_id)
-    assert "".join(_allocator_relative_parts(final)[2:]) == allocator._encode_token(
-        _ALLOCATION_TOKEN_LIMIT - 2
-    )
+    assert _allocation_token_from_parts(
+        _allocator_relative_parts(final)
+    ) == allocator._encode_token(_ALLOCATION_TOKEN_LIMIT - 2)
     with pytest.raises(RuntimeError, match="token space exhausted"):
         allocator.allocate(node_id)
 
@@ -503,8 +563,13 @@ def test_tmp_path_fixture_is_wired_to_bounded_allocator(
     assert relative_path.parts[0] == "t"
     assert len(relative_path.parts) == _ALLOCATION_PATH_COMPONENTS
     assert len(relative_path.parts[1]) == 2
-    assert tuple(len(part) for part in relative_path.parts[2:-1]) == (
-        _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
+    assert tuple(len(part) for part in relative_path.parts[2:-1]) == tuple(
+        len(_TOKEN_DIRECTORY_COMPONENT_PREFIX) + width
+        for width in _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS
+    )
+    assert all(
+        part.startswith(_TOKEN_DIRECTORY_COMPONENT_PREFIX)
+        for part in relative_path.parts[2:-1]
     )
     assert len(relative_path.parts[-1]) == _LEAF_TOKEN_WIDTH
 

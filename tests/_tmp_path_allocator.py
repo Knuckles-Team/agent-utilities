@@ -27,11 +27,15 @@ _ALLOCATION_TOKEN_LIMIT = 1 << _ALLOCATION_TOKEN_BITS
 _ALLOCATION_TOKEN_MASK = _ALLOCATION_TOKEN_LIMIT - 1
 _ALLOCATION_TOKEN_CHARACTERS = (_ALLOCATION_TOKEN_BITS + 5) // 6
 _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS = (3, 3, 3)
+_TOKEN_DIRECTORY_COMPONENT_PREFIX = "d"
 _LEAF_TOKEN_WIDTH = 2
 # A 64-bit value occupies eleven URL-safe base64 characters. The final token
 # character carries four data bits, so the final two-character leaf has exactly
 # ten bits of fanout. Each three-character parent is hard-bounded at 262,144
 # children, avoiding directory enumeration while keeping the hot path shallow.
+# Every token-directory component also has a fixed safe prefix. Base64 can
+# encode Windows device names such as ``CON``; the prefix makes them impossible
+# without changing the token stream or any branch's fanout.
 _MAX_LEAF_DIRECTORY_FANOUT = 1 << (_LEAF_TOKEN_WIDTH * 6 - 2)
 _MAX_TOKEN_DIRECTORY_FANOUT = 1 << (max(_ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS) * 6)
 _MAX_ROOT_DIRECTORY_FANOUT = 1 << (_NODE_SHARD_WIDTH * 4)
@@ -65,9 +69,10 @@ class BoundedTempPathAllocator:
     permutation of a separate 64-bit ordinal stream: ``(origin + ordinal) mod
     2**64``.  Thus a high random origin does not shorten the stream; every
     allocator can consume all ``2**64`` ordinals exactly once. Fixed-width
-    URL-safe-base64 token groups become radix-tree levels, which bounds every
-    lower allocator-managed directory at 262,144 children (and each final
-    two-character leaf group at 1,024).
+    URL-safe-base64 token groups become radix-tree levels, each with a fixed
+    filesystem-safe prefix. This bounds every lower allocator-managed directory
+    at 262,144 children (and each final two-character leaf group at 1,024) while
+    excluding Windows device-name components such as ``CON``.
 
     Atomic ``mkdir`` remains the authority across threads and processes: four
     distinct token candidates are attempted before the allocator raises rather
@@ -126,7 +131,10 @@ class BoundedTempPathAllocator:
 
         token_index = 0
         for component_width in _ALLOCATION_TOKEN_PARENT_COMPONENT_WIDTHS:
-            component = token[token_index : token_index + component_width]
+            component = (
+                _TOKEN_DIRECTORY_COMPONENT_PREFIX
+                + token[token_index : token_index + component_width]
+            )
             branch = branches.get(component)
             if branch is None:
                 directory = parent / component
