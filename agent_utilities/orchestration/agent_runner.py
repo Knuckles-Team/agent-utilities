@@ -2388,18 +2388,54 @@ def _configured_fleet_server_prefix(server_name: str) -> str:
     return ""
 
 
+# D-CDX-41: the ONE mapping from an advertised, public ``model_class`` name
+# to the internal ``AgentConfig.chat_models[*].intelligence_level`` it
+# resolves against. ``_configured_model_for_class`` and
+# ``available_model_classes`` both read this SAME dict so the two can never
+# advertise/accept a class name neither of them actually checks the same way.
+_MODEL_CLASS_INTELLIGENCE_LEVELS: dict[str, str] = {
+    "economy": "light",
+    "standard": "normal",
+}
+
+
+def available_model_classes() -> dict[str, bool]:
+    """Which advertised ``model_class`` values currently resolve to at least
+    one configured model in the live catalog (D-CDX-41).
+
+    A cost-conscious caller — or a deployment preflight/health-check — can
+    call this BEFORE preview/execution to learn that a class it is about to
+    request (e.g. ``"economy"``) is unavailable, instead of discovering it
+    only after paying for a full orchestration setup that precedes the
+    actual model resolution. Every key in
+    ``_MODEL_CLASS_INTELLIGENCE_LEVELS`` (every class this module ever
+    accepts) is always present in the result, so a caller never has to
+    special-case a missing key as "unknown vs. unavailable".
+    """
+    from agent_utilities.core.config import config as agent_config
+
+    configured_levels = {
+        str(model.intelligence_level).strip().casefold()
+        for model in agent_config.chat_models
+    }
+    return {
+        model_class: level in configured_levels
+        for model_class, level in _MODEL_CLASS_INTELLIGENCE_LEVELS.items()
+    }
+
+
 def _configured_model_for_class(model_class: str) -> Any:
     """Resolve an explicit runtime class to one exact AgentConfig model tier."""
     from agent_utilities.core.config import config as agent_config
 
-    levels = {"economy": "light", "standard": "normal"}
     requested = str(model_class or "").strip().casefold()
-    if requested not in levels:
+    if requested not in _MODEL_CLASS_INTELLIGENCE_LEVELS:
         raise ValueError("model_class must be economy or standard")
+    level = _MODEL_CLASS_INTELLIGENCE_LEVELS[requested]
     matches = [
         model
         for model in agent_config.chat_models
-        if str(model.intelligence_level).strip().casefold() == levels[requested]
+        if str(model.intelligence_level).strip().casefold() == level
     ]
     if not matches:
         raise RuntimeError(f"configured {requested} model class is unavailable")
