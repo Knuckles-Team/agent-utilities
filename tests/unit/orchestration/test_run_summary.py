@@ -532,20 +532,25 @@ async def test_successful_run_keeps_gateway_loop_live_while_persisting_one_trace
 
     trace_entered = threading.Event()
     trace_release = threading.Event()
-    observed: dict[str, object] = {"calls": 0}
+    calls = 0
+    trace_thread: threading.Thread | None = None
+    trace_finished_at: float | None = None
+    heartbeat_at: float | None = None
     loop_thread = threading.current_thread()
 
     def _blocking_trace(*_args: object, **_kwargs: object) -> bool:
-        observed["calls"] = int(observed["calls"]) + 1
-        observed["trace_thread"] = threading.current_thread()
+        nonlocal calls, trace_finished_at, trace_thread
+        calls += 1
+        trace_thread = threading.current_thread()
         trace_entered.set()
         trace_release.wait(timeout=1.0)
-        observed["trace_finished_at"] = time.monotonic()
+        trace_finished_at = time.monotonic()
         return True
 
     async def _heartbeat() -> None:
+        nonlocal heartbeat_at
         await _asyncio.sleep(0.01)
-        observed["heartbeat_at"] = time.monotonic()
+        heartbeat_at = time.monotonic()
 
     fake_engine = MagicMock()
     fake_engine.backend = None
@@ -615,9 +620,11 @@ async def test_successful_run_keeps_gateway_loop_live_while_persisting_one_trace
         trace_release.set()
         release_timer.cancel()
 
-    assert observed["calls"] == 1
-    assert observed["trace_thread"] is not loop_thread
-    assert observed["heartbeat_at"] < observed["trace_finished_at"]
+    assert calls == 1
+    assert trace_thread is not loop_thread
+    assert heartbeat_at is not None
+    assert trace_finished_at is not None
+    assert heartbeat_at < trace_finished_at
 
 
 @pytest.mark.asyncio
@@ -636,20 +643,25 @@ async def test_cancelled_run_keeps_gateway_loop_live_while_persisting_one_trace(
 
     trace_entered = threading.Event()
     trace_release = threading.Event()
-    observed: dict[str, object] = {"calls": 0}
+    calls = 0
+    trace_thread: threading.Thread | None = None
+    trace_finished_at: float | None = None
+    heartbeat_at: float | None = None
     loop_thread = threading.current_thread()
 
     def _blocking_trace(*_args: object, **_kwargs: object) -> bool:
-        observed["calls"] = int(observed["calls"]) + 1
-        observed["trace_thread"] = threading.current_thread()
+        nonlocal calls, trace_finished_at, trace_thread
+        calls += 1
+        trace_thread = threading.current_thread()
         trace_entered.set()
         trace_release.wait(timeout=1.0)
-        observed["trace_finished_at"] = time.monotonic()
+        trace_finished_at = time.monotonic()
         return True
 
     async def _heartbeat() -> None:
+        nonlocal heartbeat_at
         await _asyncio.sleep(0.01)
-        observed["heartbeat_at"] = time.monotonic()
+        heartbeat_at = time.monotonic()
 
     fake_engine = MagicMock()
     fake_engine.backend = None
@@ -721,6 +733,8 @@ async def test_cancelled_run_keeps_gateway_loop_live_while_persisting_one_trace(
         trace_release.set()
         release_timer.cancel()
 
-    assert observed["calls"] == 1
-    assert observed["trace_thread"] is not loop_thread
-    assert observed["heartbeat_at"] < observed["trace_finished_at"]
+    assert calls == 1
+    assert trace_thread is not loop_thread
+    assert heartbeat_at is not None
+    assert trace_finished_at is not None
+    assert heartbeat_at < trace_finished_at
