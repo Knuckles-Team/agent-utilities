@@ -3626,10 +3626,11 @@ def _record_execution_trace(
 
     # The native graph authority validates and commits an ordered BatchUpdate
     # atomically.  On the direct delegation path this replaces the serial
-    # RunTrace/Outcome/tool provenance writes below with one durable RPC.  A
-    # backend without that exact capability keeps the portable write path; a
-    # native batch failure is deliberately all-or-nothing rather than being
-    # reinterpreted as a partial success.
+    # RunTrace/Outcome/tool provenance writes below with one durable core RPC,
+    # followed by at most one best-effort auxiliary-link batch. A backend
+    # without the core capability keeps the portable write path; a native core
+    # failure is deliberately all-or-nothing rather than being reinterpreted as
+    # a partial success.
     if tool_calls:
         batch_status = _persist_execution_provenance_batch(
             engine,
@@ -4068,14 +4069,21 @@ def _persist_execution_provenance_batch(
     skill_id: str,
     tool_calls: list[dict[str, Any]],
 ) -> str:
-    """Persist one run's trace and tool provenance in one native batch when able.
+    """Persist durable trace provenance first, then enrich it when endpoints exist.
 
-    Returns ``"written"`` after the native atomic commit, ``"unavailable"``
-    when the configured backend cannot provide the native batch or auxiliary
-    endpoint preflight, and ``"failed"`` when a supported native batch rejects
-    or fails.  The latter intentionally does not fall back to serial writes:
-    doing so would turn one explicit all-or-nothing authority failure into an
-    unobservable partial outcome.
+    The first native batch is intentionally self-contained: the RunTrace,
+    OutcomeEvaluation, ToolCall nodes, and their ``PRODUCED_OUTCOME`` / ``USED_TOOL``
+    edges can all be committed without relying on a separately ingested server,
+    skill, or target node.  Once that authority commit succeeds, one optional
+    follow-up batch can add ``EXECUTED_ON``, ``USES_SKILL``, and ``ACTED_ON``.
+    A stale endpoint preflight or optional-link rejection therefore leaves the
+    durable audit core intact and never triggers serial duplicate writes.
+
+    Returns ``"written"`` after the core native commit, ``"unavailable"`` when
+    the configured backend cannot commit that core natively, and ``"failed"``
+    when a supported core batch rejects or fails. The latter intentionally does
+    not fall back to serial writes: doing so would turn one explicit
+    all-or-nothing authority failure into an unobservable partial outcome.
     """
     batch_write = getattr(engine, "batch_typed_mutations", None)
     if not callable(batch_write):
@@ -4095,44 +4103,14 @@ def _persist_execution_provenance_batch(
     )
 
     oid = outcome_id(run_id)
-    candidate_ids: list[str] = []
     server_name = bound_server or agent_name
     server_id = f"srv:{server_name}"
-    candidate_ids.append(server_id)
     if skill_used:
         skill_node_id = skill_id or f"resource:skill:{skill_used}"
     else:
         skill_node_id = ""
-    if skill_node_id:
-        candidate_ids.append(skill_node_id)
 
-    tool_targets: dict[int, str] = {}
-    for index, tool_call in enumerate(tool_calls):
-        target_id = _extract_tool_call_target(tool_call.get("args", ""))
-        if target_id:
-            candidate_ids.append(target_id)
-            tool_targets[index] = target_id
-
-    existing: dict[str, bool] = {}
-    if candidate_ids:
-        has_batch = getattr(getattr(engine, "graph", None), "has_batch", None)
-        if not callable(has_batch):
-            return "unavailable"
-        unique_candidates = list(dict.fromkeys(candidate_ids))
-        try:
-            raw_existing = has_batch(unique_candidates)
-        except Exception as exc:  # noqa: BLE001 — inability to preflight optional endpoints must retain the portable path
-            logger.debug("native provenance endpoint preflight skipped: %s", exc)
-            return "unavailable"
-        if not isinstance(raw_existing, dict):
-            return "unavailable"
-        existing = {
-            candidate: value is True
-            for candidate, value in raw_existing.items()
-            if isinstance(candidate, str)
-        }
-
-    mutations: list[dict[str, Any]] = [
+    core_mutations: list[dict[str, Any]] = [
         {
             "kind": "node",
             "id": trace_id,
@@ -4159,28 +4137,9 @@ def _persist_execution_provenance_batch(
             "properties": {},
         },
     ]
-    if existing.get(server_id, False):
-        mutations.append(
-            {
-                "kind": "edge",
-                "source": trace_id,
-                "target": server_id,
-                "rel_type": "EXECUTED_ON",
-                "properties": {},
-            }
-        )
-    if skill_node_id and existing.get(skill_node_id, False):
-        mutations.append(
-            {
-                "kind": "edge",
-                "source": trace_id,
-                "target": skill_node_id,
-                "rel_type": "USES_SKILL",
-                "properties": {},
-            }
-        )
 
     prepared_tool_calls: list[tuple[dict[str, Any], bool]] = []
+    tool_target_edges: list[tuple[str, str]] = []
     for index, tool_call in enumerate(tool_calls):
         tool_call_id = f"toolcall:{trace_id.removeprefix('trace:')}:{index}"
         ok = not _tool_call_errored(tool_call)
@@ -4195,7 +4154,7 @@ def _persist_execution_provenance_batch(
             timestamp=timestamp,
         )
         _stamp_run_identity(props)
-        mutations.extend(
+        core_mutations.extend(
             (
                 {
                     "kind": "node",
@@ -4212,21 +4171,13 @@ def _persist_execution_provenance_batch(
                 },
             )
         )
-        target_id = tool_targets.get(index, "")
-        if target_id and target_id != tool_call_id and existing.get(target_id, False):
-            mutations.append(
-                {
-                    "kind": "edge",
-                    "source": tool_call_id,
-                    "target": target_id,
-                    "rel_type": "ACTED_ON",
-                    "properties": {},
-                }
-            )
+        target_id = _extract_tool_call_target(tool_call.get("args", ""))
+        if target_id and target_id != tool_call_id:
+            tool_target_edges.append((tool_call_id, target_id))
         prepared_tool_calls.append((tool_call, ok))
 
     try:
-        if not batch_write(mutations):
+        if not batch_write(core_mutations):
             return "unavailable"
     except Exception as exc:  # noqa: BLE001 — a native batch failure is atomic and must stay visible as a failed trace write
         if getattr(exc, "authority_committed", False):
@@ -4250,6 +4201,15 @@ def _persist_execution_provenance_batch(
             )
             return "failed"
 
+    _persist_optional_execution_provenance_links(
+        engine,
+        batch_write=batch_write,
+        trace_id=trace_id,
+        server_id=server_id,
+        skill_node_id=skill_node_id,
+        tool_target_edges=tool_target_edges,
+    )
+
     try:
         from agent_utilities.knowledge_graph.adaptation.feedback import FeedbackService
 
@@ -4270,12 +4230,112 @@ def _persist_execution_provenance_batch(
             except Exception as exc:  # noqa: BLE001 — feedback is downstream of the already-durable ToolCall
                 logger.debug("[KG-2.296] tool action_outcome failed: %s", exc)
     logger.info(
-        "[KG-2.296] run %s: persisted %d ToolCall node(s) under %s in one native batch",
+        "[KG-2.296] run %s: persisted %d ToolCall node(s) under %s in a native core batch",
         run_id,
         len(prepared_tool_calls),
         trace_id,
     )
     return "written"
+
+
+def _persist_optional_execution_provenance_links(
+    engine: IntelligenceGraphEngine,
+    *,
+    batch_write: Callable[[list[dict[str, Any]]], Any],
+    trace_id: str,
+    server_id: str,
+    skill_node_id: str,
+    tool_target_edges: list[tuple[str, str]],
+) -> None:
+    """Best-effort one-batch enrichment for pre-existing provenance endpoints.
+
+    The durable RunTrace/Outcome/ToolCall core is already committed before this
+    helper runs. Endpoint presence is consequently advisory: a failed preflight,
+    an endpoint removed immediately after it, or a rejected optional batch may
+    leave enrichment absent, but may never invalidate or retry the core write.
+    """
+    candidate_ids = [server_id]
+    if skill_node_id:
+        candidate_ids.append(skill_node_id)
+    candidate_ids.extend(target_id for _, target_id in tool_target_edges)
+    has_batch = getattr(getattr(engine, "graph", None), "has_batch", None)
+    if not callable(has_batch):
+        logger.debug(
+            "native optional provenance links skipped: endpoint preflight unavailable"
+        )
+        return
+
+    unique_candidates = list(dict.fromkeys(candidate_ids))
+    try:
+        raw_existing = has_batch(unique_candidates)
+    except Exception as exc:  # noqa: BLE001 — core provenance is already durable; optional enrichment is skipped
+        logger.debug("native optional provenance endpoint preflight skipped: %s", exc)
+        return
+    if not isinstance(raw_existing, dict):
+        logger.debug(
+            "native optional provenance endpoint preflight skipped: invalid response"
+        )
+        return
+    existing = {
+        candidate: value is True
+        for candidate, value in raw_existing.items()
+        if isinstance(candidate, str)
+    }
+
+    optional_mutations: list[dict[str, Any]] = []
+    if existing.get(server_id, False):
+        optional_mutations.append(
+            {
+                "kind": "edge",
+                "source": trace_id,
+                "target": server_id,
+                "rel_type": "EXECUTED_ON",
+                "properties": {},
+            }
+        )
+    if skill_node_id and existing.get(skill_node_id, False):
+        optional_mutations.append(
+            {
+                "kind": "edge",
+                "source": trace_id,
+                "target": skill_node_id,
+                "rel_type": "USES_SKILL",
+                "properties": {},
+            }
+        )
+    for tool_call_id, target_id in tool_target_edges:
+        if existing.get(target_id, False):
+            optional_mutations.append(
+                {
+                    "kind": "edge",
+                    "source": tool_call_id,
+                    "target": target_id,
+                    "rel_type": "ACTED_ON",
+                    "properties": {},
+                }
+            )
+    if not optional_mutations:
+        return
+
+    try:
+        if not batch_write(optional_mutations):
+            logger.debug(
+                "native optional provenance links skipped: batch unavailable after core commit"
+            )
+    except Exception as exc:  # noqa: BLE001 — endpoint races and optional failures must not invalidate the committed core
+        if getattr(exc, "authority_committed", False):
+            logger.error(
+                "Native optional provenance links authority committed but mirror handoff "
+                "failed (trace_id=%r): %s",
+                trace_id,
+                exc,
+            )
+        else:
+            logger.debug(
+                "native optional provenance links skipped (trace_id=%r): %s",
+                trace_id,
+                exc,
+            )
 
 
 # ---------------------------------------------------------------------------

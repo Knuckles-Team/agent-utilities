@@ -1,9 +1,10 @@
 """Native RunTrace + ToolCall provenance batching (D-CDX-33).
 
 The direct delegation path used to commit each trace, outcome, provenance edge,
-and tool call independently.  These focused tests keep the native one-RPC path
-truthful: it must preserve the portable graph shape, omit only unavailable
-auxiliary links, and never turn an atomic authority failure into partial writes.
+and tool call independently. These focused tests keep the native core-batch path
+truthful: it must preserve the portable graph shape, keep the durable core
+independent of auxiliary endpoints, and never turn an atomic authority failure
+into partial writes.
 """
 
 from __future__ import annotations
@@ -131,6 +132,18 @@ def _batch_graph_shape(
     return nodes, edges
 
 
+def _all_batch_graph_shape(
+    batches: list[list[dict[str, object]]],
+) -> tuple[set[tuple[str, str]], set[tuple[str, str, str]]]:
+    nodes: set[tuple[str, str]] = set()
+    edges: set[tuple[str, str, str]] = set()
+    for batch in batches:
+        batch_nodes, batch_edges = _batch_graph_shape(batch)
+        nodes.update(batch_nodes)
+        edges.update(batch_edges)
+    return nodes, edges
+
+
 def _portable_graph_shape(
     engine: _PortableTraceEngine,
 ) -> tuple[set[tuple[str, str]], set[tuple[str, str, str]]]:
@@ -144,8 +157,8 @@ def _tool_call_id(run_id: str, index: int = 0) -> str:
     return f"toolcall:{trace_id(run_id).removeprefix('trace:')}:{index}"
 
 
-def test_native_provenance_uses_one_batch_for_the_previously_seven_writes():
-    """One ServiceNow call has exactly one native write RPC, not seven serial ones."""
+def test_native_provenance_uses_core_and_optional_batches_instead_of_serial_writes():
+    """One ServiceNow call writes a self-contained core, then optional links once."""
     engine = _NativeTraceEngine(
         {
             "srv:servicenow-mcp",
@@ -156,16 +169,14 @@ def test_native_provenance_uses_one_batch_for_the_previously_seven_writes():
     assert _record(engine, tool_calls=[_tool_call()])
 
     assert len(engine.graph.batch_reads) == 1
-    assert len(engine.batches) == 1
-    mutations = engine.batches[0]
+    assert len(engine.batches) == 2
+    core_mutations, optional_mutations = engine.batches
     run_id = "run:provenance-batch"
     trace = trace_id(run_id)
     outcome = outcome_id(run_id)
     tool = _tool_call_id(run_id)
-    # RunTrace + Outcome + PRODUCED_OUTCOME + EXECUTED_ON + USES_SKILL +
-    # ToolCall + USED_TOOL = the seven authority operations from the profile.
-    assert len(mutations) == 7
-    assert _batch_graph_shape(mutations) == (
+    assert len(core_mutations) == 5
+    assert _batch_graph_shape(core_mutations) == (
         {
             (trace, "RunTrace"),
             (outcome, "OutcomeEvaluation"),
@@ -179,6 +190,16 @@ def test_native_provenance_uses_one_batch_for_the_previously_seven_writes():
             ),
             (
                 trace,
+                tool,
+                "USED_TOOL",
+            ),
+        },
+    )
+    assert _batch_graph_shape(optional_mutations) == (
+        set(),
+        {
+            (
+                trace,
                 "srv:servicenow-mcp",
                 "EXECUTED_ON",
             ),
@@ -186,11 +207,6 @@ def test_native_provenance_uses_one_batch_for_the_previously_seven_writes():
                 trace,
                 "resource:skill:servicenow-incident-resolution",
                 "USES_SKILL",
-            ),
-            (
-                trace,
-                tool,
-                "USED_TOOL",
             ),
         },
     )
@@ -210,7 +226,7 @@ def test_native_batch_preserves_portable_provenance_shape():
     assert _record(native, run_id="run:equivalent", tool_calls=tool_calls)
     assert _record(portable, run_id="run:equivalent", tool_calls=tool_calls)
 
-    assert _batch_graph_shape(native.batches[0]) == _portable_graph_shape(portable)
+    assert _all_batch_graph_shape(native.batches) == _portable_graph_shape(portable)
 
 
 def test_native_batch_omits_missing_auxiliary_endpoints_without_false_claims():
@@ -245,6 +261,7 @@ def test_native_batch_failure_is_not_reinterpreted_as_serial_partial_success():
 
     assert not _record(engine, tool_calls=[_tool_call()])
     assert len(engine.batches) == 1
+    assert engine.graph.batch_reads == []
     assert engine.serial_writes == 0
 
 
@@ -269,7 +286,7 @@ def test_committed_authority_batch_is_not_reported_as_missing_after_mirror_error
     engine = _CommittedButUnmirrored()
 
     assert _record(engine, tool_calls=[_tool_call()])
-    assert len(engine.batches) == 1
+    assert len(engine.batches) == 2
     assert engine.serial_writes == 0
 
 
@@ -293,23 +310,92 @@ def test_unavailable_native_batch_falls_back_to_portable_trace_and_tool_writes()
     ) in edges
 
 
-def test_failed_auxiliary_preflight_uses_portable_fallback():
+def test_failed_auxiliary_preflight_keeps_the_native_core_without_serial_fallback():
     class _BrokenPreflightGraph(_ExistingGraph):
         def has_batch(self, node_ids: list[str]) -> dict[str, bool]:
             raise RuntimeError("availability probe failed")
 
-    class _PreflightFallback(_PortableTraceEngine):
+    class _PreflightFailure(_NativeTraceEngine):
         def __init__(self) -> None:
             super().__init__()
             self.graph = _BrokenPreflightGraph()
+            self.serial_writes = 0
 
-        def batch_typed_mutations(self, mutations: list[dict[str, object]]) -> bool:
-            raise AssertionError("preflight failure must not attempt the native batch")
+        def add_node(self, *args: object, **kwargs: object) -> None:
+            self.serial_writes += 1
 
-    engine = _PreflightFallback()
+        def link_nodes(self, *args: object, **kwargs: object) -> None:
+            self.serial_writes += 1
+
+    engine = _PreflightFailure()
 
     assert _record(engine, tool_calls=[_tool_call()])
-    assert len(engine.nodes) == 3
+    assert len(engine.batches) == 1
+    assert engine.serial_writes == 0
+    _, core_edges = _batch_graph_shape(engine.batches[0])
+    assert {relationship for _, _, relationship in core_edges} == {
+        "PRODUCED_OUTCOME",
+        "USED_TOOL",
+    }
+
+
+def test_optional_endpoint_race_keeps_core_durable_without_serial_retry():
+    class _EndpointDisappearsGraph(_ExistingGraph):
+        def __init__(self, engine: Any) -> None:
+            super().__init__()
+            self.engine = engine
+
+        def has_batch(self, node_ids: list[str]) -> dict[str, bool]:
+            assert self.engine.core_durable
+            self.batch_reads.append(list(node_ids))
+            return {node_id: True for node_id in node_ids}
+
+    class _EndpointRace(_NativeTraceEngine):
+        def __init__(self) -> None:
+            super().__init__()
+            self.core_durable = False
+            self.durable_batches: list[list[dict[str, object]]] = []
+            self.serial_writes = 0
+            self.graph = _EndpointDisappearsGraph(self)
+
+        def batch_typed_mutations(self, mutations: list[dict[str, object]]) -> bool:
+            self.batches.append(copy.deepcopy(mutations))
+            if len(self.batches) == 1:
+                self.durable_batches.append(copy.deepcopy(mutations))
+                self.core_durable = True
+                return True
+            raise RuntimeError("Target node 'srv:servicenow-mcp' not found")
+
+        def add_node(self, *args: object, **kwargs: object) -> None:
+            self.serial_writes += 1
+
+        def link_nodes(self, *args: object, **kwargs: object) -> None:
+            self.serial_writes += 1
+
+    engine = _EndpointRace()
+
+    assert _record(engine, tool_calls=[_tool_call(target="incident:INC42")])
+    assert len(engine.batches) == 2
+    assert engine.durable_batches == [engine.batches[0]]
+    assert engine.serial_writes == 0
+    assert engine.graph.batch_reads == [
+        [
+            "srv:servicenow-mcp",
+            "resource:skill:servicenow-incident-resolution",
+            "incident:INC42",
+        ]
+    ]
+    _, core_edges = _batch_graph_shape(engine.batches[0])
+    assert {relationship for _, _, relationship in core_edges} == {
+        "PRODUCED_OUTCOME",
+        "USED_TOOL",
+    }
+    _, optional_edges = _batch_graph_shape(engine.batches[1])
+    assert {relationship for _, _, relationship in optional_edges} == {
+        "EXECUTED_ON",
+        "USES_SKILL",
+        "ACTED_ON",
+    }
 
 
 class _CoreBatchBackend:
