@@ -249,3 +249,27 @@ async def test_close_cancels_all_queued_async_writes() -> None:
     assert timeseries.calls == ["register-start"]
     assert backend._background_writes == set()
     assert backend._pending_writes == {}
+
+
+@pytest.mark.filterwarnings("error::RuntimeWarning")
+async def test_close_finishes_started_sync_write_before_cancelling() -> None:
+    """A cancelled sync facade write is not orphaned behind a skipped append."""
+    timeseries = _BlockingSyncTimeSeries()
+    backend = EngineTimeSeriesBackend(client=_client(timeseries))
+
+    backend.insert([_point()])
+    assert await asyncio.to_thread(timeseries.register_started.wait, 0.5)
+    pending = {task.get_name(): task for task in backend._background_writes}
+    assert set(pending) == {"time-series-register", "time-series-append"}
+
+    backend.close()
+    await asyncio.sleep(0)
+    assert not pending["time-series-register"].done()
+
+    timeseries.allow_register.set()
+    outcomes = await asyncio.wait_for(
+        asyncio.gather(*pending.values(), return_exceptions=True), timeout=1.0
+    )
+
+    assert all(isinstance(outcome, asyncio.CancelledError) for outcome in outcomes)
+    assert timeseries.calls == ["register"]
