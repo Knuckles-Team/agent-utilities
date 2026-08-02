@@ -90,7 +90,7 @@
     },
     {
       "path": "deploy/release/prebundled-skills.catalog.json",
-      "sha256": "d4e22891efa6de4017bcb133b619da88d58e9c81d70d1c872c0e5facdee9d357"
+      "sha256": "2191f9b41b237b15abb52903e7a295c19a2e460df9b454ab7dd160ccaec3bc7a"
     },
     {
       "path": "deploy/release/release-assembly.schema.json",
