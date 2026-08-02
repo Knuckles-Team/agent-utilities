@@ -29,6 +29,7 @@ class _FakeGraph:
         self._hits = hits or []
         self._nodes = nodes or {}
         self._add_raises = add_raises
+        self.property_batch_calls = 0
 
     def add_embedding(self, nid: str, emb: list[float]) -> None:
         if self._add_raises:
@@ -40,6 +41,12 @@ class _FakeGraph:
 
     def _get_node_properties(self, nid: str) -> dict[str, Any]:
         return dict(self._nodes.get(nid, {}))
+
+    def _get_node_properties_batch(
+        self, node_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        self.property_batch_calls += 1
+        return {nid: dict(self._nodes.get(nid, {})) for nid in node_ids}
 
     def has_node(self, nid: str) -> bool:
         return nid in self._nodes
@@ -74,13 +81,37 @@ def test_add_embedding_engine_failure_is_not_hidden() -> None:
 def test_semantic_search_prefers_engine() -> None:
     g = _FakeGraph(
         hits=[("n1", 0.9), ("n2", 0.7)],
-        nodes={"n1": {"name": "A"}, "n2": {"name": "B"}},
+        nodes={
+            "n1": {"embedding": [0.1, 0.2], "name": "A"},
+            "n2": {"embedding": [0.3, 0.4], "name": "B"},
+        },
     )
     b = _backend(g)  # local cache empty — proves results came from the engine
     out = b.semantic_search([0.1, 0.2], 5)
     assert [d["id"] for d in out] == ["n1", "n2"]
     assert out[0]["_similarity"] == 0.9
     assert out[0]["name"] == "A"
+    assert g.property_batch_calls == 1
+
+
+def test_semantic_search_excludes_invalidated_native_ann_candidate() -> None:
+    g = _FakeGraph(
+        hits=[("stale", 0.99), ("current", 0.8)],
+        nodes={
+            "stale": {"embedding": None, "name": "old text replaced"},
+            "current": {"embedding": [0.1, 0.2], "name": "current"},
+        },
+    )
+    b = _backend(g)
+
+    assert b.semantic_search([0.1, 0.2], 5) == [
+        {
+            "embedding": [0.1, 0.2],
+            "name": "current",
+            "id": "current",
+            "_similarity": 0.8,
+        }
+    ]
 
 
 def test_semantic_search_does_not_scan_a_local_cache_when_engine_is_empty() -> None:
@@ -112,11 +143,20 @@ def test_graph_compute_wrappers_call_engine_client() -> None:
             self.added = (nid, emb)
 
         def semantic_search(self, _q: list[float], n: int = 5) -> list[Any]:
-            return [("n1", 0.5)]
+            return [("stale", 0.9), ("n1", 0.5)][:n]
+
+    class _Nodes:
+        @staticmethod
+        def properties_batch(_ids: list[str]) -> dict[str, dict[str, Any]]:
+            return {
+                "stale": {"embedding": None},
+                "n1": {"embedding": [0.1]},
+            }
 
     class _Client:
         def __init__(self) -> None:
             self.graph = _NS()
+            self.nodes = _Nodes()
 
     g = GraphComputeEngine.__new__(GraphComputeEngine)
     g._client = _Client()

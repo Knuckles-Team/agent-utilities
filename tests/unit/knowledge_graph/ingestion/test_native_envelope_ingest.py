@@ -1270,7 +1270,45 @@ def test_ingest_envelope_auto_embed_disabled_by_config(
 
     assert result["status"] == "success"
     stored = compute.client.nodes.properties("object-1")
-    assert "embedding" not in stored
+    assert stored["embedding"] is None
+    assert stored["_embedding_backfill_state"] is None
+    assert _fake_embed_fn == []
+
+
+def test_text_change_invalidates_backfill_embedding_when_auto_embed_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch, _fake_embed_fn
+) -> None:
+    """D-BFR-2: source text after a CAS cannot retain the old-text vector."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_ingest_auto_embed", False, raising=False)
+    compute = _Compute("graph-stale-vector")
+    # This is the state immediately after the legacy backfill CAS won for the
+    # old source text. The next source envelope must atomically replace the text
+    # and invalidate that vector even though no embedder is available.
+    compute.client.nodes.values["object-1"] = {
+        "id": "object-1",
+        "node_type": "FixtureRecord",
+        "name": "Old source text",
+        "embedding": [0.25] * TEST_EMBEDDING_DIMENSION,
+        "classification": "INTERNAL",
+    }
+    envelope = _envelope(
+        source_version="2",
+        checkpoint="2",
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "New source text",
+        },
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["name"] == "New source text"
+    assert stored["embedding"] is None
     assert stored["_embedding_backfill_state"] is None
     assert _fake_embed_fn == []
 
@@ -1299,7 +1337,7 @@ def test_ingest_envelope_embedding_failure_never_fails_the_write(
 
     assert result["status"] == "success"
     stored = compute.client.nodes.properties("object-1")
-    assert "embedding" not in stored
+    assert stored["embedding"] is None
 
 
 def test_ingest_envelopes_batch_auto_embeds_in_one_call(_fake_embed_fn) -> None:

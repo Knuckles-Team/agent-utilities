@@ -287,7 +287,7 @@ class EpistemicGraphBackend(GraphBackend):
     ) -> list[dict[str, Any]]:
         """Run the engine-maintained ANN query without an O(N) Python fallback."""
         hits = self._graph.semantic_search(query_embedding, n_results) or []
-        results: list[dict[str, Any]] = []
+        parsed_hits: list[tuple[str, float]] = []
         for item in hits:
             if isinstance(item, list | tuple) and len(item) >= 2:
                 node_id, score = str(item[0]), float(item[1])
@@ -298,7 +298,31 @@ class EpistemicGraphBackend(GraphBackend):
                 continue
             if not node_id:
                 continue
-            data = self._graph._get_node_properties(node_id) or {}
+            parsed_hits.append((node_id, score))
+
+        node_ids = [node_id for node_id, _ in parsed_hits]
+        batch_get = getattr(self._graph, "_get_node_properties_batch", None)
+        if callable(batch_get):
+            properties = batch_get(node_ids)
+        else:
+            # Compatibility for injected graph adapters that predate the native
+            # batch property surface. Production GraphComputeEngine takes the
+            # single-RPC path above.
+            properties = {
+                node_id: self._graph._get_node_properties(node_id) or {}
+                for node_id in node_ids
+            }
+
+        results: list[dict[str, Any]] = []
+        for node_id, score in parsed_hits:
+            data = properties.get(node_id, {})
+            # Defense in depth for direct/fake graph surfaces that bypass
+            # GraphComputeEngine's bounded stale-ANN fence.  The durable node
+            # property is the source of truth while older engines lack an atomic
+            # vector-only removal operation.
+            embedding = data.get("embedding")
+            if not isinstance(embedding, list | tuple) or not embedding:
+                continue
             results.append({**data, "id": node_id, "_similarity": score})
         return results
 

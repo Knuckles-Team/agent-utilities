@@ -57,6 +57,8 @@ import os
 import queue
 import re
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -194,6 +196,14 @@ class FanOutBackend(GraphBackend):
             name: _MirrorState() for name in self._mirrors
         }
         self._authority_writes = 0
+        # Lifecycle fencing (D-LRR-1). Every producer registers BEFORE its
+        # authority mutation and remains active through mirror admission. close()
+        # flips open -> closing under the same condition, rejects later writers,
+        # and waits the registered set to reach zero before stopping persistence.
+        self._lifecycle_condition = threading.Condition()
+        self._lifecycle_state = "open"
+        self._active_producers = 0
+        self._close_lock = threading.Lock()
         # Same-entity writes must keep authority-commit -> mirror-enqueue order,
         # especially CAS followed by an ANN update. A fixed striped lock table
         # provides that ordering without holding one global lock across every
@@ -219,6 +229,12 @@ class FanOutBackend(GraphBackend):
         self._handoff_condition = threading.Condition()
         self._handoff_active: tuple[str, dict[str, Any]] | None = None
         self._handoff_appending = False
+        # FIFO admission tickets cover the overflow slow path. Without them, a
+        # helper pops the oldest ring item (freeing one slot), then a later
+        # producer can steal that slot before the helper admits its own mutation.
+        self._admission_next_ticket = 0
+        self._admission_serving_ticket = 0
+        self._admission_waiters = 0
         self._persister: Any = None
         if self._mirrors:
             self._outbox = GraphOutbox(outbox_path, list(self._mirrors))
@@ -248,6 +264,22 @@ class FanOutBackend(GraphBackend):
     # ------------------------------------------------------------------
     # Producer side — authority sync + durable enqueue
     # ------------------------------------------------------------------
+    @contextmanager
+    def _producer(self) -> Iterator[None]:
+        """Fence one authority mutation plus its mirror hand-off from close."""
+        with self._lifecycle_condition:
+            if self._lifecycle_state != "open":
+                raise RuntimeError(
+                    f"FanOutBackend is {self._lifecycle_state}; writes are fenced"
+                )
+            self._active_producers += 1
+        try:
+            yield
+        finally:
+            with self._lifecycle_condition:
+                self._active_producers -= 1
+                self._lifecycle_condition.notify_all()
+
     def _mutation_lock(self, node_id: str) -> threading.RLock:
         """Return the fixed ordering stripe for one entity identity."""
         return self._mutation_locks[hash(str(node_id)) % len(self._mutation_locks)]
@@ -266,20 +298,44 @@ class FanOutBackend(GraphBackend):
         if not self._mirrors or self._outbox is None or self._handoff is None:
             return
         warned = False
+        ticket: int | None = None
         while True:
+            should_help = False
             with self._handoff_condition:
-                try:
-                    self._handoff.put_nowait((op, payload))
-                except queue.Full:
-                    pass
-                else:
-                    # Increment while the hand-off condition excludes the
-                    # persister from claiming this item. That closes the old
-                    # put-then-increment race that could make inflight negative.
-                    with self._inflight_lock:
-                        self._inflight += 1
-                    self._handoff_condition.notify_all()
-                    return
+                if ticket is None:
+                    if self._admission_waiters == 0:
+                        try:
+                            self._handoff.put_nowait((op, payload))
+                        except queue.Full:
+                            pass
+                        else:
+                            # Increment while the hand-off condition excludes the
+                            # persister from claiming this item. That closes the old
+                            # put-then-increment race that could make inflight negative.
+                            with self._inflight_lock:
+                                self._inflight += 1
+                            self._handoff_condition.notify_all()
+                            return
+                    ticket = self._admission_next_ticket
+                    self._admission_next_ticket += 1
+                    self._admission_waiters += 1
+
+                if ticket == self._admission_serving_ticket:
+                    try:
+                        self._handoff.put_nowait((op, payload))
+                    except queue.Full:
+                        should_help = not self._handoff_appending
+                    else:
+                        with self._inflight_lock:
+                            self._inflight += 1
+                        self._admission_waiters -= 1
+                        self._admission_serving_ticket += 1
+                        self._handoff_condition.notify_all()
+                        return
+
+                if not should_help:
+                    self._handoff_condition.wait(timeout=_IDLE_POLL_S)
+                    continue
 
             if not warned:
                 logger.warning(
@@ -317,6 +373,7 @@ class FanOutBackend(GraphBackend):
                 except queue.Empty:
                     return None
             self._handoff_appending = True
+            self._handoff_condition.notify_all()
             return self._handoff_active
 
     def _finish_handoff(
@@ -401,7 +458,7 @@ class FanOutBackend(GraphBackend):
                     "FanOutBackend: shutdown outbox flush failed: %s",
                     exc,
                 )
-                break
+                raise
         if drained:
             logger.info("FanOutBackend: flushed %d ring items at close", drained)
 
@@ -428,17 +485,18 @@ class FanOutBackend(GraphBackend):
             return self._authority.execute(
                 query, params, include_epistemic=include_epistemic
             )
-        result = self._authority.execute(query, params)
-        self._authority_writes += 1
-        # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct
-        # write (Ladybug folds props into its `properties` JSON column); everything
-        # else forwards the raw cypher (portable for node MERGE + ad-hoc writes).
-        edge = _edge_upsert_payload(query, params)
-        if edge is not None:
-            self._enqueue("upsert_edge", edge)
-        else:
-            self._enqueue("execute", {"query": query, "params": params})
-        return result
+        with self._producer():
+            result = self._authority.execute(query, params)
+            self._authority_writes += 1
+            # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct
+            # write (Ladybug folds props into its `properties` JSON column); everything
+            # else forwards the raw cypher (portable for node MERGE + ad-hoc writes).
+            edge = _edge_upsert_payload(query, params)
+            if edge is not None:
+                self._enqueue("upsert_edge", edge)
+            else:
+                self._enqueue("execute", {"query": query, "params": params})
+            return result
 
     def execute_read(
         self,
@@ -458,10 +516,11 @@ class FanOutBackend(GraphBackend):
         self, query: str, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """High-throughput ingestion — always a write; mirror durably."""
-        result = self._authority.execute_batch(query, batch)
-        self._authority_writes += 1
-        self._enqueue("execute_batch", {"query": query, "batch": batch})
-        return result
+        with self._producer():
+            result = self._authority.execute_batch(query, batch)
+            self._authority_writes += 1
+            self._enqueue("execute_batch", {"query": query, "batch": batch})
+            return result
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
         """Commit one typed node mutation and mirror its structured payload.
@@ -483,7 +542,7 @@ class FanOutBackend(GraphBackend):
             raise RuntimeError(
                 "fan-out authority does not support typed node mutations"
             )
-        with self._mutation_lock(node_id):
+        with self._producer(), self._mutation_lock(node_id):
             typed_add(node_id, **payload)
             self._authority_writes += 1
             self._enqueue(
@@ -514,7 +573,7 @@ class FanOutBackend(GraphBackend):
                 "fan-out authority does not support typed edge mutations"
             )
         edge_key = f"edge\x00{source_id}\x00{target_id}\x00{relationship}"
-        with self._mutation_lock(edge_key):
+        with self._producer(), self._mutation_lock(edge_key):
             typed_add(source_id, target_id, **payload)
             self._authority_writes += 1
             self._enqueue(
@@ -550,7 +609,7 @@ class FanOutBackend(GraphBackend):
                 "fan-out authority does not support node compare-and-set snapshots"
             )
 
-        with self._mutation_lock(node_id):
+        with self._producer(), self._mutation_lock(node_id):
             before = get_properties(node_id)
             if before is None:
                 return False
@@ -579,11 +638,12 @@ class FanOutBackend(GraphBackend):
             return True
 
     def create_schema(self) -> None:
-        self._authority.create_schema()
-        self._enqueue("create_schema", {})
+        with self._producer():
+            self._authority.create_schema()
+            self._enqueue("create_schema", {})
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        with self._mutation_lock(node_id):
+        with self._producer(), self._mutation_lock(node_id):
             self._authority.add_embedding(node_id, embedding)
             self._enqueue(
                 "add_embedding", {"node_id": node_id, "embedding": list(embedding)}
@@ -596,8 +656,9 @@ class FanOutBackend(GraphBackend):
         return self._authority.semantic_search(query_embedding, n_results)
 
     def prune(self, criteria: dict[str, Any]) -> None:
-        self._authority.prune(criteria)
-        self._enqueue("prune", {"criteria": criteria})
+        with self._producer():
+            self._authority.prune(criteria)
+            self._enqueue("prune", {"criteria": criteria})
 
     # ------------------------------------------------------------------
     # Consumer side — per-mirror drainer
@@ -816,6 +877,8 @@ class FanOutBackend(GraphBackend):
         return {
             "authority": type(self._authority).__name__,
             "authority_writes": self._authority_writes,
+            "lifecycle_state": self._lifecycle_state,
+            "active_producers": self._active_producers,
             "outbox_depth": self._outbox.depth() if self._outbox is not None else 0,
             # Async hand-off backlog (CONCEPT:AU-KG.backend.authority-has-already-acked): ring items the write path
             # handed off but the persister has not yet landed in the durable outbox.
@@ -881,28 +944,58 @@ class FanOutBackend(GraphBackend):
     # Lifecycle
     # ------------------------------------------------------------------
     def close(self) -> None:
-        # Stop the persister + drainers first so they don't touch a closing
-        # outbox/backend. Then flush any ring items still in memory to the durable
-        # outbox so a graceful shutdown loses nothing (CONCEPT:AU-KG.backend.authority-has-already-acked).
-        self._stop.set()
-        if self._persister is not None:
-            try:
+        # One close owner establishes CLOSING before any resource teardown. New
+        # producers fail before authority mutation; already-registered producers
+        # finish authority + ring admission before the persister is stopped.
+        with self._close_lock:
+            with self._lifecycle_condition:
+                if self._lifecycle_state == "closed":
+                    return
+                self._lifecycle_state = "closing"
+                while self._active_producers:
+                    self._lifecycle_condition.wait(timeout=_IDLE_POLL_S)
+
+            self._stop.set()
+            with self._handoff_condition:
+                self._handoff_condition.notify_all()
+            if self._persister is not None:
                 self._persister.join(timeout=10.0)
-            except Exception:  # noqa: BLE001
-                logger.debug("FanOutBackend: persister join failed", exc_info=True)
-        self._drain_handoff_remaining()
-        for st in self._state.values():
-            st.wake.set()
-            if st.thread is not None:
-                try:
+                if self._persister.is_alive():
+                    raise RuntimeError(
+                        "FanOutBackend persister did not stop; refusing to close outbox"
+                    )
+
+            # No producer or persister can append now. Strictly persist every
+            # admitted mutation before the SQLite handle is closed; an append
+            # failure aborts close and leaves the handle open for a retry.
+            self._drain_handoff_remaining()
+            with self._handoff_condition:
+                if self._handoff_appending or self._handoff_active is not None:
+                    raise RuntimeError(
+                        "FanOutBackend append claim remained active during close"
+                    )
+            with self._inflight_lock:
+                if self._inflight:
+                    raise RuntimeError(
+                        f"FanOutBackend close left {self._inflight} handoff(s) volatile"
+                    )
+
+            for st in self._state.values():
+                st.wake.set()
+                if st.thread is not None:
                     st.thread.join(timeout=10.0)
-                except Exception:  # noqa: BLE001
-                    logger.debug("FanOutBackend: drainer join failed", exc_info=True)
-        if self._outbox is not None:
-            self._outbox.close()
-        try:
-            self._authority.close()
-        finally:
+                    if st.thread.is_alive():
+                        raise RuntimeError(
+                            "FanOutBackend mirror drainer did not stop; refusing close"
+                        )
+            if self._outbox is not None:
+                self._outbox.close()
+
+            close_error: BaseException | None = None
+            try:
+                self._authority.close()
+            except BaseException as exc:  # noqa: BLE001 - close all mirrors, then relay
+                close_error = exc
             for name, backend in self._mirrors.items():
                 try:
                     backend.close()
@@ -910,3 +1003,8 @@ class FanOutBackend(GraphBackend):
                     logger.warning(
                         "FanOutBackend: mirror %s close failed: %s", name, exc
                     )
+            with self._lifecycle_condition:
+                self._lifecycle_state = "closed"
+                self._lifecycle_condition.notify_all()
+            if close_error is not None:
+                raise close_error

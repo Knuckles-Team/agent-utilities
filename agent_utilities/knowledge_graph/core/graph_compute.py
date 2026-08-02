@@ -2549,8 +2549,45 @@ class GraphComputeEngine:
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
     ) -> list[tuple[str, float]]:
-        """Native HNSW vector search via the engine — returns (node_id, score)."""
-        return self._client.graph.semantic_search(query_embedding, n_results) or []
+        """Return current durable embeddings from the native HNSW candidate set.
+
+        A source-text update clears its durable ``embedding`` property in the same
+        native mutation that installs the new text.  Older engines do not yet
+        expose a vector-only removal operation, however, so their ANN can retain a
+        stale candidate until it is rebuilt or replaced.  Hydrating one bounded,
+        over-fetched candidate set in a single RPC prevents that stale candidate
+        from escaping while preserving native ANN ranking and O(log N) selection.
+        """
+        if n_results <= 0:
+            return []
+
+        # Over-fetch is additive and capped: invalidated ANN entries cannot starve
+        # the requested result count, while the temporary compatibility fence can
+        # never turn into an unbounded property scan.
+        extra_candidates = min(512, max(32, n_results * 3))
+        raw_hits = (
+            self._client.graph.semantic_search(
+                query_embedding, n_results + extra_candidates
+            )
+            or []
+        )
+        hits: list[tuple[str, float]] = []
+        for item in raw_hits:
+            if not isinstance(item, list | tuple) or len(item) < 2:
+                continue
+            node_id = str(item[0])
+            if node_id:
+                hits.append((node_id, float(item[1])))
+
+        properties = self._get_node_properties_batch([node_id for node_id, _ in hits])
+        current: list[tuple[str, float]] = []
+        for node_id, score in hits:
+            embedding = properties.get(node_id, {}).get("embedding")
+            if isinstance(embedding, list | tuple) and embedding:
+                current.append((node_id, score))
+                if len(current) >= n_results:
+                    break
+        return current
 
     def query_unified(
         self,

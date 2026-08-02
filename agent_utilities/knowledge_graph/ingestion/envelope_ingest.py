@@ -1804,6 +1804,15 @@ def _auto_embed_envelopes(envelopes: list[ChangeEnvelope]) -> dict[int, list[flo
     for envelope in envelopes:
         if envelope.operation == "upsert" and envelope.typed_payload is not None:
             envelope.typed_payload[EMBEDDING_BACKFILL_STATE_FIELD] = None
+            # _build_upsert_rows pre-reads the durable node, field-merges this
+            # payload, and emits one full AddNode inside ApplyChangeEnvelope's
+            # atomic transaction. An absent new vector must therefore be an
+            # EXPLICIT null: otherwise the pre-read merge retains an embedding
+            # derived from the old source text when the embedder is unavailable.
+            # A successful auto-embed below replaces this null before commit;
+            # connector-supplied non-empty vectors remain untouched.
+            if not envelope.typed_payload.get("embedding"):
+                envelope.typed_payload["embedding"] = None
 
     try:
         from agent_utilities.core.config import config

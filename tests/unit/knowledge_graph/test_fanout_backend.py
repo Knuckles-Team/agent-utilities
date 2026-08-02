@@ -407,6 +407,161 @@ def test_overflow_falls_back_to_durable_outbox(tmp_path, monkeypatch):
         fan.close()
 
 
+def test_concurrent_overflow_producers_keep_fifo_admission(tmp_path, monkeypatch):
+    """D-BFR-7: a helper's freed ring slot cannot be stolen by a later writer."""
+    monkeypatch.setattr(fanout_module, "_auto_handoff_capacity", lambda: 2)
+    mirror = RecordingBackend("mirror")
+    fan = fanout_module.FanOutBackend(
+        {"mirror": mirror}, outbox_path=str(tmp_path / "ob.db")
+    )
+    _stop_drainers(fan)
+    real_append = fan._outbox.append
+    first_append_started = threading.Event()
+    release_first_append = threading.Event()
+    blocked_once = False
+
+    def _blocking_append(op, payload):
+        nonlocal blocked_once
+        if not blocked_once:
+            blocked_once = True
+            first_append_started.set()
+            assert release_first_append.wait(timeout=5.0)
+        return real_append(op, payload)
+
+    fan._outbox.append = _blocking_append  # type: ignore[method-assign]
+    errors: list[BaseException] = []
+
+    def _write(name):
+        try:
+            fan.execute(f"CREATE ({name})", is_write=True)
+        except BaseException as exc:  # noqa: BLE001 - thread assertion relay
+            errors.append(exc)
+
+    try:
+        fan.execute("CREATE (oldest-0)", is_write=True)
+        fan.execute("CREATE (oldest-1)", is_write=True)
+        first = threading.Thread(target=_write, args=("overflow-first",))
+        second = threading.Thread(target=_write, args=("overflow-second",))
+        first.start()
+        assert first_append_started.wait(timeout=5.0)
+        second.start()
+        # The second producer must queue behind the first overflow waiter even
+        # though the helper has popped one old ring item and exposed a slot.
+        time.sleep(0.05)
+        assert second.is_alive()
+        release_first_append.set()
+        first.join(timeout=5.0)
+        second.join(timeout=5.0)
+        assert not first.is_alive() and not second.is_alive()
+        assert not errors
+
+        fan._outbox.append = real_append  # type: ignore[method-assign]
+        _drain_outbox_sync(fan)
+        assert [value for op, value in mirror.writes if op == "execute"] == [
+            "CREATE (oldest-0)",
+            "CREATE (oldest-1)",
+            "CREATE (overflow-first)",
+            "CREATE (overflow-second)",
+        ]
+    finally:
+        release_first_append.set()
+        fan._outbox.append = real_append  # type: ignore[method-assign]
+        fan.close()
+
+
+def test_close_fences_producers_and_durably_hands_off_active_writer(
+    tmp_path, monkeypatch
+):
+    """D-LRR-1: close cannot strand a write that already entered authority."""
+
+    class _BlockingAuthority(StatefulBackend):
+        def __init__(self):
+            super().__init__("authority")
+            self.write_started = threading.Event()
+            self.release_write = threading.Event()
+
+        def add_node(self, node_id, **properties):
+            if node_id == "active-node":
+                self.write_started.set()
+                assert self.release_write.wait(timeout=5.0)
+            super().add_node(node_id, **properties)
+
+    authority = _BlockingAuthority()
+    mirror = StatefulBackend("mirror")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    outbox_path = tmp_path / "ob.db"
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(outbox_path))
+    real_append = fan._outbox.append
+    real_close = fan._outbox.close
+    outbox_closed = threading.Event()
+    append_after_close: list[str] = []
+
+    def _guarded_append(op, payload):
+        if outbox_closed.is_set():
+            append_after_close.append(op)
+        return real_append(op, payload)
+
+    def _tracked_close():
+        outbox_closed.set()
+        return real_close()
+
+    fan._outbox.append = _guarded_append  # type: ignore[method-assign]
+    fan._outbox.close = _tracked_close  # type: ignore[method-assign]
+    errors: list[BaseException] = []
+
+    def _active_write():
+        try:
+            fan.add_node("active-node", node_type="Service", name="active")
+        except BaseException as exc:  # noqa: BLE001 - thread assertion relay
+            errors.append(exc)
+
+    def _close():
+        try:
+            fan.close()
+        except BaseException as exc:  # noqa: BLE001 - thread assertion relay
+            errors.append(exc)
+
+    writer = threading.Thread(target=_active_write)
+    closer = threading.Thread(target=_close)
+    writer.start()
+    assert authority.write_started.wait(timeout=5.0)
+    closer.start()
+    deadline = time.monotonic() + 5.0
+    while (
+        getattr(fan, "_lifecycle_state", None) != "closing"
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+    try:
+        assert getattr(fan, "_lifecycle_state", None) == "closing"
+        assert closer.is_alive(), "close returned while an authority writer was active"
+        with pytest.raises(RuntimeError, match="closing|closed"):
+            fan.add_node("late-node", node_type="Service", name="late")
+        assert "late-node" not in authority.nodes
+
+        authority.release_write.set()
+        writer.join(timeout=5.0)
+        closer.join(timeout=5.0)
+        assert not writer.is_alive() and not closer.is_alive()
+        assert not errors
+        assert append_after_close == []
+        assert authority.nodes["active-node"]["name"] == "active"
+
+        reopened = GraphOutbox(outbox_path, ["mirror"])
+        try:
+            assert reopened.depth() >= 1
+        finally:
+            reopened.close()
+    finally:
+        authority.release_write.set()
+        writer.join(timeout=5.0)
+        closer.join(timeout=5.0)
+
+
 def test_handoff_write_lands_durably_before_mirror_ships(tmp_path):
     """Crash-safety preserved (CONCEPT:AU-KG.backend.authority-has-already-acked): an async-handed-off write reaches the
     DURABLE outbox (so it survives a crash and replays from the cursor on restart)
