@@ -6382,7 +6382,20 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
         tool_rows = engine.backend.execute(
             "MATCH (t:Tool) RETURN t.name, t.description, t.mcp_server, t.relevance_score, t.tags, t.requires_approval"
         )
-        for row in tool_rows:
+    except Exception as e:
+        # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
+        # (see _fetch_prompt_agents above) — a failure here additionally drops
+        # all dynamically-synthesized partition agents (they're derived from
+        # `tools`), so it is especially important this isn't cached as
+        # "complete" for the process's whole lifetime.
+        logger.warning(f"Failed to fetch Tool nodes (registry cache may go stale): {e}")
+        if errors is not None:
+            errors.append(f"tools: {e}")
+        return tools
+
+    rejected_rows = 0
+    for row_index, row in enumerate(tool_rows):
+        try:
             tools.append(
                 MCPToolInfo(
                     name=row.get("t.name", ""),
@@ -6393,15 +6406,18 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
                     requires_approval=row.get("t.requires_approval", False),
                 )
             )
-    except Exception as e:
-        # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
-        # (see _fetch_prompt_agents above) — a failure here additionally drops
-        # all dynamically-synthesized partition agents (they're derived from
-        # `tools`), so it is especially important this isn't cached as
-        # "complete" for the process's whole lifetime.
-        logger.warning(f"Failed to fetch Tool nodes (registry cache may go stale): {e}")
-        if errors is not None:
-            errors.append(f"tools: {e}")
+        except (AttributeError, TypeError, ValueError) as exc:
+            rejected_rows += 1
+            logger.warning(
+                "Rejected malformed Tool row %d (%s); registry will retry",
+                row_index,
+                type(exc).__name__,
+            )
+
+    if rejected_rows and errors is not None:
+        # Preserve valid tools for this request, but keep the assembled registry
+        # out of the process-lifetime cache until the bad graph rows are fixed.
+        errors.append(f"tools: rejected {rejected_rows} malformed row(s)")
     return tools
 
 

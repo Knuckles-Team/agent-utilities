@@ -18,8 +18,10 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from agent_utilities.core import config as ch
+from agent_utilities.models.mcp import MCPToolInfo
 
 
 def _prompt_blueprint(body: str, *, task: str = "router") -> dict[str, Any]:
@@ -698,7 +700,9 @@ def test_get_discovery_registry_tool_query_error(
 # ---------------------------------------------------------------------------
 
 
-def _install_fake_engine(monkeypatch: pytest.MonkeyPatch, fake_engine: MagicMock) -> None:
+def _install_fake_engine(
+    monkeypatch: pytest.MonkeyPatch, fake_engine: MagicMock
+) -> None:
     fake_engine_cls = MagicMock(get_active=MagicMock(return_value=fake_engine))
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
@@ -769,6 +773,94 @@ def test_a_clean_fetch_still_caches_exactly_as_before(
     result2 = ch.get_discovery_registry()
     assert result2 is result
     fake_engine.backend.execute.assert_not_called()
+
+
+def test_legacy_tool_scores_are_normalized_and_bad_rows_are_quarantined(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One corrupt Tool must not erase healthy tools or poison the cache."""
+    mixed_engine = MagicMock()
+    mixed_engine.backend = MagicMock()
+    mixed_engine.backend.execute.side_effect = [
+        [],
+        [],
+        [
+            {
+                "t.name": "legacy",
+                "t.description": "legacy normalized score",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 0.5,
+                "t.tags": ["legacy"],
+                "t.requires_approval": False,
+            },
+            {
+                "t.name": "canonical",
+                "t.description": "canonical point score",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 80,
+                "t.tags": ["canonical"],
+                "t.requires_approval": False,
+            },
+            {
+                "t.name": "corrupt",
+                "t.description": "fractional score outside the legacy range",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 1.5,
+                "t.tags": [],
+                "t.requires_approval": False,
+            },
+        ],
+    ]
+    _install_fake_engine(monkeypatch, mixed_engine)
+
+    degraded = ch.get_discovery_registry()
+    assert {tool.name: tool.relevance_score for tool in degraded.tools} == {
+        "legacy": 50,
+        "canonical": 80,
+    }
+    assert ch._RegistryCache._registry is None
+
+    healthy_engine = MagicMock()
+    healthy_engine.backend = MagicMock()
+    healthy_engine.backend.execute.side_effect = [
+        [],
+        [],
+        [
+            {
+                "t.name": "repaired",
+                "t.description": "valid after repair",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 75,
+                "t.tags": [],
+                "t.requires_approval": False,
+            }
+        ],
+    ]
+    _install_fake_engine(monkeypatch, healthy_engine)
+
+    repaired = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in repaired.tools] == [
+        ("repaired", 75)
+    ]
+    assert ch._RegistryCache._registry is repaired
+
+
+def test_tool_relevance_score_preserves_canonical_bounds() -> None:
+    """Compatibility conversion must not admit corrupt point scores."""
+    legacy = MCPToolInfo(
+        name="legacy", description="", mcp_server="srv", relevance_score=1.0
+    )
+    assert legacy.relevance_score == 100
+
+    with pytest.raises(ValidationError):
+        MCPToolInfo(
+            name="too-high", description="", mcp_server="srv", relevance_score=101
+        )
+
+    with pytest.raises(ValidationError):
+        MCPToolInfo(
+            name="negative", description="", mcp_server="srv", relevance_score=-1
+        )
 
 
 def test_missing_backend_is_treated_as_degraded_not_cached(

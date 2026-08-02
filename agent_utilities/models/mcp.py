@@ -1,7 +1,7 @@
 import time
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 SpecialistTier = Literal["light", "medium", "heavy", "reasoning"]
 
@@ -72,12 +72,30 @@ class MCPToolInfo(BaseModel):
         default_factory=list, description="All tags associated with the tool"
     )
     relevance_score: int = Field(
-        default=0, description="Deterministic quality score (0-100)"
+        default=0,
+        ge=0,
+        le=100,
+        description="Deterministic quality score (0-100)",
     )
     requires_approval: bool = Field(
         default=False,
         description="Whether this tool requires human-in-the-loop approval",
     )
+
+    @field_validator("relevance_score", mode="before")
+    @classmethod
+    def _normalize_legacy_relevance_score(cls, value: Any) -> Any:
+        """Read legacy normalized graph scores without weakening the schema.
+
+        Early Tool writers persisted floating-point scores in ``[0, 1]`` while
+        every router and scorer uses integer points in ``[0, 100]``.  Floats in
+        that legacy range are converted at this boundary; new writers must
+        persist canonical integer points.  Other fractional or out-of-range
+        values remain invalid so corrupt rows can be quarantined by callers.
+        """
+        if isinstance(value, float) and 0.0 <= value <= 1.0:
+            return round(value * 100)
+        return value
 
 
 class MCPAgentRegistryModel(BaseModel):

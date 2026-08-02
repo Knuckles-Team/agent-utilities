@@ -431,7 +431,7 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                     # provides (``servicenow-mcp`` → ``servicenow``), falling
                     # back to the server name so it is never empty.
                     "capabilityCategory": product or server_name,
-                    "relevance_score": 0.5,
+                    "relevance_score": 50,
                     "requires_approval": False,
                     "synonyms": synonyms,
                     "kind": "mcp_tool",
