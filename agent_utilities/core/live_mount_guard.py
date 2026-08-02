@@ -32,16 +32,21 @@ against "the running interpreter's version" -- by construction, whichever
 ``pythonZ.W`` site-packages directory the interpreter actually reads from
 IS this package's ``__file__`` location, so that comparison can never
 disagree with itself. The real question is orthogonal: is the directory
-this package was imported from an ACTIVE bind mount, or just the image's
-own filesystem layer? ``/proc/self/mountinfo`` answers that directly and
-authoritatively, independent of *why* the intended mount missed (version
-drift is the known cause; a typo'd hostPath or a removed source directory
-would look identical from here, and this check catches those too).
+this package was imported from an active source mount, or just the image's
+own filesystem layer? An exact package-directory mount proves that directly.
+A repository-root mount such as ``/au`` proves it only when the mounted
+ancestor is also an explicit, resolved ``PYTHONPATH`` entry; an unrelated
+mount such as ``/usr`` or ``/usr/local`` must not validate stale code.
+``/proc/self/mountinfo`` answers the mount half of that contract directly,
+independent of *why* the intended mount missed (version drift is the known
+cause; a typo'd hostPath or a removed source directory would look identical
+from here, and this check catches those too).
 """
 
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from agent_utilities.core._env import setting
@@ -59,9 +64,39 @@ _SKIP_ENV_VAR = "AGENT_UTILITIES_SKIP_LIVE_MOUNT_CHECK"
 #: "not running under Kubernetes" signal (local dev, CI, a bare venv).
 _IN_POD_ENV_VAR = "KUBERNETES_SERVICE_HOST"
 
+_MOUNTINFO_ESCAPES = {
+    r"\040": " ",
+    r"\011": "\t",
+    r"\012": "\n",
+    r"\134": "\\",
+}
 
-def _is_bind_mounted(path: Path) -> bool | None:
-    """Return whether *path* is under a non-root active source mount.
+
+def _decode_mountinfo_path(value: str) -> str:
+    """Decode the octal escapes permitted in mountinfo path fields."""
+    for encoded, decoded in _MOUNTINFO_ESCAPES.items():
+        value = value.replace(encoded, decoded)
+    return value
+
+
+def _configured_source_roots() -> tuple[Path, ...]:
+    """Return canonical live-source roots explicitly declared on ``PYTHONPATH``."""
+    python_path = setting("PYTHONPATH", "")
+    return tuple(
+        Path(entry).resolve() for entry in python_path.split(os.pathsep) if entry
+    )
+
+
+def _has_active_source_mount(
+    path: Path,
+    *,
+    source_roots: tuple[Path, ...] = (),
+) -> bool | None:
+    """Return whether *path* is on an explicitly identified active source mount.
+
+    The package directory itself may be a mount point. An ancestor is accepted
+    only when it is also a canonical ``source_roots`` entry; the filesystem root
+    is never evidence of live source.
 
     Returns ``None`` when the answer cannot be determined (no
     ``/proc/self/mountinfo``, e.g. a non-Linux container runtime) rather
@@ -69,20 +104,24 @@ def _is_bind_mounted(path: Path) -> bool | None:
     """
     try:
         with open("/proc/self/mountinfo", encoding="utf-8", errors="replace") as handle:
-            mount_points = {line.split()[4] for line in handle if len(line.split()) > 4}
+            mount_points = {
+                _decode_mountinfo_path(fields[4])
+                for line in handle
+                if len(fields := line.split()) > 4
+            }
     except OSError:
         return None
 
-    # A source mount commonly targets ``/au`` while Python imports the package
-    # below it.  Walk from the package directory upward so the deepest active
-    # mount ancestor wins; the filesystem root is always mounted and therefore
-    # cannot prove that this package comes from live source.
-    candidate = path
-    while candidate != candidate.parent:
-        if str(candidate) in mount_points:
-            return True
-        candidate = candidate.parent
-    return False
+    active_ancestors = [
+        Path(mount_point)
+        for mount_point in mount_points
+        if mount_point != "/" and path.is_relative_to(mount_point)
+    ]
+    if not active_ancestors:
+        return False
+
+    deepest_mount = max(active_ancestors, key=lambda mount: len(mount.parts))
+    return deepest_mount == path or deepest_mount in source_roots
 
 
 def check_live_mount(*, package_dir: Path | None = None) -> bool | None:
@@ -98,9 +137,12 @@ def check_live_mount(*, package_dir: Path | None = None) -> bool | None:
     if not setting(_IN_POD_ENV_VAR, ""):
         return None
 
-    resolved = package_dir or Path(__file__).resolve().parent.parent
     try:
-        mounted = _is_bind_mounted(resolved)
+        resolved = (package_dir or Path(__file__).parent.parent).resolve()
+        mounted = _has_active_source_mount(
+            resolved,
+            source_roots=_configured_source_roots(),
+        )
     except Exception:  # noqa: BLE001 - this check must never break startup
         logger.debug("live-mount check could not introspect mount state", exc_info=True)
         return None
@@ -111,7 +153,8 @@ def check_live_mount(*, package_dir: Path | None = None) -> bool | None:
     if not mounted:
         logger.critical(
             "agent_utilities.live_mount_guard: this package was imported from a "
-            "directory that is NOT under an active source mount inside this pod. If this "
+            "directory that is NOT under an active source mount inside this pod. "
+            "If this "
             "Deployment declares an agent_utilities hostPath live-mount volume, "
             "its mountPath pythonX.Y does not match this image's actual "
             "interpreter version -- the mount landed on a path nothing reads, "
