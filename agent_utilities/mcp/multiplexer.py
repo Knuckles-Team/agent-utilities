@@ -3645,8 +3645,10 @@ class SessionVisibilityMiddleware(Middleware):
         except BaseException as exc:  # noqa: BLE001 - never fail the request
             logger.error(
                 "always-load pass could not run for this session; the fleet "
-                "remains reachable via find_tools/load_tools (error=%s)",
-                _format_probe_error(exc),
+                "remains reachable via find_tools/load_tools "
+                "(exception_type=%s): %s",
+                type(exc).__name__,
+                redact_for_log(exc),
             )
 
     async def on_list_tools(self, context, call_next):
@@ -3943,8 +3945,10 @@ async def ensure_always_loaded(
     except BaseException as exc:  # noqa: BLE001 - eager mount must fail soft
         logger.error(
             "graph-os always-load pass failed entirely; every declared server "
-            "remains reachable through find_tools/load_tools (error=%s)",
-            _format_probe_error(exc),
+            "remains reachable through find_tools/load_tools "
+            "(exception_type=%s): %s",
+            type(exc).__name__,
+            redact_for_log(exc),
         )
         result = _empty_always_load_result()
         result["degraded"] = {"*": _format_probe_error(exc)}
@@ -4248,7 +4252,12 @@ def _always_load_setting(field: str, alias: str) -> list[str]:
     try:
         raw = setting(alias)
     except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
-        logger.error("always-load setting %s unreadable: %s", alias, exc)
+        logger.error(
+            "always-load setting %s unreadable (exception_type=%s): %s",
+            alias,
+            type(exc).__name__,
+            redact_for_log(exc),
+        )
         raw = None
     if raw is None:
         try:
@@ -4256,7 +4265,12 @@ def _always_load_setting(field: str, alias: str) -> list[str]:
 
             raw = getattr(agent_config, field, None)
         except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
-            logger.error("always-load field %s unreadable: %s", field, exc)
+            logger.error(
+                "always-load field %s unreadable (exception_type=%s): %s",
+                field,
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
             return []
     if raw is None:
         return []
