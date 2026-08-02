@@ -26,7 +26,7 @@ error is meaningless once an earlier one is broken:
     4 grounding   required evidence compilation is within budget and accepted
     5 model       the local LLM is reachable and answers
     6 skill       the named skill actually resolves from the graph
-    7 toolset     the MCP server mounts and the tool is bindable
+    7 toolset     the durable server catalog admits the exact tool (no transport yet)
     8 delegate    execute_agent() end to end
     9 provenance  the run's RunTrace/:ToolCall are readable BACK out of the graph
 
@@ -401,66 +401,59 @@ async def _stage_skill(skill: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Stage 6 — toolset
+# Stage 7 — toolset catalog
 # ---------------------------------------------------------------------------
 async def _stage_toolset(server: str, tool: str) -> str:
-    # This is the SAME binder delegation uses — agent_runner._toolset_for_id is
-    # what `Orchestrator.execute_agent` -> `run_agent` reaches for a tool_server.
-    # Resolving it any other way here would prove nothing about delegation.
+    """Prove the exact server/tool binding without owning an MCP transport.
+
+    Delegation creates its own refresh-capable ``MCPToolset`` and owns its
+    connection, schema notifications, cancellation, and teardown. Reusing a
+    preflight session would split that ownership across two stages; opening one
+    merely to list tools adds a throwaway handshake. The durable catalog is the
+    same least-privilege contract ``run_agent`` validates before it builds that
+    runtime toolset, so use it here and leave the one live session to delegation.
+    """
     from agent_utilities.orchestration.agent_runner import (
+        _catalog_toolset_binding,
         _fleet_server_url,
-        _toolset_for_id,
     )
 
     url = await asyncio.to_thread(_fleet_server_url, server)
-    ts = await asyncio.to_thread(
-        _toolset_for_id,
+    if not url:
+        raise RuntimeError(
+            f"catalog server={server!r} has no resolved MCP endpoint; delegation "
+            "would not be able to construct its authenticated toolset"
+        )
+    server_meta = await asyncio.to_thread(
+        _catalog_toolset_binding,
         _STATE.get("engine"),
         server,
         allowed_tools=[tool] if tool else None,
     )
-    if ts is None:
-        raise RuntimeError(f"toolset id {server!r} resolved to None")
-
-    # D-DHP (investigation of D-SNV-4): pydantic-ai's MCPToolset.get_tools(ctx)
-    # takes a RunContext and reads ctx.max_retries as its very FIRST line —
-    # before it ever awaits list_tools() / touches the network. Calling it with
-    # a fake ctx=None therefore raises AttributeError('NoneType' object has no
-    # attribute 'max_retries') INSTANTLY, proving nothing about connectivity —
-    # a prior run of this probe misread that as "the toolset binds ZERO tools"
-    # (D-SNV-4), when the real connectivity path was never even exercised.
-    # ts.list_tools() is the no-arg async method MCPToolset uses internally
-    # (enters the transport, performs the real MCP handshake) — use THAT for a
-    # real answer, and never let a zero-tool bind read as a pass.
-    try:
-        listed = await ts.list_tools()
-    except Exception as exc:  # noqa: BLE001 — surfaced, never swallowed
-        raise RuntimeError(
-            f"{type(ts).__name__} url={url!r} failed to list tools: {_chain(exc)}"
-        ) from exc
-
-    names = [getattr(t, "name", str(t)) for t in (listed or [])]
-    _STATE["toolset"] = ts
+    names = [
+        str(item.get("name") or "").strip()
+        for item in server_meta.get("tools") or []
+        if isinstance(item, dict) and str(item.get("name") or "").strip()
+    ]
     if not names:
         raise RuntimeError(
-            f"{type(ts).__name__} url={url!r} bound ZERO tools — a toolset "
-            "that lists nothing cannot support delegation, so this must never "
-            "read as a pass"
+            f"catalog server={server!r} url={url!r} declares ZERO tools — the "
+            "probe cannot prove an exact binding without an ingested catalog"
         )
     bound = tool in names if tool else None
     if tool and not bound:
         raise RuntimeError(
-            f"{type(ts).__name__} url={url!r} bound {len(names)} tools but "
-            f"NOT the requested {tool!r} — sample={names[:10]}"
+            f"catalog server={server!r} url={url!r} declares {len(names)} tools "
+            f"but NOT the requested {tool!r} — sample={names[:10]}"
         )
     return (
-        f"{type(ts).__name__} url={url!r} tools={len(names)} "
-        f"{tool!r}_bound={bound} sample={names[:6]}"
+        f"catalog server={server!r} url={url!r} tools={len(names)} "
+        f"{tool!r}_bound={bound} transport=deferred-to-delegate sample={names[:6]}"
     )
 
 
 # ---------------------------------------------------------------------------
-# Stage 7 — delegate
+# Stage 8 — delegate
 # ---------------------------------------------------------------------------
 def _required_tool_summary_failure(
     a: argparse.Namespace, summary: dict[str, Any], output: object = ""
