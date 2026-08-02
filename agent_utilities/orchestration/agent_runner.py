@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.orchestration.execution_contract import (
     ExecutionMode,
     missing_required_tools,
@@ -714,8 +715,7 @@ async def run_agent(
         try:
             pe_result = await pe.execute(manifest)
             duration_ms = (time.monotonic() - start_time) * 1000
-            await _call_without_blocking(
-                _record_execution_trace,
+            await _record_execution_trace_ordered(
                 engine,
                 run_id,
                 "enterprise",
@@ -730,8 +730,7 @@ async def run_agent(
             )
         except Exception as e:
             logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
-            await _call_without_blocking(
-                _record_execution_trace,
+            await _record_execution_trace_ordered(
                 engine,
                 run_id,
                 "enterprise",
@@ -792,8 +791,7 @@ async def run_agent(
                     handled = True
                     result = await _call_without_blocking(instance.execute, task)
                 if handled:
-                    await _call_without_blocking(
-                        _record_execution_trace,
+                    await _record_execution_trace_ordered(
                         engine,
                         run_id,
                         agent_name,
@@ -1265,18 +1263,22 @@ async def run_agent(
             # "timeout" RunTrace with whatever route/stage this run reached before it was cut
             # off, so that trace_ref is a REAL troubleshooting entry point.
             #
-            # DELIBERATELY SYNCHRONOUS — do NOT route this one through
-            # ``_call_without_blocking``/``asyncio.to_thread`` like the rest of this
-            # function's graph I/O. Cancellation has ALREADY been delivered to this
-            # coroutine, so any ``await`` here is a suspension point that a second
-            # ``cancel()`` (a supervisor retrying, or shutdown) re-raises through —
-            # measured: under a double-cancel the awaited variant loses the write
-            # entirely and this trace_ref resolves to nothing again, which is the exact
-            # bug this block exists to prevent. A bounded, once-per-cancelled-run
-            # blocking write is the correct trade against silently losing the only
-            # durable record of a timed-out run.
+            # Preserve this one durable write through cancellation, but do not perform
+            # its native engine calls on GraphOS's shared serving loop.  In particular,
+            # ``_execute_tool`` reaches this branch after its delegation wall-clock;
+            # a stalled add_node/link_nodes here used to make health/readiness time out
+            # and let kubelet kill an otherwise recoverable gateway.  The ordered helper
+            # keeps exactly one started write alive through repeated cancellation and
+            # re-raises only after it completes, without starving other loop tasks.
+            #
+            # Record the lightweight runtime signal before awaiting the ordered write:
+            # a repeated cancellation is allowed to re-raise from the helper after the
+            # durable trace commits, but must not suppress the timeout evidence.
+            _record_delegation_over_budget(
+                agent_name, time.monotonic() - start_time, "timeout"
+            )
             try:
-                _record_execution_trace(
+                await _record_execution_trace_ordered(
                     engine,
                     run_id,
                     agent_name,
@@ -1301,12 +1303,6 @@ async def run_agent(
                 logger.debug(
                     "run_agent: best-effort timeout-trace write failed: %s", trace_exc
                 )
-            # CONCEPT:AU-AHE.harness.runtime-reliability-loop — a caller-side wall-clock
-            # timeout is a delegation definitively over budget that never becomes a graded
-            # run; record it (fire-and-forget) so a repeated pattern surfaces as a gap.
-            _record_delegation_over_budget(
-                agent_name, time.monotonic() - start_time, "timeout"
-            )
             raise
         if isinstance(e, KeyboardInterrupt | SystemExit) and not isinstance(
             e, BaseExceptionGroup
@@ -1326,8 +1322,7 @@ async def run_agent(
 
         _grounding_degraded, _grounding_reason = _gs()
         # Record failure provenance
-        await _call_without_blocking(
-            _record_execution_trace,
+        await _record_execution_trace_ordered(
             engine,
             run_id,
             agent_name,
@@ -1581,8 +1576,7 @@ async def run_agent(
         if isinstance(result, dict) and isinstance(result.get("tool_calls"), list)
         else None
     )
-    _trace_recorded = await _call_without_blocking(
-        _record_execution_trace,
+    _trace_recorded = await _record_execution_trace_ordered(
         engine,
         run_id,
         agent_name,
@@ -3758,6 +3752,32 @@ def _record_execution_trace(
             logger.debug("ToolCall fallback persistence skipped: %s", exc)
 
     return trace_written
+
+
+async def _record_execution_trace_ordered(
+    engine: IntelligenceGraphEngine,
+    run_id: str,
+    agent_name: str,
+    task: str,
+    /,
+    **kwargs: Any,
+) -> bool:
+    """Persist one RunTrace off-loop while preserving completion ordering.
+
+    Every ``run_agent`` exit path uses this boundary.  Native engine writes can
+    block for much longer than an MCP request's cancellation deadline, so they
+    must never execute on GraphOS's shared serving loop.  The ordered helper
+    also keeps an already-started trace write from being orphaned if a caller
+    cancels again while it is in flight.
+    """
+    return await run_blocking_ordered(
+        _record_execution_trace,
+        engine,
+        run_id,
+        agent_name,
+        task,
+        **kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------
