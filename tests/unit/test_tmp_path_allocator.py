@@ -5,13 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import subprocess
+import sys
 import time
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
 from _tmp_path_allocator import (
     _ALLOCATION_TOKEN_LIMIT,
+    _MAX_LEAF_DIRECTORY_FANOUT,
     _MAX_LEAF_MKDIR_PROBES,
     _MAX_MKDIR_CALLS_PER_ALLOCATION,
     BoundedTempPathAllocator,
@@ -74,7 +78,8 @@ def _assert_bounded_fixture_paths(paths: dict[str, Path]) -> None:
     """Assert real fixture paths use the documented bounded-fanout layout."""
     for path in paths.values():
         assert path.parents[1].name == "t"
-        assert len(path.parent.name) == 2
+        assert len(path.parent.name) == 22
+        assert len(path.name) == 2
 
 
 _RETENTION_SUITE = """
@@ -160,6 +165,8 @@ def test_allocator_uses_deterministic_bounded_fanout(tmp_path: Path) -> None:
     assert {path.parts[0] for path in relative_paths} == {"t"}
     assert len({path.parts[1] for path in relative_paths}) == 256
     assert all(len(path.parts) == 3 for path in relative_paths)
+    assert all(len(path.parts[1]) == 22 for path in relative_paths)
+    assert all(len(path.parts[2]) == 2 for path in relative_paths)
     assert set(tmp_path.iterdir()) == {tmp_path / "t"}
 
 
@@ -194,10 +201,10 @@ def test_allocator_bounds_fresh_recovery_after_many_retained_attempts(
     fresh_allocator = BoundedTempPathAllocator(tmp_path)
     leaf_mkdir_calls: list[Path] = []
     original_mkdir = Path.mkdir
-    bucket = retained_paths[0].parent
+    bucket = retained_paths[0].parents[1]
 
     def observe_mkdir(path: Path, *args, **kwargs) -> None:
-        if path.parent == bucket:
+        if path.parent.parent == bucket:
             leaf_mkdir_calls.append(path)
         original_mkdir(path, *args, **kwargs)
 
@@ -206,6 +213,9 @@ def test_allocator_bounds_fresh_recovery_after_many_retained_attempts(
 
     assert len(retained_paths) == 2_048
     assert allocated not in retained_paths
+    leaf_counts = Counter(path.parent for path in retained_paths)
+    assert len(leaf_counts) == 2
+    assert set(leaf_counts.values()) == {_MAX_LEAF_DIRECTORY_FANOUT}
     assert leaf_mkdir_calls == [allocated]
     assert len(leaf_mkdir_calls) <= _MAX_LEAF_MKDIR_PROBES
 
@@ -232,10 +242,48 @@ def test_allocator_keeps_independent_allocators_concurrently_unique(
     assert all(path.is_dir() for path in paths)
 
 
+def test_allocator_keeps_shared_basetemp_processes_unique(tmp_path: Path) -> None:
+    """Use real OS processes to prove ``mkdir`` is the shared authority."""
+    shared_basetemp = tmp_path / "shared-process-basetemp"
+    shared_basetemp.mkdir()
+    tests_directory = str(Path(__file__).parents[1])
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = os.pathsep.join(
+        path for path in (tests_directory, environment.get("PYTHONPATH")) if path
+    )
+    child_program = "\n".join(
+        (
+            "import sys",
+            "from pathlib import Path",
+            "import _tmp_path_allocator as allocator_module",
+            "allocator_module.secrets.randbits = lambda _: 0",
+            "allocator = allocator_module.BoundedTempPathAllocator(Path(sys.argv[1]))",
+            "print(allocator.allocate('tests/unit/test_process.py::test_shared'))",
+        )
+    )
+    processes = [
+        subprocess.Popen(
+            [sys.executable, "-c", child_program, str(shared_basetemp)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=environment,
+        )
+        for _ in range(_MAX_LEAF_MKDIR_PROBES)
+    ]
+    outcomes = [process.communicate(timeout=30) for process in processes]
+
+    assert all(process.returncode == 0 for process in processes), outcomes
+    paths = [Path(stdout.strip()) for stdout, _ in outcomes]
+    assert len(paths) == len(set(paths)) == _MAX_LEAF_MKDIR_PROBES
+    assert len({path.parent for path in paths}) == 1
+    assert all(path.is_dir() for path in paths)
+
+
 def test_allocator_refuses_after_its_fixed_collision_budget(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """A saturated candidate window fails explicitly after a constant six mkdirs."""
+    """A saturated candidate window fails explicitly without reusing a path."""
     node_id = "tests/unit/test_case.py::test_collision_budget"
     token_origins = iter((0, 0))
     monkeypatch.setattr(
@@ -258,6 +306,37 @@ def test_allocator_refuses_after_its_fixed_collision_budget(
         fresh_allocator.allocate(node_id)
 
     assert all(path.is_dir() for path in retained_paths)
+    assert len(mkdir_calls) <= _MAX_MKDIR_CALLS_PER_ALLOCATION
+
+
+def test_allocator_bounds_collision_calls_across_a_group_boundary(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A four-probe collision window creates at most two allocation parents."""
+    node_id = "tests/unit/test_case.py::test_group_boundary"
+    token_origins = iter((0, 0))
+    monkeypatch.setattr(
+        "_tmp_path_allocator.secrets.randbits", lambda _: next(token_origins)
+    )
+    retained_allocator = BoundedTempPathAllocator(tmp_path)
+    retained_allocator._next_token = _MAX_LEAF_DIRECTORY_FANOUT - 2
+    retained_paths = [
+        retained_allocator.allocate(node_id) for _ in range(_MAX_LEAF_MKDIR_PROBES)
+    ]
+    fresh_allocator = BoundedTempPathAllocator(tmp_path)
+    fresh_allocator._next_token = _MAX_LEAF_DIRECTORY_FANOUT - 2
+    mkdir_calls: list[Path] = []
+    original_mkdir = Path.mkdir
+
+    def observe_mkdir(path: Path, *args, **kwargs) -> None:
+        mkdir_calls.append(path)
+        original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", observe_mkdir)
+    with pytest.raises(RuntimeError, match="collision probe budget exhausted"):
+        fresh_allocator.allocate(node_id)
+
+    assert len({path.parent for path in retained_paths}) == 2
     assert len(mkdir_calls) == _MAX_MKDIR_CALLS_PER_ALLOCATION
 
 
@@ -270,7 +349,9 @@ def test_allocator_refuses_token_stream_overflow(tmp_path: Path) -> None:
         allocator.allocate("tests/unit/test_case.py::test_token_stream_overflow")
 
 
-def test_allocator_creates_each_active_bucket_once(tmp_path: Path, monkeypatch) -> None:
+def test_allocator_creates_active_root_and_parent_once(
+    tmp_path: Path, monkeypatch
+) -> None:
     """Avoid a redundant ``mkdir(..., exist_ok=True)`` syscall per allocation."""
     mkdir_calls: list[Path] = []
     original_mkdir = Path.mkdir
@@ -282,12 +363,15 @@ def test_allocator_creates_each_active_bucket_once(tmp_path: Path, monkeypatch) 
     monkeypatch.setattr(Path, "mkdir", observe_mkdir)
     allocator = BoundedTempPathAllocator(tmp_path)
     first = allocator.allocate("tests/unit/test_case.py::test_same_bucket")
-    bucket_mkdir_calls = mkdir_calls.count(first.parent)
+    root_mkdir_calls = mkdir_calls.count(first.parents[1])
+    allocation_parent_mkdir_calls = mkdir_calls.count(first.parent)
     second = allocator.allocate("tests/unit/test_case.py::test_same_bucket")
 
     assert first.parent == second.parent
-    assert bucket_mkdir_calls >= 1
-    assert mkdir_calls.count(first.parent) == bucket_mkdir_calls
+    assert root_mkdir_calls >= 1
+    assert allocation_parent_mkdir_calls >= 1
+    assert mkdir_calls.count(first.parents[1]) == root_mkdir_calls
+    assert mkdir_calls.count(first.parent) == allocation_parent_mkdir_calls
 
 
 def test_allocator_4000_allocation_measurement(tmp_path: Path) -> None:
@@ -303,10 +387,10 @@ def test_allocator_4000_allocation_measurement(tmp_path: Path) -> None:
 
     print(f"bounded_tmp_path_4000_allocations={elapsed:.6f}s")
     assert len(paths) == len(set(paths)) == 4000
-    assert set(tmp_path.iterdir()) == {tmp_path / "t"}
-    buckets = [path for path in (tmp_path / "t").iterdir() if path.is_dir()]
-    assert len(buckets) <= 256
-    assert sum(1 for bucket in buckets for _ in bucket.iterdir()) == 4000
+    allocation_parents = [path for path in (tmp_path / "t").iterdir() if path.is_dir()]
+    assert len(allocation_parents) <= 256 * 4
+    leaf_counts = Counter(path.parent for path in paths)
+    assert max(leaf_counts.values()) <= _MAX_LEAF_DIRECTORY_FANOUT
 
 
 def test_tmp_path_fixture_is_wired_to_bounded_allocator(
@@ -317,7 +401,8 @@ def test_tmp_path_fixture_is_wired_to_bounded_allocator(
 
     assert relative_path.parts[0] == "t"
     assert len(relative_path.parts) == 3
-    assert len(relative_path.parts[1]) == 2
+    assert len(relative_path.parts[1]) == 22
+    assert len(relative_path.parts[2]) == 2
 
 
 def test_tmp_path_factory_api_remains_pytest_owned(tmp_path_factory) -> None:
@@ -335,10 +420,16 @@ def test_allocator_preserves_pytest_unix_socket_path_budget(tmp_path_factory) ->
             "tests/unit/test_really_long_module_name.py::test_really_long_case_name"
         ),
         allocator.allocate("tests/unit/test_case.py::"),
+        allocator.allocate("tests/unit/test_case.py::漢漢漢漢漢"),
     ]
     socket_name = "eg-12345678.sock"
     stock_longest_leaf = basetemp / ("x" * 30 + "0") / socket_name
 
+    assert all(
+        part.isascii()
+        for allocated in allocated_paths
+        for part in allocated.relative_to(basetemp).parts
+    )
     assert all(
         len(os.fsencode(str(allocated / socket_name)))
         <= len(os.fsencode(str(stock_longest_leaf)))
@@ -461,7 +552,9 @@ def test_tmp_path_fixture_handles_a_real_retry_lifecycle(pytester, monkeypatch) 
     attempts = [record["attempt"] for record in records]
     paths = [Path(record["path"]) for record in records]
     assert attempts == ["0", "1"]
-    assert paths[0].parent == paths[1].parent
+    assert paths[0] != paths[1]
+    assert paths[0].parents[1] == paths[1].parents[1]
+    assert paths[0].parent.name[:2] == paths[1].parent.name[:2]
     assert paths[0].is_dir()
     assert not paths[1].exists()
     _assert_bounded_fixture_paths(
@@ -518,7 +611,8 @@ def test_tmp_path_fixture_keeps_xdist_workers_isolated(pytester, monkeypatch) ->
         worker = record["worker"]
         assert path.is_dir()
         assert path.parents[1].name == "t"
-        assert len(path.parent.name) == 2
+        assert len(path.parent.name) == 22
+        assert len(path.name) == 2
         worker_bases.setdefault(worker, path.parents[2])
         assert worker_bases[worker] == path.parents[2]
 

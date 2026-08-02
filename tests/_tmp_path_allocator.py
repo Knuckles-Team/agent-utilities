@@ -5,14 +5,14 @@ basetemp and enumerates that growing directory on each allocation.  Large
 suites then turn otherwise independent test setup into quadratic directory
 enumeration.
 This plugin keeps pytest's per-session/per-xdist-worker basetemp authority, but
-places a deterministic test-id directory under one of 256 bounded buckets.
+places a deterministic test-id shard below its own root and uses bounded token
+slots for the allocation leaves.
 """
 
 from __future__ import annotations
 
 import base64
 import hashlib
-import re
 import secrets
 import shutil
 import threading
@@ -21,76 +21,89 @@ from pathlib import Path
 
 import pytest
 
-_BUCKET_DIRECTORY = "t"
-_BUCKET_WIDTH = 2
-# The bucket/hash components consume the same path budget pytest normally gives
-# its 30-character test-name leaf.  The 64-bit allocation token needs 11
-# URL-safe base64 characters; keeping five display characters preserves the
-# Unix-socket path budget supplied by the lane's short basetemp contract.
-_DISPLAY_NAME_LIMIT = 5
+_ALLOCATION_ROOT_DIRECTORY = "t"
+_NODE_SHARD_WIDTH = 2
 _ALLOCATION_TOKEN_BITS = 64
 _ALLOCATION_TOKEN_LIMIT = 1 << _ALLOCATION_TOKEN_BITS
+_ALLOCATION_TOKEN_CHARACTERS = (_ALLOCATION_TOKEN_BITS + 5) // 6
+_LEAF_TOKEN_WIDTH = 2
+_ALLOCATION_GROUP_TOKEN_WIDTH = _ALLOCATION_TOKEN_CHARACTERS - _LEAF_TOKEN_WIDTH
+# A 64-bit value occupies eleven base64 characters: the final character carries
+# four data bits, so the final two-character slot has exactly ten bits of fanout.
+_MAX_LEAF_DIRECTORY_FANOUT = 1 << (_LEAF_TOKEN_WIDTH * 6 - 2)
 _MAX_LEAF_MKDIR_PROBES = 4
-# A new bucket performs one mkdir for ``t`` and one for the bucket, followed by
-# the fixed leaf budget.  pytest owns the already-existing basetemp itself.
-_MAX_MKDIR_CALLS_PER_ALLOCATION = _MAX_LEAF_MKDIR_PROBES + 2
-_NODE_NAME_UNSAFE = re.compile(r"[\W]")
+# A candidate may cross one 1,024-slot group boundary, creating the allocation
+# root and two allocation parents before the fixed leaf probe budget is exhausted.
+_MAX_MKDIR_CALLS_PER_ALLOCATION = _MAX_LEAF_MKDIR_PROBES + 3
 _test_result_key = pytest.StashKey[dict[str, bool]]()
 
 
 class BoundedTempPathAllocator:
     """Allocate unique test paths without directory enumeration.
 
-    The hash is deterministic for a test node id, which makes a failed test's
-    path easy to locate.  Each allocator starts a 64-bit counter at a random
-    origin instead of ``0``, so recovery never relies on walking the retained
-    ``-0``, ``-1``, ... namespace.  Atomic ``mkdir`` remains the authority
-    across threads and processes: four distinct token candidates are attempted
-    before the allocator raises rather than reusing an existing test directory.
-    Xdist workers already receive separate pytest basetemps, so their bucket
-    trees remain isolated by pytest's normal worker contract.
+    The first two SHA-1 hex characters deterministically shard a test node id.
+    Each allocator starts a 64-bit counter at a random origin instead of ``0``;
+    its full URL-safe base64 origin and the origin-relative group select an
+    allocation parent.  The two-character relative slot is the leaf name, so
+    every allocation parent has at most 1,024 possible child directories even
+    across retained runs and independent processes.  Atomic ``mkdir`` remains
+    the authority across threads and processes: four distinct token candidates
+    are attempted before the allocator raises rather than reusing an existing
+    test directory.  Xdist workers already receive separate pytest basetemps,
+    so their allocation trees remain isolated by pytest's normal worker contract.
     """
 
     def __init__(self, basetemp: Path) -> None:
-        self._root = basetemp / _BUCKET_DIRECTORY
-        self._next_token = secrets.randbits(_ALLOCATION_TOKEN_BITS)
-        self._created_buckets: set[Path] = set()
+        self._root = basetemp / _ALLOCATION_ROOT_DIRECTORY
+        self._token_origin = secrets.randbits(_ALLOCATION_TOKEN_BITS)
+        self._origin_token = self._encode_token(self._token_origin)
+        self._next_token = self._token_origin
+        self._root_created = False
+        self._created_allocation_parents: set[Path] = set()
         self._lock = threading.Lock()
 
+    @staticmethod
+    def _encode_token(value: int) -> str:
+        """Return one fixed-width URL-safe base64 representation of ``value``."""
+        return (
+            base64.urlsafe_b64encode(value.to_bytes(_ALLOCATION_TOKEN_BITS // 8, "big"))
+            .decode("ascii")
+            .rstrip("=")
+        )
+
     def _take_allocation_token(self) -> str:
-        """Return one distinct fixed-width token from this allocator's stream."""
+        """Return one origin-relative token from this allocator's random stream."""
         if self._next_token >= _ALLOCATION_TOKEN_LIMIT:
             raise RuntimeError(
                 "bounded tmp_path allocation token space exhausted; "
                 "start a fresh pytest basetemp"
             )
 
-        token = (
-            base64.urlsafe_b64encode(
-                self._next_token.to_bytes(_ALLOCATION_TOKEN_BITS // 8, "big")
-            )
-            .decode("ascii")
-            .rstrip("=")
-        )
+        token = self._encode_token(self._next_token - self._token_origin)
         self._next_token += 1
         return token
 
     def allocate(self, node_id: str) -> Path:
         """Create and return an empty, unique path for ``node_id``."""
         digest = hashlib.sha1(node_id.encode(), usedforsecurity=False).hexdigest()
-        bucket = self._root / digest[:_BUCKET_WIDTH]
-        display_name = _NODE_NAME_UNSAFE.sub("_", node_id.rsplit("::", 1)[-1])
-        display_name = display_name[:_DISPLAY_NAME_LIMIT] or "tmp"
-        stem = f"{display_name}-{digest[_BUCKET_WIDTH:10]}"
+        node_shard = digest[:_NODE_SHARD_WIDTH]
 
         with self._lock:
-            if bucket not in self._created_buckets:
+            if not self._root_created:
                 self._root.mkdir(mode=0o700, exist_ok=True)
-                bucket.mkdir(mode=0o700, exist_ok=True)
-                self._created_buckets.add(bucket)
+                self._root_created = True
 
             for _ in range(_MAX_LEAF_MKDIR_PROBES):
-                path = bucket / f"{stem}-{self._take_allocation_token()}"
+                relative_token = self._take_allocation_token()
+                allocation_parent = self._root / (
+                    f"{node_shard}{self._origin_token}"
+                    f"{relative_token[:_ALLOCATION_GROUP_TOKEN_WIDTH]}"
+                )
+                if allocation_parent not in self._created_allocation_parents:
+                    allocation_parent.mkdir(mode=0o700, exist_ok=True)
+                    self._created_allocation_parents.add(allocation_parent)
+
+                path = allocation_parent / relative_token[-_LEAF_TOKEN_WIDTH:]
                 try:
                     path.mkdir(mode=0o700)
                 except FileExistsError:
