@@ -13,6 +13,10 @@ from agent_utilities.knowledge_graph.backends.contrib.ladybug_backend import (
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
+from agent_utilities.observability.trace_ontology import (
+    TRACE_NODE_LABEL,
+    trace_id,
+)
 
 pytestmark = pytest.mark.skipif(
     not LADYBUG_AVAILABLE,
@@ -68,8 +72,16 @@ def test_ingestion_tools(engine):
 
 
 def test_magma_retrieval(engine):
-    """Test orthogonal context retrieval."""
-    engine.ingest_episode(content="Previous event", source="chat")
+    """The temporal view reads canonical execution provenance."""
+    run_id = "magma-temporal-retrieval"
+    engine.add_node(
+        trace_id(run_id),
+        TRACE_NODE_LABEL,
+        properties={
+            "event_sequence": 1,
+            "timestamp": "2026-08-02T00:00:00Z",
+        },
+    )
     context = engine.retrieve_orthogonal_context(query="event", views=["temporal"])
     assert "temporal" in context["views"]
     assert len(context["views"]["temporal"]) > 0

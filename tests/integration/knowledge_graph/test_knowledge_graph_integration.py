@@ -19,6 +19,7 @@ from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 from agent_utilities.models.schema_definition import SCHEMA
+from agent_utilities.observability.trace_ontology import TRACE_NODE_LABEL, trace_id
 
 
 @pytest.fixture
@@ -223,11 +224,23 @@ class TestMAGMARetrieval:
         assert isinstance(ctx["views"]["semantic"], list)
 
     def test_temporal_view(self, engine):
-        engine.ingest_episode("First event", source="chat")
-        engine.ingest_episode("Second event", source="chat")
+        for sequence, run_id in enumerate(
+            ("magma-first-event", "magma-second-event"), start=1
+        ):
+            engine.add_node(
+                trace_id(run_id),
+                TRACE_NODE_LABEL,
+                properties={
+                    "event_sequence": sequence,
+                    "timestamp": f"2026-08-02T00:00:0{sequence}Z",
+                },
+            )
         ctx = engine.retrieve_orthogonal_context("events", views=["temporal"])
         assert "temporal" in ctx["views"]
-        assert len(ctx["views"]["temporal"]) > 0
+        assert [row["r"]["event_sequence"] for row in ctx["views"]["temporal"]] == [
+            2,
+            1,
+        ]
 
     def test_causal_view(self, engine):
         ctx = engine.retrieve_orthogonal_context("reasoning", views=["causal"])

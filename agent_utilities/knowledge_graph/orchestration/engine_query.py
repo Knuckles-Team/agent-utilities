@@ -1400,7 +1400,14 @@ class QueryMixin(_Base):
         query: str,
         views: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Perform policy-guided retrieval across all orthogonal MAGMA views."""
+        """Perform policy-guided retrieval across all orthogonal MAGMA views.
+
+        The temporal view is the canonical execution-provenance stream: it
+        returns ``RunTrace`` rows in descending numeric ``event_sequence``
+        order through :meth:`query_cypher`, retaining the normal tenant and
+        read-policy boundary.  Conversational ``Episode`` nodes are not
+        execution provenance and are intentionally excluded here.
+        """
         if views is None:
             views = [
                 "semantic",
@@ -1414,32 +1421,9 @@ class QueryMixin(_Base):
         if "semantic" in views:
             context["views"]["semantic"] = self.search_hybrid(query, top_k=5)
         if "temporal" in views:
-            # RunTrace (agent execution traces, e.g. orchestration/agent_activation.py)
-            # and Episode (engine.ingest_episode's own conversational/reflection
-            # events) are BOTH legitimately time-ordered "temporal" entities, but
-            # carry different timestamp fields (event_sequence vs. timestamp) and
-            # a native-engine Cypher UNION across differently-shaped node labels
-            # isn't reliable -- query each separately and merge+sort in Python.
-            # A RunTrace-only query silently returned [] for every caller whose
-            # only temporal data came from ingest_episode (D-GS3-4).
-            run_traces = self.query_cypher(
+            context["views"]["temporal"] = self.query_cypher(
                 "MATCH (r:RunTrace) RETURN r ORDER BY r.event_sequence DESC LIMIT 5"
             )
-            episodes = self.query_cypher(
-                "MATCH (e:Episode) RETURN e ORDER BY e.timestamp DESC LIMIT 5"
-            )
-
-            def _temporal_key(row: dict[str, Any]) -> str:
-                props = row.get("r") or row.get("e") or row
-                if isinstance(props, dict):
-                    return str(
-                        props.get("timestamp") or props.get("event_sequence") or ""
-                    )
-                return ""
-
-            context["views"]["temporal"] = sorted(
-                [*run_traces, *episodes], key=_temporal_key, reverse=True
-            )[:5]
         if "causal" in views:
             context["views"]["causal"] = self.query_cypher(
                 "MATCH (r:ReasoningTrace)-[:CAUSED_BY]->(p) RETURN r, p LIMIT 5"
