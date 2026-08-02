@@ -79,10 +79,7 @@ async def verify_openai_model(
             error="openai client unavailable",
         )
 
-    client_kwargs: dict[str, str] = {"api_key": api_key}
-    if base_url:
-        client_kwargs["base_url"] = base_url
-    client = AsyncOpenAI(**client_kwargs)
+    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
     try:
         record = await client.models.retrieve(model_id)
     except Exception as exc:  # noqa: BLE001 - DELIBERATELY type-name-only: an

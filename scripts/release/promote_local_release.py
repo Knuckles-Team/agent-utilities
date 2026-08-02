@@ -899,9 +899,9 @@ def validate_wheelhouse(
         )
     if set(wheels) != set(locked):
         raise ReleaseError("wheelhouse-not-closed")
-    for name, pin in spec.packages.items():
-        requirement = locked.get(name)
-        artifact = wheels.get(name)
+    for package_name, pin in spec.packages.items():
+        requirement = locked.get(package_name)
+        artifact = wheels.get(package_name)
         if requirement is None or artifact is None:
             raise ReleaseError("required-package-absent")
         if (
@@ -1771,7 +1771,7 @@ def attest_installed_release(release_root: Path) -> dict[str, Any]:
 
     recorded: set[Path] = set()
     installed_records: dict[str, dict[str, tuple[str, int]]] = {}
-    for name, (_version, distribution, _metadata) in distributions.items():
+    for package_name, (_version, distribution, _metadata) in distributions.items():
         entries, installed_record = _verify_record(
             distribution,
             site_packages=site_packages,
@@ -1780,7 +1780,7 @@ def attest_installed_release(release_root: Path) -> dict[str, Any]:
         if recorded & entries:
             raise ReleaseError("installed-attestation-record-overlap")
         recorded.update(entries)
-        installed_records[name] = installed_record
+        installed_records[package_name] = installed_record
     site_packages_resolved = site_packages.resolve(strict=True)
     site_regular = {
         path.resolve(strict=True)
@@ -2066,7 +2066,11 @@ def _verify_dependency_closure(
         if context in processed_contexts:
             continue
         processed_contexts.add(context)
-        marker_environment = dict(environment)
+        marker_environment: dict[str, str] = {}
+        for environment_name, environment_value in environment.items():
+            if not isinstance(environment_value, str):
+                raise ReleaseError("installed-marker-environment-invalid")
+            marker_environment[environment_name] = environment_value
         marker_environment["extra"] = extra
         for requirement in parsed[name]:
             if requirement.marker is not None:
@@ -2135,8 +2139,8 @@ def verify_installed_release(
     dependency_edge_count = _verify_dependency_closure(distributions, locked)
     recorded: set[Path] = set()
     installed_records: dict[str, dict[str, tuple[str, int]]] = {}
-    for name, requirement in locked.items():
-        version, distribution, _metadata = distributions[name]
+    for package_name, requirement in locked.items():
+        version, distribution, _metadata = distributions[package_name]
         if version != requirement.version:
             raise ReleaseError("installed-version-mismatch")
         entries, installed_record = _verify_record(
@@ -2145,12 +2149,12 @@ def verify_installed_release(
             release_root=release_root,
         )
         _verify_installed_record_matches_wheel(
-            artifact=wheels[name],
+            artifact=wheels[package_name],
             installed=installed_record,
             site_packages=site_packages,
             release_root=release_root,
         )
-        installed_records[name] = installed_record
+        installed_records[package_name] = installed_record
         if recorded & entries:
             raise ReleaseError("record-ownership-overlap")
         recorded.update(entries)
@@ -2190,8 +2194,8 @@ def verify_installed_release(
         if path.parent == runtime_bin and path.name not in baseline_bin:
             if path.resolve(strict=True) not in recorded:
                 raise ReleaseError("unrecorded-runtime-command")
-    for name, pin in spec.packages.items():
-        if distributions[name][0] != pin.version:
+    for package_name, pin in spec.packages.items():
+        if distributions[package_name][0] != pin.version:
             raise ReleaseError("required-installed-version-mismatch")
     agent_metadata = distributions["agent-utilities"][2]
     if not _metadata_requirement_ready(
