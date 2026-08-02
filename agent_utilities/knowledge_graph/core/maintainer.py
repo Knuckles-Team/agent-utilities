@@ -5,7 +5,6 @@ CONCEPT:AU-KG.query.object-graph-mapper
 """
 
 import logging
-import math
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -13,6 +12,10 @@ from typing import Any
 from agent_utilities.core.config import (
     DEFAULT_EMBEDDING_BASE_URL,
     DEFAULT_EMBEDDING_MODEL_ID,
+)
+from agent_utilities.knowledge_graph.enrichment.semantic import (
+    EMBEDDING_BACKFILL_NO_TEXT,
+    EMBEDDING_BACKFILL_STATE_FIELD,
 )
 
 from .engine import IntelligenceGraphEngine
@@ -24,56 +27,6 @@ logger = logging.getLogger(__name__)
 _base_url = str(DEFAULT_EMBEDDING_BASE_URL or "").strip().rstrip("/")
 LM_STUDIO_URL = f"{_base_url}/embeddings" if _base_url else ""
 EMBEDDING_MODEL = str(DEFAULT_EMBEDDING_MODEL_ID or "").strip()
-
-_EMBEDDING_BACKFILL_STATE_FIELD = "_embedding_backfill_state"
-_EMBEDDING_BACKFILL_NO_TEXT = "no_text"
-
-
-def _validated_embedding_vectors(
-    vectors: Any,
-    *,
-    expected_count: int,
-) -> list[list[float]]:
-    """Validate one embed response completely before any vector is persisted."""
-    try:
-        raw_vectors = list(vectors)
-    except TypeError as exc:
-        raise RuntimeError(
-            "embedding endpoint returned a non-iterable vector response"
-        ) from exc
-    if len(raw_vectors) != expected_count:
-        raise RuntimeError(
-            "embedding endpoint returned a vector count that does not match "
-            f"the request ({len(raw_vectors)} != {expected_count})"
-        )
-
-    normalized: list[list[float]] = []
-    dimension: int | None = None
-    for index, vector in enumerate(raw_vectors):
-        if isinstance(vector, str | bytes | bytearray):
-            raise RuntimeError(
-                f"embedding endpoint returned an invalid vector at index {index}"
-            )
-        try:
-            values = [float(value) for value in vector]
-        except (TypeError, ValueError) as exc:
-            raise RuntimeError(
-                f"embedding endpoint returned an invalid vector at index {index}"
-            ) from exc
-        if not values or any(not math.isfinite(value) for value in values):
-            raise RuntimeError(
-                f"embedding endpoint returned an empty or non-finite vector "
-                f"at index {index}"
-            )
-        if dimension is None:
-            dimension = len(values)
-        elif len(values) != dimension:
-            raise RuntimeError(
-                "embedding endpoint returned inconsistent vector dimensions "
-                f"({len(values)} != {dimension})"
-            )
-        normalized.append(values)
-    return normalized
 
 
 def generate_embedding(text: str) -> list[float] | None:
@@ -190,7 +143,7 @@ class GraphMaintainer:
 
         query = (
             "MATCH (n) WHERE n.embedding IS NULL "
-            f"AND n.{_EMBEDDING_BACKFILL_STATE_FIELD} IS NULL "
+            f"AND n.{EMBEDDING_BACKFILL_STATE_FIELD} IS NULL "
             "RETURN n.id AS id "
             "ORDER BY n.id LIMIT $limit"
         )
@@ -230,7 +183,11 @@ class GraphMaintainer:
                     "embedding backfill requires backend compare-and-set support"
                 ) from exc
 
-        from ..enrichment.semantic import derive_entity_text_snapshot, make_embed_fn
+        from ..enrichment.semantic import (
+            derive_entity_text_snapshot,
+            make_embed_fn,
+            validate_embedding_vectors,
+        )
 
         items: list[tuple[str, str, dict[str, Any]]] = []
         deferred: list[tuple[str, dict[str, Any]]] = []
@@ -239,7 +196,7 @@ class GraphMaintainer:
             text, text_conditions = derive_entity_text_snapshot(props)
             conditions = {
                 "embedding": None,
-                _EMBEDDING_BACKFILL_STATE_FIELD: None,
+                EMBEDDING_BACKFILL_STATE_FIELD: None,
                 **text_conditions,
             }
             if not text:
@@ -251,7 +208,7 @@ class GraphMaintainer:
         vectors: list[list[float]] = []
         if items:
             embed_fn = make_embed_fn(batch_size=batch_size)
-            vectors = _validated_embedding_vectors(
+            vectors = validate_embedding_vectors(
                 embed_fn([text for _, text, _ in items]),
                 expected_count=len(items),
             )
@@ -260,7 +217,7 @@ class GraphMaintainer:
             if _compare(
                 node_id,
                 conditions,
-                {_EMBEDDING_BACKFILL_STATE_FIELD: _EMBEDDING_BACKFILL_NO_TEXT},
+                {EMBEDDING_BACKFILL_STATE_FIELD: EMBEDDING_BACKFILL_NO_TEXT},
             ):
                 result["deferred_no_text"] += 1
             else:

@@ -5,6 +5,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
+from agent_utilities.knowledge_graph.enrichment.semantic import (
+    configured_embedding_dimension,
+)
+
+TEST_EMBEDDING_DIMENSION = configured_embedding_dimension()
+
+
+def _embedding(value: float = 0.1) -> list[float]:
+    return [value] * TEST_EMBEDDING_DIMENSION
 
 
 class DummyBackend:
@@ -132,7 +141,7 @@ def test_backfill_entity_embeddings_embeds_arbitrary_entity_types():
     with patch(
         "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn"
     ) as mock_make_embed_fn:
-        mock_make_embed_fn.return_value = lambda texts: [[0.1, 0.2] for _ in texts]
+        mock_make_embed_fn.return_value = lambda texts: [_embedding() for _ in texts]
         maintainer = GraphMaintainer(engine)
         report = maintainer.backfill_entity_embeddings(limit=500, batch_size=64)
 
@@ -225,7 +234,7 @@ def test_backfill_native_query_avoids_properties_function_and_persists_progress(
 
     with patch(
         "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
-        return_value=lambda texts: [[float(len(text))] for text in texts],
+        return_value=lambda texts: [_embedding(float(len(text))) for text in texts],
     ):
         first = GraphMaintainer(engine).backfill_entity_embeddings(
             limit=2, batch_size=2
@@ -270,7 +279,7 @@ def test_backfill_textless_first_node_does_not_starve_next_invocation():
 
     with patch(
         "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
-        return_value=lambda texts: [[float(len(text))] for text in texts],
+        return_value=lambda texts: [_embedding(float(len(text))) for text in texts],
     ):
         first = GraphMaintainer(engine).backfill_entity_embeddings(limit=1)
         second = GraphMaintainer(engine).backfill_entity_embeddings(limit=1)
@@ -297,7 +306,7 @@ def test_backfill_rejects_concurrent_text_mutation_before_embedding_write():
 
     with patch(
         "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
-        return_value=lambda texts: [[1.0] for _ in texts],
+        return_value=lambda texts: [_embedding(1.0) for _ in texts],
     ):
         report = GraphMaintainer(engine).backfill_entity_embeddings(limit=1)
 
@@ -311,10 +320,10 @@ def test_backfill_rejects_concurrent_text_mutation_before_embedding_write():
     "vectors",
     [
         [[]],
-        [[float("nan")]],
-        [[1.0], [1.0, 2.0]],
+        [[float("nan")] * TEST_EMBEDDING_DIMENSION],
+        [[1.0] * (TEST_EMBEDDING_DIMENSION - 1)],
     ],
-    ids=["empty", "non-finite", "inconsistent-dimensions"],
+    ids=["empty", "non-finite", "wrong-dimension"],
 )
 def test_backfill_rejects_invalid_vectors_before_any_property_write(vectors):
     backend = _NativeBackfillBackend()

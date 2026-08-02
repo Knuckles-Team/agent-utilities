@@ -15,10 +15,15 @@ from agent_utilities.knowledge_graph.core.session import (
     reset_session,
     set_session,
 )
+from agent_utilities.knowledge_graph.enrichment.semantic import (
+    configured_embedding_dimension,
+)
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
 from agent_utilities.models.company_brain import ActorType, DataClassification
 from agent_utilities.protocols.source_connectors.base import ExternalAccess
 from agent_utilities.security.brain_context import ActorContext
+
+TEST_EMBEDDING_DIMENSION = configured_embedding_dimension()
 
 
 class _Nodes:
@@ -1193,7 +1198,7 @@ def _fake_embed_fn(monkeypatch: pytest.MonkeyPatch):
 
     def _embed_fn(texts: list[str]) -> list[list[float]]:
         calls.append(list(texts))
-        return [[0.1, 0.2, 0.3] for _ in texts]
+        return [[0.1] * TEST_EMBEDDING_DIMENSION for _ in texts]
 
     monkeypatch.setattr(semantic_module, "make_embed_fn", lambda: _embed_fn)
     return calls
@@ -1219,9 +1224,9 @@ def test_ingest_envelope_auto_embeds_and_indexes_on_success(_fake_embed_fn) -> N
 
     assert result["status"] == "success"
     stored = compute.client.nodes.properties("object-1")
-    assert stored["embedding"] == [0.1, 0.2, 0.3]
+    assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION
     assert stored["text"]
-    assert ann_calls == [("object-1", [0.1, 0.2, 0.3])]
+    assert ann_calls == [("object-1", stored["embedding"])]
 
 
 def test_ingest_envelope_skips_embedding_when_already_present(_fake_embed_fn) -> None:
@@ -1257,6 +1262,7 @@ def test_ingest_envelope_auto_embed_disabled_by_config(
             "id": "object-1",
             "type": "FixtureRecord",
             "name": "Synthetic record",
+            "_embedding_backfill_state": "no_text",
         }
     )
 
@@ -1265,6 +1271,7 @@ def test_ingest_envelope_auto_embed_disabled_by_config(
     assert result["status"] == "success"
     stored = compute.client.nodes.properties("object-1")
     assert "embedding" not in stored
+    assert stored["_embedding_backfill_state"] is None
     assert _fake_embed_fn == []
 
 
@@ -1312,4 +1319,4 @@ def test_ingest_envelopes_batch_auto_embeds_in_one_call(_fake_embed_fn) -> None:
     assert len(ann_calls) == 3
     for i in range(1, 4):
         stored = compute.client.nodes.properties(f"object-{i}")
-        assert stored["embedding"] == [0.1, 0.2, 0.3]
+        assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION

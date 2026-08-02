@@ -54,7 +54,8 @@ def _cost_estimate(
     if embedded == 0:
         return None
     seconds_per_embedded = elapsed / embedded
-    remaining_after = max(0, int(remaining) - embedded)
+    deferred_no_text = max(0, int(report.get("deferred_no_text", 0)))
+    remaining_after = max(0, int(remaining) - embedded - deferred_no_text)
     return {
         "seconds_per_embedded": seconds_per_embedded,
         "remaining_after": remaining_after,
@@ -85,7 +86,7 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
     print(f"backend: {type(backend).__name__}", flush=True)
 
     # ---- current population snapshot (same counts the diagnosis used) ----
-    total = embedded = with_text = 0
+    total = embedded = with_text = eligible = 0
     try:
         total = (backend.execute("MATCH (n) RETURN count(n) AS c") or [{}])[0].get(
             "c", 0
@@ -100,17 +101,24 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
             backend.execute("MATCH (n) WHERE n.text IS NOT NULL RETURN count(n) AS c")
             or [{}]
         )[0].get("c", 0)
+        eligible = (
+            backend.execute(
+                "MATCH (n) WHERE n.embedding IS NULL "
+                "AND n._embedding_backfill_state IS NULL RETURN count(n) AS c"
+            )
+            or [{}]
+        )[0].get("c", 0)
     except Exception as e:  # noqa: BLE001 — diagnostic snapshot only
         print(f"population snapshot failed: {type(e).__name__}: {e}", flush=True)
 
     ratio = (embedded / total * 100) if total else 0.0
-    remaining = max(0, total - embedded)
+    remaining = max(0, eligible)
     print(
         f"\n=== CURRENT POPULATION ===\n"
         f"  total nodes:    {total}\n"
         f"  w/ embedding:   {embedded} ({ratio:.2f}%)\n"
         f"  w/ text:        {with_text}\n"
-        f"  remaining:      {remaining}\n",
+        f"  eligible now:   {remaining}\n",
         flush=True,
     )
 

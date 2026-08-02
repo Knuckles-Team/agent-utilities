@@ -94,7 +94,7 @@ class StatefulBackend(RecordingBackend):
 
     def add_node(self, node_id, **properties):
         self._check()
-        self.nodes[node_id] = dict(properties)
+        self.nodes.setdefault(node_id, {}).update(properties)
         with self._lock:
             self.writes.append(("add_node", node_id))
 
@@ -166,6 +166,127 @@ def test_compare_and_set_updates_authority_and_mirror_only_for_winner(
         assert fan.flush_mirrors(timeout=10.0)
         assert len(mirror.writes) == writes_before
         assert authority.nodes["node-1"]["embedding"] == [1.0, 2.0]
+    finally:
+        fan.close()
+
+
+def test_independent_typed_writes_overlap_authority_rpcs(tmp_path, monkeypatch):
+    """D-BFR-7: unrelated entities must not share one authority-RPC lock."""
+
+    class _ConcurrentAuthority(StatefulBackend):
+        def __init__(self):
+            super().__init__("authority")
+            self.active = 0
+            self.max_active = 0
+            self.activity_lock = threading.Lock()
+            self.both_started = threading.Event()
+            self.release = threading.Event()
+
+        def add_node(self, node_id, **properties):
+            with self.activity_lock:
+                self.active += 1
+                self.max_active = max(self.max_active, self.active)
+                if self.active == 2:
+                    self.both_started.set()
+            try:
+                assert self.release.wait(timeout=5.0)
+                super().add_node(node_id, **properties)
+            finally:
+                with self.activity_lock:
+                    self.active -= 1
+
+    authority = _ConcurrentAuthority()
+    mirror = StatefulBackend("mirror")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    node_a = "independent-a"
+    suffix = 0
+    node_b = "independent-b"
+    while fan._mutation_lock(node_a) is fan._mutation_lock(node_b):
+        suffix += 1
+        node_b = f"independent-b-{suffix}"
+
+    errors: list[BaseException] = []
+
+    def _write(node_id):
+        try:
+            fan.add_node(node_id, node_type="Service", name=node_id)
+        except BaseException as exc:  # noqa: BLE001 - thread assertion relay
+            errors.append(exc)
+
+    workers = [
+        threading.Thread(target=_write, args=(node_a,)),
+        threading.Thread(target=_write, args=(node_b,)),
+    ]
+    try:
+        for worker in workers:
+            worker.start()
+        assert authority.both_started.wait(timeout=5.0)
+        authority.release.set()
+        for worker in workers:
+            worker.join(timeout=5.0)
+        assert not errors
+        assert authority.max_active == 2
+        assert fan.flush_mirrors(timeout=10.0)
+        assert mirror.nodes[node_a] == authority.nodes[node_a]
+        assert mirror.nodes[node_b] == authority.nodes[node_b]
+    finally:
+        authority.release.set()
+        for worker in workers:
+            worker.join(timeout=5.0)
+        fan.close()
+
+
+def test_same_entity_conflicting_writes_finish_with_mirror_convergence(
+    tmp_path, monkeypatch
+):
+    """CAS and a typed upsert may race, but mirror final state stays authoritative."""
+    authority = StatefulBackend("authority")
+    mirror = StatefulBackend("mirror")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    start = threading.Barrier(3)
+    cas_results: list[bool] = []
+
+    def _upsert():
+        start.wait(timeout=5.0)
+        fan.add_node(
+            "node-1",
+            node_type="Service",
+            name="billing-renamed",
+            classification="RESTRICTED",
+        )
+
+    def _cas():
+        start.wait(timeout=5.0)
+        cas_results.append(
+            fan.compare_and_set_node_fields(
+                "node-1",
+                {"embedding": None, "name": "billing"},
+                {"embedding": [1.0, 2.0]},
+            )
+        )
+
+    workers = [threading.Thread(target=_upsert), threading.Thread(target=_cas)]
+    try:
+        for worker in workers:
+            worker.start()
+        start.wait(timeout=5.0)
+        for worker in workers:
+            worker.join(timeout=5.0)
+        assert cas_results in ([True], [False])
+        assert fan.flush_mirrors(timeout=10.0)
+        assert mirror.nodes["node-1"] == authority.nodes["node-1"]
+        assert authority.nodes["node-1"]["name"] == "billing-renamed"
+        assert authority.nodes["node-1"]["classification"] == "RESTRICTED"
     finally:
         fan.close()
 
@@ -259,9 +380,9 @@ def test_ack_does_not_wait_on_mirror_enqueue(tmp_path):
 
 def test_overflow_falls_back_to_durable_outbox(tmp_path, monkeypatch):
     """Bounded + backpressure (CONCEPT:AU-KG.backend.authority-has-already-acked): when the in-memory ring is full
-    (the persister can't keep up), a further write does NOT block the ack and is NOT
-    dropped — it appends straight to the durable outbox (loud, reconcilable). Memory
-    stays bounded."""
+    (the persister can't keep up), a further write is NOT dropped and cannot overtake
+    older ring items: the producer helps persist the oldest item first. Memory stays
+    bounded."""
     monkeypatch.setattr(fanout_module, "_auto_handoff_capacity", lambda: 4)
     m = RecordingBackend("m")
     fan = fanout_module.FanOutBackend({"m": m}, outbox_path=str(tmp_path / "ob.db"))
@@ -273,9 +394,15 @@ def test_overflow_falls_back_to_durable_outbox(tmp_path, monkeypatch):
             fan.execute(f"CREATE (n{i})", is_write=True)  # fills the ring exactly
         assert fan._handoff.full()
         depth_before = fan._outbox.depth()
-        # This write overflows the ring -> synchronous durable-outbox append.
+        # This write overflows the ring -> the OLDEST ring item lands durably,
+        # then the newer overflow mutation is admitted behind the remaining tail.
         fan.execute("CREATE (overflow)", is_write=True)
         assert fan._outbox.depth() == depth_before + 1  # landed durably, not dropped
+        _drain_outbox_sync(fan)
+        assert [value for op, value in m.writes if op == "execute"] == [
+            *(f"CREATE (n{i})" for i in range(cap)),
+            "CREATE (overflow)",
+        ]
     finally:
         fan.close()
 

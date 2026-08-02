@@ -23,9 +23,9 @@ The shape, and why each piece is here:
   the durable outbox (batched) and wakes the per-mirror drainers. So a slow/locked
   outbox throttles only the persister, never the authority ack (operator's law:
   blocked time is wasted compute; the durable write must not wait on the mirror).
-  The ring is bounded + auto-sized; on overflow the producer falls back to a
-  **synchronous** durable-outbox append (loud + reconcilable — a mirror write is
-  never silently dropped, memory never grows unbounded).
+  The ring is bounded + auto-sized; on overflow the producer synchronously helps
+  persist the **oldest** queued mutation before admitting its own (loud +
+  reconcilable — writes never overtake, silently drop, or grow memory unbounded).
 * **Durable per-mirror outbox (no loss).** The persister appends each mutation to
   :class:`GraphOutbox` (sqlite/WAL) once per mirror. A per-mirror drainer thread
   applies entries in append order and advances a persisted cursor; a mirror that is
@@ -116,6 +116,7 @@ _BASE_BACKOFF_S = 0.5  # first retry delay after an apply failure
 _MAX_BACKOFF_S = 30.0  # cap on exponential backoff for an unreachable mirror
 _STALL_THRESHOLD = 5  # consecutive failures before a mirror is flagged "stalled"
 _POISON_DROP_AFTER = 3  # permanent-error confirmations on ONE entry before skipping it
+_MUTATION_LOCK_STRIPES = 256  # same-entity ordering without global write serialization
 
 # Substrings (lowercased) that mark an apply failure as PERMANENT — a malformed or
 # dialect-incompatible query that REPLAY can never fix (vs. a transient mirror outage
@@ -193,20 +194,31 @@ class FanOutBackend(GraphBackend):
             name: _MirrorState() for name in self._mirrors
         }
         self._authority_writes = 0
-        # Preserve authority-commit order in the mirror hand-off. Without one
-        # producer critical section, thread A can commit before thread B but
-        # enqueue after it, replaying authoritative snapshots backwards.
-        self._producer_lock = threading.RLock()
+        # Same-entity writes must keep authority-commit -> mirror-enqueue order,
+        # especially CAS followed by an ANN update. A fixed striped lock table
+        # provides that ordering without holding one global lock across every
+        # authority RPC: independent entities still write concurrently and the
+        # memory footprint cannot grow with node cardinality.
+        self._mutation_locks = tuple(
+            threading.RLock() for _ in range(_MUTATION_LOCK_STRIPES)
+        )
         self._stop = threading.Event()
         self._outbox: GraphOutbox | None = None
         # Async mirror hand-off (CONCEPT:AU-KG.backend.authority-has-already-acked): the write path PUTs onto this
         # bounded ring and returns; one persister thread drains it into the durable
         # outbox. ``_inflight`` counts ring items not yet durably persisted, so a
         # convergence wait (flush_mirrors) can tell when the durable hand-off caught
-        # up. The ring is auto-sized; overflow falls back to a synchronous append.
+        # up. The ring is auto-sized; overflow helps persist its oldest item.
         self._handoff: queue.Queue[tuple[str, dict[str, Any]]] | None = None
         self._inflight = 0
         self._inflight_lock = threading.Lock()
+        # Exactly one thread appends the current hand-off head. Producers may
+        # still enqueue behind that head while sqlite is slow. On overflow a
+        # producer helps persist OLDER entries first, so the overflow mutation
+        # can never overtake items that were already in the ring.
+        self._handoff_condition = threading.Condition()
+        self._handoff_active: tuple[str, dict[str, Any]] | None = None
+        self._handoff_appending = False
         self._persister: Any = None
         if self._mirrors:
             self._outbox = GraphOutbox(outbox_path, list(self._mirrors))
@@ -236,6 +248,10 @@ class FanOutBackend(GraphBackend):
     # ------------------------------------------------------------------
     # Producer side — authority sync + durable enqueue
     # ------------------------------------------------------------------
+    def _mutation_lock(self, node_id: str) -> threading.RLock:
+        """Return the fixed ordering stripe for one entity identity."""
+        return self._mutation_locks[hash(str(node_id)) % len(self._mutation_locks)]
+
     def _enqueue(self, op: str, payload: dict[str, Any]) -> None:
         """Hand a mutation off to the mirror fan-out **without blocking the ack**.
 
@@ -244,27 +260,95 @@ class FanOutBackend(GraphBackend):
         ring (O(1), never the sqlite write lock) and returns — the persister thread
         lands it durably. The only time this touches sqlite synchronously is the
         **overflow** backstop: if the ring is full (the persister can't keep up), the
-        producer appends straight to the durable outbox rather than block the ack or
-        drop the write — loud + reconcilable, and it bounds memory.
+        producer helps persist older queued items before admitting its own — loud +
+        reconcilable, ordered, and memory-bounded.
         """
         if not self._mirrors or self._outbox is None or self._handoff is None:
             return
+        warned = False
+        while True:
+            with self._handoff_condition:
+                try:
+                    self._handoff.put_nowait((op, payload))
+                except queue.Full:
+                    pass
+                else:
+                    # Increment while the hand-off condition excludes the
+                    # persister from claiming this item. That closes the old
+                    # put-then-increment race that could make inflight negative.
+                    with self._inflight_lock:
+                        self._inflight += 1
+                    self._handoff_condition.notify_all()
+                    return
+
+            if not warned:
+                logger.warning(
+                    "FanOutBackend: mirror hand-off ring full (cap=%d) — persister "
+                    "is behind; synchronously helping persist older writes before "
+                    "admitting op=%s (ordered backpressure, not loss)",
+                    self._handoff.maxsize,
+                    op,
+                )
+                warned = True
+            try:
+                progressed = self._persist_one_handoff()
+            except Exception as exc:  # noqa: BLE001 — overflow backpressure retries; authority already committed
+                logger.warning(
+                    "FanOutBackend: ordered overflow persistence failed; retrying: %s",
+                    exc,
+                )
+                progressed = False
+            if not progressed:
+                # Another thread owns the older head (or the outbox is
+                # recovering). Wait briefly for space; never append this newer
+                # mutation ahead of it and never grow the bounded ring.
+                with self._handoff_condition:
+                    self._handoff_condition.wait(timeout=_IDLE_POLL_S)
+
+    def _claim_handoff(self) -> tuple[str, dict[str, Any]] | None:
+        """Claim the oldest ring item without blocking concurrent producers."""
+        assert self._handoff is not None
+        with self._handoff_condition:
+            if self._handoff_appending:
+                return None
+            if self._handoff_active is None:
+                try:
+                    self._handoff_active = self._handoff.get_nowait()
+                except queue.Empty:
+                    return None
+            self._handoff_appending = True
+            return self._handoff_active
+
+    def _finish_handoff(
+        self,
+        item: tuple[str, dict[str, Any]],
+        *,
+        committed: bool,
+    ) -> None:
+        """Release an append claim, retaining a failed head for ordered retry."""
+        with self._handoff_condition:
+            if self._handoff_active != item:  # pragma: no cover - invariant guard
+                raise RuntimeError("fan-out hand-off completion lost its active item")
+            self._handoff_appending = False
+            if committed:
+                self._handoff_active = None
+                with self._inflight_lock:
+                    self._inflight -= 1
+            self._handoff_condition.notify_all()
+
+    def _persist_one_handoff(self) -> bool:
+        """Persist exactly one ordered hand-off, returning whether one existed."""
+        assert self._outbox is not None
+        item = self._claim_handoff()
+        if item is None:
+            return False
         try:
-            self._handoff.put_nowait((op, payload))
-        except queue.Full:
-            logger.warning(
-                "FanOutBackend: mirror hand-off ring full (cap=%d) — persister is "
-                "behind; appending this mirror write to the durable outbox "
-                "synchronously (backpressure, not loss). seq op=%s",
-                self._handoff.maxsize,
-                op,
-            )
-            self._outbox.append(op, payload)
-            for st in self._state.values():
-                st.wake.set()
-            return
-        with self._inflight_lock:
-            self._inflight += 1
+            self._outbox.append(*item)
+        except Exception:
+            self._finish_handoff(item, committed=False)
+            raise
+        self._finish_handoff(item, committed=True)
+        return True
 
     def _persist_handoff(self) -> None:
         """Drain the in-memory ring into the durable outbox (CONCEPT:AU-KG.backend.authority-has-already-acked).
@@ -276,35 +360,27 @@ class FanOutBackend(GraphBackend):
         after a backoff — a handed-off write is never dropped before it is durable.
         """
         assert self._outbox is not None and self._handoff is not None
-        pending: list[tuple[str, dict[str, Any]]] = []
         while not self._stop.is_set():
-            if not pending:
-                try:
-                    pending.append(self._handoff.get(timeout=_IDLE_POLL_S))
-                except queue.Empty:
-                    continue
-                while len(pending) < _HANDOFF_BATCH:
-                    try:
-                        pending.append(self._handoff.get_nowait())
-                    except queue.Empty:
-                        break
+            persisted = 0
             try:
-                for op, payload in pending:
-                    self._outbox.append(op, payload)
+                while persisted < _HANDOFF_BATCH and self._persist_one_handoff():
+                    persisted += 1
             except Exception as exc:  # noqa: BLE001 — transient outbox write hiccup
                 logger.warning(
-                    "FanOutBackend: durable outbox append failed (%d pending), "
-                    "retrying: %s",
-                    len(pending),
+                    "FanOutBackend: durable outbox append failed; retrying ordered "
+                    "head: %s",
                     exc,
                 )
                 self._stop.wait(_BASE_BACKOFF_S)
-                continue  # keep `pending` — retry, never drop
-            with self._inflight_lock:
-                self._inflight -= len(pending)
-            pending = []
-            for st in self._state.values():
-                st.wake.set()
+                continue
+            if persisted:
+                for st in self._state.values():
+                    st.wake.set()
+                continue
+            with self._handoff_condition:
+                if self._stop.is_set():
+                    break
+                self._handoff_condition.wait(timeout=_IDLE_POLL_S)
 
     def _drain_handoff_remaining(self) -> None:
         """Flush any ring items still in memory straight to the durable outbox.
@@ -317,20 +393,15 @@ class FanOutBackend(GraphBackend):
         drained = 0
         while True:
             try:
-                op, payload = self._handoff.get_nowait()
-            except queue.Empty:
-                break
-            try:
-                self._outbox.append(op, payload)
+                if not self._persist_one_handoff():
+                    break
                 drained += 1
             except Exception as exc:  # noqa: BLE001 — best-effort shutdown flush
                 logger.warning(
-                    "FanOutBackend: shutdown outbox flush failed for op=%s: %s",
-                    op,
+                    "FanOutBackend: shutdown outbox flush failed: %s",
                     exc,
                 )
-        with self._inflight_lock:
-            self._inflight = max(0, self._inflight - drained)
+                break
         if drained:
             logger.info("FanOutBackend: flushed %d ring items at close", drained)
 
@@ -357,17 +428,16 @@ class FanOutBackend(GraphBackend):
             return self._authority.execute(
                 query, params, include_epistemic=include_epistemic
             )
-        with self._producer_lock:
-            result = self._authority.execute(query, params)
-            self._authority_writes += 1
-            # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct
-            # write (Ladybug folds props into its `properties` JSON column); everything
-            # else forwards the raw cypher (portable for node MERGE + ad-hoc writes).
-            edge = _edge_upsert_payload(query, params)
-            if edge is not None:
-                self._enqueue("upsert_edge", edge)
-            else:
-                self._enqueue("execute", {"query": query, "params": params})
+        result = self._authority.execute(query, params)
+        self._authority_writes += 1
+        # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct
+        # write (Ladybug folds props into its `properties` JSON column); everything
+        # else forwards the raw cypher (portable for node MERGE + ad-hoc writes).
+        edge = _edge_upsert_payload(query, params)
+        if edge is not None:
+            self._enqueue("upsert_edge", edge)
+        else:
+            self._enqueue("execute", {"query": query, "params": params})
         return result
 
     def execute_read(
@@ -388,10 +458,9 @@ class FanOutBackend(GraphBackend):
         self, query: str, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """High-throughput ingestion — always a write; mirror durably."""
-        with self._producer_lock:
-            result = self._authority.execute_batch(query, batch)
-            self._authority_writes += 1
-            self._enqueue("execute_batch", {"query": query, "batch": batch})
+        result = self._authority.execute_batch(query, batch)
+        self._authority_writes += 1
+        self._enqueue("execute_batch", {"query": query, "batch": batch})
         return result
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
@@ -414,7 +483,7 @@ class FanOutBackend(GraphBackend):
             raise RuntimeError(
                 "fan-out authority does not support typed node mutations"
             )
-        with self._producer_lock:
+        with self._mutation_lock(node_id):
             typed_add(node_id, **payload)
             self._authority_writes += 1
             self._enqueue(
@@ -444,7 +513,8 @@ class FanOutBackend(GraphBackend):
             raise RuntimeError(
                 "fan-out authority does not support typed edge mutations"
             )
-        with self._producer_lock:
+        edge_key = f"edge\x00{source_id}\x00{target_id}\x00{relationship}"
+        with self._mutation_lock(edge_key):
             typed_add(source_id, target_id, **payload)
             self._authority_writes += 1
             self._enqueue(
@@ -480,7 +550,7 @@ class FanOutBackend(GraphBackend):
                 "fan-out authority does not support node compare-and-set snapshots"
             )
 
-        with self._producer_lock:
+        with self._mutation_lock(node_id):
             before = get_properties(node_id)
             if before is None:
                 return False
@@ -509,12 +579,11 @@ class FanOutBackend(GraphBackend):
             return True
 
     def create_schema(self) -> None:
-        with self._producer_lock:
-            self._authority.create_schema()
-            self._enqueue("create_schema", {})
+        self._authority.create_schema()
+        self._enqueue("create_schema", {})
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        with self._producer_lock:
+        with self._mutation_lock(node_id):
             self._authority.add_embedding(node_id, embedding)
             self._enqueue(
                 "add_embedding", {"node_id": node_id, "embedding": list(embedding)}
@@ -527,9 +596,8 @@ class FanOutBackend(GraphBackend):
         return self._authority.semantic_search(query_embedding, n_results)
 
     def prune(self, criteria: dict[str, Any]) -> None:
-        with self._producer_lock:
-            self._authority.prune(criteria)
-            self._enqueue("prune", {"criteria": criteria})
+        self._authority.prune(criteria)
+        self._enqueue("prune", {"criteria": criteria})
 
     # ------------------------------------------------------------------
     # Consumer side — per-mirror drainer

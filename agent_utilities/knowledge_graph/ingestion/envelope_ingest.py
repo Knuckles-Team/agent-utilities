@@ -1795,6 +1795,16 @@ def _auto_embed_envelopes(envelopes: list[ChangeEnvelope]) -> dict[int, list[flo
     the caller can also register the vector in the engine's ANN index once the
     write commits.
     """
+    from ..enrichment.semantic import EMBEDDING_BACKFILL_STATE_FIELD
+
+    # Native upserts field-merge. Explicitly clear a prior textless-maintenance
+    # marker on EVERY real source upsert, including when auto-embedding is
+    # disabled or the endpoint is down, so newly-added text is eligible for a
+    # later bounded backfill instead of being deferred forever.
+    for envelope in envelopes:
+        if envelope.operation == "upsert" and envelope.typed_payload is not None:
+            envelope.typed_payload[EMBEDDING_BACKFILL_STATE_FIELD] = None
+
     try:
         from agent_utilities.core.config import config
 
@@ -1808,18 +1818,19 @@ def _auto_embed_envelopes(envelopes: list[ChangeEnvelope]) -> dict[int, list[flo
         return {}
 
     try:
-        from ..enrichment.semantic import make_embed_fn
+        from ..enrichment.semantic import make_embed_fn, validate_embedding_vectors
 
         embed_fn = make_embed_fn()
-        vecs = embed_fn([text for _, text in pending])
+        vecs = validate_embedding_vectors(
+            embed_fn([text for _, text in pending]),
+            expected_count=len(pending),
+        )
     except Exception as exc:  # noqa: BLE001 — ingest-time embedding is best-effort: an unconfigured/unreachable embedding endpoint must degrade to "no vector", never fail the entity's write
         logger.debug("ingest-time auto-embed skipped (%s): %s", type(exc).__name__, exc)
         return {}
 
     embedded: dict[int, list[float]] = {}
-    for (position, text), vec in zip(pending, vecs, strict=False):
-        if not vec:
-            continue
+    for (position, text), vec in zip(pending, vecs, strict=True):
         vec_list = list(vec)
         envelope = envelopes[position]
         # typed_payload is a plain dict — mutating it in place is safe even

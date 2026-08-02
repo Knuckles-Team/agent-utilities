@@ -10,6 +10,7 @@ live model or daemon.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -28,6 +29,73 @@ SearchFn = Callable[[list[float], int], list[dict[str, Any]]]
 # pin on the llama-index model's ``embed_batch_size`` so it stops splitting our
 # chunk into ``DEFAULT_EMBED_BATCH_SIZE``-sized POSTs). (CONCEPT:AU-KG.ingest.applying-agents-md-batch)
 _EMBED_MAX_BATCH = 256
+
+# Durable maintenance state shared by the bounded legacy backfill and the
+# ingest-time upsert chokepoint. A real source upsert always clears this marker
+# so a formerly textless entity becomes eligible when its content evolves.
+EMBEDDING_BACKFILL_STATE_FIELD = "_embedding_backfill_state"
+EMBEDDING_BACKFILL_NO_TEXT = "no_text"
+
+
+def configured_embedding_dimension() -> int:
+    """Return the positive vector dimension declared for the active KG schema."""
+    from agent_utilities.core.config import config
+
+    try:
+        dimension = int(config.kg_embedding_dim or 0)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("KG embedding dimension is not a valid integer") from exc
+    if dimension <= 0:
+        raise RuntimeError("KG embedding dimension must be positive")
+    return dimension
+
+
+def validate_embedding_vectors(
+    vectors: Any,
+    *,
+    expected_count: int,
+    expected_dimension: int | None = None,
+) -> list[list[float]]:
+    """Validate and normalize an embed response before any vector write."""
+    try:
+        raw_vectors = list(vectors)
+    except TypeError as exc:
+        raise RuntimeError(
+            "embedding endpoint returned a non-iterable vector response"
+        ) from exc
+    if len(raw_vectors) != expected_count:
+        raise RuntimeError(
+            "embedding endpoint returned a vector count that does not match "
+            f"the request ({len(raw_vectors)} != {expected_count})"
+        )
+
+    dimension = expected_dimension or configured_embedding_dimension()
+    if dimension <= 0:
+        raise RuntimeError("expected embedding dimension must be positive")
+    normalized: list[list[float]] = []
+    for index, vector in enumerate(raw_vectors):
+        if isinstance(vector, str | bytes | bytearray):
+            raise RuntimeError(
+                f"embedding endpoint returned an invalid vector at index {index}"
+            )
+        try:
+            values = [float(value) for value in vector]
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"embedding endpoint returned an invalid vector at index {index}"
+            ) from exc
+        if not values or any(not math.isfinite(value) for value in values):
+            raise RuntimeError(
+                f"embedding endpoint returned an empty or non-finite vector "
+                f"at index {index}"
+            )
+        if len(values) != dimension:
+            raise RuntimeError(
+                "embedding endpoint returned the wrong vector dimension "
+                f"at index {index} ({len(values)} != {dimension})"
+            )
+        normalized.append(values)
+    return normalized
 
 
 def _embed_concurrency() -> int:
