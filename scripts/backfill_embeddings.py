@@ -37,6 +37,7 @@ import argparse
 import asyncio
 import sys
 import time
+from typing import Any
 
 
 async def _run(limit: int, batch_size: int, execute: bool) -> None:
@@ -107,15 +108,37 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
         # Dry run still measures what WOULD be embedded (text extraction only,
         # no embed-endpoint call, no engine write) so the operator sees real
         # candidate counts before approving a real run.
-        rows = (
-            backend.execute(
-                "MATCH (n) WHERE n.embedding IS NULL "
-                "RETURN n.id AS id, properties(n) AS props "
-                "ORDER BY n.id LIMIT $limit",
-                {"limit": limit},
+        # DISCOVER ids by Cypher, then HYDRATE properties over the batch RPC.
+        #
+        # `properties(n)` is NOT in the native engine's supported Cypher subset —
+        # it raises CypherEngineError("native Cypher authority rejected request",
+        # error_type=RuntimeError), which is what made this script fail on its
+        # very first real run. Selecting named fields instead is not an option
+        # either: `derive_entity_text` deliberately falls back to ANY string-valued
+        # leaf property when the known name/summary fields are absent, so it needs
+        # the whole map, not a fixed projection.
+        #
+        # `_get_node_properties_batch` is the engine's own batched accessor and is
+        # the same discovery-then-hydrate shape the delegation hot path already
+        # uses (it cut `nodes.properties_batch` there from 78 calls to 4). One RPC
+        # for the whole page, not one per node.
+        ids = [
+            row["id"]
+            for row in (
+                backend.execute(
+                    "MATCH (n) WHERE n.embedding IS NULL "
+                    "RETURN n.id AS id ORDER BY n.id LIMIT $limit",
+                    {"limit": limit},
+                )
+                or []
             )
-            or []
+            if row.get("id")
+        ]
+        graph = getattr(backend, "_graph", backend)
+        props_by_id: dict[str, dict[str, Any]] = (
+            graph._get_node_properties_batch(ids) or {} if ids else {}
         )
+        rows = [{"id": node_id, "props": props_by_id.get(node_id) or {}} for node_id in ids]
         from agent_utilities.knowledge_graph.enrichment.semantic import (
             derive_entity_text,
         )
