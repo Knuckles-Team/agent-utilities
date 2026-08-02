@@ -1160,7 +1160,7 @@ class IntelligenceGraphEngine(
                     try:
                         stamp_ownership(prepared)
                         stamp_classification(prepared, node_type)
-                    except PermissionError:
+                    except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
                         pass
                     operations.append(
                         {
