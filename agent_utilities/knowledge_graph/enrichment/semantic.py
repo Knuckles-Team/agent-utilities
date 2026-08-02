@@ -310,8 +310,10 @@ _ENTITY_FIELD_VALUE_CAP = 2000
 _ENTITY_TEXT_CAP = 4000
 
 
-def derive_entity_text(props: dict[str, Any]) -> str:
-    """Best-effort connector-agnostic text extraction for embedding an entity.
+def derive_entity_text_snapshot(
+    props: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    """Return entity text plus the exact property values that selected it.
 
     CONCEPT:AU-KG.ingest.entity-embedding-at-write — every typed-entity
     connector builds a differently-shaped ``dict`` (see
@@ -323,11 +325,26 @@ def derive_entity_text(props: dict[str, Any]) -> str:
     so an entity with unusual field names still gets *something* embedded
     rather than silently landing with no vector.
 
-    Returns "" when no usable text was found (callers must treat that as
-    "skip embedding this record", not as an error).
+    The snapshot is suitable for an atomic compare-and-set fence around a slow
+    embedding call: if any field that selected or contributed text changes, the
+    CAS fails instead of persisting a vector derived from stale content. Missing
+    well-known fields are included as ``None`` because adding a higher-priority
+    name or summary while the embedder is running also changes the derived text.
+
+    Returns ``("", conditions)`` when no usable text was found. Callers must
+    treat that as "defer this record", not as an embedding value.
     """
     if not props:
-        return ""
+        return "", {}
+    conditions = {
+        key: props.get(key)
+        for key in (
+            "type",
+            "node_type",
+            *_ENTITY_NAME_FIELDS,
+            *_ENTITY_SUMMARY_FIELDS,
+        )
+    }
     node_type = str(props.get("type") or props.get("node_type") or "")
     name = ""
     for key in _ENTITY_NAME_FIELDS:
@@ -342,7 +359,10 @@ def derive_entity_text(props: dict[str, Any]) -> str:
             summary = value.strip()[:_ENTITY_FIELD_VALUE_CAP]
             break
     if name or summary:
-        return entity_text(node_type, name or node_type, summary)[:_ENTITY_TEXT_CAP]
+        return (
+            entity_text(node_type, name or node_type, summary)[:_ENTITY_TEXT_CAP],
+            conditions,
+        )
 
     # Fallback: no recognized field matched — concatenate short string leaves so
     # an unusual connector shape still yields embeddable text.
@@ -350,11 +370,25 @@ def derive_entity_text(props: dict[str, Any]) -> str:
     for key, value in props.items():
         if key in _ENTITY_TEXT_SKIP_KEYS or key in _ENTITY_NAME_FIELDS:
             continue
+        # The fallback considers every current non-skipped value. Fence even
+        # non-string values so a concurrent change from (say) numeric to text
+        # cannot make this snapshot stale without failing the CAS.
+        conditions[key] = value
         if isinstance(value, str) and value.strip() and len(value) < 500:
             fallback_parts.append(value.strip())
         if sum(len(p) for p in fallback_parts) > _ENTITY_TEXT_CAP:
             break
-    return " — ".join(fallback_parts)[:_ENTITY_TEXT_CAP]
+    return " — ".join(fallback_parts)[:_ENTITY_TEXT_CAP], conditions
+
+
+def derive_entity_text(props: dict[str, Any]) -> str:
+    """Best-effort connector-agnostic text extraction for embedding an entity.
+
+    Returns "" when no usable text was found (callers must treat that as
+    "skip embedding this record", not as an error). See
+    :func:`derive_entity_text_snapshot` when a caller needs a concurrency fence.
+    """
+    return derive_entity_text_snapshot(props)[0]
 
 
 def embed_and_store(

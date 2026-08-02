@@ -5,6 +5,7 @@ CONCEPT:AU-KG.query.object-graph-mapper
 """
 
 import logging
+import math
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -23,6 +24,56 @@ logger = logging.getLogger(__name__)
 _base_url = str(DEFAULT_EMBEDDING_BASE_URL or "").strip().rstrip("/")
 LM_STUDIO_URL = f"{_base_url}/embeddings" if _base_url else ""
 EMBEDDING_MODEL = str(DEFAULT_EMBEDDING_MODEL_ID or "").strip()
+
+_EMBEDDING_BACKFILL_STATE_FIELD = "_embedding_backfill_state"
+_EMBEDDING_BACKFILL_NO_TEXT = "no_text"
+
+
+def _validated_embedding_vectors(
+    vectors: Any,
+    *,
+    expected_count: int,
+) -> list[list[float]]:
+    """Validate one embed response completely before any vector is persisted."""
+    try:
+        raw_vectors = list(vectors)
+    except TypeError as exc:
+        raise RuntimeError(
+            "embedding endpoint returned a non-iterable vector response"
+        ) from exc
+    if len(raw_vectors) != expected_count:
+        raise RuntimeError(
+            "embedding endpoint returned a vector count that does not match "
+            f"the request ({len(raw_vectors)} != {expected_count})"
+        )
+
+    normalized: list[list[float]] = []
+    dimension: int | None = None
+    for index, vector in enumerate(raw_vectors):
+        if isinstance(vector, str | bytes | bytearray):
+            raise RuntimeError(
+                f"embedding endpoint returned an invalid vector at index {index}"
+            )
+        try:
+            values = [float(value) for value in vector]
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"embedding endpoint returned an invalid vector at index {index}"
+            ) from exc
+        if not values or any(not math.isfinite(value) for value in values):
+            raise RuntimeError(
+                f"embedding endpoint returned an empty or non-finite vector "
+                f"at index {index}"
+            )
+        if dimension is None:
+            dimension = len(values)
+        elif len(values) != dimension:
+            raise RuntimeError(
+                "embedding endpoint returned inconsistent vector dimensions "
+                f"({len(values)} != {dimension})"
+            )
+        normalized.append(values)
+    return normalized
 
 
 def generate_embedding(text: str) -> list[float] | None:
@@ -115,21 +166,31 @@ class GraphMaintainer:
         remains best-effort after that durable write because the existing
         ``hydrate_engine_embeddings`` loop retries property-to-index hydration.
 
+        A textless legacy node is marked separately as ``no_text`` so it cannot
+        pin the first ordered page forever; no placeholder embedding is written.
+        A later full entity upsert replaces that maintenance-only marker and the
+        ingest-time embedding path handles newly-added text normally.
+
         Returns ``{"scanned": N, "embedded": N, "indexed": N,
-        "skipped_no_text": N}``. ``embedded`` counts durable node-property
-        updates; ``indexed`` counts immediate ANN registrations.
+        "skipped_no_text": N, "deferred_no_text": N, "conflicted": N}``.
+        ``embedded`` counts durable node-property updates; ``indexed`` counts
+        immediate ANN registrations; ``conflicted`` counts rows whose text or
+        embedding state changed after hydration and therefore lost their CAS.
         """
         result = {
             "scanned": 0,
             "embedded": 0,
             "indexed": 0,
             "skipped_no_text": 0,
+            "deferred_no_text": 0,
+            "conflicted": 0,
         }
         if not self.engine.backend:
             return result
 
         query = (
             "MATCH (n) WHERE n.embedding IS NULL "
+            f"AND n.{_EMBEDDING_BACKFILL_STATE_FIELD} IS NULL "
             "RETURN n.id AS id "
             "ORDER BY n.id LIMIT $limit"
         )
@@ -148,31 +209,6 @@ class GraphMaintainer:
             )
         properties_by_id = batch_properties(node_ids) or {}
 
-        from ..enrichment.semantic import (
-            derive_entity_text,
-            make_embed_fn,
-        )
-
-        items: list[tuple[str, str]] = []
-        for node_id in node_ids:
-            props = properties_by_id.get(node_id) or {}
-            text = derive_entity_text(props)
-            if not text:
-                result["skipped_no_text"] += 1
-                continue
-            items.append((str(node_id), text))
-
-        if not items:
-            return result
-
-        embed_fn = make_embed_fn(batch_size=batch_size)
-        vectors = embed_fn([text for _, text in items])
-        if len(vectors) != len(items):
-            raise RuntimeError(
-                "embedding endpoint returned a vector count that does not match "
-                f"the request ({len(vectors)} != {len(items)})"
-            )
-
         compare_and_set = getattr(
             self.engine.backend, "compare_and_set_node_fields", None
         )
@@ -181,24 +217,63 @@ class GraphMaintainer:
                 "embedding backfill requires atomic field updates to preserve "
                 "existing node governance"
             )
-        for (node_id, _), vector in zip(items, vectors, strict=True):
+
+        def _compare(
+            node_id: str,
+            conditions: dict[str, Any],
+            updates: dict[str, Any],
+        ) -> bool:
             try:
-                applied = bool(
-                    compare_and_set(
-                        node_id,
-                        {"embedding": None},
-                        {"embedding": list(vector)},
-                    )
-                )
+                return bool(compare_and_set(node_id, conditions, updates))
             except NotImplementedError as exc:
                 raise RuntimeError(
                     "embedding backfill requires backend compare-and-set support"
                 ) from exc
+
+        from ..enrichment.semantic import derive_entity_text_snapshot, make_embed_fn
+
+        items: list[tuple[str, str, dict[str, Any]]] = []
+        deferred: list[tuple[str, dict[str, Any]]] = []
+        for node_id in node_ids:
+            props = properties_by_id.get(node_id) or {}
+            text, text_conditions = derive_entity_text_snapshot(props)
+            conditions = {
+                "embedding": None,
+                _EMBEDDING_BACKFILL_STATE_FIELD: None,
+                **text_conditions,
+            }
+            if not text:
+                result["skipped_no_text"] += 1
+                deferred.append((node_id, conditions))
+                continue
+            items.append((str(node_id), text, conditions))
+
+        vectors: list[list[float]] = []
+        if items:
+            embed_fn = make_embed_fn(batch_size=batch_size)
+            vectors = _validated_embedding_vectors(
+                embed_fn([text for _, text, _ in items]),
+                expected_count=len(items),
+            )
+
+        for node_id, conditions in deferred:
+            if _compare(
+                node_id,
+                conditions,
+                {_EMBEDDING_BACKFILL_STATE_FIELD: _EMBEDDING_BACKFILL_NO_TEXT},
+            ):
+                result["deferred_no_text"] += 1
+            else:
+                result["conflicted"] += 1
+
+        for (node_id, _, conditions), vector in zip(items, vectors, strict=True):
+            applied = _compare(node_id, conditions, {"embedding": vector})
             if not applied:
+                result["conflicted"] += 1
                 continue
             result["embedded"] += 1
             try:
-                self.engine.backend.add_embedding(node_id, list(vector))
+                self.engine.backend.add_embedding(node_id, vector)
                 result["indexed"] += 1
             except Exception as exc:  # noqa: BLE001 — the durable embedding property committed; the existing hydrate_engine_embeddings loop retries ANN registration
                 logger.warning(
@@ -208,11 +283,13 @@ class GraphMaintainer:
                 )
         logger.info(
             "Entity embedding backfill: scanned=%d embedded=%d indexed=%d "
-            "skipped_no_text=%d",
+            "skipped_no_text=%d deferred_no_text=%d conflicted=%d",
             result["scanned"],
             result["embedded"],
             result["indexed"],
             result["skipped_no_text"],
+            result["deferred_no_text"],
+            result["conflicted"],
         )
         return result
 

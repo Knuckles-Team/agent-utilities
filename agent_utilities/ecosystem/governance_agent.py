@@ -100,7 +100,8 @@ class GraphGovernanceAgent:
         # D-EMB/D-PERF-5: this was a dead stub (import + bare `pass`) — the
         # governance cycle never actually ran any GraphMaintainer operation.
         # A small, bounded entity-embedding backfill batch each cycle is the
-        # SAFE (atomic embedding-field CAS + ANN indexing; see
+        # SAFE (text-snapshot-fenced embedding CAS + ANN indexing, with a
+        # separate no-text deferral state rather than a placeholder vector; see
         # backfill_entity_embeddings's docstring for why this preserves the
         # existing ACL and never re-upserts through ChangeEnvelope), self-
         # healing catch-up for legacy under-embedded nodes — this governance

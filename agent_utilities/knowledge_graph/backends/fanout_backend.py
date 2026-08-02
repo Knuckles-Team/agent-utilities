@@ -193,6 +193,10 @@ class FanOutBackend(GraphBackend):
             name: _MirrorState() for name in self._mirrors
         }
         self._authority_writes = 0
+        # Preserve authority-commit order in the mirror hand-off. Without one
+        # producer critical section, thread A can commit before thread B but
+        # enqueue after it, replaying authoritative snapshots backwards.
+        self._producer_lock = threading.RLock()
         self._stop = threading.Event()
         self._outbox: GraphOutbox | None = None
         # Async mirror hand-off (CONCEPT:AU-KG.backend.authority-has-already-acked): the write path PUTs onto this
@@ -353,16 +357,17 @@ class FanOutBackend(GraphBackend):
             return self._authority.execute(
                 query, params, include_epistemic=include_epistemic
             )
-        result = self._authority.execute(query, params)
-        self._authority_writes += 1
-        # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct
-        # write (Ladybug folds props into its `properties` JSON column); everything
-        # else forwards the raw cypher (portable for node MERGE + ad-hoc writes).
-        edge = _edge_upsert_payload(query, params)
-        if edge is not None:
-            self._enqueue("upsert_edge", edge)
-        else:
-            self._enqueue("execute", {"query": query, "params": params})
+        with self._producer_lock:
+            result = self._authority.execute(query, params)
+            self._authority_writes += 1
+            # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct
+            # write (Ladybug folds props into its `properties` JSON column); everything
+            # else forwards the raw cypher (portable for node MERGE + ad-hoc writes).
+            edge = _edge_upsert_payload(query, params)
+            if edge is not None:
+                self._enqueue("upsert_edge", edge)
+            else:
+                self._enqueue("execute", {"query": query, "params": params})
         return result
 
     def execute_read(
@@ -383,9 +388,10 @@ class FanOutBackend(GraphBackend):
         self, query: str, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """High-throughput ingestion — always a write; mirror durably."""
-        result = self._authority.execute_batch(query, batch)
-        self._authority_writes += 1
-        self._enqueue("execute_batch", {"query": query, "batch": batch})
+        with self._producer_lock:
+            result = self._authority.execute_batch(query, batch)
+            self._authority_writes += 1
+            self._enqueue("execute_batch", {"query": query, "batch": batch})
         return result
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
@@ -408,16 +414,17 @@ class FanOutBackend(GraphBackend):
             raise RuntimeError(
                 "fan-out authority does not support typed node mutations"
             )
-        typed_add(node_id, **payload)
-        self._authority_writes += 1
-        self._enqueue(
-            "upsert_node",
-            {
-                "node_id": node_id,
-                "label": node_type,
-                "properties": payload,
-            },
-        )
+        with self._producer_lock:
+            typed_add(node_id, **payload)
+            self._authority_writes += 1
+            self._enqueue(
+                "upsert_node",
+                {
+                    "node_id": node_id,
+                    "label": node_type,
+                    "properties": payload,
+                },
+            )
 
     def add_edge(
         self,
@@ -437,27 +444,81 @@ class FanOutBackend(GraphBackend):
             raise RuntimeError(
                 "fan-out authority does not support typed edge mutations"
             )
-        typed_add(source_id, target_id, **payload)
-        self._authority_writes += 1
-        self._enqueue(
-            "upsert_edge",
-            {
-                "source_id": source_id,
-                "target_id": target_id,
-                "rel_type": relationship,
-                "props": payload,
-            },
-        )
+        with self._producer_lock:
+            typed_add(source_id, target_id, **payload)
+            self._authority_writes += 1
+            self._enqueue(
+                "upsert_edge",
+                {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "rel_type": relationship,
+                    "props": payload,
+                },
+            )
+
+    def compare_and_set_node_fields(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool:
+        """Apply authority CAS and replay its winning full node to mirrors.
+
+        The base backend's optional default raises ``NotImplementedError`` and
+        therefore cannot fall through ``__getattr__`` to the authority. This
+        explicit implementation preserves the native winner/loser result. A
+        loser emits no mirror mutation. A winner snapshots the complete updated
+        authoritative node and reuses the existing structured-node outbox path,
+        preserving ACL/classification and converging mirrors without a second
+        backend-specific partial-update dialect.
+        """
+        compare_and_set = getattr(self._authority, "compare_and_set_node_fields", None)
+        get_properties = getattr(self._authority, "get_node_properties", None)
+        if not callable(compare_and_set) or not callable(get_properties):
+            raise NotImplementedError(
+                "fan-out authority does not support node compare-and-set snapshots"
+            )
+
+        with self._producer_lock:
+            before = get_properties(node_id)
+            if before is None:
+                return False
+            label = str(before.get("node_type") or before.get("label") or "").strip()
+            if self._mirrors and not label:
+                raise RuntimeError(
+                    "fan-out compare-and-set requires a typed authority node"
+                )
+            if not bool(compare_and_set(node_id, conditions, updates)):
+                return False
+            self._authority_writes += 1
+            if self._mirrors:
+                after = get_properties(node_id)
+                if after is None:
+                    raise RuntimeError(
+                        "fan-out authority node disappeared after compare-and-set"
+                    )
+                self._enqueue(
+                    "upsert_node",
+                    {
+                        "node_id": node_id,
+                        "label": label,
+                        "properties": dict(after),
+                    },
+                )
+            return True
 
     def create_schema(self) -> None:
-        self._authority.create_schema()
-        self._enqueue("create_schema", {})
+        with self._producer_lock:
+            self._authority.create_schema()
+            self._enqueue("create_schema", {})
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        self._authority.add_embedding(node_id, embedding)
-        self._enqueue(
-            "add_embedding", {"node_id": node_id, "embedding": list(embedding)}
-        )
+        with self._producer_lock:
+            self._authority.add_embedding(node_id, embedding)
+            self._enqueue(
+                "add_embedding", {"node_id": node_id, "embedding": list(embedding)}
+            )
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
@@ -466,8 +527,9 @@ class FanOutBackend(GraphBackend):
         return self._authority.semantic_search(query_embedding, n_results)
 
     def prune(self, criteria: dict[str, Any]) -> None:
-        self._authority.prune(criteria)
-        self._enqueue("prune", {"criteria": criteria})
+        with self._producer_lock:
+            self._authority.prune(criteria)
+            self._enqueue("prune", {"criteria": criteria})
 
     # ------------------------------------------------------------------
     # Consumer side — per-mirror drainer

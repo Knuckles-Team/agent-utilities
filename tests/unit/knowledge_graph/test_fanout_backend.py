@@ -75,6 +75,43 @@ class RecordingBackend(GraphBackend):
             return sum(1 for op, _ in self.writes if op == "execute")
 
 
+class StatefulBackend(RecordingBackend):
+    """Typed recording backend with real node CAS semantics."""
+
+    typed_mutation_support = "native"
+
+    def __init__(self, name: str) -> None:
+        super().__init__(name)
+        self.nodes = {
+            "node-1": {
+                "id": "node-1",
+                "node_type": "Service",
+                "name": "billing",
+                "classification": "INTERNAL",
+                "external_access": {"read": ["team-a"]},
+            }
+        }
+
+    def add_node(self, node_id, **properties):
+        self._check()
+        self.nodes[node_id] = dict(properties)
+        with self._lock:
+            self.writes.append(("add_node", node_id))
+
+    def get_node_properties(self, node_id):
+        node = self.nodes.get(node_id)
+        return dict(node) if node is not None else None
+
+    def compare_and_set_node_fields(self, node_id, conditions, updates):
+        node = self.nodes.get(node_id)
+        if node is None or any(
+            node.get(field) != expected for field, expected in conditions.items()
+        ):
+            return False
+        node.update(updates)
+        return True
+
+
 @pytest.fixture(autouse=True)
 def _inert_epistemic_authority(monkeypatch):
     """Replace the fixed native authority with an inert contract test double."""
@@ -94,6 +131,43 @@ def _make(tmp_path: Path, mirrors: dict[str, RecordingBackend]) -> FanOutBackend
 
 def test_public_constructor_has_no_authority_selector():
     assert "authority" not in signature(FanOutBackend).parameters
+
+
+def test_compare_and_set_updates_authority_and_mirror_only_for_winner(
+    tmp_path, monkeypatch
+):
+    authority = StatefulBackend("authority")
+    mirror = StatefulBackend("mirror")
+    monkeypatch.setattr(
+        fanout_module,
+        "_new_epistemic_authority",
+        lambda: authority,
+    )
+    fan = FanOutBackend({"mirror": mirror}, outbox_path=str(tmp_path / "ob.db"))
+    try:
+        assert fan.compare_and_set_node_fields(
+            "node-1",
+            {"embedding": None, "name": "billing"},
+            {"embedding": [1.0, 2.0]},
+        )
+        assert fan.flush_mirrors(timeout=10.0)
+
+        assert authority.nodes["node-1"]["embedding"] == [1.0, 2.0]
+        assert mirror.nodes["node-1"] == authority.nodes["node-1"]
+        assert mirror.nodes["node-1"]["classification"] == "INTERNAL"
+        assert mirror.nodes["node-1"]["external_access"] == {"read": ["team-a"]}
+
+        writes_before = len(mirror.writes)
+        assert not fan.compare_and_set_node_fields(
+            "node-1",
+            {"embedding": None},
+            {"embedding": [3.0, 4.0]},
+        )
+        assert fan.flush_mirrors(timeout=10.0)
+        assert len(mirror.writes) == writes_before
+        assert authority.nodes["node-1"]["embedding"] == [1.0, 2.0]
+    finally:
+        fan.close()
 
 
 def _stop_drainers(fan: FanOutBackend) -> None:

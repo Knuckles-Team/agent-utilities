@@ -161,18 +161,32 @@ vector in the engine ANN index. Legacy nodes are reconciled in bounded pages by
 
 ```mermaid
 flowchart LR
-  Q["IDs where embedding is null<br/>bounded and ordered"] --> H["one batched property hydration"]
-  H --> E["one batched embedding request"]
-  E --> C["atomic compare-and-set<br/>embedding: null → vector"]
+  Q["IDs where embedding is null<br/>and not text-deferred<br/>bounded and ordered"] --> H["one batched property hydration"]
+  H --> T{"extractable text?"}
+  T -->|no| D["CAS separate no-text state<br/>never a placeholder vector"]
+  T -->|yes| E["one batched embedding request<br/>validate all vectors first"]
+  E --> C["atomic compare-and-set<br/>embedding + exact text snapshot"]
   C --> A["register vector in ANN"]
   A -.->|retry after index failure| R["background property-to-index hydrator"]
+  C --> F["fan-out winning full node<br/>to configured mirrors"]
 ```
 
-The compare-and-set changes only the embedding field, so existing connector
-properties, ownership, classification, and ACL state remain intact. Its durable
-success is also the progress ledger: the next page cannot select a completed
-node. ANN registration follows the property write; if it fails, the normal
-hydration loop retries without regenerating the vector.
+The vector compare-and-set changes only the embedding field, so existing
+connector properties, ownership, classification, and ACL state remain intact.
+It also fences the exact name/summary/fallback values used to construct the
+embedding input: a concurrent content update loses the CAS and is retried from a
+fresh property snapshot instead of receiving a stale vector. Every response
+vector is non-empty, finite, and dimension-consistent before any vector property
+is written.
+
+Durable success is the progress ledger: the next page cannot select a completed
+node. A node with no usable text receives a separate maintenance-only `no_text`
+state, never a fake embedding, so it does not pin every later page; a normal full
+entity upsert replaces that state when source data changes. In fan-out mode, a
+winning authority CAS reuses the structured full-node outbox path so mirrors
+receive the exact updated node without resetting ACL properties; a losing CAS
+emits no mirror entry. ANN registration follows the property write; if it fails,
+the normal hydration loop retries without regenerating the vector.
 
 ---
 

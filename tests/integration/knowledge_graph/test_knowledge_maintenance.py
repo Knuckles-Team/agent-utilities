@@ -2,6 +2,8 @@
 
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
 
 
@@ -173,6 +175,8 @@ def test_backfill_entity_embeddings_no_backend_returns_zeros():
         "embedded": 0,
         "indexed": 0,
         "skipped_no_text": 0,
+        "deferred_no_text": 0,
+        "conflicted": 0,
     }
 
 
@@ -198,6 +202,7 @@ class _NativeBackfillBackend:
             {"id": node_id}
             for node_id, node_props in sorted(self.nodes.items())
             if node_props.get("embedding") is None
+            and node_props.get("_embedding_backfill_state") is None
         ][:limit]
 
     def _get_node_properties_batch(self, node_ids):
@@ -234,12 +239,16 @@ def test_backfill_native_query_avoids_properties_function_and_persists_progress(
         "embedded": 2,
         "indexed": 2,
         "skipped_no_text": 0,
+        "deferred_no_text": 0,
+        "conflicted": 0,
     }
     assert second == {
         "scanned": 2,
         "embedded": 2,
         "indexed": 2,
         "skipped_no_text": 0,
+        "deferred_no_text": 0,
+        "conflicted": 0,
     }
     assert [node_id for node_id, _ in backend.indexed] == [
         "node-0",
@@ -248,3 +257,79 @@ def test_backfill_native_query_avoids_properties_function_and_persists_progress(
         "node-3",
     ]
     assert all(node["classification"] == "INTERNAL" for node in backend.nodes.values())
+
+
+def test_backfill_textless_first_node_does_not_starve_next_invocation():
+    backend = _NativeBackfillBackend()
+    backend.nodes["node-0"] = {
+        "id": "node-0",
+        "classification": "INTERNAL",
+        "reading": 42.0,
+    }
+    engine = MagicMock(backend=backend)
+
+    with patch(
+        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
+        return_value=lambda texts: [[float(len(text))] for text in texts],
+    ):
+        first = GraphMaintainer(engine).backfill_entity_embeddings(limit=1)
+        second = GraphMaintainer(engine).backfill_entity_embeddings(limit=1)
+
+    assert first["scanned"] == 1
+    assert first["skipped_no_text"] == 1
+    assert first["deferred_no_text"] == 1
+    assert backend.nodes["node-0"].get("embedding") is None
+    assert backend.nodes["node-0"]["_embedding_backfill_state"] == "no_text"
+    assert second["embedded"] == 1
+    assert backend.indexed[0][0] == "node-1"
+
+
+def test_backfill_rejects_concurrent_text_mutation_before_embedding_write():
+    class _MutatingBackend(_NativeBackfillBackend):
+        def compare_and_set_node_fields(self, node_id, conditions, updates):
+            if "embedding" in updates:
+                self.nodes[node_id]["name"] = "service changed concurrently"
+            return super().compare_and_set_node_fields(node_id, conditions, updates)
+
+    backend = _MutatingBackend()
+    backend.nodes = {"node-0": backend.nodes["node-0"]}
+    engine = MagicMock(backend=backend)
+
+    with patch(
+        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
+        return_value=lambda texts: [[1.0] for _ in texts],
+    ):
+        report = GraphMaintainer(engine).backfill_entity_embeddings(limit=1)
+
+    assert report["embedded"] == 0
+    assert report["conflicted"] == 1
+    assert backend.nodes["node-0"].get("embedding") is None
+    assert backend.indexed == []
+
+
+@pytest.mark.parametrize(
+    "vectors",
+    [
+        [[]],
+        [[float("nan")]],
+        [[1.0], [1.0, 2.0]],
+    ],
+    ids=["empty", "non-finite", "inconsistent-dimensions"],
+)
+def test_backfill_rejects_invalid_vectors_before_any_property_write(vectors):
+    backend = _NativeBackfillBackend()
+    item_count = len(vectors)
+    backend.nodes = dict(list(backend.nodes.items())[:item_count])
+    engine = MagicMock(backend=backend)
+
+    with (
+        patch(
+            "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
+            return_value=lambda texts: vectors,
+        ),
+        pytest.raises(RuntimeError, match="embedding endpoint returned"),
+    ):
+        GraphMaintainer(engine).backfill_entity_embeddings(limit=item_count)
+
+    assert all(node.get("embedding") is None for node in backend.nodes.values())
+    assert backend.indexed == []

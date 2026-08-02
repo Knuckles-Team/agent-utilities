@@ -24,8 +24,11 @@ Safety model:
   * Persists each vector with the engine's atomic field compare-and-set, which
     preserves every existing classification/ACL/ownership property, then adds
     it to ANN/HNSW. It never re-upserts the entity through a new ChangeEnvelope.
-    The durable ``embedding`` property makes repeated bounded chunks advance;
-    an ANN-side failure is recovered by the existing hydration loop.
+    The CAS fences the exact entity-text snapshot, and every vector is validated
+    before a vector property is written. The durable ``embedding`` property
+    makes repeated bounded chunks advance; a textless node receives a separate
+    ``no_text`` maintenance state, never a placeholder embedding. An ANN-side
+    failure is recovered by the existing hydration loop.
   * Prints a cost estimate (measured throughput this run, extrapolated to the
     full remaining backlog) and the exact command to run the next chunk —
     it does NOT chain into further runs itself.
@@ -38,6 +41,25 @@ import asyncio
 import sys
 import time
 from typing import Any
+
+
+def _cost_estimate(
+    *,
+    remaining: int,
+    report: dict[str, int],
+    elapsed: float,
+) -> dict[str, float | int] | None:
+    """Estimate from confirmed durable progress, never merely scanned rows."""
+    embedded = max(0, int(report.get("embedded", 0)))
+    if embedded == 0:
+        return None
+    seconds_per_embedded = elapsed / embedded
+    remaining_after = max(0, int(remaining) - embedded)
+    return {
+        "seconds_per_embedded": seconds_per_embedded,
+        "remaining_after": remaining_after,
+        "eta_seconds": seconds_per_embedded * remaining_after,
+    }
 
 
 async def _run(limit: int, batch_size: int, execute: bool) -> None:
@@ -127,6 +149,7 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
             for row in (
                 backend.execute(
                     "MATCH (n) WHERE n.embedding IS NULL "
+                    "AND n._embedding_backfill_state IS NULL "
                     "RETURN n.id AS id ORDER BY n.id LIMIT $limit",
                     {"limit": limit},
                 )
@@ -165,6 +188,8 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
 
     embedded_this_run = report.get("embedded", 0)
     indexed_this_run = report.get("indexed", 0)
+    deferred_no_text = report.get("deferred_no_text", 0)
+    conflicted = report.get("conflicted", 0)
     if indexed_this_run < embedded_this_run:
         print(
             f"ANN registration deferred for "
@@ -172,10 +197,21 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
             "property-to-index hydrator will retry them.",
             flush=True,
         )
-    if embedded_this_run:
-        per_node = elapsed / embedded_this_run
-        remaining_after = max(0, remaining - report.get("scanned", 0))
-        eta_s = per_node * remaining_after
+    if deferred_no_text or conflicted:
+        print(
+            f"durable non-vector progress: deferred_no_text={deferred_no_text}; "
+            f"concurrent_conflicts={conflicted}",
+            flush=True,
+        )
+    estimate = _cost_estimate(
+        remaining=remaining,
+        report=report,
+        elapsed=elapsed,
+    )
+    if estimate is not None:
+        per_node = float(estimate["seconds_per_embedded"])
+        remaining_after = int(estimate["remaining_after"])
+        eta_s = float(estimate["eta_seconds"])
         print(
             f"\n=== COST ESTIMATE (extrapolated) ===\n"
             f"  measured: {per_node:.3f}s/node this run "
