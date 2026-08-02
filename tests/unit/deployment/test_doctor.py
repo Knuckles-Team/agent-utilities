@@ -57,6 +57,60 @@ def test_deployment_package_preserves_lazy_doctor_exports() -> None:
     assert callable(run_preflight)
 
 
+def test_deployment_package_lazily_exposes_modules_and_introspection() -> None:
+    """Fresh imports preserve facade discovery and direct submodule access."""
+    script = """
+from concurrent.futures import ThreadPoolExecutor
+import json
+import sys
+
+import agent_utilities.deployment as deployment
+
+lazy_modules = (
+    "agent_utilities.deployment.doctor",
+    "agent_utilities.deployment.preflight",
+)
+assert not any(name in sys.modules for name in lazy_modules)
+assert {"CHECKS", "run_doctor", "run_preflight", "doctor", "preflight"} <= set(dir(deployment))
+
+with ThreadPoolExecutor(max_workers=8) as pool:
+    doctors = list(pool.map(lambda _: deployment.doctor, range(16)))
+assert all(module is doctors[0] for module in doctors)
+assert doctors[0].__name__ == "agent_utilities.deployment.doctor"
+assert "agent_utilities.deployment.preflight" not in sys.modules
+
+with ThreadPoolExecutor(max_workers=8) as pool:
+    preflights = list(pool.map(lambda _: deployment.preflight, range(16)))
+assert all(module is preflights[0] for module in preflights)
+assert preflights[0].__name__ == "agent_utilities.deployment.preflight"
+assert deployment.CHECKS is doctors[0].CHECKS
+assert deployment.run_doctor is doctors[0].run_doctor
+assert deployment.run_preflight is preflights[0].run_preflight
+
+print(json.dumps({
+    "direct_modules": True,
+    "introspection": True,
+    "lazy_imports": True,
+    "thread_safe": True,
+}, sort_keys=True))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-W", "error::RuntimeWarning", "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == ""
+    assert json.loads(completed.stdout) == {
+        "direct_modules": True,
+        "introspection": True,
+        "lazy_imports": True,
+        "thread_safe": True,
+    }
+
+
 def test_run_doctor_all_ok(monkeypatch):
     monkeypatch.setattr(D, "CHECKS", {n: _ok(n) for n in ("a", "b", "c")})
     rep = D.run_doctor()
