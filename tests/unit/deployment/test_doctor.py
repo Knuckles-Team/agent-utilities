@@ -8,6 +8,8 @@ monkeypatched, plus a live-path through the graph_configure MCP action.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -19,6 +21,40 @@ from agent_utilities.deployment import doctor as D
 
 def _ok(name):
     return lambda **kw: D._result(name, "ok", "fine")
+
+
+def test_module_entrypoint_is_warning_free_and_emits_exact_json() -> None:
+    """``python -m`` must not pre-import doctor through the package facade."""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-W",
+            "error::RuntimeWarning",
+            "-m",
+            "agent_utilities.deployment.doctor",
+            "--only",
+            "mcp_sdk_floor",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == ""
+    expected = D.run_doctor(["mcp_sdk_floor"])
+    assert completed.stdout == json.dumps(expected, indent=2, default=str) + "\n"
+    assert json.loads(completed.stdout) == expected
+
+
+def test_deployment_package_preserves_lazy_doctor_exports() -> None:
+    """The public facade remains source-compatible after entrypoint hardening."""
+    from agent_utilities.deployment import CHECKS, run_doctor, run_preflight
+
+    assert CHECKS is D.CHECKS
+    assert run_doctor is D.run_doctor
+    assert callable(run_preflight)
 
 
 def test_run_doctor_all_ok(monkeypatch):

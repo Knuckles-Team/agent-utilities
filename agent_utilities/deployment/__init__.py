@@ -8,6 +8,10 @@ all options. Composed by the ``setup-config`` CLI, the ``graph_configure`` MCP
 actions, and the ``agent-utilities-deployment`` skill.
 """
 
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any
+
 from .codex_registration import (
     CODEX_GRAPHOS_COMMAND,
     CODEX_GRAPHOS_SERVER,
@@ -23,8 +27,6 @@ from .config_generator import (
     is_restart_required,
     write_config,
 )
-from .doctor import CHECKS, run_doctor
-from .preflight import run_preflight
 from .repo_templates import (
     CI_TEMPLATES,
     PROFILE_REPO_SETS,
@@ -36,6 +38,10 @@ from .repo_templates import (
     runner_plan,
     standard_repos,
 )
+
+if TYPE_CHECKING:
+    from .doctor import CHECKS, run_doctor
+    from .preflight import run_preflight
 
 __all__ = [
     "CHECKS",
@@ -62,3 +68,25 @@ __all__ = [
     "standard_repos",
     "write_config",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Load doctor-owned exports only when a caller actually requests them.
+
+    ``python -m agent_utilities.deployment.doctor`` imports this package before
+    executing its target module. Eagerly importing ``doctor`` here therefore
+    pre-populated ``sys.modules`` and made :mod:`runpy` emit a RuntimeWarning.
+    Keep the public facade intact without pre-importing the module entry point.
+    """
+    if name in {"CHECKS", "run_doctor"}:
+        from .doctor import CHECKS, run_doctor
+
+        exports = {"CHECKS": CHECKS, "run_doctor": run_doctor}
+        globals().update(exports)
+        return exports[name]
+    if name == "run_preflight":
+        from .preflight import run_preflight
+
+        globals()[name] = run_preflight
+        return run_preflight
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
