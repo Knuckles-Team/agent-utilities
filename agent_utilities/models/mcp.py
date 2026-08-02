@@ -105,7 +105,11 @@ class MCPAgentRegistryModel(BaseModel):
     model_config = ConfigDict(validate_assignment=True)
 
     agents: list[MCPAgent] = Field(default_factory=list)
-    tools: list[MCPToolInfo] = Field(default_factory=list)
+    # Registry snapshots are immutable at the collection boundary. Pydantic
+    # still accepts list-shaped construction/assignment input and validates
+    # every element, while tuple storage prevents append/setitem from bypassing
+    # model validation after the registry has entered the process cache.
+    tools: tuple[MCPToolInfo, ...] = Field(default_factory=tuple)
 
 
 class DiscoveredSpecialist(BaseModel):

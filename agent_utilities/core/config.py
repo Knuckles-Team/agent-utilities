@@ -6382,15 +6382,18 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
         tool_rows = engine.backend.execute(
             "MATCH (t:Tool) RETURN t.name, t.description, t.mcp_server, t.relevance_score, t.tags, t.requires_approval"
         )
-    except Exception as e:
+    except Exception as exc:  # noqa: BLE001 — backend details may contain credentials; report only the exception class
         # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
         # (see _fetch_prompt_agents above) — a failure here additionally drops
         # all dynamically-synthesized partition agents (they're derived from
         # `tools`), so it is especially important this isn't cached as
         # "complete" for the process's whole lifetime.
-        logger.warning(f"Failed to fetch Tool nodes (registry cache may go stale): {e}")
+        logger.warning(
+            "Failed to fetch Tool nodes (registry cache may go stale) (%s)",
+            type(exc).__name__,
+        )
         if errors is not None:
-            errors.append(f"tools: {e}")
+            errors.append(f"tools: query failed ({type(exc).__name__})")
         return tools
 
     try:

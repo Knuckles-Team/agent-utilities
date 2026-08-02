@@ -467,7 +467,7 @@ def test_get_discovery_registry_no_engine_active(
     )
     result = ch.get_discovery_registry()
     assert result.agents == []
-    assert result.tools == []
+    assert result.tools == ()
     assert path_calls == 1
     fake_engine_cls.get_or_create.assert_called_once_with(db_path=str(expected_path))
 
@@ -688,7 +688,7 @@ def test_get_discovery_registry_tool_query_error(
         fake_kg,
     )
     result = ch.get_discovery_registry()
-    assert result.tools == []
+    assert result.tools == ()
 
 
 # ---------------------------------------------------------------------------
@@ -728,7 +728,7 @@ def test_a_degraded_fetch_is_not_cached_and_the_next_call_retries(
     _install_fake_engine(monkeypatch, failing_engine)
 
     degraded = ch.get_discovery_registry()
-    assert degraded.tools == []
+    assert degraded.tools == ()
     # The bug: this used to latch permanently regardless of the failure.
     assert ch._RegistryCache._registry is None
 
@@ -911,7 +911,9 @@ def test_tool_relevance_score_validates_assignment() -> None:
     ]
     with pytest.raises(ValidationError):
         registry.tools = replacement
-    assert registry.tools == [tool]
+    assert registry.tools == (tool,)
+
+    assert not hasattr(registry.tools, "append")
 
 
 def test_tool_row_stream_failure_retains_valid_rows_without_caching(
@@ -973,8 +975,21 @@ def test_noniterable_tool_query_result_is_degraded_not_cached(
     _install_fake_engine(monkeypatch, engine)
 
     result = ch.get_discovery_registry()
-    assert result.tools == []
+    assert result.tools == ()
     assert ch._RegistryCache._registry is None
+
+
+def test_tool_query_failure_is_sanitized(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    engine = MagicMock()
+    engine.backend.execute.side_effect = RuntimeError("sensitive-backend-token=abc123")
+    errors: list[str] = []
+    caplog.set_level(logging.WARNING)
+
+    assert ch._fetch_tools(engine, errors) == []
+    assert errors == ["tools: query failed (RuntimeError)"]
+    assert "sensitive-backend-token" not in caplog.text
 
 
 def test_tool_iterator_creation_failure_is_sanitized_and_not_cached(
@@ -990,7 +1005,7 @@ def test_tool_iterator_creation_failure_is_sanitized_and_not_cached(
     caplog.set_level(logging.WARNING)
 
     result = ch.get_discovery_registry()
-    assert result.tools == []
+    assert result.tools == ()
     assert ch._RegistryCache._registry is None
     assert "sensitive iterator detail" not in caplog.text
 
