@@ -29,9 +29,7 @@ def test_required_grounding_rejects_latency_and_timeout(samples: list[float]) ->
 
 
 def test_required_grounding_rejects_retrieval_quality_failure() -> None:
-    reason = _probe()._grounding_gate_failure(
-        "required", [0.1, 0.2, 0.3], 10.0, True
-    )
+    reason = _probe()._grounding_gate_failure("required", [0.1, 0.2, 0.3], 10.0, True)
 
     assert reason == "retrieval_quality_gate_failed"
 
@@ -63,9 +61,7 @@ def test_stage_aggregates_quality_failure_across_real_sample_bundles(
         return object(), next(bundles)
 
     monkeypatch.setattr(contextual_model, "_CONTEXT_COMPILE_TIMEOUT_S", 60.0)
-    monkeypatch.setattr(
-        contextual_model, "_compiled_evidence_and_bundle", _compile
-    )
+    monkeypatch.setattr(contextual_model, "_compiled_evidence_and_bundle", _compile)
     monkeypatch.setattr(
         model_factory,
         "create_model",
@@ -73,11 +69,7 @@ def test_stage_aggregates_quality_failure_across_real_sample_bundles(
     )
 
     with pytest.raises(RuntimeError, match="retrieval_quality_gate_failed"):
-        asyncio.run(
-            probe._stage_grounding(
-                "standard", 1.0, "required", 2, "benchmark"
-            )
-        )
+        asyncio.run(probe._stage_grounding("standard", 1.0, "required", 2, "benchmark"))
 
     assert calls == 2
 
@@ -115,9 +107,7 @@ def test_nonrequired_grounding_continues_after_measurement_failure(
     grounding: str,
 ) -> None:
     probe = _probe()
-    reason = probe._grounding_gate_failure(
-        grounding, [float("inf")], 10.0, True
-    )
+    reason = probe._grounding_gate_failure(grounding, [float("inf")], 10.0, True)
 
     assert reason is None
 
@@ -232,3 +222,33 @@ def test_degraded_run_reaches_and_passes_grounding_stage(
 
     assert asyncio.run(probe.run(args)) == 0
     assert reached == probe.STAGES
+
+
+def test_live_model_stage_uses_governed_context_agent(monkeypatch) -> None:
+    probe = _probe()
+    from agent_utilities.core import contextual_model, model_factory
+
+    model = SimpleNamespace(model_name="probe-model")
+    calls: list[tuple[object, dict[str, object]]] = []
+
+    class _Agent:
+        async def run(self, prompt: str) -> SimpleNamespace:
+            assert prompt == "Reply with the single word: ready"
+            return SimpleNamespace(output="ready")
+
+    def _create_context_agent(supplied_model: object, **kwargs: object) -> _Agent:
+        calls.append((supplied_model, kwargs))
+        return _Agent()
+
+    monkeypatch.setattr(
+        model_factory,
+        "create_model",
+        lambda **kwargs: model if kwargs == {"role": "standard"} else None,
+    )
+    monkeypatch.setattr(contextual_model, "create_context_agent", _create_context_agent)
+
+    result = asyncio.run(probe._stage_model(object(), "standard", True))
+
+    assert calls == [(model, {"default_capabilities": False})]
+    assert result.startswith("probe-model answered in ")
+    assert result.endswith(": 'ready'")

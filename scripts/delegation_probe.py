@@ -288,7 +288,9 @@ async def _stage_grounding(
     from pydantic_ai.messages import ModelRequest, UserPromptPart
 
     messages = [
-        ModelRequest(parts=[UserPromptPart(content="List recent ServiceNow incidents.")])
+        ModelRequest(
+            parts=[UserPromptPart(content="List recent ServiceNow incidents.")]
+        )
     ]
 
     samples: list[float] = []
@@ -297,7 +299,9 @@ async def _stage_grounding(
         t0 = time.monotonic()
         try:
             compiled = await asyncio.wait_for(
-                asyncio.to_thread(cm._compiled_evidence_and_bundle, messages, model_name),
+                asyncio.to_thread(
+                    cm._compiled_evidence_and_bundle, messages, model_name
+                ),
                 timeout=budget_s,
             )
             samples.append(time.monotonic() - t0)
@@ -316,14 +320,12 @@ async def _stage_grounding(
     _STATE["grounding_samples"] = samples
     gate_failed = _any_retrieval_quality_gate_failed(sample_quality_failures)
     over = sum(1 for s in samples if s > budget)
-    rendered = ", ".join("timeout" if s == float("inf") else f"{s:.2f}s" for s in samples)
-    required_failure = _grounding_gate_failure(
-        grounding, samples, budget, gate_failed
+    rendered = ", ".join(
+        "timeout" if s == float("inf") else f"{s:.2f}s" for s in samples
     )
+    required_failure = _grounding_gate_failure(grounding, samples, budget, gate_failed)
     if required_failure:
-        raise RuntimeError(
-            "grounding='required' fails closed: " + required_failure
-        )
+        raise RuntimeError("grounding='required' fails closed: " + required_failure)
     verdict = (
         f"OVER the {budget:.1f}s production budget in {over}/{len(samples)} samples "
         "— every default grounding='required' delegation FAILS CLOSED"
@@ -348,9 +350,9 @@ async def _stage_model(cfg: Any, model_class: str, live: bool) -> str:
     if not live:
         return f"{name} (constructed; --live-model to actually call it)"
 
-    from pydantic_ai import Agent
+    from agent_utilities.core.contextual_model import create_context_agent
 
-    agent = Agent(model)
+    agent = create_context_agent(model, default_capabilities=False)
     t0 = time.monotonic()
     res = await agent.run("Reply with the single word: ready")
     dt = time.monotonic() - t0
@@ -392,7 +394,10 @@ async def _stage_skill(skill: str) -> str:
             f"resource_type='AGENT_SKILL' with provider_ref set to its owning MCP "
             f"server."
         )
-    return f"runnable=True kinds={sorted(kinds)} " + json.dumps(rows[:2], default=str)[:240]
+    return (
+        f"runnable=True kinds={sorted(kinds)} "
+        + json.dumps(rows[:2], default=str)[:240]
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -676,7 +681,10 @@ async def run(a: argparse.Namespace) -> int:
             dt = time.monotonic() - t0
             timings.append((stage, dt))
             _emit(stage, False, "", dt)
-            print(f"\n  ROOT CAUSE at stage {n} ({stage}):\n      {_chain(exc)}\n", flush=True)
+            print(
+                f"\n  ROOT CAUSE at stage {n} ({stage}):\n      {_chain(exc)}\n",
+                flush=True,
+            )
             if a.traceback:
                 traceback.print_exc()
             _print_timings(timings)
@@ -711,7 +719,9 @@ def main() -> int:
     p.add_argument("--budget", type=int, default=24000)
     p.add_argument("--max-steps", type=int, default=6)
     p.add_argument(
-        "--require-tool", action="store_true", help="demand recorded ToolCall provenance"
+        "--require-tool",
+        action="store_true",
+        help="demand recorded ToolCall provenance",
     )
     p.add_argument("--stop-after", choices=STAGES, help="run only up to this stage")
     p.add_argument(
