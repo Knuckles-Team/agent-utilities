@@ -56,7 +56,7 @@ fail to exclude the actor that collides with you.
 | Resource | Class | Scope | Collision it prevents |
 |---|---|---|---|
 | cargo target dir | PARTITION | repo | A shared `CARGO_TARGET_DIR` serialises **and corrupts** concurrent builds |
-| pytest tmp | PARTITION | repo | ~28 concurrent pytest runs skewed a baseline into a near-false regression; bounded-fanout `tmp_path` avoids quadratic allocation scans |
+| pytest tmp | PARTITION | repo | ~28 concurrent pytest runs skewed a baseline into a near-false regression; bounded-fanout `tmp_path` avoids quadratic directory enumeration |
 | `refs/stash` | PARTITION | repo | One ref shared by 38 worktrees; six collisions + four reflexive violations in a day |
 | lane scratch | PARTITION | repo | Lanes overwrote each other's intermediate state |
 | concept reservations | APPEND-ONLY | repo | A mutable shared ledger rewritten whole-file by many sessions |
@@ -105,6 +105,19 @@ root test `conftest.py` loads a `tmp_path` plugin that allocates each test below
 each leaf deterministic and debuggable, keeps reruns on distinct attempt paths,
 and bounds each directory fanout without changing pytest's basetemp lifecycle or
 the separate `tmp_path_factory` API.
+
+The allocator avoids directory enumeration; it does not claim zero filesystem
+probes.  A recovered same-node attempt advances with a bounded sequence of
+`mkdir` collision probes, preserving pytest's unique-path contract without
+enumerating the bucket.  The reproducible measurements are deliberately split:
+the 4,000-allocation allocator measurement exercises fanout at suite scale, and
+the bounded 64-case child-pytest measurement exercises the public fixture,
+report hooks, and teardown path:
+
+```bash
+python3 scripts/uv_workspace.py run --all-extras -- pytest -q -s tests/unit/test_tmp_path_allocator.py::test_allocator_4000_allocation_measurement
+python3 scripts/uv_workspace.py run --all-extras -- pytest -q -s tests/unit/test_tmp_path_allocator.py::test_real_tmp_path_fixture_measurement
+```
 
 The `git stash` rule is the instructive one. It was stated prominently and
 violated anyway — **four times in one day, across two independent lanes** — by

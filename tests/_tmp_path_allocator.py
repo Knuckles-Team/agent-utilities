@@ -1,8 +1,9 @@
 """Bounded-fanout implementation of pytest's ``tmp_path`` fixture.
 
 Pytest's stock fixture places every test directory directly below one session
-basetemp and scans that whole directory on each allocation.  Large suites then
-turn otherwise independent test setup into quadratic directory enumeration.
+basetemp and enumerates that growing directory on each allocation.  Large
+suites then turn otherwise independent test setup into quadratic directory
+enumeration.
 This plugin keeps pytest's per-session/per-xdist-worker basetemp authority, but
 places a deterministic test-id directory under one of 256 bounded buckets.
 """
@@ -29,18 +30,20 @@ _test_result_key = pytest.StashKey[dict[str, bool]]()
 
 
 class BoundedTempPathAllocator:
-    """Allocate unique test paths without scanning a growing session root.
+    """Allocate unique test paths without directory enumeration.
 
     The hash is deterministic for a test node id, which makes a failed test's
     path easy to locate.  The per-node attempt counter keeps reruns isolated;
-    a fresh allocator also advances past an existing attempt without scanning
-    the bucket.  Xdist workers already receive separate pytest basetemps, so
-    their bucket trees remain isolated by pytest's normal worker contract.
+    a fresh allocator advances past an existing attempt with ``mkdir`` collision
+    probes rather than enumerating the bucket.  Xdist workers already receive
+    separate pytest basetemps, so their bucket trees remain isolated by pytest's
+    normal worker contract.
     """
 
     def __init__(self, basetemp: Path) -> None:
         self._root = basetemp / _BUCKET_DIRECTORY
         self._attempts: dict[str, int] = {}
+        self._created_buckets: set[Path] = set()
         self._lock = threading.Lock()
 
     def allocate(self, node_id: str) -> Path:
@@ -52,7 +55,9 @@ class BoundedTempPathAllocator:
         stem = f"{display_name}-{digest[_BUCKET_WIDTH:10]}"
 
         with self._lock:
-            bucket.mkdir(parents=True, exist_ok=True)
+            if bucket not in self._created_buckets:
+                bucket.mkdir(parents=True, exist_ok=True)
+                self._created_buckets.add(bucket)
             attempt = self._attempts.get(node_id, 0)
             while True:
                 path = bucket / f"{stem}-{attempt}"
@@ -80,8 +85,10 @@ def tmp_path(
 ) -> Generator[Path]:
     """A drop-in ``tmp_path`` fixture with bounded directory fanout.
 
-    It mirrors pytest's ``tmp_path_retention_policy=failed`` cleanup behavior,
-    while leaving the policy and the session basetemp lifecycle owned by pytest.
+    It mirrors pytest's per-test ``tmp_path_retention_policy=failed`` cleanup
+    behavior.  The ``all`` and ``none`` policy effects and session-basetemp
+    lifecycle remain owned by pytest's ``TempPathFactory``, as they do for the
+    stock fixture.
     """
     path = _bounded_tmp_path_allocator.allocate(request.node.nodeid)
     yield path
