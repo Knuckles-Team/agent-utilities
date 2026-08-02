@@ -109,10 +109,6 @@ def _create_engine():
     return IntelligenceGraphEngine(backend=backend)
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-5: AttributeError: 'str' object has no attribute 'get' in the "
-    "OWL/SPARQL edge-property promotion path"
-)
 def test_host_ingestion_and_sparql_matchmaking(mock_inventory_file):
     """Test full pipeline: ingestion, OWL bridge RDF promotion, and SPARQL matchmaking."""
     # Initialize high-performance graph engine
