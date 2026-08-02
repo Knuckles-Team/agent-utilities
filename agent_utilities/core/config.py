@@ -6395,7 +6395,7 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
 
     try:
         row_iterator = iter(tool_rows)
-    except TypeError as exc:
+    except Exception as exc:  # noqa: BLE001 — backend iteration details may contain secrets; report only the exception class
         logger.warning(
             "Tool query returned a non-iterable result (%s); registry will retry",
             type(exc).__name__,
@@ -6411,7 +6411,7 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
             row = next(row_iterator)
         except StopIteration:
             break
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — lazy backend errors are sanitized and make the registry explicitly incomplete
             logger.warning(
                 "Tool row stream failed after %d row(s) (%s); registry will retry",
                 row_index,
@@ -6435,7 +6435,7 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
                     requires_approval=row.get("t.requires_approval", False),
                 )
             )
-        except (AttributeError, TypeError, ValueError):
+        except Exception:  # noqa: BLE001 — quarantine untrusted row objects without evaluating or logging their contents
             rejected_rows += 1
         finally:
             row_index += 1

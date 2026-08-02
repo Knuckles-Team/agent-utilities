@@ -102,6 +102,8 @@ class MCPToolInfo(BaseModel):
 
 
 class MCPAgentRegistryModel(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     agents: list[MCPAgent] = Field(default_factory=list)
     tools: list[MCPToolInfo] = Field(default_factory=list)
 

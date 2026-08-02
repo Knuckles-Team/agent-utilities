@@ -21,7 +21,7 @@ import pytest
 from pydantic import ValidationError
 
 from agent_utilities.core import config as ch
-from agent_utilities.models.mcp import MCPToolInfo
+from agent_utilities.models.mcp import MCPAgentRegistryModel, MCPToolInfo
 
 
 def _prompt_blueprint(body: str, *, task: str = "router") -> dict[str, Any]:
@@ -900,6 +900,19 @@ def test_tool_relevance_score_validates_assignment() -> None:
             tool.relevance_score = invalid
         assert tool.relevance_score == 50
 
+    registry = MCPAgentRegistryModel(tools=[tool])
+    replacement: Any = [
+        {
+            "name": "corrupt",
+            "description": "",
+            "mcp_server": "srv",
+            "relevance_score": 1.5,
+        }
+    ]
+    with pytest.raises(ValidationError):
+        registry.tools = replacement
+    assert registry.tools == [tool]
+
 
 def test_tool_row_stream_failure_retains_valid_rows_without_caching(
     monkeypatch: pytest.MonkeyPatch,
@@ -962,6 +975,52 @@ def test_noniterable_tool_query_result_is_degraded_not_cached(
     result = ch.get_discovery_registry()
     assert result.tools == []
     assert ch._RegistryCache._registry is None
+
+
+def test_tool_iterator_creation_failure_is_sanitized_and_not_cached(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class BrokenIterable:
+        def __iter__(self):
+            raise RuntimeError("sensitive iterator detail")
+
+    engine = MagicMock()
+    engine.backend.execute.side_effect = [[], [], BrokenIterable()]
+    _install_fake_engine(monkeypatch, engine)
+    caplog.set_level(logging.WARNING)
+
+    result = ch.get_discovery_registry()
+    assert result.tools == []
+    assert ch._RegistryCache._registry is None
+    assert "sensitive iterator detail" not in caplog.text
+
+
+def test_tool_row_getter_failure_is_quarantined_without_losing_valid_rows(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class BrokenRow:
+        def get(self, _key: str, _default: object = None) -> object:
+            raise RuntimeError("sensitive row detail")
+
+    valid_row = {
+        "t.name": "valid",
+        "t.description": "valid row",
+        "t.mcp_server": "srv",
+        "t.relevance_score": 40,
+        "t.tags": [],
+        "t.requires_approval": False,
+    }
+    engine = MagicMock()
+    engine.backend.execute.side_effect = [[], [], [valid_row, BrokenRow()]]
+    _install_fake_engine(monkeypatch, engine)
+    caplog.set_level(logging.WARNING)
+
+    result = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in result.tools] == [
+        ("valid", 40)
+    ]
+    assert ch._RegistryCache._registry is None
+    assert "sensitive row detail" not in caplog.text
 
 
 def test_nonmapping_tool_row_is_quarantined_without_losing_valid_rows(
