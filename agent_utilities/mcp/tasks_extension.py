@@ -33,16 +33,67 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from fastmcp.server.extensions import (
-    MethodBinding,
-    ServerExtension,
-    read_client_extension_settings,
-)
 from mcp.shared.exceptions import MCPError
 from mcp_types import RequestParams, Result
 from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
 from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import ConfigDict, Field
+
+# CONCEPT:AU-ECO.mcp.tasks-workitem-bridge -- the fleet is EXPLICITLY mixed
+# fastmcp-version (D-SH-3: child images still ship fastmcp 3.4.4 while the
+# canonical working tree, hostPath-mounted directly over each pod's
+# site-packages, targets fastmcp>=4.0.0b1 -- see docs/architecture/
+# fastmcp4-default.md). `fastmcp.server.extensions` (ServerExtension,
+# MethodBinding, read_client_extension_settings) is a fastmcp-4-only module;
+# importing it unguarded at module scope takes the WHOLE server down before
+# anything else runs (D-W2C2-2: 58 fleet pods in CrashLoopBackOff on exactly
+# this `ModuleNotFoundError`). Mirrors the same style already used for the
+# MCP-SDK v1/v2 `McpError`/`MCPError` rename in `protocol_compat.py` and for
+# optional middlewares in `server_factory._configure_middleware`: guard the
+# import, degrade to a no-op capability, and log loudly so an operator can
+# tell "Tasks extension unavailable on this image" from "server broken".
+try:
+    from fastmcp.server.extensions import (
+        MethodBinding,
+        ServerExtension,
+        read_client_extension_settings,
+    )
+except ImportError as _fastmcp_extensions_import_error:
+    TASKS_EXTENSION_AVAILABLE = False
+    _TASKS_EXTENSION_IMPORT_ERROR: ImportError | None = _fastmcp_extensions_import_error
+
+    # Fallback stand-ins so `class WorkItemTasksExtension(ServerExtension)`
+    # below still defines cleanly (it overrides `methods()` itself, so the
+    # real base class's behavior is never needed on this path). Neither is
+    # ever exercised for real: `server_factory.create_mcp_server` checks
+    # `TASKS_EXTENSION_AVAILABLE` before calling `mcp.add_extension(...)`, so
+    # `methods()` -- the only place `MethodBinding`/
+    # `read_client_extension_settings` are used -- is never invoked. If some
+    # other caller ever does instantiate the extension directly on a
+    # fastmcp-3 image and reach that path, this raises the ORIGINAL
+    # ModuleNotFoundError (chained, not swallowed) instead of a confusing
+    # `NameError`.
+    class ServerExtension:  # type: ignore[no-redef]
+        """Stand-in for ``fastmcp.server.extensions.ServerExtension`` (fastmcp<4)."""
+
+        __slots__ = ()
+
+    class MethodBinding:  # type: ignore[no-redef]
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            raise ModuleNotFoundError(
+                "fastmcp.server.extensions.MethodBinding requires fastmcp>=4.0.0b1"
+            ) from _TASKS_EXTENSION_IMPORT_ERROR
+
+    def read_client_extension_settings(  # type: ignore[no-redef]
+        *_args: Any, **_kwargs: Any
+    ) -> Any:
+        raise ModuleNotFoundError(
+            "fastmcp.server.extensions.read_client_extension_settings requires "
+            "fastmcp>=4.0.0b1"
+        ) from _TASKS_EXTENSION_IMPORT_ERROR
+else:
+    TASKS_EXTENSION_AVAILABLE = True
+    _TASKS_EXTENSION_IMPORT_ERROR = None
 
 if TYPE_CHECKING:
     from mcp.server.context import ServerRequestContext
@@ -51,6 +102,36 @@ logger = logging.getLogger(__name__)
 
 TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"
 _TASK_METHOD_VERSIONS = frozenset(MODERN_PROTOCOL_VERSIONS)
+
+
+def _installed_fastmcp_version() -> str:
+    """Best-effort ``fastmcp`` version string for the degrade-mode warning."""
+    try:
+        import importlib.metadata
+
+        return f"fastmcp=={importlib.metadata.version('fastmcp')}"
+    except Exception:  # noqa: BLE001 — purely cosmetic, never block the warning itself
+        return "an unknown fastmcp version"
+
+
+if not TASKS_EXTENSION_AVAILABLE:
+    # Preserve and surface the cause (never a bare/silent fallback -- swallowed
+    # ImportErrors have twice destroyed the diagnosis path on this program
+    # today). `from None` is deliberately NOT used below: the original
+    # ModuleNotFoundError is chained via `raise ... from` at the one call site
+    # that actually needs to fail (`WorkItemTasksExtension()` is never
+    # constructed on this path), and is logged here so it shows up even when
+    # nothing ever tries to instantiate the extension.
+    logger.warning(
+        "tasks_extension: WorkItem Tasks extension (%s) unavailable on this "
+        "image -- requires fastmcp>=4.0.0b1 (fastmcp.server.extensions), this "
+        "server has %s. The server will start WITHOUT tasks/get, "
+        "tasks/update, tasks/cancel; every other capability is unaffected. "
+        "Root cause: %s",
+        TASKS_EXTENSION_ID,
+        _installed_fastmcp_version(),
+        _TASKS_EXTENSION_IMPORT_ERROR,
+    )
 
 # WorkItem raw statuses that project onto the extension's "working" (or, with
 # a live pending_input_request, "input_required") wire status. Mirrors

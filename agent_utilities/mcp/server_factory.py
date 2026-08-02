@@ -1619,9 +1619,21 @@ def create_mcp_server(
     # exact same WorkItem-backed contract the isolated mcp_v2_gateway sidecar
     # already exposes for 2026-07-28 stateless clients reachable to a client
     # connected directly to this server too.
-    from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
+    #
+    # `fastmcp.server.extensions` (what the Tasks extension mounts through)
+    # is fastmcp-4-only; the fleet is EXPLICITLY mixed-version (D-SH-3: child
+    # images still ship fastmcp 3.4.4, hostPath-mounted over this same
+    # working tree -- D-W2C2-2). `tasks_extension` itself already guards the
+    # import, degrading `TASKS_EXTENSION_AVAILABLE` to False and logging the
+    # cause; this only needs to skip mounting so a fastmcp-3 image still
+    # builds a working server minus tasks/get, tasks/update, tasks/cancel.
+    from agent_utilities.mcp.tasks_extension import (
+        TASKS_EXTENSION_AVAILABLE,
+        WorkItemTasksExtension,
+    )
 
-    mcp.add_extension(WorkItemTasksExtension())
+    if TASKS_EXTENSION_AVAILABLE:
+        mcp.add_extension(WorkItemTasksExtension())
 
     # Operational routes live outside the tool authorization path. Health is a
     # generic readiness result. Metrics are local-only unless a remote listener
