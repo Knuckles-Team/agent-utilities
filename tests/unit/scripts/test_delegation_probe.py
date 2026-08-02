@@ -111,6 +111,7 @@ def test_run_returns_stage_four_for_required_grounding_failure(monkeypatch) -> N
         grounding="required",
         grounding_samples=1,
         grounding_sample_mode="preflight",
+        traceback=False,
     )
 
     assert asyncio.run(probe.run(args)) == 4
@@ -155,6 +156,8 @@ def test_best_effort_run_reaches_and_passes_grounding_stage(monkeypatch) -> None
         grounding="best_effort",
         grounding_samples=sample_count,
         grounding_sample_mode=sample_mode,
+        live_model=False,
+        traceback=False,
     )
 
     assert asyncio.run(probe.run(args)) == 0
