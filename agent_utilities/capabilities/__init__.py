@@ -48,6 +48,14 @@ from .kg_audit_sink import (
     ToolCallRecord,
 )
 from .memento import MementoCompaction
+from .model_fallback import (
+    DEFAULT_MAX_MODEL_FALLBACKS,
+    FallbackAttemptRecord,
+    FallbackChainExhausted,
+    ModelFallbackChain,
+    model_fallback_chain,
+    run_fallback_chain,
+)
 from .output_repair import (
     RepairAttempt,
     StructuredOutputRepair,
@@ -86,6 +94,12 @@ __all__ = [
     "RepairAttempt",
     "StructuredOutputRepair",
     "StructuredOutputRepairExhausted",
+    "DEFAULT_MAX_MODEL_FALLBACKS",
+    "FallbackAttemptRecord",
+    "FallbackChainExhausted",
+    "ModelFallbackChain",
+    "model_fallback_chain",
+    "run_fallback_chain",
     "TeamCapability",
     "AuditLog",
     "AuditSink",
