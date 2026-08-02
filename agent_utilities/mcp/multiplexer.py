@@ -2228,11 +2228,30 @@ class MCPMultiplexer:
             raise RuntimeError("FastMCP local provider cannot remove a forwarding tool")
         try:
             remove_tool(prefixed_name)
-        except KeyError:
-            # A prior hot reload may already have removed the provider entry.
-            # The multiplexer still owns this bookkeeping name, so converge it
-            # to absent rather than leaving a stale exposure marker behind.
-            pass
+        except KeyError as exc:
+            # FastMCP documents KeyError for an absent tool, which is an
+            # idempotent hot-reload outcome only after its private registry
+            # confirms that our executable forwarder is gone.  A matching
+            # component here makes KeyError an SDK/provider invariant breach;
+            # propagate it rather than erasing a live route from mux state.
+            components = getattr(provider, "_components", None)
+            if not isinstance(components, dict):
+                raise RuntimeError(
+                    "FastMCP forwarding registry cannot verify an absent tool"
+                ) from exc
+            if any(
+                isinstance(component, FunctionTool) and component.name == prefixed_name
+                for component in components.values()
+            ):
+                raise RuntimeError(
+                    "FastMCP reported a forwarding tool absent while it remains registered"
+                ) from exc
+            logger.info(
+                "MCP forwarding tool was already absent during cleanup "
+                "(tool_ref=%s, exception_ref=%s)",
+                redact_for_log(prefixed_name),
+                redact_for_log(exc),
+            )
         self._exposed.discard(prefixed_name)
 
     def _replace_exposed_forwarders(

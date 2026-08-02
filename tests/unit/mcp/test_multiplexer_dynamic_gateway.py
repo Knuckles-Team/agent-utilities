@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -56,6 +57,41 @@ async def test_forwarder_preserves_child_tool_error_as_outer_error(tmp_path) -> 
 
     with pytest.raises(ToolError, match="delegated_child_tool_failed"):
         await _make_forwarder(mux, "synthetic__tool")()
+
+
+@pytest.mark.asyncio
+async def test_remove_host_forwarder_converges_only_after_verified_absence(
+    tmp_path, caplog, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An idempotent reload is logged safely; a live forwarder is never hidden."""
+    from fastmcp import FastMCP
+
+    mux = MCPMultiplexer(_write_config(tmp_path, {}))
+    host = FastMCP("forwarder-cleanup-host")
+    mux._host_mcp = host
+    absent_name = "synthetic__already_absent"
+    mux._exposed.add(absent_name)
+
+    with caplog.at_level(logging.INFO, logger="mcp_multiplexer"):
+        mux._remove_host_forwarder(absent_name)
+
+    assert absent_name not in mux._exposed
+    assert "already absent during cleanup" in caplog.text
+    assert absent_name not in caplog.text
+    assert "tool_ref=<redacted:" in caplog.text
+
+    live_tool = _schema_tool("synthetic__still_registered", "legacy")
+    _register_forwarder(host, mux, live_tool)
+    monkeypatch.setattr(
+        host._local_provider,
+        "remove_tool",
+        lambda _name: (_ for _ in ()).throw(KeyError("provider mismatch")),
+    )
+    with pytest.raises(RuntimeError, match="remains registered"):
+        mux._remove_host_forwarder(live_tool.name)
+    assert live_tool.name in mux._exposed
+    assert await host.get_tool(live_tool.name) is not None
+    await mux.aclose()
 
 
 def _fake_tool(
