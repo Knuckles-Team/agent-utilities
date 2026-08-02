@@ -1322,3 +1322,91 @@ def test_conflict_outside_generated_files_is_still_rejected(canonical: Path) -> 
     assert result["landed"] == 1 and result["rejected"] == 1, result
     rejected = next(o for o in result["outcomes"] if not o["landed"])
     assert "pkg/core.py" in rejected["reason"]
+
+
+# ---------------------------------------------------------------------------
+# D-RMD-1 / D-RMQ-2 — land() must write the DECLARED base ref, and must verify it
+# ---------------------------------------------------------------------------
+def test_land_writes_the_declared_base_ref_when_canonical_is_not_on_it(
+    canonical: Path,
+) -> None:
+    """The bug: ``merge --ff-only`` writes HEAD, not the declared base.
+
+    It landed correctly only while the canonical checkout happened to sit on
+    ``base`` — true for agent-utilities, false the moment the queue drives any
+    other repo, a release branch, or a checkout left mid-bisect.
+    """
+    lane = _branch(canonical, "lane-x", {"pkg/x.py": "X = 1\n"})
+    commit = _run(["git", "rev-parse", "lane-x"], canonical)
+    # Put the canonical checkout on something OTHER than main — the exact
+    # configuration the coincidence hid.
+    _run(["git", "checkout", "-q", "-b", "parked"], canonical)
+    assert (
+        _run(["git", "symbolic-ref", "--short", "HEAD"], canonical)
+        == "parked"
+    )
+    scope = lanes.lane_scope(canonical)
+
+    mq.land(canonical, commit, base="main", scope=scope)
+
+    # main must have advanced even though HEAD was elsewhere...
+    assert _run(["git", "rev-parse", "refs/heads/main"], canonical) == commit
+    # ...and the parked branch must NOT have been touched.
+    assert _run(["git", "rev-parse", "parked"], canonical) != commit
+    assert lane.exists()
+
+
+def test_the_post_condition_catches_a_wrong_write_target_by_itself(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Restore D-RMD-1 verbatim, leaving ONLY the post-condition in place.
+
+    This is the anti-vacuity proof: the assertion must do real work on its own,
+    so it also catches the NEXT variant of the same mistake. If this test ever
+    passes with the post-condition removed, the assertion is decoration.
+    """
+    lane = _branch(canonical, "lane-y", {"pkg/y.py": "Y = 1\n"})
+    commit = _run(["git", "rev-parse", "lane-y"], canonical)
+    _run(["git", "checkout", "-q", "-b", "parked"], canonical)
+    scope = lanes.lane_scope(canonical)
+
+    real_run_git = mq._run_git
+
+    def _buggy(args: list[str], cwd: Path):  # type: ignore[no-untyped-def]
+        # The original defect: CAS write to the declared ref becomes a merge
+        # into whatever HEAD happens to be.
+        if args[:1] == ["update-ref"]:
+            return real_run_git(["merge", "--ff-only", commit], scope.main_tree)
+        return real_run_git(args, cwd)
+
+    monkeypatch.setattr(mq, "_run_git", _buggy)
+
+    with pytest.raises(mq.MergeQueueError, match="POST-CONDITION FAILED"):
+        mq.land(canonical, commit, base="main", scope=scope)
+
+    # And the damage the post-condition prevents: main never moved, so nothing
+    # may be reported landed or pruned as landed.
+    assert _run(["git", "rev-parse", "refs/heads/main"], canonical) != commit
+    assert lane.exists()
+
+
+def test_land_refuses_when_the_base_is_checked_out_in_another_worktree(
+    canonical: Path,
+) -> None:
+    """``update-ref`` would move the branch out from under another tree's HEAD.
+
+    Git forbids this for ``checkout``/``branch -f`` but NOT for ``update-ref``,
+    so the refusal has to be ours.
+    """
+    lane = _branch(canonical, "lane-z", {"pkg/z.py": "Z = 1\n"})
+    commit = _run(["git", "rev-parse", "lane-z"], canonical)
+    # Park the canonical checkout FIRST — git refuses to add a worktree for a
+    # branch that is already checked out somewhere.
+    _run(["git", "checkout", "-q", "-b", "parked"], canonical)
+    other = canonical.parent / "holds-main"
+    _run(["git", "worktree", "add", "-q", str(other), "main"], canonical)
+    scope = lanes.lane_scope(canonical)
+
+    with pytest.raises(mq.MergeQueueError, match="checked out in another worktree"):
+        mq.land(canonical, commit, base="main", scope=scope)
+    assert lane.exists()
