@@ -200,7 +200,7 @@ resources:
 
   - name: workspace-scripts
     class: lease
-    scope: workspace   # /home/apps/workspace/scripts/ is not a git worktree of any
+    scope: workspace   # the workspace-root scripts/ directory is not a git worktree of any
                         # repo, so it cannot be PARTITIONed the way cargo/pytest/
                         # scratch are -- it is one directory every lane on the host
                         # invokes (deferred_registry.py, merge_queue_runner.sh,
