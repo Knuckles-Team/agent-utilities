@@ -8,6 +8,11 @@ all options. Composed by the ``setup-config`` CLI, the ``graph_configure`` MCP
 actions, and the ``agent-utilities-deployment`` skill.
 """
 
+from __future__ import annotations
+
+from importlib import import_module
+from typing import TYPE_CHECKING, Any
+
 from .codex_registration import (
     CODEX_GRAPHOS_COMMAND,
     CODEX_GRAPHOS_SERVER,
@@ -23,8 +28,6 @@ from .config_generator import (
     is_restart_required,
     write_config,
 )
-from .doctor import CHECKS, run_doctor
-from .preflight import run_preflight
 from .repo_templates import (
     CI_TEMPLATES,
     PROFILE_REPO_SETS,
@@ -36,6 +39,15 @@ from .repo_templates import (
     runner_plan,
     standard_repos,
 )
+
+if TYPE_CHECKING:
+    from .doctor import CHECKS, run_doctor
+    from .preflight import run_preflight
+
+_LAZY_SUBMODULES = {
+    "doctor": ".doctor",
+    "preflight": ".preflight",
+}
 
 __all__ = [
     "CHECKS",
@@ -62,3 +74,39 @@ __all__ = [
     "standard_repos",
     "write_config",
 ]
+
+
+def _load_submodule(name: str) -> Any:
+    """Import and cache one fixed deployment submodule on first access."""
+    module = import_module(_LAZY_SUBMODULES[name], __name__)
+    globals()[name] = module
+    return module
+
+
+def __getattr__(name: str) -> Any:
+    """Load doctor/preflight exports only when a caller actually requests them.
+
+    ``python -m agent_utilities.deployment.doctor`` imports this package before
+    executing its target module. Eagerly importing ``doctor`` here therefore
+    pre-populated ``sys.modules`` and made :mod:`runpy` emit a RuntimeWarning.
+    Keep the public facade intact without pre-importing the module entry point.
+    """
+    if name in _LAZY_SUBMODULES:
+        return _load_submodule(name)
+    if name in {"CHECKS", "run_doctor"}:
+        doctor = _load_submodule("doctor")
+
+        exports = {"CHECKS": doctor.CHECKS, "run_doctor": doctor.run_doctor}
+        globals().update(exports)
+        return exports[name]
+    if name == "run_preflight":
+        preflight = _load_submodule("preflight")
+
+        globals()[name] = preflight.run_preflight
+        return preflight.run_preflight
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    """Expose static and lazy public members to discovery/introspection callers."""
+    return sorted(set(globals()) | set(__all__) | set(_LAZY_SUBMODULES))
