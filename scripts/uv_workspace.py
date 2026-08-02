@@ -325,6 +325,112 @@ def _dependency_sync_slot() -> Iterator[None]:
                 os.close(handle)
 
 
+def _environment_activity_lock_path(environment_path: Path) -> Path:
+    """Lock file coordinating readers/writers of one partitioned environment.
+
+    One file per environment directory (keyed by its own path), so distinct
+    selections in the same worktree (``.venv`` vs ``.venv-base``) never
+    contend with each other — only concurrent invocations that resolved to
+    the SAME ``environment_path`` do.
+    """
+    environment_path.parent.mkdir(parents=True, exist_ok=True)
+    return environment_path.parent / f"{environment_path.name}.activity.lock"
+
+
+def _acquire_environment_activity(
+    environment_path: Path, *, want_sync: bool, sync_mandatory: bool = False
+) -> tuple[int, bool]:
+    """Readers-writer coordination for one partitioned environment (D-W2T-3).
+
+    A second ``uv_workspace.py run`` invocation in the SAME worktree and
+    selection, launched while a first invocation's long-running child
+    (pytest, etc.) was still executing, used to trigger a SECOND, concurrent
+    ``uv sync`` against the SAME ``.venv`` — mid-sync, uv removes and
+    reinstalls entry-point scripts, and a forkserver child re-exec'ing
+    ``.venv/bin/pytest`` found it briefly gone, corrupting an otherwise-clean
+    baseline run (measured live: 933 failed / 477 errors, almost entirely
+    contamination, confirmed by re-running the same targets in isolation
+    immediately afterward — 77 passed / 0 failed). ``_dependency_sync_slot()``
+    does not close this: it bounds how many syncs run *concurrently
+    workspace-wide*, but releases before the child execs, so nothing stopped
+    a SECOND sync of the SAME environment while the FIRST invocation's child
+    was still reading it.
+
+    One flock per environment directory arbitrates that specific race:
+
+    * a ``uv sync`` (``want_sync=True``) tries a NON-BLOCKING exclusive lock
+      first. Winning means no other invocation currently has a child running
+      against this environment (no readers) and no sibling is mid-sync (no
+      other writer) — safe to sync.
+    * losing that race (or not wanting to sync at all) falls through to a
+      BLOCKING shared-lock wait — immediate if the current holder is only
+      readers (SH+SH is compatible), but genuinely blocks until a current
+      WRITER's sync finishes, so this invocation is never hands a child a
+      torn, mid-sync environment.
+    * every invocation, writer or not, ends up holding a SHARED lock for the
+      remainder of its work (see :func:`_downgrade_environment_activity`) —
+      normally the child process's entire lifetime — so a LATER sibling's own
+      writer attempt correctly loses the exclusive race and skips its sync
+      instead of mutating a live one. Suggested fix (b) from the incident
+      report: "detect an in-progress sync/run ... and skip re-syncing".
+
+    ``sync_mandatory`` covers the DIFFERENT shape where the sync is not an
+    optional pre-step this invocation could skip but the very operation the
+    caller asked for (a bare ``uv sync``/``uv lock``, or a ``run`` whose
+    selection this launcher could not partition — ``execute_is_heavy_sync``
+    in :func:`run_uv`). There, "lose the race, read stale state instead" is
+    not a valid fallback, so this BLOCKS for the exclusive lock instead of
+    trying non-blocking-then-falling-back-to-shared; ``won_sync`` is always
+    ``True`` when it returns.
+
+    Returns ``(fd, won_sync)``. The caller performs the actual ``uv sync``
+    subprocess itself (this function only arbitrates); once it is done, call
+    :func:`_downgrade_environment_activity` before exec'ing the child, and
+    always call :func:`_release_environment_activity` when finished.
+
+    **Stated plainly.** This is a ``flock`` — filesystem-local and advisory.
+    It coordinates concurrent ``uv_workspace.py`` invocations *on this one
+    host* against *this one environment directory*. It provides no
+    protection against a bare ``uv sync``/``pip install`` run outside this
+    launcher (that residual gap is D-VI-1, deliberately not closed here) and
+    no cross-host guarantee for an environment directory reachable from more
+    than one machine.
+    """
+    lock_path = _environment_activity_lock_path(environment_path)
+    handle = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o644)
+    won_sync = False
+    if want_sync:
+        if sync_mandatory:
+            fcntl.flock(handle, fcntl.LOCK_EX)  # blocking: this call IS the sync
+            won_sync = True
+        else:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                won_sync = True
+            except OSError:
+                won_sync = False
+    if not won_sync:
+        fcntl.flock(handle, fcntl.LOCK_SH)
+    return handle, won_sync
+
+
+def _downgrade_environment_activity(handle: int) -> None:
+    """After a won sync completes, drop the exclusive lock to shared (reader).
+
+    A second call with the same fd already holding SH is a harmless no-op —
+    flock re-locking the same fd simply reasserts the mode.
+    """
+    fcntl.flock(handle, fcntl.LOCK_SH)
+
+
+def _release_environment_activity(handle: int) -> None:
+    """Release and close a handle from :func:`_acquire_environment_activity`."""
+    try:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    finally:
+        os.close(handle)
+
+
 @contextmanager
 def _shadow_materialization_lock(shadow: Path) -> Iterator[None]:
     """Serialize materialization of *shadow* across concurrent invocations.
@@ -796,6 +902,14 @@ def run_uv(
     for) is deliberately left OUTSIDE the pool: capping that too would cap
     general lane parallelism, not just the disk/cache contention this item
     measured.
+
+    D-W2T-3: whenever ``environment_path`` is known, the WHOLE call (prepare
+    through execute) also holds ``_acquire_environment_activity()``'s
+    readers-writer lock for that one environment directory, so a sibling
+    invocation against the SAME environment either serializes its sync ahead
+    of us, or -- if we are already reading -- skips its own sync rather than
+    mutating the environment out from under our still-running child. See that
+    function's docstring for exactly what this does and does not guarantee.
     """
     protected = (
         workspace / "pyproject.toml",
@@ -812,47 +926,81 @@ def run_uv(
                 "uv changed a lock-governed workspace input: " + ", ".join(changed)
             )
 
-    for step in prepare:
-        with _dependency_sync_slot():
-            step_result = subprocess.run(
-                list(step),
-                cwd=worktree,
-                env=environment,
-                check=False,
+    activity_handle: int | None = None
+    won_sync = True
+    if environment_path is not None:
+        want_sync = bool(prepare) or execute_is_heavy_sync
+        activity_handle, won_sync = _acquire_environment_activity(
+            environment_path,
+            want_sync=want_sync,
+            sync_mandatory=execute_is_heavy_sync,
+        )
+    try:
+        if prepare and not won_sync:
+            print(
+                f"uv_workspace: another invocation is already using "
+                f"{environment_path} -- skipping `uv sync` for this "
+                "invocation and running directly against its current state "
+                "(D-W2T-3). This only coordinates uv_workspace.py "
+                "invocations on this host; it is not a guarantee against a "
+                "bare `uv sync`/`pip install` run outside this launcher "
+                "(D-VI-1).",
+                file=sys.stderr,
             )
-        _assert_unchanged()
-        if step_result.returncode != 0:
-            return step_result.returncode
-    if environment_path is not None and command_name is not None:
-        foreign = foreign_python_console_script(command_name, environment_path)
-        if foreign is not None:
-            raise RuntimeError(
-                f"refusing to run {command_name!r}: it is not installed in "
-                f"{environment_path}, so uv would fall through to {foreign} and "
-                "execute against a DIFFERENT interpreter and site-packages. That "
-                "run would still execute this project's fail-closed guards, which "
-                "would then report truthfully about the wrong environment and look "
-                "authoritative. Request the extras that provide "
-                f"{command_name!r} (for the test suite: --all-extras), or invoke it "
-                "as 'python -m' so it can only resolve inside the environment."
-            )
-    if execute_is_heavy_sync:
-        with _dependency_sync_slot():
+        else:
+            for step in prepare:
+                with _dependency_sync_slot():
+                    step_result = subprocess.run(
+                        list(step),
+                        cwd=worktree,
+                        env=environment,
+                        check=False,
+                    )
+                _assert_unchanged()
+                if step_result.returncode != 0:
+                    return step_result.returncode
+        if activity_handle is not None and not execute_is_heavy_sync:
+            # Sync (if any) is done; become a plain reader for the exec below
+            # so a LATER sibling's sync attempt correctly loses the exclusive
+            # race instead of mutating a live child's environment. Skipped
+            # when `execute_is_heavy_sync` is true and we won the write lock:
+            # in that shape the sync is baked into `execute` itself (a bare
+            # `sync`/`lock`, or a `run` this launcher could not partition),
+            # so the exclusive lock must stay held through it.
+            _downgrade_environment_activity(activity_handle)
+        if environment_path is not None and command_name is not None:
+            foreign = foreign_python_console_script(command_name, environment_path)
+            if foreign is not None:
+                raise RuntimeError(
+                    f"refusing to run {command_name!r}: it is not installed in "
+                    f"{environment_path}, so uv would fall through to {foreign} and "
+                    "execute against a DIFFERENT interpreter and site-packages. That "
+                    "run would still execute this project's fail-closed guards, which "
+                    "would then report truthfully about the wrong environment and look "
+                    "authoritative. Request the extras that provide "
+                    f"{command_name!r} (for the test suite: --all-extras), or invoke it "
+                    "as 'python -m' so it can only resolve inside the environment."
+                )
+        if execute_is_heavy_sync:
+            with _dependency_sync_slot():
+                result = subprocess.run(
+                    command,
+                    cwd=worktree,
+                    env=environment,
+                    check=False,
+                )
+        else:
             result = subprocess.run(
                 command,
                 cwd=worktree,
                 env=environment,
                 check=False,
             )
-    else:
-        result = subprocess.run(
-            command,
-            cwd=worktree,
-            env=environment,
-            check=False,
-        )
-    _assert_unchanged()
-    return result.returncode
+        _assert_unchanged()
+        return result.returncode
+    finally:
+        if activity_handle is not None:
+            _release_environment_activity(activity_handle)
 
 
 def main(argv: list[str] | None = None) -> int:
