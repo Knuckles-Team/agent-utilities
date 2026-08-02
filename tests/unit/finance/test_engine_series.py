@@ -40,6 +40,14 @@ class _FakeClient:
         self.timeseries = _FakeTimeSeries()
 
 
+def test_utc_gap_fill_reuses_the_already_canonical_series() -> None:
+    """The common UTC path avoids rebuilding a large index before gap filling."""
+    index = pd.date_range("2026-01-01", periods=2, freq="h", tz="UTC")
+    series = pd.Series([10.0, 20.0], index=index, name="close")
+
+    assert engine_series._utc_series(series) is series
+
+
 @pytest.mark.parametrize(
     "step",
     [
@@ -57,10 +65,10 @@ def test_gap_fill_normalizes_supported_steps_without_generic_timedelta_warnings(
     expected = pd.Series([10.0, 20.0, 20.0, 40.0], index=index, name="close")
     client = _FakeClient()
 
-    # Treat the NumPy generic-unit deprecation as an error.  The accelerated
-    # path must still execute; otherwise its broad fallback handler could hide it.
+    # Treat every warning as an error. The accelerated path must still execute;
+    # otherwise its broad fallback handler could hide a parser regression.
     with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
+        warnings.simplefilter("error")
         accelerated = engine_series.gap_fill_series(series, step, client=client)
 
     pd.testing.assert_series_equal(accelerated, expected, check_freq=False)
@@ -68,7 +76,97 @@ def test_gap_fill_normalizes_supported_steps_without_generic_timedelta_warnings(
 
     monkeypatch.setattr(engine_series, "_client", lambda: None)
     with warnings.catch_warnings():
-        warnings.simplefilter("error", DeprecationWarning)
+        warnings.simplefilter("error")
         fallback = engine_series.gap_fill_series(series, step)
 
+    pd.testing.assert_series_equal(fallback, expected, check_freq=False)
+
+
+@pytest.mark.parametrize(
+    ("step", "step_ns", "canonical_frequency", "periods"),
+    [
+        pytest.param("1h", 3_600_000_000_000, "h", 3, id="canonical-hour"),
+        pytest.param("1H", 3_600_000_000_000, "h", 3, id="legacy-hour"),
+        pytest.param("1min", 60_000_000_000, "min", 121, id="canonical-minute"),
+        pytest.param("1T", 60_000_000_000, "min", 121, id="legacy-minute"),
+    ],
+)
+def test_gap_fill_normalizes_legacy_interval_aliases_without_warnings(
+    monkeypatch: pytest.MonkeyPatch,
+    step: str,
+    step_ns: int,
+    canonical_frequency: str,
+    periods: int,
+) -> None:
+    """Canonical and legacy hour/minute strings retain exact warning-clean cadence."""
+    index = pd.date_range("2026-01-01", periods=3, freq="h", tz="UTC")
+    series = pd.Series([10.0, 30.0], index=index[[0, 2]], name="close")
+    expected_index = pd.date_range(
+        index.min(), periods=periods, freq=canonical_frequency, tz="UTC"
+    )
+    expected = pd.Series(
+        [10.0] * (periods - 1) + [30.0], index=expected_index, name="close"
+    )
+    client = _FakeClient()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        accelerated = engine_series.gap_fill_series(series, step, client=client)
+
+    monkeypatch.setattr(engine_series, "_client", lambda: None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fallback = engine_series.gap_fill_series(series, step)
+
+    pd.testing.assert_series_equal(accelerated, expected, check_freq=False)
+    pd.testing.assert_series_equal(fallback, expected, check_freq=False)
+    assert client.timeseries.gap_fill_steps == [step_ns]
+
+
+@pytest.mark.parametrize(
+    ("index", "values", "expected_index", "expected_values"),
+    [
+        pytest.param(
+            pd.DatetimeIndex(
+                ["2026-03-08 00:00", "2026-03-08 03:00"],
+                tz="America/New_York",
+            ),
+            [10.0, 30.0],
+            pd.date_range("2026-03-08 05:00", periods=3, freq="h", tz="UTC"),
+            [10.0, 10.0, 30.0],
+            id="spring-forward-gap",
+        ),
+        pytest.param(
+            pd.date_range(
+                "2026-11-01 00:00", periods=4, freq="h", tz="America/New_York"
+            )[[0, 2, 3]],
+            [10.0, 30.0, 40.0],
+            pd.date_range("2026-11-01 04:00", periods=4, freq="h", tz="UTC"),
+            [10.0, 10.0, 30.0, 40.0],
+            id="fall-back-fold",
+        ),
+    ],
+)
+def test_gap_fill_normalizes_new_york_dst_to_utc_with_engine_fallback_parity(
+    monkeypatch: pytest.MonkeyPatch,
+    index: pd.DatetimeIndex,
+    values: list[float],
+    expected_index: pd.DatetimeIndex,
+    expected_values: list[float],
+) -> None:
+    """Both routes use UTC instants, including DST gaps and repeated local hours."""
+    series = pd.Series(values, index=index, name="close")
+    expected = pd.Series(expected_values, index=expected_index, name="close")
+    client = _FakeClient()
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        accelerated = engine_series.gap_fill_series(series, "1h", client=client)
+
+    monkeypatch.setattr(engine_series, "_client", lambda: None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fallback = engine_series.gap_fill_series(series, "1h")
+
+    pd.testing.assert_series_equal(accelerated, expected, check_freq=False)
     pd.testing.assert_series_equal(fallback, expected, check_freq=False)
