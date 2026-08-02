@@ -114,7 +114,7 @@ except ImportError as exc:
         "Check what you have:\n"
         "    python -c 'import epistemic_graph, pathlib; "
         "print(sorted(p.name for p in "
-        "pathlib.Path(epistemic_graph.__file__).parent.glob(\"numeric*\")))'\n"
+        'pathlib.Path(epistemic_graph.__file__).parent.glob("numeric*")))\'\n'
         "\n"
         "If that list is empty, produce the kernel where this package resolves "
         "`epistemic_graph` from:\n"

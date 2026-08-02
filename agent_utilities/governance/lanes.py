@@ -512,9 +512,7 @@ def orphaned_precommit_patches(path: Path | str | None = None) -> list[dict[str,
                 "replay": None,
             }
         ]
-    results = [
-        _classify_precommit_patch(p, scope) for p in candidates if p.is_file()
-    ]
+    results = [_classify_precommit_patch(p, scope) for p in candidates if p.is_file()]
     results.sort(key=lambda r: r.get("recorded_at") or "", reverse=True)
     return results
 
