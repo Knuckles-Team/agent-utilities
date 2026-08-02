@@ -186,7 +186,9 @@ def test_graph_authority_doctor_accepts_fixed_fanout_authority(monkeypatch):
     )
     fanout = object.__new__(FanOutBackend)
     fanout._authority = authority
-    fanout._mirrors = {"projection": object()}
+    fanout._mirrors = {
+        "projection": object.__new__(EpistemicGraphBackend),
+    }
     monkeypatch.setattr(backends, "get_active_backend", lambda: fanout)
 
     result = D._check_graph_authority()
@@ -917,7 +919,7 @@ def test_transport_doctor_rejects_missing_or_unknown_graphql_runtime_formats(
         graph_service_endpoints=[],
         external_graph_connectors=[connector],
     )
-    documents = {
+    documents: dict[str, dict[str, object]] = {
         "connection": {
             "profile_format": "graphql-connection/v1",
             "endpoint": "https://source.example.test/graphql",
@@ -1125,10 +1127,15 @@ def test_engine_doctor_skips_discovery_probe_when_static_map_configured(
         "agent_utilities.knowledge_graph.core.engine_resolver.resolve_engine",
         lambda *_args, **_kwargs: resolved,
     )
-    probed = []
+    probed: list[bool] = []
+
+    def record_discovery_probe(*_args: object, **_kwargs: object) -> bool:
+        probed.append(True)
+        return True
+
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.core.placement_catalog.discovery_reachable",
-        lambda *args, **kwargs: probed.append(True) or True,
+        record_discovery_probe,
     )
 
     result = D._check_engine()
@@ -2368,6 +2375,7 @@ def test_langfuse_mcp_live_probe_attests_runtime_materialized_child(monkeypatch)
 
     class Runtime:
         async def call_tool(self, name, arguments):
+            payload: dict[str, object]
             if arguments["action"] == "runtime_posture":
                 payload = {
                     "content_capture_enabled": False,
