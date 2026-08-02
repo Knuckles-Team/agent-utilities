@@ -187,20 +187,23 @@ shrinks that set further.
 
 ## Delegation probe ownership and migration
 
-`scripts/delegation_probe.py` is the versioned agent-utilities ownership point for the
+`scripts/delegation_probe.py` is the intended versioned agent-utilities ownership point for the
 direct, in-process delegation gate. It calls the orchestration core and imports
 agent-utilities internals, so its stage exit status is an agent-utilities release
-criterion. Operators and automation must invoke this tracked script from an
-agent-utilities checkout; the workspace-root `scripts/delegation_probe.py` is an
-unversioned compatibility copy and must not receive independent behavior changes.
+criterion. The workspace-root `scripts/delegation_probe.py` is **currently divergent**;
+it is not yet a compatibility shim. D-CDX-11 and D-CDX-19 remain open until this lane
+lands and the root file is replaced, under the `workspace-scripts` lease, by a forwarding
+shim to the tracked agent-utilities script.
 
 Its `grounding` stage is a gate only for `--grounding=required`: a production latency
 budget overrun or `retrieval_quality_gate_failed` stops the probe at stage 4 (exit 4).
-`best_effort` and `none` retain the same measurements but deliberately continue, so their
-output can be used to investigate degraded operation without claiming a required-mode
-pass. The bounded measurement still uses `wait_for(to_thread(...))`; its known
-non-cancelling worker/shutdown-tail limitation is D-CDX-22 and is intentionally not
-changed by this gate behavior.
+Required mode performs exactly one preflight compile by default and cannot select zero
+samples. `best_effort` and `none` skip synthetic compiles by default and proceed directly
+to the real delegation. An explicit positive `--grounding-samples` count enables
+benchmarking under any policy, and stage detail labels preflight, benchmark, and skipped
+functional operation distinctly. The bounded measurement still uses
+`wait_for(to_thread(...))`; its known non-cancelling worker/shutdown-tail limitation is
+D-CDX-22 and is intentionally not changed by this efficiency behavior.
 
 ## Related docs
 

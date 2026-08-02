@@ -43,6 +43,34 @@ def test_quality_gate_failure_aggregates_every_completed_sample() -> None:
     assert probe._any_retrieval_quality_gate_failed([False, False, False]) is False
 
 
+@pytest.mark.parametrize(
+    ("grounding", "expected"),
+    [
+        ("required", (1, "preflight")),
+        ("best_effort", (0, "functional")),
+        ("none", (0, "functional")),
+    ],
+)
+def test_grounding_sample_plan_has_policy_aware_defaults(
+    grounding: str, expected: tuple[int, str]
+) -> None:
+    assert _probe()._grounding_sample_plan(grounding, None) == expected
+
+
+@pytest.mark.parametrize("grounding", ["required", "best_effort", "none"])
+def test_positive_grounding_samples_enable_benchmarking(grounding: str) -> None:
+    assert _probe()._grounding_sample_plan(grounding, 4) == (4, "benchmark")
+
+
+def test_required_grounding_rejects_zero_samples() -> None:
+    with pytest.raises(ValueError, match="required cannot use"):
+        _probe()._grounding_sample_plan("required", 0)
+
+
+def test_degraded_grounding_allows_explicit_zero_samples() -> None:
+    assert _probe()._grounding_sample_plan("best_effort", 0) == (0, "functional")
+
+
 @pytest.mark.parametrize("grounding", ["best_effort", "none"])
 def test_nonrequired_grounding_continues_after_measurement_failure(
     grounding: str,
@@ -81,6 +109,8 @@ def test_run_returns_stage_four_for_required_grounding_failure(monkeypatch) -> N
         model_class="standard",
         grounding_budget=90.0,
         grounding="required",
+        grounding_samples=1,
+        grounding_sample_mode="preflight",
     )
 
     assert asyncio.run(probe.run(args)) == 4
@@ -98,9 +128,9 @@ def test_best_effort_run_reaches_and_passes_grounding_stage(monkeypatch) -> None
         return _pass
 
     async def _grounding(*_args, **_kwargs):
-        assert _args[-1] == "best_effort"
+        assert _args[2:] == ("best_effort", 0, "functional")
         reached.append("grounding")
-        return "measurement retained"
+        return "synthetic compile skipped; proceeding to real delegation"
 
     monkeypatch.setattr(probe, "_stage_config", _stage("config"))
     monkeypatch.setattr(probe, "_stage_identity", _stage("identity"))
@@ -111,6 +141,7 @@ def test_best_effort_run_reaches_and_passes_grounding_stage(monkeypatch) -> None
     monkeypatch.setattr(probe, "_stage_toolset", _stage("toolset"))
     monkeypatch.setattr(probe, "_stage_delegate", _stage("delegate"))
     monkeypatch.setattr(probe, "_stage_provenance", _stage("provenance"))
+    sample_count, sample_mode = probe._grounding_sample_plan("best_effort", None)
     args = argparse.Namespace(
         skill="skill",
         server="server",
@@ -122,6 +153,8 @@ def test_best_effort_run_reaches_and_passes_grounding_stage(monkeypatch) -> None
         model_class="standard",
         grounding_budget=90.0,
         grounding="best_effort",
+        grounding_samples=sample_count,
+        grounding_sample_mode=sample_mode,
     )
 
     assert asyncio.run(probe.run(args)) == 0

@@ -233,8 +233,30 @@ def _grounding_gate_failure(
     return _required_grounding_failure(samples, budget, quality_gate_failed)
 
 
+def _grounding_sample_plan(
+    grounding: str, requested_samples: int | None
+) -> tuple[int, str]:
+    """Resolve functional preflight versus explicitly requested benchmarking."""
+    if requested_samples is None:
+        return (1, "preflight") if grounding == "required" else (0, "functional")
+    if requested_samples < 0:
+        raise ValueError("--grounding-samples must be zero or greater")
+    if grounding == "required" and requested_samples == 0:
+        raise ValueError(
+            "--grounding=required cannot use --grounding-samples=0; "
+            "omit the option for its one-sample preflight"
+        )
+    if requested_samples == 0:
+        return 0, "functional"
+    return requested_samples, "benchmark"
+
+
 async def _stage_grounding(
-    model_class: str, budget_s: float, grounding: str
+    model_class: str,
+    budget_s: float,
+    grounding: str,
+    sample_count: int,
+    sample_mode: str,
 ) -> str:
     """Measure what the mandatory evidence compilation ACTUALLY costs.
 
@@ -247,6 +269,13 @@ async def _stage_grounding(
     Here it runs with a deliberately generous ceiling so we learn the true
     distribution instead of only "it exceeded 10s".
     """
+    if sample_count == 0:
+        _STATE["grounding_samples"] = []
+        return (
+            f"synthetic_compile=skipped mode={sample_mode} policy={grounding} "
+            "=> proceeding to the real delegation"
+        )
+
     from agent_utilities.core import contextual_model as cm
     from agent_utilities.core.model_factory import create_model
 
@@ -262,7 +291,7 @@ async def _stage_grounding(
 
     samples: list[float] = []
     sample_quality_failures: list[bool] = []
-    for _ in range(3):
+    for _ in range(sample_count):
         t0 = time.monotonic()
         try:
             compiled = await asyncio.wait_for(
@@ -300,8 +329,9 @@ async def _stage_grounding(
         else f"within the {budget:.1f}s production budget"
     )
     return (
-        f"compile={rendered} budget={budget:.1f}s quality_gate_failed={gate_failed} "
-        f"=> {verdict}"
+        f"synthetic_compile={sample_mode} requested={sample_count} "
+        f"completed={len(sample_quality_failures)} compile={rendered} "
+        f"budget={budget:.1f}s quality_gate_failed={gate_failed} => {verdict}"
     )
 
 
@@ -617,7 +647,11 @@ async def run(a: argparse.Namespace) -> int:
                 d = eng
             elif stage == "grounding":
                 d = await _stage_grounding(
-                    a.model_class, a.grounding_budget, a.grounding
+                    a.model_class,
+                    a.grounding_budget,
+                    a.grounding,
+                    a.grounding_samples,
+                    a.grounding_sample_mode,
                 )
             elif stage == "model":
                 d = await _stage_model(cfg, a.model_class, a.live_model)
@@ -717,12 +751,27 @@ def main() -> int:
         help="ceiling for the UNBOUNDED grounding measurement (not the production budget)",
     )
     p.add_argument(
+        "--grounding-samples",
+        type=int,
+        default=None,
+        help=(
+            "synthetic compile count: required defaults to one preflight; "
+            "best_effort/none default to zero; a positive value benchmarks"
+        ),
+    )
+    p.add_argument(
         "--run-id",
         default="",
         help="pin the delegation's run id so its RunTrace is addressable afterwards",
     )
     p.add_argument("--traceback", action="store_true")
     a = p.parse_args()
+    try:
+        a.grounding_samples, a.grounding_sample_mode = _grounding_sample_plan(
+            a.grounding, a.grounding_samples
+        )
+    except ValueError as exc:
+        p.error(str(exc))
 
     if not a.profile:
         return asyncio.run(run(a))
