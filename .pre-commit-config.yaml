@@ -508,6 +508,22 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual, pre-push]
+  # D-CIP-13: the not-yet-pushed commit range is public the moment it is
+  # pushed, and git history is not a hiding place — a credential deleted in a
+  # later commit is still leaked. This was scratchpad tooling a human had to
+  # remember to re-run by hand before the (deliberately deferred) push; now a
+  # standing gate. Scoped to pre-push (not every commit): it scans the full
+  # origin/main..HEAD patch text, which grows with every commit, so running it
+  # per-commit would mean re-scanning an ever-larger range on every single
+  # `git commit` for no new signal until the next push.
+  # Run it via:  pre-commit run check-secret-history --hook-stage manual --all-files
+  - id: check-secret-history
+    name: CI parity — credential-shaped content in the unpushed range (D-CIP-13)
+    entry: python3 scripts/security/check_secret_history.py --base origin/main
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   # backend-parity (replaces the deleted backend-parity-nightly.yml). That nightly
   # ran the LIVE cross-backend conformance matrix, which needs a running engine +
   # Docker testcontainers (pggraph/AGE, Neo4j, FalkorDB, Fuseki) and so could never
