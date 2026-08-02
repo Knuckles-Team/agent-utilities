@@ -287,7 +287,7 @@ class EpistemicGraphBackend(GraphBackend):
     ) -> list[dict[str, Any]]:
         """Run the engine-maintained ANN query without an O(N) Python fallback."""
         hits = self._graph.semantic_search(query_embedding, n_results) or []
-        results: list[dict[str, Any]] = []
+        parsed_hits: list[tuple[str, float]] = []
         for item in hits:
             if isinstance(item, list | tuple) and len(item) >= 2:
                 node_id, score = str(item[0]), float(item[1])
@@ -298,16 +298,62 @@ class EpistemicGraphBackend(GraphBackend):
                 continue
             if not node_id:
                 continue
-            data = self._graph._get_node_properties(node_id) or {}
+            parsed_hits.append((node_id, score))
+
+        node_ids = [node_id for node_id, _ in parsed_hits]
+        batch_get = getattr(self._graph, "_get_node_properties_batch", None)
+        if callable(batch_get):
+            properties = batch_get(node_ids)
+        else:
+            # Compatibility for injected graph adapters that predate the native
+            # batch property surface. Production GraphComputeEngine takes the
+            # single-RPC path above.
+            properties = {
+                node_id: self._graph._get_node_properties(node_id) or {}
+                for node_id in node_ids
+            }
+
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
+        results: list[dict[str, Any]] = []
+        for node_id, score in parsed_hits:
+            data = properties.get(node_id, {})
+            # Defense in depth for direct/fake graph surfaces that bypass
+            # GraphComputeEngine's bounded stale-ANN fence.  The durable node
+            # property is the source of truth while older engines lack an atomic
+            # vector-only removal operation.
+            if data.get(EMBEDDING_INDEX_READY_FIELD) is False:
+                continue
+            embedding = data.get("embedding")
+            if not isinstance(embedding, list | tuple) or not embedding:
+                continue
             results.append({**data, "id": node_id, "_similarity": score})
         return results
 
     def hydrate_engine_embeddings(self, batch_log_every: int = 5000) -> int:
-        """Run the one-time persisted-state embedding-index migration."""
+        """Run the persisted-state embedding-index migration and fence repair."""
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
         count = 0
         for node_id, props in self._graph._get_all_nodes_with_properties():
             embedding = (props or {}).get("embedding")
             if not embedding:
+                continue
+            if (props or {}).get(EMBEDDING_INDEX_READY_FIELD) is False:
+                # A process can stop after the durable cross-modal transaction
+                # committed but before the served-read readiness CAS. Re-run the
+                # idempotent transaction so the periodic/operator maintenance
+                # pass eventually repairs that safe, intentionally hidden state.
+                if self._graph.compare_and_set_node_embedding(
+                    node_id,
+                    {
+                        "embedding": list(embedding),
+                        EMBEDDING_INDEX_READY_FIELD: False,
+                    },
+                    {"embedding": list(embedding)},
+                    list(embedding),
+                ):
+                    count += 1
                 continue
             self._graph.add_embedding(node_id, list(embedding))
             count += 1
@@ -436,6 +482,18 @@ class EpistemicGraphBackend(GraphBackend):
     ) -> bool:
         """Apply an atomic native conditional field update."""
         return self._graph.compare_and_set_node_fields(node_id, conditions, updates)
+
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Condition fields and replace the ANN vector in one native transaction."""
+        return self._graph.compare_and_set_node_embedding(
+            node_id, conditions, updates, embedding
+        )
 
     def save_to_json(self, path: str) -> None:
         """Export an operator-requested snapshot without logging its location."""

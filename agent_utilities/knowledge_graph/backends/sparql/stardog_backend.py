@@ -102,6 +102,11 @@ class StardogSparqlBackend(SparqlAdapter):
     write path (and the fan-out mirror) lands real data here.
     """
 
+    # ``_embeddings`` is only a process-local brute-force cache.  A fresh
+    # backend instance cannot recover it from Stardog, so fan-out must treat
+    # this target as graph-only and never acknowledge vector replay from it.
+    supports_native_vector_search = False
+
     def __init__(
         self,
         endpoint: str | None = None,

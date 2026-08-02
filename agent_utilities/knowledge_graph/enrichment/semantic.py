@@ -10,6 +10,7 @@ live model or daemon.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -28,6 +29,78 @@ SearchFn = Callable[[list[float], int], list[dict[str, Any]]]
 # pin on the llama-index model's ``embed_batch_size`` so it stops splitting our
 # chunk into ``DEFAULT_EMBED_BATCH_SIZE``-sized POSTs). (CONCEPT:AU-KG.ingest.applying-agents-md-batch)
 _EMBED_MAX_BATCH = 256
+
+# Durable maintenance state shared by the bounded legacy backfill and the
+# ingest-time upsert chokepoint. A real source upsert always clears this marker
+# so a formerly textless entity becomes eligible when its content evolves.
+EMBEDDING_BACKFILL_STATE_FIELD = "_embedding_backfill_state"
+EMBEDDING_BACKFILL_NO_TEXT = "no_text"
+# Served-read publication fence for cross-modal embedding replacements.  A
+# literal ``False`` means the durable vector property has not yet been projected
+# into the engine ANN.  Missing remains readable for legacy records; writers set
+# False before replacement and flip it to True only after ANN commit returns.
+EMBEDDING_INDEX_READY_FIELD = "_embedding_index_ready"
+
+
+def configured_embedding_dimension() -> int:
+    """Return the positive vector dimension declared for the active KG schema."""
+    from agent_utilities.core.config import config
+
+    try:
+        dimension = int(config.kg_embedding_dim or 0)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("KG embedding dimension is not a valid integer") from exc
+    if dimension <= 0:
+        raise RuntimeError("KG embedding dimension must be positive")
+    return dimension
+
+
+def validate_embedding_vectors(
+    vectors: Any,
+    *,
+    expected_count: int,
+    expected_dimension: int | None = None,
+) -> list[list[float]]:
+    """Validate and normalize an embed response before any vector write."""
+    try:
+        raw_vectors = list(vectors)
+    except TypeError as exc:
+        raise RuntimeError(
+            "embedding endpoint returned a non-iterable vector response"
+        ) from exc
+    if len(raw_vectors) != expected_count:
+        raise RuntimeError(
+            "embedding endpoint returned a vector count that does not match "
+            f"the request ({len(raw_vectors)} != {expected_count})"
+        )
+
+    dimension = expected_dimension or configured_embedding_dimension()
+    if dimension <= 0:
+        raise RuntimeError("expected embedding dimension must be positive")
+    normalized: list[list[float]] = []
+    for index, vector in enumerate(raw_vectors):
+        if isinstance(vector, str | bytes | bytearray):
+            raise RuntimeError(
+                f"embedding endpoint returned an invalid vector at index {index}"
+            )
+        try:
+            values = [float(value) for value in vector]
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"embedding endpoint returned an invalid vector at index {index}"
+            ) from exc
+        if not values or any(not math.isfinite(value) for value in values):
+            raise RuntimeError(
+                f"embedding endpoint returned an empty or non-finite vector "
+                f"at index {index}"
+            )
+        if len(values) != dimension:
+            raise RuntimeError(
+                "embedding endpoint returned the wrong vector dimension "
+                f"at index {index} ({len(values)} != {dimension})"
+            )
+        normalized.append(values)
+    return normalized
 
 
 def _embed_concurrency() -> int:
@@ -310,8 +383,10 @@ _ENTITY_FIELD_VALUE_CAP = 2000
 _ENTITY_TEXT_CAP = 4000
 
 
-def derive_entity_text(props: dict[str, Any]) -> str:
-    """Best-effort connector-agnostic text extraction for embedding an entity.
+def derive_entity_text_snapshot(
+    props: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    """Return entity text plus the exact property values that selected it.
 
     CONCEPT:AU-KG.ingest.entity-embedding-at-write — every typed-entity
     connector builds a differently-shaped ``dict`` (see
@@ -323,11 +398,26 @@ def derive_entity_text(props: dict[str, Any]) -> str:
     so an entity with unusual field names still gets *something* embedded
     rather than silently landing with no vector.
 
-    Returns "" when no usable text was found (callers must treat that as
-    "skip embedding this record", not as an error).
+    The snapshot is suitable for an atomic compare-and-set fence around a slow
+    embedding call: if any field that selected or contributed text changes, the
+    CAS fails instead of persisting a vector derived from stale content. Missing
+    well-known fields are included as ``None`` because adding a higher-priority
+    name or summary while the embedder is running also changes the derived text.
+
+    Returns ``("", conditions)`` when no usable text was found. Callers must
+    treat that as "defer this record", not as an embedding value.
     """
     if not props:
-        return ""
+        return "", {}
+    conditions = {
+        key: props.get(key)
+        for key in (
+            "type",
+            "node_type",
+            *_ENTITY_NAME_FIELDS,
+            *_ENTITY_SUMMARY_FIELDS,
+        )
+    }
     node_type = str(props.get("type") or props.get("node_type") or "")
     name = ""
     for key in _ENTITY_NAME_FIELDS:
@@ -342,7 +432,10 @@ def derive_entity_text(props: dict[str, Any]) -> str:
             summary = value.strip()[:_ENTITY_FIELD_VALUE_CAP]
             break
     if name or summary:
-        return entity_text(node_type, name or node_type, summary)[:_ENTITY_TEXT_CAP]
+        return (
+            entity_text(node_type, name or node_type, summary)[:_ENTITY_TEXT_CAP],
+            conditions,
+        )
 
     # Fallback: no recognized field matched — concatenate short string leaves so
     # an unusual connector shape still yields embeddable text.
@@ -350,11 +443,25 @@ def derive_entity_text(props: dict[str, Any]) -> str:
     for key, value in props.items():
         if key in _ENTITY_TEXT_SKIP_KEYS or key in _ENTITY_NAME_FIELDS:
             continue
+        # The fallback considers every current non-skipped value. Fence even
+        # non-string values so a concurrent change from (say) numeric to text
+        # cannot make this snapshot stale without failing the CAS.
+        conditions[key] = value
         if isinstance(value, str) and value.strip() and len(value) < 500:
             fallback_parts.append(value.strip())
         if sum(len(p) for p in fallback_parts) > _ENTITY_TEXT_CAP:
             break
-    return " — ".join(fallback_parts)[:_ENTITY_TEXT_CAP]
+    return " — ".join(fallback_parts)[:_ENTITY_TEXT_CAP], conditions
+
+
+def derive_entity_text(props: dict[str, Any]) -> str:
+    """Best-effort connector-agnostic text extraction for embedding an entity.
+
+    Returns "" when no usable text was found (callers must treat that as
+    "skip embedding this record", not as an error). See
+    :func:`derive_entity_text_snapshot` when a caller needs a concurrency fence.
+    """
+    return derive_entity_text_snapshot(props)[0]
 
 
 def embed_and_store(

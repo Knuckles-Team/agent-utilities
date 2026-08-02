@@ -23,9 +23,9 @@ The shape, and why each piece is here:
   the durable outbox (batched) and wakes the per-mirror drainers. So a slow/locked
   outbox throttles only the persister, never the authority ack (operator's law:
   blocked time is wasted compute; the durable write must not wait on the mirror).
-  The ring is bounded + auto-sized; on overflow the producer falls back to a
-  **synchronous** durable-outbox append (loud + reconcilable — a mirror write is
-  never silently dropped, memory never grows unbounded).
+  The ring is bounded + auto-sized; on overflow the producer synchronously helps
+  persist the **oldest** queued mutation before admitting its own (loud +
+  reconcilable — writes never overtake, silently drop, or grow memory unbounded).
 * **Durable per-mirror outbox (no loss).** The persister appends each mutation to
   :class:`GraphOutbox` (sqlite/WAL) once per mirror. A per-mirror drainer thread
   applies entries in append order and advances a persisted cursor; a mirror that is
@@ -57,6 +57,8 @@ import os
 import queue
 import re
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -116,6 +118,10 @@ _BASE_BACKOFF_S = 0.5  # first retry delay after an apply failure
 _MAX_BACKOFF_S = 30.0  # cap on exponential backoff for an unreachable mirror
 _STALL_THRESHOLD = 5  # consecutive failures before a mirror is flagged "stalled"
 _POISON_DROP_AFTER = 3  # permanent-error confirmations on ONE entry before skipping it
+_MUTATION_LOCK_STRIPES = 256  # same-entity ordering without global write serialization
+_NON_DROPPABLE_REPLAY_OPS = frozenset(
+    {"add_embedding", "compare_and_set_node_embedding"}
+)
 
 # Substrings (lowercased) that mark an apply failure as PERMANENT — a malformed or
 # dialect-incompatible query that REPLAY can never fix (vs. a transient mirror outage
@@ -144,6 +150,18 @@ def _is_permanent_apply_error(exc: BaseException) -> bool:
     the drainer to drop a poison entry instead of stalling (CONCEPT:AU-KG.backend.mirror-health-repair)."""
     msg = str(exc).lower()
     return any(marker in msg for marker in _PERMANENT_APPLY_ERROR_MARKERS)
+
+
+def _overrides_backend_method(backend: GraphBackend, method_name: str) -> bool:
+    """Return whether ``backend`` implements an optional base capability.
+
+    Optional GraphBackend methods deliberately raise ``NotImplementedError``.
+    A callable check therefore reports false capabilities for ordinary mirrors
+    such as PostgreSQL and Neo4j that simply inherit the default method.
+    """
+    return getattr(type(backend), method_name, None) is not getattr(
+        GraphBackend, method_name, None
+    )
 
 
 @dataclass
@@ -193,16 +211,45 @@ class FanOutBackend(GraphBackend):
             name: _MirrorState() for name in self._mirrors
         }
         self._authority_writes = 0
+        # Lifecycle fencing (D-LRR-1). Every producer registers BEFORE its
+        # authority mutation and remains active through mirror admission. close()
+        # flips open -> closing under the same condition, rejects later writers,
+        # and waits the registered set to reach zero before stopping persistence.
+        self._lifecycle_condition = threading.Condition()
+        self._lifecycle_state = "open"
+        self._active_producers = 0
+        self._close_lock = threading.Lock()
+        # Same-entity writes must keep authority-commit -> mirror-enqueue order,
+        # especially CAS followed by an ANN update. A fixed striped lock table
+        # provides that ordering without holding one global lock across every
+        # authority RPC: independent entities still write concurrently and the
+        # memory footprint cannot grow with node cardinality.
+        self._mutation_locks = tuple(
+            threading.RLock() for _ in range(_MUTATION_LOCK_STRIPES)
+        )
         self._stop = threading.Event()
         self._outbox: GraphOutbox | None = None
         # Async mirror hand-off (CONCEPT:AU-KG.backend.authority-has-already-acked): the write path PUTs onto this
         # bounded ring and returns; one persister thread drains it into the durable
         # outbox. ``_inflight`` counts ring items not yet durably persisted, so a
         # convergence wait (flush_mirrors) can tell when the durable hand-off caught
-        # up. The ring is auto-sized; overflow falls back to a synchronous append.
+        # up. The ring is auto-sized; overflow helps persist its oldest item.
         self._handoff: queue.Queue[tuple[str, dict[str, Any]]] | None = None
         self._inflight = 0
         self._inflight_lock = threading.Lock()
+        # Exactly one thread appends the current hand-off head. Producers may
+        # still enqueue behind that head while sqlite is slow. On overflow a
+        # producer helps persist OLDER entries first, so the overflow mutation
+        # can never overtake items that were already in the ring.
+        self._handoff_condition = threading.Condition()
+        self._handoff_active: tuple[str, dict[str, Any]] | None = None
+        self._handoff_appending = False
+        # FIFO admission tickets cover the overflow slow path. Without them, a
+        # helper pops the oldest ring item (freeing one slot), then a later
+        # producer can steal that slot before the helper admits its own mutation.
+        self._admission_next_ticket = 0
+        self._admission_serving_ticket = 0
+        self._admission_waiters = 0
         self._persister: Any = None
         if self._mirrors:
             self._outbox = GraphOutbox(outbox_path, list(self._mirrors))
@@ -232,6 +279,26 @@ class FanOutBackend(GraphBackend):
     # ------------------------------------------------------------------
     # Producer side — authority sync + durable enqueue
     # ------------------------------------------------------------------
+    @contextmanager
+    def _producer(self) -> Iterator[None]:
+        """Fence one authority mutation plus its mirror hand-off from close."""
+        with self._lifecycle_condition:
+            if self._lifecycle_state != "open":
+                raise RuntimeError(
+                    f"FanOutBackend is {self._lifecycle_state}; writes are fenced"
+                )
+            self._active_producers += 1
+        try:
+            yield
+        finally:
+            with self._lifecycle_condition:
+                self._active_producers -= 1
+                self._lifecycle_condition.notify_all()
+
+    def _mutation_lock(self, node_id: str) -> threading.RLock:
+        """Return the fixed ordering stripe for one entity identity."""
+        return self._mutation_locks[hash(str(node_id)) % len(self._mutation_locks)]
+
     def _enqueue(self, op: str, payload: dict[str, Any]) -> None:
         """Hand a mutation off to the mirror fan-out **without blocking the ack**.
 
@@ -240,27 +307,120 @@ class FanOutBackend(GraphBackend):
         ring (O(1), never the sqlite write lock) and returns — the persister thread
         lands it durably. The only time this touches sqlite synchronously is the
         **overflow** backstop: if the ring is full (the persister can't keep up), the
-        producer appends straight to the durable outbox rather than block the ack or
-        drop the write — loud + reconcilable, and it bounds memory.
+        producer helps persist older queued items before admitting its own — loud +
+        reconcilable, ordered, and memory-bounded.
         """
         if not self._mirrors or self._outbox is None or self._handoff is None:
             return
+        warned = False
+        ticket: int | None = None
+        while True:
+            should_help = False
+            with self._handoff_condition:
+                if ticket is None:
+                    if self._admission_waiters == 0:
+                        try:
+                            self._handoff.put_nowait((op, payload))
+                        except queue.Full:  # noqa: BLE001 — expected saturation; fall through to ordered overflow admission
+                            pass
+                        else:
+                            # Increment while the hand-off condition excludes the
+                            # persister from claiming this item. That closes the old
+                            # put-then-increment race that could make inflight negative.
+                            with self._inflight_lock:
+                                self._inflight += 1
+                            self._handoff_condition.notify_all()
+                            return
+                    ticket = self._admission_next_ticket
+                    self._admission_next_ticket += 1
+                    self._admission_waiters += 1
+
+                if ticket == self._admission_serving_ticket:
+                    try:
+                        self._handoff.put_nowait((op, payload))
+                    except queue.Full:
+                        should_help = not self._handoff_appending
+                    else:
+                        with self._inflight_lock:
+                            self._inflight += 1
+                        self._admission_waiters -= 1
+                        self._admission_serving_ticket += 1
+                        self._handoff_condition.notify_all()
+                        return
+
+                if not should_help:
+                    self._handoff_condition.wait(timeout=_IDLE_POLL_S)
+                    continue
+
+            if not warned:
+                logger.warning(
+                    "FanOutBackend: mirror hand-off ring full (cap=%d) — persister "
+                    "is behind; synchronously helping persist older writes before "
+                    "admitting op=%s (ordered backpressure, not loss)",
+                    self._handoff.maxsize,
+                    op,
+                )
+                warned = True
+            try:
+                progressed = self._persist_one_handoff()
+            except Exception as exc:  # noqa: BLE001 — overflow backpressure retries; authority already committed
+                logger.warning(
+                    "FanOutBackend: ordered overflow persistence failed; retrying: %s",
+                    exc,
+                )
+                progressed = False
+            if not progressed:
+                # Another thread owns the older head (or the outbox is
+                # recovering). Wait briefly for space; never append this newer
+                # mutation ahead of it and never grow the bounded ring.
+                with self._handoff_condition:
+                    self._handoff_condition.wait(timeout=_IDLE_POLL_S)
+
+    def _claim_handoff(self) -> tuple[str, dict[str, Any]] | None:
+        """Claim the oldest ring item without blocking concurrent producers."""
+        assert self._handoff is not None
+        with self._handoff_condition:
+            if self._handoff_appending:
+                return None
+            if self._handoff_active is None:
+                try:
+                    self._handoff_active = self._handoff.get_nowait()
+                except queue.Empty:
+                    return None
+            self._handoff_appending = True
+            self._handoff_condition.notify_all()
+            return self._handoff_active
+
+    def _finish_handoff(
+        self,
+        item: tuple[str, dict[str, Any]],
+        *,
+        committed: bool,
+    ) -> None:
+        """Release an append claim, retaining a failed head for ordered retry."""
+        with self._handoff_condition:
+            if self._handoff_active != item:  # pragma: no cover - invariant guard
+                raise RuntimeError("fan-out hand-off completion lost its active item")
+            self._handoff_appending = False
+            if committed:
+                self._handoff_active = None
+                with self._inflight_lock:
+                    self._inflight -= 1
+            self._handoff_condition.notify_all()
+
+    def _persist_one_handoff(self) -> bool:
+        """Persist exactly one ordered hand-off, returning whether one existed."""
+        assert self._outbox is not None
+        item = self._claim_handoff()
+        if item is None:
+            return False
         try:
-            self._handoff.put_nowait((op, payload))
-        except queue.Full:
-            logger.warning(
-                "FanOutBackend: mirror hand-off ring full (cap=%d) — persister is "
-                "behind; appending this mirror write to the durable outbox "
-                "synchronously (backpressure, not loss). seq op=%s",
-                self._handoff.maxsize,
-                op,
-            )
-            self._outbox.append(op, payload)
-            for st in self._state.values():
-                st.wake.set()
-            return
-        with self._inflight_lock:
-            self._inflight += 1
+            self._outbox.append(*item)
+        except Exception:
+            self._finish_handoff(item, committed=False)
+            raise
+        self._finish_handoff(item, committed=True)
+        return True
 
     def _persist_handoff(self) -> None:
         """Drain the in-memory ring into the durable outbox (CONCEPT:AU-KG.backend.authority-has-already-acked).
@@ -272,35 +432,27 @@ class FanOutBackend(GraphBackend):
         after a backoff — a handed-off write is never dropped before it is durable.
         """
         assert self._outbox is not None and self._handoff is not None
-        pending: list[tuple[str, dict[str, Any]]] = []
         while not self._stop.is_set():
-            if not pending:
-                try:
-                    pending.append(self._handoff.get(timeout=_IDLE_POLL_S))
-                except queue.Empty:
-                    continue
-                while len(pending) < _HANDOFF_BATCH:
-                    try:
-                        pending.append(self._handoff.get_nowait())
-                    except queue.Empty:
-                        break
+            persisted = 0
             try:
-                for op, payload in pending:
-                    self._outbox.append(op, payload)
+                while persisted < _HANDOFF_BATCH and self._persist_one_handoff():
+                    persisted += 1
             except Exception as exc:  # noqa: BLE001 — transient outbox write hiccup
                 logger.warning(
-                    "FanOutBackend: durable outbox append failed (%d pending), "
-                    "retrying: %s",
-                    len(pending),
+                    "FanOutBackend: durable outbox append failed; retrying ordered "
+                    "head: %s",
                     exc,
                 )
                 self._stop.wait(_BASE_BACKOFF_S)
-                continue  # keep `pending` — retry, never drop
-            with self._inflight_lock:
-                self._inflight -= len(pending)
-            pending = []
-            for st in self._state.values():
-                st.wake.set()
+                continue
+            if persisted:
+                for st in self._state.values():
+                    st.wake.set()
+                continue
+            with self._handoff_condition:
+                if self._stop.is_set():
+                    break
+                self._handoff_condition.wait(timeout=_IDLE_POLL_S)
 
     def _drain_handoff_remaining(self) -> None:
         """Flush any ring items still in memory straight to the durable outbox.
@@ -313,20 +465,15 @@ class FanOutBackend(GraphBackend):
         drained = 0
         while True:
             try:
-                op, payload = self._handoff.get_nowait()
-            except queue.Empty:
-                break
-            try:
-                self._outbox.append(op, payload)
+                if not self._persist_one_handoff():
+                    break
                 drained += 1
             except Exception as exc:  # noqa: BLE001 — best-effort shutdown flush
                 logger.warning(
-                    "FanOutBackend: shutdown outbox flush failed for op=%s: %s",
-                    op,
+                    "FanOutBackend: shutdown outbox flush failed: %s",
                     exc,
                 )
-        with self._inflight_lock:
-            self._inflight = max(0, self._inflight - drained)
+                raise
         if drained:
             logger.info("FanOutBackend: flushed %d ring items at close", drained)
 
@@ -353,17 +500,18 @@ class FanOutBackend(GraphBackend):
             return self._authority.execute(
                 query, params, include_epistemic=include_epistemic
             )
-        result = self._authority.execute(query, params)
-        self._authority_writes += 1
-        # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct
-        # write (Ladybug folds props into its `properties` JSON column); everything
-        # else forwards the raw cypher (portable for node MERGE + ad-hoc writes).
-        edge = _edge_upsert_payload(query, params)
-        if edge is not None:
-            self._enqueue("upsert_edge", edge)
-        else:
-            self._enqueue("execute", {"query": query, "params": params})
-        return result
+        with self._producer():
+            result = self._authority.execute(query, params)
+            self._authority_writes += 1
+            # Edge writes mirror STRUCTURALLY so each backend gets a dialect-correct
+            # write (Ladybug folds props into its `properties` JSON column); everything
+            # else forwards the raw cypher (portable for node MERGE + ad-hoc writes).
+            edge = _edge_upsert_payload(query, params)
+            if edge is not None:
+                self._enqueue("upsert_edge", edge)
+            else:
+                self._enqueue("execute", {"query": query, "params": params})
+            return result
 
     def execute_read(
         self,
@@ -383,10 +531,11 @@ class FanOutBackend(GraphBackend):
         self, query: str, batch: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
         """High-throughput ingestion — always a write; mirror durably."""
-        result = self._authority.execute_batch(query, batch)
-        self._authority_writes += 1
-        self._enqueue("execute_batch", {"query": query, "batch": batch})
-        return result
+        with self._producer():
+            result = self._authority.execute_batch(query, batch)
+            self._authority_writes += 1
+            self._enqueue("execute_batch", {"query": query, "batch": batch})
+            return result
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
         """Commit one typed node mutation and mirror its structured payload.
@@ -408,16 +557,17 @@ class FanOutBackend(GraphBackend):
             raise RuntimeError(
                 "fan-out authority does not support typed node mutations"
             )
-        typed_add(node_id, **payload)
-        self._authority_writes += 1
-        self._enqueue(
-            "upsert_node",
-            {
-                "node_id": node_id,
-                "label": node_type,
-                "properties": payload,
-            },
-        )
+        with self._producer(), self._mutation_lock(node_id):
+            typed_add(node_id, **payload)
+            self._authority_writes += 1
+            self._enqueue(
+                "upsert_node",
+                {
+                    "node_id": node_id,
+                    "label": node_type,
+                    "properties": payload,
+                },
+            )
 
     def add_edge(
         self,
@@ -437,27 +587,175 @@ class FanOutBackend(GraphBackend):
             raise RuntimeError(
                 "fan-out authority does not support typed edge mutations"
             )
-        typed_add(source_id, target_id, **payload)
-        self._authority_writes += 1
-        self._enqueue(
-            "upsert_edge",
-            {
-                "source_id": source_id,
-                "target_id": target_id,
-                "rel_type": relationship,
-                "props": payload,
-            },
+        edge_key = f"edge\x00{source_id}\x00{target_id}\x00{relationship}"
+        with self._producer(), self._mutation_lock(edge_key):
+            typed_add(source_id, target_id, **payload)
+            self._authority_writes += 1
+            self._enqueue(
+                "upsert_edge",
+                {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "rel_type": relationship,
+                    "props": payload,
+                },
+            )
+
+    def compare_and_set_node_fields(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool:
+        """Apply authority CAS and replay its winning full node to mirrors.
+
+        The base backend's optional default raises ``NotImplementedError`` and
+        therefore cannot fall through ``__getattr__`` to the authority. This
+        explicit implementation preserves the native winner/loser result. A
+        loser emits no mirror mutation. A winner snapshots the complete updated
+        authoritative node and reuses the existing structured-node outbox path,
+        preserving ACL/classification and converging mirrors without a second
+        backend-specific partial-update dialect.
+        """
+        compare_and_set = getattr(self._authority, "compare_and_set_node_fields", None)
+        get_properties = getattr(self._authority, "get_node_properties", None)
+        if not callable(compare_and_set) or not callable(get_properties):
+            raise NotImplementedError(
+                "fan-out authority does not support node compare-and-set snapshots"
+            )
+
+        with self._producer(), self._mutation_lock(node_id):
+            before = get_properties(node_id)
+            if before is None:
+                return False
+            label = str(before.get("node_type") or before.get("label") or "").strip()
+            if self._mirrors and not label:
+                raise RuntimeError(
+                    "fan-out compare-and-set requires a typed authority node"
+                )
+            if not bool(compare_and_set(node_id, conditions, updates)):
+                return False
+            self._authority_writes += 1
+            if self._mirrors:
+                after = get_properties(node_id)
+                if after is None:
+                    raise RuntimeError(
+                        "fan-out authority node disappeared after compare-and-set"
+                    )
+                self._enqueue(
+                    "upsert_node",
+                    {
+                        "node_id": node_id,
+                        "label": label,
+                        "properties": dict(after),
+                    },
+                )
+            return True
+
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Atomically update authority fields + ANN, then replay one mirror op."""
+        return self._compare_and_set_node_embedding_with_authority(
+            self._authority,
+            node_id,
+            conditions,
+            updates,
+            embedding,
         )
+
+    def compare_and_set_node_embedding_for_graph(
+        self,
+        graph_name: str,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Publish a graph-scoped native embedding update through fan-out."""
+        scoped = getattr(self._authority, "for_graph", None)
+        if not callable(scoped):
+            raise RuntimeError("fan-out authority does not expose graph-scoped views")
+        return self._compare_and_set_node_embedding_with_authority(
+            scoped(graph_name),
+            node_id,
+            conditions,
+            updates,
+            embedding,
+        )
+
+    def _compare_and_set_node_embedding_with_authority(
+        self,
+        authority: GraphBackend,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Apply one scoped authority update and enqueue its mirror snapshot."""
+        atomic_update = getattr(authority, "compare_and_set_node_embedding", None)
+        if not callable(atomic_update):
+            raise RuntimeError(
+                "fan-out authority does not support atomic embedding updates"
+            )
+        get_properties = getattr(authority, "get_node_properties", None)
+        if self._mirrors and not callable(get_properties):
+            raise RuntimeError(
+                "fan-out authority cannot snapshot an atomic embedding update"
+            )
+        vector = list(embedding)
+        with self._producer(), self._mutation_lock(node_id):
+            applied = bool(atomic_update(node_id, conditions, updates, vector))
+            if not applied:
+                return False
+            self._authority_writes += 1
+            properties: dict[str, Any] = {}
+            label = ""
+            if self._mirrors:
+                snapshot = get_properties(node_id)
+                if not isinstance(snapshot, dict):
+                    raise RuntimeError(
+                        "fan-out authority node disappeared after atomic embedding update"
+                    )
+                properties = dict(snapshot)
+                label = str(
+                    properties.get("node_type")
+                    or properties.get("label")
+                    or properties.get("type")
+                    or ""
+                ).strip()
+                if not label:
+                    raise RuntimeError(
+                        "fan-out atomic embedding update requires a typed authority node"
+                    )
+            self._enqueue(
+                "compare_and_set_node_embedding",
+                {
+                    "node_id": node_id,
+                    "conditions": dict(conditions),
+                    "updates": dict(updates),
+                    "embedding": vector,
+                    "label": label,
+                    "properties": properties,
+                },
+            )
+            return True
 
     def create_schema(self) -> None:
-        self._authority.create_schema()
-        self._enqueue("create_schema", {})
+        with self._producer():
+            self._authority.create_schema()
+            self._enqueue("create_schema", {})
 
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
-        self._authority.add_embedding(node_id, embedding)
-        self._enqueue(
-            "add_embedding", {"node_id": node_id, "embedding": list(embedding)}
-        )
+        with self._producer(), self._mutation_lock(node_id):
+            self._authority.add_embedding(node_id, embedding)
+            self._enqueue(
+                "add_embedding", {"node_id": node_id, "embedding": list(embedding)}
+            )
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
@@ -466,8 +764,9 @@ class FanOutBackend(GraphBackend):
         return self._authority.semantic_search(query_embedding, n_results)
 
     def prune(self, criteria: dict[str, Any]) -> None:
-        self._authority.prune(criteria)
-        self._enqueue("prune", {"criteria": criteria})
+        with self._producer():
+            self._authority.prune(criteria)
+            self._enqueue("prune", {"criteria": criteria})
 
     # ------------------------------------------------------------------
     # Consumer side — per-mirror drainer
@@ -494,7 +793,110 @@ class FanOutBackend(GraphBackend):
         elif op == "execute_batch":
             backend.execute_batch(p["query"], p.get("batch") or [])
         elif op == "add_embedding":
+            if getattr(backend, "supports_native_vector_search", True) is False:
+                return
+            if not _overrides_backend_method(backend, "verify_node_embedding"):
+                raise RuntimeError(
+                    "mirror embedding replay lacks read-after-write verification"
+                )
             backend.add_embedding(p["node_id"], p["embedding"])
+            if not backend.verify_node_embedding(p["node_id"], p["embedding"]):
+                raise RuntimeError("mirror embedding replay was not verified")
+        elif op == "compare_and_set_node_embedding":
+            if _overrides_backend_method(backend, "compare_and_set_node_embedding"):
+                atomic_update = backend.compare_and_set_node_embedding
+                try:
+                    applied = bool(
+                        atomic_update(
+                            p["node_id"],
+                            p.get("conditions") or {},
+                            p.get("updates") or {},
+                            p["embedding"],
+                        )
+                    )
+                except NotImplementedError:
+                    applied = False
+                else:
+                    if applied:
+                        return
+
+            # Compatibility mirrors may not own a cross-modal transaction. The
+            # authority is the only read source, so replay is allowed to converge
+            # the mirror in two idempotent steps. If a prior replay crashed after
+            # its field CAS, matching updates prove it is safe to retry ANN add.
+            if _overrides_backend_method(backend, "compare_and_set_node_fields"):
+                try:
+                    applied = backend.compare_and_set_node_fields(
+                        p["node_id"],
+                        p.get("conditions") or {},
+                        p.get("updates") or {},
+                    )
+                except NotImplementedError:
+                    applied = False
+                if not applied:
+                    get_properties = getattr(backend, "get_node_properties", None)
+                    current = (
+                        get_properties(p["node_id"])
+                        if callable(get_properties)
+                        else None
+                    )
+                    applied = isinstance(current, dict) and all(
+                        current.get(field) == expected
+                        for field, expected in (p.get("updates") or {}).items()
+                    )
+                if applied:
+                    if getattr(backend, "supports_native_vector_search", True) is False:
+                        return
+                    if not backend.embedding_is_node_property:
+                        backend.add_embedding(p["node_id"], p["embedding"])
+                    if not _overrides_backend_method(
+                        backend, "verify_node_embedding"
+                    ) or not backend.verify_node_embedding(
+                        p["node_id"], p["embedding"]
+                    ):
+                        raise RuntimeError("mirror embedding replay was not verified")
+                    return
+
+            # Standard mirrors do not implement either optional CAS contract.
+            # Replay the authority's full post-commit node snapshot through the
+            # existing dialect-aware writer, then project the vector.  This is
+            # idempotent and lets the cursor advance instead of poison-retrying
+            # an inherited NotImplementedError forever.
+            properties = p.get("properties")
+            label = str(p.get("label") or "").strip()
+            if not isinstance(properties, dict) or not label:
+                raise RuntimeError(
+                    "mirror atomic embedding replay lacks an authority snapshot"
+                )
+            # PostgreSQL/Ladybug/Neo4j store the vector as the node property, so
+            # the full snapshot upsert is their ONE vector write. Side-index
+            # backends omit it structurally and perform ONE add_embedding call.
+            # Either storage mode must verify before cursor advance.
+            structural_properties = {
+                field: value
+                for field, value in properties.items()
+                if field != "embedding"
+            }
+            replay_properties = (
+                properties
+                if backend.embedding_is_node_property
+                else structural_properties
+            )
+            self._node_writer(backend)._upsert_node(
+                label,
+                p["node_id"],
+                replay_properties,
+            )
+            if getattr(backend, "supports_native_vector_search", True) is False:
+                return
+            if not backend.embedding_is_node_property:
+                backend.add_embedding(p["node_id"], p["embedding"])
+            if not _overrides_backend_method(backend, "verify_node_embedding"):
+                raise RuntimeError(
+                    "mirror embedding replay lacks read-after-write verification"
+                )
+            if not backend.verify_node_embedding(p["node_id"], p["embedding"]):
+                raise RuntimeError("mirror embedding replay was not verified")
         elif op == "create_schema":
             backend.create_schema()
         elif op == "prune":
@@ -558,13 +960,17 @@ class FanOutBackend(GraphBackend):
                     st.consecutive_failures += 1
                     st.last_error = str(exc)
                     st.stalled = st.consecutive_failures >= _STALL_THRESHOLD
-                    # PERMANENT errors (malformed/dialect-incompatible cypher) never
-                    # apply on replay — after a few confirmations on the SAME entry,
-                    # SKIP it (advance the cursor) so the mirror keeps draining instead
-                    # of blocking + spamming the log forever. Transient outages fall
-                    # through and replay after backoff as before. reconcile() repairs
-                    # any dropped mutation (CONCEPT:AU-KG.backend.mirror-health-repair).
-                    if _is_permanent_apply_error(exc):
+                    # PERMANENT malformed/dialect-incompatible graph mutations are
+                    # skipped after repeated confirmation so one poison query cannot
+                    # block the mirror forever; reconcile() repairs that graph state.
+                    # Vector publication is deliberately exempt: an exception whose
+                    # text happens to contain a permanent marker may have come from
+                    # durable read-back verification. Only successful verification or
+                    # an explicit graph-only capability may advance a vector cursor.
+                    if (
+                        entry.op not in _NON_DROPPABLE_REPLAY_OPS
+                        and _is_permanent_apply_error(exc)
+                    ):
                         if st.poison_seq == entry.seq:
                             st.poison_count += 1
                         else:
@@ -686,6 +1092,8 @@ class FanOutBackend(GraphBackend):
         return {
             "authority": type(self._authority).__name__,
             "authority_writes": self._authority_writes,
+            "lifecycle_state": self._lifecycle_state,
+            "active_producers": self._active_producers,
             "outbox_depth": self._outbox.depth() if self._outbox is not None else 0,
             # Async hand-off backlog (CONCEPT:AU-KG.backend.authority-has-already-acked): ring items the write path
             # handed off but the persister has not yet landed in the durable outbox.
@@ -751,28 +1159,58 @@ class FanOutBackend(GraphBackend):
     # Lifecycle
     # ------------------------------------------------------------------
     def close(self) -> None:
-        # Stop the persister + drainers first so they don't touch a closing
-        # outbox/backend. Then flush any ring items still in memory to the durable
-        # outbox so a graceful shutdown loses nothing (CONCEPT:AU-KG.backend.authority-has-already-acked).
-        self._stop.set()
-        if self._persister is not None:
-            try:
+        # One close owner establishes CLOSING before any resource teardown. New
+        # producers fail before authority mutation; already-registered producers
+        # finish authority + ring admission before the persister is stopped.
+        with self._close_lock:
+            with self._lifecycle_condition:
+                if self._lifecycle_state == "closed":
+                    return
+                self._lifecycle_state = "closing"
+                while self._active_producers:
+                    self._lifecycle_condition.wait(timeout=_IDLE_POLL_S)
+
+            self._stop.set()
+            with self._handoff_condition:
+                self._handoff_condition.notify_all()
+            if self._persister is not None:
                 self._persister.join(timeout=10.0)
-            except Exception:  # noqa: BLE001
-                logger.debug("FanOutBackend: persister join failed", exc_info=True)
-        self._drain_handoff_remaining()
-        for st in self._state.values():
-            st.wake.set()
-            if st.thread is not None:
-                try:
+                if self._persister.is_alive():
+                    raise RuntimeError(
+                        "FanOutBackend persister did not stop; refusing to close outbox"
+                    )
+
+            # No producer or persister can append now. Strictly persist every
+            # admitted mutation before the SQLite handle is closed; an append
+            # failure aborts close and leaves the handle open for a retry.
+            self._drain_handoff_remaining()
+            with self._handoff_condition:
+                if self._handoff_appending or self._handoff_active is not None:
+                    raise RuntimeError(
+                        "FanOutBackend append claim remained active during close"
+                    )
+            with self._inflight_lock:
+                if self._inflight:
+                    raise RuntimeError(
+                        f"FanOutBackend close left {self._inflight} handoff(s) volatile"
+                    )
+
+            for st in self._state.values():
+                st.wake.set()
+                if st.thread is not None:
                     st.thread.join(timeout=10.0)
-                except Exception:  # noqa: BLE001
-                    logger.debug("FanOutBackend: drainer join failed", exc_info=True)
-        if self._outbox is not None:
-            self._outbox.close()
-        try:
-            self._authority.close()
-        finally:
+                    if st.thread.is_alive():
+                        raise RuntimeError(
+                            "FanOutBackend mirror drainer did not stop; refusing close"
+                        )
+            if self._outbox is not None:
+                self._outbox.close()
+
+            close_error: BaseException | None = None
+            try:
+                self._authority.close()
+            except BaseException as exc:  # noqa: BLE001 - close all mirrors, then relay
+                close_error = exc
             for name, backend in self._mirrors.items():
                 try:
                     backend.close()
@@ -780,3 +1218,8 @@ class FanOutBackend(GraphBackend):
                     logger.warning(
                         "FanOutBackend: mirror %s close failed: %s", name, exc
                     )
+            with self._lifecycle_condition:
+                self._lifecycle_state = "closed"
+                self._lifecycle_condition.notify_all()
+            if close_error is not None:
+                raise close_error

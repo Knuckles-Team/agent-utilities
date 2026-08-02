@@ -13,6 +13,10 @@ from agent_utilities.core.config import (
     DEFAULT_EMBEDDING_BASE_URL,
     DEFAULT_EMBEDDING_MODEL_ID,
 )
+from agent_utilities.knowledge_graph.enrichment.semantic import (
+    EMBEDDING_BACKFILL_NO_TEXT,
+    EMBEDDING_BACKFILL_STATE_FIELD,
+)
 
 from .engine import IntelligenceGraphEngine
 
@@ -104,30 +108,44 @@ class GraphMaintainer:
         (:func:`~..enrichment.semantic.derive_entity_text`) the chokepoint
         uses.
 
-        Deliberately writes ONLY to the engine's ANN/HNSW index via
-        ``backend.add_embedding`` — the same safe pattern
-        :meth:`enrich_embeddings` above already uses — never through the
-        governed ``ChangeEnvelope`` write path. Re-upserting an EXISTING,
-        already-governed entity through ChangeEnvelope with this call's own
-        (unknown, default-quarantined) ACL/classification would silently
-        REPLACE that entity's real access policy with a fail-closed default —
-        a data-governance regression, not a fix. Registering the vector in the
-        ANN index alone is enough for ``semantic_search`` (what "search_hybrid
-        returning 0 candidates" actually depends on) to find the entity; it
-        does not set the ``embedding`` node property, so this reconciliation
-        pass and the property-based population count (``n.embedding IS NOT
-        NULL``) intentionally stay separate signals — see the register entry
-        for this known limitation.
+        Persists the generated vector with the engine authority's cross-modal
+        ``compare_and_set_node_embedding`` transaction, which conditions the
+        exact text snapshot and commits the property plus ANN/HNSW replacement
+        together. The field-level update preserves every existing ACL, classification,
+        ownership and connector property; it deliberately does NOT re-upsert an
+        existing entity through a new ``ChangeEnvelope`` carrying an invented
+        policy. The durable property is also the progress ledger: a confirmed
+        update removes the node from the next ``embedding IS NULL`` page, so
+        bounded operator chunks are disjoint and restart-safe. A transaction
+        conflict or ANN failure applies neither side, leaving the node eligible
+        for a later bounded retry without a property/index split.
 
-        Returns ``{"scanned": N, "embedded": N, "skipped_no_text": N}``.
+        A textless legacy node is marked separately as ``no_text`` so it cannot
+        pin the first ordered page forever; no placeholder embedding is written.
+        A later full entity upsert replaces that maintenance-only marker and the
+        ingest-time embedding path handles newly-added text normally.
+
+        Returns ``{"scanned": N, "embedded": N, "indexed": N,
+        "skipped_no_text": N, "deferred_no_text": N, "conflicted": N}``.
+        ``embedded`` counts durable node-property updates; ``indexed`` counts
+        immediate ANN registrations; ``conflicted`` counts rows whose text or
+        embedding state changed after hydration and therefore lost their CAS.
         """
-        result = {"scanned": 0, "embedded": 0, "skipped_no_text": 0}
+        result = {
+            "scanned": 0,
+            "embedded": 0,
+            "indexed": 0,
+            "skipped_no_text": 0,
+            "deferred_no_text": 0,
+            "conflicted": 0,
+        }
         if not self.engine.backend:
             return result
 
         query = (
             "MATCH (n) WHERE n.embedding IS NULL "
-            "RETURN n.id AS id, properties(n) AS props "
+            f"AND n.{EMBEDDING_BACKFILL_STATE_FIELD} IS NULL "
+            "RETURN n.id AS id "
             "ORDER BY n.id LIMIT $limit"
         )
         rows = self.engine.backend.execute(query, {"limit": int(limit)}) or []
@@ -135,34 +153,118 @@ class GraphMaintainer:
         if not rows:
             return result
 
+        node_ids = [str(row["id"]) for row in rows if row.get("id")]
+        graph = getattr(self.engine.backend, "_graph", self.engine.backend)
+        batch_properties = getattr(graph, "_get_node_properties_batch", None)
+        if not callable(batch_properties):
+            raise RuntimeError(
+                "embedding backfill requires batched node-property hydration; "
+                f"{type(graph).__name__} does not expose _get_node_properties_batch"
+            )
+        properties_by_id = batch_properties(node_ids) or {}
+
+        compare_and_set = getattr(
+            self.engine.backend, "compare_and_set_node_fields", None
+        )
+        if not callable(compare_and_set):
+            raise RuntimeError(
+                "embedding backfill requires atomic field updates to preserve "
+                "existing node governance"
+            )
+        compare_and_set_embedding = getattr(
+            self.engine.backend, "compare_and_set_node_embedding", None
+        )
+        if not callable(compare_and_set_embedding):
+            raise RuntimeError(
+                "embedding backfill requires atomic field+ANN transactions"
+            )
+
+        def _compare(
+            node_id: str,
+            conditions: dict[str, Any],
+            updates: dict[str, Any],
+        ) -> bool:
+            try:
+                return bool(compare_and_set(node_id, conditions, updates))
+            except NotImplementedError as exc:
+                raise RuntimeError(
+                    "embedding backfill requires backend compare-and-set support"
+                ) from exc
+
         from ..enrichment.semantic import (
-            derive_entity_text,
-            embed_and_store,
+            derive_entity_text_snapshot,
             make_embed_fn,
+            validate_embedding_vectors,
         )
 
-        items: list[tuple[str, str]] = []
-        for row in rows:
-            node_id = row.get("id")
-            props = row.get("props") or {}
-            if not node_id:
-                continue
-            text = derive_entity_text(props)
+        items: list[tuple[str, str, dict[str, Any]]] = []
+        deferred: list[tuple[str, dict[str, Any]]] = []
+        for node_id in node_ids:
+            props = properties_by_id.get(node_id) or {}
+            text, text_conditions = derive_entity_text_snapshot(props)
+            conditions = {
+                "embedding": None,
+                EMBEDDING_BACKFILL_STATE_FIELD: None,
+                **text_conditions,
+            }
             if not text:
                 result["skipped_no_text"] += 1
+                deferred.append((node_id, conditions))
                 continue
-            items.append((str(node_id), text))
+            items.append((str(node_id), text, conditions))
 
-        if not items:
-            return result
+        vectors: list[list[float]] = []
+        if items:
+            embed_fn = make_embed_fn(batch_size=batch_size)
+            vectors = validate_embedding_vectors(
+                embed_fn([text for _, text, _ in items]),
+                expected_count=len(items),
+            )
 
-        embed_fn = make_embed_fn(batch_size=batch_size)
-        result["embedded"] = embed_and_store(self.engine.backend, items, embed_fn)
+        for node_id, conditions in deferred:
+            if _compare(
+                node_id,
+                conditions,
+                {EMBEDDING_BACKFILL_STATE_FIELD: EMBEDDING_BACKFILL_NO_TEXT},
+            ):
+                result["deferred_no_text"] += 1
+            else:
+                result["conflicted"] += 1
+
+        for (node_id, _, conditions), vector in zip(items, vectors, strict=True):
+            try:
+                applied = bool(
+                    compare_and_set_embedding(
+                        node_id,
+                        conditions,
+                        {
+                            "embedding": vector,
+                            EMBEDDING_BACKFILL_STATE_FIELD: None,
+                        },
+                        vector,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - neither side committed
+                logger.warning(
+                    "Atomic embedding commit deferred for %s: %s",
+                    node_id,
+                    type(exc).__name__,
+                )
+                continue
+            if not applied:
+                result["conflicted"] += 1
+                continue
+            result["embedded"] += 1
+            result["indexed"] += 1
         logger.info(
-            "Entity embedding backfill: scanned=%d embedded=%d skipped_no_text=%d",
+            "Entity embedding backfill: scanned=%d embedded=%d indexed=%d "
+            "skipped_no_text=%d deferred_no_text=%d conflicted=%d",
             result["scanned"],
             result["embedded"],
+            result["indexed"],
             result["skipped_no_text"],
+            result["deferred_no_text"],
+            result["conflicted"],
         )
         return result
 

@@ -21,11 +21,16 @@ Safety model:
     is deliberate: embedding ~26,000 nodes is an expensive, outward-facing
     operation against a shared, already latency-contended engine (D-PERF-2)
     and must be sized/approved by an operator, not run unattended by a script.
-  * Writes ONLY to the engine's ANN/HNSW index via ``backend.add_embedding``
-    (GraphMaintainer.backfill_entity_embeddings) — never through the governed
-    ChangeEnvelope path, which would silently reset an existing entity's
-    classification/ACL to a default quarantined policy. See that method's
-    docstring for the full reasoning.
+  * Persists each vector with one engine transaction that stages the exact-text
+    field compare-and-set and ANN/HNSW addition together while preserving every
+    existing classification/ACL/ownership property. It never re-upserts the
+    entity through a new ChangeEnvelope. Every vector is validated before the
+    transaction; an ANN staging/commit failure rolls back before the durable
+    ``embedding`` property and a later bounded backfill retries the node. After
+    commit, a served-read readiness CAS publishes the vector. The existing
+    hydration loop only repairs the post-commit crash gap where the property and
+    ANN vector exist but readiness remains false. A textless node receives a
+    separate ``no_text`` maintenance state, never a placeholder embedding.
   * Prints a cost estimate (measured throughput this run, extrapolated to the
     full remaining backlog) and the exact command to run the next chunk —
     it does NOT chain into further runs itself.
@@ -38,6 +43,26 @@ import asyncio
 import sys
 import time
 from typing import Any
+
+
+def _cost_estimate(
+    *,
+    remaining: int,
+    report: dict[str, int],
+    elapsed: float,
+) -> dict[str, float | int] | None:
+    """Estimate from confirmed durable progress, never merely scanned rows."""
+    embedded = max(0, int(report.get("embedded", 0)))
+    if embedded == 0:
+        return None
+    seconds_per_embedded = elapsed / embedded
+    deferred_no_text = max(0, int(report.get("deferred_no_text", 0)))
+    remaining_after = max(0, int(remaining) - embedded - deferred_no_text)
+    return {
+        "seconds_per_embedded": seconds_per_embedded,
+        "remaining_after": remaining_after,
+        "eta_seconds": seconds_per_embedded * remaining_after,
+    }
 
 
 async def _run(limit: int, batch_size: int, execute: bool) -> None:
@@ -63,7 +88,7 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
     print(f"backend: {type(backend).__name__}", flush=True)
 
     # ---- current population snapshot (same counts the diagnosis used) ----
-    total = embedded = with_text = 0
+    total = embedded = with_text = eligible = 0
     try:
         total = (backend.execute("MATCH (n) RETURN count(n) AS c") or [{}])[0].get(
             "c", 0
@@ -78,17 +103,24 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
             backend.execute("MATCH (n) WHERE n.text IS NOT NULL RETURN count(n) AS c")
             or [{}]
         )[0].get("c", 0)
+        eligible = (
+            backend.execute(
+                "MATCH (n) WHERE n.embedding IS NULL "
+                "AND n._embedding_backfill_state IS NULL RETURN count(n) AS c"
+            )
+            or [{}]
+        )[0].get("c", 0)
     except Exception as e:  # noqa: BLE001 — diagnostic snapshot only
         print(f"population snapshot failed: {type(e).__name__}: {e}", flush=True)
 
     ratio = (embedded / total * 100) if total else 0.0
-    remaining = max(0, total - embedded)
+    remaining = max(0, eligible)
     print(
         f"\n=== CURRENT POPULATION ===\n"
         f"  total nodes:    {total}\n"
         f"  w/ embedding:   {embedded} ({ratio:.2f}%)\n"
         f"  w/ text:        {with_text}\n"
-        f"  remaining:      {remaining}\n",
+        f"  eligible now:   {remaining}\n",
         flush=True,
     )
 
@@ -127,6 +159,7 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
             for row in (
                 backend.execute(
                     "MATCH (n) WHERE n.embedding IS NULL "
+                    "AND n._embedding_backfill_state IS NULL "
                     "RETURN n.id AS id ORDER BY n.id LIMIT $limit",
                     {"limit": limit},
                 )
@@ -138,7 +171,9 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
         props_by_id: dict[str, dict[str, Any]] = (
             graph._get_node_properties_batch(ids) or {} if ids else {}
         )
-        rows = [{"id": node_id, "props": props_by_id.get(node_id) or {}} for node_id in ids]
+        rows = [
+            {"id": node_id, "props": props_by_id.get(node_id) or {}} for node_id in ids
+        ]
         from agent_utilities.knowledge_graph.enrichment.semantic import (
             derive_entity_text,
         )
@@ -162,10 +197,31 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
     print(f"elapsed: {elapsed:.1f}s", flush=True)
 
     embedded_this_run = report.get("embedded", 0)
-    if embedded_this_run:
-        per_node = elapsed / embedded_this_run
-        remaining_after = max(0, remaining - report.get("scanned", 0))
-        eta_s = per_node * remaining_after
+    indexed_this_run = report.get("indexed", 0)
+    deferred_no_text = report.get("deferred_no_text", 0)
+    conflicted = report.get("conflicted", 0)
+    if indexed_this_run < embedded_this_run:
+        print(
+            f"ANN registration deferred for "
+            f"{embedded_this_run - indexed_this_run} node(s); the background "
+            "property-to-index hydrator will retry them.",
+            flush=True,
+        )
+    if deferred_no_text or conflicted:
+        print(
+            f"durable non-vector progress: deferred_no_text={deferred_no_text}; "
+            f"concurrent_conflicts={conflicted}",
+            flush=True,
+        )
+    estimate = _cost_estimate(
+        remaining=remaining,
+        report=report,
+        elapsed=elapsed,
+    )
+    if estimate is not None:
+        per_node = float(estimate["seconds_per_embedded"])
+        remaining_after = int(estimate["remaining_after"])
+        eta_s = float(estimate["eta_seconds"])
         print(
             f"\n=== COST ESTIMATE (extrapolated) ===\n"
             f"  measured: {per_node:.3f}s/node this run "
