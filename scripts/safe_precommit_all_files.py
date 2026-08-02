@@ -56,6 +56,35 @@ def _repo_root(cwd: Path | None = None) -> Path:
     return Path(out.stdout.strip())
 
 
+def _git_dir(cwd: Path | None = None) -> Path:
+    """The real git directory for this checkout (D-CDX-49).
+
+    In the canonical checkout ``<root>/.git`` IS the git directory. In a
+    linked worktree (``git worktree add``), ``<root>/.git`` is a FILE — a
+    ``gitdir: <path>`` pointer to a per-worktree administrative directory
+    under the canonical repo's ``.git/worktrees/<name>/``. Backing up under
+    ``root / ".git" / "precommit-all-files-backups"`` therefore called
+    ``Path.mkdir`` on a path whose parent is a file, raising
+    ``NotADirectoryError`` before any hook ran — in EVERY linked worktree,
+    which is exactly where the lane protocol requires this wrapper to run.
+    ``git rev-parse --git-dir`` resolves the right directory for either shape
+    (relative ``".git"`` for the canonical checkout, an absolute
+    ``.../.git/worktrees/<name>`` for a linked worktree) and is real,
+    per-worktree storage — not shared with sibling worktrees/lanes.
+    """
+    out = subprocess.run(
+        ["git", "rev-parse", "--git-dir"],
+        check=True,
+        capture_output=True,
+        text=True,
+        cwd=cwd,
+    )
+    git_dir = Path(out.stdout.strip())
+    if not git_dir.is_absolute():
+        git_dir = (cwd or Path.cwd()) / git_dir
+    return git_dir.resolve()
+
+
 def _unstaged_diff(root: Path) -> str:
     out = subprocess.run(
         ["git", "diff", "--", "."],
@@ -103,7 +132,7 @@ def main(argv: list[str], *, cwd: Path | None = None) -> int:
 
     if diff.strip():
         touched = set(_unstaged_paths(root))
-        backup_dir = root / ".git" / "precommit-all-files-backups"
+        backup_dir = _git_dir(cwd) / "precommit-all-files-backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         backup = backup_dir / f"unstaged-{stamp}.patch"
