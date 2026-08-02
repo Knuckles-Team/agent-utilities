@@ -312,6 +312,19 @@ def reintroduced_retirements(
     )
 
 
+def reintroduced_renames(
+    live_ids: frozenset[str], lineage: Lineage
+) -> list[tuple[str, str, str]]:
+    """OLD (pre-rename) ids that have a live marker again, with their new id
+    and reason. Mirrors :func:`reintroduced_retirements` — a rename is a
+    ratchet too, just one where the decision moved instead of vanishing."""
+    return sorted(
+        (cid, lineage.renamed[cid].to, lineage.renamed[cid].reason)
+        for cid in lineage.renamed
+        if cid in live_ids
+    )
+
+
 def read_baseline(baseline: Path = MERGED_AUDIT_BASELINE) -> set[str]:
     if not baseline.exists():
         return set()
@@ -360,6 +373,7 @@ def audit_merged(
             undocumented.add(cid)
 
     revived = reintroduced_retirements(live, lineage)
+    respawned = reintroduced_renames(live, lineage)
 
     if update:
         # Refuse to freeze a baseline while a pointer is broken: --update-baseline
@@ -367,7 +381,7 @@ def audit_merged(
         # not debt, it is a claim of coverage that is false. Laundering it into
         # the baseline is exactly the failure mode the id-keyed ratchet exists to
         # prevent.
-        if broken_links or revived:
+        if broken_links or revived or respawned:
             print(
                 "REFUSING to update the baseline while the lineage registry is "
                 "inconsistent — fix these first:",
@@ -378,6 +392,12 @@ def audit_merged(
             for cid, reason in revived:
                 print(
                     f"  - {cid} was retired ({reason}) but has a live marker again",
+                    file=sys.stderr,
+                )
+            for cid, new_id, reason in respawned:
+                print(
+                    f"  - {cid} was renamed to {new_id} ({reason}) but has a live "
+                    "marker again under the old id",
                     file=sys.stderr,
                 )
             return 1
@@ -406,7 +426,7 @@ def audit_merged(
         f"Merged-concept audit: {len(all_ids)} live concept(s) discovered, "
         f"{len(undocumented)} without a design doc, {len(baseline)} baselined, "
         f"{len(covered_by_parent)} covered by a declared parent, "
-        f"{len(lineage.retired)} retired."
+        f"{len(lineage.retired)} retired, {len(lineage.renamed)} renamed."
     )
 
     if resolved:
@@ -449,6 +469,20 @@ def audit_merged(
         print(
             "  Either delete the re-introduced marker, or (if the decision is real "
             "now) drop the retirement entry and give the concept a design document."
+        )
+        failed = True
+
+    if respawned:
+        print(
+            f"\nFAIL: {len(respawned)} renamed concept id(s) have a live marker "
+            "again under the OLD id:"
+        )
+        for cid, new_id, reason in respawned:
+            print(f"  - {cid} — renamed to {new_id} because: {reason}")
+        print(
+            "  Use the new id — the decision was deliberately moved, not deleted. "
+            "If the old name genuinely needs to come back too, that is a new "
+            "governance call, not a silent revert."
         )
         failed = True
 
