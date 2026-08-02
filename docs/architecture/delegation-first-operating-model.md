@@ -205,6 +205,12 @@ functional operation distinctly. The bounded measurement still uses
 `wait_for(to_thread(...))`; its known non-cancelling worker/shutdown-tail limitation is
 D-CDX-22 and is intentionally not changed by this efficiency behavior.
 
+The toolset stage is a catalog-only exact binding check: it verifies the configured
+endpoint and the durable server-to-tool declaration, but does not open an MCP transport.
+The delegated execution owns the one refresh-capable `MCPToolset` session, including live
+schema/list-changed behavior, cancellation, and teardown. A missing or empty catalog fails
+the probe before delegation rather than treating an unverified tool as bound.
+
 ## Related docs
 
 - [`orchestration-execution-seam.md`](orchestration-execution-seam.md) — how an ingested
