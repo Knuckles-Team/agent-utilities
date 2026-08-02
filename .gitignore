@@ -163,6 +163,11 @@ docker/kaniko-build.env
 # scripts/uv_workspace.py partitions the environment by dependency selection, so
 # a worktree owns one `.venv-<label>` per selection alongside `.venv`.
 .venv-*
+# D-W2T-3: the readers-writer activity lock guarding one partitioned
+# environment against a concurrent uv_workspace.py invocation's `uv sync`
+# (scripts/uv_workspace.py::_acquire_environment_activity). Persists as an
+# empty flock target file, one per environment directory.
+.venv*.activity.lock
 env/
 venv/
 ENV/
