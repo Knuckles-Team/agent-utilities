@@ -255,6 +255,314 @@ def test_live_model_stage_uses_governed_context_agent(monkeypatch) -> None:
     assert result.endswith(": 'ready'")
 
 
+def test_catalog_toolset_binding_rejects_a_tool_outside_the_server_catalog(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Probe and delegation share the exact durable server/tool contract."""
+    from agent_utilities.orchestration import agent_runner
+
+    server_meta = {
+        "type": "server",
+        "tools": [{"name": "servicenow_get_incidents"}],
+    }
+    monkeypatch.setattr(
+        agent_runner, "_resolve_agent_from_kg", lambda _engine, _server: server_meta
+    )
+
+    assert (
+        agent_runner._catalog_toolset_binding(
+            object(), "servicenow-mcp", allowed_tools=["servicenow_get_incidents"]
+        )
+        is server_meta
+    )
+    with pytest.raises(PermissionError, match="outside the configured server catalog"):
+        agent_runner._catalog_toolset_binding(
+            object(), "servicenow-mcp", allowed_tools=["servicenow_get_changes"]
+        )
+
+
+def test_toolset_stage_is_catalog_only_and_never_constructs_a_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The preflight proves the bound catalog without a throwaway MCP session."""
+    probe = _probe()
+    from agent_utilities.orchestration import agent_runner
+
+    built: list[object] = []
+    monkeypatch.setattr(
+        agent_runner,
+        "_catalog_toolset_binding",
+        lambda _engine, _server, *, allowed_tools: {
+            "type": "server",
+            "tools": [{"name": allowed_tools[0]}],
+        },
+    )
+    monkeypatch.setattr(
+        agent_runner, "_fleet_server_url", lambda _server: "https://service.test/mcp"
+    )
+
+    def _unexpected_transport(*_args: object, **_kwargs: object) -> object:
+        built.append(object())
+        raise AssertionError("catalog preflight must not construct an MCPToolset")
+
+    monkeypatch.setattr(agent_runner, "_toolset_for_id", _unexpected_transport)
+    probe._STATE["engine"] = object()
+
+    detail = asyncio.run(
+        probe._stage_toolset("servicenow-mcp", "servicenow_get_incidents")
+    )
+
+    assert "transport=deferred-to-delegate" in detail
+    assert built == []
+    assert "toolset" not in probe._STATE
+
+
+def test_catalog_preflight_and_delegate_open_one_owned_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only delegated execution constructs, opens, lists, and closes its session."""
+    probe = _probe()
+    from agent_utilities.orchestration import agent_runner, manager
+
+    counts = {"built": 0, "opened": 0, "listed": 0, "closed": 0}
+
+    class _OwnedToolset:
+        async def __aenter__(self) -> _OwnedToolset:
+            counts["opened"] += 1
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            counts["closed"] += 1
+
+        async def list_tools(self) -> list[SimpleNamespace]:
+            counts["listed"] += 1
+            return [SimpleNamespace(name="servicenow_get_incidents")]
+
+    owned_toolset = _OwnedToolset()
+    monkeypatch.setattr(
+        agent_runner,
+        "_catalog_toolset_binding",
+        lambda _engine, _server, *, allowed_tools: {
+            "type": "server",
+            "tools": [{"name": allowed_tools[0]}],
+        },
+    )
+    monkeypatch.setattr(
+        agent_runner, "_fleet_server_url", lambda _server: "https://service.test/mcp"
+    )
+
+    def _build_toolset(*_args: object, **kwargs: object) -> _OwnedToolset:
+        assert kwargs["allowed_tools"] == ["servicenow_get_incidents"]
+        counts["built"] += 1
+        return owned_toolset
+
+    monkeypatch.setattr(agent_runner, "_toolset_for_id", _build_toolset)
+
+    class _Orchestrator:
+        def __init__(self, engine: object) -> None:
+            assert engine is probe._STATE["engine"]
+
+        async def execute_agent(self, **kwargs: object) -> str:
+            assert kwargs["tool_server"] == "servicenow-mcp"
+            assert kwargs["allowed_tools"] == ["servicenow_get_incidents"]
+            assert kwargs["required_tools"] == ["servicenow_get_incidents"]
+            toolset = agent_runner._toolset_for_id(
+                probe._STATE["engine"],
+                str(kwargs["tool_server"]),
+                allowed_tools=["servicenow_get_incidents"],
+            )
+            async with toolset:
+                names = {item.name for item in await toolset.list_tools()}
+            assert names == {"servicenow_get_incidents"}
+            return json.dumps(
+                {
+                    "run_id": kwargs["run_id"],
+                    "output": "one incident",
+                    "run_summary": {
+                        "outcome": "ok",
+                        "stage_reached": "single_server_agent",
+                        "trace_ref": "trace:one-session",
+                    },
+                }
+            )
+
+    monkeypatch.setattr(manager, "Orchestrator", _Orchestrator)
+    probe._STATE["engine"] = object()
+    asyncio.run(probe._stage_toolset("servicenow-mcp", "servicenow_get_incidents"))
+    result = asyncio.run(
+        probe._stage_delegate(
+            argparse.Namespace(
+                run_id="probe-one-session",
+                entry="execute_agent",
+                task="read one incident",
+                skill="servicenow-incident-management",
+                server="servicenow-mcp",
+                tool="servicenow_get_incidents",
+                require_tool=True,
+                mode="pydantic_graph",
+                budget=100,
+                max_steps=2,
+                grounding="best_effort",
+                model_class="standard",
+            )
+        )
+    )
+
+    assert "outcome=ok" in result
+    assert counts == {"built": 1, "opened": 1, "listed": 1, "closed": 1}
+    assert "toolset" not in probe._STATE
+
+
+def test_missing_catalog_tool_fails_without_opening_or_closing_a_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale or wrong catalog fails before any transport can leak."""
+    probe = _probe()
+    from agent_utilities.orchestration import agent_runner
+
+    attempts = 0
+    monkeypatch.setattr(
+        agent_runner,
+        "_catalog_toolset_binding",
+        lambda *_args, **_kwargs: {
+            "type": "server",
+            "tools": [{"name": "servicenow_get_changes"}],
+        },
+    )
+    monkeypatch.setattr(
+        agent_runner, "_fleet_server_url", lambda _server: "https://service.test/mcp"
+    )
+
+    def _must_not_open(*_args: object, **_kwargs: object) -> object:
+        nonlocal attempts
+        attempts += 1
+        raise AssertionError("a failed catalog preflight must not open a session")
+
+    monkeypatch.setattr(agent_runner, "_toolset_for_id", _must_not_open)
+    probe._STATE["engine"] = object()
+
+    with pytest.raises(RuntimeError, match="NOT the requested"):
+        asyncio.run(probe._stage_toolset("servicenow-mcp", "servicenow_get_incidents"))
+
+    assert attempts == 0
+    assert "toolset" not in probe._STATE
+
+
+def test_unresolved_catalog_endpoint_fails_without_opening_a_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Endpoint configuration remains fail-closed even though no transport opens."""
+    probe = _probe()
+    from agent_utilities.orchestration import agent_runner
+
+    attempts = 0
+    monkeypatch.setattr(
+        agent_runner,
+        "_catalog_toolset_binding",
+        lambda *_args, **_kwargs: {
+            "type": "server",
+            "tools": [{"name": "servicenow_get_incidents"}],
+        },
+    )
+    monkeypatch.setattr(agent_runner, "_fleet_server_url", lambda _server: "")
+
+    def _must_not_open(*_args: object, **_kwargs: object) -> object:
+        nonlocal attempts
+        attempts += 1
+        raise AssertionError("an unresolved endpoint must not open a session")
+
+    monkeypatch.setattr(agent_runner, "_toolset_for_id", _must_not_open)
+    probe._STATE["engine"] = object()
+
+    with pytest.raises(RuntimeError, match="no resolved MCP endpoint"):
+        asyncio.run(probe._stage_toolset("servicenow-mcp", "servicenow_get_incidents"))
+
+    assert attempts == 0
+    assert "toolset" not in probe._STATE
+
+
+def test_cancelled_delegate_closes_only_its_owned_session(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Cancellation propagates through delegation while its one session unwinds."""
+    probe = _probe()
+    from agent_utilities.orchestration import agent_runner, manager
+
+    counts = {"built": 0, "opened": 0, "closed": 0}
+
+    class _OwnedToolset:
+        async def __aenter__(self) -> _OwnedToolset:
+            counts["opened"] += 1
+            return self
+
+        async def __aexit__(self, *_args: object) -> None:
+            counts["closed"] += 1
+
+    monkeypatch.setattr(
+        agent_runner,
+        "_catalog_toolset_binding",
+        lambda _engine, _server, *, allowed_tools: {
+            "type": "server",
+            "tools": [{"name": allowed_tools[0]}],
+        },
+    )
+    monkeypatch.setattr(
+        agent_runner, "_fleet_server_url", lambda _server: "https://service.test/mcp"
+    )
+    owned_toolset = _OwnedToolset()
+
+    def _build_toolset(*_args: object, **_kwargs: object) -> _OwnedToolset:
+        counts["built"] += 1
+        return owned_toolset
+
+    monkeypatch.setattr(agent_runner, "_toolset_for_id", _build_toolset)
+
+    class _Orchestrator:
+        def __init__(self, _engine: object) -> None:
+            pass
+
+        async def execute_agent(self, **kwargs: object) -> str:
+            toolset = agent_runner._toolset_for_id(
+                probe._STATE["engine"],
+                str(kwargs["tool_server"]),
+                allowed_tools=["servicenow_get_incidents"],
+            )
+            async with toolset:
+                await asyncio.Event().wait()
+            raise AssertionError("cancellation should leave the owned session")
+
+    monkeypatch.setattr(manager, "Orchestrator", _Orchestrator)
+    probe._STATE["engine"] = object()
+    asyncio.run(probe._stage_toolset("servicenow-mcp", "servicenow_get_incidents"))
+    args = argparse.Namespace(
+        run_id="probe-cancelled-session",
+        entry="execute_agent",
+        task="read one incident",
+        skill="servicenow-incident-management",
+        server="servicenow-mcp",
+        tool="servicenow_get_incidents",
+        require_tool=True,
+        mode="pydantic_graph",
+        budget=100,
+        max_steps=2,
+        grounding="best_effort",
+        model_class="standard",
+    )
+
+    async def _cancel_delegate() -> None:
+        task = asyncio.create_task(probe._stage_delegate(args))
+        while counts["opened"] == 0:
+            await asyncio.sleep(0)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(_cancel_delegate())
+
+    assert counts == {"built": 1, "opened": 1, "closed": 1}
+    assert "toolset" not in probe._STATE
+
+
 @pytest.mark.parametrize("outcome", ["degraded", "timeout", "failed"])
 def test_required_tool_rejects_non_ok_run_summary(outcome: str) -> None:
     probe = _probe()
