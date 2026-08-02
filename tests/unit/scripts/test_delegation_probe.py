@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -252,3 +253,98 @@ def test_live_model_stage_uses_governed_context_agent(monkeypatch) -> None:
     assert calls == [(model, {"default_capabilities": False})]
     assert result.startswith("probe-model answered in ")
     assert result.endswith(": 'ready'")
+
+
+@pytest.mark.parametrize("outcome", ["degraded", "timeout", "failed"])
+def test_required_tool_rejects_non_ok_run_summary(outcome: str) -> None:
+    probe = _probe()
+    args = argparse.Namespace(require_tool=True, tool="servicenow_get_incidents")
+
+    reason = probe._required_tool_summary_failure(
+        args, {"outcome": outcome, "failure": {"raw": "bounded failure"}}
+    )
+
+    assert reason is not None
+    assert outcome in reason
+    assert "servicenow_get_incidents" in reason
+
+
+def test_required_tool_accepts_ok_summary_and_exact_successful_provenance() -> None:
+    probe = _probe()
+    args = argparse.Namespace(require_tool=True, tool="servicenow_get_incidents")
+
+    assert probe._required_tool_summary_failure(args, {"outcome": "ok"}) is None
+    assert (
+        probe._required_tool_provenance_failure(
+            args,
+            [
+                {
+                    "tool": "servicenow_get_incidents",
+                    "status": "completed",
+                }
+            ],
+        )
+        is None
+    )
+
+
+def test_required_tool_rejects_wrong_tool_and_unsuccessful_match() -> None:
+    probe = _probe()
+    args = argparse.Namespace(require_tool=True, tool="servicenow_get_incidents")
+
+    wrong = probe._required_tool_provenance_failure(
+        args, [{"tool": "servicenow_get_changes", "status": "ok"}]
+    )
+    failed = probe._required_tool_provenance_failure(
+        args, [{"tool": "servicenow_get_incidents", "status": "error"}]
+    )
+
+    assert wrong is not None and "observed" in wrong
+    assert failed is not None and "statuses" in failed
+
+
+def test_delegate_stage_raises_after_printing_degraded_required_summary(
+    monkeypatch, capsys
+) -> None:
+    probe = _probe()
+    from agent_utilities.orchestration import manager
+
+    class _Orchestrator:
+        def __init__(self, engine: object) -> None:
+            assert engine is probe._STATE["engine"]
+
+        async def execute_agent(self, **kwargs: object) -> str:
+            return json.dumps(
+                {
+                    "run_id": kwargs["run_id"],
+                    "output": "refused",
+                    "run_summary": {
+                        "outcome": "degraded",
+                        "stage_reached": "pydantic-graph",
+                        "trace_ref": "trace:test",
+                        "failure": {"category": "ungrounded_tool_execution"},
+                    },
+                }
+            )
+
+    monkeypatch.setattr(manager, "Orchestrator", _Orchestrator)
+    probe._STATE["engine"] = object()
+    args = argparse.Namespace(
+        run_id="probe-test",
+        entry="execute_agent",
+        task="retrieve records",
+        skill="servicenow-incident-management",
+        server="servicenow-mcp",
+        tool="servicenow_get_incidents",
+        require_tool=True,
+        mode="pydantic_graph",
+        budget=100,
+        max_steps=2,
+        grounding="best_effort",
+        model_class="standard",
+    )
+
+    with pytest.raises(RuntimeError, match="did not complete successfully"):
+        asyncio.run(probe._stage_delegate(args))
+
+    assert '"outcome": "degraded"' in capsys.readouterr().out
