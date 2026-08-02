@@ -340,15 +340,45 @@ class EpistemicGraphBackend(GraphBackend):
         return results
 
     def hydrate_engine_embeddings(self, batch_log_every: int = 5000) -> int:
-        """Run the persisted-state embedding-index migration and fence repair."""
+        """Run the persisted-state embedding-index migration and fence repair.
+
+        D-BFR-5: a naive full scan that unconditionally re-``add_embedding``s
+        every node carrying an ``embedding`` property replays the WHOLE ANN
+        index on every tick forever — invisible with an empty index, then a
+        genuine continuous-load bug once the backfill/ingest chokepoint
+        actually populates it (every subsequent tick redoes the SAME N writes
+        with zero new progress). ``EMBEDDING_INDEX_READY_FIELD`` already
+        durably distinguishes three states per node, so hydration is now
+        delta-driven off it instead of blind:
+
+        * ``False`` — a cross-modal commit landed the property but crashed
+          before the served-read readiness CAS; repair it (unchanged from
+          before this fix — the ANN write is genuinely still owed).
+        * ``True``  — the SAME atomic transaction that set this property
+          already registered the vector in the ANN; it is durably converged
+          and re-adding it is exactly the redundant write this closes. Skip.
+        * absent   — a legacy node embedded before the readiness fence
+          existed (or by a writer that does not manage it): the ANN
+          membership is genuinely unknown, so index it once, THEN durably
+          mark it ready so every later tick recognizes it as converged and
+          skips it too. This is what makes a REPEATED tick delta-driven
+          rather than a fresh O(N) scan-and-rewrite every time.
+        """
         from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
 
         count = 0
+        scanned = 0
+        already_indexed = 0
+        repaired = 0
+        newly_indexed = 0
+        mark_ready = getattr(self._graph, "compare_and_set_node_fields", None)
         for node_id, props in self._graph._get_all_nodes_with_properties():
             embedding = (props or {}).get("embedding")
             if not embedding:
                 continue
-            if (props or {}).get(EMBEDDING_INDEX_READY_FIELD) is False:
+            scanned += 1
+            ready = (props or {}).get(EMBEDDING_INDEX_READY_FIELD)
+            if ready is False:
                 # A process can stop after the durable cross-modal transaction
                 # committed but before the served-read readiness CAS. Re-run the
                 # idempotent transaction so the periodic/operator maintenance
@@ -363,12 +393,35 @@ class EpistemicGraphBackend(GraphBackend):
                     list(embedding),
                 ):
                     count += 1
+                    repaired += 1
                 continue
+            if ready is True:
+                # Already durably converged by the transaction that committed
+                # this property — the ANN already has this exact vector.
+                already_indexed += 1
+                continue
+            # `ready is None`: no readiness marker at all. Register the vector
+            # once, then durably mark it so this scan never touches it again.
             self._graph.add_embedding(node_id, list(embedding))
             count += 1
+            newly_indexed += 1
+            if callable(mark_ready):
+                mark_ready(
+                    node_id,
+                    {EMBEDDING_INDEX_READY_FIELD: None},
+                    {EMBEDDING_INDEX_READY_FIELD: True},
+                )
             if count % batch_log_every == 0:
                 logger.info("embedding-index migration processed %d rows", count)
-        logger.info("embedding-index migration completed (%d rows)", count)
+        logger.info(
+            "embedding-index migration completed: scanned=%d indexed=%d "
+            "(missing=%d repaired=%d) already_indexed=%d",
+            scanned,
+            count,
+            newly_indexed,
+            repaired,
+            already_indexed,
+        )
         return count
 
     def prune(self, criteria: dict[str, Any]) -> None:

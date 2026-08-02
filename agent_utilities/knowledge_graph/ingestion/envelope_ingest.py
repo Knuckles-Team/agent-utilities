@@ -1450,6 +1450,119 @@ def _native_material(
     return native, counts, sorted(governed_ids), cursor_advanced
 
 
+def _mirror_replay_operations(native: dict[str, Any]) -> list[dict[str, Any]]:
+    """Rebuild fan-out typed-batch mirror ops from an already-committed native DTO.
+
+    D-BFR-12: a native ``ApplyChangeEnvelope(s)`` commit calls the unwrapped
+    engine client directly (see ``_resolve_native_authority``), so the graph
+    slice it commits never passes through ``FanOutBackend.execute``/
+    ``apply_typed_batch`` and therefore never reaches the mirror outbox on its
+    own. ``native["mutation"]["operations"]`` is the exact ``AddNode``/
+    ``AddEdge`` wire list the engine just committed (built by
+    ``_graph_operations``); reusing it here — rather than re-deriving node/edge
+    state — guarantees the mirror replay is the SAME material the authority
+    accepted, not a second independently-computed mutation.
+    """
+    import msgpack
+
+    operations = ((native.get("mutation") or {}).get("operations")) or []
+    replay: list[dict[str, Any]] = []
+    for operation in operations:
+        if not isinstance(operation, dict):
+            continue
+        method = operation.get("method") or {}
+        name = method.get("method")
+        params = method.get("params") or {}
+        if name == "AddNode":
+            node_id = str(params.get("node_id") or "").strip()
+            packed = params.get("properties_msgpack")
+            if not node_id or not packed:
+                continue
+            properties = msgpack.unpackb(packed, raw=False)
+            if not isinstance(properties, dict):
+                continue
+            # ``ChangeEnvelope.to_entity_dict()``/auxiliary ``_nodes`` rows carry
+            # the connector's own ``type`` key verbatim (never renamed) — only
+            # ``ingest_graph_slice``'s stricter external contract commits the
+            # canonical ``node_type`` key. Accept either, matching the AddEdge
+            # ``type``/``relationship`` normalization just above: the mirror op
+            # must resolve the SAME label the authority just committed.
+            node_type = str(
+                properties.get("node_type") or properties.get("type") or ""
+            ).strip()
+            if not node_type:
+                # An untyped node cannot be replayed through the typed mirror
+                # seam; reconcile() is the backstop for it.
+                continue
+            replay.append(
+                {
+                    "op": "upsert_node",
+                    "id": node_id,
+                    "properties": {**properties, "node_type": node_type},
+                }
+            )
+        elif name == "AddEdge":
+            source_id = str(params.get("source_id") or "").strip()
+            target_id = str(params.get("target_id") or "").strip()
+            packed = params.get("properties_msgpack")
+            if not source_id or not target_id or not packed:
+                continue
+            properties = msgpack.unpackb(packed, raw=False)
+            if not isinstance(properties, dict):
+                continue
+            # A ChangeEnvelope ``_links`` item's edge-type key is caller-shaped:
+            # ``ingest_graph_slice`` requires the canonical ``relationship`` key,
+            # but a raw ``_links`` entry (as most connectors emit it) commits
+            # ``type`` straight onto the wire the same way ``AddNode`` commits
+            # ``node_type`` — neither is renamed before packing. Accept either so
+            # the mirror op always resolves the SAME edge label the authority
+            # just committed, never a second independently-guessed one.
+            relationship = str(
+                properties.get("relationship") or properties.get("type") or ""
+            ).strip()
+            if not relationship:
+                continue
+            replay.append(
+                {
+                    "op": "upsert_edge",
+                    "source": source_id,
+                    "target": target_id,
+                    "properties": {**properties, "relationship": relationship},
+                }
+            )
+    return replay
+
+
+def _replay_native_graph_mutation(
+    authority: _NativeAuthority, native: dict[str, Any]
+) -> None:
+    """Enqueue mirror replay for one just-committed native ChangeEnvelope.
+
+    Best-effort by the SAME contract ``FanOutBackend.apply_typed_batch`` already
+    uses for an authority-committed mutation: the authoritative graph is the
+    durable acknowledgement source, so a mirror handoff failure is logged loudly
+    (reconcile() is the backstop) rather than raised back through the ingest
+    caller and made to look like the source write itself failed.
+    """
+    publisher = getattr(authority, "backend", None)
+    replay = getattr(publisher, "replay_committed_change", None)
+    if not callable(replay):
+        return
+    operations = _mirror_replay_operations(native)
+    if not operations:
+        return
+    from ..backends.fanout_backend import AuthorityCommittedMirrorHandoffError
+
+    try:
+        replay(operations)
+    except AuthorityCommittedMirrorHandoffError as exc:
+        logger.critical(
+            "native ChangeEnvelope committed but mirror replay failed; "
+            "reconciliation required: %s",
+            exc,
+        )
+
+
 def _filtered_receipt(receipt: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
     source = receipt if isinstance(receipt, dict) else {}
     allowed = {
@@ -1526,6 +1639,7 @@ def _apply_native_change_envelope(
         governed_ids: list[str] = []
         cursor_advanced = False
         conflict_sequence: list[str] = []
+        native: dict[str, Any] | None = None
         receipt: Any = _recover_native_receipt(client, envelope)
         if receipt is not None:
             governed_ids = _policy_cache_object_ids(client, envelope)
@@ -1590,6 +1704,13 @@ def _apply_native_change_envelope(
                 raise _NativeOccRetryBudgetExhausted(conflict_sequence)
 
     replayed = bool(receipt.get("replayed")) if isinstance(receipt, dict) else False
+    # D-BFR-12: mirror the node/edge delta ONLY for a genuine first commit. A
+    # recovered/idempotent replay means the mirror outbox already saw this
+    # exact material on the attempt that actually committed it — re-enqueueing
+    # here would be a no-op delta at best, a wasted duplicate outbox write at
+    # worst (the "replay-skip" contract).
+    if native is not None and not replayed:
+        _replay_native_graph_mutation(authority, native)
     # This is a read-policy cache refresh, never the durability authority.
     # Both first apply and idempotent replay project it; replay is the bounded
     # recovery path after process-local cache loss.
@@ -1784,6 +1905,15 @@ def _apply_native_change_envelopes(
                 _NATIVE_GRAPH_VERSIONS[scope] = max(
                     _NATIVE_GRAPH_VERSIONS.get(scope, 0), expected + applied
                 )
+
+            # D-BFR-12: mirror each genuinely-applied envelope's node/edge delta,
+            # in the SAME page order the authority just committed it, so the
+            # mirror outbox preserves batch ordering. A replayed/idempotent-skip
+            # or conflicted entry is never re-enqueued (the "replay-skip"
+            # contract — see the single-envelope path for why).
+            for offset, result in enumerate(engine_results):
+                if str(result.get("status")) == "applied":
+                    _replay_native_graph_mutation(authority, natives[offset])
 
             # Refresh the read-policy cache for governed objects that committed, each
             # under ITS OWN envelope's source ACL/classification (a page may mix them).

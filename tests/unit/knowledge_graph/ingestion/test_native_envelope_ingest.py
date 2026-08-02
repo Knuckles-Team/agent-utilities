@@ -257,6 +257,36 @@ class _Compute:
         return True
 
 
+class _FanoutMirrorPublisher:
+    """Minimal fan-out-shaped fake used to prove D-BFR-12: a native
+    ``ApplyChangeEnvelope``/``ApplyChangeEnvelopes`` commit must still enqueue
+    its node/edge delta through the OUTER fan-out mirror seam, exactly the way
+    ``FanOutBackend.replay_committed_change`` is wired to do in production —
+    it never re-commits to the authority, only records what it would enqueue.
+    """
+
+    def __init__(self, compute: _Compute) -> None:
+        self._authority = SimpleNamespace(graph=compute)
+        self.replay_calls: list[list[dict[str, object]]] = []
+
+    def replay_committed_change(self, operations: list[dict[str, object]]) -> None:
+        self.replay_calls.append([dict(op) for op in operations])
+
+    def compare_and_set_node_embedding_for_graph(
+        self,
+        graph_name: str,
+        node_id: str,
+        conditions: dict[str, object],
+        updates: dict[str, object],
+        embedding: list[float],
+    ) -> bool:
+        return bool(
+            self._authority.graph.compare_and_set_node_embedding(
+                node_id, conditions, updates, embedding
+            )
+        )
+
+
 @pytest.fixture(autouse=True)
 def _native_profile(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("APP_PROFILE", "dev")
@@ -622,6 +652,109 @@ def test_native_apply_commits_auxiliary_nodes_edges_and_policy_together() -> Non
         compute.client.nodes.values[node_id]["tenant_id"] == "fixture-tenant"
         for node_id in ("object-1", "chunk-1", "section-1")
     )
+
+
+def test_native_graph_mutation_replays_primary_auxiliary_and_edges_through_fanout() -> (
+    None
+):
+    """D-BFR-12: a native ChangeEnvelope graph slice must reach the mirror outbox.
+
+    ``_apply_native_change_envelope`` commits node/edge material through the
+    unwrapped native engine client directly (``authority.compute.client``),
+    bypassing ``FanOutBackend.execute``/``apply_typed_batch`` entirely. Before
+    the fix nothing durable ever reached ``replay_committed_change`` for this
+    path — only the later embedding CAS did (D-BFR-13). This must fail against
+    the restored bug (comment out the ``_replay_native_graph_mutation`` call in
+    ``_apply_native_change_envelope``) to prove it actually exercises the gap.
+    """
+    compute = _Compute("graph-fanout-mutation")
+    publisher = _FanoutMirrorPublisher(compute)
+    engine = SimpleNamespace(backend=publisher)
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "Document",
+            "_nodes": [
+                {"id": "chunk-1", "type": "Chunk", "content": "synthetic"},
+                {"id": "section-1", "type": "Section", "title": "Overview"},
+            ],
+            "_links": [
+                {"source": "object-1", "target": "chunk-1", "type": "HAS_CHUNK"},
+                {"source": "object-1", "target": "section-1", "type": "HAS_SECTION"},
+            ],
+        }
+    )
+
+    result = module.ingest_envelope(engine, envelope)
+
+    assert result["status"] == "success"
+    assert len(publisher.replay_calls) == 1
+    ops = publisher.replay_calls[0]
+    node_ops = {op["id"]: op for op in ops if op["op"] == "upsert_node"}
+    edge_ops = [op for op in ops if op["op"] == "upsert_edge"]
+    assert set(node_ops) == {"object-1", "chunk-1", "section-1"}
+    for node_id, op in node_ops.items():
+        # The replay op normalizes a synthesized ``node_type`` (from the raw
+        # ``type`` key) onto the mirror payload so FanOutBackend's typed-upsert
+        # contract resolves a label; every OTHER committed property must be the
+        # exact material the authority just accepted.
+        committed = compute.client.nodes.values[node_id]
+        assert {k: v for k, v in op["properties"].items() if k != "node_type"} == {
+            k: v for k, v in committed.items() if k != "node_type"
+        }
+        assert op["properties"]["node_type"] == committed["type"]
+    assert len(edge_ops) == 2
+    by_target = {op["target"]: op for op in edge_ops}
+    assert by_target["chunk-1"]["source"] == "object-1"
+    assert by_target["chunk-1"]["properties"]["relationship"] == "HAS_CHUNK"
+    assert by_target["section-1"]["properties"]["relationship"] == "HAS_SECTION"
+
+
+def test_native_graph_mutation_replay_is_skipped_on_idempotent_redelivery() -> None:
+    """D-BFR-12 replay-skip: a recovered/idempotent commit must not re-enqueue."""
+    compute = _Compute("graph-fanout-replay-skip")
+    publisher = _FanoutMirrorPublisher(compute)
+    engine = SimpleNamespace(backend=publisher)
+    access = ExternalAccess(is_public=False, read_roles=["kg:read"])
+    first = _envelope(source_acl=access)
+    second = _envelope(source_acl=access)
+    assert first.idempotency_key == second.idempotency_key
+
+    assert module.ingest_envelope(engine, first)["status"] == "success"
+    assert len(publisher.replay_calls) == 1
+
+    replay = module.ingest_envelope(engine, second)
+
+    assert replay["status"] == "skipped"
+    # The idempotent redelivery committed nothing new at authority, so it must
+    # not enqueue a second mirror mutation either.
+    assert len(publisher.replay_calls) == 1
+
+
+def test_native_delete_tombstone_replays_through_fanout() -> None:
+    """D-BFR-12 covers deletion: a delete is an ``archived=True`` upsert on the
+    native wire, so it must mirror through the SAME upsert_node replay seam."""
+    compute = _Compute("graph-fanout-delete")
+    publisher = _FanoutMirrorPublisher(compute)
+    engine = SimpleNamespace(backend=publisher)
+    assert module.ingest_envelope(engine, _envelope())["status"] == "success"
+    assert len(publisher.replay_calls) == 1
+
+    delete_envelope = _envelope(
+        operation="delete",
+        typed_payload=None,
+        source_version="2",
+        checkpoint="2",
+    )
+    result = module.ingest_envelope(engine, delete_envelope)
+
+    assert result["status"] == "success"
+    assert len(publisher.replay_calls) == 2
+    ops = publisher.replay_calls[1]
+    assert len(ops) == 1
+    assert ops[0]["op"] == "upsert_node"
+    assert ops[0]["id"] == "object-1"
+    assert ops[0]["properties"]["archived"] is True
 
 
 def test_public_access_and_classification_project_consistently() -> None:
@@ -1211,6 +1344,29 @@ def test_ingest_envelopes_reports_idempotent_replay_as_skipped() -> None:
     assert [r["status"] for r in results] == ["success", "skipped", "success"]
     assert results[1]["watermark_advanced"] is False
     assert results[1]["reason"] == "idempotent replay — envelope already applied"
+
+
+def test_ingest_envelopes_batch_replays_mirror_in_page_order_and_skips_replayed() -> (
+    None
+):
+    """D-BFR-12 batch ordering: mirror replay follows the SAME page order the
+    authority committed, and a replayed/idempotent-skip entry enqueues nothing."""
+    compute = _Compute("graph-fanout-batch")
+    publisher = _FanoutMirrorPublisher(compute)
+    engine = SimpleNamespace(backend=publisher)
+    compute.client.changes.batch_replayed_indices = {1}
+    envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 4)]
+
+    results = module.ingest_envelopes(engine, envelopes)
+
+    assert [r["status"] for r in results] == ["success", "skipped", "success"]
+    # Only the two genuinely-applied envelopes (offsets 0 and 2) enqueue mirror
+    # replay, in the same order the page committed them.
+    assert len(publisher.replay_calls) == 2
+    first_ids = {op["id"] for op in publisher.replay_calls[0] if op["op"] == "upsert_node"}
+    second_ids = {op["id"] for op in publisher.replay_calls[1] if op["op"] == "upsert_node"}
+    assert first_ids == {"object-1"}
+    assert second_ids == {"object-3"}
 
 
 def test_ingest_envelopes_falls_back_to_per_record_when_batch_unsupported() -> None:
