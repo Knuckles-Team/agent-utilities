@@ -43,7 +43,7 @@ from urllib.parse import urlsplit
 
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
-from fastmcp.tools import FunctionTool, ToolResult
+from fastmcp.tools import FunctionTool, Tool, ToolResult
 from mcp import StdioServerParameters, stdio_client
 from mcp.client.session import ClientSession
 
@@ -2240,7 +2240,7 @@ class MCPMultiplexer:
                     "FastMCP forwarding registry cannot verify an absent tool"
                 ) from exc
             if any(
-                isinstance(component, FunctionTool) and component.name == prefixed_name
+                isinstance(component, Tool) and component.name == prefixed_name
                 for component in components.values()
             ):
                 raise RuntimeError(

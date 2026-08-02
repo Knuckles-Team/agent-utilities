@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 import mcp.types
 import pytest
 from fastmcp.exceptions import ToolError
+from fastmcp.tools import Tool
 
 from agent_utilities.mcp.multiplexer import (
     _LOCAL_SESSION_META_KEY,
@@ -91,6 +92,14 @@ async def test_remove_host_forwarder_converges_only_after_verified_absence(
         mux._remove_host_forwarder(live_tool.name)
     assert live_tool.name in mux._exposed
     assert await host.get_tool(live_tool.name) is not None
+
+    base_tool = Tool(name="synthetic__live_base_tool", parameters={})
+    host._local_provider._components[base_tool.key] = base_tool
+    mux._exposed.add(base_tool.name)
+    with pytest.raises(RuntimeError, match="remains registered"):
+        mux._remove_host_forwarder(base_tool.name)
+    assert base_tool.name in mux._exposed
+    assert host._local_provider._components[base_tool.key] is base_tool
     await mux.aclose()
 
 
