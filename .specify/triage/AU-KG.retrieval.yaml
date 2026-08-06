@@ -1,0 +1,2337 @@
+domain: AU-KG.retrieval
+generated_at: '2026-08-01T15:07:06+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
+  `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
+  and `apply --write`.'
+clusters:
+  AU-KG.retrieval.architecture-report:
+  - AU-KG.retrieval.architecture-report
+  - AU-KG.retrieval.every-usage-published-symbol
+  - AU-KG.retrieval.god-nodes-communities
+  - AU-KG.retrieval.synthesized-cited-answer
+  AU-KG.retrieval.batched-neighborhood-prefetch:
+  - AU-KG.retrieval.batched-neighborhood-prefetch
+  - AU-KG.retrieval.recall-feedback
+  - AU-KG.retrieval.triviality-gate
+  AU-KG.retrieval.context-compiler:
+  - AU-KG.retrieval.context-compiler
+  - AU-KG.retrieval.context-compiler-kv-seam
+  - AU-KG.retrieval.evidence-graph-workspace
+  - AU-KG.retrieval.self-correcting-second-pass
+  AU-KG.retrieval.section-tree:
+  - AU-KG.retrieval.section-tree
+  - AU-KG.retrieval.tree-navigation
+concepts:
+  AU-KG.retrieval.adaptive-stopping-iterative-retrieval:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py
+      - agent_utilities/knowledge_graph/retrieval/adaptive_stopping.py
+      test_files:
+      - tests/retrieval/test_retrieval_assimilation_live_path.py
+      - tests/test_adaptive_stopping.py
+      doc_files:
+      - docs/architecture/multi_source_assimilation.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:829
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:837
+      - agent_utilities/knowledge_graph/retrieval/adaptive_stopping.py:6
+      - agent_utilities/knowledge_graph/retrieval/adaptive_stopping.py:115
+      - docs/architecture/multi_source_assimilation.md:135
+      - tests/retrieval/test_retrieval_assimilation_live_path.py:10
+      - tests/test_adaptive_stopping.py:4
+  AU-KG.retrieval.architecture-report:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.retrieval.synthesized-cited-answer
+    suggestion_why: clusters with 3 sibling(s) around AU-KG.retrieval.synthesized-cited-answer; shares
+      agent_utilities/mcp/kg_server.py, agent_utilities/mcp/tools/analysis_tools.py; both introduced by
+      c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the candidate parent already
+      has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/code_metrics.py
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/code_metrics.py:4
+      - agent_utilities/knowledge_graph/retrieval/code_metrics.py:362
+      - agent_utilities/mcp/kg_server.py:1905
+      - agent_utilities/mcp/tools/analysis_tools.py:2306
+  AU-KG.retrieval.assimilated-from-mragent:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/active_reconstruction.py
+      - agent_utilities/knowledge_graph/retrieval/entity_context.py
+      test_files:
+      - tests/unit/test_active_reconstruction.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/active_reconstruction.py:6
+      - agent_utilities/knowledge_graph/retrieval/entity_context.py:57
+      - agent_utilities/knowledge_graph/retrieval/entity_context.py:146
+      - tests/unit/test_active_reconstruction.py:1
+  AU-KG.retrieval.batch-hydrate:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 14 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py
+      - agent_utilities/knowledge_graph/retrieval/graph_engineering.py
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      test_files:
+      - tests/retrieval/test_delegation_wiring_live_path.py
+      doc_files:
+      - .specify/design/retrieval-latency-optimization/design.md
+      introduced: '84eb54e7 2026-08-01 perf(delegation): batch cross-base-node hydration + fix graph_query
+        fan-out timeout'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/retrieval-latency-optimization/design.md:28
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:606
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:950
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1009
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1030
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1168
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1234
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1421
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1442
+      - agent_utilities/knowledge_graph/retrieval/graph_engineering.py:225
+      - agent_utilities/knowledge_graph/retrieval/graph_engineering.py:591
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:872
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:957
+      - tests/retrieval/test_delegation_wiring_live_path.py:197
+  AU-KG.retrieval.batched-neighborhood-prefetch:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      test_files: []
+      doc_files:
+      - .specify/design/retrieval-batched-neighborhood-prefetch/design.md
+      introduced: '77b1b91e 2026-07-30 fix(delegation): unblock the end-to-end path — SDK skew, O(N) grounding,
+        lost cause'
+      cohort:
+      - AU-KG.retrieval.fail-closed-grounding-contract
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/retrieval-batched-neighborhood-prefetch/design.md:3
+      - .specify/design/retrieval-batched-neighborhood-prefetch/design.md:23
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:30
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:39
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:381
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:408
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:816
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:855
+  AU-KG.retrieval.capability-power-descriptor:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 9 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/capability_context.py
+      - agent_utilities/knowledge_graph/retrieval/capability_power_descriptor.py
+      - agent_utilities/knowledge_graph/retrieval/context_plane.py
+      - agent_utilities/mcp/tools/analyze_suite.py
+      - scripts/check_cpd.py
+      - scripts/gen_capability_power.py
+      test_files:
+      - tests/gates/test_cpd_gate.py
+      doc_files:
+      - docs/capabilities-power.md
+      introduced: '874a5e68 2026-07-11 feat(kg): Capability Power Descriptor (CPD) — Seam 8 Phase 1'
+      cohort:
+      - AU-KG.retrieval.context-compiler
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.section-tree
+      - AU-KG.retrieval.self-correcting-second-pass
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/capability_context.py:4
+      - agent_utilities/knowledge_graph/retrieval/capability_power_descriptor.py:4
+      - agent_utilities/knowledge_graph/retrieval/capability_power_descriptor.py:597
+      - agent_utilities/knowledge_graph/retrieval/context_plane.py:63
+      - agent_utilities/mcp/tools/analyze_suite.py:217
+      - docs/capabilities-power.md:3
+      - scripts/check_cpd.py:4
+      - scripts/gen_capability_power.py:4
+      - tests/gates/test_cpd_gate.py:3
+  AU-KG.retrieval.context-compile-circuit-breaker:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 6 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/contextual_model.py
+      test_files: []
+      doc_files:
+      - .specify/design/retrieval-latency-optimization/design.md
+      introduced: '9b9ee455 2026-07-27 perf(kg): batch-hydrate remaining retrieval legs + per-process
+        context-compile breaker'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/retrieval-latency-optimization/design.md:29
+      - agent_utilities/core/contextual_model.py:132
+      - agent_utilities/core/contextual_model.py:717
+      - agent_utilities/core/contextual_model.py:734
+      - agent_utilities/core/contextual_model.py:750
+      - agent_utilities/core/contextual_model.py:853
+  AU-KG.retrieval.context-compiler:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 4-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - .pre-commit-config.yaml
+      - agent_utilities/core/contextual_model.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
+      - agent_utilities/mcp/tools/query_tools.py
+      - agent_utilities/observability/__init__.py
+      - agent_utilities/observability/gateway_metrics.py
+      test_files:
+      - tests/retrieval/test_context_compiler.py
+      - tests/retrieval/test_context_compiler_ab_grounding.py
+      - tests/retrieval/test_context_compiler_delegated_run_default.py
+      - tests/retrieval/test_context_compiler_kv_seam.py
+      - tests/unit/messaging/test_messaging_routing.py
+      doc_files:
+      - CHANGELOG.md
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      - docs/guides/kvcache-vllm-lmcache.md
+      - docs/reference/metrics.md
+      introduced: '933160b1 2026-07-11 feat(retrieval): policy-aware context compiler (X-7)'
+      cohort:
+      - AU-KG.retrieval.self-correcting-second-pass
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .pre-commit-config.yaml:197
+      - CHANGELOG.md:361
+      - agent_utilities/core/contextual_model.py:17
+      - agent_utilities/core/contextual_model.py:608
+      - agent_utilities/core/contextual_model.py:658
+      - agent_utilities/core/contextual_model.py:869
+      - agent_utilities/core/contextual_model.py:879
+      - agent_utilities/core/contextual_model.py:899
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20671
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20706
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20718
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20743
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:4
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:490
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:556
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:1080
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py:533
+      - agent_utilities/mcp/tools/query_tools.py:1175
+      - agent_utilities/mcp/tools/query_tools.py:1198
+      - agent_utilities/mcp/tools/query_tools.py:1308
+      - agent_utilities/observability/__init__.py:903
+      - agent_utilities/observability/gateway_metrics.py:476
+      - agent_utilities/observability/gateway_metrics.py:512
+      - docs/capabilities-power.json:20671
+      - docs/capabilities-power.json:20706
+      - docs/capabilities-power.json:20718
+      - docs/capabilities-power.json:20743
+      - docs/capabilities-power.md:3582
+      - docs/capabilities-power.md:3587
+      - docs/guides/kvcache-vllm-lmcache.md:382
+      - docs/reference/metrics.md:126
+      - tests/retrieval/test_context_compiler.py:2
+      - tests/retrieval/test_context_compiler_ab_grounding.py:1
+      - tests/retrieval/test_context_compiler_delegated_run_default.py:1
+      - tests/retrieval/test_context_compiler_kv_seam.py:4
+      - tests/unit/messaging/test_messaging_routing.py:29
+      - tests/unit/messaging/test_messaging_routing.py:241
+  AU-KG.retrieval.context-compiler-kv-seam:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.retrieval.context-compiler
+    suggestion_why: clusters with 3 sibling(s) around AU-KG.retrieval.context-compiler; shares agent_utilities/core/contextual_model.py,
+      agent_utilities/knowledge_graph/retrieval/context_compiler.py, agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/contextual_model.py
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py
+      - agent_utilities/observability/__init__.py
+      - agent_utilities/observability/gateway_metrics.py
+      - scripts/measure_bundle_kv_reuse.py
+      test_files:
+      - tests/retrieval/test_context_compiler_kv_seam.py
+      - tests/retrieval/test_context_compiler_serving.py
+      - tests/unit/core/test_contextual_model_bundle_cache.py
+      doc_files:
+      - docs/guides/kvcache-vllm-lmcache.md
+      - docs/reference/metrics.md
+      introduced: '1177e191 2026-07-11 feat(seam-6): route ContextCompiler bundles through the existing
+        KV-cache layer'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/contextual_model.py:161
+      - agent_utilities/core/contextual_model.py:174
+      - agent_utilities/core/contextual_model.py:629
+      - agent_utilities/core/contextual_model.py:921
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:65
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:134
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:261
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:318
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:424
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:471
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:777
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:887
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:900
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:1123
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:1130
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:1172
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py:4
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py:256
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py:338
+      - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py:523
+      - agent_utilities/observability/__init__.py:903
+      - agent_utilities/observability/gateway_metrics.py:477
+      - docs/guides/kvcache-vllm-lmcache.md:385
+      - docs/reference/metrics.md:126
+      - scripts/measure_bundle_kv_reuse.py:4
+      - tests/retrieval/test_context_compiler_kv_seam.py:4
+      - tests/retrieval/test_context_compiler_serving.py:2
+      - tests/unit/core/test_contextual_model_bundle_cache.py:3
+  AU-KG.retrieval.cross-session-chat-recall:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/core/conversation_ingestion.py
+      - agent_utilities/knowledge_graph/retrieval/chat_search.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/conversation_ingestion.py:4
+      - agent_utilities/knowledge_graph/core/conversation_ingestion.py:27
+      - agent_utilities/knowledge_graph/retrieval/chat_search.py:6
+      - agent_utilities/knowledge_graph/retrieval/chat_search.py:44
+      - agent_utilities/knowledge_graph/retrieval/chat_search.py:77
+  AU-KG.retrieval.embedding-alignment-diagnostics:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/embedding_diagnostics.py:3
+  AU-KG.retrieval.embedding-fast-fail:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 10 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/embedding_utilities.py
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      - agent_utilities/observability/runtime_health.py
+      test_files:
+      - tests/unit/core/test_embedding_sdk_retry_bound.py
+      - tests/unit/knowledge_graph/test_embedding_fast_fail_retrieval.py
+      - tests/unit/observability/test_runtime_health.py
+      doc_files: []
+      introduced: 'e158bb4f 2026-07-23 fix(retrieval): fast-fail query-time embeddings instead of silent
+        multi-second stalls'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/embedding_utilities.py:61
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:61
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:70
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:105
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:658
+      - agent_utilities/observability/runtime_health.py:427
+      - agent_utilities/observability/runtime_health.py:434
+      - tests/unit/core/test_embedding_sdk_retry_bound.py:1
+      - tests/unit/knowledge_graph/test_embedding_fast_fail_retrieval.py:1
+      - tests/unit/observability/test_runtime_health.py:609
+  AU-KG.retrieval.every-usage-published-symbol:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.retrieval.synthesized-cited-answer
+    suggestion_why: clusters with 3 sibling(s) around AU-KG.retrieval.synthesized-cited-answer; shares
+      agent_utilities/knowledge_graph/retrieval/code_context.py, agent_utilities/mcp/kg_server.py, agent_utilities/mcp/tools/analysis_tools.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/code_context.py
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files:
+      - tests/unit/test_code_context.py
+      - tests/unit/test_context_plane.py
+      - tests/unit/test_operator_phase4_dx.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/code_context.py:332
+      - agent_utilities/knowledge_graph/retrieval/code_context.py:483
+      - agent_utilities/mcp/kg_server.py:1870
+      - agent_utilities/mcp/tools/analysis_tools.py:2267
+      - tests/unit/test_code_context.py:111
+      - tests/unit/test_context_plane.py:20
+      - tests/unit/test_operator_phase4_dx.py:43
+  AU-KG.retrieval.evidence-graph-workspace:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('# 6. SELF-PLAY SEARCH-TASK SYNTHESIS
+      (CONCEPT·AU-KG.retrieval.evidence-graph-workspace/2.7') — the id itself reads like a real name,
+      so the marker text needs cleaning either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/research/loop_controller.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+      - agent_utilities/knowledge_graph/search_synthesis/models.py
+      - agent_utilities/mcp/tools/query_tools.py
+      test_files: []
+      doc_files:
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: '# 6. SELF-PLAY SEARCH-TASK SYNTHESIS (CONCEPT·AU-KG.retrieval.evidence-graph-workspace/2.71/2.72)
+        — build'
+      sites:
+      - agent_utilities/knowledge_graph/research/loop_controller.py:570
+      - agent_utilities/knowledge_graph/research/loop_controller.py:3467
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20816
+      - agent_utilities/knowledge_graph/search_synthesis/__init__.py:6
+      - agent_utilities/knowledge_graph/search_synthesis/models.py:4
+      - agent_utilities/mcp/tools/query_tools.py:1424
+      - docs/capabilities-power.json:20816
+      - docs/capabilities-power.md:3601
+  AU-KG.retrieval.evidence-subgraph-construction:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/search_synthesis/evidence_subgraph.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/search_synthesis/evidence_subgraph.py:4
+  AU-KG.retrieval.evidence-weighted-memory:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 8 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py
+      test_files:
+      - tests/knowledge_graph/core/test_quant_ffi.py
+      - tests/unit/knowledge_graph/test_kg_2_18_evidence_weighted_memory.py
+      - tests/unit/knowledge_graph/test_kg_2_18_live_path.py
+      doc_files:
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.18-Evidence_Weighted_Memory.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:484
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:516
+      - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:549
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.18-Evidence_Weighted_Memory.md:1
+      - docs/reference/documentation-catalog.md:293
+      - tests/knowledge_graph/core/test_quant_ffi.py:3
+      - tests/unit/knowledge_graph/test_kg_2_18_evidence_weighted_memory.py:1
+      - tests/unit/knowledge_graph/test_kg_2_18_live_path.py:1
+  AU-KG.retrieval.fail-closed-grounding-contract:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (10 source
+      file(s), 26 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/contextual_model.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      - agent_utilities/observability/__init__.py
+      - agent_utilities/observability/trace_ontology.py
+      - agent_utilities/orchestration/agent_runner.py
+      - agent_utilities/orchestration/manager.py
+      - agent_utilities/workflows/runner.py
+      test_files:
+      - tests/harness/test_model_tracing_wrap.py
+      - tests/orchestration/test_swe_agent_loop.py
+      - tests/test_workflow_gate_suspend_resume.py
+      - tests/unit/core/test_contextual_model_bounded.py
+      doc_files:
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      introduced: '29728a43 2026-07-30 fix(retrieval): fail-closed grounding contract at the model-transport
+        boundary'
+      cohort:
+      - AU-KG.retrieval.context-compiler
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/contextual_model.py:85
+      - agent_utilities/core/contextual_model.py:311
+      - agent_utilities/core/contextual_model.py:324
+      - agent_utilities/core/contextual_model.py:766
+      - agent_utilities/core/contextual_model.py:836
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18670
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18786
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:267
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:828
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1017
+      - agent_utilities/mcp/tools/analysis_tools.py:2588
+      - agent_utilities/observability/__init__.py:965
+      - agent_utilities/observability/trace_ontology.py:213
+      - agent_utilities/orchestration/agent_runner.py:1321
+      - agent_utilities/orchestration/agent_runner.py:1485
+      - agent_utilities/orchestration/manager.py:506
+      - agent_utilities/orchestration/manager.py:784
+      - agent_utilities/orchestration/manager.py:986
+      - agent_utilities/workflows/runner.py:692
+      - docs/capabilities-power.json:18670
+      - docs/capabilities-power.json:18786
+      - docs/capabilities-power.md:3194
+      - tests/harness/test_model_tracing_wrap.py:32
+      - tests/orchestration/test_swe_agent_loop.py:89
+      - tests/test_workflow_gate_suspend_resume.py:214
+      - tests/unit/core/test_contextual_model_bounded.py:1
+  AU-KG.retrieval.fixed-corpus-evaluation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py:4
+      - agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py:77
+      - agent_utilities/knowledge_graph/retrieval/evaluation_corpus.py:119
+  AU-KG.retrieval.formulate-adversarially-refine:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+      - agent_utilities/knowledge_graph/search_synthesis/shortcut_risks.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/search_synthesis/__init__.py:7
+      - agent_utilities/knowledge_graph/search_synthesis/shortcut_risks.py:4
+  AU-KG.retrieval.god-nodes-communities:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('all in-engine over ``client.timeseries.*``
+      (CONCEPT·AU-KG.retrieval.god-nodes-communities/') — the id itself reads like a real name, so the
+      marker text needs cleaning either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/domains/finance/engine_series.py
+      - agent_utilities/knowledge_graph/memory/timeseries/__init__.py
+      - agent_utilities/knowledge_graph/retrieval/code_metrics.py
+      - agent_utilities/mcp/kg_server.py
+      test_files:
+      - tests/unit/test_code_metrics.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: all in-engine over ``client.timeseries.*`` (CONCEPT·AU-KG.retrieval.god-nodes-communities/211),
+        needing no
+      sites:
+      - agent_utilities/domains/finance/engine_series.py:12
+      - agent_utilities/knowledge_graph/memory/timeseries/__init__.py:8
+      - agent_utilities/knowledge_graph/retrieval/code_metrics.py:3
+      - agent_utilities/mcp/kg_server.py:1887
+      - tests/unit/test_code_metrics.py:1
+  AU-KG.retrieval.graph-distillation-migration:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py:643
+      - agent_utilities/knowledge_graph/retrieval/semantic_retrieval_engine.py:759
+  AU-KG.retrieval.graph-engineering-canonical-prompts:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (7 source
+      file(s), 8 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/distillation/deduplicator.py
+      - agent_utilities/knowledge_graph/extraction/fact_extractor.py
+      - agent_utilities/knowledge_graph/pipeline/phases/community_reports.py
+      - agent_utilities/knowledge_graph/retrieval/graph_engineering.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      - agent_utilities/mcp/tools/graph_engineering_tools.py
+      - agent_utilities/prompts/canonical.py
+      test_files: []
+      doc_files: []
+      introduced: '40604d19 2026-07-20 feat(au): AIF + GraphRAG + ontology-playground coverage + KnowledgeStream/claim/twin/mining
+        + DSPy removal'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/distillation/deduplicator.py:41
+      - agent_utilities/knowledge_graph/distillation/deduplicator.py:347
+      - agent_utilities/knowledge_graph/extraction/fact_extractor.py:177
+      - agent_utilities/knowledge_graph/pipeline/phases/community_reports.py:182
+      - agent_utilities/knowledge_graph/retrieval/graph_engineering.py:3
+      - agent_utilities/mcp/tools/analysis_tools.py:1243
+      - agent_utilities/mcp/tools/graph_engineering_tools.py:3
+      - agent_utilities/prompts/canonical.py:5
+  AU-KG.retrieval.hard-negative-mining:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py:4
+      - agent_utilities/knowledge_graph/retrieval/hard_negative_miner.py:43
+  AU-KG.retrieval.harness-grounding:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/harness_grounding.py
+      - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+      test_files:
+      - tests/unit/harness/test_harness_grounding.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/harness_grounding.py:1
+      - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py:112
+      - tests/unit/harness/test_harness_grounding.py:1
+  AU-KG.retrieval.hierarchical-topological-analysis:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/core/hierarchical_retrieval.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/hierarchical_retrieval.py:6
+  AU-KG.retrieval.iterative-expansion-adore:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/iterative_expansion.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/iterative_expansion.py:3
+  AU-KG.retrieval.kg-2:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a bare legacy pillar reference (kg-2) — a citation of the old KG-N.NN numbering,
+      not a name anyone chose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/deploy_context.py
+      test_files:
+      - tests/unit/test_operator_phase2_providers.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: is a bare legacy pillar reference (kg-2) — a citation of the old KG-N.NN numbering,
+        not a name anyone chose
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/deploy_context.py:4
+      - tests/unit/test_operator_phase2_providers.py:3
+  AU-KG.retrieval.kg-3:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a bare legacy pillar reference (kg-3) — a citation of the old KG-N.NN numbering,
+      not a name anyone chose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/context_plane.py
+      - agent_utilities/knowledge_graph/retrieval/entity_context.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: is a bare legacy pillar reference (kg-3) — a citation of the old KG-N.NN numbering,
+        not a name anyone chose
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/context_plane.py:50
+      - agent_utilities/knowledge_graph/retrieval/entity_context.py:4
+  AU-KG.retrieval.kg-4:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a bare legacy pillar reference (kg-4) — a citation of the old KG-N.NN numbering,
+      not a name anyone chose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/troubleshoot_context.py
+      test_files:
+      - tests/unit/test_troubleshoot_context.py
+      doc_files:
+      - docs/architecture/north-star-architecture.md
+      - docs/architecture/troubleshooting.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: is a bare legacy pillar reference (kg-4) — a citation of the old KG-N.NN numbering,
+        not a name anyone chose
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/troubleshoot_context.py:4
+      - docs/architecture/north-star-architecture.md:144
+      - docs/architecture/troubleshooting.md:3
+      - tests/unit/test_troubleshoot_context.py:3
+  AU-KG.retrieval.memory-first-retrieval:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 20 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py
+      - agent_utilities/knowledge_graph/retrieval/direct_corpus.py
+      - agent_utilities/knowledge_graph/retrieval/executable_rag.py
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files:
+      - tests/retrieval/test_direct_corpus.py
+      - tests/retrieval/test_executable_rag.py
+      - tests/unit/knowledge_graph/test_kg_2_12_memory_first_retrieval.py
+      doc_files:
+      - .specify/design/kg-2.12-memory-first-retrieval/design.md
+      - .specify/specs/kg-2.12-memory-first-retrieval/spec.md
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.12-Memory_First_Retrieval.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kg-2.12-memory-first-retrieval/design.md:42
+      - .specify/specs/kg-2.12-memory-first-retrieval/spec.md:8
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:672
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:680
+      - agent_utilities/knowledge_graph/retrieval/direct_corpus.py:6
+      - agent_utilities/knowledge_graph/retrieval/executable_rag.py:6
+      - agent_utilities/knowledge_graph/retrieval/executable_rag.py:169
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1079
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1145
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1208
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1316
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1357
+      - agent_utilities/knowledge_graph/retrieval/hyde_planner.py:1
+      - agent_utilities/knowledge_graph/retrieval/hyde_planner.py:178
+      - agent_utilities/mcp/tools/analysis_tools.py:2245
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.12-Memory_First_Retrieval.md:1
+      - docs/reference/documentation-catalog.md:288
+      - tests/retrieval/test_direct_corpus.py:4
+      - tests/retrieval/test_executable_rag.py:4
+      - tests/unit/knowledge_graph/test_kg_2_12_memory_first_retrieval.py:1
+  AU-KG.retrieval.mmr-diversification:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/extraction/extraction_schema.py
+      - agent_utilities/knowledge_graph/extraction/fact_extractor.py
+      test_files:
+      - tests/unit/knowledge_graph/test_extraction_schema.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/extraction/extraction_schema.py:1
+      - agent_utilities/knowledge_graph/extraction/extraction_schema.py:116
+      - agent_utilities/knowledge_graph/extraction/fact_extractor.py:478
+      - tests/unit/knowledge_graph/test_extraction_schema.py:1
+  AU-KG.retrieval.monte-carlo-graph-search:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 6 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/__init__.py
+      - agent_utilities/harness/agentic_evolution_engine.py
+      - agent_utilities/harness/graph_search_evolution.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files:
+      - tests/test_graph_search_evolution.py
+      doc_files:
+      - docs/architecture/multi_source_assimilation.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/__init__.py:150
+      - agent_utilities/harness/agentic_evolution_engine.py:491
+      - agent_utilities/harness/graph_search_evolution.py:6
+      - agent_utilities/mcp/tools/analysis_tools.py:1277
+      - docs/architecture/multi_source_assimilation.md:216
+      - tests/test_graph_search_evolution.py:4
+  AU-KG.retrieval.ops-context:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/ops_context.py
+      test_files:
+      - tests/unit/test_context_plane.py
+      doc_files: []
+      introduced: '5b6ff7b3 2026-07-23 fix: green my test slice (rlm/graph/scripts/harness/finance/runtime/gates
+        + remaining) by root cause'
+      cohort:
+      - AU-KG.retrieval.every-usage-published-symbol
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/ops_context.py:4
+      - tests/unit/test_context_plane.py:39
+  AU-KG.retrieval.pack-retrieval-signals:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/autocut.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/autocut.py:6
+  AU-KG.retrieval.pauserec-implicit-reasoning-generative:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/assimilation_benchmark.py
+      - agent_utilities/knowledge_graph/retrieval/generative_recommender.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files:
+      - tests/test_generative_recommender.py
+      doc_files:
+      - docs/architecture/multi_source_assimilation.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/assimilation_benchmark.py:654
+      - agent_utilities/knowledge_graph/retrieval/generative_recommender.py:4
+      - agent_utilities/knowledge_graph/retrieval/generative_recommender.py:130
+      - agent_utilities/mcp/tools/analysis_tools.py:1367
+      - docs/architecture/multi_source_assimilation.md:325
+      - docs/architecture/multi_source_assimilation.md:398
+      - tests/test_generative_recommender.py:4
+  AU-KG.retrieval.per-item-relevance-ranking:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:2731
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:5197
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:5613
+  AU-KG.retrieval.question-formulation-adversarial-refinement:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/search_synthesis/__init__.py
+      - agent_utilities/knowledge_graph/search_synthesis/question_formulation.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/search_synthesis/__init__.py:9
+      - agent_utilities/knowledge_graph/search_synthesis/question_formulation.py:4
+  AU-KG.retrieval.recall-feedback:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.retrieval.batched-neighborhood-prefetch
+    suggestion_why: clusters with 2 sibling(s) around AU-KG.retrieval.batched-neighborhood-prefetch; shares
+      agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py; the candidate parent already has
+      a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1439
+  AU-KG.retrieval.relational-intent-retrieval:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      - agent_utilities/knowledge_graph/retrieval/relational_intent.py
+      - agent_utilities/models/schema_pack.py
+      - agent_utilities/models/schema_packs/research.py
+      test_files:
+      - tests/knowledge_graph/test_relational_intent.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:636
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:792
+      - agent_utilities/knowledge_graph/retrieval/relational_intent.py:6
+      - agent_utilities/knowledge_graph/retrieval/relational_intent.py:47
+      - agent_utilities/models/schema_pack.py:354
+      - agent_utilities/models/schema_packs/research.py:15
+      - tests/knowledge_graph/test_relational_intent.py:5
+  AU-KG.retrieval.retrieval-quality-assessment:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/reasoning_reranker.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/reasoning_reranker.py:6
+      - agent_utilities/knowledge_graph/retrieval/reasoning_reranker.py:81
+      - agent_utilities/knowledge_graph/retrieval/reasoning_reranker.py:174
+  AU-KG.retrieval.route-question-its-domain:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 10 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/source_paths.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/knowledge_graph/retrieval/context_plane.py
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      - agent_utilities/mcp/tools/analyze_suite.py
+      test_files:
+      - tests/unit/test_context_plane.py
+      doc_files:
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/source_paths.py:4
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:13241
+      - agent_utilities/knowledge_graph/retrieval/context_plane.py:4
+      - agent_utilities/mcp/kg_server.py:1844
+      - agent_utilities/mcp/tools/analysis_tools.py:2344
+      - agent_utilities/mcp/tools/analyze_suite.py:207
+      - docs/capabilities-power.json:13241
+      - docs/capabilities-power.md:62
+      - docs/capabilities-power.md:2208
+      - tests/unit/test_context_plane.py:3
+  AU-KG.retrieval.section-tree:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: 'the marker text is truncated by the grammar (''"one_line": "Reasoning-tree (vectorless)
+      document retrieval over a per-document section tr'') — the id itself reads like a real name, so
+      the marker text needs cleaning either way; decide whether the concept survives that cleanup'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/ontology/contextual_enrichment.py
+      - agent_utilities/knowledge_graph/ontology/document_processing.py
+      - agent_utilities/knowledge_graph/pipeline/document_ingestion.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py
+      - agent_utilities/mcp/tools/query_tools.py
+      test_files:
+      - tests/ontology/test_section_tree.py
+      doc_files:
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      introduced: 'b0ba7833 2026-07-05 feat(kg): PageIndex reasoning-tree retrieval (section tree + tree-navigation)'
+      cohort:
+      - AU-KG.retrieval.tree-navigation
+      artifact_id: ''
+      truncated_marker: '"one_line": "Reasoning-tree (vectorless) document retrieval over a per-document
+        section tree (CONCEPT·AU-KG.retrieval.section-tree/tree-navigation; distills PageIndex). action:
+        ''build'' (build + optionally persist the section tree from text or a stored document), ''structure''
+        (return the text-free table-of-contents map = get_document_structure), ''content'' (fetch section
+        bodies for cited char ranges like ''96..208,300..420'' = get_page_content), ''retrieve'' (walk
+        the tree by relevance and return sections with cited start..end ranges).",'
+      sites:
+      - agent_utilities/knowledge_graph/ontology/contextual_enrichment.py:107
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:90
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:359
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:632
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1246
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1297
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1322
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1344
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1568
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1595
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1869
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1936
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:2009
+      - agent_utilities/knowledge_graph/pipeline/document_ingestion.py:60
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:11546
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:14
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:124
+      - agent_utilities/mcp/tools/query_tools.py:65
+      - agent_utilities/mcp/tools/query_tools.py:1611
+      - agent_utilities/mcp/tools/query_tools.py:1622
+      - docs/capabilities-power.json:11546
+      - docs/capabilities-power.md:1912
+      - tests/ontology/test_section_tree.py:2
+  AU-KG.retrieval.self-correcting-second-pass:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.retrieval.context-compiler
+    suggestion_why: 'clusters with 3 sibling(s) around AU-KG.retrieval.context-compiler; shares agent_utilities/knowledge_graph/retrieval/capabilities-power.json,
+      agent_utilities/mcp/tools/query_tools.py; both introduced by 933160b1 (feat(retrieval): policy-aware
+      context compiler (X-7))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/mcp/tools/query_tools.py
+      test_files: []
+      doc_files:
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      introduced: '933160b1 2026-07-11 feat(retrieval): policy-aware context compiler (X-7)'
+      cohort:
+      - AU-KG.retrieval.context-compiler
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20671
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20685
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20718
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20728
+      - agent_utilities/mcp/tools/query_tools.py:1175
+      - agent_utilities/mcp/tools/query_tools.py:1180
+      - docs/capabilities-power.json:20671
+      - docs/capabilities-power.json:20685
+      - docs/capabilities-power.json:20718
+      - docs/capabilities-power.json:20728
+      - docs/capabilities-power.md:3569
+      - docs/capabilities-power.md:3584
+  AU-KG.retrieval.structural-analytics:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/tools/analysis_tools.py:2284
+  AU-KG.retrieval.synthesized-cited-answer:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 4-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/code_context.py
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      - agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py
+      test_files:
+      - tests/unit/test_code_context.py
+      - tests/unit/test_non_blocking_execution.py
+      doc_files:
+      - AGENTS.head.md
+      - AGENTS.md
+      - docs/architecture/delegation-first-operating-model.md
+      - docs/architecture/intelligent-ingestion.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - AGENTS.head.md:137
+      - AGENTS.head.md:170
+      - AGENTS.md:137
+      - AGENTS.md:170
+      - agent_utilities/knowledge_graph/retrieval/code_context.py:4
+      - agent_utilities/mcp/kg_server.py:1818
+      - agent_utilities/mcp/tools/analysis_tools.py:2216
+      - agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py:48
+      - docs/architecture/delegation-first-operating-model.md:47
+      - docs/architecture/intelligent-ingestion.md:123
+      - tests/unit/test_code_context.py:1
+      - tests/unit/test_non_blocking_execution.py:130
+      - tests/unit/test_non_blocking_execution.py:159
+  AU-KG.retrieval.task-start-kg-priming:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/orchestration/agent_runner.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.triviality-gate
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/orchestration/agent_runner.py:889
+      - agent_utilities/orchestration/agent_runner.py:2498
+      - agent_utilities/orchestration/agent_runner.py:2666
+  AU-KG.retrieval.tree-navigation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.retrieval.section-tree
+    suggestion_why: 'clusters with 1 sibling(s) around AU-KG.retrieval.section-tree; shares agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py,
+      agent_utilities/mcp/tools/query_tools.py; both introduced by b0ba7833 (feat(kg): PageIndex reasoning-tree
+      retrieval (section tree +)'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py
+      - agent_utilities/mcp/tools/query_tools.py
+      test_files:
+      - tests/retrieval/test_hierarchical_document_retriever.py
+      doc_files: []
+      introduced: 'b0ba7833 2026-07-05 feat(kg): PageIndex reasoning-tree retrieval (section tree + tree-navigation)'
+      cohort:
+      - AU-KG.retrieval.section-tree
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:6
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:52
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:60
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:94
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:261
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:287
+      - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:398
+      - agent_utilities/mcp/tools/query_tools.py:38
+      - agent_utilities/mcp/tools/query_tools.py:1612
+      - tests/retrieval/test_hierarchical_document_retriever.py:2
+  AU-KG.retrieval.triviality-gate:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.retrieval.batched-neighborhood-prefetch
+    suggestion_why: clusters with 2 sibling(s) around AU-KG.retrieval.batched-neighborhood-prefetch; shares
+      agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py; the candidate parent already has
+      a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
+      - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
+      test_files:
+      - tests/unit/knowledge_graph/test_kg_2_15_resilient_retrieval.py
+      doc_files:
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.15-Resilient_Retrieval.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.unset-dependency-free
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1380
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1432
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1484
+      - agent_utilities/knowledge_graph/retrieval/hyde_planner.py:39
+      - agent_utilities/knowledge_graph/retrieval/hyde_planner.py:77
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.15-Resilient_Retrieval.md:1
+      - docs/reference/documentation-catalog.md:291
+      - tests/unit/knowledge_graph/test_kg_2_15_resilient_retrieval.py:1
+  AU-KG.retrieval.unified-capability-contract:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 18 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/capability_contract.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/mcp/multiplexer.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      - agent_utilities/orchestration/manager.py
+      test_files:
+      - tests/test_multiplexer_skills_over_mcp.py
+      - tests/unit/test_capability_binding_survives_real_guards.py
+      - tests/unit/test_find_capability_unified_ranking.py
+      - tests/unit/test_graphos_skill_gateway.py
+      doc_files:
+      - docs/architecture/skills_over_mcp.md
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      - docs/reference/documentation-catalog.md
+      introduced: '20520899 2026-07-30 fix(gate): regenerate CPD catalogs and repair the reservation-ledger
+        record'
+      cohort:
+      - AU-KG.retrieval.fail-closed-grounding-contract
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/capability_contract.py:1
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18565
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18683
+      - agent_utilities/mcp/multiplexer.py:2706
+      - agent_utilities/mcp/tools/analysis_tools.py:2501
+      - agent_utilities/orchestration/manager.py:82
+      - agent_utilities/orchestration/manager.py:650
+      - agent_utilities/orchestration/manager.py:859
+      - docs/architecture/skills_over_mcp.md:1
+      - docs/capabilities-power.json:18565
+      - docs/capabilities-power.json:18683
+      - docs/capabilities-power.md:3179
+      - docs/reference/documentation-catalog.md:254
+      - tests/test_multiplexer_skills_over_mcp.py:7
+      - tests/unit/test_capability_binding_survives_real_guards.py:1
+      - tests/unit/test_find_capability_unified_ranking.py:1
+      - tests/unit/test_graphos_skill_gateway.py:104
+      - tests/unit/test_graphos_skill_gateway.py:387
+  AU-KG.retrieval.unset-dependency-free:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 11 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py
+      - agent_utilities/knowledge_graph/retrieval/neural_reranker.py
+      - agent_utilities/knowledge_graph/retrieval/reasoning_reranker.py
+      - agent_utilities/knowledge_graph/retrieval/score_gate.py
+      test_files:
+      - tests/retrieval/test_retrieval_assimilation_live_path.py
+      - tests/test_neural_reranker.py
+      - tests/test_score_gate.py
+      doc_files:
+      - docs/architecture/multi_source_assimilation.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.retrieval.adaptive-stopping-iterative-retrieval
+      - AU-KG.retrieval.architecture-report
+      - AU-KG.retrieval.cross-session-chat-recall
+      - AU-KG.retrieval.every-usage-published-symbol
+      - AU-KG.retrieval.evidence-graph-workspace
+      - AU-KG.retrieval.evidence-weighted-memory
+      - AU-KG.retrieval.fixed-corpus-evaluation
+      - AU-KG.retrieval.formulate-adversarially-refine
+      - AU-KG.retrieval.god-nodes-communities
+      - AU-KG.retrieval.graph-distillation-migration
+      - AU-KG.retrieval.hard-negative-mining
+      - AU-KG.retrieval.kg-4
+      - AU-KG.retrieval.memory-first-retrieval
+      - AU-KG.retrieval.monte-carlo-graph-search
+      - AU-KG.retrieval.pauserec-implicit-reasoning-generative
+      - AU-KG.retrieval.per-item-relevance-ranking
+      - AU-KG.retrieval.question-formulation-adversarial-refinement
+      - AU-KG.retrieval.recall-feedback
+      - AU-KG.retrieval.relational-intent-retrieval
+      - AU-KG.retrieval.retrieval-quality-assessment
+      - AU-KG.retrieval.route-question-its-domain
+      - AU-KG.retrieval.structural-analytics
+      - AU-KG.retrieval.synthesized-cited-answer
+      - AU-KG.retrieval.task-start-kg-priming
+      - AU-KG.retrieval.triviality-gate
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:4516
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:722
+      - agent_utilities/knowledge_graph/retrieval/neural_reranker.py:6
+      - agent_utilities/knowledge_graph/retrieval/neural_reranker.py:78
+      - agent_utilities/knowledge_graph/retrieval/neural_reranker.py:183
+      - agent_utilities/knowledge_graph/retrieval/reasoning_reranker.py:121
+      - agent_utilities/knowledge_graph/retrieval/score_gate.py:6
+      - docs/architecture/multi_source_assimilation.md:122
+      - tests/retrieval/test_retrieval_assimilation_live_path.py:6
+      - tests/test_neural_reranker.py:2
+      - tests/test_score_gate.py:4

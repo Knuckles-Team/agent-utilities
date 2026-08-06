@@ -1,0 +1,2547 @@
+domain: AU-ECO.messaging
+generated_at: '2026-08-01T15:07:23+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
+  `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
+  and `apply --write`.'
+clusters:
+  AU-ECO.messaging.alert-intake:
+  - AU-ECO.messaging.alert-intake
+  - AU-ECO.messaging.inbound-messaging-router-runs
+  - AU-ECO.messaging.make-fleet-credentials-present
+  AU-ECO.messaging.blocking-store-memory:
+  - AU-ECO.messaging.blocking-store-memory
+  - AU-ECO.messaging.episodic-memory-recall
+  AU-ECO.messaging.burst-mode-coalescing:
+  - AU-ECO.messaging.burst-mode-coalescing
+  - AU-ECO.messaging.debounce-timer-cancel
+  - AU-ECO.messaging.post-conversation-enrichment
+  - AU-ECO.messaging.surfaced
+  AU-ECO.messaging.durable-inbound-pending:
+  - AU-ECO.messaging.durable-inbound-pending
+  - AU-ECO.messaging.elicitation-loop-bridge
+  - AU-ECO.messaging.fire-and-forget-tasks
+  - AU-ECO.messaging.image-attachment-fallback
+  - AU-ECO.messaging.inbound-router
+  - AU-ECO.messaging.last-active-channel-routing
+  - AU-ECO.messaging.messaging-as-renderer
+  - AU-ECO.messaging.model-routed-inbound-responder
+  - AU-ECO.messaging.sending-reply-failed
+  - AU-ECO.messaging.voice-attachment-fallback
+  AU-ECO.messaging.eco-2:
+  - AU-ECO.messaging.eco-2
+  - AU-ECO.messaging.shared-by-every-messaging
+  AU-ECO.messaging.telegram-voice-note:
+  - AU-ECO.messaging.telegram-voice-note
+  - AU-ECO.messaging.telegram-webhook-receiver-started
+concepts:
+  AU-ECO.messaging.alert-intake:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/alert_intake.py
+      - agent_utilities/messaging/daemon.py
+      test_files: []
+      doc_files: []
+      introduced: 274d4c37 2026-07-20 Reconstruct advanced agent-utilities 1.27.1 tree (pre-merge base)
+      cohort:
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.universal-graph-agent
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/alert_intake.py:1
+      - agent_utilities/messaging/alert_intake.py:178
+      - agent_utilities/messaging/daemon.py:217
+  AU-ECO.messaging.blocking-store-memory:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/kg_ingest.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/kg_ingest.py:98
+  AU-ECO.messaging.burst-mode-coalescing:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 4-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/messaging/coalescer.py
+      - agent_utilities/messaging/router.py
+      test_files:
+      - tests/unit/messaging/test_messaging_coalescer.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:2407
+      - agent_utilities/messaging/coalescer.py:1
+      - agent_utilities/messaging/coalescer.py:11
+      - agent_utilities/messaging/coalescer.py:29
+      - agent_utilities/messaging/coalescer.py:91
+      - agent_utilities/messaging/router.py:423
+      - agent_utilities/messaging/router.py:444
+      - agent_utilities/messaging/router.py:648
+      - tests/unit/messaging/test_messaging_coalescer.py:1
+  AU-ECO.messaging.debounce-relevance-sweep:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1067
+  AU-ECO.messaging.debounce-timer-cancel:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.burst-mode-coalescing
+    suggestion_why: clusters with 3 sibling(s) around AU-ECO.messaging.burst-mode-coalescing; shares agent_utilities/messaging/coalescer.py,
+      agent_utilities/messaging/router.py; both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities
+      (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/memory/session_memento_cache.py
+      - agent_utilities/messaging/coalescer.py
+      - agent_utilities/messaging/router.py
+      test_files: []
+      doc_files:
+      - docs/architecture/non-blocking-execution.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/memory/session_memento_cache.py:9
+      - agent_utilities/messaging/coalescer.py:74
+      - agent_utilities/messaging/router.py:454
+      - agent_utilities/messaging/router.py:561
+      - agent_utilities/messaging/router.py:621
+      - agent_utilities/messaging/router.py:682
+      - agent_utilities/messaging/router.py:736
+      - agent_utilities/messaging/router.py:1373
+      - docs/architecture/non-blocking-execution.md:44
+  AU-ECO.messaging.durable-inbound-pending:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.messaging-as-renderer
+    suggestion_why: clusters with 9 sibling(s) around AU-ECO.messaging.messaging-as-renderer; shares agent_utilities/messaging/router.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/inbox.py
+      - agent_utilities/messaging/router.py
+      test_files:
+      - tests/unit/messaging/test_inbox.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/inbox.py:1
+      - agent_utilities/messaging/inbox.py:152
+      - agent_utilities/messaging/inbox.py:170
+      - agent_utilities/messaging/router.py:172
+      - agent_utilities/messaging/router.py:185
+      - agent_utilities/messaging/router.py:196
+      - agent_utilities/messaging/router.py:223
+      - agent_utilities/messaging/router.py:498
+      - agent_utilities/messaging/router.py:558
+      - tests/unit/messaging/test_inbox.py:1
+  AU-ECO.messaging.eco-2:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a bare legacy pillar reference (eco-2) — a citation of the old KG-N.NN numbering,
+      not a name anyone chose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/commands.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: is a bare legacy pillar reference (eco-2) — a citation of the old KG-N.NN numbering,
+        not a name anyone chose
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/commands.py:124
+  AU-ECO.messaging.elicitation-loop-bridge:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.messaging-as-renderer
+    suggestion_why: clusters with 9 sibling(s) around AU-ECO.messaging.messaging-as-renderer; shares agent_utilities/messaging/router.py,
+      agent_utilities/messaging/service.py; both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities
+      (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      - agent_utilities/messaging/service.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/router.py:422
+      - agent_utilities/messaging/router.py:625
+      - agent_utilities/messaging/router.py:628
+      - agent_utilities/messaging/service.py:60
+      - agent_utilities/messaging/service.py:316
+      - agent_utilities/messaging/service.py:439
+  AU-ECO.messaging.episodic-memory-recall:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.blocking-store-memory
+    suggestion_why: clusters with 1 sibling(s) around AU-ECO.messaging.blocking-store-memory; shares agent_utilities/messaging/kg_ingest.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/kg_ingest.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/kg_ingest.py:100
+  AU-ECO.messaging.fire-and-forget-tasks:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.messaging-as-renderer
+    suggestion_why: clusters with 9 sibling(s) around AU-ECO.messaging.messaging-as-renderer; shares agent_utilities/messaging/router.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/router.py:706
+  AU-ECO.messaging.image-attachment-fallback:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.messaging-as-renderer
+    suggestion_why: clusters with 9 sibling(s) around AU-ECO.messaging.messaging-as-renderer; shares agent_utilities/messaging/router.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      test_files:
+      - tests/unit/messaging/test_messaging_routing.py
+      - tests/unit/messaging/test_messaging_voice.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/router.py:467
+      - agent_utilities/messaging/router.py:989
+      - agent_utilities/messaging/router.py:1023
+      - agent_utilities/messaging/router.py:1375
+      - agent_utilities/messaging/router.py:1411
+      - agent_utilities/messaging/router.py:1418
+      - agent_utilities/messaging/router.py:1532
+      - agent_utilities/messaging/router.py:1645
+      - tests/unit/messaging/test_messaging_routing.py:523
+      - tests/unit/messaging/test_messaging_routing.py:557
+      - tests/unit/messaging/test_messaging_voice.py:89
+  AU-ECO.messaging.inbound-messaging-router-runs:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.alert-intake
+    suggestion_why: clusters with 2 sibling(s) around AU-ECO.messaging.alert-intake; shares agent_utilities/messaging/daemon.py
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/gateway/daemon.py
+      - agent_utilities/messaging/daemon.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/gateway/daemon.py:292
+      - agent_utilities/messaging/daemon.py:1
+      - agent_utilities/messaging/daemon.py:42
+      - agent_utilities/messaging/daemon.py:121
+      - agent_utilities/messaging/daemon.py:230
+      - agent_utilities/messaging/daemon.py:291
+  AU-ECO.messaging.inbound-router:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.messaging-as-renderer
+    suggestion_why: clusters with 9 sibling(s) around AU-ECO.messaging.messaging-as-renderer; shares agent_utilities/messaging/router.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/router.py:1614
+  AU-ECO.messaging.last-active-channel:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/observability/approval_manager.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/observability/approval_manager.py:320
+      - agent_utilities/observability/approval_manager.py:339
+  AU-ECO.messaging.last-active-channel-routing:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.messaging-as-renderer
+    suggestion_why: clusters with 9 sibling(s) around AU-ECO.messaging.messaging-as-renderer; shares agent_utilities/messaging/router.py,
+      agent_utilities/messaging/service.py; both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities
+      (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      - agent_utilities/messaging/service.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/router.py:428
+      - agent_utilities/messaging/router.py:756
+      - agent_utilities/messaging/service.py:11
+      - agent_utilities/messaging/service.py:17
+      - agent_utilities/messaging/service.py:39
+      - agent_utilities/messaging/service.py:231
+      - agent_utilities/messaging/service.py:263
+  AU-ECO.messaging.make-fleet-credentials-present:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.alert-intake
+    suggestion_why: clusters with 2 sibling(s) around AU-ECO.messaging.alert-intake; shares agent_utilities/messaging/daemon.py
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/daemon.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/daemon.py:250
+  AU-ECO.messaging.mattermost-backend:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 9 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/backends/mattermost.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/backends/mattermost.py:1
+      - agent_utilities/messaging/backends/mattermost.py:30
+      - agent_utilities/messaging/backends/mattermost.py:134
+      - agent_utilities/messaging/backends/mattermost.py:141
+      - agent_utilities/messaging/backends/mattermost.py:152
+      - agent_utilities/messaging/backends/mattermost.py:190
+      - agent_utilities/messaging/backends/mattermost.py:331
+      - agent_utilities/messaging/backends/mattermost.py:363
+      - agent_utilities/messaging/backends/mattermost.py:370
+  AU-ECO.messaging.messaging-as-renderer:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 10-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      - agent_utilities/messaging/service.py
+      - agent_utilities/orchestration/reactions.py
+      test_files:
+      - tests/unit/messaging/test_messaging_reactions.py
+      doc_files:
+      - docs/architecture/entrypoint-unification.md
+      - docs/architecture/reactions.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/router.py:661
+      - agent_utilities/messaging/router.py:679
+      - agent_utilities/messaging/router.py:701
+      - agent_utilities/messaging/service.py:372
+      - agent_utilities/messaging/service.py:378
+      - agent_utilities/orchestration/reactions.py:29
+      - docs/architecture/entrypoint-unification.md:53
+      - docs/architecture/reactions.md:55
+      - tests/unit/messaging/test_messaging_reactions.py:1
+  AU-ECO.messaging.messaging-ontology-shape-so:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id reads as a slugified prose fragment (messaging-ontology-shape-so)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/ontology/interfaces.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: reads as a slugified prose fragment (messaging-ontology-shape-so)
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ontology/interfaces.py:815
+  AU-ECO.messaging.messaging-reach-service-governed:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 10 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/messaging/backends/mattermost.py
+      - agent_utilities/messaging/daemon.py
+      - agent_utilities/messaging/service.py
+      - agent_utilities/orchestration/action_policy.py
+      test_files:
+      - tests/unit/messaging/test_reach_service.py
+      doc_files:
+      - docs/reference/runtime-configuration.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:2373
+      - agent_utilities/messaging/backends/mattermost.py:4
+      - agent_utilities/messaging/daemon.py:150
+      - agent_utilities/messaging/service.py:1
+      - agent_utilities/messaging/service.py:16
+      - agent_utilities/messaging/service.py:48
+      - agent_utilities/messaging/service.py:149
+      - agent_utilities/orchestration/action_policy.py:91
+      - docs/reference/runtime-configuration.md:142
+      - tests/unit/messaging/test_reach_service.py:1
+  AU-ECO.messaging.messaging-renderer-core-reaction:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('"""Add a reaction (CONCEPT·AU-ECO.messaging.messaging-renderer-core-reaction/4.81
+      — the me') — the id itself reads like a real name, so the marker text needs cleaning either way;
+      decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/backends/mattermost.py
+      - agent_utilities/messaging/backends/slack.py
+      - agent_utilities/messaging/backends/telegram.py
+      - agent_utilities/messaging/router.py
+      - agent_utilities/orchestration/reactions.py
+      test_files:
+      - tests/unit/messaging/test_backend_reactions.py
+      doc_files:
+      - docs/architecture/reactions.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: '"""Add a reaction (CONCEPT·AU-ECO.messaging.messaging-renderer-core-reaction/4.81
+        — the messaging renderer of a core reaction)."""'
+      sites:
+      - agent_utilities/messaging/backends/mattermost.py:233
+      - agent_utilities/messaging/backends/slack.py:189
+      - agent_utilities/messaging/backends/telegram.py:354
+      - agent_utilities/messaging/router.py:452
+      - agent_utilities/orchestration/reactions.py:8
+      - docs/architecture/reactions.md:9
+      - tests/unit/messaging/test_backend_reactions.py:1
+  AU-ECO.messaging.model-routed-inbound-responder:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.messaging-as-renderer
+    suggestion_why: clusters with 9 sibling(s) around AU-ECO.messaging.messaging-as-renderer; shares agent_utilities/messaging/router.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      test_files:
+      - tests/unit/messaging/test_messaging_routing.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/router.py:1583
+      - agent_utilities/messaging/router.py:1585
+      - agent_utilities/messaging/router.py:1644
+      - tests/unit/messaging/test_messaging_routing.py:254
+  AU-ECO.messaging.native-backend-abstraction:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('"""Mattermost backend via mattermostdriver.
+      CONCEPT·AU-ECO.messaging.native-backend-abstra') — the id itself reads like a real name, so the
+      marker text needs cleaning either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/__init__.py
+      - agent_utilities/capabilities/manager.py
+      - agent_utilities/core/config.py
+      - agent_utilities/core/paths.py
+      - agent_utilities/core/registry/package_adapter.py
+      - agent_utilities/core/registry/plugin_adapter.py
+      - agent_utilities/domains/finance/quant_mcp_tools.py
+      - agent_utilities/ecosystem/hook_installer.py
+      - agent_utilities/graph/tool_resolver.py
+      - agent_utilities/knowledge_graph/adaptation/skill_evolver.py
+      - agent_utilities/knowledge_graph/core/owl_bridge.py
+      - agent_utilities/knowledge_graph/memory/cli.py
+      - agent_utilities/mcp/tools/ontology_tools.py
+      - agent_utilities/mcp/toolset_factory.py
+      - agent_utilities/messaging/__init__.py
+      - agent_utilities/messaging/backends/__init__.py
+      - agent_utilities/messaging/backends/discord.py
+      - agent_utilities/messaging/backends/googlechat.py
+      - agent_utilities/messaging/backends/googlemeet.py
+      - agent_utilities/messaging/backends/imessage.py
+      - agent_utilities/messaging/backends/irc.py
+      - agent_utilities/messaging/backends/line.py
+      - agent_utilities/messaging/backends/matrix.py
+      - agent_utilities/messaging/backends/mattermost.py
+      - agent_utilities/messaging/backends/nextcloud.py
+      - agent_utilities/messaging/backends/signal.py
+      - agent_utilities/messaging/backends/slack.py
+      - agent_utilities/messaging/backends/synology.py
+      - agent_utilities/messaging/backends/teams.py
+      - agent_utilities/messaging/backends/telegram.py
+      - agent_utilities/messaging/backends/twitch.py
+      - agent_utilities/messaging/backends/voicecall.py
+      - agent_utilities/messaging/backends/whatsapp.py
+      - agent_utilities/messaging/base.py
+      - agent_utilities/messaging/capabilities.py
+      - agent_utilities/messaging/kg_ingest.py
+      - agent_utilities/messaging/models.py
+      - agent_utilities/messaging/registry.py
+      - agent_utilities/messaging/render.py
+      - agent_utilities/messaging/router.py
+      - agent_utilities/models/knowledge_graph.py
+      - agent_utilities/models/schema_packs/finance.py
+      - agent_utilities/orchestration/durable_execution.py
+      - agent_utilities/protocols/a2a_epistemic.py
+      - agent_utilities/protocols/acp_adapter.py
+      - agent_utilities/security/permissions_kernel.py
+      - agent_utilities/server/app.py
+      - agent_utilities/server/routers/agent_ui.py
+      - agent_utilities/server/routers/core.py
+      - agent_utilities/tools/agent_tools.py
+      - agent_utilities/tools/browser/browser_control.py
+      - agent_utilities/tools/browser/browser_manager.py
+      - agent_utilities/tools/developer_tools.py
+      - agent_utilities/tools/dynamic_tool_orchestrator.py
+      - agent_utilities/tools/jupyter_adapter.py
+      - agent_utilities/tools/onboarding_tools.py
+      - agent_utilities/tools/sandbox_executor.py
+      - agent_utilities/tools/tool_filtering.py
+      - agent_utilities/tools/tool_registry.py
+      - scripts/gen_genesis_manifest.py
+      test_files:
+      - tests/integration/core/check_openapi.py
+      - tests/integration/core/merge_mcp_configs.py
+      - tests/integration/core/test_api_endpoints.py
+      - tests/integration/core/test_developer_tools.py
+      - tests/integration/core/test_model_override_middleware.py
+      - tests/integration/core/test_models_endpoint.py
+      - tests/integration/core/test_server.py
+      - tests/integration/core/test_server_routes.py
+      - tests/integration/graph/test_endpoint_consumer_coverage.py
+      - tests/integration/mcp/test_mcp_integration.py
+      - tests/integration/mcp/test_mcp_utilities_integration.py
+      - tests/integration/protocols/test_a2a_discovery.py
+      - tests/integration/protocols/test_acp_adapter.py
+      - tests/integration/protocols/test_acp_integration.py
+      - tests/test_a2a_graph_skill.py
+      - tests/test_durable_execution.py
+      - tests/test_function_registry.py
+      - tests/test_jupyter_adapter.py
+      - tests/test_provider_adapter.py
+      - tests/test_research_enhancements.py
+      - tests/unit/graph/test_tool_resolver.py
+      - tests/unit/knowledge_graph/test_agent_toolkit_ingestion.py
+      - tests/unit/knowledge_graph/test_ecosystem_topology.py
+      - tests/unit/knowledge_graph/test_memory_bridge.py
+      - tests/unit/mcp/test_mcp_manager.py
+      - tests/unit/mcp/test_mcp_manager_extended.py
+      - tests/unit/mcp/test_mcp_partitioning.py
+      - tests/unit/mcp/test_mcp_scoring.py
+      - tests/unit/mcp/test_mcp_sync.py
+      - tests/unit/mcp/test_mcp_utilities.py
+      - tests/unit/mcp/test_tool_filtering.py
+      - tests/unit/mcp/test_tools_logic.py
+      - tests/unit/mcp/test_tools_misc.py
+      - tests/unit/messaging/test_messaging.py
+      - tests/unit/messaging/test_render.py
+      - tests/unit/messaging/test_router_supervision.py
+      - tests/unit/protocols/test_a2a.py
+      - tests/unit/protocols/test_ctx_helpers.py
+      - tests/unit/protocols/test_ctx_scenarios.py
+      doc_files:
+      - CHANGELOG.md
+      - agent_utilities/skills/agent-utilities-self-evolution/SKILL.md
+      - docs/architecture/configuration.md
+      - docs/architecture/enterprise_supervisory_and_parity.md
+      - docs/architecture/messaging_reach.md
+      - docs/guides/architecture.md
+      - docs/guides/configuration.md
+      - docs/guides/deployment.md
+      - docs/guides/design-patterns-alignment.md
+      - docs/guides/durable-execution.md
+      - docs/guides/emergent-architecture.md
+      - docs/guides/features.md
+      - docs/guides/first-principles.md
+      - docs/guides/process-lifecycle.md
+      - docs/guides/registry-cache.md
+      - docs/guides/secure-sandbox.md
+      - docs/guides/tools.md
+      - docs/guides/x-assistant.md
+      - docs/journey.md
+      - docs/pillars/1_graph_orchestration.md
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.0-Tool_Interface_And_MCP_Factory.md
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.2-Community_Telemetry_And_Ecosystem_Map.md
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Messaging_Configuration_Guide.md
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md
+      - docs/reference/documentation-catalog.md
+      - docs/reference/runtime-configuration.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: '"""Mattermost backend via mattermostdriver. CONCEPT·AU-ECO.messaging.native-backend-abstraction/4.90.'
+      sites:
+      - CHANGELOG.md:771
+      - agent_utilities/__init__.py:277
+      - agent_utilities/__init__.py:322
+      - agent_utilities/__init__.py:504
+      - agent_utilities/capabilities/manager.py:2
+      - agent_utilities/core/config.py:3142
+      - agent_utilities/core/config.py:5066
+      - agent_utilities/core/config.py:5068
+      - agent_utilities/core/config.py:5151
+      - agent_utilities/core/config.py:5156
+      - agent_utilities/core/config.py:5160
+      - agent_utilities/core/config.py:5165
+      - agent_utilities/core/config.py:5170
+      - agent_utilities/core/config.py:5176
+      - agent_utilities/core/config.py:5181
+      - agent_utilities/core/config.py:5186
+      - agent_utilities/core/config.py:5191
+      - agent_utilities/core/config.py:5196
+      - agent_utilities/core/config.py:5201
+      - agent_utilities/core/config.py:5206
+      - agent_utilities/core/config.py:5211
+      - agent_utilities/core/config.py:5216
+      - agent_utilities/core/config.py:5221
+      - agent_utilities/core/config.py:5226
+      - agent_utilities/core/config.py:5231
+      - agent_utilities/core/config.py:5236
+      - agent_utilities/core/config.py:5241
+      - agent_utilities/core/config.py:5246
+      - agent_utilities/core/config.py:5251
+      - agent_utilities/core/config.py:5254
+      - agent_utilities/core/config.py:5257
+      - agent_utilities/core/config.py:5262
+      - agent_utilities/core/config.py:5267
+      - agent_utilities/core/config.py:5272
+      - agent_utilities/core/config.py:5275
+      - agent_utilities/core/config.py:5280
+      - agent_utilities/core/config.py:5285
+      - agent_utilities/core/config.py:5290
+      - agent_utilities/core/config.py:5295
+      - agent_utilities/core/config.py:5300
+      - agent_utilities/core/config.py:5305
+      - agent_utilities/core/config.py:5310
+      - agent_utilities/core/config.py:5315
+      - agent_utilities/core/config.py:5320
+      - agent_utilities/core/paths.py:251
+      - agent_utilities/core/paths.py:265
+      - agent_utilities/core/registry/package_adapter.py:22
+      - agent_utilities/core/registry/plugin_adapter.py:4
+      - agent_utilities/domains/finance/quant_mcp_tools.py:2
+      - agent_utilities/ecosystem/hook_installer.py:6
+      - agent_utilities/ecosystem/hook_installer.py:209
+      - agent_utilities/graph/tool_resolver.py:4
+      - agent_utilities/knowledge_graph/adaptation/skill_evolver.py:4
+      - agent_utilities/knowledge_graph/adaptation/skill_evolver.py:39
+      - agent_utilities/knowledge_graph/adaptation/skill_evolver.py:134
+      - agent_utilities/knowledge_graph/adaptation/skill_evolver.py:270
+      - agent_utilities/knowledge_graph/adaptation/skill_evolver.py:379
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:253
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:285
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:514
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:546
+      - agent_utilities/knowledge_graph/memory/cli.py:7
+      - agent_utilities/mcp/tools/ontology_tools.py:2249
+      - agent_utilities/mcp/toolset_factory.py:6
+      - agent_utilities/messaging/__init__.py:1
+      - agent_utilities/messaging/__init__.py:40
+      - agent_utilities/messaging/__init__.py:76
+      - agent_utilities/messaging/backends/__init__.py:1
+      - agent_utilities/messaging/backends/__init__.py:36
+      - agent_utilities/messaging/backends/discord.py:1
+      - agent_utilities/messaging/backends/discord.py:17
+      - agent_utilities/messaging/backends/discord.py:52
+      - agent_utilities/messaging/backends/discord.py:88
+      - agent_utilities/messaging/backends/discord.py:171
+      - agent_utilities/messaging/backends/discord.py:181
+      - agent_utilities/messaging/backends/discord.py:187
+      - agent_utilities/messaging/backends/discord.py:206
+      - agent_utilities/messaging/backends/discord.py:239
+      - agent_utilities/messaging/backends/discord.py:252
+      - agent_utilities/messaging/backends/discord.py:263
+      - agent_utilities/messaging/backends/discord.py:274
+      - agent_utilities/messaging/backends/discord.py:291
+      - agent_utilities/messaging/backends/discord.py:305
+      - agent_utilities/messaging/backends/discord.py:327
+      - agent_utilities/messaging/backends/googlechat.py:1
+      - agent_utilities/messaging/backends/googlechat.py:7
+      - agent_utilities/messaging/backends/googlechat.py:39
+      - agent_utilities/messaging/backends/googlechat.py:55
+      - agent_utilities/messaging/backends/googlechat.py:73
+      - agent_utilities/messaging/backends/googlechat.py:85
+      - agent_utilities/messaging/backends/googlechat.py:112
+      - agent_utilities/messaging/backends/googlechat.py:121
+      - agent_utilities/messaging/backends/googlechat.py:133
+      - agent_utilities/messaging/backends/googlechat.py:142
+      - agent_utilities/messaging/backends/googlemeet.py:1
+      - agent_utilities/messaging/backends/googlemeet.py:8
+      - agent_utilities/messaging/backends/googlemeet.py:35
+      - agent_utilities/messaging/backends/googlemeet.py:51
+      - agent_utilities/messaging/backends/googlemeet.py:69
+      - agent_utilities/messaging/backends/googlemeet.py:75
+      - agent_utilities/messaging/backends/googlemeet.py:85
+      - agent_utilities/messaging/backends/googlemeet.py:107
+      - agent_utilities/messaging/backends/imessage.py:1
+      - agent_utilities/messaging/backends/imessage.py:4
+      - agent_utilities/messaging/backends/imessage.py:32
+      - agent_utilities/messaging/backends/imessage.py:50
+      - agent_utilities/messaging/backends/irc.py:1
+      - agent_utilities/messaging/backends/irc.py:7
+      - agent_utilities/messaging/backends/irc.py:37
+      - agent_utilities/messaging/backends/irc.py:54
+      - agent_utilities/messaging/backends/irc.py:101
+      - agent_utilities/messaging/backends/line.py:1
+      - agent_utilities/messaging/backends/line.py:7
+      - agent_utilities/messaging/backends/line.py:37
+      - agent_utilities/messaging/backends/line.py:53
+      - agent_utilities/messaging/backends/line.py:68
+      - agent_utilities/messaging/backends/line.py:94
+      - agent_utilities/messaging/backends/line.py:103
+      - agent_utilities/messaging/backends/matrix.py:1
+      - agent_utilities/messaging/backends/matrix.py:7
+      - agent_utilities/messaging/backends/matrix.py:36
+      - agent_utilities/messaging/backends/matrix.py:52
+      - agent_utilities/messaging/backends/matrix.py:95
+      - agent_utilities/messaging/backends/mattermost.py:1
+      - agent_utilities/messaging/backends/mattermost.py:29
+      - agent_utilities/messaging/backends/mattermost.py:64
+      - agent_utilities/messaging/backends/mattermost.py:87
+      - agent_utilities/messaging/backends/mattermost.py:168
+      - agent_utilities/messaging/backends/mattermost.py:258
+      - agent_utilities/messaging/backends/mattermost.py:374
+      - agent_utilities/messaging/backends/nextcloud.py:1
+      - agent_utilities/messaging/backends/nextcloud.py:4
+      - agent_utilities/messaging/backends/nextcloud.py:35
+      - agent_utilities/messaging/backends/nextcloud.py:52
+      - agent_utilities/messaging/backends/nextcloud.py:77
+      - agent_utilities/messaging/backends/nextcloud.py:133
+      - agent_utilities/messaging/backends/nextcloud.py:170
+      - agent_utilities/messaging/backends/signal.py:1
+      - agent_utilities/messaging/backends/signal.py:7
+      - agent_utilities/messaging/backends/signal.py:37
+      - agent_utilities/messaging/backends/signal.py:53
+      - agent_utilities/messaging/backends/signal.py:87
+      - agent_utilities/messaging/backends/slack.py:1
+      - agent_utilities/messaging/backends/slack.py:16
+      - agent_utilities/messaging/backends/slack.py:50
+      - agent_utilities/messaging/backends/slack.py:68
+      - agent_utilities/messaging/backends/slack.py:131
+      - agent_utilities/messaging/backends/slack.py:135
+      - agent_utilities/messaging/backends/slack.py:147
+      - agent_utilities/messaging/backends/slack.py:164
+      - agent_utilities/messaging/backends/slack.py:170
+      - agent_utilities/messaging/backends/slack.py:173
+      - agent_utilities/messaging/backends/slack.py:198
+      - agent_utilities/messaging/backends/slack.py:207
+      - agent_utilities/messaging/backends/slack.py:216
+      - agent_utilities/messaging/backends/synology.py:1
+      - agent_utilities/messaging/backends/synology.py:4
+      - agent_utilities/messaging/backends/synology.py:43
+      - agent_utilities/messaging/backends/synology.py:59
+      - agent_utilities/messaging/backends/synology.py:75
+      - agent_utilities/messaging/backends/teams.py:1
+      - agent_utilities/messaging/backends/teams.py:15
+      - agent_utilities/messaging/backends/teams.py:45
+      - agent_utilities/messaging/backends/teams.py:61
+      - agent_utilities/messaging/backends/teams.py:78
+      - agent_utilities/messaging/backends/teams.py:82
+      - agent_utilities/messaging/backends/teams.py:94
+      - agent_utilities/messaging/backends/teams.py:118
+      - agent_utilities/messaging/backends/teams.py:124
+      - agent_utilities/messaging/backends/teams.py:130
+      - agent_utilities/messaging/backends/teams.py:139
+      - agent_utilities/messaging/backends/teams.py:152
+      - agent_utilities/messaging/backends/teams.py:163
+      - agent_utilities/messaging/backends/telegram.py:1
+      - agent_utilities/messaging/backends/telegram.py:15
+      - agent_utilities/messaging/backends/telegram.py:46
+      - agent_utilities/messaging/backends/telegram.py:63
+      - agent_utilities/messaging/backends/telegram.py:149
+      - agent_utilities/messaging/backends/telegram.py:153
+      - agent_utilities/messaging/backends/telegram.py:166
+      - agent_utilities/messaging/backends/telegram.py:180
+      - agent_utilities/messaging/backends/telegram.py:194
+      - agent_utilities/messaging/backends/telegram.py:230
+      - agent_utilities/messaging/backends/telegram.py:244
+      - agent_utilities/messaging/backends/telegram.py:321
+      - agent_utilities/messaging/backends/telegram.py:350
+      - agent_utilities/messaging/backends/telegram.py:436
+      - agent_utilities/messaging/backends/telegram.py:446
+      - agent_utilities/messaging/backends/telegram.py:450
+      - agent_utilities/messaging/backends/twitch.py:1
+      - agent_utilities/messaging/backends/twitch.py:6
+      - agent_utilities/messaging/backends/twitch.py:36
+      - agent_utilities/messaging/backends/twitch.py:52
+      - agent_utilities/messaging/backends/twitch.py:100
+      - agent_utilities/messaging/backends/voicecall.py:1
+      - agent_utilities/messaging/backends/voicecall.py:4
+      - agent_utilities/messaging/backends/voicecall.py:31
+      - agent_utilities/messaging/backends/voicecall.py:47
+      - agent_utilities/messaging/backends/voicecall.py:62
+      - agent_utilities/messaging/backends/voicecall.py:74
+      - agent_utilities/messaging/backends/voicecall.py:99
+      - agent_utilities/messaging/backends/voicecall.py:115
+      - agent_utilities/messaging/backends/whatsapp.py:1
+      - agent_utilities/messaging/backends/whatsapp.py:21
+      - agent_utilities/messaging/backends/whatsapp.py:52
+      - agent_utilities/messaging/backends/whatsapp.py:74
+      - agent_utilities/messaging/backends/whatsapp.py:81
+      - agent_utilities/messaging/backends/whatsapp.py:86
+      - agent_utilities/messaging/backends/whatsapp.py:111
+      - agent_utilities/messaging/backends/whatsapp.py:147
+      - agent_utilities/messaging/backends/whatsapp.py:163
+      - agent_utilities/messaging/backends/whatsapp.py:171
+      - agent_utilities/messaging/backends/whatsapp.py:179
+      - agent_utilities/messaging/backends/whatsapp.py:203
+      - agent_utilities/messaging/backends/whatsapp.py:213
+      - agent_utilities/messaging/base.py:1
+      - agent_utilities/messaging/base.py:14
+      - agent_utilities/messaging/base.py:48
+      - agent_utilities/messaging/base.py:149
+      - agent_utilities/messaging/base.py:180
+      - agent_utilities/messaging/base.py:205
+      - agent_utilities/messaging/base.py:233
+      - agent_utilities/messaging/base.py:250
+      - agent_utilities/messaging/base.py:256
+      - agent_utilities/messaging/base.py:306
+      - agent_utilities/messaging/base.py:331
+      - agent_utilities/messaging/base.py:353
+      - agent_utilities/messaging/base.py:380
+      - agent_utilities/messaging/base.py:390
+      - agent_utilities/messaging/capabilities.py:1
+      - agent_utilities/messaging/capabilities.py:9
+      - agent_utilities/messaging/capabilities.py:31
+      - agent_utilities/messaging/capabilities.py:75
+      - agent_utilities/messaging/capabilities.py:428
+      - agent_utilities/messaging/kg_ingest.py:1
+      - agent_utilities/messaging/kg_ingest.py:8
+      - agent_utilities/messaging/kg_ingest.py:39
+      - agent_utilities/messaging/kg_ingest.py:69
+      - agent_utilities/messaging/kg_ingest.py:114
+      - agent_utilities/messaging/kg_ingest.py:122
+      - agent_utilities/messaging/kg_ingest.py:135
+      - agent_utilities/messaging/kg_ingest.py:186
+      - agent_utilities/messaging/kg_ingest.py:194
+      - agent_utilities/messaging/kg_ingest.py:203
+      - agent_utilities/messaging/kg_ingest.py:215
+      - agent_utilities/messaging/models.py:1
+      - agent_utilities/messaging/models.py:7
+      - agent_utilities/messaging/models.py:31
+      - agent_utilities/messaging/models.py:70
+      - agent_utilities/messaging/models.py:98
+      - agent_utilities/messaging/models.py:122
+      - agent_utilities/messaging/models.py:151
+      - agent_utilities/messaging/models.py:173
+      - agent_utilities/messaging/models.py:215
+      - agent_utilities/messaging/models.py:253
+      - agent_utilities/messaging/models.py:275
+      - agent_utilities/messaging/registry.py:1
+      - agent_utilities/messaging/registry.py:16
+      - agent_utilities/messaging/registry.py:44
+      - agent_utilities/messaging/registry.py:94
+      - agent_utilities/messaging/registry.py:111
+      - agent_utilities/messaging/registry.py:117
+      - agent_utilities/messaging/registry.py:123
+      - agent_utilities/messaging/registry.py:129
+      - agent_utilities/messaging/registry.py:159
+      - agent_utilities/messaging/registry.py:202
+      - agent_utilities/messaging/registry.py:252
+      - agent_utilities/messaging/registry.py:269
+      - agent_utilities/messaging/registry.py:278
+      - agent_utilities/messaging/render.py:3
+      - agent_utilities/messaging/router.py:20
+      - agent_utilities/messaging/router.py:52
+      - agent_utilities/messaging/router.py:101
+      - agent_utilities/messaging/router.py:108
+      - agent_utilities/messaging/router.py:134
+      - agent_utilities/messaging/router.py:148
+      - agent_utilities/messaging/router.py:155
+      - agent_utilities/messaging/router.py:162
+      - agent_utilities/messaging/router.py:230
+      - agent_utilities/messaging/router.py:239
+      - agent_utilities/messaging/router.py:245
+      - agent_utilities/messaging/router.py:284
+      - agent_utilities/messaging/router.py:291
+      - agent_utilities/messaging/router.py:298
+      - agent_utilities/messaging/router.py:313
+      - agent_utilities/messaging/router.py:350
+      - agent_utilities/messaging/router.py:363
+      - agent_utilities/messaging/router.py:374
+      - agent_utilities/messaging/router.py:393
+      - agent_utilities/messaging/router.py:403
+      - agent_utilities/messaging/router.py:409
+      - agent_utilities/messaging/router.py:764
+      - agent_utilities/models/knowledge_graph.py:226
+      - agent_utilities/models/knowledge_graph.py:250
+      - agent_utilities/models/knowledge_graph.py:368
+      - agent_utilities/models/knowledge_graph.py:372
+      - agent_utilities/models/knowledge_graph.py:723
+      - agent_utilities/models/knowledge_graph.py:753
+      - agent_utilities/models/knowledge_graph.py:916
+      - agent_utilities/models/knowledge_graph.py:2122
+      - agent_utilities/models/knowledge_graph.py:2128
+      - agent_utilities/models/knowledge_graph.py:2283
+      - agent_utilities/models/knowledge_graph.py:2317
+      - agent_utilities/models/knowledge_graph.py:2506
+      - agent_utilities/models/knowledge_graph.py:4941
+      - agent_utilities/models/knowledge_graph.py:4947
+      - agent_utilities/models/knowledge_graph.py:4979
+      - agent_utilities/models/schema_packs/finance.py:62
+      - agent_utilities/models/schema_packs/finance.py:102
+      - agent_utilities/orchestration/durable_execution.py:2
+      - agent_utilities/protocols/a2a_epistemic.py:3
+      - agent_utilities/protocols/acp_adapter.py:6
+      - agent_utilities/security/permissions_kernel.py:25
+      - agent_utilities/server/app.py:323
+      - agent_utilities/server/app.py:340
+      - agent_utilities/server/app.py:428
+      - agent_utilities/server/routers/agent_ui.py:85
+      - agent_utilities/server/routers/core.py:24
+      - agent_utilities/skills/agent-utilities-self-evolution/SKILL.md:421
+      - agent_utilities/tools/agent_tools.py:1
+      - agent_utilities/tools/browser/browser_control.py:6
+      - agent_utilities/tools/browser/browser_manager.py:4
+      - agent_utilities/tools/developer_tools.py:4
+      - agent_utilities/tools/dynamic_tool_orchestrator.py:4
+      - agent_utilities/tools/dynamic_tool_orchestrator.py:23
+      - agent_utilities/tools/dynamic_tool_orchestrator.py:65
+      - agent_utilities/tools/jupyter_adapter.py:2
+      - agent_utilities/tools/onboarding_tools.py:4
+      - agent_utilities/tools/sandbox_executor.py:1
+      - agent_utilities/tools/tool_filtering.py:6
+      - agent_utilities/tools/tool_registry.py:4
+      - docs/architecture/configuration.md:458
+      - docs/architecture/configuration.md:549
+      - docs/architecture/configuration.md:589
+      - docs/architecture/enterprise_supervisory_and_parity.md:43
+      - docs/architecture/messaging_reach.md:6
+      - docs/guides/architecture.md:123
+      - docs/guides/architecture.md:283
+      - docs/guides/configuration.md:118
+      - docs/guides/deployment.md:9
+      - docs/guides/design-patterns-alignment.md:14
+      - docs/guides/design-patterns-alignment.md:19
+      - docs/guides/durable-execution.md:1
+      - docs/guides/emergent-architecture.md:5
+      - docs/guides/features.md:315
+      - docs/guides/features.md:335
+      - docs/guides/features.md:366
+      - docs/guides/features.md:376
+      - docs/guides/features.md:441
+      - docs/guides/features.md:445
+      - docs/guides/features.md:446
+      - docs/guides/features.md:450
+      - docs/guides/features.md:459
+      - docs/guides/features.md:460
+      - docs/guides/features.md:461
+      - docs/guides/features.md:512
+      - docs/guides/features.md:513
+      - docs/guides/features.md:523
+      - docs/guides/features.md:537
+      - docs/guides/first-principles.md:3
+      - docs/guides/first-principles.md:14
+      - docs/guides/first-principles.md:22
+      - docs/guides/first-principles.md:245
+      - docs/guides/first-principles.md:259
+      - docs/guides/process-lifecycle.md:112
+      - docs/guides/registry-cache.md:129
+      - docs/guides/secure-sandbox.md:1
+      - docs/guides/tools.md:3
+      - docs/guides/x-assistant.md:3
+      - docs/journey.md:137
+      - docs/pillars/1_graph_orchestration.md:66
+      - docs/pillars/1_graph_orchestration.md:73
+      - docs/pillars/1_graph_orchestration.md:74
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.0-Tool_Interface_And_MCP_Factory.md:1
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.0-Tool_Interface_And_MCP_Factory.md:12
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.0-Tool_Interface_And_MCP_Factory.md:23
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.2-Community_Telemetry_And_Ecosystem_Map.md:1
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.2-Community_Telemetry_And_Ecosystem_Map.md:12
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Messaging_Configuration_Guide.md:3
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md:3
+      - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md:267
+      - docs/reference/documentation-catalog.md:62
+      - docs/reference/documentation-catalog.md:102
+      - docs/reference/documentation-catalog.md:334
+      - docs/reference/documentation-catalog.md:335
+      - docs/reference/runtime-configuration.md:308
+      - docs/reference/runtime-configuration.md:618
+      - scripts/gen_genesis_manifest.py:189
+      - tests/integration/core/check_openapi.py:1
+      - tests/integration/core/merge_mcp_configs.py:1
+      - tests/integration/core/test_api_endpoints.py:1
+      - tests/integration/core/test_developer_tools.py:1
+      - tests/integration/core/test_model_override_middleware.py:5
+      - tests/integration/core/test_models_endpoint.py:3
+      - tests/integration/core/test_server.py:1
+      - tests/integration/core/test_server_routes.py:3
+      - tests/integration/graph/test_endpoint_consumer_coverage.py:3
+      - tests/integration/mcp/test_mcp_integration.py:1
+      - tests/integration/mcp/test_mcp_utilities_integration.py:1
+      - tests/integration/protocols/test_a2a_discovery.py:1
+      - tests/integration/protocols/test_acp_adapter.py:1
+      - tests/integration/protocols/test_acp_integration.py:1
+      - tests/test_a2a_graph_skill.py:1
+      - tests/test_a2a_graph_skill.py:14
+      - tests/test_a2a_graph_skill.py:45
+      - tests/test_durable_execution.py:2
+      - tests/test_function_registry.py:1
+      - tests/test_jupyter_adapter.py:2
+      - tests/test_provider_adapter.py:1
+      - tests/test_research_enhancements.py:7
+      - tests/test_research_enhancements.py:218
+      - tests/test_research_enhancements.py:222
+      - tests/unit/graph/test_tool_resolver.py:4
+      - tests/unit/knowledge_graph/test_agent_toolkit_ingestion.py:3
+      - tests/unit/knowledge_graph/test_ecosystem_topology.py:6
+      - tests/unit/knowledge_graph/test_memory_bridge.py:5
+      - tests/unit/mcp/test_mcp_manager.py:1
+      - tests/unit/mcp/test_mcp_manager_extended.py:3
+      - tests/unit/mcp/test_mcp_partitioning.py:3
+      - tests/unit/mcp/test_mcp_scoring.py:3
+      - tests/unit/mcp/test_mcp_sync.py:3
+      - tests/unit/mcp/test_mcp_utilities.py:3
+      - tests/unit/mcp/test_tool_filtering.py:3
+      - tests/unit/mcp/test_tools_logic.py:3
+      - tests/unit/mcp/test_tools_misc.py:3
+      - tests/unit/messaging/test_messaging.py:1
+      - tests/unit/messaging/test_messaging.py:40
+      - tests/unit/messaging/test_messaging.py:86
+      - tests/unit/messaging/test_messaging.py:153
+      - tests/unit/messaging/test_messaging.py:230
+      - tests/unit/messaging/test_messaging.py:268
+      - tests/unit/messaging/test_messaging.py:301
+      - tests/unit/messaging/test_messaging.py:366
+      - tests/unit/messaging/test_render.py:1
+      - tests/unit/messaging/test_router_supervision.py:1
+      - tests/unit/protocols/test_a2a.py:3
+      - tests/unit/protocols/test_ctx_helpers.py:1
+      - tests/unit/protocols/test_ctx_scenarios.py:1
+  AU-ECO.messaging.post-conversation-enrichment:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.burst-mode-coalescing
+    suggestion_why: clusters with 3 sibling(s) around AU-ECO.messaging.burst-mode-coalescing; shares agent_utilities/core/config.py,
+      agent_utilities/messaging/router.py; both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities
+      (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/messaging/enrichment.py
+      - agent_utilities/messaging/router.py
+      test_files:
+      - tests/unit/messaging/test_messaging_enrichment.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:2412
+      - agent_utilities/messaging/enrichment.py:1
+      - agent_utilities/messaging/enrichment.py:12
+      - agent_utilities/messaging/enrichment.py:42
+      - agent_utilities/messaging/enrichment.py:113
+      - agent_utilities/messaging/router.py:818
+      - tests/unit/messaging/test_messaging_enrichment.py:1
+  AU-ECO.messaging.sending-reply-failed:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('"""Drive an inbound message through
+      the graph agent. CONCEPT·AU-ECO.messaging.sending-repl') — the id itself reads like a real name,
+      so the marker text needs cleaning either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: '"""Drive an inbound message through the graph agent. CONCEPT·AU-ECO.messaging.sending-reply-failed/4.63"""'
+      sites:
+      - agent_utilities/messaging/router.py:529
+      - agent_utilities/messaging/router.py:604
+  AU-ECO.messaging.shared-by-every-messaging:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/commands.py
+      test_files:
+      - tests/unit/messaging/test_messaging_commands.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/commands.py:33
+      - agent_utilities/messaging/commands.py:38
+      - agent_utilities/messaging/commands.py:64
+      - tests/unit/messaging/test_messaging_commands.py:88
+  AU-ECO.messaging.single-inbound-command-dispatcher:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 13 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/backends/telegram.py
+      - agent_utilities/messaging/base.py
+      - agent_utilities/messaging/commands.py
+      - agent_utilities/messaging/daemon.py
+      - agent_utilities/messaging/router.py
+      test_files:
+      - tests/unit/messaging/test_messaging_commands.py
+      doc_files:
+      - docs/architecture/entrypoint-unification.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/backends/telegram.py:364
+      - agent_utilities/messaging/backends/telegram.py:372
+      - agent_utilities/messaging/backends/telegram.py:377
+      - agent_utilities/messaging/base.py:401
+      - agent_utilities/messaging/base.py:412
+      - agent_utilities/messaging/commands.py:1
+      - agent_utilities/messaging/commands.py:9
+      - agent_utilities/messaging/commands.py:95
+      - agent_utilities/messaging/daemon.py:112
+      - agent_utilities/messaging/router.py:633
+      - agent_utilities/messaging/router.py:643
+      - docs/architecture/entrypoint-unification.md:27
+      - tests/unit/messaging/test_messaging_commands.py:1
+  AU-ECO.messaging.surfaced:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a single generic noun — it names a subject area, not a choice
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/messaging/enrichment.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: is a single generic noun — it names a subject area, not a choice
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:2414
+      - agent_utilities/messaging/enrichment.py:118
+      - agent_utilities/messaging/enrichment.py:175
+  AU-ECO.messaging.telegram-voice-note:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/messaging/backends/telegram.py
+      test_files:
+      - tests/unit/messaging/test_messaging_voice.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:2423
+      - agent_utilities/messaging/backends/telegram.py:105
+      - tests/unit/messaging/test_messaging_voice.py:1
+      - tests/unit/messaging/test_messaging_voice.py:58
+  AU-ECO.messaging.telegram-webhook-receiver-started:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.telegram-voice-note
+    suggestion_why: clusters with 1 sibling(s) around AU-ECO.messaging.telegram-voice-note; shares agent_utilities/core/config.py,
+      agent_utilities/messaging/backends/telegram.py; both introduced by c5f21018 (OKF-CIS atomic cutover
+      on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/messaging/backends/telegram.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:2416
+      - agent_utilities/messaging/backends/telegram.py:384
+      - agent_utilities/messaging/backends/telegram.py:412
+  AU-ECO.messaging.universal-agent-reach-user:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/tools/agent_tools.py
+      - agent_utilities/tools/tool_registry.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-graph-agent
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/tools/agent_tools.py:115
+      - agent_utilities/tools/tool_registry.py:211
+  AU-ECO.messaging.universal-graph-agent:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 25 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/messaging/router.py
+      - agent_utilities/orchestration/agent_runner.py
+      - agent_utilities/orchestration/manager.py
+      - agent_utilities/orchestration/session_continuity.py
+      test_files:
+      - tests/unit/messaging/test_messaging_routing.py
+      doc_files:
+      - .specify/design/orch-messaging-orchestration-transparency/design.md
+      - docs/architecture/non-blocking-execution.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.voice-attachment-fallback
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/orch-messaging-orchestration-transparency/design.md:6
+      - .specify/design/orch-messaging-orchestration-transparency/design.md:102
+      - agent_utilities/core/config.py:2395
+      - agent_utilities/messaging/router.py:6
+      - agent_utilities/messaging/router.py:21
+      - agent_utilities/messaging/router.py:56
+      - agent_utilities/messaging/router.py:425
+      - agent_utilities/messaging/router.py:430
+      - agent_utilities/messaging/router.py:476
+      - agent_utilities/messaging/router.py:484
+      - agent_utilities/messaging/router.py:718
+      - agent_utilities/messaging/router.py:742
+      - agent_utilities/messaging/router.py:779
+      - agent_utilities/messaging/router.py:802
+      - agent_utilities/messaging/router.py:1360
+      - agent_utilities/messaging/router.py:1489
+      - agent_utilities/messaging/router.py:1518
+      - agent_utilities/messaging/router.py:1637
+      - agent_utilities/messaging/router.py:1662
+      - agent_utilities/orchestration/agent_runner.py:2605
+      - agent_utilities/orchestration/manager.py:490
+      - agent_utilities/orchestration/session_continuity.py:168
+      - docs/architecture/non-blocking-execution.md:5
+      - tests/unit/messaging/test_messaging_routing.py:1
+      - tests/unit/messaging/test_messaging_routing.py:79
+  AU-ECO.messaging.voice-attachment-fallback:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.messaging.messaging-as-renderer
+    suggestion_why: clusters with 9 sibling(s) around AU-ECO.messaging.messaging-as-renderer; shares agent_utilities/messaging/router.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/router.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.messaging.blocking-store-memory
+      - AU-ECO.messaging.burst-mode-coalescing
+      - AU-ECO.messaging.debounce-relevance-sweep
+      - AU-ECO.messaging.debounce-timer-cancel
+      - AU-ECO.messaging.durable-inbound-pending
+      - AU-ECO.messaging.eco-2
+      - AU-ECO.messaging.elicitation-loop-bridge
+      - AU-ECO.messaging.episodic-memory-recall
+      - AU-ECO.messaging.fire-and-forget-tasks
+      - AU-ECO.messaging.image-attachment-fallback
+      - AU-ECO.messaging.inbound-messaging-router-runs
+      - AU-ECO.messaging.inbound-router
+      - AU-ECO.messaging.last-active-channel
+      - AU-ECO.messaging.last-active-channel-routing
+      - AU-ECO.messaging.make-fleet-credentials-present
+      - AU-ECO.messaging.mattermost-backend
+      - AU-ECO.messaging.messaging-as-renderer
+      - AU-ECO.messaging.messaging-ontology-shape-so
+      - AU-ECO.messaging.messaging-reach-service-governed
+      - AU-ECO.messaging.messaging-renderer-core-reaction
+      - AU-ECO.messaging.model-routed-inbound-responder
+      - AU-ECO.messaging.native-backend-abstraction
+      - AU-ECO.messaging.post-conversation-enrichment
+      - AU-ECO.messaging.sending-reply-failed
+      - AU-ECO.messaging.shared-by-every-messaging
+      - AU-ECO.messaging.single-inbound-command-dispatcher
+      - AU-ECO.messaging.surfaced
+      - AU-ECO.messaging.telegram-voice-note
+      - AU-ECO.messaging.telegram-webhook-receiver-started
+      - AU-ECO.messaging.universal-agent-reach-user
+      - AU-ECO.messaging.universal-graph-agent
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/router.py:610
+      - agent_utilities/messaging/router.py:973
+  AU-ECO.messaging.whisper-transcription:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/messaging/voice.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/messaging/voice.py:1
+      - agent_utilities/messaging/voice.py:8
+      - agent_utilities/messaging/voice.py:127
+      - agent_utilities/messaging/voice.py:155

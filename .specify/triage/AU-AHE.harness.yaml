@@ -1,0 +1,3372 @@
+domain: AU-AHE.harness
+generated_at: '2026-08-01T15:06:48+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
+  `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
+  and `apply --write`.'
+clusters:
+  AU-AHE.harness.exploration-discovery:
+  - AU-AHE.harness.exploration-discovery
+  - AU-AHE.harness.unified-artifact-lineage
+  AU-AHE.harness.instead-context-stuffing-small:
+  - AU-AHE.harness.instead-context-stuffing-small
+  - AU-AHE.harness.onlinescorenode
+  AU-AHE.harness.manifest-verify:
+  - AU-AHE.harness.manifest-verify
+  - AU-AHE.harness.per-dimension-ship-outcome
+  - AU-AHE.harness.run-aegis-loop-over
+  - AU-AHE.harness.variant-pool
+concepts:
+  AU-AHE.harness.agentic-engineering-patterns:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/engineering.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/engineering.py:6
+      - agent_utilities/harness/engineering.py:47
+      - agent_utilities/harness/engineering.py:61
+      - agent_utilities/harness/engineering.py:83
+      - agent_utilities/harness/engineering.py:127
+  AU-AHE.harness.ahe-2:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a bare legacy pillar reference (ahe-2) — a citation of the old KG-N.NN numbering,
+      not a name anyone chose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/g_eval.py
+      test_files:
+      - tests/harness/test_g_eval.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: is a bare legacy pillar reference (ahe-2) — a citation of the old KG-N.NN numbering,
+        not a name anyone chose
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/g_eval.py:4
+      - agent_utilities/harness/g_eval.py:112
+      - tests/harness/test_g_eval.py:1
+  AU-AHE.harness.ahe-3:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a bare legacy pillar reference (ahe-3) — a citation of the old KG-N.NN numbering,
+      not a name anyone chose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/memorydata/scoreboard.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: is a bare legacy pillar reference (ahe-3) — a citation of the old KG-N.NN numbering,
+        not a name anyone chose
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/memorydata/scoreboard.py:4
+      - agent_utilities/harness/memorydata/scoreboard.py:62
+  AU-AHE.harness.audit-gap-detector:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/harness/audit_gap_detector.py
+      - agent_utilities/knowledge_graph/research/loop_controller.py
+      - agent_utilities/mcp/tools/evolution_tools.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:3394
+      - agent_utilities/harness/audit_gap_detector.py:6
+      - agent_utilities/knowledge_graph/research/loop_controller.py:386
+      - agent_utilities/knowledge_graph/research/loop_controller.py:3330
+      - agent_utilities/mcp/tools/evolution_tools.py:116
+  AU-AHE.harness.callers-feed-back-per:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/evolve_agent.py
+      - agent_utilities/harness/memorydata/bakeoff.py
+      - agent_utilities/harness/memorydata/router_method.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/evolve_agent.py:929
+      - agent_utilities/harness/memorydata/bakeoff.py:39
+      - agent_utilities/harness/memorydata/router_method.py:4
+      - agent_utilities/harness/memorydata/router_method.py:39
+      - agent_utilities/harness/memorydata/router_method.py:117
+  AU-AHE.harness.canonical-gap-lifecycle:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (8 source
+      file(s), 16 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/capabilities/governed_capability_authoring.py
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+      - agent_utilities/knowledge_graph/adaptation/skill_evolver.py
+      - agent_utilities/knowledge_graph/assimilation/plan_synthesis.py
+      - agent_utilities/knowledge_graph/research/change_publisher.py
+      - agent_utilities/knowledge_graph/research/gaps.py
+      - agent_utilities/knowledge_graph/research/spec_proposals.py
+      - agent_utilities/mcp/tools/state_tools.py
+      test_files:
+      - tests/unit/capabilities/test_governed_capability_authoring.py
+      doc_files:
+      - agent_utilities/skills/graph-orchestration-and-automation/SKILL.md
+      - agent_utilities/skills/graph-research-and-analysis/SKILL.md
+      - docs/architecture/self-evolution-flywheel.md
+      - docs/guides/loop-engine.md
+      introduced: 'ee7e6775 2026-07-25 docs(skills): advertise the new evolution/loop/governance/rlm actions'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/capabilities/governed_capability_authoring.py:4
+      - agent_utilities/capabilities/governed_capability_authoring.py:145
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py:349
+      - agent_utilities/knowledge_graph/adaptation/skill_evolver.py:236
+      - agent_utilities/knowledge_graph/assimilation/plan_synthesis.py:24
+      - agent_utilities/knowledge_graph/assimilation/plan_synthesis.py:178
+      - agent_utilities/knowledge_graph/research/change_publisher.py:698
+      - agent_utilities/knowledge_graph/research/gaps.py:6
+      - agent_utilities/knowledge_graph/research/spec_proposals.py:92
+      - agent_utilities/mcp/tools/state_tools.py:184
+      - agent_utilities/mcp/tools/state_tools.py:428
+      - agent_utilities/skills/graph-orchestration-and-automation/SKILL.md:32
+      - agent_utilities/skills/graph-research-and-analysis/SKILL.md:39
+      - docs/architecture/self-evolution-flywheel.md:83
+      - docs/guides/loop-engine.md:68
+      - tests/unit/capabilities/test_governed_capability_authoring.py:1
+  AU-AHE.harness.capability-ratchet:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 6 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/__init__.py
+      - agent_utilities/knowledge_graph/research/capability_ratchet.py
+      - agent_utilities/knowledge_graph/research/change_publisher.py
+      test_files:
+      - tests/harness/test_swebench_remediation_live_path.py
+      - tests/unit/knowledge_graph/test_ahe_3_24_capability_ratchet.py
+      doc_files:
+      - .specify/specs/ahe-3-23-evolveagent-manifestverifier-the-real-apply-veri/spec.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/specs/ahe-3-23-evolveagent-manifestverifier-the-real-apply-veri/spec.md:17
+      - agent_utilities/__init__.py:322
+      - agent_utilities/knowledge_graph/research/capability_ratchet.py:7
+      - agent_utilities/knowledge_graph/research/change_publisher.py:964
+      - tests/harness/test_swebench_remediation_live_path.py:1
+      - tests/unit/knowledge_graph/test_ahe_3_24_capability_ratchet.py:1
+  AU-AHE.harness.citation-quality-tracking:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/citation_tracker.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/citation_tracker.py:4
+      - agent_utilities/harness/citation_tracker.py:60
+      - agent_utilities/harness/citation_tracker.py:99
+  AU-AHE.harness.co-evolution-loop:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('"""Cross-harness GRPO co-evolution (CONCEPT·AU-AHE.harness.co-evolution-loop/3.56)."""')
+      — the id itself reads like a real name, so the marker text needs cleaning either way; decide whether
+      the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/co_evolution.py
+      test_files:
+      - tests/unit/harness/test_co_evolution.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: '"""Cross-harness GRPO co-evolution (CONCEPT·AU-AHE.harness.co-evolution-loop/3.56)."""'
+      sites:
+      - agent_utilities/harness/co_evolution.py:1
+      - agent_utilities/harness/co_evolution.py:30
+      - tests/unit/harness/test_co_evolution.py:1
+  AU-AHE.harness.co-evolve-research:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/hote_tri_evolution.py
+      - agent_utilities/knowledge_graph/research/loop_controller.py
+      test_files:
+      - tests/test_hote_tri_evolution.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/hote_tri_evolution.py:4
+      - agent_utilities/knowledge_graph/research/loop_controller.py:579
+      - agent_utilities/knowledge_graph/research/loop_controller.py:595
+      - tests/test_hote_tri_evolution.py:1
+  AU-AHE.harness.concept-2:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files: []
+      doc_files:
+      - docs/journey.md
+      - docs/pillars/3_agentic_harness_engineering/AHE-3.7-Distributed_State_Manager.md
+      - docs/reference/documentation-catalog.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - docs/journey.md:192
+      - docs/pillars/3_agentic_harness_engineering/AHE-3.7-Distributed_State_Manager.md:1
+      - docs/pillars/3_agentic_harness_engineering/AHE-3.7-Distributed_State_Manager.md:38
+      - docs/reference/documentation-catalog.md:332
+  AU-AHE.harness.empirical-evidence-that-latent:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/harness/__init__.py
+      - agent_utilities/harness/latent_efficiency_benchmark.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files:
+      - tests/test_ahe_3_48_latent_efficiency_live_path.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/__init__.py:117
+      - agent_utilities/harness/latent_efficiency_benchmark.py:6
+      - agent_utilities/mcp/tools/analysis_tools.py:1462
+      - tests/test_ahe_3_48_latent_efficiency_live_path.py:1
+  AU-AHE.harness.evolution-branch-bridge:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 15 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/research/auto_merge.py
+      - agent_utilities/knowledge_graph/research/change_publisher.py
+      - agent_utilities/knowledge_graph/research/change_synthesis.py
+      - agent_utilities/orchestration/fleet_reconciler.py
+      test_files:
+      - tests/unit/knowledge_graph/test_evolution_pr_bridge.py
+      doc_files:
+      - .specify/specs/wire-ranking-synergy/spec.md
+      - docs/architecture/configuration.md
+      - docs/examples/evolution-publication.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/specs/wire-ranking-synergy/spec.md:3
+      - agent_utilities/core/config.py:3533
+      - agent_utilities/knowledge_graph/research/auto_merge.py:134
+      - agent_utilities/knowledge_graph/research/auto_merge.py:179
+      - agent_utilities/knowledge_graph/research/auto_merge.py:353
+      - agent_utilities/knowledge_graph/research/auto_merge.py:429
+      - agent_utilities/knowledge_graph/research/change_publisher.py:6
+      - agent_utilities/knowledge_graph/research/change_publisher.py:504
+      - agent_utilities/knowledge_graph/research/change_publisher.py:850
+      - agent_utilities/knowledge_graph/research/change_synthesis.py:4
+      - agent_utilities/knowledge_graph/research/change_synthesis.py:351
+      - agent_utilities/orchestration/fleet_reconciler.py:416
+      - docs/architecture/configuration.md:295
+      - docs/examples/evolution-publication.md:3
+      - tests/unit/knowledge_graph/test_evolution_pr_bridge.py:1
+  AU-AHE.harness.evolution-checkpoint:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files: []
+      doc_files:
+      - docs/journey.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - docs/journey.md:192
+  AU-AHE.harness.evolutionary-aggregation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (14 source
+      file(s), 55 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/__init__.py
+      - agent_utilities/graph/hierarchical_planner.py
+      - agent_utilities/graph/population_drift.py
+      - agent_utilities/graph/workspace_attention.py
+      - agent_utilities/harness/agentic_evolution_engine.py
+      - agent_utilities/harness/self_guided_play.py
+      - agent_utilities/harness/variant_pool.py
+      - agent_utilities/knowledge_graph/core/owl_bridge.py
+      - agent_utilities/models/imodel.py
+      - agent_utilities/observability/config_versioning.py
+      - agent_utilities/patterns/__init__.py
+      - agent_utilities/patterns/exploration.py
+      - agent_utilities/patterns/first_run_tests.py
+      - agent_utilities/tools/self_improvement_tools.py
+      test_files:
+      - tests/test_config_versioning.py
+      - tests/test_evolutionary_aggregation.py
+      - tests/test_population_drift.py
+      - tests/unit/harness/test_variant_pool.py
+      - tests/unit/knowledge_graph/test_kg_models.py
+      - tests/unit/knowledge_graph/test_patterns.py
+      doc_files:
+      - docs/architecture/multi_agent_social_system.md
+      - docs/guides/design-patterns-alignment.md
+      - docs/guides/emergent-architecture.md
+      - docs/guides/features.md
+      - docs/journey.md
+      - docs/pillars/3_agentic_harness_engineering/AHE-3.2-Agentic_Evolution_Engine.md
+      - docs/pillars/3_agentic_harness_engineering/AHE-3.6-Backtest_And_Curriculum.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/__init__.py:313
+      - agent_utilities/__init__.py:501
+      - agent_utilities/__init__.py:520
+      - agent_utilities/graph/hierarchical_planner.py:1152
+      - agent_utilities/graph/hierarchical_planner.py:1215
+      - agent_utilities/graph/hierarchical_planner.py:1256
+      - agent_utilities/graph/hierarchical_planner.py:1325
+      - agent_utilities/graph/population_drift.py:6
+      - agent_utilities/graph/workspace_attention.py:521
+      - agent_utilities/graph/workspace_attention.py:537
+      - agent_utilities/harness/agentic_evolution_engine.py:3
+      - agent_utilities/harness/agentic_evolution_engine.py:28
+      - agent_utilities/harness/agentic_evolution_engine.py:356
+      - agent_utilities/harness/self_guided_play.py:31
+      - agent_utilities/harness/variant_pool.py:4
+      - agent_utilities/harness/variant_pool.py:42
+      - agent_utilities/harness/variant_pool.py:68
+      - agent_utilities/harness/variant_pool.py:78
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:277
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:537
+      - agent_utilities/models/imodel.py:20
+      - agent_utilities/observability/config_versioning.py:4
+      - agent_utilities/observability/config_versioning.py:26
+      - agent_utilities/observability/config_versioning.py:52
+      - agent_utilities/observability/config_versioning.py:62
+      - agent_utilities/patterns/__init__.py:14
+      - agent_utilities/patterns/__init__.py:51
+      - agent_utilities/patterns/exploration.py:4
+      - agent_utilities/patterns/exploration.py:15
+      - agent_utilities/patterns/first_run_tests.py:4
+      - agent_utilities/tools/self_improvement_tools.py:4
+      - docs/architecture/multi_agent_social_system.md:41
+      - docs/guides/design-patterns-alignment.md:30
+      - docs/guides/design-patterns-alignment.md:32
+      - docs/guides/design-patterns-alignment.md:108
+      - docs/guides/design-patterns-alignment.md:135
+      - docs/guides/design-patterns-alignment.md:136
+      - docs/guides/design-patterns-alignment.md:148
+      - docs/guides/design-patterns-alignment.md:149
+      - docs/guides/design-patterns-alignment.md:150
+      - docs/guides/emergent-architecture.md:128
+      - docs/guides/features.md:298
+      - docs/guides/features.md:372
+      - docs/guides/features.md:456
+      - docs/guides/features.md:501
+      - docs/journey.md:186
+      - docs/pillars/3_agentic_harness_engineering/AHE-3.2-Agentic_Evolution_Engine.md:1
+      - docs/pillars/3_agentic_harness_engineering/AHE-3.6-Backtest_And_Curriculum.md:45
+      - docs/reference/documentation-catalog.md:328
+      - tests/test_config_versioning.py:1
+      - tests/test_evolutionary_aggregation.py:4
+      - tests/test_population_drift.py:4
+      - tests/unit/harness/test_variant_pool.py:4
+      - tests/unit/knowledge_graph/test_kg_models.py:19
+      - tests/unit/knowledge_graph/test_patterns.py:3
+  AU-AHE.harness.evolvable-sampling-profiles:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/agent/sampling_profile.py
+      - agent_utilities/harness/variant_pool.py
+      - agent_utilities/models/model_registry.py
+      test_files: []
+      doc_files:
+      - docs/architecture/sampling_profiles.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/agent/sampling_profile.py:18
+      - agent_utilities/harness/variant_pool.py:410
+      - agent_utilities/harness/variant_pool.py:418
+      - agent_utilities/harness/variant_pool.py:444
+      - agent_utilities/harness/variant_pool.py:496
+      - agent_utilities/models/model_registry.py:467
+      - docs/architecture/sampling_profiles.md:101
+  AU-AHE.harness.experience-node-architecture:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/security/execution_stability_engine.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/security/execution_stability_engine.py:35
+      - agent_utilities/security/execution_stability_engine.py:97
+      - agent_utilities/security/execution_stability_engine.py:253
+  AU-AHE.harness.exploration-discovery:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-AHE.harness.unified-artifact-lineage
+    suggestion_why: clusters with 1 sibling(s) around AU-AHE.harness.unified-artifact-lineage; shares
+      agent_utilities/models/knowledge_graph.py; the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/models/knowledge_graph.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/models/knowledge_graph.py:154
+      - agent_utilities/models/knowledge_graph.py:671
+      - agent_utilities/models/knowledge_graph.py:3322
+      - agent_utilities/models/knowledge_graph.py:3453
+      - agent_utilities/models/knowledge_graph.py:3460
+      - agent_utilities/models/knowledge_graph.py:3480
+      - agent_utilities/models/knowledge_graph.py:3487
+  AU-AHE.harness.failure-evolution:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (7 source
+      file(s), 24 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/graph/parallel_engine.py
+      - agent_utilities/harness/trace_backend.py
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      - agent_utilities/knowledge_graph/research/change_publisher.py
+      - agent_utilities/knowledge_graph/research/loop_controller.py
+      test_files:
+      - tests/test_failure_regression_check.py
+      - tests/test_trace_backend_failure_reads.py
+      - tests/unit/knowledge_graph/test_failure_analyzer.py
+      doc_files:
+      - docs/architecture/configuration.md
+      - docs/architecture/failure_driven_evolution.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:3610
+      - agent_utilities/graph/parallel_engine.py:215
+      - agent_utilities/graph/parallel_engine.py:1008
+      - agent_utilities/harness/trace_backend.py:107
+      - agent_utilities/harness/trace_backend.py:402
+      - agent_utilities/harness/trace_backend.py:540
+      - agent_utilities/harness/trace_backend.py:827
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py:4
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py:287
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py:385
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py:639
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py:807
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:2363
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:2820
+      - agent_utilities/knowledge_graph/research/change_publisher.py:225
+      - agent_utilities/knowledge_graph/research/loop_controller.py:131
+      - agent_utilities/knowledge_graph/research/loop_controller.py:495
+      - docs/architecture/configuration.md:301
+      - docs/architecture/configuration.md:354
+      - docs/architecture/failure_driven_evolution.md:1
+      - docs/reference/documentation-catalog.md:184
+      - tests/test_failure_regression_check.py:1
+      - tests/test_trace_backend_failure_reads.py:1
+      - tests/unit/knowledge_graph/test_failure_analyzer.py:1
+  AU-AHE.harness.forecasting-discipline:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/forecasting.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/forecasting.py:6
+      - agent_utilities/harness/forecasting.py:70
+  AU-AHE.harness.graph-native-team-evolution:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/team_evolution.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/team_evolution.py:2
+      - agent_utilities/graph/team_evolution.py:19
+  AU-AHE.harness.hardening-transparency-surface:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('CONCEPT·AU-AHE.harness.hardening-transparency-surface/3.72/3.73/3.74
+      — a MemoryData-contra') — the id itself reads like a real name, so the marker text needs cleaning
+      either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/harness/evolve_agent.py
+      - agent_utilities/harness/memorydata/__init__.py
+      - agent_utilities/harness/memorydata/adapter.py
+      - agent_utilities/harness/memorydata/client.py
+      - agent_utilities/harness/memorydata/tests/test_adapter_offline.py
+      test_files:
+      - tests/unit/harness/test_agent_hardening_loop.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: CONCEPT·AU-AHE.harness.hardening-transparency-surface/3.72/3.73/3.74 — a MemoryData-contract
+        agent method over the graph-os
+      sites:
+      - agent_utilities/core/config.py:3633
+      - agent_utilities/harness/evolve_agent.py:495
+      - agent_utilities/harness/evolve_agent.py:574
+      - agent_utilities/harness/evolve_agent.py:714
+      - agent_utilities/harness/evolve_agent.py:831
+      - agent_utilities/harness/memorydata/__init__.py:3
+      - agent_utilities/harness/memorydata/adapter.py:4
+      - agent_utilities/harness/memorydata/adapter.py:94
+      - agent_utilities/harness/memorydata/client.py:4
+      - agent_utilities/harness/memorydata/client.py:55
+      - agent_utilities/harness/memorydata/client.py:91
+      - agent_utilities/harness/memorydata/client.py:170
+      - agent_utilities/harness/memorydata/client.py:305
+      - agent_utilities/harness/memorydata/client.py:487
+      - agent_utilities/harness/memorydata/tests/test_adapter_offline.py:4
+      - tests/unit/harness/test_agent_hardening_loop.py:1
+  AU-AHE.harness.harness-evolution:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (18 source
+      file(s), 39 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/agentic_evolution_engine.py
+      - agent_utilities/harness/component_registry.py
+      - agent_utilities/harness/constraint_engine.py
+      - agent_utilities/harness/continuous_evaluation_engine.py
+      - agent_utilities/harness/evidence_corpus.py
+      - agent_utilities/harness/evolve_agent.py
+      - agent_utilities/harness/manifest.py
+      - agent_utilities/harness/replay_buffer.py
+      - agent_utilities/harness/trace_backend.py
+      - agent_utilities/harness/verifier.py
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
+      - agent_utilities/knowledge_graph/core/owl_bridge.py
+      - agent_utilities/knowledge_graph/kb/x_workflows.py
+      - agent_utilities/knowledge_graph/orchestration/engine_ahe.py
+      - agent_utilities/models/knowledge_graph.py
+      - agent_utilities/models/schema_definition.py
+      - agent_utilities/models/schema_packs/evolution.py
+      - agent_utilities/rlm/config.py
+      test_files:
+      - tests/harness/test_replay_buffer.py
+      - tests/test_ahe_harness.py
+      - tests/test_attribution_reliability.py
+      - tests/unit/graph/test_graph_steps.py
+      - tests/unit/sdd/test_governance_graph.py
+      doc_files:
+      - docs/architecture/failure_driven_evolution.md
+      - docs/guides/AHE_ARCHITECTURE.md
+      - docs/guides/design-patterns-alignment.md
+      - docs/guides/emergent-architecture.md
+      - docs/guides/rlm.md
+      - docs/guides/sdd.md
+      - docs/journey.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/agentic_evolution_engine.py:526
+      - agent_utilities/harness/component_registry.py:5
+      - agent_utilities/harness/constraint_engine.py:5
+      - agent_utilities/harness/continuous_evaluation_engine.py:29
+      - agent_utilities/harness/evidence_corpus.py:5
+      - agent_utilities/harness/evolve_agent.py:3
+      - agent_utilities/harness/manifest.py:5
+      - agent_utilities/harness/manifest.py:121
+      - agent_utilities/harness/replay_buffer.py:4
+      - agent_utilities/harness/trace_backend.py:5
+      - agent_utilities/harness/verifier.py:5
+      - agent_utilities/harness/verifier.py:150
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:73
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:214
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:196
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:480
+      - agent_utilities/knowledge_graph/kb/x_workflows.py:216
+      - agent_utilities/knowledge_graph/orchestration/engine_ahe.py:5
+      - agent_utilities/models/knowledge_graph.py:145
+      - agent_utilities/models/knowledge_graph.py:658
+      - agent_utilities/models/schema_definition.py:1332
+      - agent_utilities/models/schema_packs/evolution.py:9
+      - agent_utilities/rlm/config.py:36
+      - agent_utilities/rlm/config.py:109
+      - docs/architecture/failure_driven_evolution.md:13
+      - docs/guides/AHE_ARCHITECTURE.md:3
+      - docs/guides/AHE_ARCHITECTURE.md:92
+      - docs/guides/design-patterns-alignment.md:15
+      - docs/guides/design-patterns-alignment.md:20
+      - docs/guides/emergent-architecture.md:15
+      - docs/guides/rlm.md:13
+      - docs/guides/rlm.md:210
+      - docs/guides/sdd.md:3
+      - docs/journey.md:167
+      - tests/harness/test_replay_buffer.py:4
+      - tests/test_ahe_harness.py:3
+      - tests/test_attribution_reliability.py:4
+      - tests/unit/graph/test_graph_steps.py:6
+      - tests/unit/sdd/test_governance_graph.py:3
+  AU-AHE.harness.instead-context-stuffing-small:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/online_scoring.py
+      - agent_utilities/harness/tool_judge.py
+      test_files:
+      - tests/harness/test_tool_judge.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/online_scoring.py:223
+      - agent_utilities/harness/tool_judge.py:4
+      - tests/harness/test_tool_judge.py:1
+  AU-AHE.harness.kg-held-out-certification:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('# CONCEPT·AU-AHE.harness.kg-held-out-certification/KG-2.108
+      — held-out certification + ARA') — the id itself reads like a real name, so the marker text needs
+      cleaning either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/co_evolution.py
+      - agent_utilities/harness/harness_grounding.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: '# CONCEPT·AU-AHE.harness.kg-held-out-certification/KG-2.108 — held-out certification
+        + ARA-Seal of a'
+      sites:
+      - agent_utilities/harness/co_evolution.py:1
+      - agent_utilities/harness/harness_grounding.py:33
+      - agent_utilities/mcp/tools/analysis_tools.py:2155
+  AU-AHE.harness.loop-exit-conditions:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 16 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/capabilities/content_guardrails.py
+      - agent_utilities/graph/state.py
+      - agent_utilities/knowledge_graph/research/loop_controller.py
+      - agent_utilities/orchestration/agent_runner.py
+      - agent_utilities/orchestration/engine.py
+      - agent_utilities/orchestration/loop_guards.py
+      test_files:
+      - tests/unit/capabilities/test_content_guardrails.py
+      - tests/unit/knowledge_graph/test_loop_exits.py
+      - tests/unit/orchestration/test_graph_runaway_halt.py
+      doc_files: []
+      introduced: '2b4045d6 2026-07-21 feat(loop): enforce all eight agent-loop exit conditions as harness
+        exits'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/capabilities/content_guardrails.py:151
+      - agent_utilities/graph/state.py:383
+      - agent_utilities/knowledge_graph/research/loop_controller.py:2506
+      - agent_utilities/knowledge_graph/research/loop_controller.py:2522
+      - agent_utilities/knowledge_graph/research/loop_controller.py:2659
+      - agent_utilities/orchestration/agent_runner.py:176
+      - agent_utilities/orchestration/agent_runner.py:221
+      - agent_utilities/orchestration/agent_runner.py:930
+      - agent_utilities/orchestration/agent_runner.py:1559
+      - agent_utilities/orchestration/agent_runner.py:3436
+      - agent_utilities/orchestration/engine.py:543
+      - agent_utilities/orchestration/loop_guards.py:4
+      - tests/unit/capabilities/test_content_guardrails.py:179
+      - tests/unit/knowledge_graph/test_loop_exits.py:2
+      - tests/unit/orchestration/test_graph_runaway_halt.py:3
+      - tests/unit/orchestration/test_graph_runaway_halt.py:64
+  AU-AHE.harness.manifest-verify:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 4-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/aegis_loop.py
+      - agent_utilities/harness/manifest.py
+      test_files:
+      - tests/unit/harness/test_aegis_loop.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/aegis_loop.py:18
+      - agent_utilities/harness/aegis_loop.py:239
+      - agent_utilities/harness/aegis_loop.py:250
+      - agent_utilities/harness/manifest.py:94
+      - tests/unit/harness/test_aegis_loop.py:151
+  AU-AHE.harness.multi-loop-convergence-monitor:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/cognitive_scheduler.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/cognitive_scheduler.py:238
+  AU-AHE.harness.onlinescorenode:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a single generic noun — it names a subject area, not a choice
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/online_scoring.py
+      test_files:
+      - tests/harness/test_online_scoring.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: is a single generic noun — it names a subject area, not a choice
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/online_scoring.py:61
+      - agent_utilities/harness/online_scoring.py:250
+      - tests/harness/test_online_scoring.py:134
+  AU-AHE.harness.overnight-loop-driver:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/claude_harness/__init__.py
+      - agent_utilities/claude_harness/overnight_runner.py
+      - agent_utilities/cli/__init__.py
+      test_files:
+      - tests/test_overnight_runner.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/claude_harness/__init__.py:22
+      - agent_utilities/claude_harness/overnight_runner.py:6
+      - agent_utilities/claude_harness/overnight_runner.py:220
+      - agent_utilities/cli/__init__.py:94
+      - tests/test_overnight_runner.py:4
+  AU-AHE.harness.per-dimension-ship-outcome:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-AHE.harness.manifest-verify
+    suggestion_why: clusters with 3 sibling(s) around AU-AHE.harness.manifest-verify; shares agent_utilities/harness/aegis_loop.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/aegis_loop.py
+      test_files:
+      - tests/unit/harness/test_aegis_loop.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/aegis_loop.py:20
+      - agent_utilities/harness/aegis_loop.py:102
+      - agent_utilities/harness/aegis_loop.py:109
+      - agent_utilities/harness/aegis_loop.py:213
+      - agent_utilities/harness/aegis_loop.py:302
+      - tests/unit/harness/test_aegis_loop.py:114
+      - tests/unit/harness/test_aegis_loop.py:134
+  AU-AHE.harness.per-task-adaptation-speed:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/__init__.py
+      - agent_utilities/harness/adaptation_speed.py
+      - agent_utilities/harness/hote_tri_evolution.py
+      test_files:
+      - tests/harness/test_adaptation_speed.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/__init__.py:192
+      - agent_utilities/harness/adaptation_speed.py:6
+      - agent_utilities/harness/hote_tri_evolution.py:29
+      - tests/harness/test_adaptation_speed.py:4
+  AU-AHE.harness.pre-emit-quality-gate:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 10 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/execution/engine.py
+      - agent_utilities/harness/__init__.py
+      - agent_utilities/harness/provenance_gate.py
+      - agent_utilities/harness/quality_gates.py
+      - agent_utilities/harness/self_guided_play.py
+      test_files:
+      - tests/harness/test_provenance_gate.py
+      - tests/unit/harness/test_quality_gates.py
+      doc_files:
+      - .specify/design/ahe-3.13-layered-pre-emit-gate/design.md
+      - docs/CONTEXT.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/ahe-3.13-layered-pre-emit-gate/design.md:45
+      - agent_utilities/core/execution/engine.py:91
+      - agent_utilities/harness/__init__.py:160
+      - agent_utilities/harness/provenance_gate.py:6
+      - agent_utilities/harness/quality_gates.py:1
+      - agent_utilities/harness/quality_gates.py:213
+      - agent_utilities/harness/self_guided_play.py:30
+      - docs/CONTEXT.md:30
+      - tests/harness/test_provenance_gate.py:4
+      - tests/unit/harness/test_quality_gates.py:1
+  AU-AHE.harness.preference-corpus-reliability:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/preference_pairs.py
+      - agent_utilities/knowledge_graph/adaptation/feedback.py
+      test_files:
+      - tests/test_preference_pairs.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/preference_pairs.py:6
+      - agent_utilities/knowledge_graph/adaptation/feedback.py:146
+      - tests/test_preference_pairs.py:2
+  AU-AHE.harness.promotion-governance-validator:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 8 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py
+      - agent_utilities/knowledge_graph/research/auto_merge.py
+      - agent_utilities/knowledge_graph/research/promotion_governance.py
+      test_files:
+      - tests/unit/test_promotion_governance.py
+      doc_files:
+      - docs/examples/evolution-publication.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/adaptation/failure_analyzer.py:737
+      - agent_utilities/knowledge_graph/research/auto_merge.py:68
+      - agent_utilities/knowledge_graph/research/auto_merge.py:166
+      - agent_utilities/knowledge_graph/research/auto_merge.py:207
+      - agent_utilities/knowledge_graph/research/promotion_governance.py:4
+      - agent_utilities/knowledge_graph/research/promotion_governance.py:126
+      - docs/examples/evolution-publication.md:4
+      - tests/unit/test_promotion_governance.py:1
+  AU-AHE.harness.proposal-group-analysis:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/workspace_attention.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/workspace_attention.py:560
+  AU-AHE.harness.proven-team-reuse:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/registry/kg_adapter.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/registry/kg_adapter.py:821
+      - agent_utilities/core/registry/kg_adapter.py:831
+      - agent_utilities/core/registry/kg_adapter.py:887
+      - agent_utilities/core/registry/kg_adapter.py:975
+      - agent_utilities/core/registry/kg_adapter.py:1042
+  AU-AHE.harness.receives-trace-id-must:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 9 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/online_scoring.py
+      - agent_utilities/harness/trace_backend.py
+      - agent_utilities/models/knowledge_graph.py
+      test_files:
+      - tests/harness/test_online_scoring.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/online_scoring.py:4
+      - agent_utilities/harness/online_scoring.py:141
+      - agent_utilities/harness/online_scoring.py:287
+      - agent_utilities/harness/trace_backend.py:902
+      - agent_utilities/harness/trace_backend.py:1040
+      - agent_utilities/models/knowledge_graph.py:61
+      - agent_utilities/models/knowledge_graph.py:1641
+      - agent_utilities/models/knowledge_graph.py:1653
+      - tests/harness/test_online_scoring.py:1
+  AU-AHE.harness.research-craft-discipline:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/research_log.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/research_log.py:5
+      - agent_utilities/harness/research_log.py:82
+      - agent_utilities/harness/research_log.py:225
+  AU-AHE.harness.run-aegis-loop-over:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-AHE.harness.manifest-verify
+    suggestion_why: clusters with 3 sibling(s) around AU-AHE.harness.manifest-verify; shares agent_utilities/harness/aegis_loop.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/aegis_loop.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files:
+      - tests/unit/harness/test_aegis_loop.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/aegis_loop.py:1
+      - agent_utilities/mcp/tools/analysis_tools.py:2126
+      - tests/unit/harness/test_aegis_loop.py:1
+  AU-AHE.harness.runtime-reliability-loop:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 11 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/contextual_model.py
+      - agent_utilities/knowledge_graph/core/engine_breaker.py
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      - agent_utilities/knowledge_graph/research/runtime_reliability.py
+      - agent_utilities/messaging/router.py
+      - agent_utilities/orchestration/agent_runner.py
+      test_files: []
+      doc_files: []
+      introduced: '9bec505d 2026-07-27 feat(evolution): runtime-reliability loop — detect → code-anchored
+        gap → recommend/heal'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/contextual_model.py:690
+      - agent_utilities/knowledge_graph/core/engine_breaker.py:236
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:356
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1275
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:2460
+      - agent_utilities/knowledge_graph/research/runtime_reliability.py:6
+      - agent_utilities/messaging/router.py:322
+      - agent_utilities/orchestration/agent_runner.py:449
+      - agent_utilities/orchestration/agent_runner.py:1304
+      - agent_utilities/orchestration/agent_runner.py:1565
+      - agent_utilities/orchestration/agent_runner.py:2817
+  AU-AHE.harness.sai-controller:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      - agent_utilities/knowledge_graph/research/sai_factory.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:3594
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:2310
+      - agent_utilities/knowledge_graph/research/sai_factory.py:6
+      - agent_utilities/mcp/tools/analysis_tools.py:911
+  AU-AHE.harness.sai-task:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/__init__.py
+      - agent_utilities/harness/sai_task.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/__init__.py:196
+      - agent_utilities/harness/sai_task.py:6
+  AU-AHE.harness.search-distillation-harvester:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/search_distillation.py
+      - agent_utilities/knowledge_graph/core/reasoner.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/search_distillation.py:6
+      - agent_utilities/knowledge_graph/core/reasoner.py:195
+      - agent_utilities/knowledge_graph/core/reasoner.py:247
+  AU-AHE.harness.self-evolution-narrative:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files: []
+      test_files: []
+      doc_files:
+      - docs/journey.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - docs/journey.md:190
+  AU-AHE.harness.self-improvement-overview:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/models/schema_packs/finance.py
+      test_files: []
+      doc_files:
+      - docs/journey.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/models/schema_packs/finance.py:5
+      - agent_utilities/models/schema_packs/finance.py:23
+      - docs/journey.md:192
+      - docs/journey.md:192
+  AU-AHE.harness.single-file-code-synthesis:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 8 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/enrichment/distill.py
+      - agent_utilities/knowledge_graph/research/change_publisher.py
+      - agent_utilities/knowledge_graph/research/change_synthesis.py
+      - agent_utilities/knowledge_graph/research/code_synthesis.py
+      test_files:
+      - tests/harness/test_swebench_harness.py
+      - tests/test_ahe_3_22_code_synthesis.py
+      doc_files:
+      - .specify/specs/ahe-3-22-deployed-loop-is-prose-proposal-only-no-autonomo/spec.md
+      - .specify/specs/ahe-3-22-deployed-loop-is-prose-proposal-only-no-autonomo/tasks.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/specs/ahe-3-22-deployed-loop-is-prose-proposal-only-no-autonomo/spec.md:17
+      - .specify/specs/ahe-3-22-deployed-loop-is-prose-proposal-only-no-autonomo/tasks.md:26
+      - agent_utilities/knowledge_graph/enrichment/distill.py:41
+      - agent_utilities/knowledge_graph/research/change_publisher.py:917
+      - agent_utilities/knowledge_graph/research/change_synthesis.py:398
+      - agent_utilities/knowledge_graph/research/code_synthesis.py:6
+      - tests/harness/test_swebench_harness.py:1
+      - tests/test_ahe_3_22_code_synthesis.py:1
+  AU-AHE.harness.structured-output-repair:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/capabilities/composition.py
+      - agent_utilities/capabilities/output_repair.py
+      test_files:
+      - tests/unit/capabilities/test_output_repair.py
+      doc_files:
+      - docs/guides/capabilities.md
+      introduced: 'bf78a5c6 2026-07-30 feat(harness): structured-output failure taxonomy + bounded repair,
+        explicit execution budgets'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/capabilities/composition.py:121
+      - agent_utilities/capabilities/output_repair.py:6
+      - docs/guides/capabilities.md:61
+      - tests/unit/capabilities/test_output_repair.py:1
+  AU-AHE.harness.swe-failure-remediation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/swebench_remediation.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/swebench_remediation.py:1
+  AU-AHE.harness.swebench-http-surface:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/swebench_harness.py
+      - agent_utilities/server/routers/swebench.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/swebench_harness.py:1
+      - agent_utilities/server/routers/swebench.py:1
+  AU-AHE.harness.swebench-instance-corpus:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/swebench_corpus.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/swebench_corpus.py:1
+  AU-AHE.harness.team-config-precheck:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/_router_impl.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/_router_impl.py:236
+      - agent_utilities/graph/_router_impl.py:250
+  AU-AHE.harness.trading-team-seed:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/trading_team_seed.py
+      test_files:
+      - tests/test_trading_team_seed.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/trading_team_seed.py:1
+      - tests/test_trading_team_seed.py:1
+  AU-AHE.harness.unified-artifact-lineage:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/research/evolution_state.py
+      - agent_utilities/models/knowledge_graph.py
+      test_files:
+      - tests/unit/knowledge_graph/test_artifact_evolution_summary.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/research/evolution_state.py:313
+      - agent_utilities/models/knowledge_graph.py:1678
+      - tests/unit/knowledge_graph/test_artifact_evolution_summary.py:2
+  AU-AHE.harness.unified-promotion-gate:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (9 source
+      file(s), 20 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/harness/evolve_agent.py
+      - agent_utilities/knowledge_graph/research/auto_merge.py
+      - agent_utilities/knowledge_graph/research/change_publisher.py
+      - agent_utilities/knowledge_graph/research/evolution_state.py
+      - agent_utilities/knowledge_graph/research/skill_evolution.py
+      - agent_utilities/mcp/tools/ops_causal_tools.py
+      - agent_utilities/models/knowledge_graph.py
+      - agent_utilities/orchestration/action_policy.py
+      - agent_utilities/orchestration/artifact_promotion.py
+      test_files:
+      - tests/unit/harness/test_agent_hardening_loop.py
+      - tests/unit/mcp/test_ops_causal_tools.py
+      - tests/unit/orchestration/test_artifact_promotion.py
+      doc_files:
+      - docs/architecture/self-evolution-flywheel.md
+      introduced: 'bce90981 2026-07-22 fix: check_concepts / check_domain_vocab — correct 2 mis-minted
+        domains, register 21 pre-existing unregistered concept markers'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/evolve_agent.py:605
+      - agent_utilities/harness/evolve_agent.py:782
+      - agent_utilities/knowledge_graph/research/auto_merge.py:379
+      - agent_utilities/knowledge_graph/research/change_publisher.py:760
+      - agent_utilities/knowledge_graph/research/change_publisher.py:875
+      - agent_utilities/knowledge_graph/research/evolution_state.py:326
+      - agent_utilities/knowledge_graph/research/evolution_state.py:426
+      - agent_utilities/knowledge_graph/research/skill_evolution.py:366
+      - agent_utilities/knowledge_graph/research/skill_evolution.py:579
+      - agent_utilities/mcp/tools/ops_causal_tools.py:34
+      - agent_utilities/mcp/tools/ops_causal_tools.py:104
+      - agent_utilities/models/knowledge_graph.py:72
+      - agent_utilities/models/knowledge_graph.py:1850
+      - agent_utilities/orchestration/action_policy.py:154
+      - agent_utilities/orchestration/artifact_promotion.py:4
+      - docs/architecture/self-evolution-flywheel.md:322
+      - docs/architecture/self-evolution-flywheel.md:512
+      - tests/unit/harness/test_agent_hardening_loop.py:211
+      - tests/unit/mcp/test_ops_causal_tools.py:348
+      - tests/unit/orchestration/test_artifact_promotion.py:1
+  AU-AHE.harness.variant-pool:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-AHE.harness.manifest-verify
+    suggestion_why: clusters with 3 sibling(s) around AU-AHE.harness.manifest-verify; shares agent_utilities/harness/aegis_loop.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/aegis_loop.py
+      - agent_utilities/harness/harness_foundry_benchmark.py
+      test_files:
+      - tests/unit/harness/test_aegis_loop.py
+      - tests/unit/harness/test_harness_foundry_benchmark.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/aegis_loop.py:25
+      - agent_utilities/harness/aegis_loop.py:99
+      - agent_utilities/harness/aegis_loop.py:148
+      - agent_utilities/harness/aegis_loop.py:259
+      - agent_utilities/harness/harness_foundry_benchmark.py:98
+      - tests/unit/harness/test_aegis_loop.py:76
+      - tests/unit/harness/test_harness_foundry_benchmark.py:24
+  AU-AHE.harness.when-outcome-names-agent:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id reads as a slugified prose fragment (when-outcome-names-agent)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/memorydata/bakeoff.py
+      - agent_utilities/harness/memorydata/samples.py
+      - agent_utilities/knowledge_graph/adaptation/feedback.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-task-is-scope
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: reads as a slugified prose fragment (when-outcome-names-agent)
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/memorydata/bakeoff.py:4
+      - agent_utilities/harness/memorydata/bakeoff.py:45
+      - agent_utilities/harness/memorydata/samples.py:4
+      - agent_utilities/knowledge_graph/adaptation/feedback.py:446
+      - agent_utilities/knowledge_graph/adaptation/feedback.py:476
+  AU-AHE.harness.when-task-is-scope:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id reads as a slugified prose fragment (when-task-is-scope)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/__init__.py
+      - agent_utilities/harness/agentic_evolution_engine.py
+      - agent_utilities/harness/self_guided_play.py
+      test_files:
+      - tests/test_self_guided_play.py
+      doc_files:
+      - docs/architecture/multi_source_assimilation.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.width-diverse-best-k
+      artifact_id: reads as a slugified prose fragment (when-task-is-scope)
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/__init__.py:144
+      - agent_utilities/harness/agentic_evolution_engine.py:119
+      - agent_utilities/harness/agentic_evolution_engine.py:420
+      - agent_utilities/harness/self_guided_play.py:1
+      - agent_utilities/harness/self_guided_play.py:93
+      - agent_utilities/harness/self_guided_play.py:116
+      - agent_utilities/harness/self_guided_play.py:164
+      - agent_utilities/harness/self_guided_play.py:219
+      - docs/architecture/multi_source_assimilation.md:212
+      - tests/test_self_guided_play.py:1
+  AU-AHE.harness.width-diverse-best-k:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/graph/test_time_diversity.py
+      - agent_utilities/harness/reasoning_effort.py
+      - agent_utilities/knowledge_graph/core/owl_bridge.py
+      - agent_utilities/models/knowledge_graph.py
+      test_files:
+      - tests/test_time_diversity.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-AHE.harness.agentic-engineering-patterns
+      - AU-AHE.harness.callers-feed-back-per
+      - AU-AHE.harness.capability-ratchet
+      - AU-AHE.harness.citation-quality-tracking
+      - AU-AHE.harness.co-evolution-loop
+      - AU-AHE.harness.co-evolve-research
+      - AU-AHE.harness.empirical-evidence-that-latent
+      - AU-AHE.harness.evolution-branch-bridge
+      - AU-AHE.harness.evolutionary-aggregation
+      - AU-AHE.harness.evolvable-sampling-profiles
+      - AU-AHE.harness.experience-node-architecture
+      - AU-AHE.harness.exploration-discovery
+      - AU-AHE.harness.failure-evolution
+      - AU-AHE.harness.graph-native-team-evolution
+      - AU-AHE.harness.hardening-transparency-surface
+      - AU-AHE.harness.harness-evolution
+      - AU-AHE.harness.kg-held-out-certification
+      - AU-AHE.harness.manifest-verify
+      - AU-AHE.harness.multi-loop-convergence-monitor
+      - AU-AHE.harness.overnight-loop-driver
+      - AU-AHE.harness.per-dimension-ship-outcome
+      - AU-AHE.harness.per-task-adaptation-speed
+      - AU-AHE.harness.pre-emit-quality-gate
+      - AU-AHE.harness.preference-corpus-reliability
+      - AU-AHE.harness.promotion-governance-validator
+      - AU-AHE.harness.proposal-group-analysis
+      - AU-AHE.harness.proven-team-reuse
+      - AU-AHE.harness.receives-trace-id-must
+      - AU-AHE.harness.run-aegis-loop-over
+      - AU-AHE.harness.sai-controller
+      - AU-AHE.harness.search-distillation-harvester
+      - AU-AHE.harness.self-improvement-overview
+      - AU-AHE.harness.single-file-code-synthesis
+      - AU-AHE.harness.team-config-precheck
+      - AU-AHE.harness.trading-team-seed
+      - AU-AHE.harness.variant-pool
+      - AU-AHE.harness.when-outcome-names-agent
+      - AU-AHE.harness.when-task-is-scope
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/test_time_diversity.py:6
+      - agent_utilities/harness/reasoning_effort.py:30
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:281
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:541
+      - agent_utilities/models/knowledge_graph.py:246
+      - agent_utilities/models/knowledge_graph.py:748
+      - tests/test_time_diversity.py:2
