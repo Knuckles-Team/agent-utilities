@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator, ValidationError
 
+from agent_utilities.skills import BUNDLED_SKILLS
 from scripts.release import check_release_wheel as wheel_contract
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -23,27 +24,24 @@ SPEC_SCHEMA = ROOT / "deploy/release/exact-local-release-spec.schema.json"
 EVIDENCE_SCHEMA = ROOT / "deploy/release/exact-local-release-evidence.schema.json"
 DOC = ROOT / "docs/release/exact-local-release.md"
 PIPELINE = ROOT / ".github/workflows/pipeline.yml"
+PREBUNDLED_SKILL_CATALOG = ROOT / "deploy/release/prebundled-skills.catalog.json"
 
-_SKILL_CERTIFICATION_NAMES = (
-    "agent-utilities-deployment",
-    "agent-utilities-development",
-    "agent-utilities-evolution",
-    "graph-engine-and-modalities",
-    "graph-ingestion-and-integration",
-    "graph-modeling-and-mutation",
-    "graph-orchestration-and-automation",
-    "graph-query-and-explanation",
-    "graph-research-and-analysis",
-    "graph-runtime-and-governance",
+# D-CIP-18: these used to be a second hand-maintained copy of the same 10-skill,
+# fixed 3-file-per-skill shape that had already drifted in check_release_wheel.py
+# itself (see that module's _named_skill_assets docstring). Sourcing the NAMES
+# from the same canonical registry (agent_utilities.skills.BUNDLED_SKILLS) and
+# the per-skill ASSETS independently from the reviewed, committed catalog file
+# (rather than from wheel_contract's own derivation) keeps this test a real,
+# independent check on wheel_contract's composition instead of a second copy
+# that can silently go stale the same way.
+_SKILL_CERTIFICATION_NAMES = tuple(sorted(BUNDLED_SKILLS))
+_SKILL_CERTIFICATION_CATALOG = json.loads(
+    PREBUNDLED_SKILL_CATALOG.read_text(encoding="utf-8")
 )
 _SKILL_CERTIFICATION_ASSETS = {
-    asset
-    for skill in _SKILL_CERTIFICATION_NAMES
-    for asset in (
-        f"agent_utilities/skills/{skill}/SKILL.md",
-        f"agent_utilities/skills/{skill}/agents/graph-os.yaml",
-        f"agent_utilities/skills/{skill}/agents/openai.yaml",
-    )
+    f"agent_utilities/skills/{entry['skill']}/{file_entry['name']}"
+    for entry in _SKILL_CERTIFICATION_CATALOG["entries"]
+    for file_entry in entry["files"]
 }
 _SKILL_CERTIFICATION_WHEEL_MEMBERS = _SKILL_CERTIFICATION_ASSETS | {
     "agent_utilities/deployment/certification_oidc.py",
@@ -586,7 +584,14 @@ def test_release_wheel_contract_requires_exact_skill_certification_surface(
     tmp_path: Path,
 ) -> None:
     assert wheel_contract._BUNDLED_SKILL_NAMES == _SKILL_CERTIFICATION_NAMES
-    assert wheel_contract._BUNDLED_SKILL_ASSETS == _SKILL_CERTIFICATION_ASSETS
+    # The full packaged-asset surface also covers the three non-skill
+    # structural trees (fleet_harness/, skill_graphs/, workflows/ — see
+    # wheel_contract._structural_skill_assets), which is exercised directly
+    # here rather than re-implemented, since it is itself a live scan of the
+    # same source tree this test would otherwise have to walk a second time.
+    assert wheel_contract._BUNDLED_SKILL_ASSETS == (
+        _SKILL_CERTIFICATION_ASSETS | wheel_contract._structural_skill_assets()
+    )
     assert _SKILL_CERTIFICATION_WHEEL_MEMBERS <= wheel_contract._REQUIRED_MEMBERS
     assert _SKILL_CERTIFICATION_ENTRY_POINTS <= wheel_contract._ENTRY_POINTS.keys()
     wheel_contract.check_wheel(_synthetic_release_wheel(tmp_path / "complete.whl"))
@@ -729,6 +734,35 @@ def test_release_wheel_rejects_resource_or_catalog_schema_substitution(
         match="release-resource-catalog-invalid",
     ):
         wheel_contract.check_wheel(wheel)
+
+
+def test_signed_release_inputs_carry_no_hardlink_alias() -> None:
+    """D-CDX-79 hydration regression: catch a re-introduced hardlink early.
+
+    check_compatibility.py's _input_bytes/_evidence_bytes already fail closed
+    on any release input with st_nlink != 1 (a second directory entry aliasing
+    the same inode would let a signed/hashed input be replaced without the
+    tracked path's own mtime/content changing). That enforcement was already
+    correct -- what was missing was a check that runs in the ordinary test
+    suite, against the ACTUAL checked-out files, rather than only surfacing
+    seven doctor-suite failures deep in a production-certification run the way
+    D-CDX-79 first did. compatibility-matrix.yml and certification-campaign.yml
+    are the two D-CDX-79 named explicitly (materialized as independent copies
+    under the old `/home/apps/vs1-throwaway/...` hardlink mirror); this checks
+    every tracked release input the wheel/catalog contract already treats as
+    security-sensitive, so any of them regressing to a hydration-introduced
+    alias fails a normal `pytest` run instead of only a doctor/certification
+    pass.
+    """
+
+    for relative in wheel_contract._RELEASE_RESOURCE_PATHS:
+        path = ROOT / relative
+        metadata = path.stat(follow_symlinks=False)
+        assert metadata.st_nlink == 1, (
+            f"{relative} has st_nlink={metadata.st_nlink} (expected 1) -- a "
+            "second directory entry is aliasing this signed release input's "
+            "inode, exactly the D-CDX-79 hydration hardlink defect."
+        )
 
 
 def test_operator_contract_is_in_strict_docs_navigation() -> None:

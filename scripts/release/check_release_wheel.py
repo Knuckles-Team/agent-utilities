@@ -20,6 +20,29 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import SpecifierSet
 from packaging.utils import canonicalize_name
 
+# D-CIP-18: the bundled-skill surface below used to be a hand-maintained tuple
+# that silently drifted behind agent_utilities/skills/ (it named 10 skills
+# with a fixed 3-file shape while the real tree grew to 13 skills, several
+# with extra references/ or scripts/ files, plus three non-skill structural
+# trees). It is now DERIVED from the same canonical sources the rest of the
+# release tooling already treats as ground truth, so a skill/file addition
+# either shows up automatically (name list, per-skill files — both flow
+# through a reviewed, hash-verified artifact) or fails closed with a specific
+# reason instead of silently accepting anything.
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from agent_utilities.release_catalogs import (  # noqa: E402
+    _NON_SKILL_STRUCTURAL_DIRECTORIES,
+)
+from agent_utilities.skills import BUNDLED_SKILLS  # noqa: E402
+
+_SKILLS_ROOT = _ROOT / "agent_utilities" / "skills"
+_PREBUNDLED_SKILL_CATALOG = (
+    _ROOT / "deploy" / "release" / "prebundled-skills.catalog.json"
+)
+
 _MAX_WHEEL_BYTES = 4 * 1024 * 1024 * 1024
 _MAX_CONTRACT_MEMBER_BYTES = 1024 * 1024
 _MAX_MEMBERS = 400_000
@@ -27,7 +50,7 @@ _RELEASE_RESOURCE_CATALOG = (
     "deploy/release/release-contract-resources.catalog.json"
 )
 _RELEASE_RESOURCE_CATALOG_SHA256 = (
-    "2abdc3c176ebdb0927c5c4436f93dfb334a6da4011f6375d3d17d7617c520ff0"
+    "35efd2aeff0ad6c50e5bb11581b5ece77960feac4d8f8a6c82a25010a5d23111"
 )
 _RELEASE_RESOURCE_PATHS = (
     "deploy/release/certification-campaign.schema.json",
@@ -64,28 +87,89 @@ _RELEASE_RESOURCE_PATHS = (
     "deploy/release/source-freeze-gates.schema.json",
     "scripts/scale/workload_contract.yml",
 )
-_BUNDLED_SKILL_NAMES = (
-    "agent-utilities-deployment",
-    "agent-utilities-development",
-    "agent-utilities-evolution",
-    "graph-engine-and-modalities",
-    "graph-ingestion-and-integration",
-    "graph-modeling-and-mutation",
-    "graph-orchestration-and-automation",
-    "graph-query-and-explanation",
-    "graph-research-and-analysis",
-    "graph-runtime-and-governance",
-)
-_BUNDLED_SKILL_ASSETS = {
-    asset
-    for skill in _BUNDLED_SKILL_NAMES
-    for asset in (
-        f"agent_utilities/skills/{skill}/SKILL.md",
-        f"agent_utilities/skills/{skill}/agents/graph-os.yaml",
-        f"agent_utilities/skills/{skill}/agents/openai.yaml",
-    )
-}
-_REQUIRED_MEMBERS = {
+
+
+class WheelContractError(RuntimeError):
+    """Stable, path-free wheel contract rejection."""
+
+
+def _named_skill_assets() -> frozenset[str]:
+    """Return every packaged file for the named (SKILL.md-shaped) skills.
+
+    Sourced from the reviewed, hash-verified retained catalog
+    (deploy/release/prebundled-skills.catalog.json, regenerated via
+    generate_prebundled_skill_catalog.py / check_release_catalogs.py — see
+    D-CDX-78) rather than a fixed per-skill file shape, so a skill legitimately
+    growing a references/ directory or an extra script (as
+    graph-ingestion-and-integration, graph-query-and-explanation, and
+    agent-utilities-self-evolution already have) does not require a second,
+    independently-maintained edit here — it requires the ONE reviewed catalog
+    regeneration that already exists for exactly this purpose.
+    """
+
+    try:
+        catalog = json.loads(_PREBUNDLED_SKILL_CATALOG.read_text(encoding="utf-8"))
+        entries = catalog["entries"]
+        names = {entry["skill"] for entry in entries}
+        if names != set(BUNDLED_SKILLS):
+            raise WheelContractError("skill-catalog-membership-invalid")
+        return frozenset(
+            f"agent_utilities/skills/{entry['skill']}/{file_entry['name']}"
+            for entry in entries
+            for file_entry in entry["files"]
+        )
+    except WheelContractError:
+        raise
+    except (OSError, UnicodeError, ValueError, KeyError, TypeError) as exc:
+        raise WheelContractError("skill-catalog-unavailable") from exc
+
+
+def _structural_skill_assets() -> frozenset[str]:
+    """Return every packaged file under the non-skill structural trees.
+
+    ``agent_utilities/skills/`` also ships ``fleet_harness/`` (the skill
+    fleet-validation harness, backing the ``agent-utilities-validate-skill-fleet``
+    console script), ``skill_graphs/`` (the KG-ingestion reference corpus),
+    and ``workflows/`` (nested workflow-type skills, each with its own
+    SKILL.md, including agent-os-genesis's Helm chart assets under
+    ``assets/helm/``). pyproject.toml's ``skills/**`` package-data glob
+    already ships all three deliberately (fleet_harness has a live entry
+    point; the other two are documented architecture, not accidents) — D-CIP-18
+    recorded that as the explicit ship decision for these categories, since
+    the packaging config had already made it. This scans them (bounded, no
+    symlinks, mirroring agent_utilities/release_catalogs.py's own walk) so
+    they carry real contract coverage instead of none.
+    """
+
+    assets: set[str] = set()
+    for directory in sorted(_NON_SKILL_STRUCTURAL_DIRECTORIES):
+        pending = [_SKILLS_ROOT / directory]
+        while pending:
+            current = pending.pop()
+            try:
+                children = tuple(current.iterdir())
+            except OSError as exc:
+                raise WheelContractError("skill-tree-unavailable") from exc
+            for child in children:
+                try:
+                    metadata = child.lstat()
+                except OSError as exc:
+                    raise WheelContractError("skill-tree-unavailable") from exc
+                if stat.S_ISLNK(metadata.st_mode):
+                    raise WheelContractError("skill-tree-symlink-rejected")
+                if stat.S_ISDIR(metadata.st_mode):
+                    if child.name != "__pycache__":
+                        pending.append(child)
+                    continue
+                if not stat.S_ISREG(metadata.st_mode):
+                    continue
+                if child.suffix in (".pyc", ".pyo"):
+                    continue
+                assets.add(child.relative_to(_ROOT).as_posix())
+    return frozenset(assets)
+
+
+_STATIC_REQUIRED_MEMBERS = {
     "agent_utilities/deployment/certification_oidc.py",
     "agent_utilities/deployment/skill_validation.py",
     "agent_utilities/deployment/skill_validation_assets.py",
@@ -129,7 +213,14 @@ _REQUIRED_MEMBERS = {
     "scripts/scale/fake_engine.py",
     "scripts/scale/loadgen.py",
     "scripts/scale/workload_contract.py",
-} | _BUNDLED_SKILL_ASSETS | set(_RELEASE_RESOURCE_PATHS)
+} | set(_RELEASE_RESOURCE_PATHS)
+# Kept as module-level constants (rather than only local variables inside
+# check_wheel) so callers — notably tests/gates/test_exact_local_release_contract.py,
+# which builds synthetic wheels from this exact set — see the same live,
+# derived surface check_wheel() itself enforces.
+_BUNDLED_SKILL_NAMES = tuple(sorted(BUNDLED_SKILLS))
+_BUNDLED_SKILL_ASSETS = _named_skill_assets() | _structural_skill_assets()
+_REQUIRED_MEMBERS = _STATIC_REQUIRED_MEMBERS | _BUNDLED_SKILL_ASSETS
 _SCHEMA_ID_SUFFIXES = {
     "deploy/release/certification-campaign.schema.json": (
         "certification-campaign-v1.json"
@@ -258,10 +349,6 @@ _ENTRY_POINTS = {
         "scripts.release.promote_local_release:verify_main"
     ),
 }
-
-
-class WheelContractError(RuntimeError):
-    """Stable, path-free wheel contract rejection."""
 
 
 def check_wheel(path: Path) -> None:
