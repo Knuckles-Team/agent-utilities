@@ -127,15 +127,31 @@ class GraphMaintainer:
 
         Returns ``{"scanned": N, "embedded": N, "indexed": N,
         "skipped_no_text": N, "deferred_no_text": N, "conflicted": N,
-        "errored": N}``. ``embedded`` counts durable node-property updates;
-        ``indexed`` counts immediate ANN registrations; ``conflicted`` counts
-        rows whose text or embedding state changed after hydration and
-        therefore lost their CAS (an ordinary, expected concurrent-writer
-        outcome); ``errored`` counts rows whose atomic commit raised instead
-        of returning — a BACKEND/infra failure (e.g. an unmet transaction
-        precondition), never silently folded into ``conflicted`` (D-CDX-101:
-        a run that raises for every row must never be indistinguishable from
-        one that lost an ordinary OCC race).
+        "errored": N, "aborted_early": bool}``. ``embedded`` counts durable
+        node-property updates; ``indexed`` counts immediate ANN registrations;
+        ``conflicted`` counts rows whose text or embedding state changed after
+        hydration and therefore lost their CAS (an ordinary, expected
+        concurrent-writer outcome); ``errored`` counts rows whose atomic
+        commit raised instead of returning — a BACKEND/infra failure (e.g. an
+        unmet transaction precondition), never silently folded into
+        ``conflicted`` (D-CDX-101: a run that raises for every row must never
+        be indistinguishable from one that lost an ordinary OCC race).
+
+        D-EIMG-2: a per-row commit that raises ``EngineCircuitOpenError``
+        (the shared engine-client circuit breaker is open) or
+        ``SessionExpiredError`` (the verified authority lease expired
+        mid-run) is retried once after a jittered backoff sized to the
+        breaker's own cooldown (:pyattr:`AgentConfig.engine_breaker_cooldown`)
+        before being counted as ``errored``/``conflicted`` — these are
+        dispatch-contention signals, not application errors, and hammering
+        an already-open breaker with the rest of a bounded page wastes the
+        entire ``--limit`` budget on guaranteed-fail rows (measured: 193 of
+        200). If contention persists across
+        :pydata:`_MAX_CONSECUTIVE_CONTENTION_ABORT` consecutive rows even
+        after the retry, the rest of this page is left unattempted
+        (``aborted_early=True``) rather than serially exhausting the whole
+        page's budget on an engine that is not a transient burst but
+        genuinely down; unattempted rows stay eligible for a later run.
         """
         result = {
             "scanned": 0,
@@ -195,13 +211,88 @@ class GraphMaintainer:
                 "embedding backfill requires atomic field+ANN transactions"
             )
 
+        # D-EIMG-2: the live engine is a single-writer authority shared with
+        # ordinary request traffic and the D-BFR-5 hydrator; a bounded page of
+        # sequential per-node OCC commits can burst past
+        # ``ENGINE_BREAKER_THRESHOLD`` consecutive connect/timeout failures
+        # (default 5) and trip the shared :class:`~.engine_breaker.CircuitBreaker`.
+        # Once open, EVERY call fails FAST with ``EngineCircuitOpenError`` for the
+        # rest of ``ENGINE_BREAKER_COOLDOWN`` (default 15s) — and this loop used
+        # to just keep hammering it, burning the entire remaining ``--limit``
+        # budget as instant, zero-value ``errored`` rows (the measured
+        # 193-of-200 failure). A verified-authority session lease
+        # (``SessionExpiredError``) can expire mid-run the same way. Both are
+        # RETRYABLE dispatch-contention signals, not application errors: back
+        # off past the breaker's own cooldown (with jitter, via the shared
+        # :mod:`~agent_utilities.orchestration.resilience` policy primitive) and
+        # retry once before counting the row as durably failed.
+        from agent_utilities.core.config import config as _agent_config
+        from agent_utilities.knowledge_graph.core.engine_breaker import (
+            EngineCircuitOpenError,
+        )
+        from agent_utilities.knowledge_graph.core.session import (
+            SessionExpiredError,
+        )
+        from agent_utilities.orchestration.resilience import (
+            ResiliencePolicy,
+            run_with_resilience_sync,
+        )
+
+        _DISPATCH_CONTENTION_ERRORS: tuple[type[BaseException], ...] = (
+            EngineCircuitOpenError,
+            SessionExpiredError,
+            ConnectionError,
+            TimeoutError,
+        )
+        _cooldown_s = max(1.0, float(_agent_config.engine_breaker_cooldown))
+
+        def _is_dispatch_contention(exc: BaseException) -> bool:
+            # ``retry_on`` MUST be a predicate, not the bare tuple above:
+            # ``ResiliencePolicy.should_retry`` hard-vetoes every
+            # ``NON_RETRYABLE`` type (``PermissionError`` among them) before
+            # ever consulting a tuple allow-list, and ``SessionExpiredError``
+            # IS a ``PermissionError`` subclass
+            # (:class:`~.session.SessionRequiredError`). That veto exists so a
+            # real authorization failure is never blindly retried — correct
+            # in general, wrong here: a process-local lease that expired
+            # mid-run because nothing was renewing it is exactly the narrow,
+            # deliberate exception this predicate carves out. A callable
+            # ``retry_on`` bypasses the tuple veto entirely (see
+            # ``resilience.ResiliencePolicy.should_retry``).
+            return isinstance(exc, _DISPATCH_CONTENTION_ERRORS)
+
+        _commit_policy = ResiliencePolicy(
+            max_attempts=2,
+            backoff_base_s=_cooldown_s,
+            backoff_factor=1.0,
+            max_backoff_s=_cooldown_s * 1.5,
+            jitter=True,
+            jitter_strategy="proportional",
+            retry_on=_is_dispatch_contention,
+            name="embedding_backfill_commit",
+        )
+        # A page-wide circuit breaker that never recovers (engine genuinely
+        # down, not just a burst) must not turn a 200-node page into an
+        # N * (cooldown + retry) fully-serial stall: bail out of the REST of
+        # this page once contention persists across several consecutive rows
+        # even after the retry, leaving them untouched (still eligible) for a
+        # later bounded run instead of exhausting the whole budget on
+        # certain-to-fail rows one at a time.
+        _MAX_CONSECUTIVE_CONTENTION_ABORT = 3
+        _consecutive_contention_failures = 0
+        _aborted_early = False
+
         def _compare(
             node_id: str,
             conditions: dict[str, Any],
             updates: dict[str, Any],
         ) -> bool:
             try:
-                return bool(compare_and_set(node_id, conditions, updates))
+                return bool(
+                    run_with_resilience_sync(
+                        compare_and_set, _commit_policy, node_id, conditions, updates
+                    )
+                )
             except NotImplementedError as exc:
                 raise RuntimeError(
                     "embedding backfill requires backend compare-and-set support"
@@ -238,19 +329,53 @@ class GraphMaintainer:
             )
 
         for node_id, conditions in deferred:
-            if _compare(
-                node_id,
-                conditions,
-                {EMBEDDING_BACKFILL_STATE_FIELD: EMBEDDING_BACKFILL_NO_TEXT},
-            ):
+            if _aborted_early:
+                break
+            try:
+                applied = _compare(
+                    node_id,
+                    conditions,
+                    {EMBEDDING_BACKFILL_STATE_FIELD: EMBEDDING_BACKFILL_NO_TEXT},
+                )
+            except _DISPATCH_CONTENTION_ERRORS as exc:
+                # Same row-isolation contract as the embedding loop below: one
+                # contended node must never abort the rest of an already
+                # in-flight page. See the long comment on that loop for why
+                # this is bucketed under ``conflicted`` (D-CDX-101 keeps
+                # backend/infra ``errored`` distinct from an ordinary lost OCC
+                # race, but a no-text marker CAS carries no vector — nothing
+                # was ever computed for this row — so a retry-exhausted
+                # contention failure here is left eligible for the next
+                # bounded run exactly like a lost race, not reported as a
+                # generated-then-lost embedding).
+                result["conflicted"] += 1
+                _consecutive_contention_failures += 1
+                logger.warning(
+                    "Deferred no-text marker CAS failed for %s after retry "
+                    "(dispatch contention): %s",
+                    node_id,
+                    exc,
+                )
+                if (
+                    _consecutive_contention_failures
+                    >= _MAX_CONSECUTIVE_CONTENTION_ABORT
+                ):
+                    _aborted_early = True
+                continue
+            _consecutive_contention_failures = 0
+            if applied:
                 result["deferred_no_text"] += 1
             else:
                 result["conflicted"] += 1
 
         for (node_id, _, conditions), vector in zip(items, vectors, strict=True):
+            if _aborted_early:
+                break
             try:
                 applied = bool(
-                    compare_and_set_embedding(
+                    run_with_resilience_sync(
+                        compare_and_set_embedding,
+                        _commit_policy,
                         node_id,
                         conditions,
                         {
@@ -260,6 +385,29 @@ class GraphMaintainer:
                         vector,
                     )
                 )
+            except _DISPATCH_CONTENTION_ERRORS as exc:
+                result["errored"] += 1
+                _consecutive_contention_failures += 1
+                logger.warning(
+                    "Atomic embedding commit failed for %s after retry "
+                    "(dispatch contention — engine breaker/session): %s",
+                    node_id,
+                    exc,
+                )
+                if (
+                    _consecutive_contention_failures
+                    >= _MAX_CONSECUTIVE_CONTENTION_ABORT
+                ):
+                    logger.warning(
+                        "Entity embedding backfill: aborting remainder of "
+                        "this page early — %d consecutive node(s) exhausted "
+                        "retry against a still-contended engine; %d node(s) "
+                        "left unattempted and still eligible for a later run.",
+                        _consecutive_contention_failures,
+                        len(items) - result["embedded"] - result["errored"],
+                    )
+                    _aborted_early = True
+                continue
             except Exception as exc:
                 # D-CDX-101: this ISOLATES one node's atomic commit failure so
                 # it cannot abort the other N-1 rows already staged in this
@@ -300,15 +448,19 @@ class GraphMaintainer:
                         node_id,
                         exc,
                     )
+                _consecutive_contention_failures = 0
                 continue
+            _consecutive_contention_failures = 0
             if not applied:
                 result["conflicted"] += 1
                 continue
             result["embedded"] += 1
             result["indexed"] += 1
+        result["aborted_early"] = _aborted_early
         logger.info(
             "Entity embedding backfill: scanned=%d embedded=%d indexed=%d "
-            "skipped_no_text=%d deferred_no_text=%d conflicted=%d errored=%d",
+            "skipped_no_text=%d deferred_no_text=%d conflicted=%d errored=%d "
+            "aborted_early=%s",
             result["scanned"],
             result["embedded"],
             result["indexed"],
@@ -316,6 +468,7 @@ class GraphMaintainer:
             result["deferred_no_text"],
             result["conflicted"],
             result["errored"],
+            _aborted_early,
         )
         return result
 
