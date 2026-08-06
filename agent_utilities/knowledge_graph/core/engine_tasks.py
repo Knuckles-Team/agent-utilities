@@ -757,7 +757,29 @@ class _ControlPlaneWorkItemEngine:
             raise WorkItemBackendUnavailable(
                 "control authority does not expose durable WorkItem creation"
             )
-        add(node_id, label=node_type, **(properties or {}))
+        # CONCEPT:AU-KG.ontology.node-type-casing-convergence — normalizes a node's class identity to the schema label so two engine adapters can no longer diverge on its casing.
+        # The ``node_type`` PARAMETER (the schema label, e.g. ``"WorkItem"``)
+        # is this call's single source of truth for the node's class identity,
+        # matching
+        # ``IntelligenceGraphEngine.add_node``'s own ``props["node_type"] =
+        # node_type`` stamp one layer up. ``work_item.py``'s callers build
+        # ``properties`` from ``RegistryNode.to_graph_properties()``, which
+        # ALSO writes a ``node_type`` key — the lowercase snake_case
+        # ``RegistryNodeType`` enum value (e.g. ``"work_item"``), not the
+        # PascalCase label this adapter's caller passed. Spreading that dict
+        # unreconciled let it silently override the label on this
+        # control-plane path only, so ingestion-scheduled WorkItems landed as
+        # ``node_type="work_item"`` while every other WorkItem (submitted
+        # through the main-graph adapter, which already normalizes this) landed
+        # as ``node_type="WorkItem"`` — the exact casing split measured live
+        # (WorkItem 4,590 vs work_item 3,760). Overriding here, at the one
+        # place both adapters converge before reaching their respective
+        # backends, is the fix at the chokepoint: neither adapter can diverge
+        # from the caller-supplied class identity again, regardless of what a
+        # ``RegistryNode`` subclass happens to fold into its own properties.
+        props = dict(properties or {})
+        props["node_type"] = node_type
+        add(node_id, label=node_type, **props)
 
     def link_nodes(
         self,
