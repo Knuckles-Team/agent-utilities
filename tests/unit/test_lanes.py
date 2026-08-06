@@ -136,6 +136,29 @@ def test_lease_is_shared_across_worktrees_not_per_worktree(canonical: Path) -> N
                 pytest.fail("worktrees took independent leases")
 
 
+def test_hold_lease_persists_and_exposes_the_declared_owner(canonical: Path) -> None:
+    """D-CDX-14: an optional caller-declared owner identity (fleet/session,
+    distinguishing Claude/Codex/human/vLLM actors) is persisted into the
+    lease record and readable via lease_status - not discarded."""
+    owner = {"fleet": "codex", "session": "codex-session-42"}
+    with lanes.hold_lease(
+        "dependency-lock", operation="uv sync", path=canonical, owner=owner
+    ):
+        holder = lanes.lease_status("dependency-lock", canonical)
+        assert holder is not None
+        assert holder["owner"] == owner
+    assert lanes.lease_status("dependency-lock", canonical) is None
+
+
+def test_hold_lease_without_an_owner_omits_the_key(canonical: Path) -> None:
+    """Backward compatible: no owner passed means no owner key at all - not a
+    default/placeholder value that could be mistaken for a real one."""
+    with lanes.hold_lease("dependency-lock", operation="uv sync", path=canonical):
+        holder = lanes.lease_status("dependency-lock", canonical)
+        assert holder is not None
+        assert "owner" not in holder
+
+
 def test_workspace_scoped_lease_leaves_the_repo_scope(canonical: Path) -> None:
     """The shared venv is contended across repos, so its lease cannot live in one."""
     assert lanes.resource_scope("dependency-lock") == "workspace"
