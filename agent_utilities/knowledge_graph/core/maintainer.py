@@ -92,7 +92,11 @@ class GraphMaintainer:
         return updated_count
 
     def backfill_entity_embeddings(
-        self, *, limit: int = 500, batch_size: int = 256
+        self,
+        *,
+        limit: int = 500,
+        batch_size: int = 256,
+        node_types: tuple[str, ...] | list[str] | None = None,
     ) -> dict[str, int]:
         """Generalized twin of :meth:`enrich_embeddings` for the WHOLE typed-
         entity graph, not just ``:Message`` nodes (D-EMB/D-PERF-5).
@@ -125,6 +129,20 @@ class GraphMaintainer:
         A later full entity upsert replaces that maintenance-only marker and the
         ingest-time embedding path handles newly-added text normally.
 
+        ``node_types``, if given, scopes candidates to those ``node_type``
+        values only (D-HYD-4 addendum, 2026-08-06). The default (``None``) is
+        the ORIGINAL blind ``ORDER BY n.id`` sweep across the WHOLE graph,
+        unchanged — measured live to leave the small discovery-relevant corpus
+        (:data:`~..enrichment.semantic.DISCOVERY_NODE_TYPES`, a few thousand
+        nodes) at exactly zero embeddings indefinitely, because those ids sort
+        behind tens of thousands of unrelated nodes (``RuntimeSignal``,
+        ``WorkItem``, ``IngestManifest``, raw entity-extraction rows with
+        unprefixed ids) at this method's per-cycle budget. Pass
+        ``DISCOVERY_NODE_TYPES`` for a bounded run that targets exactly what
+        ``find_tools`` / ``find_relevant_callable_resources`` / delegation
+        search over, instead of competing with the general sweep for the same
+        budget.
+
         Returns ``{"scanned": N, "embedded": N, "indexed": N,
         "skipped_no_text": N, "deferred_no_text": N, "conflicted": N,
         "errored": N}``. ``embedded`` counts durable node-property updates;
@@ -149,12 +167,19 @@ class GraphMaintainer:
         if not self.engine.backend:
             return result
 
-        from ..enrichment.semantic import embedding_backfill_eligibility_clause
+        from ..enrichment.semantic import (
+            embedding_backfill_eligibility_clause,
+            embedding_backfill_type_scope_clause,
+        )
 
         exclusion_clause, exclusion_params = embedding_backfill_eligibility_clause()
+        type_clause = (
+            embedding_backfill_type_scope_clause(node_types) if node_types else ""
+        )
         query = (
             "MATCH (n) WHERE n.embedding IS NULL "
             f"AND n.{EMBEDDING_BACKFILL_STATE_FIELD} IS NULL "
+            f"{type_clause}"
             f"{exclusion_clause} "
             "RETURN n.id AS id "
             "ORDER BY n.id LIMIT $limit"

@@ -41,8 +41,32 @@ EMBEDDING_BACKFILL_NO_TEXT = "no_text"
 # False before replacement and flip it to True only after ANN commit returns.
 EMBEDDING_INDEX_READY_FIELD = "_embedding_index_ready"
 
+# D-HYD-4 / D-GS27-6 / D-ORC-7 (2026-08-06) -- the node types
+# `find_tools` / `find_relevant_callable_resources`
+# and delegation actually search over. `backfill_entity_embeddings`'s default
+# candidate order is a blind `ORDER BY n.id` scan across the WHOLE graph with no
+# type awareness, so these -- a few thousand nodes -- sort behind ~36k unrelated
+# nodes (RuntimeSignal, WorkItem, IngestManifest, mandatory_marking, raw
+# Entity/Blob extraction rows with unprefixed ids that sort first of all) and are
+# never reached at the 5-minute/64-node governance cadence. Kept as ONE list
+# (mirrors `embedding_backfill_eligibility_clause`'s rationale) so the
+# governance-agent's steady-state discovery pass, the operator backfill script,
+# and any future caller scope to the IDENTICAL set instead of drifting copies.
+DISCOVERY_NODE_TYPES: tuple[str, ...] = (
+    "Tool",
+    "WorkflowDefinition",
+    "Skill",
+    "CallableResource",
+    "Concept",
+    "Prompt",
+    "MCPServer",
+    "NativeTool",
+)
 
-def embedding_backfill_eligibility_clause(*, alias: str = "n") -> tuple[str, dict[str, Any]]:
+
+def embedding_backfill_eligibility_clause(
+    *, alias: str = "n"
+) -> tuple[str, dict[str, Any]]:
     """Cypher ``AND``-clause + params excluding secret-bearing nodes from
     embedding-backfill candidacy (D-CDX-102).
 
@@ -92,6 +116,37 @@ def embedding_backfill_eligibility_clause(*, alias: str = "n") -> tuple[str, dic
         "embedding_backfill_excluded_label": SECRET_LABEL,
     }
     return clause, params
+
+
+def embedding_backfill_type_scope_clause(
+    node_types: tuple[str, ...] | list[str], *, alias: str = "n"
+) -> str:
+    """Cypher ``AND``-clause restricting embedding-backfill candidates to
+    ``node_types`` (D-HYD-4 addendum, 2026-08-06).
+
+    The default backfill candidate query is a blind ``ORDER BY n.id`` scan with
+    no type awareness at all, which is why the small discovery-relevant corpus
+    (:data:`DISCOVERY_NODE_TYPES`) was measured at exactly zero embeddings
+    despite the governance loop running continuously: those ids sort behind
+    tens of thousands of unrelated nodes. This clause lets a caller (the
+    governance agent's discovery pass, the operator script's ``--node-types``)
+    scope a bounded run to just the types it cares about, so it stops competing
+    with the general sweep for the same per-cycle budget.
+
+    Values are inlined as literals rather than bound as a ``$`` list parameter
+    — the same choice ``research/loop_controller.py``'s watermark query and
+    ``retrieval/governance_rules.py``'s active-rule query already make, because
+    this backend does not reliably bind list params. Safe here because callers
+    pass a fixed, code-defined enum (:data:`DISCOVERY_NODE_TYPES` or a literal
+    list at a call site), never raw external/user input; single quotes are
+    stripped defensively regardless.
+    """
+    literal_list = ", ".join(
+        "'" + str(t).replace("'", "") + "'" for t in node_types if str(t).strip()
+    )
+    if not literal_list:
+        return ""
+    return f"AND {alias}.node_type IN [{literal_list}] "
 
 
 def configured_embedding_dimension() -> int:
@@ -405,6 +460,15 @@ _ENTITY_SUMMARY_FIELDS: tuple[str, ...] = (
     "message",
     "text",
     "notes",
+    # Appended, not inserted, so a real description always wins where one
+    # exists. Added for D-HYD-4's discovery-eligibility pass (2026-08-06):
+    # measured live, `Prompt` nodes carry NO description/summary/content field
+    # at all but DO carry `system_prompt` (8/8 sampled) — without this, every
+    # Prompt embeds from its bare name alone. `synonyms` (a JSON-list-shaped
+    # string of alternate phrasings, e.g. MCPServer nodes) is genuine
+    # query-matching signal the priority list otherwise never reaches.
+    "system_prompt",
+    "synonyms",
 )
 # Never embed identifiers, timestamps, urls, or other low-signal/high-churn
 # fields even when they happen to be strings — keeps ``derive_entity_text``

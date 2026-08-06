@@ -550,3 +550,74 @@ def test_backfill_excludes_secrets_graph_and_secret_label_by_construction():
     assert backend.indexed == ["safe-1"]
     assert "secret-manifest-1" not in backend.indexed
     assert "secret-node-2" not in backend.indexed
+
+
+def test_embedding_backfill_type_scope_clause_inlines_literal_list():
+    """D-HYD-4 addendum, 2026-08-06: the type-scope clause is what lets a
+    caller target the discovery-relevant corpus instead of the default blind
+    ``ORDER BY n.id`` sweep. Values are inlined (not `$`-bound), matching the
+    established pattern for this backend (``research/loop_controller.py``'s
+    watermark query, ``retrieval/governance_rules.py``'s active-rule query)."""
+    from agent_utilities.knowledge_graph.enrichment.semantic import (
+        DISCOVERY_NODE_TYPES,
+        embedding_backfill_type_scope_clause,
+    )
+
+    clause = embedding_backfill_type_scope_clause(["Tool", "Skill"])
+    assert clause == "AND n.node_type IN ['Tool', 'Skill'] "
+
+    # A caller-controlled alias is honored.
+    assert embedding_backfill_type_scope_clause(["Tool"], alias="x").startswith(
+        "AND x.node_type"
+    )
+
+    # Empty input -> no-op clause, never a malformed `IN []`.
+    assert embedding_backfill_type_scope_clause([]) == ""
+
+    # A stray quote is stripped rather than producing an unterminated literal.
+    assert "O'Brien" not in embedding_backfill_type_scope_clause(["O'Brien"])
+
+    # DISCOVERY_NODE_TYPES is the shared enum this whole addendum exists to
+    # let callers target — assert its membership stays what find_tools /
+    # find_relevant_callable_resources / delegation actually search over.
+    assert set(DISCOVERY_NODE_TYPES) == {
+        "Tool",
+        "WorkflowDefinition",
+        "Skill",
+        "CallableResource",
+        "Concept",
+        "Prompt",
+        "MCPServer",
+        "NativeTool",
+    }
+
+
+def test_backfill_entity_embeddings_node_types_scopes_the_candidate_query():
+    """``node_types`` must narrow the SAME query the default sweep uses, not
+    replace it with a second code path that could drift."""
+    backend = DummyBackend(
+        execute_results=[
+            [{"id": "tool-1", "props": {"id": "tool-1", "node_type": "Tool", "name": "x", "description": "y"}}]
+        ]
+    )
+    engine = MagicMock()
+    engine.backend = backend
+
+    with patch(
+        "agent_utilities.knowledge_graph.enrichment.semantic.make_embed_fn",
+        return_value=lambda texts: [_embedding() for _ in texts],
+    ):
+        report = GraphMaintainer(engine).backfill_entity_embeddings(
+            limit=10, node_types=("Tool", "Skill")
+        )
+
+    assert report["scanned"] == 1
+    assert report["embedded"] == 1
+    candidate_query = backend.queries[0]["query"]
+    assert "n.node_type IN ['Tool', 'Skill']" in candidate_query
+
+    # The default (node_types=None) path is UNCHANGED: no type clause at all.
+    backend2 = DummyBackend(execute_results=[[]])
+    engine2 = MagicMock(backend=backend2)
+    GraphMaintainer(engine2).backfill_entity_embeddings(limit=10)
+    assert "node_type IN" not in backend2.queries[0]["query"]
