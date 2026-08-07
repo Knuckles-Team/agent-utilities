@@ -11,11 +11,37 @@
 @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
 @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
 
+:AnalyticsJob a owl:Class ;
+    rdfs:label "AnalyticsJob" ;
+    rdfs:comment """CONCEPT:AU-ORCH.scheduling.analytics-job-mirror — mirrors one
+    `eg-jobs::AnalyticsJob`: a durable async job with fenced-lease checkpointing
+    (`Checkpoint{progress,stage,state_blob}`), cron/interval/manual triggers
+    (`JobIntent::Trigger`), and a `JobState` lifecycle (`Submitted` ->
+    `Running`/`Publishing` -> `Succeeded`|`Failed`|`Cancelled`). :backendRef is the
+    `JobId`; :durableStatus mirrors `JobState::label()`; :leaseEpoch mirrors
+    `lease_epoch`; :checkpointRef mirrors the active `Checkpoint`'s stage/progress.""" ;
+    rdfs:subClassOf :DurableExecutionUnit .
+
 :BusTopicCursor a owl:Class ;
     rdfs:label "BusTopicCursor" ;
     rdfs:comment """CONCEPT:ECO-4.91 — a per-(BusAgent, Topic) replay cursor for store-and-forward
     topic messages: a dedicated node (never a property on the shared Topic, which the backend's
     upsert would clobber) so each agent reads each stored topic message at most once.""" .
+
+:DurableRun a owl:Class ;
+    rdfs:label "DurableRun" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.durable-run-mirror — mirrors one
+    agent-utilities `DurableExecutionManager`/`DurableRun` checkpoint sequence
+    (`agent_utilities/orchestration/durable_execution.py`): a SQLite- or Postgres-backed
+    (CONCEPT:AU-OS.state.unified-durable-state-externalization), named-step resumable run keyed by
+    `(session_id, node_id)`, with an idempotency key per critical action and
+    skip-completed-steps-on-resume via `DurableRun.step()`. :backendRef is the
+    `(session_id, node_id)` pair; :durableStatus mirrors the checkpoint's `status`
+    (`PENDING`|`COMPLETED`); :idempotencyKey mirrors the row's `idempotency_key`. Ours is
+    named-step granularity by design (typed, KG-attributable) rather than restate's
+    automatic-any-`await`-point replay — DE3 narrows the ergonomics gap without copying
+    restate's bytecode/coroutine mechanism (durable-execution-native.md Part 1 row 1/5).""" ;
+    rdfs:subClassOf :DurableExecutionUnit .
 
 :RunCut a owl:Class ;
     rdfs:label "RunCut" ;
@@ -27,6 +53,17 @@
     rdfs:label "Skill Workflow Proposal" ;
     rdfs:comment "CONCEPT:KG-2.90 — a propose-only skill-workflow candidate (composes atomic Skills) distilled from a flowsTo-chain of business tasks." ;
     rdfs:subClassOf :Workflow .
+
+:StatechartInstance a owl:Class ;
+    rdfs:label "StatechartInstance" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.statechart-instance-mirror — mirrors one
+    `eg-statechart::MachineInstance`: a keyed, OCC-versioned (`version`), rehydratable durable
+    state-machine row (`configuration`/`context`/`status`/`tenant`/`actor`). :backendRef is
+    the instance's `InstanceId`; :durableStatus mirrors `InstanceStatus`
+    (`active`|`final`); :checkpointRef mirrors the OCC `version`. Single-node OCC-correct
+    today — cross-cluster ordered fairness for one key is `eg-statechart`'s own documented
+    deferred item (`lib.rs:54-57`), tracked by DE4, not reopened here.""" ;
+    rdfs:subClassOf :DurableExecutionUnit .
 
 :attempts a owl:DatatypeProperty ;
     rdfs:label "attempts" ;
@@ -43,6 +80,29 @@
     addresses across any connected system.""" ;
     rdfs:range :BusinessProcess .
 
+:awaits a owl:ObjectProperty ;
+    rdfs:label "awaits" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — DurableExecutionUnit
+    -[:AWAITS]-> DurableExecutionUnit: a Call-style dependency between two durably executing
+    units (e.g. a DurableRun step awaiting an AnalyticsJob's result, or a StatechartInstance
+    transition gated on a SagaCoordination's commit) — the graph-edge replacement for
+    restate's opaque cross-service await wire state (see `durable-execution-native.md` Part 3;
+    schema reserved at DE0, populated by DE1 mirror-on-write).""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range :DurableExecutionUnit .
+
+:backendRef a owl:DatatypeProperty ;
+    rdfs:label "backend ref" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — the opaque foreign-key-shaped
+    reference from a :DurableExecutionUnit mirror node back to its authoritative row in the
+    OWNING backend's own durable store (eg-statechart's `MachineInstance.instance_id`,
+    eg-jobs' `AnalyticsJob.job_id`, eg-mutation-store's `MutationBatchRecord.batch_id`, or
+    agent-utilities' `DurableExecutionManager` `(session_id, node_id)` pair). The
+    :DurableExecutionUnit node is a PROVENANCE MIRROR, never a second store — this is the
+    pointer back to the single source of truth.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
+
 :canKG a owl:DatatypeProperty ;
     rdfs:domain :Model ;
     rdfs:range xsd:boolean .
@@ -56,6 +116,17 @@
     rdfs:comment "CONCEPT:AU-ORCH.runvcs.event-kernel — RunEvent -[:CAUSED_BY]-> RunEvent: the causality edge threading the content-addressed event DAG." ;
     rdfs:domain :RunEvent ;
     rdfs:range :RunEvent .
+
+:checkpointRef a owl:DatatypeProperty ;
+    rdfs:label "checkpoint ref" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — mirrors a pointer to a
+    :DurableExecutionUnit's most recent durable checkpoint (eg-jobs' `Checkpoint`
+    stage/progress digest, eg-statechart's OCC `version`, DurableExecutionManager's
+    idempotency-keyed checkpoint row, or eg-mutation-store's committed
+    `MutationBatchRecord` id) — never the checkpoint payload itself, which stays in the
+    owning backend's own store.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
 
 :childWorkItemOf a owl:ObjectProperty,
         owl:TransitiveProperty ;
@@ -134,10 +205,31 @@
     rdfs:domain :Model ;
     rdfs:range xsd:integer .
 
+:coordinatedBy a owl:ObjectProperty ;
+    rdfs:label "coordinated by" ;
+    rdfs:comment """CONCEPT:AU-KG.txn.saga-coordination-mirror — DurableExecutionUnit
+    -[:COORDINATED_BY]-> SagaCoordination: any unit whose multi-store atomic step is governed
+    by eg-mutation-store's real, generic, crash-recoverable `prepare_saga`/`commit_saga`
+    coordinator — a capability restate itself does not have (durable-execution-native.md
+    Part 1 row 6).""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range :SagaCoordination .
+
 :deadLetters a owl:ObjectProperty ;
     rdfs:label "dead-letters" ;
     rdfs:comment "CONCEPT:KG-2.113 — links the unified queue to a WorkItem whose native status is dead_letter." ;
     rdfs:range :WorkItem .
+
+:definitionVersion a owl:DatatypeProperty ;
+    rdfs:label "definition version" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — the definition/deployment
+    version a :DurableExecutionUnit started under. Schema reserved here at DE0; DE5 adds
+    resume-time ENFORCEMENT — an in-flight unit resuming under an incompatible definition
+    version fails loud instead of silently replaying under mismatched semantics, closing the
+    one gap restate is genuinely ahead on today (durable-execution-native.md Part 1 row 9,
+    'real gap, nothing exists today'). Unset/empty until DE5 lands enforcement.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
 
 :delegatesTo a owl:ObjectProperty ;
     rdfs:comment "Agent delegates to an external A2A agent." ;
@@ -165,6 +257,17 @@
     :scheduledFor (CalendarEvent→Person) which must not be overloaded.""" ;
     rdfs:domain :WorkItem ;
     rdfs:range xsd:dateTime .
+
+:durableStatus a owl:DatatypeProperty ;
+    rdfs:label "durable status" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — the mirrored lifecycle
+    status of a :DurableExecutionUnit, kept in the OWNING backend's own vocabulary
+    (eg-statechart `active`|`final`; eg-jobs `submitted`|`running`|`publishing`|`succeeded`|
+    `failed`|`cancelled`; eg-mutation-store saga `prepared`|`committed`|`aborted`;
+    DurableExecutionManager `PENDING`|`COMPLETED`) — deliberately NOT normalized into one
+    invented enum, so the mirror can never drift from what the backend itself reports.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
 
 :enqueues a owl:ObjectProperty ;
     rdfs:label "enqueues" ;
@@ -250,6 +353,17 @@
     rdfs:domain :Agent ;
     rdfs:range :Skill .
 
+:idempotencyKey a owl:DatatypeProperty ;
+    rdfs:label "idempotency key" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — mirrors the owning
+    backend's real idempotency key (eg-mutation-store's `MutationBatch.idempotency_key`
+    ledger entry, eg-jobs' `claim_idempotency`/`result_ref` hash, or
+    DurableExecutionManager's per-action key). Exactly-once dedup already exists in all four
+    backends today (durable-execution-native.md Part 1 row 3, 'not a gap') — this property
+    only makes the existing key KG-visible, it does not add a new dedup mechanism.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:string .
+
 :intelligenceLevel a owl:DatatypeProperty ;
     rdfs:domain :Model ;
     rdfs:range xsd:string .
@@ -259,6 +373,16 @@
     rdfs:comment "CONCEPT:KG-2.141 — unix timestamp of a BusAgent's most recent heartbeat on the bus (ECO-4.84)." ;
     rdfs:domain :BusAgent ;
     rdfs:range xsd:double .
+
+:leaseEpoch a owl:DatatypeProperty ;
+    rdfs:label "lease epoch" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — mirrors eg-jobs' monotonic
+    fencing epoch (`AnalyticsJob.lease_epoch`, bumped by `claim_next`/`renew_lease` so a
+    reclaimed lease can never be honored by a stale worker). Present only on units whose
+    owning backend has fenced leases (eg-jobs today); absent on eg-statechart/DurableRun/saga
+    mirrors, which have no lease concept.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range xsd:integer .
 
 :maxAttempts a owl:DatatypeProperty ;
     rdfs:label "max attempts" ;
@@ -283,6 +407,18 @@
     rdfs:label "priority bucket" ;
     rdfs:comment "CONCEPT:KG-2.113 — discrete claim/intake priority 0 (critical) .. 3 (background) for a WorkItem, Schedule, or Loop." ;
     rdfs:range xsd:integer .
+
+:produced a owl:ObjectProperty ;
+    rdfs:label "produced" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — DurableExecutionUnit
+    -[:PRODUCED]-> RunTrace: the durable unit that backs (or was invoked from) one agent
+    run, completing RunTrace's existing but one-directional durability linkage
+    (`graph_checkpoint_ids`/`graph_resume_supported`, CONCEPT:AU-KG.temporal.message-history-read)
+    with the reverse edge from the unit itself, per `durable-execution-native.md` Part 3's
+    ontology model. DE0 reserves the schema; DE1 populates it on mirror-write.""" ;
+    rdfs:domain :DurableExecutionUnit ;
+    rdfs:range :RunTrace ;
+    owl:inverseOf :producedBy .
 
 :proposesCommit a owl:ObjectProperty ;
     rdfs:label "proposes commit" ;
@@ -410,6 +546,18 @@
     only when the run.select action-policy gate accepts; discard leaves the world untouched.""" ;
     rdfs:subClassOf :SkillProposal .
 
+:SagaCoordination a owl:Class ;
+    rdfs:label "SagaCoordination" ;
+    rdfs:comment """CONCEPT:AU-KG.txn.saga-coordination-mirror — mirrors one
+    `eg-mutation-store` saga (`SagaBegin::{Execute,Resume,Committed}`, coordinated by the
+    real, generic, crash-recoverable `prepare_saga`/`commit_saga` functions with encrypted
+    private recovery payloads) — a compensation/rollback primitive restate itself does not
+    ship (durable-execution-native.md Part 1 row 6, 'we are ahead here'). :backendRef is the
+    coordinator's `batch_id`; :durableStatus mirrors `MutationBatchStatus`
+    (`Prepared`|`Committed`|`Aborted`); :idempotencyKey mirrors the batch's own
+    `idempotency_key` ledger entry.""" ;
+    rdfs:subClassOf :DurableExecutionUnit .
+
 :SkillProposal a owl:Class ;
     rdfs:label "Skill Proposal" ;
     rdfs:comment "CONCEPT:KG-2.90 — a propose-only atomic-skill candidate the background distiller synthesizes from a mapped process/task of any connected system; reviewed+approved by a human before it materializes." .
@@ -435,6 +583,12 @@
 :enqueuedBy a owl:ObjectProperty ;
     rdfs:label "enqueued by" ;
     rdfs:domain :WorkItem .
+
+:producedBy a owl:ObjectProperty ;
+    rdfs:label "produced by" ;
+    rdfs:comment "CONCEPT:AU-KG.storage.durable-execution-unit — inverse of :produced (RunTrace -> the DurableExecutionUnit that backs it)." ;
+    rdfs:domain :RunTrace ;
+    rdfs:range :DurableExecutionUnit .
 
 :scheduledBy a owl:ObjectProperty ;
     rdfs:label "scheduled by" ;
@@ -478,13 +632,6 @@
     rdfs:label "Workflow" ;
     rdfs:comment "An orchestration flow (skill-workflow) over agents/skills." .
 
-:RunTrace a owl:Class ;
-    rdfs:label "RunTrace" ;
-    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — one agent run, now the root of a
-    content-addressed, typed run-event log (not just an observe-only action chain). Owns an
-    ordered :RunEvent path plus the :RunCommit history a fork/revert branches from.""" ;
-    rdfs:seeAlso prov:Activity .
-
 :Model a owl:Class ;
     rdfs:label "Model" ;
     rdfs:comment "An LLM/embedding model the deployment serves, with capabilities (from config.json) used to choose the right model per task." .
@@ -504,7 +651,33 @@
     :recordMode is a declaration (intent) or a capture (observed outcome).""" ;
     rdfs:seeAlso prov:Entity .
 
+:RunTrace a owl:Class ;
+    rdfs:label "RunTrace" ;
+    rdfs:comment """CONCEPT:AU-ORCH.runvcs.event-kernel — one agent run, now the root of a
+    content-addressed, typed run-event log (not just an observe-only action chain). Owns an
+    ordered :RunEvent path plus the :RunCommit history a fork/revert branches from.""" ;
+    rdfs:seeAlso prov:Activity .
+
 :Agent a owl:Class ;
     rdfs:label "Agent" ;
     rdfs:comment "A synthesized or registered agent (prompt + tools + skills)." .
+
+:DurableExecutionUnit a owl:Class ;
+    rdfs:label "DurableExecutionUnit" ;
+    rdfs:comment """CONCEPT:AU-KG.storage.durable-execution-unit — the abstract KG-queryable
+    concept family unifying durable execution across `eg-statechart`, `eg-jobs`,
+    `eg-mutation-store`'s saga coordinator, and agent-utilities' `DurableExecutionManager`/
+    `DurableRun` (register `D-DE-1`, plan `plans/au-eg-program/program/durable-execution-native.md`).
+    A :DurableExecutionUnit node is a PROVENANCE MIRROR, not a second store — see :backendRef;
+    the authoritative state always stays in the owning backend's own durable store (redb
+    `MachineInstance`, redb `AnalyticsJob`, `eg-mutation-store`'s `MutationBatchRecord`, or the
+    SQLite-/Postgres-backed `DurableExecutionManager` checkpoint row). Mirroring these
+    mirrored properties onto this node is what makes 'what is durably in flight, for whom,
+    waiting on what' answerable as ONE KG query across all four subsystems, without the
+    caller already knowing any of their names — the actual gap this program closes (the
+    mechanisms themselves already exist and are not reimplemented here). Populated
+    mirror-on-next-write (DE1), never a bulk migration — the same pattern this ontology's own
+    RunTrace checkpoint linkage already uses. Concrete subclasses: :StatechartInstance,
+    :AnalyticsJob, :SagaCoordination, :DurableRun.""" ;
+    rdfs:seeAlso prov:Entity .
 
