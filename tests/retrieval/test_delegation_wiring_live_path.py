@@ -286,6 +286,77 @@ class TestNeighbourBatchContract:
         assert "boom" not in out, "a failed read was recorded as an empty neighbourhood"
         assert out.get("ok1") == ["x"]
 
+    def test_neighbors_batch_is_one_round_trip_not_one_per_base_node(self, monkeypatch):
+        """N ids must cost ONE ``neighbors_batch`` round-trip TOTAL, not N (D-DPF-1).
+
+        Regression target: prior to this fix the engine had no batched
+        multi-node neighbour op, so N base nodes cost N ``get_neighbors``
+        round-trips even though a thread pool overlapped them. Live-pod
+        measurement (``scripts/delegation_probe.py --profile``, 2026-08-01)
+        showed exactly this signature: ``nodes.neighbors`` called 40 times
+        totaling 272.63s during one delegation's grounding compile. This test
+        pins the "one call, not N" contract — a regression back to the
+        per-node path would still return CORRECT neighbour lists (a plain
+        correctness test would not notice), but would fail this RPC-count
+        assertion.
+        """
+
+        class _FakeNodesNS:
+            def __init__(self, edges):
+                self._edges = edges
+                self.batch_calls = 0
+                self.batch_call_sizes: list[int] = []
+
+            def neighbors_batch(self, ids):
+                self.batch_calls += 1
+                self.batch_call_sizes.append(len(ids))
+                return {nid: list(self._edges.get(nid, [])) for nid in ids}
+
+        class _FakeClient:
+            def __init__(self, nodes_ns):
+                self.nodes = nodes_ns
+
+        n = 8
+        edges = {f"n{i}": [f"n{(i + 1) % n}"] for i in range(n)}
+        graph = _CountingGraph([], {}, edges=edges)
+        nodes_ns = _FakeNodesNS(edges)
+        graph._client = _FakeClient(nodes_ns)
+        retriever = _retriever(graph, monkeypatch)
+
+        ids = [f"n{i}" for i in range(n)]
+        out = retriever._neighbors_batch(ids)
+
+        assert nodes_ns.batch_calls == 1, (
+            f"neighbors_batch was called {nodes_ns.batch_calls} times across "
+            f"{n} ids — the engine-side batch RPC is no longer used and the "
+            "per-node N+1 is back"
+        )
+        assert nodes_ns.batch_call_sizes == [n]
+        assert out == {nid: list(edges[nid]) for nid in ids}
+        # The old per-node path (get_neighbors) must NOT have been used at all
+        # when the true batch RPC is available.
+        assert graph.calls.get("neighbors", 0) == 0
+
+    def test_neighbors_batch_falls_back_when_the_engine_lacks_the_rpc(
+        self, monkeypatch
+    ):
+        """No ``neighbors_batch`` on the client -> degrade to the per-node path,
+        not a crash or a silently empty result (older engine build / D-DPF-1
+        not yet deployed to this backend).
+        """
+        edges = {"a": ["b"], "b": ["a"]}
+        graph = _CountingGraph([], {}, edges=edges)
+        # No graph._client at all — mirrors a backend/facade that predates the
+        # engine-side neighbors_batch RPC.
+        retriever = _retriever(graph, monkeypatch)
+
+        out = retriever._neighbors_batch(["a", "b"])
+
+        assert out == {"a": ["b"], "b": ["a"]}
+        assert graph.calls.get("neighbors", 0) == 2, (
+            "fallback to the per-node get_neighbors path did not run"
+        )
+
 
 class TestGroundingFailureIsDiagnosable:
     """A fail-closed grounding error must carry its cause."""
