@@ -224,6 +224,14 @@ class HybridRetriever:
         # batched) BFS fallback for the remainder of this retriever's lifetime.
         self._varlen_batch_unsupported = False
 
+        # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — D-DPF-1: once
+        # the engine's true multi-node ``neighbors_batch`` RPC proves unsupported
+        # against this instance's backend, don't retry it per call; degrade
+        # straight to the (already overlapped) per-node fallback for the
+        # remainder of this retriever's lifetime — same idiom as
+        # ``_varlen_batch_unsupported`` above.
+        self._neighbors_batch_unsupported = False
+
     @property
     def embed_model(self):
         """Lazy-initialized embedding model — only connects to LM Studio on first search."""
@@ -434,24 +442,35 @@ class HybridRetriever:
         return {nid: bool(has_node(nid)) for nid in wanted}
 
     def _neighbors_batch(self, ids: list[str]) -> dict[str, list[str]]:
-        """Undirected neighbour ids for many nodes, overlapping the round-trips.
+        """Undirected neighbour ids for many nodes in as few round-trips as possible.
 
-        CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — two independent
-        wins over the previous per-node ``get_successors`` + ``get_predecessors``
-        pair:
+        CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — three wins over
+        the original per-node ``get_successors`` + ``get_predecessors`` pair,
+        applied in preference order:
 
-        1. **One call instead of two.** ``get_neighbors`` is the engine's own
-           predecessors-∪-successors op, so a node's undirected neighbourhood
-           costs one round-trip rather than two. The BFS unions both directions
-           into a single frontier set anyway, so this is byte-for-byte the same
-           id set.
-        2. **Overlapped, not serialized.** The engine has no batched multi-node
-           neighbour op, so N nodes genuinely need N calls — but they are
-           mutually independent, and the client blocks on a socket rather than
-           burning CPU. Issuing them through a small bounded pool turns N
-           sequential round-trips into ``ceil(N / _NEIGHBOR_FETCH_CONCURRENCY)``
-           waves. The pool is deliberately small: the engine is the contended
-           resource, and the resource-priority edict
+        0. **One call for ALL nodes (D-DPF-1).** When the engine exposes a
+           genuine ``neighbors_batch`` RPC (``epistemic_graph``'s
+           ``NodeClient.neighbors_batch`` / ``Method::GetNeighborsBatch``), this
+           issues exactly ONE round-trip for the whole ``ids`` set instead of
+           ``ceil(N / _NEIGHBOR_FETCH_CONCURRENCY)`` waves — the same shape as
+           :meth:`_properties_batch` / :meth:`_exists_batch` above. A capability
+           failure (older engine build without the RPC, or an unexpected error)
+           is cached on the instance (``_neighbors_batch_unsupported``) so a
+           backend that genuinely lacks it degrades ONCE per retriever instance,
+           not per call — mirroring :meth:`_varlen_neighbors_batch`'s
+           ``_varlen_batch_unsupported`` capability cache.
+        1. **One call instead of two (fallback).** ``get_neighbors`` is the
+           engine's own predecessors-∪-successors op, so a node's undirected
+           neighbourhood costs one round-trip rather than two. The BFS unions
+           both directions into a single frontier set anyway, so this is
+           byte-for-byte the same id set.
+        2. **Overlapped, not serialized (fallback).** Without either batched op,
+           N nodes genuinely need N calls — but they are mutually independent,
+           and the client blocks on a socket rather than burning CPU. Issuing
+           them through a small bounded pool turns N sequential round-trips into
+           ``ceil(N / _NEIGHBOR_FETCH_CONCURRENCY)`` waves. The pool is
+           deliberately small: the engine is the contended resource, and the
+           resource-priority edict
            (CONCEPT:AU-ORCH.scheduling.resource-priority-edict) means a retrieval
            leg must not stampede it.
 
@@ -465,6 +484,28 @@ class HybridRetriever:
         wanted = [nid for nid in dict.fromkeys(ids) if nid]
         if not wanted or graph is None:
             return {}
+
+        if not self._neighbors_batch_unsupported:
+            client = getattr(graph, "_client", None)
+            nodes_ns = getattr(client, "nodes", None) if client is not None else None
+            true_batch = getattr(nodes_ns, "neighbors_batch", None)
+            if callable(true_batch):
+                try:
+                    result = true_batch(wanted)
+                except Exception as e:  # noqa: BLE001 — capability probe, degrade once (see docstring)
+                    self._neighbors_batch_unsupported = True
+                    logger.debug(
+                        "neighbors_batch RPC unavailable, falling back to "
+                        "per-node fetch for the rest of this retriever "
+                        "instance's lifetime: %s",
+                        e,
+                    )
+                else:
+                    return {
+                        str(nid): [str(n) for n in (neighbors or [])]
+                        for nid, neighbors in (result or {}).items()
+                    }
+
         unioned = getattr(graph, "get_neighbors", None)
         if callable(unioned):
             fetch: Callable[[str], list[str]] = unioned
