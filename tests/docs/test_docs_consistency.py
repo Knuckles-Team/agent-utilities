@@ -20,17 +20,38 @@ README = ROOT / "README.md"
 AGENTS = ROOT / "AGENTS.md"
 CONCEPTS = ROOT / "docs" / "concepts.yaml"
 
-# Headroom for the curated head (AGENTS.head.md — ~57 KiB of deliberate, cross-repo
-# governance standards: Working Discipline, Quality Bar, dependency/sprawl/config
-# discipline, Wire-First, Native-by-default, Two-surfaces, secrets, worktree workflow,
-# No-Legacy, etc. — grown deliberately as the governance surface expanded) plus the
-# auto-generated, already-bounded project tree + concept table (EXCLUDE_DIRS +
-# MAX_ENTRIES/MAX_DEPTH summarization in gen_agents_md.py). The anti-bloat guarantee
-# comes from those generator controls — NOT from a tight byte ceiling: a runaway tree
-# leak (e.g. .hypothesis/node_modules) would add MBs, which this still trips. The ceiling
-# is a coarse backstop, recalibrated to the current curated-head reality (full file
-# ~71 KiB) with modest headroom for concept-table growth.
-AGENTS_MAX_BYTES = 80 * 1024
+# This ceiling is NOT a content-length policy on AGENTS.head.md's hand-curated
+# governance prose (Working Discipline, Quality Bar, dependency/sprawl/config
+# discipline, Wire-First, Native-by-default, Two-surfaces, secrets, worktree
+# workflow, No-Legacy, etc. — deliberately grown over 2+ months as the governance
+# surface expanded; ~40 distinctly-titled commits, zero duplicate sections). It
+# exists ONLY to catch a GENERATOR LEAK — e.g. a regression that lets
+# .hypothesis/node_modules/a stale full project tree bleed back into the
+# generated appendix (the full tree was moved out to docs/project_structure.md
+# in D-WS-4 for exactly this reason; the generated appendix today is ~1.9 KiB
+# and stable). No downstream consumer's token/context budget depends on this
+# exact number either: agent_utilities/knowledge_graph/core/agents_md.py's
+# loader does no truncation at all, and memory_engine.py's startup-payload
+# budget (DEFAULT_BUDGET_CHARS = 24_000) already hard-trims AGENTS.md content
+# at any size well above ~24 KiB — the cap sits far below both the old and new
+# ceiling either way, so this number does not gate that path.
+#
+# Recalibrated 2026-08-07 (D-W2P-8): the prior 80 KiB ceiling (baselined
+# against a ~71 KiB curated-head snapshot) was tripping on ~2.9 KB of
+# legitimate, distinct new governance content, not a leak — see the
+# [UPDATE to D-W2P-8] register entry for the full evidence trail (no
+# duplicate headings, generated portion stable at ~1.9 KiB, no consumer
+# budget affected). Recalibrated to current size (84,817 bytes) + 9,391
+# bytes (~9.2 KiB, ~11%) headroom (92 KiB = 94,208 bytes total), matching
+# the prior calibration's own ~9 KiB headroom in absolute terms (that one
+# was ~13% of its smaller baseline). Proof this still catches what it's
+# for: current-size-only content passes; current size + a simulated 16.4 KiB
+# tree-leak (the exact size of docs/project_structure.md today, i.e. "the
+# full tree D-WS-4 moved out regressed back into AGENTS.md") still trips it
+# (101,660 bytes > 94,208). Whether AGENTS.head.md's ~83 KB of curated
+# content SHOULD be trimmed is a separate, non-blocking editorial question,
+# left open for the operator.
+AGENTS_MAX_BYTES = 92 * 1024
 
 
 def _run(script: str, *args: str) -> subprocess.CompletedProcess:

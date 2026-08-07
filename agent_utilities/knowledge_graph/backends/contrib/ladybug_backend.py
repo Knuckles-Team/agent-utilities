@@ -1296,9 +1296,7 @@ class LadybugBackend(GraphBackend):
         # The _get_lock is inside self.execute()
         self.execute(query, {"id": node_id, "emb": embedding})
 
-    def verify_node_embedding(
-        self, node_id: str, embedding: list[float]
-    ) -> bool:
+    def verify_node_embedding(self, node_id: str, embedding: list[float]) -> bool:
         """Confirm the Kuzu vector through its fail-loud read transaction."""
         label = self._resolve_node_label(node_id)
         if not label:
