@@ -152,6 +152,49 @@ repo's `:calls`/`:dependsOn` in one parallel (`rayon`) pass off-reactor. The
 generic write-layer delta extends that same content-hash idea to every non-code
 connector.
 
+### Legacy embedding reconciliation
+
+New connector envelopes persist an embedding property and register the same
+vector in the engine ANN index. Legacy nodes are reconciled in bounded pages by
+`GraphMaintainer.backfill_entity_embeddings` and the operator-facing
+`scripts/backfill_embeddings.py`:
+
+```mermaid
+flowchart LR
+  Q["IDs where embedding is null<br/>and not text-deferred<br/>bounded and ordered"] --> H["one batched property hydration"]
+  H --> T{"extractable text?"}
+  T -->|no| D["CAS separate no-text state<br/>never a placeholder vector"]
+  T -->|yes| E["one batched embedding request<br/>validate all vectors first"]
+  E --> C["one cross-modal transaction<br/>exact-text CAS + ANN add"]
+  C -->|commit together| P["durable property + ANN vector"]
+  C -.->|staging or commit failure rolls back| B["later bounded backfill retries"]
+  P --> S["CAS served-read readiness true"]
+  P -.->|post-commit crash before readiness| R["periodic/operator hydration repair"]
+  P --> F["fan-out winning full node<br/>to configured mirrors"]
+```
+
+The vector transaction changes only the embedding and its maintenance/readiness
+fields, so existing connector properties, ownership, classification, and ACL
+state remain intact.
+It also fences the exact name/summary/fallback values used to construct the
+embedding input: a concurrent content update loses the CAS and is retried from a
+fresh property snapshot instead of receiving a stale vector. Every response
+vector is non-empty, finite, and dimension-consistent before any vector property
+is written.
+
+Durable success is the progress ledger: the next page cannot select a completed
+node. A node with no usable text receives a separate maintenance-only `no_text`
+state, never a fake embedding, so it does not pin every later page; a normal full
+entity upsert replaces that state when source data changes. In fan-out mode, a
+winning authority CAS reuses the structured full-node outbox path so mirrors
+receive the exact updated node without resetting ACL properties; a losing CAS
+emits no mirror entry. The conditional property update and ANN registration
+stage and commit in one engine transaction. An ANN staging or commit failure
+rolls back before the embedding property is durable, leaving the node eligible
+for a later bounded backfill. The periodic/operator hydrator repairs only the
+post-commit gap where the property and ANN vector exist but the served-read
+readiness CAS did not complete; it does not repair a rolled-back transaction.
+
 ---
 
 ## 4b. Ambient epistemics (valid-time + provenance, W3.4)

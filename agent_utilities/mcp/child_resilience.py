@@ -177,6 +177,12 @@ ConnectFn = Callable[
     [contextlib.AsyncExitStack], Awaitable[tuple[list[Any], list[Any]]]
 ]
 
+#: Invoked after a recovered connection generation has listed its tools but
+#: before the runtime accepts calls on that generation.  The multiplexer uses
+#: this to replace its cached forwarding schemas without polling a provider on
+#: every tool call.
+GenerationCallback = Callable[[list[Any]], Awaitable[None]]
+
 
 # ---------------------------------------------------------------------------
 # Typed errors — callers (and the multiplexer's error envelope) can tell
@@ -285,6 +291,7 @@ class ChildRuntime:
         restart_backoff_base: float = RESTART_BACKOFF_BASE,
         restart_backoff_cap: float = RESTART_BACKOFF_CAP,
         session_max_age: float | None = None,
+        on_generation: GenerationCallback | None = None,
     ) -> None:
         from agent_utilities.core.config import config
 
@@ -384,6 +391,7 @@ class ChildRuntime:
 
         # Lifecycle (restart-on-crash supervisor)
         self._connect = connect
+        self._on_generation = on_generation
         self.state = "starting"
         self.restart_count = 0
         self._restart_times: deque[float] = deque()
@@ -496,16 +504,22 @@ class ChildRuntime:
                     # calls against the recovered child.
                     self.breaker.record_success()
                     self._stop_generation = asyncio.Event()
-                    self._ready.set()
                     if first is not None:
                         first.set_result(tools)
                         first = None
                     else:
+                        await self._notify_generation(tools)
                         logger.info(
                             "Child server '%s' recovered after restart #%d",
                             self.name,
                             self.restart_count,
                         )
+                    # Do not route a call through a new session until the
+                    # multiplexer has either refreshed its tool schema or
+                    # recorded the refresh failure.  This keeps a recovered
+                    # provider generation and its forwarding metadata in
+                    # lockstep without adding work to ordinary calls.
+                    self._ready.set()
                     await self._stop_generation.wait()
             except asyncio.CancelledError:
                 raise
@@ -579,6 +593,28 @@ class ChildRuntime:
         if state != self.state:
             logger.info("Child server '%s': %s -> %s", self.name, self.state, state)
         self.state = state
+
+    async def _notify_generation(self, tools: list[Any]) -> None:
+        """Refresh owner metadata after a successful non-initial generation.
+
+        The child transport is healthy even when an observer cannot update its
+        own cache.  Keep that failure isolated to the observer: the callback
+        records its own fail-closed state and the runtime remains available for
+        unrelated children and future recovery attempts.
+        """
+        if self._on_generation is None:
+            return
+        try:
+            await self._on_generation(tools)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(
+                "Child server '%s' generation observer failed (exception_type=%s): %s",
+                self.name,
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
 
     def _record(self, outcome: str) -> None:
         MCP_CHILD_CALLS.labels(server=self.name, outcome=outcome).inc()

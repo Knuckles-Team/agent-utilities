@@ -13,7 +13,18 @@ if typing.TYPE_CHECKING:
     from .._engine_protocol import _EngineProtocol
     from ..core.session import GraphSession
 
-    _Base = _EngineProtocol
+    # D-CDX-71: a plain `_Base = _EngineProtocol` variable assignment is not
+    # valid as a mypy base-class expression once the defining module is
+    # outside the checked import graph (e.g. an isolated
+    # `--follow-imports=skip` run on this file alone) -- mypy cannot resolve
+    # what the variable's *value* names as a class in that mode, even though
+    # a real class statement referencing the same name resolves fine either
+    # way. Declaring an actual TYPE_CHECKING-only class named `_Base` (rather
+    # than assigning a variable) gives mypy a structural definition it can
+    # always see, so both the isolated and the fully-configured (import
+    # following) runs agree. This branch never executes at runtime.
+    class _Base(_EngineProtocol):
+        pass
 else:
     _Base = object
 
@@ -582,6 +593,19 @@ class QueryMixin(_Base):
                     # as an un-scored 0.0 and always fail LOW_RELEVANCE_TOPK.
                     if "_score" not in data and "score" in item:
                         data["_score"] = item["score"]
+                        # D-GS27-6/D-EMB: this is the engine-native `discover`
+                        # keyword-overlap score, NOT a cosine similarity — the
+                        # same category error _lexical_fallback's flat 0.2
+                        # sentinel had (RetrievalQualityGate grading it against
+                        # the vector-calibrated threshold always fails it,
+                        # e.g. composite=0.02 regardless of actual keyword
+                        # relevance). Tagged (not yet separately thresholded —
+                        # left OPEN, see retrieval_quality.py's
+                        # _result_threshold) so it is at least IDENTIFIABLE as
+                        # its own untagged-score class instead of silently
+                        # blending into "low_relevance_topk" with no way to
+                        # tell it apart from a genuine vector-score miss.
+                        data.setdefault("_fallback", "keyword_discover")
                     req_class = data.get("requiresClassification", 0)
                     if isinstance(req_class, int) and req_class > clearance_level:
                         continue
@@ -1387,7 +1411,14 @@ class QueryMixin(_Base):
         query: str,
         views: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Perform policy-guided retrieval across all orthogonal MAGMA views."""
+        """Perform policy-guided retrieval across all orthogonal MAGMA views.
+
+        The temporal view is the canonical execution-provenance stream: it
+        returns ``RunTrace`` rows in descending numeric ``event_sequence``
+        order through :meth:`query_cypher`, retaining the normal tenant and
+        read-policy boundary.  Conversational ``Episode`` nodes are not
+        execution provenance and are intentionally excluded here.
+        """
         if views is None:
             views = [
                 "semantic",
@@ -1401,32 +1432,9 @@ class QueryMixin(_Base):
         if "semantic" in views:
             context["views"]["semantic"] = self.search_hybrid(query, top_k=5)
         if "temporal" in views:
-            # RunTrace (agent execution traces, e.g. orchestration/agent_activation.py)
-            # and Episode (engine.ingest_episode's own conversational/reflection
-            # events) are BOTH legitimately time-ordered "temporal" entities, but
-            # carry different timestamp fields (event_sequence vs. timestamp) and
-            # a native-engine Cypher UNION across differently-shaped node labels
-            # isn't reliable -- query each separately and merge+sort in Python.
-            # A RunTrace-only query silently returned [] for every caller whose
-            # only temporal data came from ingest_episode (D-GS3-4).
-            run_traces = self.query_cypher(
+            context["views"]["temporal"] = self.query_cypher(
                 "MATCH (r:RunTrace) RETURN r ORDER BY r.event_sequence DESC LIMIT 5"
             )
-            episodes = self.query_cypher(
-                "MATCH (e:Episode) RETURN e ORDER BY e.timestamp DESC LIMIT 5"
-            )
-
-            def _temporal_key(row: dict[str, Any]) -> str:
-                props = row.get("r") or row.get("e") or row
-                if isinstance(props, dict):
-                    return str(
-                        props.get("timestamp") or props.get("event_sequence") or ""
-                    )
-                return ""
-
-            context["views"]["temporal"] = sorted(
-                [*run_traces, *episodes], key=_temporal_key, reverse=True
-            )[:5]
         if "causal" in views:
             context["views"]["causal"] = self.query_cypher(
                 "MATCH (r:ReasoningTrace)-[:CAUSED_BY]->(p) RETURN r, p LIMIT 5"

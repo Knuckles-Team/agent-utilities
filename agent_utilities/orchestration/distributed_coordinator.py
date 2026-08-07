@@ -11,14 +11,18 @@ import asyncio
 import json
 import logging
 from collections.abc import Callable
+from types import ModuleType
 from typing import Any
 
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
 
+nats: ModuleType | None
 try:
-    import nats
+    import nats as _nats
+
+    nats = _nats
 except ImportError:
     nats = None
 

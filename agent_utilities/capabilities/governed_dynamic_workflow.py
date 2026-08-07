@@ -30,7 +30,6 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from agent_utilities.capabilities.checkpointing import Checkpoint, CheckpointStore
-
 from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.execution_manifest import ExecutionManifest, ExecutionResult
 from agent_utilities.models.graph import (

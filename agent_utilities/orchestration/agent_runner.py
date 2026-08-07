@@ -23,17 +23,20 @@ This module provides deep KG integration rather than a simple passthrough:
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import inspect
 import json
 import logging
 import re
+import threading
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.orchestration.execution_contract import (
     ExecutionMode,
     missing_required_tools,
@@ -698,348 +701,401 @@ async def run_agent(
             type(exc).__name__,
         )
 
-    # Step 1: Resolve engine
-    engine = engine or _get_or_create_engine()
-
-    if agent_name.lower() == "enterprise":
-        from agent_utilities.graph.manifest_generators import manifest_for_enterprise
-        from agent_utilities.graph.parallel_engine import ParallelEngine
-
-        logger.info(
-            "[ORCH-1.9] Executing full Enterprise Autonomous Company orchestration"
-        )
-        manifest = await _call_without_blocking(manifest_for_enterprise, task, engine)
-        pe = ParallelEngine(engine=engine)
-
-        try:
-            pe_result = await pe.execute(manifest)
-            duration_ms = (time.monotonic() - start_time) * 1000
-            await _call_without_blocking(
-                _record_execution_trace,
-                engine,
-                run_id,
-                "enterprise",
-                task,
-                status="completed",
-                duration_ms=duration_ms,
-                result_preview=str(pe_result)[:500],
-                execution_mode="parallel_engine",
-            )
-            return _render_agent_result(
-                pe_result, run_id=run_id, return_mermaid=return_mermaid
-            )
-        except Exception as e:
-            logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
-            await _call_without_blocking(
-                _record_execution_trace,
-                engine,
-                run_id,
-                "enterprise",
-                task,
-                status="failed",
-                error=str(e),
-                execution_mode="parallel_engine",
-            )
-            return _render_agent_result(
-                f"Enterprise execution failed: {e}",
-                run_id=run_id,
-                return_mermaid=return_mermaid,
-            )
-
-    # Step 1b: Check if agent_name maps to a native ServiceRegistry capability (e.g. trading_swarm)
     try:
-        from agent_utilities.core.registry.service_adapter import ServiceRegistry
+        # Step 1: Resolve engine
+        engine = engine or _get_or_create_engine()
 
-        registry = ServiceRegistry.instance()
-        svc = registry.get(agent_name)
-        if svc:
+        if agent_name.lower() == "enterprise":
+            from agent_utilities.graph.manifest_generators import (
+                manifest_for_enterprise,
+            )
+            from agent_utilities.graph.parallel_engine import ParallelEngine
+
             logger.info(
-                "[ORCH-1.21] Routing to ServiceRegistry capability: %s", agent_name
+                "[ORCH-1.9] Executing full Enterprise Autonomous Company orchestration"
             )
-            cls = svc.get_class()
-            if cls:
-                # Instantiate capability
-                sig = inspect.signature(cls)
-                if "engine" in sig.parameters:
-                    instance = cls(engine=engine)
-                elif "config" in sig.parameters:
-                    instance = cls(config=None)
-                else:
-                    instance = cls()
-
-                # Execute capability
-                result = None
-                handled = False
-                if hasattr(instance, "analyze"):
-                    handled = True
-                    # Specifically for TradingSwarm
-                    try:
-                        task_data = json.loads(task)
-                    except Exception:
-                        task_data = {"raw_task": task}
-
-                    result = await _call_without_blocking(instance.analyze, task_data)
-                elif hasattr(instance, "select_pattern"):
-                    handled = True
-                    # Specifically for SubagentPatternRouter
-                    result = await _call_without_blocking(
-                        instance.select_pattern, needs_collaboration=True
-                    )
-                elif hasattr(instance, "run"):
-                    handled = True
-                    result = await _call_without_blocking(instance.run, task)
-                elif hasattr(instance, "execute"):
-                    handled = True
-                    result = await _call_without_blocking(instance.execute, task)
-                if handled:
-                    await _call_without_blocking(
-                        _record_execution_trace,
-                        engine,
-                        run_id,
-                        agent_name,
-                        task,
-                        status="completed",
-                        duration_ms=(time.monotonic() - start_time) * 1000,
-                        result_preview=str(result)[:500],
-                        execution_mode="service_registry",
-                    )
-                    return _render_agent_result(
-                        result, run_id=run_id, return_mermaid=return_mermaid
-                    )
-    except Exception as e:
-        logger.warning(
-            "[ORCH-1.21] ServiceRegistry execution failed for %s, falling back: %s",
-            agent_name,
-            e,
-        )
-
-    # CONCEPT:AU-ORCH.execution.per-job-shape-construction — construct the execution shape for THIS job ONCE, up front. The
-    # escalating planner decides how much graph the job needs from cheap signals; a trivial
-    # turn gets a lean shape that skips KG agent resolution, the usage-guard LLM round,
-    # discovery, and the verifier (CONCEPT:AU-ORCH.execution.direct-completion-shape), so the heavy apparatus never runs for a
-    # simple chat reply.
-    from agent_utilities.orchestration.execution_profile import plan_execution_shape
-
-    shape = await _call_without_blocking(
-        plan_execution_shape,
-        task,
-        profile_hint=execution_profile,
-        engine=engine,
-    )
-
-    # Step 2: Query KG for agent metadata — ONLY when the shape targets a specific specialist.
-    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — ``_resolve_agent_from_kg`` runs synchronous backend round-trips;
-    # run them OFF the event loop via ``to_thread`` so they never stall the async reply path.
-    # CONCEPT:AU-ORCH.execution.direct-completion-shape — a direct-completion / generic chat turn does not target a named
-    # specialist, so we skip the resolution entirely (it is a multi-second semantic-search
-    # round-trip that mis-resolves a prompt-only agent like ``messaging-assistant`` anyway).
-    # CONCEPT:AU-ORCH.execution.passthrough-identity — and a PASS-THROUGH identity (the universal messaging assistant) is
-    # resolution-exempt regardless of the shape: it is a prompt-only universal entrypoint that
-    # is MEANT to flow through the full multi-agent graph as itself, and resolving it both
-    # wastes a ~21 s semantic search and mis-binds it to an unrelated tag (``prepare_messages``).
-    # An explicit agent is a routing constraint, not a hint for the task lexical
-    # planner.  In particular, the focused-tools shape is planned from ``task``
-    # independently of ``agent_name``; skipping resolution here let that shape bind
-    # a different server even when the caller had pinned one.
-    if (
-        shape.resolve_agent or agent_name.strip()
-    ) and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
-        agent_meta = await _call_without_blocking(
-            _resolve_agent_from_kg, engine, agent_name
-        )
-    else:
-        agent_meta = _unresolved_agent_meta()
-
-    if skill_name:
-        if not agent_meta.get("skill_id"):
-            reason, degraded = await _call_without_blocking(
-                _skill_unrunnable_reason, engine, skill_name
+            manifest = await _call_without_blocking(
+                manifest_for_enterprise, task, engine
             )
-            if degraded:
-                # D-SNV-5: the precondition READ failed (e.g. a transient
-                # engine/session error) — that is not an honest negative and
-                # must never be phrased as "is not runnable", which a caller
-                # or an operator reading the log would take as a confirmed,
-                # actionable finding about the skill itself.
-                raise RuntimeError(
-                    f"could not determine whether skill '{skill_name}' is "
-                    f"runnable: {reason}"
+            pe = ParallelEngine(engine=engine)
+
+            try:
+                pe_result = await pe.execute(manifest)
+                duration_ms = (time.monotonic() - start_time) * 1000
+                await _record_execution_trace_ordered(
+                    engine,
+                    run_id,
+                    "enterprise",
+                    task,
+                    status="completed",
+                    duration_ms=duration_ms,
+                    result_preview=str(pe_result)[:500],
+                    execution_mode="parallel_engine",
                 )
-            raise LookupError(
-                f"ingested skill '{skill_name}' is not runnable: {reason}"
-            )
-        if tool_server:
-            agent_meta = await _call_without_blocking(
-                _bind_explicit_tool_server,
-                engine,
-                agent_meta,
-                tool_server,
-                skill_name,
-                allowed_tools,
-            )
+                return _render_agent_result(
+                    pe_result, run_id=run_id, return_mermaid=return_mermaid
+                )
+            except Exception as e:
+                logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
+                await _record_execution_trace_ordered(
+                    engine,
+                    run_id,
+                    "enterprise",
+                    task,
+                    status="failed",
+                    error=str(e),
+                    execution_mode="parallel_engine",
+                )
+                return _render_agent_result(
+                    f"Enterprise execution failed: {e}",
+                    run_id=run_id,
+                    return_mermaid=return_mermaid,
+                )
 
-    # Step 2b: Prime the recent compressed mementos for this run OFF the event loop.
-    # CONCEPT:AU-KG.memory.refresh-per-session-memento — read the per-session memento cache (zero I/O); only on a cold
-    # miss do we fetch via ``to_thread`` so the synchronous backend round-trip never
-    # blocks the async reply path (the priming used to run inline in
-    # ``_build_execution_config``). The background ``_persist_and_enrich`` pass refreshes
-    # the cache after each turn, so turn N+1 reads turn N's memento from memory.
-    recent_mementos = await _prime_recent_mementos(engine, memento_source or agent_name)
-
-    # Step 2c: Prime the KG's synthesized view of the task's code area (CONCEPT:AU-KG.retrieval.task-start-kg-priming)
-    # — the task-start "query the code KG before you grep" default. Off the loop,
-    # best-effort, skipped on the chat profile.
-    code_context_prime = await _prime_code_context(
-        engine, task, execution_profile=execution_profile
-    )
-
-    # Step 3: Build execution config from KG metadata.
-    # CONCEPT:AU-ORCH.execution.chat-profile-timeouts/1.67 — the constructed shape (already planned above) selects the
-    # per-node timeout budget and the dynamic graph shape; pass it through so the config
-    # carries it to the graph deps (ExecutionProfile instances are accepted as-is).
-    config = _build_execution_config(
-        engine,
-        agent_name,
-        agent_meta,
-        memento_source=memento_source,
-        execution_profile=shape,
-        recent_mementos=recent_mementos,
-        code_context_prime=code_context_prime,
-        model_class=model_class,
-        allowed_tools=allowed_tools,
-    )
-    config["response_format"] = response_format
-    config["execution_mode"] = requested_execution_mode
-    if skill_name:
-        config["pinned_skill_name"] = skill_name
-        config["pinned_skill_prompt"] = str(agent_meta.get("system_prompt") or "")
-    # CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context + token budget into the spawn.
-    # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
-    # from the epistemic-graph and link it to this run's RunTrace for provenance.
-    if context_ref and not context:
+        # Step 1b: Check if agent_name maps to a native ServiceRegistry capability (e.g. trading_swarm)
         try:
-            context = await _call_without_blocking(
-                _resolve_context_ref, engine, context_ref, run_id
-            )
-        except Exception as _ctx_exc:  # noqa: BLE001
+            from agent_utilities.core.registry.service_adapter import ServiceRegistry
+
+            registry = ServiceRegistry.instance()
+            svc = registry.get(agent_name)
+            if svc:
+                logger.info(
+                    "[ORCH-1.21] Routing to ServiceRegistry capability: %s", agent_name
+                )
+                cls = svc.get_class()
+                if cls:
+                    # Instantiate capability
+                    sig = inspect.signature(cls)
+                    if "engine" in sig.parameters:
+                        instance = cls(engine=engine)
+                    elif "config" in sig.parameters:
+                        instance = cls(config=None)
+                    else:
+                        instance = cls()
+
+                    # Execute capability
+                    result = None
+                    handled = False
+                    if hasattr(instance, "analyze"):
+                        handled = True
+                        # Specifically for TradingSwarm
+                        try:
+                            task_data = json.loads(task)
+                        except Exception:
+                            task_data = {"raw_task": task}
+
+                        result = await _call_without_blocking(
+                            instance.analyze, task_data
+                        )
+                    elif hasattr(instance, "select_pattern"):
+                        handled = True
+                        # Specifically for SubagentPatternRouter
+                        result = await _call_without_blocking(
+                            instance.select_pattern, needs_collaboration=True
+                        )
+                    elif hasattr(instance, "run"):
+                        handled = True
+                        result = await _call_without_blocking(instance.run, task)
+                    elif hasattr(instance, "execute"):
+                        handled = True
+                        result = await _call_without_blocking(instance.execute, task)
+                    if handled:
+                        await _record_execution_trace_ordered(
+                            engine,
+                            run_id,
+                            agent_name,
+                            task,
+                            status="completed",
+                            duration_ms=(time.monotonic() - start_time) * 1000,
+                            result_preview=str(result)[:500],
+                            execution_mode="service_registry",
+                        )
+                        return _render_agent_result(
+                            result, run_id=run_id, return_mermaid=return_mermaid
+                        )
+        except Exception as e:
             logger.warning(
-                "context_ref %s resolution failed: %s", context_ref, _ctx_exc
+                "[ORCH-1.21] ServiceRegistry execution failed for %s, falling back: %s",
+                agent_name,
+                e,
             )
-    if context:
-        config["invoker_context"] = context
-    # CONCEPT:AU-AHE.harness.loop-exit-conditions — BUDGET CAP (exit 3), native by
-    # default. A top-level ``run_agent`` gets a token budget even when the caller
-    # passed none, so the ``UsageLimits.total_tokens_limit`` hard cap is threaded
-    # onto EVERY spawned agent (the single-server loop and the graph spawn sites,
-    # which enforce it via pydantic-ai UsageLimits) — not only explicit invoker
-    # handoffs. The ResourceOptimizer session token budget is the default; a caller
-    # may still pass an explicit ``budget_tokens`` (honored verbatim) and a
-    # deployment can raise/lower ``SESSION_TOKEN_BUDGET``.
-    effective_budget_tokens = budget_tokens
-    if effective_budget_tokens is None:
-        from agent_utilities.core.resource_optimizer import DEFAULT_TOKEN_BUDGET
 
-        effective_budget_tokens = DEFAULT_TOKEN_BUDGET
-    if effective_budget_tokens:
-        config["invoker_budget_tokens"] = int(effective_budget_tokens)
-    _bind_native_skill_toolset(
-        config=config,
-        agent_meta=agent_meta,
-        agent_name=agent_name,
-    )
-    if cred_ref:
-        config["invoker_cred_ref"] = cred_ref
-    # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an opt-in capability
-    # (like RLM): a run that needs deliberation turns it ON per-execution by passing an
-    # effort ("low"/"medium"/"high"); otherwise the deterministic tool loop leaves it OFF
-    # (the fleet default). Threaded onto config so _execute_single_server can honor it.
-    if reasoning_effort:
-        config["reasoning_effort"] = str(reasoning_effort)
-    # CONCEPT:AU-ORCH.execution.task-aware-tool-selection — a resolved fleet server can expose HUNDREDS
-    # of tools; binding every schema to the single-server agent makes the LLM call hang
-    # and the run silently degrade to a hallucinating toolless graph. When the caller
-    # set no explicit allow-list, bind only the top-K task-relevant tools (KG capability
-    # index, bounded; lexical fallback; hard cap). Only for resolved MCP servers.
-    if agent_meta.get("type") == "server" and not config.get("invoker_allowed_tools"):
-        _selected = await _select_relevant_tool_names(
-            engine, task, agent_meta.get("tools") or [], agent_name=agent_name
+        # CONCEPT:AU-ORCH.execution.per-job-shape-construction — construct the execution shape for THIS job ONCE, up front. The
+        # escalating planner decides how much graph the job needs from cheap signals; a trivial
+        # turn gets a lean shape that skips KG agent resolution, the usage-guard LLM round,
+        # discovery, and the verifier (CONCEPT:AU-ORCH.execution.direct-completion-shape), so the heavy apparatus never runs for a
+        # simple chat reply.
+        from agent_utilities.orchestration.execution_profile import plan_execution_shape
+
+        shape = await _call_without_blocking(
+            plan_execution_shape,
+            task,
+            profile_hint=execution_profile,
+            engine=engine,
         )
-        if _selected:
-            config["invoker_allowed_tools"] = _selected
-    # CONCEPT:AU-ORCH.session.session-anchored-collections-native — open the invoker↔spawned native message channel for this run when
-    # requested (or when an explicit session_id is given). The id is stamped into config so
-    # GraphState/AgentDeps carry it to the spawned agent, and echoed back in the JSON wrapper
-    # so the invoker knows where to send/receive.
-    channel_id: str | None = None
-    if open_channel or session_id:
-        from agent_utilities.messaging import agent_channel
 
-        channel_id = await _call_without_blocking(
-            agent_channel.open_channel, engine, session_id or run_id, run_id
+        # Step 2: Query KG for agent metadata — ONLY when the shape targets a specific specialist.
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — ``_resolve_agent_from_kg`` runs synchronous backend round-trips;
+        # run them OFF the event loop via ``to_thread`` so they never stall the async reply path.
+        # CONCEPT:AU-ORCH.execution.direct-completion-shape — a direct-completion / generic chat turn does not target a named
+        # specialist, so we skip the resolution entirely (it is a multi-second semantic-search
+        # round-trip that mis-resolves a prompt-only agent like ``messaging-assistant`` anyway).
+        # CONCEPT:AU-ORCH.execution.passthrough-identity — and a PASS-THROUGH identity (the universal messaging assistant) is
+        # resolution-exempt regardless of the shape: it is a prompt-only universal entrypoint that
+        # is MEANT to flow through the full multi-agent graph as itself, and resolving it both
+        # wastes a ~21 s semantic search and mis-binds it to an unrelated tag (``prepare_messages``).
+        # An explicit agent is a routing constraint, not a hint for the task lexical
+        # planner.  In particular, the focused-tools shape is planned from ``task``
+        # independently of ``agent_name``; skipping resolution here let that shape bind
+        # a different server even when the caller had pinned one.
+        if (
+            shape.resolve_agent or agent_name.strip()
+        ) and agent_name.strip().lower() not in _PASSTHROUGH_AGENTS:
+            agent_meta = await _call_without_blocking(
+                _resolve_agent_from_kg, engine, agent_name
+            )
+        else:
+            agent_meta = _unresolved_agent_meta()
+
+        if skill_name:
+            if not agent_meta.get("skill_id"):
+                reason, degraded = await _call_without_blocking(
+                    _skill_unrunnable_reason, engine, skill_name
+                )
+                if degraded:
+                    # D-SNV-5: the precondition READ failed (e.g. a transient
+                    # engine/session error) — that is not an honest negative and
+                    # must never be phrased as "is not runnable", which a caller
+                    # or an operator reading the log would take as a confirmed,
+                    # actionable finding about the skill itself.
+                    raise RuntimeError(
+                        f"could not determine whether skill '{skill_name}' is "
+                        f"runnable: {reason}"
+                    )
+                raise LookupError(
+                    f"ingested skill '{skill_name}' is not runnable: {reason}"
+                )
+            if tool_server:
+                agent_meta = await _call_without_blocking(
+                    _bind_explicit_tool_server,
+                    engine,
+                    agent_meta,
+                    tool_server,
+                    skill_name,
+                    allowed_tools,
+                )
+
+        # Step 2b: Prime the recent compressed mementos for this run OFF the event loop.
+        # CONCEPT:AU-KG.memory.refresh-per-session-memento — read the per-session memento cache (zero I/O); only on a cold
+        # miss do we fetch via ``to_thread`` so the synchronous backend round-trip never
+        # blocks the async reply path (the priming used to run inline in
+        # ``_build_execution_config``). The background ``_persist_and_enrich`` pass refreshes
+        # the cache after each turn, so turn N+1 reads turn N's memento from memory.
+        recent_mementos = await _prime_recent_mementos(
+            engine, memento_source or agent_name
         )
-        if channel_id:
-            config["message_channel_id"] = channel_id
 
-    # CONCEPT:AU-ORCH.execution.skill-utilization-provenance — capture whether a package SKILL drove
-    # this run (its SOP is the prompt) and which server's tools it bound (F7), so the
-    # RunTrace records skill utilization: bare skill (prompt-only) has type=="skill";
-    # a skill bound to its server (F7) carries ``skill_of_server``.
-    _skill_used = (
-        agent_name
-        if (agent_meta.get("type") == "skill" or agent_meta.get("skill_of_server"))
-        else ""
-    )
-    _bound_server = str(agent_meta.get("skill_of_server", "") or "")
-    _skill_id = str(agent_meta.get("skill_id", "") or "")
-    _skill_instruction_digest = str(
-        agent_meta.get("skill_instruction_digest", "") or ""
-    )
-    from agent_utilities.security.persistence_privacy import persistence_reference
+        # Step 2c: Prime the KG's synthesized view of the task's code area (CONCEPT:AU-KG.retrieval.task-start-kg-priming)
+        # — the task-start "query the code KG before you grep" default. Off the loop,
+        # best-effort, skipped on the chat profile.
+        code_context_prime = await _prime_code_context(
+            engine, task, execution_profile=execution_profile
+        )
 
-    _model_ref = persistence_reference(
-        "model", config.get("agent_model"), namespace="orchestration-run"
-    )
-    _model_class = str(config.get("selected_model_class") or "")
-    config["trace_evidence"] = _trace_evidence_for_run(
-        model_ref=_model_ref,
-        model_class=_model_class,
-        skill_used=_skill_used,
-        skill_instruction_digest=_skill_instruction_digest,
-    )
+        # Step 3: Build execution config from KG metadata.
+        # CONCEPT:AU-ORCH.execution.chat-profile-timeouts/1.67 — the constructed shape (already planned above) selects the
+        # per-node timeout budget and the dynamic graph shape; pass it through so the config
+        # carries it to the graph deps (ExecutionProfile instances are accepted as-is).
+        config = _build_execution_config(
+            engine,
+            agent_name,
+            agent_meta,
+            memento_source=memento_source,
+            execution_profile=shape,
+            recent_mementos=recent_mementos,
+            code_context_prime=code_context_prime,
+            model_class=model_class,
+            allowed_tools=allowed_tools,
+        )
+        config["response_format"] = response_format
+        config["execution_mode"] = requested_execution_mode
+        if skill_name:
+            config["pinned_skill_name"] = skill_name
+            config["pinned_skill_prompt"] = str(agent_meta.get("system_prompt") or "")
+        # CONCEPT:AU-ORCH.session.carry-invoker — carry the invoker's curated context + token budget into the spawn.
+        # context_ref resolves a persisted ContextBlob (cross-process handoff): fetch its content
+        # from the epistemic-graph and link it to this run's RunTrace for provenance.
+        if context_ref and not context:
+            try:
+                context = await _call_without_blocking(
+                    _resolve_context_ref, engine, context_ref, run_id
+                )
+            except Exception as _ctx_exc:  # noqa: BLE001
+                logger.warning(
+                    "context_ref %s resolution failed: %s", context_ref, _ctx_exc
+                )
+        if context:
+            config["invoker_context"] = context
+        # CONCEPT:AU-AHE.harness.loop-exit-conditions — BUDGET CAP (exit 3), native by
+        # default. A top-level ``run_agent`` gets a token budget even when the caller
+        # passed none, so the ``UsageLimits.total_tokens_limit`` hard cap is threaded
+        # onto EVERY spawned agent (the single-server loop and the graph spawn sites,
+        # which enforce it via pydantic-ai UsageLimits) — not only explicit invoker
+        # handoffs. The ResourceOptimizer session token budget is the default; a caller
+        # may still pass an explicit ``budget_tokens`` (honored verbatim) and a
+        # deployment can raise/lower ``SESSION_TOKEN_BUDGET``.
+        effective_budget_tokens = budget_tokens
+        if effective_budget_tokens is None:
+            from agent_utilities.core.resource_optimizer import DEFAULT_TOKEN_BUDGET
 
-    # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — resolve THIS spawn's on-behalf-of
-    # identity (exchange + chain + run-token + ceiling) once, up front. It is bound as ambient
-    # for the execution block below (so the spawn's engine calls carry the delegation envelope in
-    # `on` mode) and passed explicitly to the RunTrace so provenance records the chain regardless
-    # of context scope. `off` mode returns None (legacy identity, zero overhead).
-    # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — in `on`/`warn` mode this performs a
-    # SYNCHRONOUS RFC 8693 token-exchange HTTP POST to the IdP token endpoint (a real network
-    # round-trip, not just a KG hit); run it off the event loop like every other blocking
-    # capability in this function.
-    _spawn_delegation = await _call_without_blocking(
-        _prepare_spawn_delegation, agent_name, run_id, config
-    )
+            effective_budget_tokens = DEFAULT_TOKEN_BUDGET
+        if effective_budget_tokens:
+            config["invoker_budget_tokens"] = int(effective_budget_tokens)
+        _bind_native_skill_toolset(
+            config=config,
+            agent_meta=agent_meta,
+            agent_name=agent_name,
+        )
+        if cred_ref:
+            config["invoker_cred_ref"] = cred_ref
+        # CONCEPT:AU-ORCH.execution.delegation-reasoning-off — reasoning is an opt-in capability
+        # (like RLM): a run that needs deliberation turns it ON per-execution by passing an
+        # effort ("low"/"medium"/"high"); otherwise the deterministic tool loop leaves it OFF
+        # (the fleet default). Threaded onto config so _execute_single_server can honor it.
+        if reasoning_effort:
+            config["reasoning_effort"] = str(reasoning_effort)
+        # CONCEPT:AU-ORCH.execution.task-aware-tool-selection — a resolved fleet server can expose HUNDREDS
+        # of tools; binding every schema to the single-server agent makes the LLM call hang
+        # and the run silently degrade to a hallucinating toolless graph. When the caller
+        # set no explicit allow-list, bind only the top-K task-relevant tools (KG capability
+        # index, bounded; lexical fallback; hard cap). Only for resolved MCP servers.
+        if agent_meta.get("type") == "server" and not config.get(
+            "invoker_allowed_tools"
+        ):
+            _selected = await _select_relevant_tool_names(
+                engine, task, agent_meta.get("tools") or [], agent_name=agent_name
+            )
+            if _selected:
+                config["invoker_allowed_tools"] = _selected
+        # CONCEPT:AU-ORCH.session.session-anchored-collections-native — open the invoker↔spawned native message channel for this run when
+        # requested (or when an explicit session_id is given). The id is stamped into config so
+        # GraphState/AgentDeps carry it to the spawned agent, and echoed back in the JSON wrapper
+        # so the invoker knows where to send/receive.
+        channel_id: str | None = None
+        if open_channel or session_id:
+            from agent_utilities.messaging import agent_channel
 
-    # Step 4: Execute. A resolved single MCP-server agent runs a DETERMINISTIC
-    # direct tool loop (bind only that server's toolset, no router); anything else
-    # goes through the full multi-agent orchestration graph. Routing a one-server
-    # task through the graph let the LLM router/dispatcher mis-route it (e.g. to a
-    # verifier that ran on empty results), so the server's tools were never called.
-    from agent_utilities.security.delegation import (
-        enter_delegation as _enter_delegation,
-    )
-    from agent_utilities.security.delegation import (
-        reset_delegation as _reset_delegation,
-    )
+            channel_id = await _call_without_blocking(
+                agent_channel.open_channel, engine, session_id or run_id, run_id
+            )
+            if channel_id:
+                config["message_channel_id"] = channel_id
 
-    _delegation_token = _enter_delegation(_spawn_delegation)
-    # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — tracked alongside the
-    # dispatch below (NOT re-derived from ``agent_meta``/``shape`` after the fact) so
-    # ``route``/``stage_reached`` always reflect the branch that ACTUALLY ran, including a
-    # fallback sub-branch (e.g. bound-template -> full graph). Read by the failure-exit branch
-    # below AND by ``_build_run_summary`` on the success/degraded exit (Step 5).
-    route: dict[str, Any] = {}
-    stage_reached = "dispatch"
+        # CONCEPT:AU-ORCH.execution.skill-utilization-provenance — capture whether a package SKILL drove
+        # this run (its SOP is the prompt) and which server's tools it bound (F7), so the
+        # RunTrace records skill utilization: bare skill (prompt-only) has type=="skill";
+        # a skill bound to its server (F7) carries ``skill_of_server``.
+        _skill_used = (
+            agent_name
+            if (agent_meta.get("type") == "skill" or agent_meta.get("skill_of_server"))
+            else ""
+        )
+        _bound_server = str(agent_meta.get("skill_of_server", "") or "")
+        _skill_id = str(agent_meta.get("skill_id", "") or "")
+        _skill_instruction_digest = str(
+            agent_meta.get("skill_instruction_digest", "") or ""
+        )
+        from agent_utilities.security.persistence_privacy import persistence_reference
+
+        _model_ref = persistence_reference(
+            "model", config.get("agent_model"), namespace="orchestration-run"
+        )
+        _model_class = str(config.get("selected_model_class") or "")
+        config["trace_evidence"] = _trace_evidence_for_run(
+            model_ref=_model_ref,
+            model_class=_model_class,
+            skill_used=_skill_used,
+            skill_instruction_digest=_skill_instruction_digest,
+        )
+
+        # CONCEPT:AU-OS.identity.per-agent-on-behalf-delegation — resolve THIS spawn's on-behalf-of
+        # identity (exchange + chain + run-token + ceiling) once, up front. It is bound as ambient
+        # for the execution block below (so the spawn's engine calls carry the delegation envelope in
+        # `on` mode) and passed explicitly to the RunTrace so provenance records the chain regardless
+        # of context scope. `off` mode returns None (legacy identity, zero overhead).
+        # CONCEPT:AU-ORCH.routing.offload-sync-roundtrip — in `on`/`warn` mode this performs a
+        # SYNCHRONOUS RFC 8693 token-exchange HTTP POST to the IdP token endpoint (a real network
+        # round-trip, not just a KG hit); run it off the event loop like every other blocking
+        # capability in this function.
+        _spawn_delegation = await _call_without_blocking(
+            _prepare_spawn_delegation, agent_name, run_id, config
+        )
+
+        # Step 4: Execute. A resolved single MCP-server agent runs a DETERMINISTIC
+        # direct tool loop (bind only that server's toolset, no router); anything else
+        # goes through the full multi-agent orchestration graph. Routing a one-server
+        # task through the graph let the LLM router/dispatcher mis-route it (e.g. to a
+        # verifier that ran on empty results), so the server's tools were never called.
+        from agent_utilities.security.delegation import (
+            enter_delegation as _enter_delegation,
+        )
+        from agent_utilities.security.delegation import (
+            reset_delegation as _reset_delegation,
+        )
+
+        _delegation_token = _enter_delegation(_spawn_delegation)
+        # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — tracked alongside the
+        # dispatch below (NOT re-derived from ``agent_meta``/``shape`` after the fact) so
+        # ``route``/``stage_reached`` always reflect the branch that ACTUALLY ran, including a
+        # fallback sub-branch (e.g. bound-template -> full graph). Read by the failure-exit branch
+        # below AND by ``_build_run_summary`` on the success/degraded exit (Step 5).
+        route: dict[str, Any] = {}
+        stage_reached = "dispatch"
+    except BaseException as _pre_dispatch_exc:  # noqa: BLE001 — D-CDX-50: guarantee telemetry closure + a terminal RunTrace for every PRE-DISPATCH exit (engine resolution, enterprise/service-registry setup, KG agent resolution, skill binding, memento/code-context priming, execution-config construction) -- the dispatch stage below (Step 4's try/except BaseException) already covers everything from here on, but nothing previously covered THIS span; an exception here used to leak the OTel span (on_graph_start with no matching on_graph_end) and leave zero RunTrace for the run_id, exactly when a caller-handed trace_ref most needed to resolve to something.
+        if isinstance(
+            _pre_dispatch_exc, KeyboardInterrupt | SystemExit
+        ) and not isinstance(_pre_dispatch_exc, BaseExceptionGroup):
+            raise
+        _pre_dispatch_status = (
+            "cancelled"
+            if isinstance(_pre_dispatch_exc, asyncio.CancelledError)
+            else "failed"
+        )
+        _pre_dispatch_err = _flatten_exception_group(_pre_dispatch_exc)
+        logger.error(
+            "[D-CDX-50] run_agent: pre-dispatch exit (agent=%s, run_id=%s, status=%s): %s",
+            agent_name,
+            run_id,
+            _pre_dispatch_status,
+            _pre_dispatch_err,
+        )
+        try:
+            # ``_record_execution_trace_ordered`` is the SAME cancellation-safe,
+            # off-the-serving-loop helper the dispatch-stage handler below uses
+            # (see its own docstring) -- it also closes the OTel span opened
+            # above (on_graph_end runs first thing inside it), so this one call
+            # is both halves of "one outer lifecycle boundary" for this exit.
+            # ``engine`` may still be the pre-call default (e.g. None) if
+            # ``_get_or_create_engine()`` itself is what raised; the trace
+            # helper degrades to a telemetry-only close in that case rather
+            # than raising a second time.
+            await _record_execution_trace_ordered(
+                engine,
+                run_id,
+                agent_name,
+                task,
+                status=_pre_dispatch_status,
+                error=_pre_dispatch_err,
+                duration_ms=(time.monotonic() - start_time) * 1000,
+                execution_mode=actual_execution_mode,
+            )
+        except Exception as _trace_exc:  # noqa: BLE001 — best-effort; never block the original exception/cancellation from propagating
+            logger.debug(
+                "run_agent: pre-dispatch best-effort trace write failed: %s",
+                _trace_exc,
+            )
+        raise
+
     try:
         if requested_execution_mode == "pydantic_graph":
             actual_execution_mode = "pydantic_graph"
@@ -1265,18 +1321,22 @@ async def run_agent(
             # "timeout" RunTrace with whatever route/stage this run reached before it was cut
             # off, so that trace_ref is a REAL troubleshooting entry point.
             #
-            # DELIBERATELY SYNCHRONOUS — do NOT route this one through
-            # ``_call_without_blocking``/``asyncio.to_thread`` like the rest of this
-            # function's graph I/O. Cancellation has ALREADY been delivered to this
-            # coroutine, so any ``await`` here is a suspension point that a second
-            # ``cancel()`` (a supervisor retrying, or shutdown) re-raises through —
-            # measured: under a double-cancel the awaited variant loses the write
-            # entirely and this trace_ref resolves to nothing again, which is the exact
-            # bug this block exists to prevent. A bounded, once-per-cancelled-run
-            # blocking write is the correct trade against silently losing the only
-            # durable record of a timed-out run.
+            # Preserve this one durable write through cancellation, but do not perform
+            # its native engine calls on GraphOS's shared serving loop.  In particular,
+            # ``_execute_tool`` reaches this branch after its delegation wall-clock;
+            # a stalled add_node/link_nodes here used to make health/readiness time out
+            # and let kubelet kill an otherwise recoverable gateway.  The ordered helper
+            # keeps exactly one started write alive through repeated cancellation and
+            # re-raises only after it completes, without starving other loop tasks.
+            #
+            # Record the lightweight runtime signal before awaiting the ordered write:
+            # a repeated cancellation is allowed to re-raise from the helper after the
+            # durable trace commits, but must not suppress the timeout evidence.
+            _record_delegation_over_budget(
+                agent_name, time.monotonic() - start_time, "timeout"
+            )
             try:
-                _record_execution_trace(
+                await _record_execution_trace_ordered(
                     engine,
                     run_id,
                     agent_name,
@@ -1301,12 +1361,6 @@ async def run_agent(
                 logger.debug(
                     "run_agent: best-effort timeout-trace write failed: %s", trace_exc
                 )
-            # CONCEPT:AU-AHE.harness.runtime-reliability-loop — a caller-side wall-clock
-            # timeout is a delegation definitively over budget that never becomes a graded
-            # run; record it (fire-and-forget) so a repeated pattern surfaces as a gap.
-            _record_delegation_over_budget(
-                agent_name, time.monotonic() - start_time, "timeout"
-            )
             raise
         if isinstance(e, KeyboardInterrupt | SystemExit) and not isinstance(
             e, BaseExceptionGroup
@@ -1326,8 +1380,7 @@ async def run_agent(
 
         _grounding_degraded, _grounding_reason = _gs()
         # Record failure provenance
-        await _call_without_blocking(
-            _record_execution_trace,
+        await _record_execution_trace_ordered(
             engine,
             run_id,
             agent_name,
@@ -1571,8 +1624,17 @@ async def run_agent(
         _record_delegation_over_budget(
             agent_name, duration_ms / 1000.0, "degraded" if degraded else "ok"
         )
-    _trace_recorded = await _call_without_blocking(
-        _record_execution_trace,
+    # Keep tool-call provenance in the same authority transaction as this
+    # RunTrace whenever the native batch seam is available.  The list is
+    # already the normalized capture shape produced by the delegation paths;
+    # preserve ``None`` for runs with no tool evidence so their portable trace
+    # behavior stays unchanged.
+    _tool_calls_for_trace = (
+        result.get("tool_calls")
+        if isinstance(result, dict) and isinstance(result.get("tool_calls"), list)
+        else None
+    )
+    _trace_recorded = await _record_execution_trace_ordered(
         engine,
         run_id,
         agent_name,
@@ -1598,6 +1660,8 @@ async def run_agent(
         delegation=_spawn_delegation,
         grounding_status="degraded" if _grounding_degraded else "grounded",
         grounding_reason=_grounding_reason,
+        tool_calls=_tool_calls_for_trace,
+        tool_call_server=agent_name,
     )
     # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the paper's
     # "checkpointing / traces" surfaced: the durable RunTrace this run just wrote IS its
@@ -1620,18 +1684,6 @@ async def run_agent(
             if _trace_recorded
             else "run trace write failed",
             evidence={"trace_ref": _trace_id_ck(run_id)} if _trace_recorded else {},
-        )
-    # CONCEPT:AU-KG.temporal.message-history-read — persist each tool call the local LLM made as a :ToolCall
-    # node on this run's RunTrace, so the delegated action is fully visible over
-    # graph-os ("what tools, what args, what result"). Best-effort, never breaks.
-    if isinstance(result, dict) and result.get("tool_calls"):
-        await _call_without_blocking(
-            _persist_tool_calls,
-            engine,
-            run_id,
-            agent_name,
-            agent_name,
-            result["tool_calls"],
         )
     # Self-healing (CONCEPT:AU-AHE.evaluation.action-outcome-feedback): a degraded run teaches the
     # reward-EMA that this agent/task-class produced a non-answer, so routing prefers
@@ -2225,16 +2277,20 @@ def _resolve_agent_from_kg(
     return meta
 
 
-def _bind_explicit_tool_server(
+def _catalog_toolset_binding(
     engine: IntelligenceGraphEngine,
-    skill_meta: dict[str, Any],
-    tool_server: str,
-    skill_name: str,
-    allowed_tools: list[str] | None,
+    toolset_id: str,
+    *,
+    allowed_tools: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Bind one exact fleet catalog to an already-validated ingested skill."""
+    """Resolve one exact server/tool contract from the durable catalog only.
 
-    server_name = str(tool_server or "").strip()
+    This is deliberately NOT a transport health check: it creates no
+    ``MCPToolset``, bearer-auth refresh loop, or MCP session. The eventual
+    delegated execution remains the sole owner of the live session, so its
+    schema/list-changed notifications and teardown stay in one lifecycle.
+    """
+    server_name = str(toolset_id or "").strip()
     if not server_name:
         raise ValueError("tool_server is required")
     server_meta = _resolve_agent_from_kg(engine, server_name)
@@ -2253,6 +2309,22 @@ def _bind_explicit_tool_server(
             "allowed_tools contains tools outside the configured server catalog: "
             + ", ".join(unknown)
         )
+    return server_meta
+
+
+def _bind_explicit_tool_server(
+    engine: IntelligenceGraphEngine,
+    skill_meta: dict[str, Any],
+    tool_server: str,
+    skill_name: str,
+    allowed_tools: list[str] | None,
+) -> dict[str, Any]:
+    """Bind one exact fleet catalog to an already-validated ingested skill."""
+
+    server_name = str(tool_server or "").strip()
+    server_meta = _catalog_toolset_binding(
+        engine, server_name, allowed_tools=allowed_tools
+    )
 
     combined = dict(server_meta)
     for key in (
@@ -2316,18 +2388,54 @@ def _configured_fleet_server_prefix(server_name: str) -> str:
     return ""
 
 
+# D-CDX-41: the ONE mapping from an advertised, public ``model_class`` name
+# to the internal ``AgentConfig.chat_models[*].intelligence_level`` it
+# resolves against. ``_configured_model_for_class`` and
+# ``available_model_classes`` both read this SAME dict so the two can never
+# advertise/accept a class name neither of them actually checks the same way.
+_MODEL_CLASS_INTELLIGENCE_LEVELS: dict[str, str] = {
+    "economy": "light",
+    "standard": "normal",
+}
+
+
+def available_model_classes() -> dict[str, bool]:
+    """Which advertised ``model_class`` values currently resolve to at least
+    one configured model in the live catalog (D-CDX-41).
+
+    A cost-conscious caller — or a deployment preflight/health-check — can
+    call this BEFORE preview/execution to learn that a class it is about to
+    request (e.g. ``"economy"``) is unavailable, instead of discovering it
+    only after paying for a full orchestration setup that precedes the
+    actual model resolution. Every key in
+    ``_MODEL_CLASS_INTELLIGENCE_LEVELS`` (every class this module ever
+    accepts) is always present in the result, so a caller never has to
+    special-case a missing key as "unknown vs. unavailable".
+    """
+    from agent_utilities.core.config import config as agent_config
+
+    configured_levels = {
+        str(model.intelligence_level).strip().casefold()
+        for model in agent_config.chat_models
+    }
+    return {
+        model_class: level in configured_levels
+        for model_class, level in _MODEL_CLASS_INTELLIGENCE_LEVELS.items()
+    }
+
+
 def _configured_model_for_class(model_class: str) -> Any:
     """Resolve an explicit runtime class to one exact AgentConfig model tier."""
     from agent_utilities.core.config import config as agent_config
 
-    levels = {"economy": "light", "standard": "normal"}
     requested = str(model_class or "").strip().casefold()
-    if requested not in levels:
+    if requested not in _MODEL_CLASS_INTELLIGENCE_LEVELS:
         raise ValueError("model_class must be economy or standard")
+    level = _MODEL_CLASS_INTELLIGENCE_LEVELS[requested]
     matches = [
         model
         for model in agent_config.chat_models
-        if str(model.intelligence_level).strip().casefold() == levels[requested]
+        if str(model.intelligence_level).strip().casefold() == level
     ]
     if not matches:
         raise RuntimeError(f"configured {requested} model class is unavailable")
@@ -3513,7 +3621,7 @@ def _stamp_run_identity(props: dict[str, Any], delegation: Any = None) -> None:
 
 
 def _record_execution_trace(
-    engine: IntelligenceGraphEngine,
+    engine: IntelligenceGraphEngine | None,
     run_id: str,
     agent_name: str,
     task: str,
@@ -3534,6 +3642,8 @@ def _record_execution_trace(
     delegation: Any = None,
     grounding_status: str = "",
     grounding_reason: str = "",
+    tool_calls: list[dict[str, Any]] | None = None,
+    tool_call_server: str = "",
 ) -> bool:
     """Record an execution trace in the KG for auditability.
 
@@ -3622,6 +3732,34 @@ def _record_execution_trace(
     # tenant-scoped graph query (CONCEPT:AU-OS.observability.run-wide-correlation-id + OS-5.14 + KG-2.60).
     _stamp_run_identity(props, delegation=delegation)
 
+    # The native graph authority validates and commits an ordered BatchUpdate
+    # atomically.  On the direct delegation path this replaces the serial
+    # RunTrace/Outcome/tool provenance writes below with one durable core RPC,
+    # followed by at most one best-effort auxiliary-link batch. A backend
+    # without the core capability keeps the portable write path; a native core
+    # failure is deliberately all-or-nothing rather than being reinterpreted as
+    # a partial success.
+    if tool_calls:
+        batch_status = _persist_execution_provenance_batch(
+            engine,
+            run_id=run_id,
+            agent_name=agent_name,
+            trace_id=trace_id,
+            trace_properties=props,
+            timestamp=ts,
+            status=status,
+            error=error,
+            skill_used=skill_used,
+            bound_server=bound_server,
+            skill_id=skill_id,
+            tool_calls=tool_calls,
+        )
+        if batch_status == "written":
+            return True
+        if batch_status == "failed":
+            return False
+
+    trace_written = False
     try:
         engine.add_node(trace_id, TRACE_NODE_LABEL, properties=props)
         oid = outcome_id(run_id)
@@ -3685,6 +3823,7 @@ def _record_execution_trace(
                         rid,
                         exc,
                     )
+        trace_written = True
     except Exception as e:
         # D-DST-6 + D-DG-7 (reconciliation-gate-2 resolution of two lanes that
         # edited this handler concurrently).
@@ -3711,9 +3850,48 @@ def _record_execution_trace(
             trace_id,
             e,
         )
-        return False
+    if tool_calls:
+        # The portable path retains the previous independent ToolCall writes,
+        # even when the trace write failed: this is best-effort provenance, and
+        # callers must not lose the only successfully persisted tool evidence.
+        try:
+            _persist_tool_calls(
+                engine,
+                run_id,
+                agent_name,
+                tool_call_server or agent_name,
+                tool_calls,
+            )
+        except Exception as exc:  # noqa: BLE001 — preserve the already-recorded RunTrace if malformed best-effort tool evidence fails
+            logger.debug("ToolCall fallback persistence skipped: %s", exc)
 
-    return True
+    return trace_written
+
+
+async def _record_execution_trace_ordered(
+    engine: IntelligenceGraphEngine | None,
+    run_id: str,
+    agent_name: str,
+    task: str,
+    /,
+    **kwargs: Any,
+) -> bool:
+    """Persist one RunTrace off-loop while preserving completion ordering.
+
+    Every ``run_agent`` exit path uses this boundary.  Native engine writes can
+    block for much longer than an MCP request's cancellation deadline, so they
+    must never execute on GraphOS's shared serving loop.  The ordered helper
+    also keeps an already-started trace write from being orphaned if a caller
+    cancels again while it is in flight.
+    """
+    return await run_blocking_ordered(
+        _record_execution_trace,
+        engine,
+        run_id,
+        agent_name,
+        task,
+        **kwargs,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -4008,6 +4186,365 @@ def _persist_tool_calls(
             trace_id,
         )
     return written
+
+
+def _persist_execution_provenance_batch(
+    engine: IntelligenceGraphEngine,
+    *,
+    run_id: str,
+    agent_name: str,
+    trace_id: str,
+    trace_properties: dict[str, Any],
+    timestamp: str,
+    status: str,
+    error: str | None,
+    skill_used: str,
+    bound_server: str,
+    skill_id: str,
+    tool_calls: list[dict[str, Any]],
+) -> str:
+    """Persist durable trace provenance first, then enrich it when endpoints exist.
+
+    The first native batch is intentionally self-contained: the RunTrace,
+    OutcomeEvaluation, ToolCall nodes, and their ``PRODUCED_OUTCOME`` / ``USED_TOOL``
+    edges can all be committed without relying on a separately ingested server,
+    skill, or target node.  Once that authority commit succeeds, one optional
+    follow-up batch can add ``EXECUTED_ON``, ``USES_SKILL``, and ``ACTED_ON``.
+    A stale endpoint preflight or optional-link rejection therefore leaves the
+    durable audit core intact and never triggers serial duplicate writes.
+
+    Returns ``"written"`` after the core native commit, ``"unavailable"`` when
+    the configured backend cannot commit that core natively, and ``"failed"``
+    when a supported core batch rejects or fails. The latter intentionally does
+    not fall back to serial writes: doing so would turn one explicit
+    all-or-nothing authority failure into an unobservable partial outcome.
+    """
+    batch_write = getattr(engine, "batch_typed_mutations", None)
+    if not callable(batch_write):
+        return "unavailable"
+    if not all(isinstance(tool_call, dict) for tool_call in tool_calls):
+        return "unavailable"
+
+    from agent_utilities.observability.trace_ontology import (
+        OUTCOME_NODE_LABEL,
+        TOOL_CALL_NODE_LABEL,
+        TRACE_NODE_LABEL,
+        TRACE_PRODUCED_OUTCOME_EDGE,
+        TRACE_USED_TOOL_EDGE,
+        outcome_id,
+        outcome_properties,
+        tool_call_properties,
+    )
+
+    oid = outcome_id(run_id)
+    server_name = bound_server or agent_name
+    server_id = f"srv:{server_name}"
+    if skill_used:
+        skill_node_id = skill_id or f"resource:skill:{skill_used}"
+    else:
+        skill_node_id = ""
+
+    core_mutations: list[dict[str, Any]] = [
+        {
+            "kind": "node",
+            "id": trace_id,
+            "node_type": TRACE_NODE_LABEL,
+            "properties": dict(trace_properties),
+        },
+        {
+            "kind": "node",
+            "id": oid,
+            "node_type": OUTCOME_NODE_LABEL,
+            "properties": outcome_properties(
+                run_id=run_id,
+                status=status,
+                timestamp=timestamp,
+                event_sequence=int(trace_properties["event_sequence"]),
+                feedback=error or status,
+            ),
+        },
+        {
+            "kind": "edge",
+            "source": trace_id,
+            "target": oid,
+            "rel_type": TRACE_PRODUCED_OUTCOME_EDGE,
+            "properties": {},
+        },
+    ]
+
+    prepared_tool_calls: list[tuple[dict[str, Any], bool]] = []
+    tool_target_edges: list[tuple[str, str]] = []
+    for index, tool_call in enumerate(tool_calls):
+        tool_call_id = f"toolcall:{trace_id.removeprefix('trace:')}:{index}"
+        ok = not _tool_call_errored(tool_call)
+        props = tool_call_properties(
+            run_id=run_id,
+            tool_name=str(tool_call.get("tool_name", "")),
+            args=tool_call.get("args", ""),
+            result=tool_call.get("result", ""),
+            error=tool_call.get("error", ""),
+            status="ok" if ok else "error",
+            sequence=index,
+            timestamp=timestamp,
+        )
+        _stamp_run_identity(props)
+        core_mutations.extend(
+            (
+                {
+                    "kind": "node",
+                    "id": tool_call_id,
+                    "node_type": TOOL_CALL_NODE_LABEL,
+                    "properties": props,
+                },
+                {
+                    "kind": "edge",
+                    "source": trace_id,
+                    "target": tool_call_id,
+                    "rel_type": TRACE_USED_TOOL_EDGE,
+                    "properties": {},
+                },
+            )
+        )
+        target_id = _extract_tool_call_target(tool_call.get("args", ""))
+        if target_id and target_id != tool_call_id:
+            tool_target_edges.append((tool_call_id, target_id))
+        prepared_tool_calls.append((tool_call, ok))
+
+    try:
+        if not batch_write(core_mutations):
+            return "unavailable"
+    except Exception as exc:  # noqa: BLE001 — a native batch failure is atomic and must stay visible as a failed trace write
+        if getattr(exc, "authority_committed", False):
+            # FanOutBackend can fail only while handing a SUCCESSFUL authority
+            # batch to eventual mirrors.  The RunTrace is authoritative and
+            # readable, so reporting it as absent would be false; the fan-out
+            # layer emits a loud reconciliation-required error for the mirror.
+            logger.error(
+                "Native provenance authority committed but mirror handoff failed "
+                "(run_id=%r, trace_id=%r): %s",
+                run_id,
+                trace_id,
+                exc,
+            )
+        else:
+            logger.error(
+                "Failed to record native execution provenance batch (run_id=%r, trace_id=%r): %s",
+                run_id,
+                trace_id,
+                exc,
+            )
+            return "failed"
+
+    _run_optional_provenance_links_bounded(
+        engine,
+        batch_write=batch_write,
+        trace_id=trace_id,
+        server_id=server_id,
+        skill_node_id=skill_node_id,
+        tool_target_edges=tool_target_edges,
+    )
+
+    try:
+        from agent_utilities.knowledge_graph.adaptation.feedback import FeedbackService
+
+        feedback = FeedbackService.from_engine(engine)
+    except Exception:  # noqa: BLE001 — reward feedback remains optional after durable provenance commits
+        feedback = None
+    if feedback is not None:
+        for tool_call, ok in prepared_tool_calls:
+            if not tool_call.get("tool_name"):
+                continue
+            try:
+                feedback.record_action_outcome(
+                    f"tool:{tool_call['tool_name']}",
+                    success=ok,
+                    observed=tool_call.get("result", "")[:200],
+                    reason="tool_call_outcome",
+                )
+            except Exception as exc:  # noqa: BLE001 — feedback is downstream of the already-durable ToolCall
+                logger.debug("[KG-2.296] tool action_outcome failed: %s", exc)
+    logger.info(
+        "[KG-2.296] run %s: persisted %d ToolCall node(s) under %s in a native core batch",
+        run_id,
+        len(prepared_tool_calls),
+        trace_id,
+    )
+    return "written"
+
+
+# D-CDX-33: profiling of two consecutive successful ServiceNow delegations
+# showed the core batch (RunTrace/Outcome/ToolCall, mandatory/durable) and
+# this optional-links batch (EXECUTED_ON/USES_SKILL/ACTED_ON, documented
+# best-effort — see _persist_optional_execution_provenance_links's own
+# docstring) costing roughly the SAME ~12s each against a contended shared
+# engine, so provenance recording (24.7s/24.1s) consumed 40-45% of a
+# 54.4-54.7s run — well above the <10% target — even though only the CORE
+# batch actually needs to be durable before the caller (run_agent) returns.
+# A short, bounded grace period lets a healthy/fast engine still complete
+# this enrichment inline (byte-for-byte the same observable timing as
+# before for the common case, and for every existing synchronous test
+# double), while a genuinely contended engine no longer makes the CALLER
+# pay its full latency: the isolated thread keeps running to completion in
+# the background instead (daemon=True — same rationale as
+# contextual_model._run_isolated, D-CDX-22: it must never be the reason
+# process/loop teardown blocks).
+_OPTIONAL_PROVENANCE_GRACE_S = 2.0
+
+
+def _run_optional_provenance_links_bounded(
+    engine: IntelligenceGraphEngine,
+    *,
+    batch_write: Callable[[list[dict[str, Any]]], Any],
+    trace_id: str,
+    server_id: str,
+    skill_node_id: str,
+    tool_target_edges: list[tuple[str, str]],
+) -> None:
+    """Run :func:`_persist_optional_execution_provenance_links` isolated and
+    bounded by :data:`_OPTIONAL_PROVENANCE_GRACE_S` (D-CDX-33).
+
+    The core RunTrace/Outcome/ToolCall batch is already durably committed
+    before this is called; this enrichment is advisory (see the wrapped
+    function's own docstring). Blocking the caller on its full RPC latency
+    when the shared engine is contended doubles provenance's contribution to
+    a run's wall clock for zero durability benefit — a caller that returns
+    before this completes still has a fully durable, readable RunTrace.
+    """
+    future: concurrent.futures.Future = concurrent.futures.Future()
+
+    def _target() -> None:
+        try:
+            _persist_optional_execution_provenance_links(
+                engine,
+                batch_write=batch_write,
+                trace_id=trace_id,
+                server_id=server_id,
+                skill_node_id=skill_node_id,
+                tool_target_edges=tool_target_edges,
+            )
+        except Exception as exc:  # noqa: BLE001 — the wrapped function is already best-effort internally; this is belt-and-suspenders so a stray exception on the isolated thread is logged, not silently lost
+            logger.debug(
+                "[D-CDX-33] optional provenance links (isolated) failed "
+                "(trace_id=%r): %s",
+                trace_id,
+                exc,
+            )
+        finally:
+            future.set_result(None)
+
+    threading.Thread(
+        target=_target, name="optional-provenance-links", daemon=True
+    ).start()
+    try:
+        future.result(timeout=_OPTIONAL_PROVENANCE_GRACE_S)
+    except concurrent.futures.TimeoutError:
+        logger.debug(
+            "[D-CDX-33] optional provenance links exceeded the %.1fs grace "
+            "period (trace_id=%r); continuing in the background instead of "
+            "blocking the run on a contended engine call.",
+            _OPTIONAL_PROVENANCE_GRACE_S,
+            trace_id,
+        )
+
+
+def _persist_optional_execution_provenance_links(
+    engine: IntelligenceGraphEngine,
+    *,
+    batch_write: Callable[[list[dict[str, Any]]], Any],
+    trace_id: str,
+    server_id: str,
+    skill_node_id: str,
+    tool_target_edges: list[tuple[str, str]],
+) -> None:
+    """Best-effort one-batch enrichment for pre-existing provenance endpoints.
+
+    The durable RunTrace/Outcome/ToolCall core is already committed before this
+    helper runs. Endpoint presence is consequently advisory: a failed preflight,
+    an endpoint removed immediately after it, or a rejected optional batch may
+    leave enrichment absent, but may never invalidate or retry the core write.
+    """
+    candidate_ids = [server_id]
+    if skill_node_id:
+        candidate_ids.append(skill_node_id)
+    candidate_ids.extend(target_id for _, target_id in tool_target_edges)
+    has_batch = getattr(getattr(engine, "graph", None), "has_batch", None)
+    if not callable(has_batch):
+        logger.debug(
+            "native optional provenance links skipped: endpoint preflight unavailable"
+        )
+        return
+
+    unique_candidates = list(dict.fromkeys(candidate_ids))
+    try:
+        raw_existing = has_batch(unique_candidates)
+    except Exception as exc:  # noqa: BLE001 — core provenance is already durable; optional enrichment is skipped
+        logger.debug("native optional provenance endpoint preflight skipped: %s", exc)
+        return
+    if not isinstance(raw_existing, dict):
+        logger.debug(
+            "native optional provenance endpoint preflight skipped: invalid response"
+        )
+        return
+    existing = {
+        candidate: value is True
+        for candidate, value in raw_existing.items()
+        if isinstance(candidate, str)
+    }
+
+    optional_mutations: list[dict[str, Any]] = []
+    if existing.get(server_id, False):
+        optional_mutations.append(
+            {
+                "kind": "edge",
+                "source": trace_id,
+                "target": server_id,
+                "rel_type": "EXECUTED_ON",
+                "properties": {},
+            }
+        )
+    if skill_node_id and existing.get(skill_node_id, False):
+        optional_mutations.append(
+            {
+                "kind": "edge",
+                "source": trace_id,
+                "target": skill_node_id,
+                "rel_type": "USES_SKILL",
+                "properties": {},
+            }
+        )
+    for tool_call_id, target_id in tool_target_edges:
+        if existing.get(target_id, False):
+            optional_mutations.append(
+                {
+                    "kind": "edge",
+                    "source": tool_call_id,
+                    "target": target_id,
+                    "rel_type": "ACTED_ON",
+                    "properties": {},
+                }
+            )
+    if not optional_mutations:
+        return
+
+    try:
+        if not batch_write(optional_mutations):
+            logger.debug(
+                "native optional provenance links skipped: batch unavailable after core commit"
+            )
+    except Exception as exc:  # noqa: BLE001 — endpoint races and optional failures must not invalidate the committed core
+        if getattr(exc, "authority_committed", False):
+            logger.error(
+                "Native optional provenance links authority committed but mirror handoff "
+                "failed (trace_id=%r): %s",
+                trace_id,
+                exc,
+            )
+        else:
+            logger.debug(
+                "native optional provenance links skipped (trace_id=%r): %s",
+                trace_id,
+                exc,
+            )
 
 
 # ---------------------------------------------------------------------------

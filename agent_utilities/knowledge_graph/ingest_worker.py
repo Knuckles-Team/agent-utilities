@@ -28,8 +28,19 @@ Delivery semantics (documented contract):
   and never consults a second status or lock authority.
 * **Per-key ordering.** Kafka orders within a partition; the KG-2.56 key
   hierarchy (tenant → repo/corpus → task type) therefore gives per-tenant /
-  per-repo ordering without global serialization. There is no cross-partition
-  priority lane (unlike the graph-polling mode's high-priority poll).
+  per-repo ordering without global serialization.
+* **Hydration-reserved subset (D-42, CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness).**
+  A small floor of this pool is reserved for
+  :data:`~agent_utilities.core.resource_priority.HYDRATION_TASK_TYPES`
+  notifications, published to the dedicated ``kg_tasks_hydration`` topic
+  (:func:`~agent_utilities.knowledge_graph.core.kafka_queue_backend.
+  KafkaQueueBackend.put_hydration`) instead of ``kg_tasks``. Each reserved
+  worker owns a SECOND consumer subscribed only to that topic and polls it
+  FIRST every loop iteration, falling through to the ordinary ``kg_tasks``
+  consumer only when nothing is pending there — the Kafka-mode counterpart of
+  the in-process pool's ``hydration_reserved`` worker floor
+  (``engine_tasks.py::start_task_workers``/``_claim_next_task``), sized with
+  the SAME reservation knob (``SchedulerConfig.reserved`` / ``KG_SCHED_RESERVED``).
 
 Run::
 
@@ -56,7 +67,12 @@ from .core.engine_tasks import (
     _resolve_task_target,
     compute_ingest_worker_count,
 )
-from .core.kafka_queue_backend import INGEST_GROUP, TASKS_TOPIC
+from .core.kafka_queue_backend import (
+    HYDRATION_INGEST_GROUP,
+    HYDRATION_TASKS_TOPIC,
+    INGEST_GROUP,
+    TASKS_TOPIC,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,47 +124,79 @@ def claim_task_envelope(
     return job_id, _resolve_task_target(str(target)), task_type == "codebase", task_type
 
 
+def _poll_and_process_one(engine: Any, consumer: Any, timeout: float) -> bool:
+    """Poll ``consumer`` once; if a message arrived, claim → process → commit it.
+
+    Returns ``True`` iff a (non-error) message was polled — regardless of
+    whether claiming/processing it succeeded — so a caller alternating between
+    two consumers knows whether this poll did real work. Commit happens
+    strictly AFTER the task is processed (or durably marked failed) —
+    at-least-once. One poisonous message never kills the loop.
+    """
+    try:
+        msg = consumer.poll(timeout)
+    except Exception as e:  # noqa: BLE001 — broker hiccup: back off, retry
+        logger.warning("kg-ingest poll error: %s", e)
+        time.sleep(2.0)
+        return False
+    if msg is None:
+        return False
+    if getattr(msg, "error", lambda: None)():
+        logger.debug("kg-ingest message error: %s", msg.error())
+        return False
+
+    job_id = None
+    try:
+        envelope = json.loads(msg.value().decode("utf-8"))
+        claimed = claim_task_envelope(engine, envelope)
+        if claimed is not None:
+            job_id, target, is_codebase, task_type = claimed
+            engine._execute_claimed_task(job_id, target, is_codebase, task_type)
+    except Exception as e:  # noqa: BLE001 — mark failed, keep consuming
+        logger.error("kg-ingest worker error: %s", e)
+        if job_id:
+            try:
+                engine._update_task_status(job_id, "failed", {"error": str(e)})
+            except Exception as inner:  # noqa: BLE001
+                logger.error("Failed to mark %s failed: %s", job_id, inner)
+    try:
+        consumer.commit(message=msg, asynchronous=False)
+    except Exception as e:  # noqa: BLE001 — redelivery is safe (idempotent)
+        logger.warning("kg-ingest offset commit failed (%s); redelivery is safe.", e)
+    return True
+
+
+#: Non-blocking-ish peek timeout for a reserved worker's hydration-topic poll
+#: (D-42) — short enough that a quiet hydration topic never meaningfully
+#: delays the fallthrough to the general ``kg_tasks`` poll below.
+_HYDRATION_PEEK_TIMEOUT_S = 0.05
+
+
 def run_ingest_consumer_loop(
-    engine: Any, consumer: Any, stop_event: threading.Event
+    engine: Any,
+    consumer: Any,
+    stop_event: threading.Event,
+    *,
+    hydration_consumer: Any = None,
 ) -> None:
     """Consume ``kg_tasks`` until ``stop_event``: claim → process → commit.
 
-    Commit happens strictly AFTER the task is processed (or durably marked
-    failed) — at-least-once. One poisonous message never kills the loop.
+    ``hydration_consumer`` (D-42, CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness),
+    when given, marks this as one of the pool's reserved hydration workers: it
+    is polled FIRST every iteration (a short peek — see
+    :data:`_HYDRATION_PEEK_TIMEOUT_S`), and only when nothing is pending there
+    does this loop fall through to the ordinary ``kg_tasks`` poll below — the
+    same "hydration lane first, fall through to general work" shape
+    ``_claim_next_task(hydration_reserved=True)`` uses for the in-process pool,
+    translated to Kafka's pull model with a second, dedicated-topic consumer
+    (Kafka has no built-in cross-topic poll priority).
     """
     while not stop_event.is_set():
-        try:
-            msg = consumer.poll(1.0)
-        except Exception as e:  # noqa: BLE001 — broker hiccup: back off, retry
-            logger.warning("kg-ingest poll error: %s", e)
-            time.sleep(2.0)
+        if hydration_consumer is not None and _poll_and_process_one(
+            engine, hydration_consumer, _HYDRATION_PEEK_TIMEOUT_S
+        ):
             continue
-        if msg is None:
-            continue
-        if getattr(msg, "error", lambda: None)():
-            logger.debug("kg-ingest message error: %s", msg.error())
-            continue
-
-        job_id = None
-        try:
-            envelope = json.loads(msg.value().decode("utf-8"))
-            claimed = claim_task_envelope(engine, envelope)
-            if claimed is not None:
-                job_id, target, is_codebase, task_type = claimed
-                engine._execute_claimed_task(job_id, target, is_codebase, task_type)
-        except Exception as e:  # noqa: BLE001 — mark failed, keep consuming
-            logger.error("kg-ingest worker error: %s", e)
-            if job_id:
-                try:
-                    engine._update_task_status(job_id, "failed", {"error": str(e)})
-                except Exception as inner:  # noqa: BLE001
-                    logger.error("Failed to mark %s failed: %s", job_id, inner)
-        try:
-            consumer.commit(message=msg, asynchronous=False)
-        except Exception as e:  # noqa: BLE001 — redelivery is safe (idempotent)
-            logger.warning(
-                "kg-ingest offset commit failed (%s); redelivery is safe.", e
-            )
+        _poll_and_process_one(engine, consumer, 1.0)
 
 
 def _default_consumer_factory(bootstrap_servers: str) -> Any:
@@ -164,6 +212,25 @@ def _default_consumer_factory(bootstrap_servers: str) -> Any:
         }
     )
     consumer.subscribe([TASKS_TOPIC])
+    return consumer
+
+
+def _default_hydration_consumer_factory(bootstrap_servers: str) -> Any:
+    """A reserved worker's second consumer, subscribed only to the D-42
+    hydration-priority topic (its own consumer group — see
+    :data:`~agent_utilities.knowledge_graph.core.kafka_queue_backend.HYDRATION_INGEST_GROUP`)."""
+    from confluent_kafka import Consumer
+
+    consumer = Consumer(
+        {
+            "bootstrap.servers": bootstrap_servers,
+            "group.id": HYDRATION_INGEST_GROUP,
+            "enable.auto.commit": False,
+            "auto.offset.reset": "earliest",
+            "max.poll.interval.ms": _MAX_POLL_INTERVAL_MS,
+        }
+    )
+    consumer.subscribe([HYDRATION_TASKS_TOPIC])
     return consumer
 
 
@@ -186,6 +253,7 @@ def start_ingest_consumer_pool(
     bootstrap_servers: str | None = None,
     stop_event: threading.Event | None = None,
     consumer_factory: Any = None,
+    hydration_consumer_factory: Any = None,
     background_session: Any = None,
 ) -> list[threading.Thread]:
     """Start ``worker_count`` ``kg-ingest`` consumer threads (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
@@ -194,26 +262,53 @@ def start_ingest_consumer_pool(
     ordinary group members) and the standalone ``kg-ingest-worker`` process —
     the group spans them, and Kafka splits partitions across every member.
     Each thread owns its own consumer (confluent consumers are not
-    thread-safe). ``consumer_factory`` is the test seam.
+    thread-safe). ``consumer_factory``/``hydration_consumer_factory`` are test
+    seams.
+
+    D-42 (CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness): a small floor of this
+    pool — sized with the SAME ``SchedulerConfig.reserved``/``KG_SCHED_RESERVED``
+    knob ``engine_tasks.py::start_task_workers`` uses for the in-process pool's
+    ``hydration_reserved`` floor — additionally owns a second consumer bound
+    only to the hydration-priority topic (see ``run_ingest_consumer_loop``).
     """
     count = worker_count or compute_ingest_worker_count()
     stop = stop_event or threading.Event()
     servers = _resolve_bootstrap_servers(engine, bootstrap_servers)
     make_consumer = consumer_factory or (lambda: _default_consumer_factory(servers))
+    make_hydration_consumer = hydration_consumer_factory or (
+        lambda: _default_hydration_consumer_factory(servers)
+    )
     worker_session = background_session or _capture_verified_background_session()
     worker_session.engine_verified_context()
 
+    from .core.worker_scheduler import scheduler_config_from_env
+
+    # Same shape as start_task_workers' in-process reservation: at least 1
+    # reserved worker once the pool has room for one, but never the WHOLE
+    # pool (a 1-worker pool reserves 0 — a lone worker still needs unrestricted
+    # general-work coverage, since it has no second thread to guarantee it).
+    hydration_reserved_count = 0
+    if count > 1:
+        hydration_reserved_count = min(
+            max(1, scheduler_config_from_env(count).reserved), count - 1
+        )
+
     threads: list[threading.Thread] = []
     for i in range(count):
+        reserved = i < hydration_reserved_count
 
-        def _runner() -> None:
+        def _runner(reserved: bool = reserved) -> None:
             consumer = make_consumer()
+            hydration_consumer = make_hydration_consumer() if reserved else None
             try:
-                run_ingest_consumer_loop(engine, consumer, stop)
+                run_ingest_consumer_loop(
+                    engine, consumer, stop, hydration_consumer=hydration_consumer
+                )
             finally:
-                close = getattr(consumer, "close", None)
-                if callable(close):
-                    close()
+                for c in (consumer, hydration_consumer):
+                    close = getattr(c, "close", None)
+                    if callable(close):
+                        close()
 
         t = _authorized_background_thread(
             worker_session,
@@ -223,8 +318,10 @@ def start_ingest_consumer_pool(
         t.start()
         threads.append(t)
     logger.info(
-        "kg-ingest consumer pool started: %d workers, group=%s, brokers=%s",
+        "kg-ingest consumer pool started: %d workers (%d hydration-reserved), "
+        "group=%s, brokers=%s",
         count,
+        hydration_reserved_count,
         INGEST_GROUP,
         servers,
     )

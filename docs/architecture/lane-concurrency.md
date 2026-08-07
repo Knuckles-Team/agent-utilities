@@ -56,7 +56,7 @@ fail to exclude the actor that collides with you.
 | Resource | Class | Scope | Collision it prevents |
 |---|---|---|---|
 | cargo target dir | PARTITION | repo | A shared `CARGO_TARGET_DIR` serialises **and corrupts** concurrent builds |
-| pytest tmp | PARTITION | repo | ~28 concurrent pytest runs skewed a baseline into a near-false regression |
+| pytest tmp | PARTITION | repo | ~28 concurrent pytest runs skewed a baseline into a near-false regression; bounded-fanout `tmp_path` avoids quadratic directory enumeration |
 | `refs/stash` | PARTITION | repo | One ref shared by 38 worktrees; six collisions + four reflexive violations in a day |
 | lane scratch | PARTITION | repo | Lanes overwrote each other's intermediate state |
 | concept reservations | APPEND-ONLY | repo | A mutable shared ledger rewritten whole-file by many sessions |
@@ -95,6 +95,52 @@ bare `pre-commit run` against specific files/hooks does not carry this risk the 
 prefer that narrower form whenever you do not need every hook re-run.
 
 ## PARTITION — supply the affordance, don't just ban the verb
+
+### Bounded pytest fixture allocation
+
+`agent-utilities lane env` remains the authority for the per-lane pytest
+`--basetemp`; pytest-xdist further gives each worker a child basetemp.  The
+root test `conftest.py` loads a `tmp_path` plugin that allocates each test below
+`t/<two SHA-1 hex digits>/<four lowercase hexadecimal characters>/<...>`. The
+sixteen characters of one fixed-width 64-bit allocation token form three
+four-character radix-tree parents followed by a final four-character leaf. The
+lowercase hexadecimal alphabet is stable on case-folding filesystems and cannot
+spell a Windows device name, so it avoids both reserved-name and `AA`/`aA`-style
+collisions. The deterministic test shard bounds `t/` itself at 256 direct
+children. Every lower allocator-managed parent has a hard cap of 65,536
+children. A random 64-bit origin selects a cyclic
+permutation of a separate 64-bit ordinal stream, so `origin + ordinal (mod
+2**64)` keeps fresh allocators collision-resistant without shortening the stream
+when the origin is high. All components are lowercase ASCII hex, and the
+resulting socket path remains shorter than pytest's stock 31-byte temporary leaf,
+including non-ASCII test ids. This leaves pytest's basetemp lifecycle and the
+separate `tmp_path_factory` API unchanged.
+
+The fixture's result tracker uses pytest's first-priority report-wrapper ordering,
+so retention cleanup observes report transformations from lower-priority wrappers
+before deciding whether a temporary directory should remain.
+
+The allocator avoids directory enumeration; it does not claim zero filesystem
+probes. Its ordinal always starts at zero and is bounded only after all `2**64`
+values have been consumed; the randomized origin only permutes the encoded
+token. Recovery therefore never relies on walking an old sequential-attempt
+namespace; `mkdir` remains the atomic cross-thread/process authority. An
+allocation makes at most four leaf `mkdir` probes and 21 total `mkdir` calls in
+the adversarial case where those candidates cross the modular boundary and each
+needs a distinct three-parent branch. Normal sequential allocation reuses cached
+upper branches. If all four candidate names already exist, or the 64-bit
+ordinal stream is exhausted, the fixture raises a clear `RuntimeError` and
+never reuses a retained directory.
+
+The reproducible measurements are deliberately split: the 4,000-allocation
+allocator measurement exercises fanout at suite scale, and the bounded 64-case
+child-pytest measurement exercises the public fixture, report hooks, and
+teardown path:
+
+```bash
+python3 scripts/uv_workspace.py run --all-extras -- pytest -q -s tests/unit/test_tmp_path_allocator.py::test_allocator_4000_allocation_measurement
+python3 scripts/uv_workspace.py run --all-extras -- pytest -q -s tests/unit/test_tmp_path_allocator.py::test_real_tmp_path_fixture_measurement
+```
 
 The `git stash` rule is the instructive one. It was stated prominently and
 violated anyway — **four times in one day, across two independent lanes** — by
@@ -250,6 +296,24 @@ explicit; the CLI exits **75** so a shell `&&` chain actually stops.
 > guarded wrapper the *only* way the long operation is run, and by pairing
 > explicit leases with activity detection (the venvctl lane's `/proc`-based
 > detector covers actors that never take a lease). Do not record this as closed.
+
+> **Open, actively investigated: a real `git commit` through the full hook
+> chain has twice left a linked worktree's INDEX showing thousands of staged
+> deletions (D-LGI-1), correlated by three independent lanes with the
+> `guardrail-gate-meta-tests` hook specifically (D-ORC-54).** Files are never
+> actually removed from disk in any observed occurrence — this is the index,
+> not the tree — and `git reset` (mixed, no `--hard`, no `checkout .`)
+> reliably restores it with zero data loss, both times observed here. Root
+> cause NOT isolated: a single isolated `pre-commit run guardrail-gate-meta-
+> tests` (not a full `git commit`) did not reproduce it in one attempt here,
+> and index-mtime instrumentation across every sibling worktree during that
+> attempt found only one correlated change, independently explained by that
+> worktree's own concurrent, legitimate commit — so isolating the hook alone
+> is not sufficient to reproduce; the full multi-hook chain (or a timing
+> window only present there) appears to matter. Do not assume this is
+> D-CDOC-2/D-CDOC-3 until the resolution is proven empirically, not reasoned
+> from a hook's own comments (three unrelated confident hypotheses were
+> already refuted the same day this was found).
 
 ### The epistemic-graph daemon (observed, not hypothesised)
 

@@ -51,6 +51,24 @@ STAGING_TOPIC = "kg_staging"
 #: Consumer group for decoupled ingest workers (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer).
 INGEST_GROUP = "kg-ingest"
 STAGING_GROUP = "kg_staging_group"
+#: Priority notification topic for :data:`~agent_utilities.core.resource_priority.
+#: HYDRATION_TASK_TYPES` (D-42, CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness) —
+#: the Kafka-mode counterpart of the in-process pool's ``hydration_reserved``
+#: worker floor (``engine_tasks.py::start_task_workers``/``_claim_next_task``).
+#: A small, DISTINCT topic (never mixed into ``kg_tasks``) so a reserved
+#: consumer subset can poll it FIRST without a general-purpose consumer's
+#: ordinary claim ever competing for the same partitions. Own consumer group
+#: (below) so membership is exactly "the reserved workers", not every
+#: ``kg-ingest`` member.
+HYDRATION_TASKS_TOPIC = "kg_tasks_hydration"
+#: Partition count for :data:`HYDRATION_TASKS_TOPIC` — deliberately small and
+#: independent of ``KG_TASKS_PARTITIONS``: it only ever needs to cover the
+#: (small) reserved-worker floor, never the full pool.
+HYDRATION_TASKS_PARTITIONS = 3
+#: Consumer group for the reserved hydration-priority workers (D-42) — kept
+#: separate from :data:`INGEST_GROUP` so only reserved workers join it; an
+#: ordinary ``kg-ingest`` member never sees (or steals) hydration partitions.
+HYDRATION_INGEST_GROUP = "kg-ingest-hydration"
 
 _DEFAULT_BOOTSTRAP = "localhost:9092"
 _PROBE_TIMEOUT_S = 5.0
@@ -254,14 +272,17 @@ class KafkaQueueBackend(QueueBackend):
         return self._admin
 
     def ensure_topics(self) -> None:
-        """Idempotently ensure ``kg_tasks``/``kg_staging`` exist with at least
-        the configured partition count. Grow-only: never shrinks an existing
-        topic (Kafka cannot shrink partitions; we never try)."""
+        """Idempotently ensure ``kg_tasks``/``kg_staging``/``kg_tasks_hydration``
+        exist with at least the configured partition count. Grow-only: never
+        shrinks an existing topic (Kafka cannot shrink partitions; we never try)."""
         admin = self._admin_client()
         md = admin.list_topics(timeout=_PROBE_TIMEOUT_S)
         wanted: tuple[tuple[str, int], ...] = ((self.tasks_topic, self.partitions),)
         if self._include_staging:
-            wanted += ((STAGING_TOPIC, 1),)
+            wanted += (
+                (STAGING_TOPIC, 1),
+                (HYDRATION_TASKS_TOPIC, HYDRATION_TASKS_PARTITIONS),
+            )
         to_create: list[tuple[str, int]] = []
         to_grow: list[tuple[str, int]] = []
         for topic, parts in wanted:
@@ -320,9 +341,26 @@ class KafkaQueueBackend(QueueBackend):
         barrier. Every caller still waits for delivery confirmation for its own
         records, so batching never weakens the durable-enqueue contract.
         """
+        self._put_many_to(items, self.tasks_topic)
+
+    def put_hydration(self, item: dict[str, Any]) -> None:
+        """Publish ``item`` to :data:`HYDRATION_TASKS_TOPIC` instead of the
+        ordinary task topic (D-42, CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness).
+
+        Callers select this over :meth:`put` for a
+        :data:`~agent_utilities.core.resource_priority.HYDRATION_TASK_TYPES`
+        task so the reserved consumer subset (``ingest_worker.py::
+        start_ingest_consumer_pool``) can poll it FIRST, giving hydration work
+        the same claim-priority floor the in-process pool's ``hydration_reserved``
+        workers already have. Envelope shape and partition-key derivation are
+        identical to :meth:`put` — only the destination topic differs.
+        """
+        self._put_many_to([item], HYDRATION_TASKS_TOPIC)
+
+    def _put_many_to(self, items: list[dict[str, Any]], topic: str) -> None:
         records = [
             (
-                self.tasks_topic,
+                topic,
                 json.dumps(item).encode("utf-8"),
                 partition_key_for(item).encode("utf-8"),
             )

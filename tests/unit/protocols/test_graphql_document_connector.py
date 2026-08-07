@@ -7,6 +7,7 @@ import pytest
 from agent_utilities.protocols.source_connectors import build_connector, list_sources
 from agent_utilities.protocols.source_connectors.connectors.graphql_document import (
     GraphQLDocumentError,
+    _validate_query_document,
 )
 
 
@@ -31,6 +32,7 @@ class _Response:
 
     def __exit__(self, *_args):
         return None
+
 
 class _Transport:
     def __init__(self, payload: dict) -> None:
@@ -316,9 +318,7 @@ def test_graphql_discovery_callable_uses_runtime_tls_profile(monkeypatch) -> Non
             return None
 
         def stream(self, _method: str, _endpoint: str, **_kwargs):
-            return _Response(
-                {"data": {"__schema": {"queryType": {"name": "Query"}}}}
-            )
+            return _Response({"data": {"__schema": {"queryType": {"name": "Query"}}}})
 
     def _client_factory(**kwargs):
         captured.update(kwargs)
@@ -563,6 +563,16 @@ def test_graphql_document_ast_rejects_ambiguous_multi_operation_document() -> No
 
     with pytest.raises(GraphQLDocumentError, match="read query"):
         list(connector.load())
+
+
+def test_graphql_document_ast_walks_nested_fragment_selections() -> None:
+    query = """
+        query Entity { entity { ...EntityFields } }
+        fragment EntityFields on Entity { ... on Entity { __schema { types { name } } } }
+    """
+
+    with pytest.raises(GraphQLDocumentError, match="introspection"):
+        _validate_query_document(query)
 
 
 def test_graphql_document_custom_transport_requires_raw_bounded_bytes() -> None:

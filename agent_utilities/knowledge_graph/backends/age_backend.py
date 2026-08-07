@@ -24,6 +24,7 @@ import re
 import secrets
 from typing import Any
 
+from .base import embedding_values_match
 from .mirror_target import cypher_target_has_data
 from .postgresql_backend import PostgreSQLBackend
 
@@ -104,6 +105,8 @@ def _parse_agtype(raw: Any) -> Any:
 
 class AGEBackend(PostgreSQLBackend):
     """openCypher-on-Postgres via Apache AGE (graph) + pgvector (embeddings)."""
+
+    embedding_is_node_property = False
 
     @property
     def cypher_support(self) -> str:
@@ -378,6 +381,17 @@ class AGEBackend(PostgreSQLBackend):
                 conn.commit()
 
         self._run_resilient(_run, name="age-add-embedding")
+
+    def verify_node_embedding(self, node_id: str, embedding: list[float]) -> bool:
+        """Confirm the durable AGE side-table vector after mirror replay."""
+        with self._conn(read_only=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT embedding::text FROM kg_embeddings WHERE node_id = %s",
+                    (node_id,),
+                )
+                row = cur.fetchone()
+        return bool(row) and embedding_values_match(row[0], embedding)
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5

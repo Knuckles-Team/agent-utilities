@@ -197,5 +197,37 @@ async def test_run_blocking_ordered_reports_cancellation_after_completion():
     assert completed.is_set()
 
 
+async def test_run_blocking_ordered_consumes_worker_failure_after_cancellation():
+    """A cancelled caller must not leak a later worker error to the loop."""
+    entered = threading.Event()
+    release = threading.Event()
+    loop = asyncio.get_running_loop()
+    loop_errors: list[dict[str, object]] = []
+    previous_handler = loop.get_exception_handler()
+
+    def failing_write() -> None:
+        entered.set()
+        release.wait(0.5)
+        raise RuntimeError("late write failure")
+
+    loop.set_exception_handler(lambda _loop, context: loop_errors.append(context))
+    try:
+        task = asyncio.create_task(run_blocking_ordered(failing_write))
+        assert await asyncio.to_thread(entered.wait, 0.2)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=1.0)
+        # Give the loop a turn to deliver any unhandled-future callback.
+        await asyncio.sleep(0)
+        assert loop_errors == []
+    finally:
+        release.set()
+        loop.set_exception_handler(previous_handler)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

@@ -13,6 +13,8 @@ the old hardcoded "delegation produced no usable data" sentinel), with a resolva
 from __future__ import annotations
 
 import json
+import threading
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -56,7 +58,15 @@ def test_extract_failure_text_falls_back_to_results_output() -> None:
 
 
 def test_extract_failure_text_never_empty_even_with_no_signal() -> None:
-    for junk in ({}, {"results": {}}, {"metadata": {}}, None, "", 42):
+    junk_values: tuple[object, ...] = (
+        {},
+        {"results": {}},
+        {"metadata": {}},
+        None,
+        "",
+        42,
+    )
+    for junk in junk_values:
         text = _extract_failure_text(junk)
         assert isinstance(text, str) and text.strip()
 
@@ -315,6 +325,7 @@ async def test_explicit_server_pin_cannot_be_rebound_and_requires_tool_provenanc
     assert payload["run_summary"]["execution_mode"] == "single_server_agent"
     assert "without recorded ToolCall provenance" in payload["output"]
     assert "repository-manager-mcp" not in payload["run_summary"]["route"]["servers"]
+    assert execute_server.await_args is not None
     assert execute_server.await_args.kwargs["agent_name"] == "github-mcp"
     _, trace_kwargs = mock_trace.call_args
     assert trace_kwargs["status"] == "degraded"
@@ -468,7 +479,7 @@ async def test_run_agent_cancellation_best_effort_records_a_timeout_trace() -> N
 
 
 @pytest.mark.asyncio
-async def test_run_agent_cancellation_trace_write_never_blocks_the_reraise() -> None:
+async def test_run_agent_cancellation_trace_write_failure_preserves_reraise() -> None:
     """Even if the best-effort trace write itself raises, CancelledError must still
     propagate cleanly (never swallowed/converted)."""
     import asyncio as _asyncio
@@ -504,3 +515,226 @@ async def test_run_agent_cancellation_trace_write_never_blocks_the_reraise() -> 
     ):
         with pytest.raises(_asyncio.CancelledError):
             await agent_runner.run_agent(agent_name="some-agent", task="t")
+
+
+@pytest.mark.asyncio
+async def test_successful_run_keeps_gateway_loop_live_while_persisting_one_trace() -> (
+    None
+):
+    """A long successful RunTrace write cannot stall a sibling health handler.
+
+    This exercises the normal graph-success exit rather than the cancellation
+    branch.  The stand-in represents a slow native graph write such as the
+    ServiceNow run observed in production; no ServiceNow endpoint is called.
+    """
+    import asyncio as _asyncio
+    from types import SimpleNamespace
+
+    trace_entered = threading.Event()
+    trace_release = threading.Event()
+    calls = 0
+    trace_thread: threading.Thread | None = None
+    trace_finished_at: float | None = None
+    heartbeat_at: float | None = None
+    loop_thread = threading.current_thread()
+
+    def _blocking_trace(*_args: object, **_kwargs: object) -> bool:
+        nonlocal calls, trace_finished_at, trace_thread
+        calls += 1
+        trace_thread = threading.current_thread()
+        trace_entered.set()
+        trace_release.wait(timeout=1.0)
+        trace_finished_at = time.monotonic()
+        return True
+
+    async def _heartbeat() -> None:
+        nonlocal heartbeat_at
+        await _asyncio.sleep(0.01)
+        heartbeat_at = time.monotonic()
+
+    fake_engine = MagicMock()
+    fake_engine.backend = None
+    shape = SimpleNamespace(
+        tool_servers=(),
+        resolve_agent=True,
+        direct_complete=False,
+    )
+    release_timer = threading.Timer(0.08, trace_release.set)
+
+    try:
+        with (
+            patch(
+                "agent_utilities.orchestration.execution_profile.plan_execution_shape",
+                return_value=shape,
+            ),
+            patch.object(
+                agent_runner,
+                "_resolve_agent_from_kg",
+                return_value={"type": "unknown"},
+            ),
+            patch.object(
+                agent_runner,
+                "_prime_recent_mementos",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(
+                agent_runner,
+                "_prime_code_context",
+                new=AsyncMock(return_value=None),
+            ),
+            patch.object(
+                agent_runner,
+                "_build_execution_config",
+                return_value={"mcp_toolsets": []},
+            ),
+            patch.object(
+                agent_runner,
+                "_prepare_spawn_delegation",
+                return_value=None,
+            ),
+            patch.object(
+                agent_runner,
+                "_execute_graph",
+                new=AsyncMock(
+                    return_value={
+                        "status": "completed",
+                        "results": {"output": "completed"},
+                    }
+                ),
+            ),
+            patch.object(agent_runner, "_record_execution_trace", _blocking_trace),
+            patch.object(agent_runner, "_write_step_credit"),
+        ):
+            successful_run = _asyncio.create_task(
+                agent_runner.run_agent(
+                    agent_name="some-agent", task="t", engine=fake_engine
+                )
+            )
+            heartbeat = _asyncio.create_task(_heartbeat())
+            release_timer.start()
+
+            assert await _asyncio.to_thread(trace_entered.wait, 0.5)
+            assert await _asyncio.wait_for(successful_run, timeout=1.0) == "completed"
+            await _asyncio.wait_for(heartbeat, timeout=1.0)
+    finally:
+        trace_release.set()
+        release_timer.cancel()
+
+    assert calls == 1
+    assert trace_thread is not loop_thread
+    assert heartbeat_at is not None
+    assert trace_finished_at is not None
+    assert heartbeat_at < trace_finished_at
+
+
+@pytest.mark.asyncio
+async def test_cancelled_run_keeps_gateway_loop_live_while_persisting_one_trace() -> (
+    None
+):
+    """A cancelled delegation records its one durable timeout trace off-loop.
+
+    ``_execute_tool`` cancels a long ``graph_orchestrate`` at its wall-clock
+    boundary.  The cancellation path still has to finish the already-started
+    provenance write exactly once, but a slow native engine write must not stop
+    health/readiness handlers sharing the GraphOS event loop.
+    """
+    import asyncio as _asyncio
+    from types import SimpleNamespace
+
+    trace_entered = threading.Event()
+    trace_release = threading.Event()
+    calls = 0
+    trace_thread: threading.Thread | None = None
+    trace_finished_at: float | None = None
+    heartbeat_at: float | None = None
+    loop_thread = threading.current_thread()
+
+    def _blocking_trace(*_args: object, **_kwargs: object) -> bool:
+        nonlocal calls, trace_finished_at, trace_thread
+        calls += 1
+        trace_thread = threading.current_thread()
+        trace_entered.set()
+        trace_release.wait(timeout=1.0)
+        trace_finished_at = time.monotonic()
+        return True
+
+    async def _heartbeat() -> None:
+        nonlocal heartbeat_at
+        await _asyncio.sleep(0.01)
+        heartbeat_at = time.monotonic()
+
+    fake_engine = MagicMock()
+    fake_engine.backend = None
+    shape = SimpleNamespace(
+        tool_servers=(),
+        resolve_agent=True,
+        direct_complete=False,
+    )
+    release_timer = threading.Timer(0.08, trace_release.set)
+
+    try:
+        with (
+            patch(
+                "agent_utilities.orchestration.execution_profile.plan_execution_shape",
+                return_value=shape,
+            ),
+            patch.object(
+                agent_runner,
+                "_resolve_agent_from_kg",
+                return_value={"type": "unknown"},
+            ),
+            patch.object(
+                agent_runner,
+                "_prime_recent_mementos",
+                new=AsyncMock(return_value=[]),
+            ),
+            patch.object(
+                agent_runner,
+                "_prime_code_context",
+                new=AsyncMock(return_value=None),
+            ),
+            patch.object(
+                agent_runner,
+                "_build_execution_config",
+                return_value={"mcp_toolsets": []},
+            ),
+            patch.object(
+                agent_runner,
+                "_prepare_spawn_delegation",
+                return_value=None,
+            ),
+            patch.object(
+                agent_runner,
+                "_record_delegation_over_budget",
+            ),
+            patch.object(
+                agent_runner,
+                "_execute_graph",
+                new=AsyncMock(side_effect=_asyncio.CancelledError()),
+            ),
+            patch.object(agent_runner, "_record_execution_trace", _blocking_trace),
+        ):
+            cancelled_run = _asyncio.create_task(
+                agent_runner.run_agent(
+                    agent_name="some-agent", task="t", engine=fake_engine
+                )
+            )
+            heartbeat = _asyncio.create_task(_heartbeat())
+            release_timer.start()
+
+            assert await _asyncio.to_thread(trace_entered.wait, 0.5)
+            # A supervisor/shutdown can cancel again while the durable write is
+            # in flight.  The write remains a single ordered operation.
+            assert cancelled_run.cancel()
+            with pytest.raises(_asyncio.CancelledError):
+                await _asyncio.wait_for(cancelled_run, timeout=1.0)
+            await _asyncio.wait_for(heartbeat, timeout=1.0)
+    finally:
+        trace_release.set()
+        release_timer.cancel()
+
+    assert calls == 1
+    assert trace_thread is not loop_thread
+    assert heartbeat_at is not None
+    assert trace_finished_at is not None
+    assert heartbeat_at < trace_finished_at

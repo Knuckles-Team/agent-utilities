@@ -12,7 +12,9 @@ discovery of adaptive_agent_router and their tools.
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .tool_score import normalize_legacy_relevance_score
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
@@ -1223,13 +1225,52 @@ class AgentNode(RegistryNode):
 
 
 class ToolNode(RegistryNode):
-    """Represents a specific tool provided by an agent."""
+    """Represents a specific tool provided by an agent.
+
+    ``relevance_score`` is aligned with the canonical strict domain enforced
+    by :class:`agent_utilities.models.mcp.MCPToolInfo` (CONCEPT:
+    D-CDX-54) — a deterministic integer point score in ``0..100``. ``strict``
+    rejects bool/str/out-of-range values outright instead of silently
+    coercing them (Pydantic's default lax int validator would happily turn
+    ``True`` into ``1`` and truncate ``1.9`` into ``1``), and
+    ``validate_assignment`` closes the same hole for post-construction
+    mutation, not just construction. The ``mode="before"`` validator is the
+    one explicit legacy-migration boundary: early writers persisted
+    normalized floats in ``[0, 1]``, and those — and only those — are
+    rescaled to canonical points. Any other out-of-range/ambiguous value
+    (negative, >100, bool, numeric string, non-legacy float) is left to fail
+    the strict validator so corrupt rows are quarantined at construction
+    rather than silently persisted.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     type: RegistryNodeType = RegistryNodeType.TOOL
     mcp_server: str
-    relevance_score: int = 0
+    relevance_score: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        strict=True,
+        description="Deterministic quality score (0-100)",
+    )
     requires_approval: bool = False
     tags: list[str] = Field(default_factory=list)
+
+    @field_validator("relevance_score", mode="before")
+    @classmethod
+    def _normalize_legacy_relevance_score(cls, value: Any) -> Any:
+        """Read legacy normalized graph scores without weakening the schema.
+
+        Delegates to :func:`agent_utilities.models.tool_score.normalize_legacy_relevance_score`,
+        the single source of truth shared with
+        :class:`agent_utilities.models.mcp.MCPToolInfo` (D-CDX-53/54), so
+        every canonical-score model in the codebase applies the identical
+        legacy boundary. Floats in the legacy ``[0, 1]`` range are converted
+        to canonical points; every other fractional or out-of-range value
+        remains invalid.
+        """
+        return normalize_legacy_relevance_score(value)
 
 
 class SkillNode(RegistryNode):

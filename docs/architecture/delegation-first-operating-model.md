@@ -185,6 +185,32 @@ The goal is to orchestrate **completely off the harness**: the local LLM + graph
 the work, you handle the shrinking set of exceptions, and each exception you resolve
 shrinks that set further.
 
+## Delegation probe ownership and migration
+
+`scripts/delegation_probe.py` is the intended versioned agent-utilities ownership point for the
+direct, in-process delegation gate. It calls the orchestration core and imports
+agent-utilities internals, so its stage exit status is an agent-utilities release
+criterion. The workspace-root `scripts/delegation_probe.py` is **currently divergent**;
+it is not yet a compatibility shim. D-CDX-11 and D-CDX-19 remain open until this lane
+lands and the root file is replaced, under the `workspace-scripts` lease, by a forwarding
+shim to the tracked agent-utilities script.
+
+Its `grounding` stage is a gate only for `--grounding=required`: a production latency
+budget overrun or `retrieval_quality_gate_failed` stops the probe at stage 4 (exit 4).
+Required mode performs exactly one preflight compile by default and cannot select zero
+samples. `best_effort` and `none` skip synthetic compiles by default and proceed directly
+to the real delegation. An explicit positive `--grounding-samples` count enables
+benchmarking under any policy, and stage detail labels preflight, benchmark, and skipped
+functional operation distinctly. The bounded measurement still uses
+`wait_for(to_thread(...))`; its known non-cancelling worker/shutdown-tail limitation is
+D-CDX-22 and is intentionally not changed by this efficiency behavior.
+
+The toolset stage is a catalog-only exact binding check: it verifies the configured
+endpoint and the durable server-to-tool declaration, but does not open an MCP transport.
+The delegated execution owns the one refresh-capable `MCPToolset` session, including live
+schema/list-changed behavior, cancellation, and teardown. A missing or empty catalog fails
+the probe before delegation rather than treating an unverified tool as bound.
+
 ## Related docs
 
 - [`orchestration-execution-seam.md`](orchestration-execution-seam.md) — how an ingested

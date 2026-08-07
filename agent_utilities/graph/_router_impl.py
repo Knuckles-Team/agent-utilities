@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic_ai import UsageLimitExceeded
 from pydantic_graph import End
@@ -20,10 +20,13 @@ from pydantic_graph import End
 from agent_utilities.core.config import setting
 from agent_utilities.core.contextual_model import create_context_agent
 
-try:
+if TYPE_CHECKING:
     from pydantic_graph.step import StepContext
-except ImportError:
-    from pydantic_graph.beta import StepContext
+else:
+    try:
+        from pydantic_graph.step import StepContext
+    except ImportError:
+        from pydantic_graph.beta import StepContext
 
 from agent_utilities.core.config import (
     config,
@@ -40,6 +43,7 @@ from ..models import (
     GraphResponse,
     ParallelBatch,
 )
+from ..models.tool_score import normalize_legacy_relevance_score
 from .executor import (
     _execute_domain_logic,
     _execute_dynamic_mcp_agent,
@@ -59,7 +63,52 @@ __all__ = [
     "expert_executor_step",
     "dynamic_mcp_routing_step",
     "mcp_server_step",
+    "_rank_tool_rows_by_relevance",
 ]
+
+# D-CDX-53: how many name-ordered Tool candidates the dynamic-agent tool
+# query pulls from the graph before Python-side relevance ranking. Bounded
+# so a broad tag/name match can never turn into an unbounded fetch.
+_TOOL_CANDIDATE_POOL_LIMIT = 50
+# How many top-ranked tools are actually injected into the dynamic agent.
+_TOOL_RESULT_LIMIT = 5
+
+
+def _rank_tool_rows_by_relevance(
+    rows: list[dict[str, Any]] | None, *, limit: int = _TOOL_RESULT_LIMIT
+) -> list[dict[str, Any]]:
+    """Rank Tool query rows by relevance score on ONE canonical scale.
+
+    D-CDX-53: the live graph can hold both legacy ``relevance_score`` floats
+    in ``[0, 1]`` and canonical integer points in ``[0, 100]`` on persisted
+    ``Tool`` rows at the same time. Sorting the raw stored value (as a
+    database-side ``ORDER BY`` would) ranks semantically-equal scores ~100x
+    apart and can drop the better legacy-scored tool before it is ever
+    normalized. Every row is normalized through the exact same boundary as
+    :class:`agent_utilities.models.knowledge_graph.ToolNode` /
+    :class:`agent_utilities.models.mcp.MCPToolInfo`
+    (:func:`agent_utilities.models.tool_score.normalize_legacy_relevance_score`)
+    before comparison, so a legacy ``0.9`` and a canonical ``90`` rank
+    identically instead of ~100x apart.
+
+    A row whose ``relevance_score`` normalizes to something outside the
+    canonical ``0..100`` domain (negative, >100, non-legacy fractional,
+    bool, string, missing) is treated as score ``0`` for ranking purposes
+    ONLY — it still appears in the candidate list (never silently dropped),
+    just ranked last among valid scores, so a corrupt persisted value can
+    never crowd out a well-scored tool but also never disappears outright.
+    """
+    from ..models.tool_score import is_canonical_relevance_score
+
+    def _ranking_key(row: dict[str, Any]) -> int:
+        raw = row.get("relevance_score", 0)
+        normalized = normalize_legacy_relevance_score(raw)
+        if is_canonical_relevance_score(normalized):
+            return normalized
+        return 0
+
+    ranked = sorted(rows or [], key=_ranking_key, reverse=True)
+    return ranked[:limit]
 
 
 async def router_step(
@@ -1316,7 +1365,26 @@ async def expert_executor_step(
                                 {"name": dynamic_node_id},
                             ),
                             kg_engine.query_cypher(
-                                "MATCH (t:Tool) WHERE any(tag IN t.tags WHERE toLower(tag) CONTAINS toLower($name)) OR toLower(t.name) CONTAINS toLower($name) RETURN t.name AS name, t.mcp_server AS server ORDER BY t.relevance_score DESC LIMIT 5",
+                                # D-CDX-53: does NOT ``ORDER BY t.relevance_score``
+                                # in Cypher. The live graph can hold both legacy
+                                # ``[0, 1]`` float scores and canonical ``[0, 100]``
+                                # int points on persisted Tool rows at the same
+                                # time, and ordering raw mixed-scale values in the
+                                # database ranks semantically-equal scores ~100x
+                                # apart and can truncate the better legacy tool out
+                                # of the result before it is ever normalized. A
+                                # deterministic ``ORDER BY t.name`` plus a bounded
+                                # candidate pool (``_TOOL_CANDIDATE_POOL_LIMIT``)
+                                # is used instead, and the caller ranks the
+                                # candidates in Python via
+                                # ``_rank_tool_rows_by_relevance`` — which
+                                # normalizes every row through the SAME canonical
+                                # boundary as ``ToolNode``/``MCPToolInfo``
+                                # (``agent_utilities.models.tool_score``) before
+                                # comparing scores.
+                                "MATCH (t:Tool) WHERE any(tag IN t.tags WHERE toLower(tag) CONTAINS toLower($name)) OR toLower(t.name) CONTAINS toLower($name) "
+                                "RETURN t.name AS name, t.mcp_server AS server, t.relevance_score AS relevance_score "
+                                f"ORDER BY t.name LIMIT {_TOOL_CANDIDATE_POOL_LIMIT}",
                                 {"name": dynamic_node_id},
                             ),
                         )
@@ -1329,7 +1397,10 @@ async def expert_executor_step(
                         system_prompt = prompt_res[0]["sp"]
 
                     # Find relevant tools (by tag or semantic overlap if we had embeddings, using tag heuristic for now)
-                    tools_to_inject = [t["name"] for t in tool_res]
+                    ranked_tool_rows = _rank_tool_rows_by_relevance(
+                        tool_res, limit=_TOOL_RESULT_LIMIT
+                    )
+                    tools_to_inject = [t["name"] for t in ranked_tool_rows]
 
                 logger.info(
                     f"Dynamic Agent '{node_id}': Injecting {len(tools_to_inject)} tools from Knowledge Graph."

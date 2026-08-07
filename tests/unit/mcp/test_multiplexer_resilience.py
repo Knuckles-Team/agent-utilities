@@ -407,6 +407,75 @@ async def test_crash_triggers_restart_and_child_recovers():
     await runtime.aclose()
 
 
+async def test_generation_callback_gates_calls_until_recovered_catalog_is_published():
+    """A recovered transport must wait for its owner to publish metadata.
+
+    The callback models the multiplexer replacing its forwarding schemas.  A
+    second concurrent caller must not slip through the fresh child generation
+    before that update finishes.
+    """
+    healthy = EchoSession("gen2")
+    connector = GenerationConnector([DeadPipeSession(), healthy])
+    callback_started = asyncio.Event()
+    release_callback = asyncio.Event()
+    observed: list[list[Any]] = []
+
+    async def on_generation(tools: list[Any]) -> None:
+        observed.append(tools)
+        callback_started.set()
+        await release_callback.wait()
+
+    runtime = ChildRuntime(
+        "catalog-gated",
+        {"max_concurrency": 2, "queue_timeout": 0.5},
+        connect=connector,
+        restart_backoff_base=0.005,
+        restart_backoff_cap=0.005,
+        on_generation=on_generation,
+    )
+    await runtime.start()
+
+    first = asyncio.create_task(runtime.call_tool("first", {}))
+    await callback_started.wait()
+    second = asyncio.create_task(runtime.call_tool("second", {}))
+    await asyncio.sleep(0.01)
+    assert healthy.calls == []
+
+    release_callback.set()
+    results = await asyncio.gather(first, second)
+    assert sorted(result.content[0].text for result in results) == [
+        "gen2:first",
+        "gen2:second",
+    ]
+    assert observed == [["tool_a"]]
+    await runtime.aclose()
+
+
+async def test_generation_callback_failure_does_not_strand_recovered_child(caplog):
+    """Observer failures are isolated from the child transport itself."""
+    healthy = EchoSession("gen2")
+    connector = GenerationConnector([DeadPipeSession(), healthy])
+
+    async def on_generation(_tools: list[Any]) -> None:
+        raise RuntimeError("synthetic observer failure")
+
+    runtime = ChildRuntime(
+        "observer-isolated",
+        {"max_concurrency": 2, "queue_timeout": 0.5},
+        connect=connector,
+        restart_backoff_base=0.005,
+        restart_backoff_cap=0.005,
+        on_generation=on_generation,
+    )
+    await runtime.start()
+
+    result = await runtime.call_tool("recover", {})
+    assert result.content[0].text == "gen2:recover"
+    assert runtime.state == "up"
+    assert "generation observer failed" in caplog.text
+    await runtime.aclose()
+
+
 def _session_terminated_error() -> BaseException:
     """The MCP protocol error a redeployed backend raises, on EITHER SDK line.
 

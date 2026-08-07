@@ -38,16 +38,30 @@ import time
 import weakref
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, cast
 from urllib.parse import urlsplit
 
-import mcp.types
 from fastmcp.exceptions import ToolError
 from fastmcp.server.middleware import Middleware
-from fastmcp.tools import FunctionTool, ToolResult
+from fastmcp.tools import FunctionTool, Tool, ToolResult
 from mcp import StdioServerParameters, stdio_client
-from mcp import types as mcp_types  # stable alias: the ``mcp`` param shadows the pkg
 from mcp.client.session import ClientSession
+
+from agent_utilities.mcp.protocol_compat import mcp_types_module
+
+if TYPE_CHECKING:
+    from mcp_types import CallToolResult as MCPCallToolResult
+    from mcp_types import Tool as MCPTool
+
+# The SOLE handle on the MCP protocol types in this module, for two reasons that
+# both bite here. (1) MCP SDK v2 re-homed the whole `mcp.types` namespace into the
+# standalone `mcp_types` distribution, so `import mcp.types` raises ImportError at
+# module scope on an SDK v2 image — and this module is the fleet loader, so that
+# takes every child server down with it. `mcp_types_module()` binds whichever the
+# installed SDK ships. (2) `mcp` is also a common PARAMETER name in this file (see
+# `_register_forwarder`), where it shadows the package outright; a `mcp_types.X`
+# attribute chain there resolves against the parameter, not the SDK.
+mcp_types = mcp_types_module()
 
 # Remote transports. The MCP SDK v2 line (>=2.0.0, pulled in by the
 # `fastmcp>=4.0.0b1` floor of the `[mcp]` extra) renamed
@@ -112,6 +126,18 @@ _SKILL_HARVEST_BUDGET_SEC = 120.0
 # failure (which would silently strand most of the corpus as un-runnable).
 _SKILL_HARVEST_MAX_ATTEMPTS = 5
 _SKILL_HARVEST_BACKOFF_SEC = 0.5
+# Prompts-over-MCP (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the
+# ``prompt://`` sibling of the skill harvest above): a probed server's
+# Resources may include ``prompt://{provider}/{name}`` entries served by
+# ``server_factory._register_prompt_providers``. Same bounding rationale and
+# same budget SHAPE as skills, kept as separate constants/counters so a
+# pathological prompt corpus on one child cannot eat a skill harvest's
+# budget on the same probe, or vice versa.
+_MAX_DISCOVERED_PROMPTS = 2_048
+_PROMPT_RESOURCE_RE = re.compile(r"^prompt://(?P<provider>[^/]+)/(?P<name>[^/]+)$")
+_MAX_PROMPT_BODY_BYTES = 512 * 1024
+_MAX_PROMPT_HARVEST_TOTAL_BYTES = 8 * 1024 * 1024
+_PROMPT_HARVEST_BUDGET_SEC = 120.0
 _SERVER_DISCOVERY_STOPWORDS = frozenset({"api", "mcp", "manager", "server", "service"})
 # Fleet-wide concurrent-probe ceiling (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog), shared
 # across overlapping ``probe_catalog`` calls via ``MCPMultiplexer._probe_semaphore``
@@ -479,6 +505,32 @@ def _bounded_tool_catalog(raw_tools: Any) -> list[dict[str, Any]]:
     return tools
 
 
+def _tool_catalog_digest(tools: list[MCPTool]) -> str:
+    """Return a stable digest of the client-visible portion of one child catalog.
+
+    A child generation already pays for ``tools/list`` as part of its bounded
+    connection handshake.  Comparing that result here lets the multiplexer
+    refresh only changed forwarding schemas, without polling a provider from
+    ordinary tool calls or churning probe/embedding caches after an equivalent
+    reconnect.
+    """
+    catalog = _bounded_tool_catalog(tools)
+    for entry, tool in zip(catalog, tools, strict=True):
+        meta = getattr(tool, "meta", None)
+        if meta is not None:
+            _assert_bounded_json_value(meta, max_nodes=_MAX_CATALOG_NODES)
+            entry["meta"] = meta
+    # A provider is allowed to return its catalog in a different order after a
+    # reconnect.  Order is not part of a forwarding schema, so make the
+    # no-op comparison insensitive to it and avoid needless cache/host-tool
+    # churn on an otherwise equivalent generation.
+    catalog.sort(key=lambda entry: entry["name"])
+    canonical = json.dumps(
+        catalog, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
 def _bounded_skill_catalog(raw_resources: Any) -> list[dict[str, Any]]:
     """Project a probed child's Resources into its Skills-over-MCP subset.
 
@@ -519,6 +571,61 @@ def _bounded_skill_catalog(raw_resources: Any) -> list[dict[str, Any]]:
     except ToolError:
         raise RuntimeError("MCP child skill catalog exceeded its boundary") from None
     return skills
+
+
+def _bounded_prompt_catalog(raw_resources: Any) -> list[dict[str, Any]]:
+    """Project a probed child's Resources into its Prompts-over-MCP subset.
+
+    CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
+    sibling of :func:`_bounded_skill_catalog`.
+    ``server_factory._register_prompt_providers`` exposes each of a server's
+    own ``prompts/*.json`` files as ``prompt://{provider}/{name}``.
+    Non-prompt resources (including ``skill://`` ones) are silently dropped:
+    this function answers "which prompts does this server serve", not "list
+    every resource". Bounded and validated exactly like
+    :func:`_bounded_skill_catalog` so a hostile/misbehaving child cannot
+    force an unbounded catalog into the KG.
+    """
+    if not isinstance(raw_resources, list | tuple):
+        raise RuntimeError("MCP child resource catalog is invalid")
+    if len(raw_resources) > _MAX_DISCOVERED_TOOLS:
+        raise RuntimeError("MCP child resource catalog exceeded its boundary")
+
+    prompts: list[dict[str, Any]] = []
+    for resource in raw_resources:
+        uri = getattr(resource, "uri", None)
+        uri_text = str(uri) if uri is not None else ""
+        match = _PROMPT_RESOURCE_RE.match(uri_text)
+        if not match:
+            continue
+        provider = match.group("provider")
+        name = match.group("name")
+        description = getattr(resource, "description", "") or ""
+        if (
+            not isinstance(name, str)
+            or not 1 <= len(name.encode("utf-8")) <= 256
+            or any(ord(character) < 32 for character in name)
+            or not isinstance(provider, str)
+            or not 1 <= len(provider.encode("utf-8")) <= 256
+            or any(ord(character) < 32 for character in provider)
+            or not isinstance(description, str)
+        ):
+            raise RuntimeError("MCP child resource catalog is invalid")
+        prompts.append(
+            {
+                "name": name,
+                "provider": provider,
+                "uri": uri_text,
+                "description": description,
+            }
+        )
+        if len(prompts) > _MAX_DISCOVERED_PROMPTS:
+            raise RuntimeError("MCP child prompt catalog exceeded its boundary")
+    try:
+        _assert_bounded_json_value(prompts, max_nodes=_MAX_CATALOG_NODES)
+    except ToolError:
+        raise RuntimeError("MCP child prompt catalog exceeded its boundary") from None
+    return prompts
 
 
 def _resource_body_text(result: Any) -> str:
@@ -1030,6 +1137,89 @@ def _provider_child_sandbox_environment(
     }
 
 
+class UnsupportedLocalProviderLayout(RuntimeError):
+    """FastMCP's local provider's private component registry does not match
+    the shape :func:`_local_provider_component_snapshot` requires (D-CDX-51).
+
+    A ``RuntimeError`` subclass so any existing ``except RuntimeError`` at a
+    call site still catches it — this is a refinement of the prior bare
+    ``RuntimeError("FastMCP local component registry is unavailable")``, not
+    a new failure category callers need to special-case.
+    """
+
+
+def _local_provider_component_snapshot(host: Any) -> tuple[Any, dict[str, Any]]:
+    """Resolve ``host``'s local provider and a shape-checked snapshot of its
+    private component registry (D-CDX-51).
+
+    FastMCP 4.0.0b1's ``LocalProvider`` keeps executable tools in a plain
+    private ``_components: dict[str, FastMCPComponent]`` and exposes no
+    public atomic replace/remove API — so the atomic schema
+    replace/rollback in :meth:`MCPMultiplexer._replace_exposed_forwarders`
+    (and the KeyError-invariant check in
+    :meth:`MCPMultiplexer._remove_host_forwarder`) have no choice but to
+    snapshot and swap that private map directly. This project explicitly
+    permits future FastMCP versions, and the fleet is ALREADY
+    deliberately mixed-version (children on fastmcp 3.x; this canonical
+    tree on fastmcp >=4.0.0b1) — so a later provider adding secondary
+    indexes, lifecycle hooks, ownership metadata, or swapping the container
+    type entirely is not hypothetical.
+
+    This is the ONE place that reads ``_components``, and it validates the
+    EXACT shape every caller depends on — a plain ``dict`` keyed by ``str``,
+    whose values each expose both ``.key`` (used to re-key a staged
+    forwarder in a swap) and ``.name`` (used by the KeyError-invariant
+    check) — BEFORE returning anything, so an unrecognized layout is caught
+    HERE, before any mutation, rather than silently corrupting host state
+    two calls later. Raises :class:`UnsupportedLocalProviderLayout`
+    (fail closed) the moment the shape does not hold.
+
+    Returns ``(provider, snapshot)`` where ``snapshot`` is a fresh ``dict``
+    copy — safe for a caller to mutate or roll back to without touching the
+    live registry until it explicitly swaps.
+    """
+    provider = getattr(host, "_local_provider", None)
+    if provider is None:
+        raise UnsupportedLocalProviderLayout(
+            "FastMCP host has no _local_provider on this SDK version"
+        )
+    components = getattr(provider, "_components", None)
+    if not isinstance(components, dict):
+        raise UnsupportedLocalProviderLayout(
+            "FastMCP local provider's _components is not a dict on this SDK version"
+        )
+    for key, component in components.items():
+        if not isinstance(key, str):
+            raise UnsupportedLocalProviderLayout(
+                "FastMCP local provider's _components has a non-string key "
+                "on this SDK version"
+            )
+        if not hasattr(component, "key") or not hasattr(component, "name"):
+            raise UnsupportedLocalProviderLayout(
+                "FastMCP local provider's component objects are missing "
+                ".key/.name on this SDK version"
+            )
+    return provider, dict(components)
+
+
+def _swap_local_provider_components(provider: Any, components: dict[str, Any]) -> None:
+    """Atomically replace ``provider``'s component registry (D-CDX-51).
+
+    Prefers a public atomic replacement API — checked by name, so this
+    stays forward-compatible the moment FastMCP ever adds one without
+    requiring a new dependency-range bump first — and falls back to the
+    private ``_components`` swap only when no public alternative exists.
+    Callers must have already obtained ``provider`` through
+    :func:`_local_provider_component_snapshot` so the private-fallback path
+    is only ever reached after the shape check passed.
+    """
+    public_replace = getattr(provider, "replace_components", None)
+    if callable(public_replace):
+        public_replace(components)
+        return
+    provider._components = components
+
+
 class MCPMultiplexer:
     """Aggregates and proxies multiple MCP servers over a single stdio connection."""
 
@@ -1040,13 +1230,45 @@ class MCPMultiplexer:
         # Per-child hardening layer (CONCEPT:AU-ECO.mcp.profile-differences-from-client): concurrency limits and
         # bounded queueing live on the ChildRuntime, not the raw session.
         self.children: dict[str, ChildRuntime] = {}
+        # D-CDX-44: per-server singleflight for the first ``mount_child`` of
+        # a not-yet-mounted server. Keyed by server_name; a present entry is
+        # the shared future for whichever task is currently the LEADER
+        # mounting that server. Never global — different servers mount fully
+        # in parallel; only concurrent first-loads of the SAME server share
+        # one attempt.
+        self._mount_inflight: dict[str, asyncio.Future[list[MCPTool]]] = {}
         self._child_runtime_policies: dict[str, Any] = {}
         self._child_policy_admitted_tools: dict[str, frozenset[str]] = {}
         self._child_catalog_fingerprints: dict[str, str] = {}
+        # Bounded digest/revision state for the schemas currently exposed to
+        # GraphOS clients.  A provider reconnect is cheap to compare against
+        # this state and does not trigger a fresh provider probe per call.
+        self._child_tool_digests: dict[str, str] = {}
+        self._child_schema_revisions: dict[str, int] = {}
+        # A schema refresh failure is fail-closed for that child only.  The
+        # category is intentionally fixed-vocabulary: raw provider details
+        # belong only in the server-side redacted log.
+        self._child_schema_refresh_errors: dict[str, str] = {}
+        # A child recovery runs on a detached supervisor task, where a request
+        # context is unsafe to retain or reuse.  Queue changed exposed schemas
+        # for each affected client session and deliver its standard MCP
+        # ``tools/list_changed`` notification on that session's next request.
+        # Entries are bounded by the existing per-session visibility state and
+        # disappear with it, so an idle client cannot accumulate revisions.
+        self._tool_list_change_revision = 0
+        self._pending_tool_list_changes: dict[str, int] = {}
+        # Incremented before a hot catalog reload tears down child runtimes so
+        # a late callback from an old generation can never repopulate fresh
+        # routing state with a stale declaration.
+        self._catalog_epoch = 0
+        # Set by ``attach_fleet_loader``.  Keeping this optional preserves the
+        # standalone probe and unit-test paths, which do not own a FastMCP
+        # server or live forwarders.
+        self._host_mcp: Any | None = None
         self.tool_to_server: dict[
             str, tuple[str, str]
         ] = {}  # prefixed_name -> (server_name, original_name)
-        self.aggregated_tools: list[mcp.types.Tool] = []
+        self.aggregated_tools: list[MCPTool] = []
         # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — dynamic tool gateway state. The catalog is the
         # full set of mountable servers parsed from config WITHOUT spawning
         # them, so find_tools/load_tools know what exists before any child is
@@ -1126,12 +1348,24 @@ class MCPMultiplexer:
         self._auto_unload: dict[str, set[str]] = {}
         self._catalog_reload_tasks: set[asyncio.Task[Any]] = set()
         self._authority_scope: Any = None
+        # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — the ONE bounded eager posture.
+        # Catalog server names (``MCP_ALWAYS_LOAD``) and server-qualified or
+        # prefixed tool names (``MCP_ALWAYS_LOAD_TOOLS``) that are mounted on a
+        # session's FIRST contact instead of costing a ``find_tools`` round
+        # trip. Populated by :func:`attach_fleet_loader` from AgentConfig;
+        # empty (fully lazy) for a bare multiplexer.
+        self._always_load_servers: list[str] = []
+        self._always_load_tool_specs: list[str] = []
+        # Per-session "already attempted" marker. Eager mounting runs at most
+        # once per session even when every entry failed — a fleet outage must
+        # not turn every tools/list into a fresh round of doomed connections.
+        self._always_load_done: dict[str, dict[str, Any]] = {}
         _LIVE_MULTIPLEXERS.add(self)
         _register_child_health_sampler()
 
     async def call_proxied_tool(
         self, prefixed_name: str, arguments: dict[str, Any] | None = None
-    ) -> mcp.types.CallToolResult:
+    ) -> MCPCallToolResult:
         """Forward a prefixed tool call to the owning child server's session.
 
         Looks up the ``(server_name, original_name)`` mapping recorded during
@@ -1167,11 +1401,43 @@ class MCPMultiplexer:
             not in self._child_policy_admitted_tools.get(server_name, frozenset())
         ):
             raise ToolError("MCP child tool is not admitted by runtime policy")
+        if server_name in self._child_schema_refresh_errors:
+            return mcp_types.CallToolResult.model_validate(
+                {
+                    "content": [
+                        mcp_types.TextContent(type="text", text="schema_refresh_failed")
+                    ],
+                    "isError": True,
+                }
+            )
 
         try:
             # Forward the call through the child's hardened runtime
             # (per-server concurrency limit + bounded queue).
+            revision_before = self._child_schema_revisions.get(server_name, 0)
             result = await runtime.call_tool(original_name, arguments or {})
+            # A reconnect can complete while the call above is waiting for the
+            # runtime's ready gate.  Do not let that freshly recovered child
+            # serve through a route whose outer schema could not be refreshed.
+            if server_name in self._child_schema_refresh_errors:
+                return mcp_types.CallToolResult.model_validate(
+                    {
+                        "content": [
+                            mcp_types.TextContent(
+                                type="text", text="schema_refresh_failed"
+                            )
+                        ],
+                        "isError": True,
+                    }
+                )
+            if (
+                self._host_mcp is not None
+                and self._child_schema_revisions.get(server_name, 0) != revision_before
+            ):
+                # This call supplied the request context that observed the
+                # reconnect.  A detached recovery queues a durable revision;
+                # use this live request to deliver it to this session.
+                await self.notify_pending_tools_changed()
             _mediate_langfuse_kg_ingestion(
                 child_config=child_config,
                 original_name=original_name,
@@ -1190,22 +1456,32 @@ class MCPMultiplexer:
                 type(e).__name__,
                 redact_for_log(e),
             )
-            return mcp.types.CallToolResult(
-                content=[mcp.types.TextContent(type="text", text=type(e).__name__)],
-                isError=True,
+            return mcp_types.CallToolResult.model_validate(
+                {
+                    "content": [
+                        mcp_types.TextContent(type="text", text=type(e).__name__)
+                    ],
+                    "isError": True,
+                }
             )
         except Exception as e:
-            return mcp.types.CallToolResult(
-                content=[mcp.types.TextContent(type="text", text=public_error_text(e))],
-                isError=True,
+            return mcp_types.CallToolResult.model_validate(
+                {
+                    "content": [
+                        mcp_types.TextContent(type="text", text=public_error_text(e))
+                    ],
+                    "isError": True,
+                }
             )
 
     def _admit_runtime_policy_tools(
         self,
         server_name: str,
         policy: Any,
-        tools: list[mcp.types.Tool],
-    ) -> list[mcp.types.Tool]:
+        tools: list[MCPTool],
+        *,
+        record_state: bool = True,
+    ) -> list[MCPTool]:
         """Apply live catalog admission and fingerprinting fail closed."""
 
         catalog = [
@@ -1231,10 +1507,11 @@ class MCPMultiplexer:
             raise RuntimeError(
                 "MCP child runtime policy rejected live catalog"
             ) from None
-        self._child_catalog_fingerprints[server_name] = fingerprint
-        self._child_policy_admitted_tools[server_name] = frozenset(
-            tool.name for tool in admitted
-        )
+        if record_state:
+            self._child_catalog_fingerprints[server_name] = fingerprint
+            self._child_policy_admitted_tools[server_name] = frozenset(
+                tool.name for tool in admitted
+            )
         return admitted
 
     async def _open_one_session(
@@ -1601,8 +1878,12 @@ class MCPMultiplexer:
 
     async def _start_child(
         self, server_name: str, cfg: dict
-    ) -> tuple[str, ChildRuntime, list[mcp.types.Tool], dict] | None:
+    ) -> tuple[str, ChildRuntime, list[MCPTool], dict] | None:
         """Starts a single child server, registers its exit stack on success, and returns its tools and runtime."""
+        # Preserve the catalog generation that authorized this spawn.  A hot
+        # reload may run while the child is handshaking; later callbacks from
+        # that retired runtime must not re-populate the new catalog's state.
+        catalog_epoch = self._catalog_epoch
         try:
             cfg, runtime_policy = _prepare_runtime_child_policy(cfg)
         except RuntimeError:
@@ -1685,6 +1966,7 @@ class MCPMultiplexer:
                     server_name,
                     runtime_policy,
                     tools,
+                    record_state=catalog_epoch == self._catalog_epoch,
                 )
             return sessions, tools
 
@@ -1696,8 +1978,23 @@ class MCPMultiplexer:
             from agent_utilities.mcp.client_credentials import service_session_max_age
 
             session_max_age = service_session_max_age(cfg.get("headers"))
+        runtime: ChildRuntime
+
+        async def _on_generation(live_tools: list[Any]) -> None:
+            await self._refresh_child_tools(
+                server_name,
+                runtime,
+                cfg,
+                catalog_epoch,
+                cast("list[MCPTool]", live_tools),
+            )
+
         runtime = ChildRuntime(
-            server_name, cfg, connect=_connect, session_max_age=session_max_age
+            server_name,
+            cfg,
+            connect=_connect,
+            session_max_age=session_max_age,
+            on_generation=_on_generation,
         )
         try:
             tools = await runtime.start()
@@ -1865,19 +2162,45 @@ class MCPMultiplexer:
         """Discard runtime-derived fleet state and reparse the current catalog.
 
         Hot configuration changes must not leave a disabled child callable or a
-        credential/TLS change attached to an old process.  Existing forwarder
-        registrations remain inert and reusable; their routing entries and
-        per-session visibility are cleared until the child is mounted again.
+        credential/TLS change attached to an old process.  Mux-owned host
+        forwarders are removed too, so a same-named tool on the reloaded child
+        cannot retain an obsolete client-visible schema.
         """
+        # Invalidate callback closures before tearing down their runtimes.  A
+        # delayed reconnect can then cleanly close without resurrecting stale
+        # routing or admission state after this catalog has been rebuilt.
+        self._catalog_epoch += 1
         stale_children = tuple(
             (name, runtime, self._child_runtime_policies.get(name))
             for name, runtime in self.children.items()
         )
         stale_tool_names = set(self.tool_to_server)
+        for prefixed_name in tuple(self._exposed):
+            try:
+                self._remove_host_forwarder(prefixed_name)
+            except Exception as exc:
+                # A later load can still repair the local bookkeeping.  Keep
+                # the provider failure private while making it visible to the
+                # operator; catalog reload must remain fail-soft for siblings.
+                logger.error(
+                    "Could not remove stale MCP forwarding schema "
+                    "(exception_type=%s): %s",
+                    type(exc).__name__,
+                    redact_for_log(exc),
+                )
+        # ``_remove_host_forwarder`` discards each normally.  Explicitly
+        # converge the marker as well when a legacy/provider failure prevented
+        # removal, otherwise a fresh mount would falsely believe its new
+        # forwarder had already been registered.
+        self._exposed.clear()
         self.children.clear()
         self._child_runtime_policies.clear()
         self._child_policy_admitted_tools.clear()
         self._child_catalog_fingerprints.clear()
+        self._child_tool_digests.clear()
+        self._child_schema_revisions.clear()
+        self._child_schema_refresh_errors.clear()
+        self._pending_tool_list_changes.clear()
         self.sessions.clear()
         self.tool_to_server.clear()
         self.aggregated_tools.clear()
@@ -1891,6 +2214,23 @@ class MCPMultiplexer:
         self._prefix_map = None
         self._prefix_reverse.clear()
         self._catalog = None
+        # An eager declaration is configuration-derived.  Its per-session
+        # result cannot survive a hot reload or an already-connected session
+        # would skip mounting the new declaration indefinitely.
+        self._always_load_done.clear()
+        if self._host_mcp is not None:
+            # ``graph_config set`` calls :func:`invalidate_live_catalogs` for
+            # every runtime setting update, including the always-load
+            # declarations themselves.  Re-read their validated effective
+            # values here so an already-running GraphOS instance applies the
+            # new eager posture on the next request rather than only after a
+            # process restart.
+            self._always_load_servers = _always_load_setting(
+                "mcp_always_load", "MCP_ALWAYS_LOAD"
+            )
+            self._always_load_tool_specs = _always_load_setting(
+                "mcp_always_load_tools", "MCP_ALWAYS_LOAD_TOOLS"
+            )
         for loaded in self._session_loaded.values():
             loaded.difference_update(stale_tool_names)
         for loaded in self._auto_unload.values():
@@ -1990,13 +2330,314 @@ class MCPMultiplexer:
             return False
         return True
 
+    def _prefixed_child_tools(
+        self,
+        server_name: str,
+        tools: list[MCPTool],
+        cfg: dict,
+    ) -> tuple[list[MCPTool], dict[str, str]]:
+        """Filter and prefix one child catalog without mutating live state."""
+        disabled_tools = cfg.get("disabledTools", [])
+        enabled_tools = cfg.get("enabledTools", None)
+        registered: list[MCPTool] = []
+        originals: dict[str, str] = {}
+        for tool in tools:
+            if enabled_tools is not None:
+                import fnmatch
+
+                if not any(fnmatch.fnmatch(tool.name, pat) for pat in enabled_tools):
+                    logger.info("Skipping a non-whitelisted MCP child tool")
+                    continue
+            if disabled_tools:
+                import fnmatch
+
+                if any(fnmatch.fnmatch(tool.name, pat) for pat in disabled_tools):
+                    logger.info("Skipping a disabled MCP child tool")
+                    continue
+            prefix = self.server_prefix(server_name)
+            prefixed_name = clean_tool_name(prefix, server_name, tool.name)
+            registered.append(
+                mcp_types.Tool(
+                    name=prefixed_name,
+                    description=tool.description or "",
+                    input_schema=tool.input_schema,
+                    # Preserve _meta (carries FastMCP tags) so downstream
+                    # visibility filtering sees the child's real tags.
+                    _meta=getattr(tool, "meta", None),
+                )
+            )
+            # ``clean_tool_name`` may strip a redundant server/prefix segment,
+            # so the original child name cannot be reconstructed by splitting
+            # the forwarded name.  Keep that exact routing target alongside
+            # the generated outer schema.
+            originals[prefixed_name] = tool.name
+        return registered, originals
+
+    def _remove_host_forwarder(self, prefixed_name: str) -> None:
+        """Remove one mux-owned FastMCP forwarder without public API churn."""
+        host = self._host_mcp
+        if host is None:
+            self._exposed.discard(prefixed_name)
+            return
+        provider = getattr(host, "_local_provider", None)
+        remove_tool = getattr(provider, "remove_tool", None)
+        if not callable(remove_tool):
+            raise RuntimeError("FastMCP local provider cannot remove a forwarding tool")
+        try:
+            remove_tool(prefixed_name)
+        except KeyError as exc:
+            # FastMCP documents KeyError for an absent tool, which is an
+            # idempotent hot-reload outcome only after its private registry
+            # confirms that our executable forwarder is gone.  A matching
+            # component here makes KeyError an SDK/provider invariant breach;
+            # propagate it rather than erasing a live route from mux state.
+            # D-CDX-51: the shape-checked adapter, not a raw ``_components``
+            # read, so an unrecognized SDK layout fails closed here too.
+            try:
+                _, components = _local_provider_component_snapshot(host)
+            except UnsupportedLocalProviderLayout as shape_exc:
+                raise RuntimeError(
+                    "FastMCP forwarding registry cannot verify an absent tool"
+                ) from shape_exc
+            if any(
+                isinstance(component, Tool) and component.name == prefixed_name
+                for component in components.values()
+            ):
+                raise RuntimeError(
+                    "FastMCP reported a forwarding tool absent while it remains registered"
+                ) from exc
+            logger.info(
+                "MCP forwarding tool was already absent during cleanup "
+                "(tool_ref=%s, exception_ref=%s)",
+                redact_for_log(prefixed_name),
+                redact_for_log(exc),
+            )
+        self._exposed.discard(prefixed_name)
+
+    def _replace_exposed_forwarders(
+        self,
+        old_tools: dict[str, MCPTool],
+        new_tools: dict[str, MCPTool],
+    ) -> set[str]:
+        """Atomically replace changed exposed schemas in FastMCP's registry.
+
+        FastMCP 4.0.0b1 has no public batch-registration primitive: each
+        ``add_tool`` immediately replaces a duplicate in its local provider.
+        A two-tool recovery can therefore accept one replacement and fail the
+        next.  Stage the complete component registry first, and retain an
+        exact SDK-component snapshot so a partial native registration is
+        restored with one provider-registry swap rather than a doomed series
+        of ``add_tool`` rollback calls.
+
+        D-CDX-51: the snapshot and the swap both go through the shape-checked
+        adapter (:func:`_local_provider_component_snapshot` /
+        :func:`_swap_local_provider_components`) rather than touching
+        ``provider._components`` directly — an unrecognized SDK layout fails
+        closed BEFORE this reads or mutates anything.
+        """
+        exposed = set(old_tools) & self._exposed
+        changed = {
+            name
+            for name in exposed
+            if name not in new_tools
+            or _tool_catalog_digest([old_tools[name]])
+            != _tool_catalog_digest([new_tools[name]])
+        }
+        if not changed or self._host_mcp is None:
+            return set()
+
+        replacements = sorted(name for name in changed if name in new_tools)
+        removed = sorted(changed - set(replacements))
+        host = self._host_mcp
+        provider, components = _local_provider_component_snapshot(host)
+
+        # ``FunctionTool`` construction validates every child schema before
+        # the live registry is touched.  Keep these real SDK objects in the
+        # staged mapping — protocol ``Tool`` models are not executable host
+        # components and cannot safely stand in for them.
+        forwarders = {
+            name: _forwarder_component(self, new_tools[name]) for name in replacements
+        }
+        previous_components = components
+        staged_components = dict(previous_components)
+        changed_names = set(changed)
+        for key, component in tuple(staged_components.items()):
+            if isinstance(component, FunctionTool) and component.name in changed_names:
+                staged_components.pop(key)
+        for forwarder in forwarders.values():
+            staged_components[forwarder.key] = forwarder
+
+        try:
+            # Preserve FastMCP's native registration path and any validation
+            # it performs.  It is synchronous, so another served request
+            # cannot observe an intermediate component map on this event-loop
+            # turn.  If a later add fails, restore the exact prior registry
+            # below without asking that same failed API to accept a rollback.
+            for forwarder in forwarders.values():
+                host.add_tool(forwarder)
+        except Exception:
+            # LocalProvider resolves lookups directly from this mapping in
+            # FastMCP 4.0.0b1.  Replacing it restores the prior executable
+            # FunctionTool objects atomically even when ``add_tool`` remains
+            # unavailable, leaving mux maps untouched below.
+            _swap_local_provider_components(provider, previous_components)
+            raise
+        # A removal is committed in the same one-step replacement, so no
+        # client can be left with a half-refreshed forwarded tool set.
+        _swap_local_provider_components(provider, staged_components)
+        self._exposed.difference_update(removed)
+        return changed
+
+    def _queue_tools_changed(self, changed_names: set[str]) -> None:
+        """Record one detached schema refresh for sessions that exposed it.
+
+        A child supervisor has no valid request context: reusing the context
+        inherited when it was spawned can write to a completed response stream.
+        Keep the notification durable until each affected session makes its
+        next request, where :meth:`notify_pending_tools_changed` can use that
+        request's own outbound channel.
+        """
+        if not changed_names:
+            return
+        affected_sessions = [
+            session_key
+            for session_key, loaded in self._session_loaded.items()
+            if changed_names & loaded
+        ]
+        if not affected_sessions:
+            return
+        self._tool_list_change_revision += 1
+        for session_key in affected_sessions:
+            self._pending_tool_list_changes[session_key] = (
+                self._tool_list_change_revision
+            )
+
+    async def notify_pending_tools_changed(self) -> bool:
+        """Deliver this live session's queued ``tools/list_changed`` event.
+
+        Returning ``False`` retains the revision for a later request; a failed
+        notification is never misreported as delivered.  A newer background
+        refresh that arrives while the send awaits remains queued after this
+        older revision is acknowledged.
+        """
+        session_key = _session_key()
+        revision = self._pending_tool_list_changes.get(session_key)
+        if revision is None:
+            return True
+        if self._host_mcp is None or not await _notify_tools_changed(self._host_mcp):
+            return False
+        if self._pending_tool_list_changes.get(session_key) == revision:
+            self._pending_tool_list_changes.pop(session_key, None)
+            self.prune_session_visibility(session_key)
+        return True
+
+    def _replace_child_tools(
+        self,
+        server_name: str,
+        tools: list[MCPTool],
+        cfg: dict,
+    ) -> tuple[list[MCPTool], bool]:
+        """Replace cached tools for one child when its live schema changed.
+
+        This runs only at initial mount or after a child connection generation
+        has already completed ``tools/list``.  It never performs provider I/O.
+        All map mutations are synchronous, and a recovering runtime keeps its
+        readiness gate closed until this method returns.
+        """
+        refreshed, originals = self._prefixed_child_tools(server_name, tools, cfg)
+        refreshed_digest = _tool_catalog_digest(refreshed)
+        current = self.prefixed_tools_for_server(server_name)
+        current_digest = self._child_tool_digests.get(server_name)
+        if current_digest is None and current:
+            current_digest = _tool_catalog_digest(current)
+        if current_digest == refreshed_digest:
+            self._child_tool_digests.setdefault(server_name, refreshed_digest)
+            return current, False
+
+        current_by_name = {tool.name: tool for tool in current}
+        refreshed_by_name = {tool.name: tool for tool in refreshed}
+        changed_exposed = self._replace_exposed_forwarders(
+            current_by_name, refreshed_by_name
+        )
+
+        stale_names = {
+            prefixed
+            for prefixed, (owner, _original) in self.tool_to_server.items()
+            if owner == server_name
+        }
+        self.tool_to_server = {
+            prefixed: target
+            for prefixed, target in self.tool_to_server.items()
+            if target[0] != server_name
+        }
+        self.aggregated_tools = [
+            tool for tool in self.aggregated_tools if tool.name not in stale_names
+        ]
+        for tool in refreshed:
+            self.tool_to_server[tool.name] = (server_name, originals[tool.name])
+        self.aggregated_tools.extend(refreshed)
+        self._child_tool_digests[server_name] = refreshed_digest
+        self._child_schema_revisions[server_name] = (
+            self._child_schema_revisions.get(server_name, 0) + 1
+        )
+        self._probe_cache.pop(server_name, None)
+        embedding_prefix = f"{server_name}::"
+        for key in [
+            key for key in self._tool_embeddings if key.startswith(embedding_prefix)
+        ]:
+            self._tool_embeddings.pop(key, None)
+
+        self._queue_tools_changed(changed_exposed)
+
+        removed = stale_names - set(refreshed_by_name)
+        if removed:
+            for loaded in self._session_loaded.values():
+                loaded.difference_update(removed)
+            for loaded in self._auto_unload.values():
+                loaded.difference_update(removed)
+            for session_key in tuple(self._session_loaded):
+                self.prune_session_visibility(session_key)
+        return refreshed, True
+
+    async def _refresh_child_tools(
+        self,
+        server_name: str,
+        runtime: ChildRuntime,
+        cfg: dict,
+        catalog_epoch: int,
+        tools: list[MCPTool],
+    ) -> None:
+        """Publish a recovered child generation's schema before it serves calls."""
+        if (
+            catalog_epoch != self._catalog_epoch
+            or self.children.get(server_name) is not runtime
+        ):
+            # A catalog hot reload already retired this runtime.  Its delayed
+            # reconnect must never resurrect stale routing/schema state.
+            return
+        primary = runtime.primary_session
+        if primary is not None:
+            self.sessions[server_name] = primary
+        try:
+            self._replace_child_tools(server_name, tools, cfg)
+        except Exception as exc:
+            self._child_schema_refresh_errors[server_name] = "schema_refresh_failed"
+            logger.error(
+                "MCP child schema refresh failed (server=%s, exception_type=%s): %s",
+                server_name,
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+        else:
+            self._child_schema_refresh_errors.pop(server_name, None)
+
     def _register_child_result(
         self,
         server_name: str,
         payload: Any,
-        tools: list[mcp.types.Tool],
+        tools: list[MCPTool],
         cfg: dict,
-    ) -> list[mcp.types.Tool]:
+    ) -> list[MCPTool]:
         """Record a freshly started child's runtime, session, and (filtered)
         tools into the aggregation maps. Returns the prefixed ``Tool`` objects
         that were registered for this child.
@@ -2023,46 +2664,7 @@ class MCPMultiplexer:
         if primary is not None:
             self.sessions[server_name] = primary
 
-        disabled_tools = cfg.get("disabledTools", [])
-        enabled_tools = cfg.get("enabledTools", None)
-
-        registered: list[mcp.types.Tool] = []
-        for tool in tools:
-            # 1. Whitelist Check (if enabledTools is defined)
-            if enabled_tools is not None:
-                import fnmatch
-
-                matched = any(fnmatch.fnmatch(tool.name, pat) for pat in enabled_tools)
-                if not matched:
-                    logger.info("Skipping a non-whitelisted MCP child tool")
-                    continue
-
-            # 2. Blacklist Check
-            if disabled_tools:
-                import fnmatch
-
-                matched_disabled = any(
-                    fnmatch.fnmatch(tool.name, pat) for pat in disabled_tools
-                )
-                if matched_disabled:
-                    logger.info("Skipping a disabled MCP child tool")
-                    continue
-
-            prefix = self.server_prefix(server_name)
-            prefixed_name = clean_tool_name(prefix, server_name, tool.name)
-            self.tool_to_server[prefixed_name] = (server_name, tool.name)
-
-            # Preserve _meta (carries FastMCP tags) so downstream consumers — the
-            # verbose-tool hold-back, visibility filtering — can read the child's
-            # tags off the aggregated tool. (CONCEPT:AU-ECO.multiplexer.condensed-server-load)
-            prefixed_tool = mcp.types.Tool(
-                name=prefixed_name,
-                description=tool.description or "",
-                input_schema=tool.input_schema,
-                _meta=getattr(tool, "meta", None),
-            )
-            self.aggregated_tools.append(prefixed_tool)
-            registered.append(prefixed_tool)
+        registered, _changed = self._replace_child_tools(server_name, tools, cfg)
         return registered
 
     async def _live_skills_for_server(self, server_name: str) -> list[dict]:
@@ -2083,7 +2685,20 @@ class MCPMultiplexer:
             return []
         return await self._probe_skills(server_name, session)
 
-    async def mount_child(self, server_name: str) -> list[mcp.types.Tool]:
+    async def _live_prompts_for_server(self, server_name: str) -> list[dict]:
+        """Live ``prompt://`` resource listing for an already-mounted child
+        (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
+        sibling of :meth:`_live_skills_for_server`, same D-2.2-2.3-1 rationale:
+        a mounted child's prompt resources are never cached at mount time, so
+        this is the only place an already-mounted server's prompts are
+        discovered without waiting for a cold probe).
+        """
+        session = self.sessions.get(server_name)
+        if session is None:
+            return []
+        return await self._probe_prompts(server_name, session)
+
+    async def mount_child(self, server_name: str) -> list[MCPTool]:
         """Start ONE configured child on demand and register its tools
         (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
 
@@ -2092,6 +2707,20 @@ class MCPMultiplexer:
         unknown/unconfigured server. Loop-safe because it is invoked from
         inside the serving event loop (either at boot or from a tool call), so
         the child ``ClientSession`` objects bind to the running loop.
+
+        D-CDX-44: per-server singleflight. Multiple concurrent callers can
+        legitimately request the SAME unmounted ``server_name`` at once (two
+        sessions calling ``load_tools`` back to back, two sessions racing the
+        ``ensure_always_loaded`` eager pass, ...). Without ownership, each
+        would independently observe ``server_name not in self.children`` and
+        each would start its own child runtime — duplicate provider
+        processes/connections, a registration race on the shared aggregation
+        maps, and doubled probe/startup cost. Exactly ONE task (the leader)
+        runs :meth:`_mount_child_first_load`; every concurrent caller for the
+        same ``server_name`` (a follower) awaits the SAME shared future and
+        observes the leader's exact outcome instead of starting its own
+        attempt. Different servers mount fully in parallel — the singleflight
+        is keyed per-server, never global.
         """
         catalog = self.load_catalog()
         if server_name in self.children:
@@ -2100,13 +2729,80 @@ class MCPMultiplexer:
         if cfg is None:
             logger.warning("Requested MCP child is not in the catalog")
             return []
+
+        pending = self._mount_inflight.get(server_name)
+        if pending is not None:
+            # ``shield`` only protects the SHARED future from being cancelled
+            # by THIS follower's own cancellation — if the leader itself
+            # fails or is cancelled, the future carries that exact outcome
+            # (exception or cancellation) and every follower observes the
+            # SAME thing, never a silently different or guessed result.
+            return await asyncio.shield(pending)
+
+        loop = asyncio.get_running_loop()
+        leader_future: asyncio.Future[list[MCPTool]] = loop.create_future()
+        self._mount_inflight[server_name] = leader_future
+        try:
+            result = await self._mount_child_first_load(server_name, cfg)
+        except asyncio.CancelledError:
+            # Release ownership BEFORE settling so a caller that retries
+            # after this cancellation starts a fresh attempt rather than
+            # joining a future that will never resolve to a live mount.
+            if self._mount_inflight.get(server_name) is leader_future:
+                del self._mount_inflight[server_name]
+            if not leader_future.done():
+                leader_future.cancel()
+            raise
+        except BaseException as exc:
+            if self._mount_inflight.get(server_name) is leader_future:
+                del self._mount_inflight[server_name]
+            if not leader_future.done():
+                leader_future.set_exception(exc)
+                # If no follower ever joined (the common case — most first
+                # loads are NOT contended), nothing else will ever call
+                # ``.exception()``/``.result()`` on this future, and asyncio
+                # would otherwise log "exception was never retrieved" at GC
+                # time. The leader already has ``exc`` in hand (about to
+                # ``raise`` it below), so retrieving it here is a no-op for
+                # control flow and just silences that spurious warning; a
+                # follower that DOES join later still observes the exception
+                # normally — ``Future.exception()`` does not consume it.
+                leader_future.exception()
+            raise
+        else:
+            if self._mount_inflight.get(server_name) is leader_future:
+                del self._mount_inflight[server_name]
+            if not leader_future.done():
+                leader_future.set_result(result)
+            return result
+
+    async def _mount_child_first_load(
+        self, server_name: str, cfg: dict
+    ) -> list[MCPTool]:
+        """The actual first-mount attempt for ``server_name``.
+
+        Runs under exclusive ownership of exactly one task at a time — the
+        caller, :meth:`mount_child`, holds that ownership in
+        ``_mount_inflight`` for the duration (D-CDX-44). Identical behavior
+        to the pre-singleflight ``mount_child`` body: start the child, and if
+        an async handshake raced a hot catalog reload, close the now-retired
+        runtime instead of registering it.
+        """
+        catalog_epoch = self._catalog_epoch
         result = await self._start_child(server_name, cfg)
         if not isinstance(result, tuple):
             return []
         s_name, payload, tools, r_cfg = result
+        if catalog_epoch != self._catalog_epoch:
+            # The async handshake raced a hot reload.  Do not register a child
+            # that was authorized only by the retired catalog; its runtime
+            # owns real transports and must be closed promptly.
+            if isinstance(payload, ChildRuntime):
+                await payload.aclose()
+            return []
         return self._register_child_result(s_name, payload, tools, r_cfg)
 
-    def prefixed_tools_for_server(self, server_name: str) -> list[mcp.types.Tool]:
+    def prefixed_tools_for_server(self, server_name: str) -> list[MCPTool]:
         """All aggregated prefixed tools currently owned by ``server_name``."""
         names = {
             pn for pn, (srv, _orig) in self.tool_to_server.items() if srv == server_name
@@ -2121,6 +2817,7 @@ class MCPMultiplexer:
             logger.info("No active child servers configured.")
             return
 
+        catalog_epoch = self._catalog_epoch
         tasks = [
             self._start_child(server_name, cfg) for server_name, cfg in catalog.items()
         ]
@@ -2132,7 +2829,56 @@ class MCPMultiplexer:
             if not isinstance(result, tuple):
                 continue
             server_name, payload, tools, cfg = result
+            if catalog_epoch != self._catalog_epoch:
+                if isinstance(payload, ChildRuntime):
+                    await payload.aclose()
+                continue
             self._register_child_result(server_name, payload, tools, cfg)
+
+    # ------------------------------------------------------------------
+    # Always-load (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
+    # ------------------------------------------------------------------
+
+    def always_load_tool_owner(self, spec: str) -> tuple[str | None, str | None]:
+        """Resolve one ``MCP_ALWAYS_LOAD_TOOLS`` entry to ``(server, original)``.
+
+        Two accepted forms (see ``AgentConfig.mcp_always_load_tools``):
+
+        * ``"<server>:<tool>"`` — server-qualified ORIGINAL tool name. Resolved
+          without consulting the derived prefix map, so a prefix that shifts
+          when a new server joins the catalog cannot silently break a
+          configured entry. ``original`` is the child's own tool name.
+        * ``"<prefix>__<tool>"`` — an aggregated prefixed name; the owner comes
+          from the reverse prefix map and ``original`` is ``None`` (the spec
+          IS the prefixed name).
+
+        Returns ``(None, None)`` for an entry that resolves to no known server.
+        """
+        text = str(spec or "").strip()
+        if not text:
+            return None, None
+        if ":" in text:
+            server, _, original = text.partition(":")
+            server = server.strip()
+            original = original.strip()
+            return (server or None), (original or None)
+        return self._server_for_prefixed(text), None
+
+    def prefixed_for_original(self, server_name: str, original: str) -> str | None:
+        """The aggregated prefixed name a child's ORIGINAL tool name maps to.
+
+        Only answerable once ``server_name`` is mounted (``tool_to_server`` is
+        populated by :meth:`_register_child_result`); returns ``None`` before
+        that, or when the child never registered a tool by that name.
+        """
+        for prefixed, entry in self.tool_to_server.items():
+            if entry == (server_name, original):
+                return prefixed
+        return None
+
+    def always_load_declared(self) -> bool:
+        """True when this multiplexer has any eager always-load declaration."""
+        return bool(self._always_load_servers or self._always_load_tool_specs)
 
     # ------------------------------------------------------------------
     # Dynamic tool gateway (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)
@@ -2193,6 +2939,7 @@ class MCPMultiplexer:
             info: dict[str, Any] = {
                 "tools": self._live_tools_for_server(server_name),
                 "skills": await self._live_skills_for_server(server_name),
+                "prompts": await self._live_prompts_for_server(server_name),
                 "error": None,
             }
             return self._cache_probe(server_name, info)
@@ -2214,7 +2961,7 @@ class MCPMultiplexer:
             info = {"tools": [], "error": "invalid probe timeout"}
             return self._cache_probe(server_name, info)
 
-        async def _probe() -> tuple[list[dict], list[dict]]:
+        async def _probe() -> tuple[list[dict], list[dict], list[dict]]:
             # Enter AND exit the transports within this single coroutine so the
             # anyio cancel scopes are not crossed between tasks. ``wait_for``
             # runs this whole coroutine as one task, so the stack is opened and
@@ -2237,19 +2984,30 @@ class MCPMultiplexer:
                             tools,
                         )
                     skills = await self._probe_skills(server_name, session)
-                    return _bounded_tool_catalog(tools), skills
+                    prompts = await self._probe_prompts(server_name, session)
+                    return _bounded_tool_catalog(tools), skills, prompts
             finally:
                 if runtime_policy is not None:
                     _close_runtime_child_policy(runtime_policy)
                     self._child_policy_admitted_tools.pop(server_name, None)
 
         try:
-            tools, skills = await asyncio.wait_for(_probe(), timeout=probe_to)
-            info = {"tools": tools, "skills": skills, "error": None}
+            tools, skills, prompts = await asyncio.wait_for(_probe(), timeout=probe_to)
+            info = {"tools": tools, "skills": skills, "prompts": prompts, "error": None}
         except TimeoutError:
-            info = {"tools": [], "skills": [], "error": f"timeout after {probe_to:g}s"}
+            info = {
+                "tools": [],
+                "skills": [],
+                "prompts": [],
+                "error": f"timeout after {probe_to:g}s",
+            }
         except Exception as e:
-            info = {"tools": [], "skills": [], "error": _format_probe_error(e)}
+            info = {
+                "tools": [],
+                "skills": [],
+                "prompts": [],
+                "error": _format_probe_error(e),
+            }
         return self._cache_probe(server_name, info)
 
     async def _probe_skills(self, server_name: str, session: Any) -> list[dict]:
@@ -2375,6 +3133,123 @@ class MCPMultiplexer:
                 delay *= 2
         if last is None:  # pragma: no cover — the loop only exits via a failure
             raise RuntimeError("skill body read failed without a recorded cause")
+        raise last
+
+    async def _probe_prompts(self, server_name: str, session: Any) -> list[dict]:
+        """Best-effort ``prompt://`` resource enumeration for one probed
+        session (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest).
+
+        Prompts-over-MCP is served by every server built through
+        ``server_factory.build_server`` (``_register_prompt_providers``), but
+        a raw MCP child outside that factory — or one with no
+        ``prompts/`` directory — has no ``prompt://`` resources; either case
+        degrades to an empty list rather than failing the tool probe that
+        already succeeded. A server that also doesn't implement
+        ``resources/list`` at all degrades the same way.
+        """
+        try:
+            result = await session.list_resources()
+        except Exception as exc:  # noqa: BLE001 - resources/list is an OPTIONAL
+            # MCP method; a server that doesn't implement it must still
+            # contribute the tools/skills its probe already returned. The
+            # cause IS logged so a real transport failure stays diagnosable.
+            logger.debug(
+                "Server %s does not support prompt resource discovery: %s: %s",
+                server_name,
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+            return []
+        try:
+            prompts = _bounded_prompt_catalog(result.resources)
+        except Exception as exc:  # noqa: BLE001 - a malformed prompt catalog
+            # from one server must not fail the tool probe that already
+            # succeeded. The cause IS logged.
+            logger.warning(
+                "Server %s returned an invalid prompt resource catalog: %s: %s",
+                server_name,
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+            return []
+        await self._harvest_prompt_bodies(server_name, session, prompts)
+        return prompts
+
+    async def _harvest_prompt_bodies(
+        self, server_name: str, session: Any, prompts: list[dict]
+    ) -> None:
+        """Read each catalogued ``prompt://`` body over the OPEN probe session.
+
+        CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
+        sibling of :meth:`_harvest_skill_bodies`. Mutates each entry in place,
+        adding EITHER ``body`` (the raw JSON text) OR ``harvest_error`` (a
+        named reason). Never both, and never silently neither:
+        ``fleet_prompt_harvest.promote_harvested_prompts`` fails closed
+        against the named reason instead of quietly skipping the prompt.
+        """
+        harvested_bytes = 0
+        deadline = time.monotonic() + _PROMPT_HARVEST_BUDGET_SEC
+        for entry in prompts:
+            uri = entry.get("uri") or ""
+            if time.monotonic() >= deadline:
+                entry["harvest_error"] = (
+                    f"prompt body harvest budget exceeded after "
+                    f"{_PROMPT_HARVEST_BUDGET_SEC:g}s"
+                )
+                continue
+            if harvested_bytes >= _MAX_PROMPT_HARVEST_TOTAL_BYTES:
+                entry["harvest_error"] = "prompt body harvest exceeded its total budget"
+                continue
+            try:
+                body = await self._read_prompt_body(session, uri, deadline)
+            except Exception as exc:  # noqa: BLE001 - one unreadable prompt
+                # body must not fail the tool probe that already succeeded.
+                # The cause is recorded ON THE ENTRY (so promotion can name
+                # it) AND logged with its traceback — never discarded.
+                entry["harvest_error"] = f"{type(exc).__name__}: {exc}"
+                logger.warning(
+                    "Server %s could not serve prompt body %s (%s)",
+                    server_name,
+                    entry.get("name", "?"),
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                continue
+            encoded = len(body.encode("utf-8"))
+            if not body.strip():
+                entry["harvest_error"] = "server served an empty prompt body"
+                continue
+            if encoded > _MAX_PROMPT_BODY_BYTES:
+                entry["harvest_error"] = "prompt body exceeded its size boundary"
+                continue
+            harvested_bytes += encoded
+            entry["body"] = body
+
+    @staticmethod
+    async def _read_prompt_body(session: Any, uri: str, deadline: float) -> str:
+        """Read one prompt body, backing off while the child rate-limits us.
+
+        Same retry/backoff shape as :meth:`_read_skill_body` (bounded by BOTH
+        an attempt count and the caller's harvest deadline); a separate
+        method so a prompt-body budget can never be charged against a
+        skill-body harvest's accounting on the same probe, or vice versa.
+        """
+        delay = _SKILL_HARVEST_BACKOFF_SEC
+        last: Exception | None = None
+        for attempt in range(_SKILL_HARVEST_MAX_ATTEMPTS):
+            try:
+                return _resource_body_text(await session.read_resource(uri))
+            except Exception as exc:  # noqa: BLE001 — retried below, then re-raised
+                last = exc
+                if attempt == _SKILL_HARVEST_MAX_ATTEMPTS - 1:
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                await asyncio.sleep(min(delay, remaining))
+                delay *= 2
+        if last is None:  # pragma: no cover — the loop only exits via a failure
+            raise RuntimeError("prompt body read failed without a recorded cause")
         raise last
 
     @classmethod
@@ -3052,7 +3927,7 @@ class MCPMultiplexer:
             )
         return mounted, to_expose, failed
 
-    def tool_object(self, prefixed_name: str) -> mcp.types.Tool | None:
+    def tool_object(self, prefixed_name: str) -> MCPTool | None:
         """The aggregated ``Tool`` object for a prefixed name, if known."""
         for tool in self.aggregated_tools:
             if tool.name == prefixed_name:
@@ -3162,8 +4037,12 @@ class MCPMultiplexer:
         if not self._auto_unload.get(session_key):
             self._auto_unload.pop(session_key, None)
         if not self._session_loaded.get(session_key):
-            self._session_loaded.pop(session_key, None)
             self._auto_unload.pop(session_key, None)
+            # Keep an empty visibility record only while a detached recovery
+            # still owes this client a schema-removal notification. The record
+            # is removed by ``notify_pending_tools_changed`` after delivery.
+            if session_key not in self._pending_tool_list_changes:
+                self._session_loaded.pop(session_key, None)
 
     def requested_prefixed(
         self, tools: list[str] | None, servers: list[str] | None
@@ -3211,9 +4090,19 @@ class MCPMultiplexer:
                 name: {
                     **runtime.status(),
                     "mounted_tools": mounted.get(name, 0),
+                    "catalog_revision": self._child_schema_revisions.get(name, 0),
                     **(
                         {"catalog_fingerprint": self._child_catalog_fingerprints[name]}
                         if name in self._child_catalog_fingerprints
+                        else {}
+                    ),
+                    **(
+                        {
+                            "catalog_refresh_error": self._child_schema_refresh_errors[
+                                name
+                            ]
+                        }
+                        if name in self._child_schema_refresh_errors
                         else {}
                     ),
                 }
@@ -3257,6 +4146,13 @@ class MCPMultiplexer:
             await asyncio.gather(*inflight, return_exceptions=True)
         self._probe_inflight.clear()
         self._probe_tasks.clear()
+        # D-CDX-44: no lifecycle action needed on the mount-singleflight
+        # futures themselves — each runs inside its OWN caller's task (never
+        # a task this multiplexer spawned), so that caller's own cancellation
+        # settles it. Clearing the map just stops a NEW caller arriving
+        # during/after shutdown from joining a future that will never
+        # resolve to a live mount.
+        self._mount_inflight.clear()
         policies = tuple(self._child_runtime_policies.values())
         try:
             for runtime in self.children.values():
@@ -3265,6 +4161,10 @@ class MCPMultiplexer:
             self._child_runtime_policies.clear()
             self._child_policy_admitted_tools.clear()
             self._child_catalog_fingerprints.clear()
+            self._child_tool_digests.clear()
+            self._child_schema_revisions.clear()
+            self._child_schema_refresh_errors.clear()
+            self._pending_tool_list_changes.clear()
             for policy in policies:
                 _close_runtime_child_policy(policy)
         if self._catalog_reload_tasks:
@@ -3294,6 +4194,47 @@ def invalidate_live_catalogs() -> int:
     return refreshed
 
 
+def _tool_result_from_child(result: MCPCallToolResult) -> ToolResult:
+    """Convert a child MCP call result into the host's ``ToolResult`` WITHOUT
+    losing semantic parity with the upstream protocol (D-CDX-45).
+
+    A manual ``ToolResult(content=..., structured_content=...)``
+    reconstruction (the prior implementation) silently dropped the result's
+    wire ``_meta`` — never forwarded at all — creating semantic drift between
+    a direct-provider call and the same call routed through graph-os/the
+    multiplexer, and hiding any safety/routing metadata a child attaches
+    there. Per-content-block ``annotations`` (e.g. ``readOnlyHint``-style
+    hints on a ``TextContent``/``ImageContent``/etc.) already survive
+    ``ToolResult``'s own constructor because FastMCP's
+    ``_convert_to_content`` returns a list of already-``ContentBlock``
+    items unchanged rather than rebuilding them — but this still uses
+    FastMCP's own protocol-parity constructor rather than relying on that as
+    an implementation detail, because ``from_mcp_result`` ALSO retains the
+    exact upstream ``CallToolResult`` object (``_raw_mcp_result``) so
+    ``to_mcp_result()`` later round-trips byte-for-byte, not merely
+    field-for-field.
+
+    Falls back to an explicit manual reconstruction — forwarding ``meta``
+    itself instead of omitting it — if a future FastMCP version drops
+    ``from_mcp_result``: a loudly-logged degrade, never a silent return to
+    the lossier prior behavior.
+    """
+    from_mcp_result = getattr(ToolResult, "from_mcp_result", None)
+    if callable(from_mcp_result):
+        return from_mcp_result(result)
+    logger.warning(
+        "FastMCP ToolResult.from_mcp_result is unavailable on this SDK "
+        "version; falling back to a manual reconstruction that still "
+        "forwards meta/content/structured_content explicitly so annotation "
+        "and _meta parity is not silently lost."
+    )
+    return ToolResult(
+        content=list(getattr(result, "content", []) or []),
+        structured_content=getattr(result, "structured_content", None),
+        meta=getattr(result, "meta", None),
+    )
+
+
 def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
     """Build the async fn that forwards a prefixed tool call to its child."""
 
@@ -3309,15 +4250,12 @@ def _make_forwarder(mux: MCPMultiplexer, prefixed_name: str):
             # framework's typed error exactly as FastMCP's native proxy does.
             # Keep the public message stable and free of child response data.
             raise ToolError("delegated_child_tool_failed")
-        return ToolResult(
-            content=list(getattr(result, "content", []) or []),
-            structured_content=getattr(result, "structured_content", None),
-        )
+        return _tool_result_from_child(result)
 
     return _forward
 
 
-def _tool_is_verbose(tool: mcp.types.Tool) -> bool:
+def _tool_is_verbose(tool: MCPTool) -> bool:
     """Whether a child tool is tagged ``verbose`` (FastMCP propagates tags in
     ``_meta``). Verbose 1:1 tools (e.g. graph-os's granular per-action surface)
     are kept in the catalog but NOT auto-exposed by an always-on child — they
@@ -3330,24 +4268,30 @@ def _tool_is_verbose(tool: mcp.types.Tool) -> bool:
     return "verbose" in tags
 
 
-def _register_forwarder(mcp, mux: MCPMultiplexer, tool: mcp.types.Tool) -> bool:
+def _forwarder_component(mux: MCPMultiplexer, tool: MCPTool) -> FunctionTool:
+    """Build the executable FastMCP component for one aggregated child tool."""
+    schema = tool.input_schema or {"type": "object", "properties": {}}
+    return FunctionTool(
+        name=tool.name,
+        description=tool.description or "",
+        parameters=schema,
+        fn=_make_forwarder(mux, tool.name),
+    )
+
+
+def _register_forwarder(mcp, mux: MCPMultiplexer, tool: MCPTool) -> bool:
     """Register ONE aggregated child tool as a live FastMCP forwarding tool.
 
     Idempotent via ``mux._exposed`` so lazy mounts never double-register.
-    Returns True if a new tool was added. Shared by eager startup and the
-    dynamic ``load_tools`` meta-tool.
+    Schema replacement is deliberately handled by
+    :meth:`MCPMultiplexer._replace_exposed_forwarders`, where the complete
+    FastMCP registry can be staged atomically. Returns True if FastMCP was
+    asked to register a tool. Shared by eager startup and the dynamic
+    ``load_tools`` meta-tool.
     """
     if tool.name in mux._exposed:
         return False
-    schema = tool.input_schema or {"type": "object", "properties": {}}
-    mcp.add_tool(
-        FunctionTool(
-            name=tool.name,
-            description=tool.description or "",
-            parameters=schema,
-            fn=_make_forwarder(mux, tool.name),
-        )
-    )
+    mcp.add_tool(_forwarder_component(mux, tool))
     mux._exposed.add(tool.name)
     return True
 
@@ -3565,11 +4509,54 @@ class SessionVisibilityMiddleware(Middleware):
         # are structurally the same computation, never two that can drift.
         return self.mux.tool_dispatchable(name)
 
+    async def _ensure_always_loaded(self) -> None:
+        """Eagerly mount the configured always-load set for this session
+        (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+        Runs here rather than at ``attach_fleet_loader`` time because that is
+        synchronous (it drops into graph-os's ``mcp.run(...)`` with no event
+        loop) and children must bind to the SERVING loop. This is the first
+        point inside it, so "loaded by default when graph-os first connects"
+        holds for the client's very first ``tools/list``.
+
+        Fail-soft is the whole contract: :func:`ensure_always_loaded` never
+        raises, and this is a belt-and-braces second guard, because an eager
+        convenience must never be able to break a request.
+        """
+        if not self.mux.always_load_declared():
+            return
+        try:
+            await ensure_always_loaded(self._mcp, self.mux)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:  # noqa: BLE001 - never fail the request
+            logger.error(
+                "always-load pass could not run for this session; the fleet "
+                "remains reachable via find_tools/load_tools "
+                "(exception_type=%s): %s",
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+
     async def on_list_tools(self, context, call_next):
+        await self._ensure_always_loaded()
         tools = await call_next(context)
+        # A child recovery is detached from the request that originally
+        # mounted it.  Its schema update is queued until this real client
+        # request can safely carry MCP's standard list-changed notification.
+        await self.mux.notify_pending_tools_changed()
         return [t for t in tools if self._visible(t.name)]
 
     async def on_call_tool(self, context, call_next):
+        # Before the dispatch gate: a client that calls an always-load tool
+        # without a preceding tools/list must still find it dispatchable.
+        await self._ensure_always_loaded()
+        # A detached recovery can remove a tool between the client's cached
+        # tools/list and this call.  Send that session's queued standard
+        # invalidation before the gate rejects the stale name; otherwise the
+        # ToolError would skip this method's later notification point and
+        # strand the client on the obsolete catalog indefinitely.
+        await self.mux.notify_pending_tools_changed()
         name = getattr(context.message, "name", None)
         # A tool this session hasn't loaded behaves as "unknown" until load_tools.
         if name and not self.mux.tool_dispatchable(name):
@@ -3589,6 +4576,7 @@ class SessionVisibilityMiddleware(Middleware):
             self.mux.prune_session_visibility(session_key)
             if self._mcp is not None:
                 await _notify_tools_changed(self._mcp)
+        await self.mux.notify_pending_tools_changed()
         return result
 
 
@@ -3629,6 +4617,19 @@ async def load_session_tools(
     retraction the NEXT time it is called (load -> use -> auto-unload), so a
     tool pulled in for one task doesn't linger in a long session's surface —
     call again anytime to reload it (nothing is lost, just not kept around).
+
+    D-CDX-52 — explicit snapshot semantics for ``servers=[...]``: a
+    server-level load exposes exactly the tools that server has RIGHT NOW.
+    It is NOT a standing subscription — this session is not remembered as a
+    subscriber, so a tool the child adds LATER (e.g. after a recovery) is
+    catalogued and loadable on a next explicit ``load_tools`` call, but is
+    never auto-exposed or announced to a session that already loaded the
+    whole server. The returned ``server_catalog_revisions`` gives each
+    mounted server's schema-revision counter at snapshot time; compare it
+    later against ``multiplexer_status()``'s per-server ``catalog_revision``
+    to detect that the server's catalog moved on without re-probing the
+    whole fleet, and call ``load_tools(servers=[...])`` again to pick up
+    the addition.
     """
     # Split out the host server's OWN gated tools (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) —
     # already registered locally under MCP_TOOL_MODE=intent, they only need a
@@ -3660,6 +4661,18 @@ async def load_session_tools(
     # server-side registration succeeded — ``notified: False`` here is the
     # signal that distinguishes that from a genuine dispatch failure.
     notified = await _notify_tools_changed(mcp) if newly else True
+    # D-CDX-52: server-level ``load_tools`` (``servers=[...]``) is a SNAPSHOT
+    # of the tools that existed on each mounted server at THIS moment. A
+    # later child recovery that adds a NEW tool is catalogued and loadable on
+    # a NEXT explicit ``load_tools``, but this session is not remembered as a
+    # subscriber and will not be auto-notified of it. Report the revision
+    # each mounted server was at so a caller can detect staleness later by
+    # comparing against ``multiplexer_status()``'s per-server
+    # ``catalog_revision`` — without polling the whole fleet on every call —
+    # and re-``load_tools`` that server if it advanced.
+    server_catalog_revisions = {
+        name: mux._child_schema_revisions.get(name, 0) for name in mounted_servers
+    }
     return {
         "mounted_servers": mounted_servers,
         "newly_exposed": newly,
@@ -3668,7 +4681,219 @@ async def load_session_tools(
         "total_registered": len(mux._exposed) + len(mux._local_gated),
         "auto_unload": bool(auto_unload) and newly,
         "notified": notified,
+        "server_catalog_revisions": server_catalog_revisions,
     }
+
+
+class AlwaysLoadResult(TypedDict):
+    """The result contract of one session's always-load pass.
+
+    A named shape rather than a bare ``dict`` because three separate consumers
+    read these keys — the middleware, ``multiplexer_status``-style reporting,
+    and the regression tests — and a producer/consumer key drift here would
+    silently report an always-load server as mounted when it is not
+    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+    """
+
+    #: Servers whose child actually mounted, in declaration order.
+    mounted_servers: list[str]
+    #: Prefixed tool names newly made visible to THIS session.
+    exposed: list[str]
+    #: Entry (server name or tool spec) -> why it fell back to lazy discovery.
+    degraded: dict[str, str]
+    #: Whether the client was actually told its tool list changed.
+    notified: NotRequired[bool]
+    #: D-CDX-52: per-server schema revision (``MCPMultiplexer._child_schema_revisions``)
+    #: at the moment THIS pass resolved. A server-level load/always-load is a
+    #: SNAPSHOT of the tools that existed at that instant — a later child
+    #: recovery that adds a NEW tool to an already-loaded server does not
+    #: retroactively push it to this session (no server-level subscription is
+    #: tracked). Compare this baseline against ``multiplexer_status()``'s
+    #: per-server ``catalog_revision`` later: a higher live value means the
+    #: server's catalog changed since this snapshot, and the session should
+    #: call ``load_tools(servers=[...])`` again to pick up any addition.
+    server_catalog_revisions: NotRequired[dict[str, int]]
+
+
+def _empty_always_load_result() -> AlwaysLoadResult:
+    return {"mounted_servers": [], "exposed": [], "degraded": {}}
+
+
+async def _perform_always_load(
+    mcp, mux: MCPMultiplexer, session_key: str
+) -> AlwaysLoadResult:
+    """One session's eager always-load pass. Every step is individually
+    fail-soft (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+    Each declared server is mounted on its OWN try/except so a server that is
+    missing from the catalog, unreachable, or crash-looping degrades to the
+    normal lazy path and is reported in ``degraded`` — it can never prevent the
+    remaining always-load entries from mounting, and it can never propagate out
+    of a ``tools/list``. This is not hypothetical: a fastmcp-version mismatch
+    has put dozens of fleet pods into a crash loop at once, and eager-loading
+    them must not take graph-os down with them.
+    """
+    degraded: dict[str, str] = {}
+    mounted: list[str] = []
+    expose: set[str] = set()
+
+    # Group the tool-level specs by owning server so each server is mounted once
+    # whether it was named wholesale, per-tool, or both.
+    per_server_tools: dict[str, list[tuple[str, str | None]]] = {}
+    for spec in mux._always_load_tool_specs:
+        server, original = mux.always_load_tool_owner(spec)
+        if not server:
+            degraded[spec] = "tool is not resolvable to any catalog server"
+            logger.error(
+                "always-load tool spec could not be resolved to a fleet server; "
+                "it will remain lazily discoverable only (spec=%s)",
+                redact_for_log(spec),
+            )
+            continue
+        per_server_tools.setdefault(server, []).append((spec, original))
+
+    whole = [str(s).strip() for s in mux._always_load_servers if str(s).strip()]
+    for server in list(dict.fromkeys([*whole, *per_server_tools])):
+        try:
+            await mux.mount_child(server)
+        except asyncio.CancelledError:
+            raise
+        except BaseException as exc:  # noqa: BLE001 - eager mount must fail soft
+            degraded[server] = _format_probe_error(exc)
+            logger.error(
+                "always-load server failed to mount and is DEGRADED to lazy "
+                "discovery; graph-os continues serving without it "
+                "(server=%s, error=%s)",
+                server,
+                degraded[server],
+            )
+            continue
+        if server not in mux.children:
+            degraded[server] = "could not mount (not in catalog, or unreachable)"
+            logger.error(
+                "always-load server did not mount and is DEGRADED to lazy "
+                "discovery; graph-os continues serving without it (server=%s)",
+                server,
+            )
+            continue
+        mounted.append(server)
+        if server in whole:
+            # Mirror the server-level ``load_tools`` contract: expose the
+            # condensed action surface only, never the verbose 1:1 tools —
+            # always-load exists to save a round trip, not to flood context.
+            for tool in mux.prefixed_tools_for_server(server):
+                if _tool_is_verbose(tool):
+                    continue
+                expose.add(tool.name)
+        for spec, original in per_server_tools.get(server, ()):
+            prefixed = (
+                mux.prefixed_for_original(server, original)
+                if original is not None
+                else (spec if spec in mux.tool_to_server else None)
+            )
+            if prefixed is None:
+                degraded[spec] = (
+                    "tool is not registered by its owning server "
+                    "(disabled by config or rejected by its runtime policy)"
+                )
+                logger.error(
+                    "always-load tool is absent from its mounted server and is "
+                    "DEGRADED to lazy discovery (spec=%s)",
+                    redact_for_log(spec),
+                )
+                continue
+            expose.add(prefixed)
+
+    for name in sorted(expose):
+        tool_obj = mux.tool_object(name)
+        if tool_obj is not None and name not in mux._exposed:
+            _register_forwarder(mcp, mux, tool_obj)
+    loaded = mux.session_loaded(session_key)
+    newly = [n for n in sorted(expose) if n in mux.tool_to_server and n not in loaded]
+    loaded.update(newly)
+    notified = await _notify_tools_changed(mcp) if newly else True
+    result: AlwaysLoadResult = {
+        "mounted_servers": mounted,
+        "exposed": newly,
+        "degraded": degraded,
+        "notified": notified,
+        "server_catalog_revisions": {
+            name: mux._child_schema_revisions.get(name, 0) for name in mounted
+        },
+    }
+    if degraded:
+        logger.warning(
+            "graph-os always-load completed DEGRADED: %d of %d entries "
+            "unavailable and left to lazy discovery",
+            len(degraded),
+            len(mounted) + len(degraded),
+        )
+    else:
+        logger.info(
+            "graph-os always-load ready: %d server(s), %d tool(s) pre-mounted",
+            len(mounted),
+            len(newly),
+        )
+    return result
+
+
+async def ensure_always_loaded(
+    mcp, mux: MCPMultiplexer, *, session_key: str | None = None
+) -> AlwaysLoadResult:
+    """Mount the configured always-load servers/tools for THIS session, once.
+
+    Idempotent per session and safe under concurrency: the first caller runs
+    the pass while any concurrent caller awaits the same future, so a client
+    that fires ``tools/list`` and a ``tools/call`` back to back cannot start two
+    mounting passes. A pass that raises (or is cancelled) never poisons the
+    session — the marker is cleared so a later call can retry.
+
+    NEVER raises. The caller is a middleware on the serving hot path; an eager
+    convenience must not be able to fail a request
+    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+    """
+    key = session_key or _session_key()
+    pending = mux._always_load_done.get(key)
+    if pending is not None:
+        inflight = pending.get("future")
+        if isinstance(inflight, asyncio.Future) and not inflight.done():
+            try:
+                return cast(AlwaysLoadResult, await asyncio.shield(inflight))
+            except asyncio.CancelledError:
+                raise
+            except BaseException:  # noqa: BLE001 - never fail the request
+                return _empty_always_load_result()
+        settled = pending.get("result")
+        if isinstance(settled, dict):
+            return cast(AlwaysLoadResult, settled)
+        return _empty_always_load_result()
+
+    loop = asyncio.get_running_loop()
+    barrier: asyncio.Future = loop.create_future()
+    record: dict[str, Any] = {"future": barrier, "result": None}
+    mux._always_load_done[key] = record
+    try:
+        result = await _perform_always_load(mcp, mux, key)
+    except asyncio.CancelledError:
+        mux._always_load_done.pop(key, None)
+        if not barrier.done():
+            barrier.cancel()
+        raise
+    except BaseException as exc:  # noqa: BLE001 - eager mount must fail soft
+        logger.error(
+            "graph-os always-load pass failed entirely; every declared server "
+            "remains reachable through find_tools/load_tools "
+            "(exception_type=%s): %s",
+            type(exc).__name__,
+            redact_for_log(exc),
+        )
+        result = _empty_always_load_result()
+        result["degraded"] = {"*": _format_probe_error(exc)}
+    record["result"] = result
+    record["future"] = None
+    if not barrier.done():
+        barrier.set_result(result)
+    return result
 
 
 async def unload_session_tools(
@@ -3881,7 +5106,13 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
                 "call. Set auto_unload=true for a ONE-SHOT tool: it is "
                 "automatically retracted the next time it's called, so a task "
                 "you only need once doesn't linger in your tool list — call "
-                "load_tools again anytime to bring it back."
+                "load_tools again anytime to bring it back. A whole-server "
+                "'servers=[...]' load is a SNAPSHOT, not a subscription: a "
+                "tool the server adds LATER (e.g. after it recovers from a "
+                "restart) is not auto-exposed to you. Check "
+                "'server_catalog_revisions' in the response against a later "
+                "multiplexer_status() catalog_revision for that server, and "
+                "call load_tools(servers=[...]) again if it advanced."
             ),
             parameters={
                 "type": "object",
@@ -3947,6 +5178,65 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
     _register_status_tool(mcp, mux)
 
 
+def _always_load_setting(field: str, alias: str) -> list[str]:
+    """Read one always-load list from the effective configuration.
+
+    The typed ``AgentConfig`` field is the source of truth — that is what
+    carries the shipped defaults and the validated coercion — but it is parsed
+    once, so a LIVE ``setting()`` value (a runtime ``graph_config set``, a
+    ``monkeypatch.setenv``) takes precedence when present. Accepts a real list,
+    a JSON array, or a comma-separated string, so ``MCP_ALWAYS_LOAD=a,b`` in a
+    pod env is as valid as a JSON array in ``config.json``.
+
+    Never raises: an unreadable or malformed value degrades to fully-lazy and
+    is logged (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+    """
+    raw: Any = None
+    try:
+        raw = setting(alias)
+    except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
+        logger.error(
+            "always-load setting %s unreadable (exception_type=%s): %s",
+            alias,
+            type(exc).__name__,
+            redact_for_log(exc),
+        )
+        raw = None
+    if raw is None:
+        try:
+            from agent_utilities.core.config import config as agent_config
+
+            raw = getattr(agent_config, field, None)
+        except Exception as exc:  # noqa: BLE001 - configuration must not fail attach
+            logger.error(
+                "always-load field %s unreadable (exception_type=%s): %s",
+                field,
+                type(exc).__name__,
+                redact_for_log(exc),
+            )
+            return []
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        if text[:1] == "[":
+            try:
+                raw = json.loads(text)
+            except ValueError:
+                logger.error("always-load setting %s is not valid JSON", alias)
+                return []
+        else:
+            raw = text.split(",")
+    if isinstance(raw, str):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple, set)):
+        logger.error("always-load setting %s is not a list", alias)
+        return []
+    return [str(item).strip() for item in raw if str(item).strip()]
+
+
 def attach_fleet_loader(
     mcp,
     *,
@@ -3986,6 +5276,10 @@ def attach_fleet_loader(
     resolved = _resolve_config_path(config_path or setting("MCP_CONFIG"))
     logger.info("graph-os fleet loader initializing")
     mux = MCPMultiplexer(resolved)
+    # Keep the host solely for lifecycle replacement of mux-owned forwarding
+    # schemas after a child generation recovers.  Standalone mux/probe paths
+    # deliberately leave this unset.
+    mux._host_mcp = mcp
     mux._authority_scope = authority_scope
     # graph-os is the HOST server — never mount it (or the retired standalone
     # multiplexer name) as a child of itself.
@@ -3993,6 +5287,23 @@ def attach_fleet_loader(
     if embed_fn is not None:
         mux._embed_fn = embed_fn
     mux.load_catalog()  # parse the fleet config into the catalog; spawns nothing
+    # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — the always-load declaration is READ here
+    # (synchronously, no I/O) but ACTED ON in the serving loop, on a session's
+    # first request, by ``SessionVisibilityMiddleware``. Nothing is spawned at
+    # attach time, so a broken always-load server cannot fail startup.
+    mux._always_load_servers = _always_load_setting(
+        "mcp_always_load", "MCP_ALWAYS_LOAD"
+    )
+    mux._always_load_tool_specs = _always_load_setting(
+        "mcp_always_load_tools", "MCP_ALWAYS_LOAD_TOOLS"
+    )
+    if mux.always_load_declared():
+        logger.info(
+            "graph-os always-load declared: %d server(s), %d tool(s); mounted on "
+            "a session's first request, fail-soft to lazy discovery",
+            len(mux._always_load_servers),
+            len(mux._always_load_tool_specs),
+        )
     _register_meta_tools(mcp, mux)
     # The always-visible surface: the meta-tools. graph-os's own tools are registered
     # natively by ``register_tool_surface`` and are always on; every OTHER server is

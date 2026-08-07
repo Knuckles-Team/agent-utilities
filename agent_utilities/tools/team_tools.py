@@ -8,7 +8,7 @@ CONCEPT:AU-AHE.evaluation.interpretability-tests
 Exposes team management, task assignment, and P2P messaging to agents,
 backed by the TeamCapability and ACP.
 """
-from typing import Any
+from typing import Any, Protocol, cast
 
 from pydantic_ai import RunContext
 
@@ -16,6 +16,10 @@ from agent_utilities.harness.tracing import trace
 
 from ..capabilities.teams import TeamCapability
 from .versioning import tool_version
+
+
+class _TeamContext(Protocol):
+    team_capability: TeamCapability
 
 
 @trace(name="spawn_team", trace_type="TOOL")
@@ -33,7 +37,7 @@ async def spawn_team(
         # stash on the RunContext (not a declared field) — set it via setattr so the
         # type checker doesn't flag the not-declared attribute.
         capability = TeamCapability()
-        ctx.team_capability = capability
+        cast(_TeamContext, ctx).team_capability = capability
 
     team_id = await capability.create_team(ctx, team_name, member_ids)
     return f"Team '{team_name}' created with ID: {team_id}. Members: {', '.join(member_ids)}"

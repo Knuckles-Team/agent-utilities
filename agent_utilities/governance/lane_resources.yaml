@@ -82,6 +82,27 @@ resources:
       sun_path/git-identity-leak defect (same `_lane_temp_root()` fix, same
       relocation to `~/.al/<hash(common_dir, lane)>/scratch`).
 
+  - name: precommit-home
+    class: partition
+    mechanism: partitioned_paths().precommit_home
+    evidence: >-
+      pre-commit's own store (`store.directory`, store.py:32 -> PRE_COMMIT_HOME or
+      XDG_CACHE_HOME/pre-commit) doubles as BOTH the patch_dir
+      `staged_files_only._unstaged_changes_cleared()` writes unstaged changes to
+      (commands/run.py:421 passes `store.directory` as patch_dir) and the directory
+      holding the SQLite `db.db` (store.py:64). PRE_COMMIT_HOME is exported
+      NOWHERE in agent-utilities, so every lane shared ONE `~/.cache/pre-commit`.
+      Two distinct hazards from that one shared dir: (1) a killed/OOMed/power-lost
+      pre-commit leaves the unstaged work ONLY as an orphaned patch file that
+      nobody ever replays back -- pre-commit never deletes a patch file even on
+      success, so a patch file existing is not itself proof of a crash (D-OB-12);
+      (2) the same dir's shared `db.db` produced
+      `OperationalError: database is locked` for lane-concept-docs-0801 under
+      concurrent lanes. Distinct from the `precommit-all-files` LEASE row below:
+      that one serializes `--all-files` runs; this row partitions the STORE
+      itself so no lane's patch files or SQLite state are ever visible to another
+      lane's pre-commit process. See D-ORC-37.
+
   - name: concept-reservations
     class: append-only
     mechanism: FragmentStore(docs/concept_reservations.d) folded to docs/concept_reservations.yaml
@@ -160,6 +181,54 @@ resources:
       pull_project. The verb was `git checkout`, not `git reset` — so the guard
       must cover every tree-mutating verb, held under one lease across the whole
       check-then-mutate so the tree cannot go dirty in between.
+
+  # NOTE on `heavy-lane-pool` (D-ORC-33): the capped-concurrency pool for `uv
+  # sync` lives in scripts/uv_workspace.py's own `_dependency_sync_slot()`, a
+  # self-contained flock-based counting semaphore -- NOT a row here, and
+  # deliberately not `hold_lease()`. This file's own header rule is "each
+  # class has exactly one mechanism"; `uv_workspace.py` is a bootstrap-time
+  # launcher that runs BEFORE the environment it prepares exists, so it
+  # cannot safely import `agent_utilities.governance.lanes` (circular, and
+  # it would risk resolving against whichever `agent_utilities` happens to be
+  # on the ambient interpreter's path -- the "poisoned interpreter" trap `uv
+  # run pytest` fell into). Classifying it `lease` here anyway would invite
+  # `agent-utilities lane lease --resource heavy-lane-pool` to silently guard
+  # nothing: that CLI path writes to a *different* lock file than
+  # `_dependency_sync_slot()` reads, so the two would never contend with each
+  # other. See `_dependency_sync_slot()`'s docstring for the real mechanism
+  # and evidence.
+
+  - name: workspace-scripts
+    class: lease
+    scope: workspace   # the workspace-root scripts/ directory is not a git worktree of any
+                        # repo, so it cannot be PARTITIONed the way cargo/pytest/
+                        # scratch are -- it is one directory every lane on the host
+                        # invokes (deferred_registry.py, merge_queue_runner.sh,
+                        # delegation_probe.py, converge_worktrees.py,
+                        # snapshot_workspace_state.sh).
+    mechanism: hold_lease("workspace-scripts") — `agent-utilities lane lease --resource workspace-scripts -- <edit command>`
+    evidence: >-
+      D-ORC-28: two lanes raced on editing deferred_registry.py to add
+      `--detail-file`/`--evidence-file`. One lane had landed the CONSUMPTION
+      code (`a.detail_file`) but not yet the argparse declarations; in that
+      window EVERY `close` call across all 13 concurrently-running lanes
+      failed with `AttributeError: Namespace object has no attribute
+      evidence_file`. A second actor then tried to unblock by adding the
+      missing `add_argument` lines directly -- and the original lane's own
+      edit landed in the same window, producing
+      `argparse.ArgumentError: conflicting option string: --detail-file` and
+      breaking the CLI a second time, for every lane, including `selftest`.
+      Unlike every other row here, this resource cannot be made PARTITION —
+      it is deliberately ONE shared script tree, not per-lane state — so the
+      fix is LEASE: announce an edit with
+      `agent-utilities lane lease --resource workspace-scripts --operation
+      "editing scripts/deferred_registry.py" -- <your edit/test command>`
+      before mutating a file under `scripts/`, so a concurrent editor defers
+      (exit 75) instead of racing. Read-only invocation (running
+      `deferred_registry.py open/close/show`) does not need the lease — only
+      an in-place edit does, since a mid-edit *read* of a Python file at
+      process-start either sees the whole old file or the whole new one, but
+      a mid-edit *edit* is the state that produced both incidents above.
 
   - name: epistemic-graph-daemon
     class: lease

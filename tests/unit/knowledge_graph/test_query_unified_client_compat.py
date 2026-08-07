@@ -1,7 +1,12 @@
 """GraphComputeEngine.query_unified — client version-compat for
 ``reorder_filter_selectivity`` (D-W2X-4).
 
-CONCEPT:AU-KG.compute.kg-2
+CONCEPT:AU-KG.compute.graph-compute-engine — client-version compat for the
+engine's one-costed-round-trip unified plan (retargeted off the retired
+``AU-KG.compute.kg-2`` bare legacy-numbering citation, D-CDOC-1/D-CIP-16: the
+decision these tests actually exercise, "computation happens in the engine in
+one round-trip", is documented at
+``.specify/design/kg-engine-native-compute/design.md`` under this id).
 
 The installed ``epistemic_graph`` client's ``query.unified()`` may predate
 ``reorder_filter_selectivity`` under the frozen ``au 2.0.0`` / ``eg 2.23.1``

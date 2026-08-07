@@ -75,8 +75,6 @@ from agent_utilities.deployment.venv_sync import (
     NATIVE,
     SOURCE_ONLY,
     LockBusyError,
-    SyncOutcome,
-    UpgradeOutcome,
     VenvSyncError,
     Workspace,
     classify_change,
@@ -702,7 +700,6 @@ def drain(workspace: Workspace, *, ignore_activity: bool = False) -> dict[str, A
 
     try:
         with exclusive_lock(workspace):
-            outcome: UpgradeOutcome | SyncOutcome
             if worst.change_class == METADATA and config.on_metadata_change == "relock":
                 upgrade_outcome = upgrade(
                     workspace,

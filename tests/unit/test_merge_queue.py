@@ -517,13 +517,11 @@ def test_promotion_state_counts_merges_not_yet_promoted(canonical: Path) -> None
 
 
 # ---------------------------------------------------------------------------
-# Fail-closed pruning
+# Fail-closed pruning (D-ORC-21: a guarded prune that works even when
+# repository-manager is not importable, instead of always keeping the branch)
 # ---------------------------------------------------------------------------
-def test_prune_without_repository_manager_keeps_the_branch(
-    canonical: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An un-pruned branch is untidy; a wrongly-pruned one loses work. When the
-    guarded pruner is unavailable the queue must decline, not improvise."""
+def _block_repository_manager(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every ``import repository_manager...`` raise, as in a minimal env."""
     import builtins
 
     real_import = builtins.__import__
@@ -534,10 +532,128 @@ def test_prune_without_repository_manager_keeps_the_branch(
         return real_import(name, *args, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(builtins, "__import__", _no_rm)
+
+
+def test_prune_without_repository_manager_refuses_an_unknown_branch(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The inline fallback still fails closed for a branch it cannot find —
+    it never invents a way to prune something it cannot verify."""
+    _block_repository_manager(monkeypatch)
     candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(canonical))
-    result = mq.prune_landed(candidate, repo_name="canonical", base="main")
+    result = mq.prune_landed(
+        candidate, repo_name="canonical", base="main", repo=canonical
+    )
     assert result["pruned"] is False
-    assert "repository-manager is not importable" in result["reason"]
+    assert result["accelerator"] == "inline (repository-manager not importable)"
+    assert "does not exist" in result["reason"]
+
+
+def test_prune_without_repository_manager_deletes_a_genuinely_landed_branch(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-ORC-21: the queue used to keep EVERY landed branch when
+    repository-manager was not importable, regardless of whether the branch was
+    genuinely safe to delete. The inline guarded prune must actually prune a
+    branch that has landed (is now an ancestor of main) with a clean worktree —
+    anchoring it first, and never using `git branch -D`."""
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    mq.enqueue(path=lane)
+    landed = mq.run_queue(path=canonical, prune=False)
+    assert landed["landed"] == 1
+
+    _block_repository_manager(monkeypatch)
+    candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(lane))
+    result = mq.prune_landed(
+        candidate, repo_name="canonical", base="main", repo=canonical
+    )
+
+    assert result["pruned"] is True
+    assert result["accelerator"] == "inline (repository-manager not importable)"
+    assert not lane.exists()  # worktree removed
+    assert _run(["git", "branch", "--list", "lane-a"], canonical) == ""  # ref deleted
+    # anchored before deletion — the commit is still reachable, never orphaned
+    anchor = _run(
+        ["git", "rev-parse", "--verify", "--quiet", "refs/lane-backup/lane-a"],
+        canonical,
+    )
+    assert anchor == landed["outcomes"][0]["to"] or anchor  # anchor resolved
+
+
+def test_prune_without_repository_manager_refuses_unmerged_commits(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A branch that was never actually landed must never be deleted, even with
+    `-d` (which would itself refuse) — this pins the refusal at the merge-base
+    check, before git is even asked, and proves the branch survives."""
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})  # never merged to main
+
+    _block_repository_manager(monkeypatch)
+    candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(lane))
+    result = mq.prune_landed(
+        candidate, repo_name="canonical", base="main", repo=canonical
+    )
+
+    assert result["pruned"] is False
+    assert "not (or no longer) reachable" in result["reason"]
+    assert _run(["git", "branch", "--list", "lane-a"], canonical) != ""
+    assert lane.is_dir()
+
+
+def test_prune_without_repository_manager_skips_a_worktree_still_dirty(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`merged` (an ancestor of base) is not the same as `unoccupied` — a lane
+    that landed part of its work and kept editing must not be pruned out from
+    under it (the exact shape of D-FE-9, reproduced here for the inline path)."""
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    mq.enqueue(path=lane)
+    landed = mq.run_queue(path=canonical, prune=False)
+    assert landed["landed"] == 1
+    _write(lane, "pkg/a.py", "A = 2\n")  # uncommitted work, never committed
+
+    _block_repository_manager(monkeypatch)
+    candidate = mq.Candidate(branch="lane-a", lane="lane-a", worktree=str(lane))
+    result = mq.prune_landed(
+        candidate, repo_name="canonical", base="main", repo=canonical
+    )
+
+    assert result["pruned"] is False
+    assert "uncommitted work" in result["reason"]
+    assert lane.is_dir()
+    assert _run(["git", "branch", "--list", "lane-a"], canonical) != ""
+
+
+# ---------------------------------------------------------------------------
+# Queue visibility (D-ORC-20: queued != landed, and nothing drains the queue
+# automatically — the queue must say so rather than let a lane misread
+# `state: queued` as "handed off")
+# ---------------------------------------------------------------------------
+def test_enqueue_says_explicitly_that_queued_is_not_landed(canonical: Path) -> None:
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    result = mq.enqueue(path=lane)
+    assert "D-ORC-20" in result["note"]
+    assert "merge-queue run" in result["note"]
+    assert result["queue_depth"] == 1
+
+
+def test_status_warns_when_the_oldest_candidate_is_stale(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    mq.enqueue(path=lane)
+    monkeypatch.setattr(mq, "STALE_QUEUE_THRESHOLD_SECONDS", -1)
+    report = mq.queue_report(canonical)
+    assert report["stale_queue_warning"] is not None
+    assert "lane-a" in report["stale_queue_warning"]
+    assert "D-ORC-20" in report["stale_queue_warning"]
+
+
+def test_status_does_not_warn_for_a_freshly_queued_candidate(canonical: Path) -> None:
+    lane = _branch(canonical, "lane-a", {"pkg/a.py": "A = 1\n"})
+    mq.enqueue(path=lane)
+    report = mq.queue_report(canonical)
+    assert report["stale_queue_warning"] is None
 
 
 def test_queue_report_publishes_the_latency_budget(canonical: Path) -> None:
@@ -1206,3 +1322,91 @@ def test_conflict_outside_generated_files_is_still_rejected(canonical: Path) -> 
     assert result["landed"] == 1 and result["rejected"] == 1, result
     rejected = next(o for o in result["outcomes"] if not o["landed"])
     assert "pkg/core.py" in rejected["reason"]
+
+
+# ---------------------------------------------------------------------------
+# D-RMD-1 / D-RMQ-2 — land() must write the DECLARED base ref, and must verify it
+# ---------------------------------------------------------------------------
+def test_land_writes_the_declared_base_ref_when_canonical_is_not_on_it(
+    canonical: Path,
+) -> None:
+    """The bug: ``merge --ff-only`` writes HEAD, not the declared base.
+
+    It landed correctly only while the canonical checkout happened to sit on
+    ``base`` — true for agent-utilities, false the moment the queue drives any
+    other repo, a release branch, or a checkout left mid-bisect.
+    """
+    lane = _branch(canonical, "lane-x", {"pkg/x.py": "X = 1\n"})
+    commit = _run(["git", "rev-parse", "lane-x"], canonical)
+    # Put the canonical checkout on something OTHER than main — the exact
+    # configuration the coincidence hid.
+    _run(["git", "checkout", "-q", "-b", "parked"], canonical)
+    assert (
+        _run(["git", "symbolic-ref", "--short", "HEAD"], canonical)
+        == "parked"
+    )
+    scope = lanes.lane_scope(canonical)
+
+    mq.land(canonical, commit, base="main", scope=scope)
+
+    # main must have advanced even though HEAD was elsewhere...
+    assert _run(["git", "rev-parse", "refs/heads/main"], canonical) == commit
+    # ...and the parked branch must NOT have been touched.
+    assert _run(["git", "rev-parse", "parked"], canonical) != commit
+    assert lane.exists()
+
+
+def test_the_post_condition_catches_a_wrong_write_target_by_itself(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Restore D-RMD-1 verbatim, leaving ONLY the post-condition in place.
+
+    This is the anti-vacuity proof: the assertion must do real work on its own,
+    so it also catches the NEXT variant of the same mistake. If this test ever
+    passes with the post-condition removed, the assertion is decoration.
+    """
+    lane = _branch(canonical, "lane-y", {"pkg/y.py": "Y = 1\n"})
+    commit = _run(["git", "rev-parse", "lane-y"], canonical)
+    _run(["git", "checkout", "-q", "-b", "parked"], canonical)
+    scope = lanes.lane_scope(canonical)
+
+    real_run_git = mq._run_git
+
+    def _buggy(args: list[str], cwd: Path):  # type: ignore[no-untyped-def]
+        # The original defect: CAS write to the declared ref becomes a merge
+        # into whatever HEAD happens to be.
+        if args[:1] == ["update-ref"]:
+            return real_run_git(["merge", "--ff-only", commit], scope.main_tree)
+        return real_run_git(args, cwd)
+
+    monkeypatch.setattr(mq, "_run_git", _buggy)
+
+    with pytest.raises(mq.MergeQueueError, match="POST-CONDITION FAILED"):
+        mq.land(canonical, commit, base="main", scope=scope)
+
+    # And the damage the post-condition prevents: main never moved, so nothing
+    # may be reported landed or pruned as landed.
+    assert _run(["git", "rev-parse", "refs/heads/main"], canonical) != commit
+    assert lane.exists()
+
+
+def test_land_refuses_when_the_base_is_checked_out_in_another_worktree(
+    canonical: Path,
+) -> None:
+    """``update-ref`` would move the branch out from under another tree's HEAD.
+
+    Git forbids this for ``checkout``/``branch -f`` but NOT for ``update-ref``,
+    so the refusal has to be ours.
+    """
+    lane = _branch(canonical, "lane-z", {"pkg/z.py": "Z = 1\n"})
+    commit = _run(["git", "rev-parse", "lane-z"], canonical)
+    # Park the canonical checkout FIRST — git refuses to add a worktree for a
+    # branch that is already checked out somewhere.
+    _run(["git", "checkout", "-q", "-b", "parked"], canonical)
+    other = canonical.parent / "holds-main"
+    _run(["git", "worktree", "add", "-q", str(other), "main"], canonical)
+    scope = lanes.lane_scope(canonical)
+
+    with pytest.raises(mq.MergeQueueError, match="checked out in another worktree"):
+        mq.land(canonical, commit, base="main", scope=scope)
+    assert lane.exists()

@@ -269,6 +269,32 @@ def _resolve_task_target(value: str) -> Path:
     return get_workspace_path(raw.removeprefix(_WORKSPACE_TARGET_PREFIX))
 
 
+def _submit_kafka_notification(
+    queue: Any, task_type: str, envelope: dict[str, Any]
+) -> None:
+    """Publish a Kafka task-submission notification, routed by task type
+    (D-42, CONCEPT:AU-ORCH.scheduling.acquisition-lane-fairness).
+
+    A :data:`~agent_utilities.core.resource_priority.HYDRATION_TASK_TYPES` task
+    goes to the queue's ``put_hydration`` (the dedicated hydration-priority
+    topic the reserved consumer subset polls first — see
+    ``ingest_worker.py::start_ingest_consumer_pool``); everything else uses the
+    ordinary ``put``. ``put_hydration`` only exists on the Kafka backend
+    (:class:`~agent_utilities.knowledge_graph.core.kafka_queue_backend.
+    KafkaQueueBackend`), so a queue without it (a test double, or a future
+    non-Kafka caller of this helper) transparently falls back to ``put`` —
+    this function is only ever reached from the Kafka branch of
+    :meth:`TaskManagerMixin.submit_task`.
+    """
+    from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
+
+    put_hydration = getattr(queue, "put_hydration", None)
+    if task_type in HYDRATION_TASK_TYPES and callable(put_hydration):
+        put_hydration(envelope)
+    else:
+        queue.put(envelope)
+
+
 def _coerce_prio_bucket(value: Any, default: int = 2) -> int:
     """Validate a current WorkItem claim bucket in the closed interval 0..3."""
     if value is None:
@@ -390,6 +416,14 @@ _WARM_PARENT_REAP_INTERVAL = 300.0
 _PACKAGE_INSTALL_INGEST_INTERVAL = 300.0
 _EMBED_BACKFILL_IDLE_INTERVAL = 30.0
 _EMBED_BACKFILL_BUSY_SLEEP = 1.0
+
+# D-EMB: how often the non-pgvector fallback tick re-scans for `embedding`
+# PROPERTY rows not yet in the ANN index. Deliberately much coarser than the
+# pgvector path's 1s/30s cadence -- `hydrate_engine_embeddings` has no
+# incremental cursor (it walks every node's properties each call), so running
+# it on the tight cadence would add a full-graph scan to an already-contended
+# engine every cycle (D-PERF-2).
+_EMBED_BACKFILL_GENERIC_INTERVAL_S = 600.0
 
 # Embedder circuit-breaker (CONCEPT:AU-KG.coordination.embedder-breaker): when the embedding endpoint is down
 # (e.g. the GPU host power-cycles → vLLM 502s), the backfill tick must NOT keep
@@ -723,7 +757,29 @@ class _ControlPlaneWorkItemEngine:
             raise WorkItemBackendUnavailable(
                 "control authority does not expose durable WorkItem creation"
             )
-        add(node_id, label=node_type, **(properties or {}))
+        # CONCEPT:AU-KG.ontology.node-type-casing-convergence — normalizes a node's class identity to the schema label so two engine adapters can no longer diverge on its casing.
+        # The ``node_type`` PARAMETER (the schema label, e.g. ``"WorkItem"``)
+        # is this call's single source of truth for the node's class identity,
+        # matching
+        # ``IntelligenceGraphEngine.add_node``'s own ``props["node_type"] =
+        # node_type`` stamp one layer up. ``work_item.py``'s callers build
+        # ``properties`` from ``RegistryNode.to_graph_properties()``, which
+        # ALSO writes a ``node_type`` key — the lowercase snake_case
+        # ``RegistryNodeType`` enum value (e.g. ``"work_item"``), not the
+        # PascalCase label this adapter's caller passed. Spreading that dict
+        # unreconciled let it silently override the label on this
+        # control-plane path only, so ingestion-scheduled WorkItems landed as
+        # ``node_type="work_item"`` while every other WorkItem (submitted
+        # through the main-graph adapter, which already normalizes this) landed
+        # as ``node_type="WorkItem"`` — the exact casing split measured live
+        # (WorkItem 4,590 vs work_item 3,760). Overriding here, at the one
+        # place both adapters converge before reaching their respective
+        # backends, is the fix at the chokepoint: neither adapter can diverge
+        # from the caller-supplied class identity again, regardless of what a
+        # ``RegistryNode`` subclass happens to fold into its own properties.
+        props = dict(properties or {})
+        props["node_type"] = node_type
+        add(node_id, label=node_type, **props)
 
     def link_nodes(
         self,
@@ -2169,6 +2225,59 @@ class TaskManagerMixin(GraphEngineProtocol):
                 items.extend(rows)
             return items[:take]
 
+    def _tick_embedding_backfill_generic(self) -> int:
+        """Non-pgvector fallback for :meth:`_tick_embedding_backfill` (D-EMB).
+
+        This "dedicated vector-embedding backfill drain" thread has been
+        running in production the whole time — but ``_tick_embedding_backfill``
+        below returns 0 immediately on any backend that isn't
+        ``PostgreSQLBackend`` (checks ``pgvector_available``/``_conn``/
+        ``_get_embedding_tables``, all pgvector-only attributes), so on the
+        native-engine (Ladybug/redb, ``BrainGuardedBackend``) topology this
+        production actually runs on, the daemon has been a silent, permanent
+        no-op since it started. That is the primary mechanism behind the
+        measured 0.5% embedding coverage (136/26,680 nodes, D-PERF-5): a
+        backfill daemon that LOOKS like it's running (thread alive, ticking
+        every 30s) but never does anything on this deployment's backend.
+
+        This reconciles nodes that already carry an ``embedding`` PROPERTY
+        (written by the ingest-time chokepoint in ``ingestion/envelope_ingest.py``,
+        or by any other writer) into the engine's ANN/HNSW index — a SEPARATE
+        store the property write alone does not populate (see
+        ``epistemic_graph_backend.add_embedding``'s docstring: "distinct from
+        storing an embedding node property"; ``semantic_search`` reads the ANN
+        index, not the property). Rate-limited to
+        :data:`_EMBED_BACKFILL_GENERIC_INTERVAL_S` — see that constant's
+        comment for why.
+
+        Deliberately does NOT generate new embeddings for the many legacy
+        nodes that have no ``embedding`` property at all: that needs an
+        embedding-endpoint call per node, touches classification/ACL policy if
+        done through the governed ChangeEnvelope write path, and is an
+        explicit, operator-approved backfill (``scripts/backfill_embeddings.py``),
+        never a silent background daemon.
+        """
+        target = self.backend
+        hydrate = getattr(target, "hydrate_engine_embeddings", None)
+        if not callable(hydrate):
+            return 0
+        now = time.monotonic()
+        last = getattr(self, "_last_generic_embed_hydrate", 0.0)
+        if now - last < _EMBED_BACKFILL_GENERIC_INTERVAL_S:
+            return 0
+        self._last_generic_embed_hydrate = now
+        try:
+            count = int(hydrate())
+        except Exception as e:  # noqa: BLE001 — best-effort reconciliation tick; a failure here must never kill the daemon loop, only skip this pass
+            logger.debug("generic embedding-index hydrate failed: %s", e)
+            return 0
+        if count:
+            logger.info(
+                "KG embedding-index hydrate: indexed %d node(s) into the ANN store",
+                count,
+            )
+        return count
+
     def _tick_embedding_backfill(self) -> int:
         """Backfill vector embeddings onto configured pgvector nodes that lack them.
 
@@ -2187,7 +2296,11 @@ class TaskManagerMixin(GraphEngineProtocol):
             or not callable(get_tables)
             or not getattr(target, "pgvector_available", False)
         ):
-            return 0  # not a pgvector backend
+            # D-EMB: not a pgvector backend — try the native-engine fallback
+            # instead of unconditionally returning 0 (see
+            # `_tick_embedding_backfill_generic`'s docstring for why this
+            # branch was previously a silent permanent no-op in production).
+            return self._tick_embedding_backfill_generic()
 
         budget = _EMBED_BACKFILL_BUDGET
 
@@ -3070,13 +3183,15 @@ class TaskManagerMixin(GraphEngineProtocol):
                 persistence_reference,
             )
 
-            self._submission_queue.put(
+            _submit_kafka_notification(
+                self._submission_queue,
+                task_type,
                 {
                     "job_id": job_id,
                     "partition_ref": persistence_reference(
                         "ingest_partition", durable_target, namespace=tenant
                     ),
-                }
+                },
             )
 
         # Pre-ingestion: drop ONLY the HNSW indexes for tables this task writes to.

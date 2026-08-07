@@ -161,6 +161,15 @@ class EpistemicGraphBackend(GraphBackend):
         """Return the non-owning process graph view."""
         return self._graph
 
+    def apply_typed_batch(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+        """Commit ordered native typed upserts in one authoritative transaction.
+
+        This is intentionally narrower than a public generic batch surface: callers
+        that already own typed node/edge preparation can collapse their durable
+        writes without bypassing this backend's graph-scoped authority.
+        """
+        return self._graph.batch_update(operations)
+
     @staticmethod
     def _inline_cypher_params(
         query: str,
@@ -287,7 +296,7 @@ class EpistemicGraphBackend(GraphBackend):
     ) -> list[dict[str, Any]]:
         """Run the engine-maintained ANN query without an O(N) Python fallback."""
         hits = self._graph.semantic_search(query_embedding, n_results) or []
-        results: list[dict[str, Any]] = []
+        parsed_hits: list[tuple[str, float]] = []
         for item in hits:
             if isinstance(item, list | tuple) and len(item) >= 2:
                 node_id, score = str(item[0]), float(item[1])
@@ -298,22 +307,121 @@ class EpistemicGraphBackend(GraphBackend):
                 continue
             if not node_id:
                 continue
-            data = self._graph._get_node_properties(node_id) or {}
+            parsed_hits.append((node_id, score))
+
+        node_ids = [node_id for node_id, _ in parsed_hits]
+        batch_get = getattr(self._graph, "_get_node_properties_batch", None)
+        if callable(batch_get):
+            properties = batch_get(node_ids)
+        else:
+            # Compatibility for injected graph adapters that predate the native
+            # batch property surface. Production GraphComputeEngine takes the
+            # single-RPC path above.
+            properties = {
+                node_id: self._graph._get_node_properties(node_id) or {}
+                for node_id in node_ids
+            }
+
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
+        results: list[dict[str, Any]] = []
+        for node_id, score in parsed_hits:
+            data = properties.get(node_id, {})
+            # Defense in depth for direct/fake graph surfaces that bypass
+            # GraphComputeEngine's bounded stale-ANN fence.  The durable node
+            # property is the source of truth while older engines lack an atomic
+            # vector-only removal operation.
+            if data.get(EMBEDDING_INDEX_READY_FIELD) is False:
+                continue
+            embedding = data.get("embedding")
+            if not isinstance(embedding, list | tuple) or not embedding:
+                continue
             results.append({**data, "id": node_id, "_similarity": score})
         return results
 
     def hydrate_engine_embeddings(self, batch_log_every: int = 5000) -> int:
-        """Run the one-time persisted-state embedding-index migration."""
+        """Run the persisted-state embedding-index migration and fence repair.
+
+        D-BFR-5: a naive full scan that unconditionally re-``add_embedding``s
+        every node carrying an ``embedding`` property replays the WHOLE ANN
+        index on every tick forever — invisible with an empty index, then a
+        genuine continuous-load bug once the backfill/ingest chokepoint
+        actually populates it (every subsequent tick redoes the SAME N writes
+        with zero new progress). ``EMBEDDING_INDEX_READY_FIELD`` already
+        durably distinguishes three states per node, so hydration is now
+        delta-driven off it instead of blind:
+
+        * ``False`` — a cross-modal commit landed the property but crashed
+          before the served-read readiness CAS; repair it (unchanged from
+          before this fix — the ANN write is genuinely still owed).
+        * ``True``  — the SAME atomic transaction that set this property
+          already registered the vector in the ANN; it is durably converged
+          and re-adding it is exactly the redundant write this closes. Skip.
+        * absent   — a legacy node embedded before the readiness fence
+          existed (or by a writer that does not manage it): the ANN
+          membership is genuinely unknown, so index it once, THEN durably
+          mark it ready so every later tick recognizes it as converged and
+          skips it too. This is what makes a REPEATED tick delta-driven
+          rather than a fresh O(N) scan-and-rewrite every time.
+        """
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
         count = 0
+        scanned = 0
+        already_indexed = 0
+        repaired = 0
+        newly_indexed = 0
+        mark_ready = getattr(self._graph, "compare_and_set_node_fields", None)
         for node_id, props in self._graph._get_all_nodes_with_properties():
             embedding = (props or {}).get("embedding")
             if not embedding:
                 continue
+            scanned += 1
+            ready = (props or {}).get(EMBEDDING_INDEX_READY_FIELD)
+            if ready is False:
+                # A process can stop after the durable cross-modal transaction
+                # committed but before the served-read readiness CAS. Re-run the
+                # idempotent transaction so the periodic/operator maintenance
+                # pass eventually repairs that safe, intentionally hidden state.
+                if self._graph.compare_and_set_node_embedding(
+                    node_id,
+                    {
+                        "embedding": list(embedding),
+                        EMBEDDING_INDEX_READY_FIELD: False,
+                    },
+                    {"embedding": list(embedding)},
+                    list(embedding),
+                ):
+                    count += 1
+                    repaired += 1
+                continue
+            if ready is True:
+                # Already durably converged by the transaction that committed
+                # this property — the ANN already has this exact vector.
+                already_indexed += 1
+                continue
+            # `ready is None`: no readiness marker at all. Register the vector
+            # once, then durably mark it so this scan never touches it again.
             self._graph.add_embedding(node_id, list(embedding))
             count += 1
+            newly_indexed += 1
+            if callable(mark_ready):
+                mark_ready(
+                    node_id,
+                    {EMBEDDING_INDEX_READY_FIELD: None},
+                    {EMBEDDING_INDEX_READY_FIELD: True},
+                )
             if count % batch_log_every == 0:
                 logger.info("embedding-index migration processed %d rows", count)
-        logger.info("embedding-index migration completed (%d rows)", count)
+        logger.info(
+            "embedding-index migration completed: scanned=%d indexed=%d "
+            "(missing=%d repaired=%d) already_indexed=%d",
+            scanned,
+            count,
+            newly_indexed,
+            repaired,
+            already_indexed,
+        )
         return count
 
     def prune(self, criteria: dict[str, Any]) -> None:
@@ -436,6 +544,18 @@ class EpistemicGraphBackend(GraphBackend):
     ) -> bool:
         """Apply an atomic native conditional field update."""
         return self._graph.compare_and_set_node_fields(node_id, conditions, updates)
+
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Condition fields and replace the ANN vector in one native transaction."""
+        return self._graph.compare_and_set_node_embedding(
+            node_id, conditions, updates, embedding
+        )
 
     def save_to_json(self, path: str) -> None:
         """Export an operator-requested snapshot without logging its location."""

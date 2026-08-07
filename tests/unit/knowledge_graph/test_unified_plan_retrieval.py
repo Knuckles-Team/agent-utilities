@@ -1,7 +1,11 @@
 #!/usr/bin/python
 """``retrieve_hybrid`` runs ONE engine unified plan — no O(N) Python cosine scan.
 
-KG-2.238. The hand-orchestrated hybrid retriever's vector arm
+CONCEPT:AU-KG.compute.graph-compute-engine — retargeted off the retired
+``AU-KG.compute.kg-2`` bare legacy-numbering citation (D-CDOC-1/D-CIP-16): this
+is the same "computation happens in the engine, in one costed round-trip"
+decision documented at ``.specify/design/kg-engine-native-compute/design.md``,
+just its retrieval-side instance. The hand-orchestrated hybrid retriever's vector arm
 is collapsed onto the engine: the vector neighbourhood is computed by the engine's
 native ANN inside a single costed cross-modal plan (``query.unified``, falling to
 the native ``semantic_search`` ANN primitive if unified planning is unavailable), NEVER by an O(N)
@@ -23,7 +27,10 @@ import pytest
 
 from agent_utilities.knowledge_graph.retrieval.hybrid_retriever import HybridRetriever
 
-pytestmark = [pytest.mark.engine, pytest.mark.concept("AU-KG.compute.kg-2")]
+pytestmark = [
+    pytest.mark.engine,
+    pytest.mark.concept("AU-KG.compute.graph-compute-engine"),
+]
 
 
 class _FakeEmbed:

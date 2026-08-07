@@ -1085,6 +1085,25 @@ class Orchestrator:
         if model_class not in {"economy", "standard"}:
             raise ValueError("model_class must be economy or standard")
 
+        # D-CDX-41: resolve (and fail on) an UNAVAILABLE model class HERE —
+        # a syntactically valid class name is not the same question as "is a
+        # model actually configured for it". Checking that only deep inside,
+        # right before ``create_model``, meant an exact preview could accept
+        # ``model_class="economy"`` and the run would still pay for workflow
+        # load, graph-plan construction, and upstream-capability setup
+        # before failing ~17s later with "configured economy model class is
+        # unavailable" — a cost-routing/configuration gap masquerading as an
+        # orchestration failure. Skipped only when the caller supplied its
+        # own ``orchestrator_model`` (model_class is never consulted
+        # downstream in that case either).
+        preresolved_model_id: str | None = None
+        if orchestrator_model is None:
+            from agent_utilities.orchestration.agent_runner import (
+                _configured_model_for_class,
+            )
+
+            preresolved_model_id = _configured_model_for_class(model_class).id
+
         from agent_utilities.capabilities.governed_dynamic_workflow import (
             DynamicWorkflowUnavailableError,
             GovernedDynamicWorkflow,
@@ -1112,12 +1131,8 @@ class Orchestrator:
 
             if orchestrator_model is None:
                 from agent_utilities.core.model_factory import create_model
-                from agent_utilities.orchestration.agent_runner import (
-                    _configured_model_for_class,
-                )
 
-                selected = _configured_model_for_class(model_class)
-                orchestrator_model = create_model(model_id=selected.id)
+                orchestrator_model = create_model(model_id=preresolved_model_id)
             result = await workflow.execute(
                 self,
                 orchestrator_model=orchestrator_model,

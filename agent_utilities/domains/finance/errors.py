@@ -22,3 +22,15 @@ class ProviderNotConfigured(FinanceProviderError):
 
 class ProviderRequestError(FinanceProviderError):
     """A configured provider was reached but the request failed."""
+
+
+class InvalidIntervalError(ValueError, FinanceProviderError):
+    """A gap-fill/ASOF interval was empty, malformed, zero, or negative.
+
+    Raised at the API boundary (``engine_series._normalize_step``) before either
+    the engine or the pandas fallback route does any work, so a caller gets one
+    documented, typed error instead of a downstream ``ZeroDivisionError``
+    (zero-frequency grid) or an opaque pandas parser ``ValueError`` (D-CDX-96).
+    Subclasses ``ValueError`` for drop-in compatibility with callers that
+    already catch the historical malformed-string behaviour.
+    """

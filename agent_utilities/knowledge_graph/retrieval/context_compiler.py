@@ -605,12 +605,12 @@ class ContextCompiler:
                 nodes = list(
                     search_hybrid(query, top_k=top_k, as_of=as_of or None) or []
                 )
-                # ``last_quality_report`` is instance state on the engine's shared
-                # ``HybridRetriever`` (set synchronously inside the call just
-                # above), read back immediately — see its own docstring for the
-                # pre-existing concurrency caveat this inherits (already relied on
-                # the same way by ``HybridRetriever.plan_and_retrieve``'s
-                # self-correction trigger).
+                # ``last_quality_report`` is set synchronously inside the call
+                # just above and read back immediately on this same call
+                # stack. It is backed by a context-local ``ContextVar`` on
+                # ``HybridRetriever`` (D-39), not shared instance state, so a
+                # concurrent caller of the same shared ``HybridRetriever``
+                # cannot race this read — see its own docstring.
                 report = getattr(
                     getattr(self.engine, "hybrid_retriever", None),
                     "last_quality_report",
@@ -813,6 +813,18 @@ class ContextCompiler:
             if quality_gate_failed
             else ""
         )
+        # D-EGD-5: when the gate's own SPARSE_INDEX check fired, fold the
+        # sampled population ratio into the reason string too — "sparse_index"
+        # alone tells a caller THAT the index is empty, but "sparse_index(0.5%)"
+        # tells them by how much, without needing to re-derive it from a
+        # separate diagnostic. index_population_ratio is only ever set when the
+        # gate already sampled it (see RetrievalQualityGate._sample_index_population).
+        if quality_gate_failed and "sparse_index" in quality_reason:
+            ratio = getattr(quality_report, "index_population_ratio", None)
+            if ratio is not None:
+                quality_reason = quality_reason.replace(
+                    "sparse_index", f"sparse_index({ratio * 100:.1f}%)"
+                )
         decisions: list[dict[str, Any]] = []
 
         # ---- 6. POLICY — the SAME fine-grained gate the live read path uses.

@@ -7,14 +7,17 @@ function exists.
 
 from __future__ import annotations
 
+import argparse
 import multiprocessing as mp
 import os
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
 import yaml
 
+from agent_utilities import cli as au_cli
 from agent_utilities.governance import concept_allocator as ca
 from agent_utilities.governance import lanes
 
@@ -183,6 +186,46 @@ def test_engine_daemon_lease_defers_a_second_lanes_full_suite(canonical: Path) -
     assert lanes.lease_status("epistemic-graph-daemon", canonical) is None
 
 
+def test_workspace_scripts_lease_is_workspace_scoped(canonical: Path) -> None:
+    """D-ORC-28: /home/apps/workspace/scripts/ is not a git worktree of any repo
+    and cannot be PARTITIONed like cargo/pytest/scratch — it is one directory
+    every lane on the host invokes, so its edit lease must be workspace-scoped
+    like the shared venv and the engine daemon, not repo-scoped."""
+    assert lanes.resource_scope("workspace-scripts") == "workspace"
+    assert lanes.resource_class("workspace-scripts") is lanes.ArbitrationClass.LEASE
+    repo_leases = lanes.lane_scope(canonical).arbitration_dir / "leases"
+    with lanes.hold_lease(
+        "workspace-scripts", operation="editing scripts/deferred_registry.py",
+        path=canonical,
+    ):
+        assert not (repo_leases / "workspace-scripts.lease").exists()
+        assert (
+            lanes.workspace_arbitration_dir() / "leases" / "workspace-scripts.lease"
+        ).exists()
+    assert lanes.lease_status("workspace-scripts", canonical) is None
+
+
+def test_workspace_scripts_lease_defers_a_racing_editor(canonical: Path) -> None:
+    """The exact D-ORC-28 incident: two lanes editing scripts/deferred_registry.py
+    at once left a broken intermediate state (consumption code referencing an
+    argparse attribute that did not exist yet) visible to every lane's CLI
+    invocation. The lease must make a second, concurrent editor defer instead
+    of racing the first one's in-progress edit."""
+    lane = _add_worktree(canonical, "lane-scripts")
+    with lanes.hold_lease(
+        "workspace-scripts", operation="lane-a editing deferred_registry.py",
+        path=canonical,
+    ):
+        with pytest.raises(lanes.LeaseUnavailable, match="defer, do not proceed"):
+            with lanes.hold_lease(
+                "workspace-scripts",
+                operation="lane-b editing deferred_registry.py",
+                path=lane,
+            ):
+                pytest.fail("a second lane's edit acquired a held lease")
+    assert lanes.lease_status("workspace-scripts", canonical) is None
+
+
 def test_guarded_tree_mutation_refuses_and_releases(canonical: Path) -> None:
     """One choke point: lease held across the whole check-then-mutate."""
     lane = _add_worktree(canonical, "lane-guarded")
@@ -245,8 +288,39 @@ def test_partitioned_paths_differ_per_lane_and_never_use_refs_stash(
     assert one.cargo_target_dir != two.cargo_target_dir
     assert one.pytest_basetemp != two.pytest_basetemp
     assert one.scratch_dir != two.scratch_dir
+    assert one.precommit_home != two.precommit_home
     assert one.stash_ref != two.stash_ref
     assert one.stash_ref == "refs/lane/lane-g/stash" != "refs/stash"
+    # It must not be the shared pre-commit store every lane used to collide on.
+    shared_store = Path.home() / ".cache" / "pre-commit"
+    assert one.precommit_home != shared_store
+    assert two.precommit_home != shared_store
+
+
+def test_precommit_home_is_classified_partition() -> None:
+    assert lanes.resource_class("precommit-home") is lanes.ArbitrationClass.PARTITION
+
+
+def test_partitioned_paths_creates_the_temp_root_on_disk(canonical: Path) -> None:
+    """Reproduces the real failure: a lane whose ``~/.al/<token>`` had never
+    been created before exported ``PYTEST_ADDOPTS=--basetemp=<token>/pytest``
+    that pointed at a nonexistent parent. Pytest's own basetemp creation is
+    ``mkdir(exist_ok=True)`` with no ``parents=True``, so the very first
+    ``pytest`` run under a fresh lane's ``env`` output failed with a raw
+    ``FileNotFoundError`` before any test collected — observed for real via
+    ``guardrail-prod-profile`` in a freshly created worktree. ``env`` must
+    leave both the pytest-basetemp parent and the scratch (``TMPDIR``)
+    directory itself already present, exactly as ``workspace_arbitration_dir``
+    already guarantees for the shared-venv lease root.
+    """
+    lane = _add_worktree(canonical, "lane-fresh-temp")
+    parts = lanes.partitioned_paths(lane)
+    assert parts.pytest_basetemp.parent.is_dir()
+    assert parts.scratch_dir.is_dir()
+    # Round-trips pytest's own creation step for the leaf itself, proving the
+    # parent is genuinely walkable and not merely reported as existing.
+    parts.pytest_basetemp.mkdir(mode=0o700, exist_ok=True)
+    assert parts.pytest_basetemp.is_dir()
 
 
 def test_park_gives_a_clean_tree_without_touching_refs_stash(canonical: Path) -> None:
@@ -302,6 +376,133 @@ def test_unpark_without_a_park_is_a_loud_error(canonical: Path) -> None:
     lane = _add_worktree(canonical, "lane-park-c")
     with pytest.raises(lanes.LaneArbitrationError, match="nothing parked"):
         lanes.unpark_worktree(lane)
+
+
+# ---------------------------------------------------------------------------
+# PARTITION — the pre-commit store's orphan detector discriminates instead of
+# treating "a patch file exists" as proof of an incident (D-OB-12)
+# ---------------------------------------------------------------------------
+def _write_precommit_patch(
+    precommit_home: Path, *, epoch: int, pid: int, content: bytes
+) -> Path:
+    precommit_home.mkdir(parents=True, exist_ok=True)
+    patch_path = precommit_home / f"patch{epoch}-{pid}"
+    patch_path.write_bytes(content)
+    return patch_path
+
+
+def test_orphaned_patches_is_empty_when_the_store_does_not_exist(
+    canonical: Path,
+) -> None:
+    lane = _add_worktree(canonical, "lane-oc-empty")
+    assert lanes.orphaned_precommit_patches(lane) == []
+
+
+def test_orphan_detector_discriminates_orphaned_from_restored(
+    canonical: Path,
+) -> None:
+    """The real end-to-end shape pre-commit creates: capture a real unstaged
+    change into a patch<epoch>-<pid> file exactly as
+    ``_unstaged_changes_cleared`` does, discard the change (the crash window),
+    and prove the detector calls it ORPHANED — then replay the patch and prove
+    the SAME function now calls it "restored". A detector that reports every
+    patch file as an incident would pass the first half and fail to
+    discriminate on the second; this proves it does not.
+    """
+    lane = _add_worktree(canonical, "lane-orphan")
+    target = lane / "docs" / "concepts.yaml"
+    target.write_text(
+        "concepts: [{id: AU-KG.compute.orphan-proof}]\n", encoding="utf-8"
+    )
+
+    tree = _run(["git", "write-tree"], lane)
+    diff = subprocess.run(
+        [
+            "git", "diff-index", "--ignore-submodules", "--binary",
+            "--exit-code", "--no-color", "--no-ext-diff", tree, "--",
+        ],
+        cwd=str(lane),
+        capture_output=True,
+        check=False,
+    ).stdout
+    assert diff  # there is a real unstaged change to capture
+
+    precommit_home = lanes.partitioned_paths(lane).precommit_home
+    dead_pid = 2**22  # above any live pid on Linux (same convention as the lease test)
+    patch_path = _write_precommit_patch(
+        precommit_home, epoch=int(time.time()), pid=dead_pid, content=diff
+    )
+
+    # Simulate the crash window: pre-commit checked the change away and never
+    # reached the `finally: git apply` that restores it.
+    _run(["git", "checkout", "--", "."], lane)
+    assert "AU-KG.compute.orphan-proof" not in target.read_text(encoding="utf-8")
+
+    report = lanes.orphaned_precommit_patches(lane)
+    assert len(report) == 1
+    entry = report[0]
+    assert entry["path"] == str(patch_path)
+    assert entry["state"] == "ORPHANED"
+    assert entry["pid"] == dead_pid
+    assert "replay" in entry and str(patch_path) in entry["replay"]
+
+    # Now actually replay it, exactly as the reported remedy says.
+    _run(["git", "apply", str(patch_path)], lane)
+    assert "AU-KG.compute.orphan-proof" in target.read_text(encoding="utf-8")
+
+    report_after = lanes.orphaned_precommit_patches(lane)
+    assert len(report_after) == 1
+    assert report_after[0]["state"] == "restored"
+    assert report_after[0]["path"] == str(patch_path)
+
+
+def test_orphan_detector_reports_a_live_pid_as_in_progress(canonical: Path) -> None:
+    lane = _add_worktree(canonical, "lane-inprogress")
+    precommit_home = lanes.partitioned_paths(lane).precommit_home
+    patch_path = _write_precommit_patch(
+        precommit_home, epoch=int(time.time()), pid=os.getpid(), content=b"junk"
+    )
+    report = lanes.orphaned_precommit_patches(lane)
+    assert len(report) == 1
+    assert report[0]["path"] == str(patch_path)
+    assert report[0]["state"] == "in-progress"
+    assert report[0]["pid"] == os.getpid()
+
+
+def test_orphan_detector_reports_unparseable_filenames_as_unknown(
+    canonical: Path,
+) -> None:
+    lane = _add_worktree(canonical, "lane-unknown")
+    precommit_home = lanes.partitioned_paths(lane).precommit_home
+    precommit_home.mkdir(parents=True, exist_ok=True)
+    (precommit_home / "patch-not-a-real-name").write_text("junk", encoding="utf-8")
+    report = lanes.orphaned_precommit_patches(lane)
+    assert len(report) == 1
+    assert report[0]["state"] == "unknown"
+
+
+def test_lane_report_surfaces_only_orphaned_and_unknown_patches(
+    canonical: Path,
+) -> None:
+    """A clean lane's report carries an empty list; a crashed one's is loud."""
+    lane = _add_worktree(canonical, "lane-report-clean")
+    report = lanes.lane_report(lane)
+    assert report["partitioned"]["precommit_home"] == str(
+        lanes.partitioned_paths(lane).precommit_home
+    )
+    assert report["orphaned_precommit_patches"] == []
+
+    precommit_home = lanes.partitioned_paths(lane).precommit_home
+    dead_pid = 2**22
+    _write_precommit_patch(
+        precommit_home,
+        epoch=int(time.time()),
+        pid=dead_pid,
+        content=b"not a real diff",
+    )
+    dirty_report = lanes.lane_report(lane)
+    assert len(dirty_report["orphaned_precommit_patches"]) == 1
+    assert dirty_report["orphaned_precommit_patches"][0]["state"] == "ORPHANED"
 
 
 # ---------------------------------------------------------------------------
@@ -455,6 +656,7 @@ def test_every_known_collision_resource_is_classified() -> None:
     assert classified["dependency-lock"] is lanes.ArbitrationClass.LEASE
     assert classified["reconciliation-merge"] is lanes.ArbitrationClass.LEASE
     assert classified["epistemic-graph-daemon"] is lanes.ArbitrationClass.LEASE
+    assert classified["workspace-scripts"] is lanes.ArbitrationClass.LEASE
     assert classified["canonical-checkout"] is lanes.ArbitrationClass.READ_ONLY
     assert all(r.evidence.strip() for r in lanes.resource_rules())
 
@@ -730,3 +932,39 @@ def test_write_cargo_partition_config_binds_a_real_cargo_invocation(
     resolved2 = Path(json.loads(proc2.stdout)["target_directory"])
     assert resolved2 == lanes.partitioned_paths(lane2).cargo_target_dir.resolve()
     assert resolved2 != resolved
+
+
+# ---------------------------------------------------------------------------
+# CLI contract — `lane env` (every lane runs this at startup) exports
+# PRE_COMMIT_HOME and is itself the startup orphan-patch detector. Nothing
+# covered `lane env` at all before this.
+# ---------------------------------------------------------------------------
+def test_lane_env_cli_exports_precommit_home_and_orphan_report(
+    canonical: Path,
+) -> None:
+    lane = _add_worktree(canonical, "lane-cli-env")
+    args = argparse.Namespace(path=str(lane), lane_action="env")
+    result = au_cli._lane(args)
+
+    assert set(result["exports"]) == {
+        "CARGO_TARGET_DIR",
+        "PYTEST_ADDOPTS",
+        "TMPDIR",
+        "PRE_COMMIT_HOME",
+    }
+    assert result["exports"]["PRE_COMMIT_HOME"] == str(
+        lanes.partitioned_paths(lane).precommit_home
+    )
+    assert result["orphaned_precommit_patches"] == []
+
+    precommit_home = lanes.partitioned_paths(lane).precommit_home
+    dead_pid = 2**22
+    _write_precommit_patch(
+        precommit_home,
+        epoch=int(time.time()),
+        pid=dead_pid,
+        content=b"not a real diff",
+    )
+    dirty = au_cli._lane(args)
+    assert len(dirty["orphaned_precommit_patches"]) == 1
+    assert dirty["orphaned_precommit_patches"][0]["state"] == "ORPHANED"

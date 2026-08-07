@@ -462,10 +462,12 @@ holds the file open).
 - Input investigation: `reports/phase10-redeploy-plan.md` (workspace-level, this
   runbook's companion — not committed to any repo; the workspace root is not a git
   repository).
-- Reference-file fix: `deploy/k8s/graphos-homelab-live-config-fix.yaml` (issuer scheme
-  corrected on this same branch).
-- Messaging retirement source: `deploy/k8s/messaging-bundle-retirement.yaml`
-  (unchanged — already accurate).
+- Reference-file fix: `reports/live-incident-runbooks/graphos-homelab-live-config-fix.yaml`
+  (issuer scheme corrected on this same branch; relocated out of this public repository
+  — it narrates a real homelab topology and a live auth-bypass finding that should not
+  ship on GitHub — see `reports/ci-parity-matrix-0801.md` §11a Group B).
+- Messaging retirement source: `reports/live-incident-runbooks/messaging-bundle-retirement.yaml`
+  (unchanged — already accurate; same relocation reasoning).
 - Identity/session architecture: `agent_utilities/security/request_identity.py`,
   `agent_utilities/mcp/co_service_supervisor.py`, `agent_utilities/mcp/kg_server.py`
   (`_mint_process_session`, `mcp_server()`).

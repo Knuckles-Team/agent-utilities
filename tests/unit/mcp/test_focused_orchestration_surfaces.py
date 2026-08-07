@@ -88,7 +88,14 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "submit_risk_veto",
             "verify_action",
         },
-        "graph_jobs": {"dispatch", "status", "cancel", "input"},
+        "graph_jobs": {
+            "dispatch",
+            "status",
+            "cancel",
+            "input",
+            "drain",
+            "dead_letter",
+        },
         "graph_rlm": {"run", "benchmark", "evolve_prompt"},
         "graph_workflows": {
             "compile",
@@ -101,16 +108,18 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    # 37, computed from `expected_actions` above, not guessed. Reconciliation
-    # gate 2 merged TWO lanes that each add exactly one action:
+    # 39, computed from `expected_actions` above, not guessed. This total has now
+    # gone stale three times, each time the same way: a lane adds an action to a
+    # tool, updates the action SET here, and does not touch this line -- so git
+    # merges the set change cleanly and leaves the count behind.
     #   feat/wave7-followups-evolution -> graph_evolution "evidence_lineage" (D-71-4)
     #   feat/wave25-followups-mcpapps  -> graph_jobs      "input"
-    # Each lane updated the action SET but not this total (they touched different
-    # lines, so git merged both sets cleanly and left the stale count). The
-    # `harvest_actions(...) == actions` assertion below is what actually pins the
-    # surface against the real tools; this total is the redundant ratchet that
-    # catches a silently added action.
-    assert sum(map(len, expected_actions.values())) == 37
+    #   83ee1066 governed-promotion    -> graph_jobs      "drain", "dead_letter"
+    # The third did not update the set either, so this test was RED on main until
+    # both were added above. The `harvest_actions(...) == actions` assertion below
+    # is what actually pins the surface against the real tools; this total is the
+    # redundant ratchet that catches a silently added action.
+    assert sum(map(len, expected_actions.values())) == 39
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 

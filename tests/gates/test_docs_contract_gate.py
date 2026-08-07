@@ -3,11 +3,38 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+
+
+def _isolated_git_env() -> dict[str, str]:
+    """D-LGI-1: an explicit, belt-and-suspenders env for git calls that
+    target a throwaway fixture repo (``tmp_path``), not this repository.
+
+    ``tests/conftest.py``'s ``_strip_inherited_git_repository_env()`` already
+    does this once, session-wide, at collection time -- this is the specific
+    site the incident was found at: a real ``git commit`` exports
+    ``GIT_DIR``/``GIT_INDEX_FILE`` into the hooks it runs (including
+    ``guardrail-gate-meta-tests``, which runs this test), and ``git -C
+    <tmp_path> ...`` does **not** override them. Without this, `add -A`
+    below wrote its fixture's file list into the REAL repository's index
+    instead of the throwaway one it was pointed at.
+    """
+    env = dict(os.environ)
+    for name in (
+        "GIT_DIR",
+        "GIT_INDEX_FILE",
+        "GIT_WORK_TREE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_COMMON_DIR",
+        "GIT_NAMESPACE",
+    ):
+        env.pop(name, None)
+    return env
 
 
 def _load_script(name: str):
@@ -29,7 +56,9 @@ def test_privacy_gate_detects_persisted_machine_path_without_echoing_value():
         deployment_doc=True,
     )
     assert "persisted machine path" in categories
-    rendered = privacy.Violation("docs/sample.md", 7, next(iter(categories))).render()
+    rendered = privacy.Violation(
+        "docs/sample.md", 7, next(iter(categories)), privacy._content_hash(line), 0
+    ).render()
     assert "local-account" not in rendered
     assert "/home/" not in rendered
 
@@ -140,7 +169,13 @@ def test_privacy_gate_checks_runtime_source_for_local_identity_without_echoing_i
         identifiers=frozenset({"runtime-identity"}),
     )
     category = next(iter(categories))
-    rendered = privacy.Violation("agent_utilities/sample.py", 2, category).render()
+    rendered = privacy.Violation(
+        "agent_utilities/sample.py",
+        2,
+        category,
+        privacy._content_hash("owner = runtime-identity"),
+        0,
+    ).render()
     assert "local account or host identifier" in rendered
     assert "runtime-identity" not in rendered
 
@@ -190,31 +225,86 @@ def test_privacy_baseline_excuses_only_listed_leaks_and_never_a_new_one(tmp_path
     pre-existing but previously invisible. They are baselined so `main` stays
     green while the debt is tracked — which is only defensible if a *new* leak
     still fails. That is what this pins, in both directions.
+
+    D-W2P: the baseline key used to be ``(path, line, category)``. A leak
+    whose LINE moved because unrelated code was inserted above it (the
+    ordinary case — nothing about the leak itself changed) then reported as
+    a phantom NEW finding, indistinguishable from a genuinely new leak. The
+    key is now ``(path, category, content_hash, ordinal)`` — this pins both
+    halves: line motion of the SAME content must stay baselined, and
+    genuinely DIFFERENT content must still fail even at an already-baselined
+    line number.
     """
     privacy = _load_script("check_tracked_privacy.py")
+    same_content = "path: /home/some-account/build/state"
     baselined = privacy.Violation(
-        "docker/job.yaml", 12, "machine-specific home path in runtime source"
+        "docker/job.yaml",
+        12,
+        "machine-specific home path in runtime source",
+        privacy._content_hash(same_content),
+        0,
     )
+    # The identical leak, unchanged, just pushed to a later line by unrelated
+    # edits earlier in the file — must resolve to the SAME baseline key.
+    shifted = privacy.Violation(
+        "docker/job.yaml",
+        99,
+        "machine-specific home path in runtime source",
+        privacy._content_hash(same_content),
+        0,
+    )
+    # A different leak, coincidentally landing on the previously-baselined
+    # line number — must NOT be excused by a line-number match alone.
+    different_content = "path: /home/a-different-account/other/state"
     fresh = privacy.Violation(
-        "docker/job.yaml", 99, "machine-specific home path in runtime source"
+        "docker/job.yaml",
+        12,
+        "machine-specific home path in runtime source",
+        privacy._content_hash(different_content),
+        0,
     )
 
     baseline_file = tmp_path / "tracked_privacy_baseline.txt"
     baseline_file.write_text(
         "# header comment is skipped\n"
-        f"{baselined.path}\t{baselined.line}\t{baselined.category}\n",
+        f"{baselined.path}\t{baselined.line}\t{baselined.category}"
+        f"\t{baselined.content_hash}\t{baselined.ordinal}\n",
         encoding="utf-8",
     )
     privacy.BASELINE = baseline_file
     loaded = privacy._load_baseline()
 
     assert privacy._baseline_key(baselined) in loaded
-    # A leak on a different LINE of the same already-baselined file is new.
+    # Pure line motion of the SAME leak must still read as already-baselined.
+    assert privacy._baseline_key(shifted) in loaded
+    assert privacy._baseline_key(baselined) == privacy._baseline_key(shifted)
+    # A genuinely different leak at the SAME old line number is still new.
     assert privacy._baseline_key(fresh) not in loaded
 
     # A missing baseline must read as EMPTY, i.e. stricter — never laxer.
     privacy.BASELINE = tmp_path / "does_not_exist.txt"
     assert privacy._load_baseline() == set()
+
+
+def test_privacy_gate_ordinal_disambiguates_duplicate_lines_in_one_file(tmp_path):
+    """Two genuinely identical leak lines in the same file/category must not
+    collapse into one baseline entry — fixing one occurrence and leaving the
+    other must still show exactly one remaining violation, not zero."""
+    privacy = _load_script("check_tracked_privacy.py")
+    runtime_dir = tmp_path / "agent_utilities" / "core"
+    runtime_dir.mkdir(parents=True)
+    leak_line = 'ENDPOINT = "https://svc.internal.example.svc.cluster.local/api"'
+    (runtime_dir / "sample.py").write_text(
+        f"{leak_line}\nX = 1\n{leak_line}\n", encoding="utf-8"
+    )
+    violations = privacy.scan(tmp_path)
+    matches = [v for v in violations if v.path.endswith("sample.py")]
+    assert len(matches) == 2
+    assert matches[0].content_hash == matches[1].content_hash
+    assert {v.ordinal for v in matches} == {0, 1}
+    # Distinct ordinals -> distinct baseline keys, so each site is tracked
+    # independently.
+    assert privacy._baseline_key(matches[0]) != privacy._baseline_key(matches[1])
 
 
 def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path):
@@ -234,11 +324,14 @@ def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path)
     pin — the vacuous-gate shape this suite exists to prevent. With a real repo,
     the old diff-scoped code sees an empty ``git diff`` and returns ``[]``.
     """
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    git_env = _isolated_git_env()
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, env=git_env)
     leaked = tmp_path / "docker" / "build-job.yaml"
     leaked.parent.mkdir(parents=True)
     leaked.write_text("            path: /home/someone/state/tree\n", encoding="utf-8")
-    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "add", "-A"], check=True, env=git_env
+    )
     subprocess.run(
         [
             "git",
@@ -254,6 +347,7 @@ def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path)
             "committed leak",
         ],
         check=True,
+        env=git_env,
     )
     # Nothing is staged or modified now: `git diff` and `git diff --cached` are
     # both empty, and `ls-files --others` lists nothing.
@@ -263,6 +357,7 @@ def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path)
             capture_output=True,
             text=True,
             check=True,
+            env=git_env,
         ).stdout.strip()
         == ""
     )

@@ -33,6 +33,7 @@ sys.path.insert(0, str(REPO))
 
 from agent_utilities.governance import concept_allocator as ca  # noqa: E402
 from agent_utilities.governance import lanes  # noqa: E402
+from agent_utilities.governance.concept_hierarchy import iter_okf_markers  # noqa: E402
 
 
 def _staged_files(tree: Path) -> list[str]:
@@ -53,7 +54,7 @@ def _markers_in(tree: Path, files: list[str]) -> set[str]:
         if not path.is_file():
             continue
         text = path.read_text(encoding="utf-8", errors="replace")
-        found.update(m.group("id") for m in ca.MARKER_RE.finditer(text))
+        found.update(marker.id for marker in iter_okf_markers(text))
     return found
 
 

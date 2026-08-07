@@ -28,7 +28,7 @@ undecided residue only — ~6.5k tokens for the whole 79-concept domain, versus
 roughly 60-80k to read every marker and module by hand. Confirming a cluster is
 ONE judgement covering N pointers, not N judgements.
 
-Four dispositions
+Five dispositions
 -----------------
 ``document``
     A genuine trade-off with a rejected alternative. Earns its own design doc.
@@ -41,11 +41,24 @@ Four dispositions
     the engine exposes the native...") or a bare legacy pillar citation
     (``…compute.kg-2``). The marker is deleted and the retirement recorded, so
     re-introducing the id fails the gate.
+``rename``
+    The marker names a real decision, kept whole, that simply needs a
+    different id — most often because its domain word is not (or is no longer)
+    in the closed vocabulary (``agent_utilities/governance/domain_vocab.yaml``).
+    Every site (source, tests, any design doc quoting the id) is rewritten to
+    the new id in one step, and ``agent_utilities/governance/concept_lineage.yaml``
+    records the old-to-new mapping so re-introducing the OLD id fails the gate
+    (the same ratchet ``retire`` has) instead of silently reviving a name that
+    was deliberately moved away from. Needs ``rename_to`` (a valid id whose
+    domain IS in the closed vocab) + ``reason``. Like ``keep``, never
+    suggested by the deterministic pass — telling "this needs a document" from
+    "this just needs a better/legal name" apart is a judgement call, not a
+    cheap signal.
 ``keep``
     A deliberate non-decision: leave it in the accepted baseline for now, with a
     stated reason. Never suggested, only chosen.
 
-The tool's own fifth *suggestion*, ``review``, is not a disposition — it is the
+The tool's own sixth *suggestion*, ``review``, is not a disposition — it is the
 tool saying "the cheap signals ran out here". Its size is what a domain costs.
 
 Evidence collected per concept
@@ -94,14 +107,15 @@ import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
-    OKF_MARKER_RE,
+    is_valid_domain,
+    iter_okf_markers,
     parse_okf_id,
 )
 from agent_utilities.governance.concept_lineage import (  # noqa: E402
@@ -110,8 +124,6 @@ from agent_utilities.governance.concept_lineage import (  # noqa: E402
     parse_lineage,
 )
 from scripts.check_concept_governance import (  # noqa: E402
-    DESIGN_DIR,
-    MERGED_AUDIT_BASELINE,
     all_registered_concepts,
     has_design_doc,
     read_baseline,
@@ -124,7 +136,7 @@ from scripts.check_concept_governance import (  # noqa: E402
 #: gate greps: a proposal must never be able to satisfy the rule it feeds.
 PROPOSAL_DIR = ROOT / ".specify" / "triage"
 
-DECISIONS = ("PENDING", "document", "parent", "retire", "keep")
+DECISIONS = ("PENDING", "document", "parent", "retire", "rename", "keep")
 
 #: Words that make an id read as a sentence fragment rather than a name. An id
 #: whose FIRST or LAST segment word is one of these was almost certainly
@@ -187,7 +199,9 @@ class Site:
     def kind(self) -> str:
         if self.path.startswith(("tests/", "test/")):
             return "test"
-        if self.path.endswith((".md", ".txt")) or self.path.startswith((".specify/", "docs/")):
+        if self.path.endswith((".md", ".txt")) or self.path.startswith(
+            (".specify/", "docs/")
+        ):
             return "doc"
         return "source"
 
@@ -263,8 +277,8 @@ def collect_sites(domain_prefix: str, concepts: set[str]) -> dict[str, list[Site
         path, lineno, text = parts[0], parts[1], parts[2]
         if not lineno.isdigit():
             continue
-        for match in OKF_MARKER_RE.finditer(text):
-            cid = match.group("id")
+        for marker in iter_okf_markers(text):
+            cid = marker.id
             if cid not in concepts:
                 continue
             out[cid].append(Site(path=path, line=int(lineno), text=text.strip()))
@@ -280,14 +294,10 @@ def detect_truncation(sites: list[Site], concept: str) -> str:
     recorded id is then an artifact of the regex, not a name — combined with a
     weak id, the strongest available retire signal.
     """
-    token = f"CONCEPT:{concept}"
     for site in sites:
-        idx = site.text.find(token)
-        while idx != -1:
-            tail = site.text[idx + len(token) :]
-            if tail[:1] in {"/", "_"} or (tail[:1].isalpha() and tail[:1].isupper()):
+        for marker in iter_okf_markers(site.text):
+            if marker.id == concept and marker.tail:
                 return site.text
-            idx = site.text.find(token, idx + 1)
     return ""
 
 
@@ -319,8 +329,8 @@ def git_archaeology(domain_prefix: str, concepts: set[str]) -> dict[str, Evidenc
             continue
         if not line.startswith("+") or line.startswith("+++"):
             continue
-        for match in OKF_MARKER_RE.finditer(line):
-            cid = match.group("id")
+        for marker in iter_okf_markers(line):
+            cid = marker.id
             if cid not in concepts:
                 continue
             first[cid] = (commit, date, subject)
@@ -488,7 +498,10 @@ def suggest(
             why = f"clusters with {len(members) - 1} sibling(s) around {candidate}"
             if shared:
                 why += f"; shares {', '.join(shared[:3])}"
-            if ev.introduced_commit and ev.introduced_commit == evidence[candidate].introduced_commit:
+            if (
+                ev.introduced_commit
+                and ev.introduced_commit == evidence[candidate].introduced_commit
+            ):
                 why += f"; both introduced by {ev.introduced_commit[:8]} ({ev.introduced_subject[:60]})"
             if evidence[candidate].has_doc:
                 why += "; the candidate parent already has a design document"
@@ -565,6 +578,7 @@ def cmd_propose(domain_prefix: str, *, refresh_suggestions: bool = True) -> int:
             "parent": prior.get("parent", ""),
             "rationale": prior.get("rationale", ""),
             "reason": prior.get("reason", ""),
+            "rename_to": prior.get("rename_to", ""),
         }
         if refresh_suggestions or "suggestion" not in prior:
             entry["suggestion"] = decision
@@ -594,7 +608,10 @@ def cmd_propose(domain_prefix: str, *, refresh_suggestions: bool = True) -> int:
 
     dropped = sorted(set(existing) - set(concepts_out))
     for cid in dropped:
-        if (existing[cid] or {}).get("decision", "PENDING") not in {"PENDING", "retire"}:
+        if (existing[cid] or {}).get("decision", "PENDING") not in {
+            "PENDING",
+            "retire",
+        }:
             print(
                 f"WARNING: {cid} carried decision "
                 f"{existing[cid]['decision']!r} but is no longer a live concept — "
@@ -607,12 +624,14 @@ def cmd_propose(domain_prefix: str, *, refresh_suggestions: bool = True) -> int:
         path,
         {
             "domain": domain_prefix,
-            "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
             "generator": "scripts/concept_domain_triage.py",
             "how_to_use": (
                 "Set `decision` on each concept to one of: document | parent | retire | "
-                "keep. `parent` needs `parent:` + `rationale:`; `retire` needs `reason:`; "
-                "`keep` needs `reason:`. Then run `apply` (dry-run) and `apply --write`."
+                "rename | keep. `parent` needs `parent:` + `rationale:`; `retire` needs "
+                "`reason:`; `rename` needs `rename_to:` (a valid id whose domain IS in "
+                "the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` "
+                "(dry-run) and `apply --write`."
             ),
             "clusters": {
                 sorted(members)[0]: sorted(members)
@@ -712,10 +731,50 @@ def _apply_retirement(concept: str, sites: list[Site], *, write: bool) -> list[s
             ending = "\n" if lines[idx].endswith("\n") else ""
             new_text, degenerate = _strip_marker(lines[idx].rstrip("\n"), concept)
             if degenerate:
-                edits.append(f"  MANUAL {path}:{site.line} — line is only the marker: {site.text[:80]}")
+                edits.append(
+                    f"  MANUAL {path}:{site.line} — line is only the marker: {site.text[:80]}"
+                )
                 continue
-            edits.append(f"  edit   {path}:{site.line}\n    -{site.text[:100]}\n    +{new_text.strip()[:100]}")
+            edits.append(
+                f"  edit   {path}:{site.line}\n    -{site.text[:100]}\n    +{new_text.strip()[:100]}"
+            )
             lines[idx] = new_text + ending
+            changed = True
+        if changed and write:
+            target.write_text("".join(lines), encoding="utf-8")
+    return edits
+
+
+def _apply_rename(old: str, new: str, sites: list[Site], *, write: bool) -> list[str]:
+    """Rewrite ``CONCEPT:<old>`` to ``CONCEPT:<new>`` at every site.
+
+    Unlike retirement, this never deletes content — it substitutes the id
+    token in place, so it needs none of ``_strip_marker``'s leftover-tidying.
+    Idempotent: a site whose line no longer carries the old token (already
+    applied by a prior run, or the tree moved) is a silent no-op, same
+    contract as :func:`_apply_retirement`.
+    """
+    old_token, new_token = f"CONCEPT:{old}", f"CONCEPT:{new}"
+    edits: list[str] = []
+    by_file: dict[str, list[Site]] = defaultdict(list)
+    for site in sites:
+        by_file[site.path].append(site)
+    for path, file_sites in sorted(by_file.items()):
+        target = ROOT / path
+        if not target.exists():
+            continue
+        lines = target.read_text(encoding="utf-8").splitlines(keepends=True)
+        changed = False
+        for site in file_sites:
+            idx = site.line - 1
+            if idx >= len(lines) or old_token not in lines[idx]:
+                continue  # already applied, or the tree moved — idempotent no-op
+            new_line = lines[idx].replace(old_token, new_token)
+            edits.append(
+                f"  rename {path}:{site.line}\n    -{site.text[:100]}\n"
+                f"    +{new_line.strip()[:100]}"
+            )
+            lines[idx] = new_line
             changed = True
         if changed and write:
             target.write_text("".join(lines), encoding="utf-8")
@@ -733,11 +792,14 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
     lineage_raw = _load_yaml(LINEAGE_PATH)
     parents = dict(lineage_raw.get("parents") or {})
     retired = dict(lineage_raw.get("retired") or {})
+    renamed = dict(lineage_raw.get("renamed") or {})
+    all_live = frozenset(all_registered_concepts())
 
     problems: list[str] = []
     owed: list[str] = []
     deferred: list[str] = []
     to_retire: list[str] = []
+    to_rename: list[tuple[str, str]] = []
     edits: list[str] = []
     counts: dict[str, int] = defaultdict(int)
 
@@ -749,7 +811,9 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
                 problems.append(f"{cid}: decision 'keep' requires a reason")
             continue
         if decision not in DECISIONS:
-            problems.append(f"{cid}: unknown decision {decision!r} (expected one of {DECISIONS})")
+            problems.append(
+                f"{cid}: unknown decision {decision!r} (expected one of {DECISIONS})"
+            )
             continue
         if decision == "document":
             # NOT a blocker: "this earns its own document" is a classification,
@@ -774,7 +838,10 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
                     f"{cid} -> {parent} (waiting on the parent's design document)"
                 )
                 continue
-            parents[cid] = {"parent": parent, "rationale": (entry.get("rationale") or "").strip()}
+            parents[cid] = {
+                "parent": parent,
+                "rationale": (entry.get("rationale") or "").strip(),
+            }
             edits.append(f"  lineage parent  {cid} -> {parent}")
             continue
         if decision == "retire":
@@ -790,15 +857,77 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
             # required — that is the ratchet — but there is nothing left to edit.
             if cid in evidence:
                 to_retire.append(cid)
+            continue
+        if decision == "rename":
+            target_raw = (entry.get("rename_to") or "").strip()
+            reason = (entry.get("reason") or "").strip()
+            if not target_raw:
+                problems.append(f"{cid}: decision 'rename' requires a `rename_to:` id")
+                continue
+            if not reason:
+                problems.append(f"{cid}: decision 'rename' requires a `reason:`")
+                continue
+            if target_raw == cid:
+                problems.append(f"{cid}: decision 'rename' cannot target itself")
+                continue
+            try:
+                parsed_target = parse_okf_id(target_raw)
+            except ValueError as exc:
+                problems.append(
+                    f"{cid}: rename_to {target_raw!r} is not a valid OKF-CIS id: {exc}"
+                )
+                continue
+            if not is_valid_domain(parsed_target.pillar, parsed_target.domain):
+                problems.append(
+                    f"{cid}: rename target {target_raw!r} uses domain "
+                    f"{parsed_target.domain!r}, which is not in the closed vocab "
+                    f"for pillar {parsed_target.pillar} either — renaming into "
+                    "another illegal domain does not fix anything"
+                )
+                continue
+            # Flatten: if the target is itself mid-rename (an OLD id in the
+            # existing table), follow to the final id rather than adding a
+            # second hop. `renamed` was loaded from disk and is already
+            # validated (no chains), so this is a single lookup in practice.
+            final_target = target_raw
+            if final_target in renamed:
+                previous = final_target
+                final_target = renamed[final_target]["to"]
+                edits.append(
+                    f"  rename target {previous} is itself renamed -> following "
+                    f"to {final_target}"
+                )
+            if final_target in all_live:
+                problems.append(
+                    f"{cid}: rename target {final_target!r} already exists as a "
+                    "live concept — that is a MERGE, not a rename, and this "
+                    "mechanism does not support merges"
+                )
+                continue
+            renamed[cid] = {"to": final_target, "reason": reason}
+            # Reflatten predecessors: anything already renamed INTO cid must now
+            # point at final_target directly, so the table never grows a second
+            # hop no matter how many times an id is renamed over time.
+            for old_id, old_entry in list(renamed.items()):
+                if old_id != cid and (old_entry or {}).get("to") == cid:
+                    renamed[old_id] = {**old_entry, "to": final_target}
+                    edits.append(
+                        f"  lineage reflatten  {old_id} -> {final_target} (was -> {cid})"
+                    )
+            edits.append(f"  lineage rename  {cid} -> {final_target}")
+            if cid in evidence:
+                to_rename.append((cid, final_target))
 
     # Validate the candidate registry BEFORE writing it: the loader's rules (one
     # hop, no self-parent, no restatement rationale) must hold, and finding out
     # after the write means a broken registry is already on disk.
-    candidate = {"parents": parents, "retired": retired}
+    candidate = {"parents": parents, "retired": retired, "renamed": renamed}
     try:
         parse_lineage(candidate)
     except LineageError as exc:
-        raise SystemExit(f"the resulting lineage registry would be invalid: {exc}") from exc
+        raise SystemExit(
+            f"the resulting lineage registry would be invalid: {exc}"
+        ) from exc
 
     # Only NOW touch the tree. `apply` is all-or-nothing on purpose: a run that
     # is going to refuse to write the registry must not have already deleted
@@ -808,8 +937,16 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
         edits.extend(
             _apply_retirement(cid, evidence[cid].sites, write=write and not problems)
         )
+    for cid, target in to_rename:
+        edits.extend(
+            _apply_rename(
+                cid, target, evidence[cid].sites, write=write and not problems
+            )
+        )
 
-    print(f"{domain_prefix}: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items())))
+    print(
+        f"{domain_prefix}: " + ", ".join(f"{k}={v}" for k, v in sorted(counts.items()))
+    )
     if owed:
         print(
             f"\n{len(owed)} concept(s) are classified 'document' but nobody has "
@@ -829,13 +966,15 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
         for msg in problems:
             print(f"  - {msg}")
     if edits:
-        print(f"\n{'APPLYING' if write else 'DRY RUN — would apply'} {len(edits)} edit(s):")
+        print(
+            f"\n{'APPLYING' if write else 'DRY RUN — would apply'} {len(edits)} edit(s):"
+        )
         for msg in edits:
             print(msg)
     if problems:
         return 1
     if write:
-        _write_lineage(parents, retired)
+        _write_lineage(parents, retired, renamed)
         print(f"\nWrote {LINEAGE_PATH.relative_to(ROOT)}.")
         print(
             "Next: `python3 scripts/check_concept_governance.py --audit-merged` to "
@@ -847,7 +986,7 @@ def cmd_apply(domain_prefix: str, *, write: bool) -> int:
     return 0
 
 
-def _write_lineage(parents: dict, retired: dict) -> None:
+def _write_lineage(parents: dict, retired: dict, renamed: dict | None = None) -> None:
     """Rewrite the registry, preserving its explanatory header."""
     import yaml
 
@@ -859,12 +998,18 @@ def _write_lineage(parents: dict, retired: dict) -> None:
             else:
                 break
     body = yaml.safe_dump(
-        {"parents": parents or {}, "retired": retired or {}},
+        {
+            "parents": parents or {},
+            "retired": retired or {},
+            "renamed": renamed or {},
+        },
         sort_keys=True,
         allow_unicode=True,
         width=100,
     )
-    LINEAGE_PATH.write_text("\n".join(header_lines).rstrip() + "\n\n" + body, encoding="utf-8")
+    LINEAGE_PATH.write_text(
+        "\n".join(header_lines).rstrip() + "\n\n" + body, encoding="utf-8"
+    )
 
 
 def _best_marker_lines(ev: Evidence, limit: int = 2) -> list[str]:
@@ -988,7 +1133,9 @@ def cmd_domains(limit: int) -> int:
         parsed = parse_okf_id(cid)
         groups[f"{parsed.slug}-{parsed.pillar}.{parsed.domain}"].append(cid)
     ranked = sorted(groups.items(), key=lambda kv: (-len(kv[1]), kv[0]))
-    print(f"{len(ranked)} domain group(s), {sum(len(v) for v in groups.values())} concepts:")
+    print(
+        f"{len(ranked)} domain group(s), {sum(len(v) for v in groups.values())} concepts:"
+    )
     for name, members in ranked[:limit]:
         triaged = proposal_path(name).exists()
         print(f"  {len(members):4d}  {name}{'  [proposal exists]' if triaged else ''}")
@@ -1002,18 +1149,29 @@ def cmd_status(domain_prefix: str) -> int:
     counts: dict[str, int] = defaultdict(int)
     for entry in (data.get("concepts") or {}).values():
         counts[(entry or {}).get("decision", "PENDING")] += 1
-    print(json.dumps({"domain": domain_prefix, "decisions": dict(sorted(counts.items()))}, indent=2))
+    print(
+        json.dumps(
+            {"domain": domain_prefix, "decisions": dict(sorted(counts.items()))},
+            indent=2,
+        )
+    )
     return 0
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    p_domains = sub.add_parser("domains", help="list undocumented-concept domain groups")
+    p_domains = sub.add_parser(
+        "domains", help="list undocumented-concept domain groups"
+    )
     p_domains.add_argument("--limit", type=int, default=100)
 
-    p_propose = sub.add_parser("propose", help="write/refresh a domain's triage proposal")
+    p_propose = sub.add_parser(
+        "propose", help="write/refresh a domain's triage proposal"
+    )
     p_propose.add_argument("domain", help="e.g. AU-KG.compute")
     p_propose.add_argument(
         "--keep-suggestions",
@@ -1021,9 +1179,13 @@ def main() -> int:
         help="do not recompute suggestions for concepts already in the proposal",
     )
 
-    p_apply = sub.add_parser("apply", help="apply the confirmed decisions (dry run by default)")
+    p_apply = sub.add_parser(
+        "apply", help="apply the confirmed decisions (dry run by default)"
+    )
     p_apply.add_argument("domain")
-    p_apply.add_argument("--write", action="store_true", help="actually write the edits")
+    p_apply.add_argument(
+        "--write", action="store_true", help="actually write the edits"
+    )
 
     p_packet = sub.add_parser(
         "packet", help="emit a compact adjudication packet (only the undecided residue)"

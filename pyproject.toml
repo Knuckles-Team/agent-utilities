@@ -40,7 +40,11 @@ dependencies = [
     # Floor raised to the current major (49.0.0); repo carries no usage of the
     # aliases/modes/ciphers removed in 49 (PUBLIC_KEY_TYPES-style aliases, CFB/OFB/
     # CFB8, Camellia) — verified clean via grep before lifting the old `<49` cap.
-    "cryptography>=49.0.0",
+    # D-W5AL-1: raised again to 50.0.0 to close GHSA-g6cj-pr64-35w5 / PYSEC-2026-3552
+    # (fixed=50.0.0) — the OSV dependency-audit gate fails closed on the unpatched
+    # 49.0.0 floor otherwise, and a bare `>=49.0.0` floor lets a future re-lock
+    # silently re-select the vulnerable version.
+    "cryptography>=50.0.0",
     "pathspec>=1.1.1",
     "platformdirs>=4.11.0",
     "packaging>=26.2.0",
@@ -720,6 +724,30 @@ epistemic-graph = { workspace = true }
 # The workspace release train certifies the current observability provider
 # artifact rather than resolving a same-version package from an index.
 langfuse-agent = { workspace = true }
+# D-75-1/D-CIP-19/D-W3BP-4: langfuse-agent (a workspace member below) depends
+# on plain-versioned `agent-utilities[mcp]>=2.0.0,<3.0.0`. uv requires an
+# explicit source, declared at the workspace ROOT, for any dependency name
+# that collides with a workspace member's own name -- a member cannot source
+# itself from within its own `[tool.uv.sources]`. The ecosystem workspace
+# root resolves the identical edge the identical way (its own repo-relative
+# `pyproject.toml`'s `[tool.uv.sources]`).
+agent-utilities = { workspace = true }
+
+# D-75-1/D-CIP-19/D-W3BP-4 (operator decision, 2026-08-07): this repo is its
+# OWN uv workspace root, self-contained, so the `workspace = true` sources
+# above resolve without depending on the larger, untracked, unshipped
+# ecosystem workspace at the repo root. `.uv-workspace-siblings/<name>` is not
+# tracked: `scripts/uv_workspace.py` symlinks it locally from the ecosystem
+# checkout for dev/lane use (`materialize_own_siblings`); CI's
+# `.github/workflows/security.yml` materializes the same paths with
+# `actions/checkout` for the one job that needs both packages actually
+# installed. Every other workflow sidesteps the requirement entirely with
+# `--no-install-package epistemic-graph --no-install-package langfuse-agent`.
+[tool.uv.workspace]
+members = [
+    ".uv-workspace-siblings/epistemic-graph",
+    ".uv-workspace-siblings/langfuse-agent",
+]
 
 [dependency-groups]
 guardrails = [

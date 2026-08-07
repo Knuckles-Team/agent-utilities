@@ -18,6 +18,7 @@ or KG-resolution path.
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import patch
 
 import pytest
@@ -303,3 +304,137 @@ async def test_service_registry_execution_records_its_distinct_mode() -> None:
 
     assert result == "handled: fixture task"
     assert record_trace.call_args.kwargs["execution_mode"] == "service_registry"
+
+
+# ---------------------------------------------------------------------------
+# D-CDX-50 — pre-dispatch exits (between on_graph_start and the dispatch-stage
+# try/except) must still close telemetry AND record a terminal RunTrace,
+# instead of leaking the span and leaving the run_id with zero provenance.
+# ---------------------------------------------------------------------------
+
+
+async def test_pre_dispatch_failure_still_records_a_terminal_run_trace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raise from deep in setup/config (here: execution-shape planning,
+    which runs AFTER engine resolution and BEFORE the dispatch stage's own
+    try/except) used to propagate out of ``run_agent`` with NO RunTrace ever
+    written for the run_id and the OTel span left open forever. It must now
+    hit the pre-dispatch lifecycle boundary: exactly one terminal RunTrace
+    write, status="failed", and the original exception still propagates
+    unchanged."""
+
+    class _StillOnlyOne(RuntimeError):
+        pass
+
+    def _boom(*_a: object, **_k: object) -> None:
+        raise _StillOnlyOne("execution-shape planning exploded")
+
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.execution_profile.plan_execution_shape",
+        _boom,
+    )
+
+    with patch.object(
+        agent_runner, "_record_execution_trace_ordered"
+    ) as record_trace:
+        record_trace.return_value = True
+        with pytest.raises(_StillOnlyOne):
+            await agent_runner.run_agent(
+                "pre-dispatch-agent", "do the thing", engine=object()
+            )
+
+    assert record_trace.await_count == 1
+    kwargs = record_trace.call_args.kwargs
+    assert kwargs["status"] == "failed"
+    assert "execution-shape planning exploded" in kwargs["error"]
+
+
+async def test_pre_dispatch_cancellation_records_a_cancelled_trace_and_still_propagates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A genuine ``asyncio.CancelledError`` raised in the pre-dispatch window
+    (e.g. the caller's own wall-clock budget firing while KG agent resolution
+    is still in flight) must record status="cancelled" AND re-raise the
+    cancellation itself — never swallowed, never reinterpreted as an ordinary
+    failure."""
+
+    def _cancel(*_a: object, **_k: object) -> None:
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.execution_profile.plan_execution_shape",
+        _cancel,
+    )
+
+    with patch.object(
+        agent_runner, "_record_execution_trace_ordered"
+    ) as record_trace:
+        record_trace.return_value = True
+        with pytest.raises(asyncio.CancelledError):
+            await agent_runner.run_agent(
+                "pre-dispatch-agent", "do the thing", engine=object()
+            )
+
+    assert record_trace.await_count == 1
+    assert record_trace.call_args.kwargs["status"] == "cancelled"
+
+
+async def test_pre_dispatch_repeated_cancellation_records_exactly_once_per_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two independent runs, each cancelled in the pre-dispatch window, must
+    each get their own single terminal trace write — repeated cancellation
+    across separate runs must not leak state (e.g. a stuck flag) that skips
+    or double-fires the boundary for the NEXT run."""
+
+    def _cancel(*_a: object, **_k: object) -> None:
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.execution_profile.plan_execution_shape",
+        _cancel,
+    )
+
+    with patch.object(
+        agent_runner, "_record_execution_trace_ordered"
+    ) as record_trace:
+        record_trace.return_value = True
+        for _ in range(2):
+            with pytest.raises(asyncio.CancelledError):
+                await agent_runner.run_agent(
+                    "pre-dispatch-agent", "do the thing", engine=object()
+                )
+
+    assert record_trace.await_count == 2
+    assert all(
+        call.kwargs["status"] == "cancelled" for call in record_trace.await_args_list
+    )
+
+
+async def test_pre_dispatch_keyboard_interrupt_is_never_recorded_or_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A bare ``KeyboardInterrupt``/``SystemExit`` (process-level signal, not a
+    run failure) must pass straight through the pre-dispatch boundary with NO
+    trace write at all — mirrors the dispatch-stage handler's own carve-out
+    for the same two exception types."""
+
+    def _raise_ki(*_a: object, **_k: object) -> None:
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.execution_profile.plan_execution_shape",
+        _raise_ki,
+    )
+
+    with patch.object(
+        agent_runner, "_record_execution_trace_ordered"
+    ) as record_trace:
+        record_trace.return_value = True
+        with pytest.raises(KeyboardInterrupt):
+            await agent_runner.run_agent(
+                "pre-dispatch-agent", "do the thing", engine=object()
+            )
+
+    assert record_trace.await_count == 0

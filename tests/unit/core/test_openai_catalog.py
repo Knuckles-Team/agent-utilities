@@ -94,6 +94,27 @@ async def test_verify_openai_model_exists(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_verify_openai_model_empty_base_url_uses_sdk_default(monkeypatch):
+    record = _FakeRecord(owned_by="openai", created=1700000000)
+
+    class _Client(_FakeAsyncOpenAI):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.models = _FakeModelsResource(raise_exc=None, record=record)
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "openai",
+        type("M", (), {"AsyncOpenAI": _Client}),
+    )
+
+    result = await verify_openai_model("gpt-4o-mini", api_key=_FAKE_KEY, base_url="")
+
+    assert result.exists is True
+    assert _FakeAsyncOpenAI.last_init_kwargs == {"api_key": _FAKE_KEY}
+
+
+@pytest.mark.asyncio
 async def test_verify_openai_model_missing_never_leaks_the_api_key(monkeypatch):
     class _AuthError(Exception):
         def __init__(self, key: str):

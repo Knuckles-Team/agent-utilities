@@ -51,6 +51,9 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import uv_workspace  # noqa: E402 -- sibling script, pure stdlib, no circularity risk
+
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "guardrails.yml"
 _PY_VERSION = "3.12"  # matches actions/setup-python in guardrails.yml
@@ -133,12 +136,20 @@ def _build_lean_venv(venv_dir: Path, sync_command: list[str]) -> Path:
         f"{' '.join(sync_command)}",
         flush=True,
     )
-    subprocess.run(
-        [uv, *sync_command[1:]],
-        check=True,
-        cwd=_REPO_ROOT,
-        env=environment,
-    )
+    # D-CDX-17: this `uv sync` was one of 5 heavy uv/pytest invocations found
+    # unwrapped by any of this repo's concurrency chokepoints -- it contends
+    # for the SAME shared uv download/build cache `_dependency_sync_slot()`
+    # exists to bound (D-ORC-33's own rationale), even though `venv_dir` here
+    # is this run's own throwaway lean venv, not the shared `<worktree>/.venv`.
+    # Only bounds concurrent uv_workspace.py-family invocations on THIS host;
+    # provides no guarantee against an unwrapped `uv sync` run any other way.
+    with uv_workspace._dependency_sync_slot():
+        subprocess.run(
+            [uv, *sync_command[1:]],
+            check=True,
+            cwd=_REPO_ROOT,
+            env=environment,
+        )
     py = venv_dir / "bin" / "python"
     if not py.is_file():
         sys.exit("ERROR: frozen uv sync did not create the expected interpreter")

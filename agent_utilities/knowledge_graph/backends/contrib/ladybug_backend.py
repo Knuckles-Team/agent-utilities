@@ -33,7 +33,7 @@ from agent_utilities.security.identifiers import (
     validate_identifier,
 )
 
-from ..base import GraphBackend
+from ..base import GraphBackend, embedding_values_match
 
 try:
     import ladybug
@@ -157,6 +157,8 @@ class CombinedLock:
 
 class LadybugBackend(GraphBackend):
     """LadybugDB backend implementation."""
+
+    embedding_is_node_property = True
 
     def _get_lock(self):
         """Get a cross-process pessimistic lock for the database."""
@@ -1293,6 +1295,20 @@ class LadybugBackend(GraphBackend):
         query = "MATCH (n {id: $id}) SET n.embedding = $emb"
         # The _get_lock is inside self.execute()
         self.execute(query, {"id": node_id, "emb": embedding})
+
+    def verify_node_embedding(self, node_id: str, embedding: list[float]) -> bool:
+        """Confirm the Kuzu vector through its fail-loud read transaction."""
+        label = self._resolve_node_label(node_id)
+        if not label:
+            return False
+        label = validate_identifier(label, kind="label")
+        rows = self.execute_read(
+            f"MATCH (n:{label} {{id: $id}}) RETURN n.embedding AS embedding",
+            {"id": node_id},
+        )
+        return bool(rows) and embedding_values_match(
+            rows[0].get("embedding"), embedding
+        )
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5

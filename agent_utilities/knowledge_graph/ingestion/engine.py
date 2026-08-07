@@ -3844,7 +3844,7 @@ class IngestionEngine:
                     "description": str(tool.get("description") or ""),
                     "mcp_server": SELF_MCP_SERVER_NAME,
                     "tags": ["graph-os"],
-                    "relevance_score": 0.5,
+                    "relevance_score": 50,
                     "requires_approval": False,
                     "synonyms": [],
                     "kind": "mcp_tool",

@@ -69,13 +69,15 @@ async def run_blocking_ordered(
     cancelled = False
     while not worker.done():
         try:
-            await asyncio.shield(worker)
+            # ``asyncio.wait`` observes completion without transferring this
+            # task's cancellation to ``worker``.  A shield wrapper also keeps
+            # the worker alive, but cancelling that wrapper can report the
+            # worker's later exception to the loop before ``worker.result()``
+            # below consumes it.  Waiting on the task set has no intermediary
+            # future whose exception can leak.
+            await asyncio.wait({worker})
         except asyncio.CancelledError:
             cancelled = True
-        except BaseException:
-            if not cancelled:
-                raise
-            break
 
     if cancelled:
         # Retrieve any worker exception so it is not reported as an unhandled

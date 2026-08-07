@@ -431,7 +431,7 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
                     # provides (``servicenow-mcp`` → ``servicenow``), falling
                     # back to the server name so it is never empty.
                     "capabilityCategory": product or server_name,
-                    "relevance_score": 0.5,
+                    "relevance_score": 50,
                     "requires_approval": False,
                     "synonyms": synonyms,
                     "kind": "mcp_tool",
@@ -504,6 +504,12 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     # ``ingest_runnable_skill`` and fails closed per skill, so one noisy
     # description can no longer cost the entire fleet its runnable capability.
     harvest = _promote_fleet_skills(engine, catalog)
+    # CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — promotes prompts
+    # harvested from fleet MCP children into the Prompt corpus, same rationale
+    # as the skill promotion above applied to prompt bodies: runs BEFORE the
+    # catalog slice write and fails closed per prompt via ``ingest_prompt_node``,
+    # so one malformed fleet prompt can never cost the rest of the corpus.
+    harvest.update(_promote_fleet_prompts(engine, catalog))
 
     rejected: list[str] = []
     if entities:
@@ -675,6 +681,21 @@ def _promote_fleet_skills(engine: Any, catalog: dict[str, dict]) -> dict[str, An
         "skills_blocked_detail": report["blocked_detail"],
         "skills_promote_errors": report["errors"],
         "skills_promote_error_detail": report["error_detail"],
+    }
+
+
+def _promote_fleet_prompts(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
+    """Promote harvested fleet prompts, reporting the outcome under its own keys."""
+    from ..ingestion.fleet_prompt_harvest import promote_harvested_prompts
+
+    report = promote_harvested_prompts(engine, catalog)
+    return {
+        "prompts_promoted": report["promoted"],
+        "prompts_promoted_ids": report["promoted_prompts"],
+        "prompts_blocked": report["blocked"],
+        "prompts_blocked_detail": report["blocked_detail"],
+        "prompts_promote_errors": report["errors"],
+        "prompts_promote_error_detail": report["error_detail"],
     }
 
 
