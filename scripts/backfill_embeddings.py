@@ -95,8 +95,15 @@ def _cost_estimate(
     }
 
 
-async def _run(limit: int, batch_size: int, execute: bool) -> None:
+async def _run(
+    limit: int,
+    batch_size: int,
+    execute: bool,
+    node_types: tuple[str, ...] | None = None,
+) -> None:
     print(f"sys.executable={sys.executable}", flush=True)
+    if node_types:
+        print(f"node_types scope: {list(node_types)}", flush=True)
 
     from agent_utilities.knowledge_graph.core.session import set_session
     from agent_utilities.mcp.kg_server import _mint_process_session
@@ -123,9 +130,13 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
     # including nodes this script will never actually embed.
     from agent_utilities.knowledge_graph.enrichment.semantic import (
         embedding_backfill_eligibility_clause,
+        embedding_backfill_type_scope_clause,
     )
 
     exclusion_clause, exclusion_params = embedding_backfill_eligibility_clause()
+    type_clause = (
+        embedding_backfill_type_scope_clause(node_types) if node_types else ""
+    )
 
     # ---- current population snapshot (same counts the diagnosis used) ----
     total = embedded = with_text = eligible = 0
@@ -147,6 +158,7 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
             backend.execute(
                 "MATCH (n) WHERE n.embedding IS NULL "
                 "AND n._embedding_backfill_state IS NULL "
+                f"{type_clause}"
                 f"{exclusion_clause} RETURN count(n) AS c",
                 exclusion_params,
             )
@@ -202,6 +214,7 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
                 backend.execute(
                     "MATCH (n) WHERE n.embedding IS NULL "
                     "AND n._embedding_backfill_state IS NULL "
+                    f"{type_clause}"
                     f"{exclusion_clause} "
                     "RETURN n.id AS id ORDER BY n.id LIMIT $limit",
                     {"limit": limit, **exclusion_params},
@@ -233,7 +246,9 @@ async def _run(limit: int, batch_size: int, execute: bool) -> None:
         return
 
     t0 = time.monotonic()
-    report = maintainer.backfill_entity_embeddings(limit=limit, batch_size=batch_size)
+    report = maintainer.backfill_entity_embeddings(
+        limit=limit, batch_size=batch_size, node_types=node_types
+    )
     elapsed = time.monotonic() - t0
 
     print(f"\n=== BACKFILL RESULT (this run) ===\n{report}", flush=True)
@@ -317,9 +332,39 @@ def main() -> None:
         help="Actually write embeddings. Without this flag, only reports "
         "what WOULD be embedded (no engine writes, no embed-endpoint calls).",
     )
+    parser.add_argument(
+        "--node-types",
+        type=str,
+        default="",
+        help="Scope candidates to a comma-separated list of node_type values "
+        "(D-HYD-4 addendum, 2026-08-06) instead of the default blind "
+        "id-ordered sweep across every type. Pass the literal value "
+        "'discovery' as shorthand for DISCOVERY_NODE_TYPES — the exact set "
+        "find_tools / find_relevant_callable_resources / delegation search "
+        "over (Tool, WorkflowDefinition, Skill, CallableResource, Concept, "
+        "Prompt, MCPServer, NativeTool) — which the default sweep was "
+        "measured to never reach at its per-cycle budget.",
+    )
     args = parser.parse_args()
+    node_types: tuple[str, ...] | None = None
+    if args.node_types.strip():
+        if args.node_types.strip().lower() == "discovery":
+            from agent_utilities.knowledge_graph.enrichment.semantic import (
+                DISCOVERY_NODE_TYPES,
+            )
+
+            node_types = DISCOVERY_NODE_TYPES
+        else:
+            node_types = tuple(
+                t.strip() for t in args.node_types.split(",") if t.strip()
+            )
     asyncio.run(
-        _run(limit=args.limit, batch_size=args.batch_size, execute=args.execute)
+        _run(
+            limit=args.limit,
+            batch_size=args.batch_size,
+            execute=args.execute,
+            node_types=node_types,
+        )
     )
 
 

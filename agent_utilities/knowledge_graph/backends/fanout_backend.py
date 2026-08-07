@@ -549,15 +549,16 @@ class FanOutBackend(GraphBackend):
             self._enqueue("execute_batch", {"query": query, "batch": batch})
             return result
 
-    def apply_typed_batch(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
-        """Commit native typed upserts once, then enqueue ordered mirror replay.
+    @staticmethod
+    def _prepare_typed_mutations(
+        operations: list[dict[str, Any]],
+    ) -> tuple[list[tuple[str, dict[str, Any]]], list[dict[str, Any]], list[str]]:
+        """Validate + render typed upsert operations into mirror-outbox payloads.
 
-        The authority's ``BatchUpdate`` validates the complete operation list and
-        commits it atomically.  Prepare every mirror payload *before* that commit
-        so an unsupported operation cannot leave an authority-only mutation.
-        Mirrors keep their established per-mutation outbox ordering; their durable
-        replay remains eventual, while the authority remains the read/write ack
-        source of truth.
+        Shared by :meth:`apply_typed_batch` (which also commits the authority)
+        and :meth:`replay_committed_change` (whose authority commit already
+        happened elsewhere — e.g. a native ``ApplyChangeEnvelope``) so the two
+        callers cannot drift into two different mutation dialects.
         """
         prepared: list[tuple[str, dict[str, Any]]] = []
         copied_operations: list[dict[str, Any]] = []
@@ -615,6 +616,21 @@ class FanOutBackend(GraphBackend):
             else:
                 raise ValueError(f"unsupported typed batch operation: {op!r}")
             copied_operations.append(copied)
+        return prepared, copied_operations, mutation_keys
+
+    def apply_typed_batch(self, operations: list[dict[str, Any]]) -> dict[str, Any]:
+        """Commit native typed upserts once, then enqueue ordered mirror replay.
+
+        The authority's ``BatchUpdate`` validates the complete operation list and
+        commits it atomically.  Prepare every mirror payload *before* that commit
+        so an unsupported operation cannot leave an authority-only mutation.
+        Mirrors keep their established per-mutation outbox ordering; their durable
+        replay remains eventual, while the authority remains the read/write ack
+        source of truth.
+        """
+        prepared, copied_operations, mutation_keys = self._prepare_typed_mutations(
+            operations
+        )
 
         apply = getattr(self._authority, "apply_typed_batch", None)
         if not callable(apply):
@@ -648,6 +664,48 @@ class FanOutBackend(GraphBackend):
                     "authority committed typed batch but mirror handoff failed"
                 ) from exc
             return result
+
+    def replay_committed_change(self, operations: list[dict[str, Any]]) -> None:
+        """Durably enqueue mirror replay for a mutation ALREADY committed at authority.
+
+        A native ``ApplyChangeEnvelope``/``ApplyChangeEnvelopes`` commit bypasses
+        this backend's own ``execute``/``apply_typed_batch`` entirely — the caller
+        holds a direct client onto the unwrapped native authority (see
+        ``envelope_ingest._resolve_native_authority``) so the graph slice never
+        compiles a second Python mutation authority. This method is the seam that
+        lets that already-committed node/edge delta still reach the SAME durable
+        mirror outbox ordinary typed writes use (D-BFR-12): it validates and
+        renders the operations exactly like :meth:`apply_typed_batch`, but never
+        calls the authority — only enqueues. Idempotent replay of an already-
+        applied envelope must not call this a second time (the caller skips it
+        when the native commit reports ``replayed``); a mirror always converges
+        on the SAME final node/edge state either way, but re-enqueueing a no-op
+        delta would still cost an unnecessary outbox write per replay.
+        """
+        if not self._mirrors or not operations:
+            return
+        prepared, _copied_operations, mutation_keys = self._prepare_typed_mutations(
+            operations
+        )
+        stripe_indexes = sorted(
+            {hash(key) % len(self._mutation_locks) for key in mutation_keys}
+        )
+        with ExitStack() as stack:
+            stack.enter_context(self._producer())
+            for stripe_index in stripe_indexes:
+                stack.enter_context(self._mutation_locks[stripe_index])
+            try:
+                for op, payload in prepared:
+                    self._enqueue(op, payload)
+            except Exception as exc:  # noqa: BLE001 — authority already committed via native ChangeEnvelope; reconciliation is now required for mirrors
+                logger.critical(
+                    "FanOutBackend: native ChangeEnvelope committed but mirror "
+                    "handoff failed; reconciliation required: %s",
+                    exc,
+                )
+                raise AuthorityCommittedMirrorHandoffError(
+                    "native ChangeEnvelope committed but mirror handoff failed"
+                ) from exc
 
     def add_node(self, node_id: str, label: str = "", **properties: Any) -> None:
         """Commit one typed node mutation and mirror its structured payload.
@@ -732,7 +790,7 @@ class FanOutBackend(GraphBackend):
         compare_and_set = getattr(self._authority, "compare_and_set_node_fields", None)
         get_properties = getattr(self._authority, "get_node_properties", None)
         if not callable(compare_and_set) or not callable(get_properties):
-            raise NotImplementedError(
+            raise NotImplementedError(  # ABSTRACT-OK — optional CAS capability, mirrors base.py's own feature-detection guard
                 "fan-out authority does not support node compare-and-set snapshots"
             )
 

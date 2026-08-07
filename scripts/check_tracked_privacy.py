@@ -671,6 +671,22 @@ def main() -> int:
             f"({len(baseline)} pre-existing leak(s) remain baselined — "
             "burn them down, never grow the file.)"
         )
+        # D-ORC-53: this gate returned a DIFFERENT verdict for the SAME tree
+        # depending on invocation method (standalone script vs. via
+        # pre-commit) at least once, with no code change in between — a
+        # non-reproducible privacy verdict trains people to skip a gate that
+        # is right often enough to be dangerous when it is silent. Printing
+        # exactly what was resolved turns the NEXT occurrence into evidence
+        # instead of another "prove it happened after the fact" investigation
+        # (this pass could not reproduce the discrepancy against ROOT/cwd/
+        # baseline resolution alone — see that item for what was ruled out).
+        print(
+            "resolution (D-ORC-53 forensic breadcrumb): "
+            f"ROOT={ROOT} cwd={Path.cwd()} BASELINE={BASELINE} "
+            f"baseline_found={BASELINE.is_file()} "
+            f"total_violations={len(violations)} baselined={len(baseline)} "
+            f"PRE_COMMIT_HOME={os.environ.get('PRE_COMMIT_HOME', '<unset>')!r}"
+        )
         return 1
     if fixed:
         print(

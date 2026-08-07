@@ -36,7 +36,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import BinaryIO
+from typing import Any, BinaryIO
 
 #: Shared HMAC secret the test engine runs under. The engine REFUSES to start
 #: without one (CONCEPT:AU-OS.identity.authenticated-identity-enforcement); every client authenticates with this exact
@@ -114,6 +114,24 @@ def strict_server_env(state_dir: str, *, auth_secret: str) -> dict[str, str]:
 #: many seconds after its last client disconnects — so a dead suite leaves no
 #: orphan process. Short enough to reap promptly, long enough to span a slow
 #: session of back-to-back tests sharing the one engine.
+#:
+#: D-CDX-32: this grace is measured against the engine's *active-connection*
+#: count reaching zero (``run_idle_watcher`` in
+#: ``epistemic-graph/src/server/transport.rs``), not wall-clock since the
+#: engine started. Individual test clients connect-and-disconnect per
+#: operation, so nothing kept this count above zero between tests on its own —
+#: a full-suite run is ~16k tests over 45+ minutes where only a small,
+#: unevenly-spaced minority touch the engine at all, so a >120s gap with zero
+#: connections was essentially guaranteed at least once per run (worse under
+#: load, when individual tests stall near the 60s pytest-timeout boundary).
+#: Once the watcher fires, the engine exits for good with no re-spawn
+#: anywhere in ``conftest.py``, so every remaining engine-dependent test for
+#: the rest of the session fails identically with
+#: ``ConnectionRefusedError`` — the single largest failure cluster observed
+#: in the 2026-08-02 gate run (786 of 899 failing/erroring entries). See
+#: :meth:`EphemeralEngine._open_keepalive` for the actual fix (a session-long
+#: held connection that keeps the count above zero); this constant only
+#: governs the crash-cleanup grace once that connection is gone.
 IDLE_SHUTDOWN_SECS = 120
 
 #: How long to wait for the engine's socket to appear after spawn, and for the
@@ -204,6 +222,16 @@ class EphemeralEngine:
         self.socket_path: str | None = None
         self._proc: subprocess.Popen[bytes] | None = None
         self._log: BinaryIO | None = None
+        #: A single held connection for the engine's whole ephemeral lifetime
+        #: (D-CDX-32). Per-test clients connect and disconnect immediately, so
+        #: without this the engine's active-connection count genuinely reaches
+        #: zero between tests; holding one keeps ``run_idle_watcher`` (the
+        #: engine's own ``--idle-shutdown-secs`` timer) permanently re-armed
+        #: for the session, which is the actual crash-safety net
+        #: ``--idle-shutdown-secs`` exists for — a suite that dies without
+        #: teardown drops this connection along with the process, and the
+        #: engine still self-cleans on schedule.
+        self._keepalive_client: Any | None = None
 
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> EphemeralEngine:
@@ -251,12 +279,44 @@ class EphemeralEngine:
         try:
             self._wait_for_socket()
             self._bootstrap_identity()
+            self._open_keepalive()
         except Exception:
             # Startup failed — tear the half-started engine down cleanly so we
             # never leak a process or temp dir, then re-raise for the caller.
             self.stop()
             raise
         return self
+
+    def _open_keepalive(self) -> None:
+        """Hold one connection open for the engine's whole ephemeral lifetime.
+
+        D-CDX-32: ``--idle-shutdown-secs`` (see :data:`IDLE_SHUTDOWN_SECS`) is
+        reference-counted against the engine's *active connection* count, not
+        wall-clock since start — every per-test client connects and
+        disconnects immediately around its own operation, so without a held
+        connection the count genuinely reaches zero between tests. Over a
+        full-suite run (tens of thousands of tests, 45+ minutes, only a small
+        and unevenly-spaced fraction of which touch the engine at all) a
+        greater-than-``IDLE_SHUTDOWN_SECS`` gap with zero connections was
+        essentially guaranteed at least once — and once the watcher fires the
+        engine exits for good with nothing in ``conftest.py`` to notice or
+        respawn it, so every remaining engine-dependent test for the rest of
+        the session failed identically with ``ConnectionRefusedError``. This
+        was the single largest failure cluster in the 2026-08-02 full-suite
+        gate run (786 of 899 failing/erroring entries).
+
+        Held for the process lifetime and closed in :meth:`stop`; a crashed
+        suite (no teardown) still drops this connection along with the whole
+        process, so ``--idle-shutdown-secs`` keeps doing its actual job — not
+        killing a live, in-progress session, just self-cleaning a dead one.
+        """
+        from epistemic_graph.client import SyncEpistemicGraphClient
+
+        self._keepalive_client = SyncEpistemicGraphClient.connect(
+            socket_path=self.socket_path,
+            auth_secret=TEST_AUTH_SECRET,
+            verified_context=bootstrap_context(),
+        )
 
     def _bootstrap_identity(self) -> None:
         """Enroll the isolated suite signer before ordinary requests run."""
@@ -315,6 +375,14 @@ class EphemeralEngine:
 
     def stop(self) -> None:
         """Graceful SIGTERM (engine checkpoints + exits), then remove all residue."""
+        if self._keepalive_client is not None:
+            try:
+                self._keepalive_client.close()
+            except Exception:
+                # Best-effort — the engine is about to be SIGTERM'd regardless,
+                # and a close failure here must never block teardown.
+                pass
+            self._keepalive_client = None
         proc = self._proc
         if proc is not None and proc.poll() is None:
             try:

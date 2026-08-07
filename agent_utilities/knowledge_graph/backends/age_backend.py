@@ -382,9 +382,7 @@ class AGEBackend(PostgreSQLBackend):
 
         self._run_resilient(_run, name="age-add-embedding")
 
-    def verify_node_embedding(
-        self, node_id: str, embedding: list[float]
-    ) -> bool:
+    def verify_node_embedding(self, node_id: str, embedding: list[float]) -> bool:
         """Confirm the durable AGE side-table vector after mirror replay."""
         with self._conn(read_only=True) as conn:
             with conn.cursor() as cur:

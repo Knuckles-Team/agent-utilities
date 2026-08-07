@@ -421,3 +421,137 @@ def test_audit_merged_counts_a_parent_linked_concept_as_documented(tmp_path):
         )
         == 0
     )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Rename (D-CC-1) — the fourth disposition: a marker names a real decision but
+# needs a different id (most often because its domain is not in the closed
+# vocab, the live AU-KG.trace -> AU-KG.identity precedent this mechanism
+# formalises). Tests weighted the same way as retirement's: the risk is a
+# silently-revived old name, a chain nobody can resolve in one hop, or a
+# collision with an id that already means something else.
+# ──────────────────────────────────────────────────────────────────────────────
+
+from scripts.check_concept_governance import reintroduced_renames  # noqa: E402
+
+
+def test_a_rename_needs_a_reason():
+    with pytest.raises(LineageError, match="requires a reason"):
+        parse_lineage({"renamed": {"AU-KG.demo.a": {"to": "AU-KG.demo.b"}}})
+
+
+def test_self_rename_is_rejected():
+    with pytest.raises(LineageError, match="cannot be renamed to itself"):
+        parse_lineage(
+            {"renamed": {"AU-KG.demo.a": {"to": "AU-KG.demo.a", "reason": "x"}}}
+        )
+
+
+def test_rename_chains_are_rejected_at_load_time():
+    """A -> B -> C: the same one-hop reasoning as parent chains. Whoever renames
+    B again must flatten A's entry to point at C directly, not append a hop."""
+    with pytest.raises(LineageError, match="rename chains are not allowed"):
+        parse_lineage(
+            {
+                "renamed": {
+                    "AU-KG.demo.a": {"to": "AU-KG.demo.b", "reason": "domain fix"},
+                    "AU-KG.demo.b": {"to": "AU-KG.demo.c", "reason": "domain fix 2"},
+                }
+            }
+        )
+
+
+def test_a_concept_cannot_be_both_renamed_and_retired():
+    with pytest.raises(LineageError, match="renamed .* and retired"):
+        parse_lineage(
+            {
+                "renamed": {"AU-KG.demo.a": {"to": "AU-KG.demo.b", "reason": "x"}},
+                "retired": {"AU-KG.demo.a": {"reason": "y"}},
+            }
+        )
+
+
+def test_a_concept_cannot_be_both_renamed_and_used_in_a_parent_link():
+    with pytest.raises(LineageError, match="renamed .* and retired"):
+        parse_lineage(
+            {
+                "renamed": {"AU-KG.demo.a": {"to": "AU-KG.demo.b", "reason": "x"}},
+                "parents": {
+                    "AU-KG.demo.a": {
+                        "parent": "AU-KG.demo.z",
+                        "rationale": _GOOD_RATIONALE,
+                    }
+                },
+            }
+        )
+
+
+def test_resolve_follows_a_rename_and_is_a_passthrough_otherwise():
+    lineage = parse_lineage(
+        {
+            "renamed": {
+                "AU-KG.trace.canonical-id-non-idempotence": {
+                    "to": "AU-KG.identity.canonical-id-non-idempotence",
+                    "reason": "trace was never a registered KG domain",
+                }
+            }
+        }
+    )
+    assert (
+        lineage.resolve("AU-KG.trace.canonical-id-non-idempotence")
+        == "AU-KG.identity.canonical-id-non-idempotence"
+    )
+    # Passthrough: an id that was never renamed resolves to itself.
+    assert lineage.resolve("AU-KG.demo.untouched") == "AU-KG.demo.untouched"
+
+
+def test_reintroducing_a_renamed_old_id_is_detected():
+    """Rename is a ratchet too: the OLD id coming back must fail, mirroring
+    `reintroduced_retirements` — the decision moved, it did not vanish, so
+    reviving the old name is still a regression, just a different one."""
+    lineage = parse_lineage(
+        {
+            "renamed": {
+                "AU-KG.demo.old-name": {
+                    "to": "AU-KG.demo.new-name",
+                    "reason": "domain word retired from the closed vocab",
+                }
+            }
+        }
+    )
+    assert reintroduced_renames(frozenset({"AU-KG.demo.old-name"}), lineage) == [
+        ("AU-KG.demo.old-name", "AU-KG.demo.new-name", "domain word retired from the closed vocab")
+    ]
+    assert reintroduced_renames(frozenset({"AU-KG.demo.new-name"}), lineage) == []
+
+
+def test_audit_merged_fails_when_a_renamed_old_id_has_a_live_marker_again(tmp_path):
+    """End-to-end through the gate: a live marker under an id that was
+    deliberately renamed away must fail the audit, same as a revived
+    retirement — never a silent pass."""
+    scan_root = tmp_path / "repo"
+    design_dir = tmp_path / "design"
+    design_dir.mkdir()
+    baseline = tmp_path / "baseline.txt"
+    lineage_path = tmp_path / "lineage.yaml"
+    lineage_path.write_text(
+        "parents: {}\nretired: {}\n"
+        "renamed:\n"
+        "  AU-KG.demo.old-name:\n"
+        "    to: AU-KG.demo.new-name\n"
+        "    reason: domain word retired from the closed vocab\n",
+        encoding="utf-8",
+    )
+    # The old marker is back in the tree, which the rename ratchet forbids.
+    _write_markers(
+        scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.old-name"]
+    )
+
+    rc = audit_merged(
+        update=False,
+        scan_root=scan_root,
+        design_dir=design_dir,
+        baseline_path=baseline,
+        lineage_path=str(lineage_path),
+    )
+    assert rc == 1

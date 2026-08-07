@@ -126,6 +126,19 @@ SECRET_MATERIAL_PATTERN = (
     r"xox[baprs]-[A-Za-z0-9-]{20,})"
 )
 SECRET_MATERIAL_RE = re.compile(SECRET_MATERIAL_PATTERN)
+# Repo-wide false-positive suppression convention (mirrors
+# scripts/security_sanitizer.py's SANITIZER_IGNORE_RE and
+# scripts/security/check_secret_history.py's SANITIZER_MARKER): a line
+# carrying "# sanitizer:ignore - <reason>" documents and exempts a genuine
+# synthetic fixture from SC-SEC-002. A bare marker with no reason after the
+# separator is deliberately NOT accepted -- "document why", not "silence the
+# check". This scanner previously had no honor-the-marker path at all, so a
+# tracked file's own credential-detector self-test fixtures (which
+# necessarily contain credential-shaped literals to prove the detector
+# works) could never be exempted without corrupting the fixture shape. Only
+# line-level SC-SEC-002 findings consult this -- file-level SC-SEC-001
+# (a tracked .pem/.key/etc. file) is a class of finding no comment can fix.
+SANITIZER_IGNORE_RE = re.compile(r"#\s*sanitizer:ignore\s*[-—:]\s*\S")
 TOKEN_VALUE_RE = re.compile(
     r"(?:AKIA|ASIA)[A-Z0-9]{16}|"
     r"github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|"
@@ -1052,6 +1065,9 @@ def _secret_content_finding(
     label: str, path: str, line: int, content: str
 ) -> Finding | None:
     """Classify one text line with the shared credential-material policy."""
+
+    if SANITIZER_IGNORE_RE.search(content):
+        return None
 
     private_key = bool(re.search(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----", content))
     tokens = TOKEN_VALUE_RE.findall(content)

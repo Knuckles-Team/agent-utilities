@@ -230,6 +230,13 @@ parents:
     rationale: analysis_tools.py:2655 is a caller of the SAME read-existing-then-seed vault_sync routine
       (secrets_client.py:776) that vault-first-routine-genesis documents; the comment literally restates
       vault_sync's own 'read-existing + seed' contract at a second call site.
+renamed:
+  AU-KG.history.scoped-conversation-search:
+    reason: history was never registered in the KG pillar closed vocabulary (agent_utilities/governance/domain_vocab.yaml)
+      and check_domain_vocab.py fails the build on it (D-CC-9); the marker names a real decision (scope-aware
+      conversation-history traversal) that survives whole under a legal domain — retrieval already lists
+      search/recall as signals and is the closest existing home for a search-shaped decision.
+    to: AU-KG.retrieval.scoped-conversation-search
 retired:
   AU-KG.compute.automates:
     reason: a single generic verb naming an ontology EDGE TYPE (AUTOMATES), not a decision; the connector-to-skill

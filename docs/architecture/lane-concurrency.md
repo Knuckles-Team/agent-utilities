@@ -297,6 +297,24 @@ explicit; the CLI exits **75** so a shell `&&` chain actually stops.
 > explicit leases with activity detection (the venvctl lane's `/proc`-based
 > detector covers actors that never take a lease). Do not record this as closed.
 
+> **Open, actively investigated: a real `git commit` through the full hook
+> chain has twice left a linked worktree's INDEX showing thousands of staged
+> deletions (D-LGI-1), correlated by three independent lanes with the
+> `guardrail-gate-meta-tests` hook specifically (D-ORC-54).** Files are never
+> actually removed from disk in any observed occurrence — this is the index,
+> not the tree — and `git reset` (mixed, no `--hard`, no `checkout .`)
+> reliably restores it with zero data loss, both times observed here. Root
+> cause NOT isolated: a single isolated `pre-commit run guardrail-gate-meta-
+> tests` (not a full `git commit`) did not reproduce it in one attempt here,
+> and index-mtime instrumentation across every sibling worktree during that
+> attempt found only one correlated change, independently explained by that
+> worktree's own concurrent, legitimate commit — so isolating the hook alone
+> is not sufficient to reproduce; the full multi-hook chain (or a timing
+> window only present there) appears to matter. Do not assume this is
+> D-CDOC-2/D-CDOC-3 until the resolution is proven empirically, not reasoned
+> from a hook's own comments (three unrelated confident hypotheses were
+> already refuted the same day this was found).
+
 ### The epistemic-graph daemon (observed, not hypothesised)
 
 A lane's 37-minute full-suite run reported `731 failed, 14197 passed, 353

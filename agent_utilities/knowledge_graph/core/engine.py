@@ -509,6 +509,13 @@ class IntelligenceGraphEngine(
             "success_criteria_met",
             "embedding",
             "issues",
+            # D-CDX-68: RunTrace.privacy_types (trace_ontology._privacy_safe)
+            # is a Python list and the schema declares it STRING[] (see
+            # models/schema_definition.py); without this entry it fell into
+            # the JSON-encode branch below and Ladybug rejected the insert
+            # (STRING param against a STRING[] column), silently losing the
+            # RunTrace node on read-back.
+            "privacy_types",
         ]
 
         # Filter by schema if label is provided
@@ -573,6 +580,14 @@ class IntelligenceGraphEngine(
             # kept native (not JSON-encoded) so it round-trips as a list on every
             # backend, including the nested-unsafe ones (neo4j/falkordb).
             "synonyms",
+            # D-CDX-68: RunTrace.privacy_types (trace_ontology._privacy_safe)
+            # is a Python list; the schema declares it STRING[] on every
+            # schema-backed backend (Ladybug/PostgreSQL). Without this entry
+            # `_enc` JSON-stringified it into a bare STRING param, which
+            # Ladybug rejects against the STRING[] column -- the write
+            # failed deterministically and a canonical RunTrace query
+            # returned no row.
+            "privacy_types",
         }
     )
 

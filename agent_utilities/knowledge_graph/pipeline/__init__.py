@@ -3,12 +3,14 @@
 
 import logging
 import time
+from contextlib import nullcontext
 
 from agent_utilities.core.config import setting
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from ...models.knowledge_graph import PipelineConfig, RegistryGraphMetadata
 from ..backends.base import GraphBackend
+from ..core.session import current_session, use_session
 from .runner import PipelineRunner
 from .types import PipelineContext
 
@@ -54,6 +56,31 @@ class IntelligencePipeline:
             logger.info("Pipeline profile=%s (%d phases)", _profile, len(_phases))
         runner = PipelineRunner(_phases)
 
+        # D-CDX-70: RegistryPipeline intentionally targets ITS OWN shared
+        # ``self.graph_name`` graph (default "__commons__",
+        # CONCEPT:AU-KG.query.vendor-agnostic-traversal) — deliberately isolated from
+        # whatever graph a caller's ambient verified GraphSession happens to be
+        # scoped to (e.g. a live delegation's tenant graph). Reusing that
+        # mismatched ambient session against this fixed-graph client used to
+        # raise "A graph-scoped view cannot retarget the verified GraphSession"
+        # (graph_compute.GraphComputeEngine._send) partway through a scan and
+        # abort the whole pipeline — a live production failure, not just a test
+        # fixture variant (D-OTR-2 fixed the latter by rebinding fixtures).
+        # Explicitly, authorizedly retarget the SAME verified actor/tenant into
+        # this pipeline's own graph for the run's duration: ``with_graph`` only
+        # ever changes the target graph field, never the actor/tenant/scopes,
+        # so tenant isolation and the fail-closed "no session at all" guard in
+        # ``resolve_session``/``_send`` are both unchanged. When there is no
+        # ambient session (e.g. an unauthenticated bootstrap context) this is a
+        # no-op and the existing SessionRequiredError behavior is preserved.
+        _ambient_session = current_session()
+        _session_cm = (
+            use_session(_ambient_session.with_graph(self.graph_name))
+            if _ambient_session is not None
+            and _ambient_session.graph != self.graph_name
+            else nullcontext()
+        )
+
         # Temporarily pause background watcher to avoid database locks/deadlocks during active ingestion
         try:
             import agent_utilities.sdd.watcher as sdd_watcher
@@ -64,11 +91,12 @@ class IntelligencePipeline:
             logger.debug(f"Could not pause watcher: {e}")
 
         try:
-            results = await runner.run(ctx)
+            with _session_cm:
+                results = await runner.run(ctx)
 
-            # Update metadata from results
-            self.metadata.node_count = len(self.graph.node_ids())
-            self.metadata.edge_count = self.graph.number_of_edges()
+                # Update metadata from results
+                self.metadata.node_count = len(self.graph.node_ids())
+                self.metadata.edge_count = self.graph.number_of_edges()
 
             if "registry" in results and results["registry"].success:
                 reg_out = results["registry"].output

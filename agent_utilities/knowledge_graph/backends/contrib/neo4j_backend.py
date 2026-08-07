@@ -353,9 +353,7 @@ class Neo4jBackend(GraphBackend):
         query = "MATCH (n {id: $id}) SET n:Embeddable, n.embedding = $embedding"
         self.execute(query, {"id": node_id, "embedding": embedding})
 
-    def verify_node_embedding(
-        self, node_id: str, embedding: list[float]
-    ) -> bool:
+    def verify_node_embedding(self, node_id: str, embedding: list[float]) -> bool:
         """Confirm Neo4j's durable vector property after mirror replay."""
         rows = self.execute_read(
             "MATCH (n {id: $id}) RETURN n.embedding AS embedding",

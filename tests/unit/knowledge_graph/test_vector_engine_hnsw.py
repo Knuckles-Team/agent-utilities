@@ -71,6 +71,20 @@ class _FakeGraph:
         self.atomic_repaired.append(nid)
         return True
 
+    def compare_and_set_node_fields(
+        self,
+        nid: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+    ) -> bool:
+        props = self._nodes.get(nid)
+        if props is None or any(
+            props.get(field) != expected for field, expected in conditions.items()
+        ):
+            return False
+        props.update(updates)
+        return True
+
     def _get_all_nodes_with_properties(self) -> list[tuple[str, dict[str, Any]]]:
         return list(self._nodes.items())
 
@@ -172,6 +186,52 @@ def test_hydrate_indexes_node_embedding_properties() -> None:
     indexed = b.hydrate_engine_embeddings()
     assert indexed == 2
     assert sorted(nid for nid, _ in g.added) == ["n1", "n3"]
+
+
+def test_hydrate_marks_legacy_node_ready_so_a_converged_second_tick_writes_nothing() -> (
+    None
+):
+    """D-BFR-5: hydration must be delta-driven, not a blind full-index replay.
+
+    A legacy node with an ``embedding`` property but no readiness marker is
+    genuinely unknown to the ANN, so the FIRST tick must index it — but it
+    must then durably mark it ready so a SECOND tick (the steady state once
+    the backfill/ingest chokepoint has populated the index) performs ZERO
+    vector writes instead of replaying the whole index every 10 minutes.
+    """
+    g = _FakeGraph(
+        nodes={
+            "n1": {"embedding": [0.1, 0.2], "name": "A"},
+            "n2": {"name": "B"},  # no embedding -> never scanned
+            "n3": {"embedding": [0.3, 0.4]},
+        }
+    )
+    b = _backend(g)
+
+    first = b.hydrate_engine_embeddings()
+    assert first == 2
+    assert sorted(nid for nid, _ in g.added) == ["n1", "n3"]
+    assert g._nodes["n1"]["_embedding_index_ready"] is True
+    assert g._nodes["n3"]["_embedding_index_ready"] is True
+
+    g.added.clear()
+    second = b.hydrate_engine_embeddings()
+    assert second == 0
+    assert g.added == []
+
+
+def test_hydrate_skips_already_ready_nodes_without_touching_the_ann() -> None:
+    """A node whose readiness fence is already ``True`` must never be
+    re-added — that IS the D-BFR-5 redundant-write bug this closes."""
+    g = _FakeGraph(
+        nodes={
+            "n1": {"embedding": [0.1, 0.2], "_embedding_index_ready": True},
+        }
+    )
+    b = _backend(g)
+
+    assert b.hydrate_engine_embeddings() == 0
+    assert g.added == []
 
 
 def test_hydrate_repairs_committed_embedding_left_not_ready() -> None:

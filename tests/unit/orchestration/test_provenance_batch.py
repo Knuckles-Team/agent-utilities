@@ -398,6 +398,85 @@ def test_optional_endpoint_race_keeps_core_durable_without_serial_retry():
     }
 
 
+def test_contended_optional_batch_does_not_block_the_run_past_its_grace_period():
+    """D-CDX-33: profiling showed the optional EXECUTED_ON/USES_SKILL batch
+    costing roughly the SAME ~12s as the mandatory core batch against a
+    contended shared engine, so provenance recording consumed 40-45% of a
+    run's total wall clock -- well above the <10% target -- even though this
+    enrichment is documented best-effort and the core RunTrace/Outcome/
+    ToolCall write is ALREADY durable and readable by the time it starts.
+
+    A contended ``has_batch`` preflight (simulated here with a real sleep
+    well past the grace period) must not make ``_record_execution_trace``
+    wait for it: the call must return promptly, the CORE batch must already
+    be committed, and the optional batch completes in the background shortly
+    after.
+    """
+    import threading
+    import time
+
+    class _ContendedGraph(_ExistingGraph):
+        def __init__(self) -> None:
+            super().__init__(
+                {
+                    "srv:servicenow-mcp",
+                    "resource:skill:servicenow-incident-resolution",
+                }
+            )
+            self.preflight_started = threading.Event()
+
+        def has_batch(self, node_ids: list[str]) -> dict[str, bool]:
+            self.preflight_started.set()
+            # Well past agent_runner._OPTIONAL_PROVENANCE_GRACE_S (2.0s) --
+            # simulates the "engine likely contended" ~12s RPC the profiled
+            # runs actually measured, scaled down for a fast test.
+            time.sleep(0.5)
+            return super().has_batch(node_ids)
+
+    engine = _NativeTraceEngine()
+    engine.graph = _ContendedGraph()
+
+    grace = agent_runner._OPTIONAL_PROVENANCE_GRACE_S
+    try:
+        agent_runner._OPTIONAL_PROVENANCE_GRACE_S = 0.05
+
+        start = time.monotonic()
+        result = _record(engine, tool_calls=[_tool_call()])
+        elapsed = time.monotonic() - start
+    finally:
+        agent_runner._OPTIONAL_PROVENANCE_GRACE_S = grace
+
+    assert result is True
+    # The call returned well before the simulated 0.5s contended RPC
+    # finished -- proof the caller was not blocked on it. A generous margin
+    # (0.3s) keeps this robust against scheduler jitter while still being
+    # far short of the 0.5s the old, fully-blocking call would have taken.
+    assert elapsed < 0.3, f"run_agent's caller waited {elapsed:.3f}s -- the optional batch was NOT deferred"
+
+    # The mandatory core batch is unaffected: durable immediately.
+    assert len(engine.batches) == 1
+    _, core_edges = _batch_graph_shape(engine.batches[0])
+    assert {relationship for _, _, relationship in core_edges} == {
+        "PRODUCED_OUTCOME",
+        "USED_TOOL",
+    }
+
+    # The background thread is still doing its (now-started) work.
+    assert engine.graph.preflight_started.wait(timeout=1.0)
+
+    # Eventually the optional batch completes in the background.
+    for _ in range(50):
+        if len(engine.batches) == 2:
+            break
+        time.sleep(0.05)
+    assert len(engine.batches) == 2, "optional batch never completed in the background"
+    _, optional_edges = _batch_graph_shape(engine.batches[1])
+    assert {relationship for _, _, relationship in optional_edges} == {
+        "EXECUTED_ON",
+        "USES_SKILL",
+    }
+
+
 class _CoreBatchBackend:
     def __init__(self) -> None:
         self.batches: list[list[dict[str, object]]] = []
