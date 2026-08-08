@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1151
+total_concepts: 1155
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -10138,6 +10138,49 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: model-free similar-code lookup. Returns the
+- id: EG-KG.compute.quantum-backends
+  name: Pure-Rust QuantumBackend implementations (statevector + stabilizer, lane Q1/Q4, D-QN-1) the planner
+    routes QuantumProgram circuits to
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/crates/eg-quantum-sim/src/lib.rs
+  - epistemic-graph/crates/eg-quantum-sim/src/stabilizer.rs
+  - epistemic-graph/crates/eg-quantum-sim/src/statevector.rs
+  doc: Pure-Rust QuantumBackend implementations (statevector + stabilizer, lane Q1/Q4, D-QN-1) the planner
+    routes QuantumProgram circuits to
+- id: EG-KG.compute.quantum-circuit-ir
+  name: 'Quantum-native contracts (lane Q0, D-QN-1): the QuantumProgram IR, the vendor-neutral QuantumBackend
+    trait + capability flags, the deterministic planner (R0-R5), and the exactness-typed QuantumResult'
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/crates/eg-quantum-core/src/backend.rs
+  - epistemic-graph/crates/eg-quantum-core/src/estimate.rs
+  - epistemic-graph/crates/eg-quantum-core/src/ir.rs
+  - epistemic-graph/crates/eg-quantum-core/src/lib.rs
+  - epistemic-graph/crates/eg-quantum-core/src/planner.rs
+  - epistemic-graph/crates/eg-quantum-core/src/result.rs
+  doc: 'Quantum-native contracts (lane Q0, D-QN-1): the QuantumProgram IR, the vendor-neutral QuantumBackend
+    trait + capability flags, the deterministic planner (R0-R5), and the exactness-typed QuantumResult'
+- id: EG-KG.compute.quantum-gate-library
+  name: Dense unitary matrix literals for eg_quantum_core::ir::GateKind (lane Q1, D-QN-1), Apache-2.0
+    attributed and ported from QuantRS2, expressed over eg-numeric's Complex64
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/crates/eg-quantum-gates/src/lib.rs
+  doc: Dense unitary matrix literals for eg_quantum_core::ir::GateKind (lane Q1, D-QN-1), Apache-2.0 attributed
+    and ported from QuantRS2, expressed over eg-numeric's Complex64
+- id: EG-KG.compute.quantum-qasm-interop
+  name: 'OpenQASM 2.0 import/export for QuantumProgram (lane Q2, D-QN-6): hand-rolled lexer/parser over
+    the IR''s bounded gate vocabulary, typed rejection of anything outside it'
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/crates/eg-quantum-core/src/qasm.rs
+  doc: 'OpenQASM 2.0 import/export for QuantumProgram (lane Q2, D-QN-6): hand-rolled lexer/parser over
+    the IR''s bounded gate vocabulary, typed rejection of anything outside it'
 - id: EG-KG.compute.rust-native-training-loss
   name: Empty => no recency weighting
   pillar: EG-KG
