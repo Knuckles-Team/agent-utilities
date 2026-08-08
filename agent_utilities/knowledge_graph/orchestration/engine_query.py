@@ -694,6 +694,27 @@ class QueryMixin(_Base):
 
         logger.debug(f"Search hybrid for '{query}' found {len(results)} nodes.")
 
+        # D-ORC-8/Exit-C: every result this method returns is keyword-only —
+        # the engine-native ``discover`` leg above passes an EMPTY
+        # ``query_embedding`` (never blends a semantic signal), and the
+        # backend/GCE legs below are pure ``CONTAINS``/substring scans. The
+        # discover leg's carried-forward "_score" is
+        # ``matched_keywords / total_query_keywords`` (a raw overlap
+        # FRACTION diluted by every non-matching function word in the
+        # query — see epistemic-graph's ``keyword_overlap``), not a cosine
+        # similarity; it was never calibrated against — and routinely sits
+        # well below — ``RetrievalQualityGate``'s vector-tuned 0.6 default
+        # threshold, so callers that quality-gate this method's output
+        # (``HybridRetriever.retrieve_hybrid``'s "no semantic matches ->
+        # keyword" arm, hit on every query once the graph's embedding
+        # coverage is sparse) always failed LOW_RELEVANCE_TOPK regardless of
+        # real relevance — the identical defect class already fixed for
+        # ``HybridRetriever._lexical_fallback``'s flat 0.2 sentinel. Tag
+        # every result the same way so the gate grades it against the lower,
+        # keyword-appropriate ``_lexical_threshold`` instead.
+        for _r in results:
+            _r.setdefault("_fallback", "lexical")
+
         # Sort by graded relevance, not a coarse boolean. A bare "any keyword in
         # name" predicate cannot distinguish "Agent A" from "Agent B" (both
         # contain "agent"), so the result order would fall back to the backend's

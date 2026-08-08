@@ -70,12 +70,13 @@ class _Engine:
     def __init__(self) -> None:
         self.backend = _Backend()
         self.nodes: dict[str, dict] = {}
+        self.links: list[tuple[str, str, str]] = []
 
     def add_node(self, node_id, label, properties=None):
         self.nodes[node_id] = {"label": label, **(properties or {})}
 
-    def link_nodes(self, *_args, **_kwargs):
-        return None
+    def link_nodes(self, source, target, relationship):
+        self.links.append((source, target, relationship))
 
 
 def test_trace_records_only_opaque_model_identity_and_skill_digest() -> None:
@@ -105,8 +106,13 @@ def test_trace_records_only_opaque_model_identity_and_skill_digest() -> None:
     assert trace["model_class"] == "economy"
     assert trace["skill_instruction_digest"] == digest
     assert model_name not in str(trace)
-    uses_skill = [call for call in engine.backend.calls if "USES_SKILL" in call[0]]
-    assert uses_skill[0][1]["rid"] == "resource:skill:synthetic-skill"
+    # D-49-2: link_nodes() is a typed method call (source, target, relationship),
+    # not a raw backend.execute() Cypher call -- the prior assertion checked
+    # engine.backend.calls, which link_nodes() never touches, so it could never
+    # pass regardless of whether the USES_SKILL edge was actually written.
+    uses_skill = [link for link in engine.links if link[2] == "USES_SKILL"]
+    assert uses_skill, f"expected a USES_SKILL link_nodes() call, got {engine.links!r}"
+    assert uses_skill[0][1] == "resource:skill:synthetic-skill"
 
 
 def test_trace_export_evidence_binds_exact_model_and_skill_body() -> None:
