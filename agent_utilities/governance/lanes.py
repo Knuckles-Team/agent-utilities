@@ -725,12 +725,25 @@ def hold_lease(
     operation: str,
     ttl_seconds: int = DEFAULT_LEASE_TTL_SECONDS,
     path: Path | str | None = None,
+    owner: dict[str, Any] | None = None,
 ) -> Iterator[dict[str, Any]]:
     """Hold the exclusive lease *name*, or raise :class:`LeaseUnavailable`.
 
     Raising — rather than blocking — is the point: the caller is forced to make
     the deferral explicit. A dead holder's lease is reclaimed automatically, so a
     crashed lane cannot wedge the workspace.
+
+    ``owner`` (D-CDX-14) is an optional, CALLER-DECLARED identity —
+    e.g. ``{"fleet": "codex", "session": "..."}`` distinguishing the
+    Claude/Codex/human/vLLM actor classes that arbitrate through this
+    ledger — persisted into the lease record verbatim and returned by
+    :func:`lease_status` so a holder can be attributed, not just located by
+    ``lane``/``pid``/``host``. It is declared, not authenticated: this
+    mechanism has no identity-verification step, so a caller can name any
+    ``owner`` it likes. Nothing here (or in any caller) should treat an
+    unset/mismatched ``owner`` as a security boundary — only the ``lane``
+    lock itself (this lease + ``fcntl.flock``) is enforced; ``owner`` is
+    attribution for observability, not authorization.
     """
     scope = lane_scope(path)
     lease_file = _lease_dir(scope, name) / f"{_LANE_SAFE_RE.sub('-', name)}.lease"
@@ -744,6 +757,8 @@ def hold_lease(
         "acquired_at": now.isoformat(),
         "expires_at": (now + timedelta(seconds=ttl_seconds)).isoformat(),
     }
+    if owner:
+        record["owner"] = dict(owner)
     with _lease_mutex(scope, name):
         if lease_file.exists():
             holder = json.loads(lease_file.read_text(encoding="utf-8"))
