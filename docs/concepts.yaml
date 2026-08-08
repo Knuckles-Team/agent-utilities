@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1151
+total_concepts: 1153
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -6692,6 +6692,16 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   doc: the write-back companion to the read-only XDG loader, so a
+- id: AU-KG.storage.durable-execution-unit
+  name: mirror this run
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/harness/agentic_evolution_engine.py
+  - agent_utilities/knowledge_graph/durable_execution_kg.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/orchestration/durable_execution.py
+  doc: mirror this run
 - id: AU-KG.temporal.ambient-connector-valid-time
   name: the ambient-epistemics
   pillar: AU-KG
@@ -7209,6 +7219,13 @@ concepts:
   code_paths:
   - agent_utilities/agent/discovery.py
   doc: Two execution models — remote A2A vs. unified specialist
+- id: AU-ORCH.execution.durable-routing-trait
+  name: AU-ORCH.execution.durable-routing-trait
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/durable_tool_surface.py
+  doc: AU-ORCH.execution.durable-routing-trait
 - id: AU-ORCH.execution.dynamic-execution-profile
   name: the profile is no longer a fixed per-entrypoint *preset*; it is the
   pillar: AU-ORCH

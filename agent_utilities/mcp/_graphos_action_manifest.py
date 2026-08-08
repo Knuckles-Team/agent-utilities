@@ -1480,6 +1480,17 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "register_rlm_actor",
         "name": "graph_domain_ops_register_rlm_actor",
     },
+    {"tool": "graph_durable", "action": "call", "name": "graph_durable_call"},
+    {
+        "tool": "graph_durable",
+        "action": "checkpoint",
+        "name": "graph_durable_checkpoint",
+    },
+    {"tool": "graph_durable", "action": "run", "name": "graph_durable_run"},
+    {"tool": "graph_durable", "action": "sleep", "name": "graph_durable_sleep"},
+    {"tool": "graph_durable", "action": "state_get", "name": "graph_durable_state_get"},
+    {"tool": "graph_durable", "action": "state_set", "name": "graph_durable_state_set"},
+    {"tool": "graph_durable", "action": "status", "name": "graph_durable_status"},
     {
         "tool": "graph_engineering",
         "action": "build_community_reports",
