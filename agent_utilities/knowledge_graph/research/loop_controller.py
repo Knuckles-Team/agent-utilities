@@ -287,7 +287,11 @@ class LoopController:
         # durable checkpointing only wraps the ones that do.
         from agent_utilities.orchestration.durable_execution import DurableRun
 
-        run = DurableRun(_RESEARCH_LOOP_SESSION)
+        # DE1 (CONCEPT:AU-KG.storage.durable-execution-unit): mirror this run's
+        # checkpoint transitions into a queryable ``:DurableRun`` KG node —
+        # ``engine`` is optional on ``DurableRun`` and the mirror is a no-op
+        # when it is None, so this is a pure addition, never a new failure mode.
+        run = DurableRun(_RESEARCH_LOOP_SESSION, engine=self.engine)
 
         def _stage(name: str, fn):
             """Run a stage best-effort, capture timing + any error.

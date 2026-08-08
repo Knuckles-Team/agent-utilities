@@ -106,6 +106,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         # ── act / orchestrate / execute / schedule ──
         "graph_orchestrate": ("act",),
         "graph_jobs": ("act", "ask"),
+        "graph_durable": ("act", "ask"),
         "graph_agents": ("act",),
         "graph_workflows": ("act", "ask", "manage"),
         "graph_evolution": ("act",),
