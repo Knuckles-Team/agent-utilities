@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-07-31T16:18:22Z",
-  "row_count": 372,
+  "cached_at": "2026-08-08T00:32:26Z",
+  "row_count": 373,
   "rows": {
     "AddEdge": {
       "audited": "true",
@@ -2165,6 +2165,17 @@
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "GetNeighbors",
+      "mutates": "false",
+      "note": "",
+      "txn_participation": "Snapshot"
+    },
+    "GetNeighborsBatch": {
+      "audited": "false",
+      "authz_action": "edge:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GetNeighborsBatch",
       "mutates": "false",
       "note": "",
       "txn_participation": "Snapshot"

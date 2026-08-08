@@ -790,7 +790,9 @@ class FanOutBackend(GraphBackend):
         compare_and_set = getattr(self._authority, "compare_and_set_node_fields", None)
         get_properties = getattr(self._authority, "get_node_properties", None)
         if not callable(compare_and_set) or not callable(get_properties):
-            raise NotImplementedError(
+            # Capability-detection guard: raised only when the configured
+            # authority backend lacks these methods.
+            raise NotImplementedError(  # ABSTRACT-OK
                 "fan-out authority does not support node compare-and-set snapshots"
             )
 

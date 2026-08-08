@@ -40,7 +40,12 @@ dependencies = [
     # Floor raised to the current major (49.0.0); repo carries no usage of the
     # aliases/modes/ciphers removed in 49 (PUBLIC_KEY_TYPES-style aliases, CFB/OFB/
     # CFB8, Camellia) — verified clean via grep before lifting the old `<49` cap.
-    "cryptography>=49.0.0",
+    # Raised again to 50.0.0 (D-CIP-19/D-W3BP-4): GHSA-g6cj-pr64-35w5 and
+    # PYSEC-2026-3552 (a PKCS#7 Bleichenbacher-oracle timing/error-shape leak in
+    # 49.0.0) are both fixed in 50.0.0. Repo carries no usage of
+    # `asymmetric.dh` (deprecated in 50.0.0) or the `pkcs7` module — verified
+    # clean via grep before lifting the cap.
+    "cryptography>=50.0.0",
     "pathspec>=1.1.1",
     "platformdirs>=4.11.0",
     "packaging>=26.2.0",

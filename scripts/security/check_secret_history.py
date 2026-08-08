@@ -378,9 +378,9 @@ def _self_check() -> tuple[int, dict]:
 
         # Known-bad: a real-shaped AWS key, a GitHub PAT, and a PEM block.
         bad = (
-            "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'\n"
-            "GITHUB_TOKEN = 'ghp_" + ("a" * 36) + "'\n"
-            "-----BEGIN RSA PRIVATE KEY-----\n"
+            "AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE'\n"  # sanitizer:ignore - synthetic self-check fixture, not a live credential
+            "GITHUB_TOKEN = 'ghp_" + ("a" * 36) + "'\n"  # sanitizer:ignore - synthetic self-check fixture, not a live credential
+            "-----BEGIN RSA PRIVATE KEY-----\n"  # sanitizer:ignore - synthetic self-check fixture, not a live credential
         )
         (tmp / "leak.py").write_text(bad, encoding="utf-8")
         subprocess.run(["git", "add", "leak.py"], cwd=str(tmp), check=True)
@@ -392,7 +392,7 @@ def _self_check() -> tuple[int, dict]:
         # Known-good: same shapes, but marked as an intentional synthetic fixture.
         subprocess.run(["git", "checkout", "-q", "origin-main-stand-in"], cwd=str(tmp), check=True)
         subprocess.run(["git", "checkout", "-q", "-B", "exempt-branch"], cwd=str(tmp), check=True)
-        exempt = "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'  # sanitizer:ignore - synthetic\n"
+        exempt = "AWS_ACCESS_KEY_ID = 'AKIAIOSFODNN7EXAMPLE'  # sanitizer:ignore - synthetic\n"
         (tmp / "leak.py").write_text(exempt, encoding="utf-8")
         subprocess.run(["git", "add", "leak.py"], cwd=str(tmp), check=True)
         subprocess.run(["git", "commit", "-q", "-m", "exempted secret-shaped fixture"], cwd=str(tmp), check=True)
