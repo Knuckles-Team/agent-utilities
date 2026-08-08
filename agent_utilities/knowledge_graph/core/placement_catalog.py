@@ -494,8 +494,27 @@ def _query_catalog(
             verified_context=verified_context,
         )
     except PlacementAuthorityError as exc:
-        if client_factory is not None or not _admin_capability_denied(exc):
+        if not _admin_capability_denied(exc):
             raise
+        # A caller-supplied `client_factory` is used for two UNRELATED reasons:
+        # (a) hermetic-test injection (`AGENT_UTILITIES_TESTING`), where the
+        # broker's own real network round-trip must never fire; (b) production
+        # connection reuse (`graph_compute.py`'s `reuse_single_endpoint`, the
+        # single-endpoint fast path), which is not a test at all and must not
+        # silently disable the broker fallback. Gate on the actual test signal,
+        # not on client_factory's mere presence — the broker retry below
+        # always uses `client_factory=None` (a fresh, independently-identified
+        # connection), so it never routes through a caller-supplied factory
+        # either way.
+        if client_factory is not None:
+            from agent_utilities.core.config import setting
+
+            if setting("AGENT_UTILITIES_TESTING", "false").strip().lower() in {
+                "1",
+                "true",
+                "yes",
+            }:
+                raise
         broker = _broker_authority(config)
         if broker is None:
             raise
