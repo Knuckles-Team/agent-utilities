@@ -75,6 +75,17 @@ EXCLUDED_DIRS = {
     ".pytest_cache",
     ".ruff_cache",
     ".cache",
+    # D-W3Q-2: get_repo_files()'s fallback path (below) does a raw os.walk()
+    # that does NOT consult .gitignore -- unlike the normal `git ls-files
+    # --exclude-standard` path, which already excludes these via this repo's
+    # own .gitignore ("target-isolated/", "target-*/"). Every cargo build
+    # this program's own protocol mandates uses --target-dir ./target-isolated
+    # (eg-shared-cargo-target-corruption), so on ANY git hiccup (a corrupted
+    # worktree admin dir, a transient lock, ...) the fallback would otherwise
+    # walk straight into thousands of compiled Rust build artifacts and fail
+    # the whole security-sanitizer hook with noise, not real findings.
+    "target",
+    "target-isolated",
 }
 EXCLUDED_EXTENSIONS = {
     ".png",
