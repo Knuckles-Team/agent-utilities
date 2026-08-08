@@ -145,6 +145,69 @@ async def test_agent_runner_binds_provider_skill_to_authenticated_server():
     assert instructions in meta["system_prompt"]
 
 
+@pytest.mark.asyncio
+async def test_agent_runner_resolves_fleet_probed_mcp_server(monkeypatch):
+    """D-DEL-1: the fleet catalog sweep (the ONLY writer that actually runs
+    for the live fleet — ``source_sync._write_fleet_nodes``) persists a
+    reachable MCP server as ``:MCPServer`` --SERVES--> ``:Tool``, never as
+    the ``:Server`` --PROVIDES--> ``:CallableResource`` shape
+    ``_resolve_agent_from_kg`` used to require. A delegation call made
+    WITHOUT an explicit ``tool_server`` resolves through this exact path, so
+    before the fix every fleet-probed server silently degraded to
+    prompt-only — a "successful" run with its tools quietly missing.
+
+    Mirrors the real backend's label semantics by keying off the query text
+    itself (matching this file's existing idiom), so this test only passes
+    once the reader's Cypher actually asks for ``:MCPServer``/``SERVES``/
+    ``:Tool`` in addition to ``:Server``/``PROVIDES``/``:CallableResource`` —
+    reverting the fix must turn it red.
+    """
+    from agent_utilities.orchestration.agent_runner import _resolve_agent_from_kg
+
+    engine = _create_engine()
+
+    from unittest.mock import MagicMock
+
+    mock_backend = MagicMock()
+    engine.backend = mock_backend
+
+    def mock_execute(query, params=None):
+        params = params or {}
+        if params.get("name") == "servicenow-mcp" and "sid" in params:
+            # Search 1 (server lookup): only a query that also accepts the
+            # fleet-write's :MCPServer label can see this node.
+            if "MCPServer" in query:
+                return [
+                    {
+                        "sid": "mcp_server_servicenow-mcp",
+                        "name": "servicenow-mcp",
+                        "server_ref": None,
+                        "tc": 1,
+                    }
+                ]
+            return []
+        if params.get("sid") == "mcp_server_servicenow-mcp":
+            # Tool fetch: only a query that also accepts SERVES/:Tool (the
+            # fleet write's edge/resource shape) can see the tool.
+            if "Tool" in query and "SERVES" in query:
+                return [
+                    {
+                        "name": "incident_management",
+                        "description": "Manage ServiceNow incidents",
+                    }
+                ]
+            return []
+        return []
+
+    mock_backend.execute.side_effect = mock_execute
+
+    meta = _resolve_agent_from_kg(engine, "servicenow-mcp")
+
+    assert meta["type"] == "server"
+    assert meta["server_id"] == "mcp_server_servicenow-mcp"
+    assert [t["name"] for t in meta["tools"]] == ["incident_management"]
+
+
 def _ensure_standard_model_class(monkeypatch) -> None:
     """Configure a 'normal'-tier chat model so run_agent's default
     ``model_class="standard"`` resolves (_configured_model_for_class maps

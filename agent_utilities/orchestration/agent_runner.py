@@ -2122,8 +2122,21 @@ def _resolve_agent_from_kg(
 
     # --- Search 1: Server nodes (MCP servers) ---
     try:
+        # D-DEL-1: TWO writers, ONE reader, incompatible schemas. The writer
+        # that actually runs for the fleet (source_sync._write_fleet_nodes)
+        # emits ``:MCPServer`` --SERVES--> ``:Tool``; engine_ingestion's
+        # ingest_mcp_server (schema-matching but not invoked by the fleet
+        # catalog sweep) emits ``:Server`` --PROVIDES--> ``:CallableResource``.
+        # A reader that only ever asked for ``:Server``/``:PROVIDES``/
+        # ``:CallableResource`` silently found nothing for every
+        # fleet-probed server and degraded to prompt-only whenever a
+        # delegation call omitted an explicit ``tool_server`` — a green
+        # result with the capability quietly removed. Accept both label/edge
+        # shapes here so either writer resolves; do not require callers to
+        # start passing ``tool_server`` explicitly as a workaround.
         server_rows = engine.backend.execute(
-            "MATCH (s:Server) WHERE s.name = $name OR s.id = $sid "
+            "MATCH (s) WHERE (s:Server OR s:MCPServer) "
+            "AND (s.name = $name OR s.id = $sid) "
             "RETURN s.id AS sid, s.name AS name, s.server_ref AS server_ref, "
             "s.tool_count AS tc",
             {"name": agent_name, "sid": f"srv:{agent_name}"},
@@ -2134,9 +2147,10 @@ def _resolve_agent_from_kg(
             meta["server_id"] = row.get("sid", "")
             meta["toolset_id"] = row.get("name", "") or agent_name
 
-            # Fetch tools provided by this server
+            # Fetch tools provided by this server (either schema — see above).
             tool_rows = engine.backend.execute(
-                "MATCH (s:Server {id: $sid})-[:PROVIDES]->(r:CallableResource) "
+                "MATCH (s)-[:PROVIDES|SERVES]->(r) "
+                "WHERE s.id = $sid AND (r:CallableResource OR r:Tool) "
                 "RETURN r.name AS name, r.description AS description",
                 {"sid": meta["server_id"]},
             )
