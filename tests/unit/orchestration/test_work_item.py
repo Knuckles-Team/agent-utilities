@@ -1473,7 +1473,9 @@ def test_heartbeat_denies_once_a_running_item_s_consent_lapses(
 
     # Past consent_expires_at: renewal is now denied even though the lease
     # itself is still fresh.
-    assert wi.heartbeat(cas_engine, item_id, claim, now=1600.0, lease_ttl_s=60.0) is False
+    assert (
+        wi.heartbeat(cas_engine, item_id, claim, now=1600.0, lease_ttl_s=60.0) is False
+    )
 
 
 def test_consent_absent_and_lapsed_are_distinct_states() -> None:

@@ -56,11 +56,15 @@ class FakeEngine:
         self.nodes[node_id] = dict(properties or {})
         self.node_types[node_id] = node_type
 
-    def link_nodes(self, source_id: str, target_id: str, rel_type: str, **_kw: Any) -> None:
+    def link_nodes(
+        self, source_id: str, target_id: str, rel_type: str, **_kw: Any
+    ) -> None:
         self.edges.append((source_id, target_id, rel_type))
 
     def by_type(self, node_type: str) -> list[dict[str, Any]]:
-        return [p for nid, p in self.nodes.items() if self.node_types.get(nid) == node_type]
+        return [
+            p for nid, p in self.nodes.items() if self.node_types.get(nid) == node_type
+        ]
 
     def query_cypher(
         self, query: str, params: dict[str, Any] | None = None
@@ -144,7 +148,9 @@ def engine() -> FakeEngine:
     return FakeEngine()
 
 
-def _seed_run_trace(engine: FakeEngine, run_id: str, *, parent_run_id: str | None = None) -> None:
+def _seed_run_trace(
+    engine: FakeEngine, run_id: str, *, parent_run_id: str | None = None
+) -> None:
     """Write a ``:RunTrace`` node the way ``agent_runner``/``KgAuditSink`` already do."""
     node_id = trace_id(run_id)
     props = trace_properties(
@@ -155,11 +161,15 @@ def _seed_run_trace(engine: FakeEngine, run_id: str, *, parent_run_id: str | Non
         timestamp="2026-07-31T00:00:00Z",
     )
     if parent_run_id:
-        props["parent_run_id"] = parent_run_id  # stored RAW, matching kg_audit_sink writers
+        props["parent_run_id"] = (
+            parent_run_id  # stored RAW, matching kg_audit_sink writers
+        )
     engine.add_node(node_id, TRACE_NODE_LABEL, properties=props)
 
 
-def _make_session(*, scopes: frozenset[str] = frozenset({"kg:read", "kg:write"})) -> GraphSession:
+def _make_session(
+    *, scopes: frozenset[str] = frozenset({"kg:read", "kg:write"})
+) -> GraphSession:
     actor = ActorContext(
         actor_id="tester",
         actor_type=ActorType.AUTOMATED_SERVICE,
@@ -167,7 +177,9 @@ def _make_session(*, scopes: frozenset[str] = frozenset({"kg:read", "kg:write"})
         tenant_id="tenant-a",
         authenticated=True,
     )
-    return GraphSession(actor=actor, tenant="tenant-a", scopes=scopes, graph="tenant-a-graph")
+    return GraphSession(
+        actor=actor, tenant="tenant-a", scopes=scopes, graph="tenant-a-graph"
+    )
 
 
 def _seed_tree(engine: FakeEngine) -> None:
@@ -231,7 +243,9 @@ async def test_list_runs_from_subagent_sees_only_its_own_descendants(
     assert trace_id("child2") not in seen
 
 
-async def test_list_runs_never_crosses_into_an_unrelated_tree(engine: FakeEngine) -> None:
+async def test_list_runs_never_crosses_into_an_unrelated_tree(
+    engine: FakeEngine,
+) -> None:
     _seed_tree(engine)
     session = _make_session()
     source = ScopedEgHistorySource(engine=engine, session=session, root_run_id="root2")
@@ -276,7 +290,9 @@ async def test_run_history_in_scope_returns_reconstructed_messages(
     engine: FakeEngine,
 ) -> None:
     _seed_tree(engine)
-    await _seed_tool_call(engine, "child", tool_name="search_docs", result="the secret plan is X")
+    await _seed_tool_call(
+        engine, "child", tool_name="search_docs", result="the secret plan is X"
+    )
     session = _make_session()
     source = ScopedEgHistorySource(engine=engine, session=session, root_run_id="root")
 
@@ -298,7 +314,9 @@ async def test_run_history_out_of_scope_returns_nothing_THE_SCOPE_ENFORCEMENT_TE
     delete the `if run_id not in allowed: return []` guard in
     `ScopedEgHistorySource.run_history` and this test fails."""
     _seed_tree(engine)
-    await _seed_tool_call(engine, "root2", tool_name="secret_tool", result="root2's private data")
+    await _seed_tool_call(
+        engine, "root2", tool_name="secret_tool", result="root2's private data"
+    )
     session = _make_session()
     # Scoped to `child`'s subtree -- root2 is a sibling tree, never below `child`.
     source = ScopedEgHistorySource(engine=engine, session=session, root_run_id="child")
@@ -373,7 +391,9 @@ def test_step_store_requires_kg_write_scope(engine: FakeEngine) -> None:
         EgStepStore(engine, session)
 
 
-async def test_step_store_snapshot_methods_fail_loud_not_silent(engine: FakeEngine) -> None:
+async def test_step_store_snapshot_methods_fail_loud_not_silent(
+    engine: FakeEngine,
+) -> None:
     session = _make_session()
     store = EgStepStore(engine, session)
     with pytest.raises(NotImplementedError):

@@ -187,7 +187,10 @@ def _generate(tmp_path: Path, release_name: str = "release") -> tuple[dict, Path
             output_dir=release_root / "evidence/prebundled-skills",
             release_root=release_root,
             verifier_env="COMPONENT_SIGNATURE_VERIFIER",
-            capabilities=("epistemic-engine-validated", "graph-os-delegation-validated"),
+            capabilities=(
+                "epistemic-engine-validated",
+                "graph-os-delegation-validated",
+            ),
             entry_count=10,
             signer_env="COMPONENT_SIGNATURE_SIGNER",
         )
@@ -202,7 +205,9 @@ def test_component_evidence_is_deterministic_schema_valid_and_path_free(
 
     assert first == second
     for relative in first["evidence"].values():
-        assert (first_root / relative).read_bytes() == (second_root / relative).read_bytes()
+        assert (first_root / relative).read_bytes() == (
+            second_root / relative
+        ).read_bytes()
 
     source_schema = json.loads(
         (ROOT / "deploy/release/component-source-evidence.schema.json").read_text()
@@ -225,7 +230,8 @@ def test_component_evidence_is_deterministic_schema_valid_and_path_free(
         json.loads((first_root / first["evidence"]["signatureBundle"]).read_text())
     )
     retained = b"".join(
-        (first_root / reference).read_bytes() for reference in first["evidence"].values()
+        (first_root / reference).read_bytes()
+        for reference in first["evidence"].values()
     ).decode("ascii")
     assert str(tmp_path) not in retained
     assert "file://" not in retained
@@ -432,7 +438,9 @@ def test_oci_evidence_requires_layout_identity_and_matching_wheelhouse(
 
     wrong_wheelhouse = tmp_path / "wrong-wheelhouse"
     wrong_wheelhouse.mkdir()
-    _wheel(wrong_wheelhouse / "other_package-1.0.0-py3-none-any.whl", name="other-package")
+    _wheel(
+        wrong_wheelhouse / "other_package-1.0.0-py3-none-any.whl", name="other-package"
+    )
     with pytest.raises(
         generate_component_evidence.ComponentEvidenceError,
         match="installed distributions differ",

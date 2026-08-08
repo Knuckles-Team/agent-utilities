@@ -70,7 +70,13 @@ _ROWS = [
     },
 ]
 
-_REPORT = {"graph": "g", "ok": True, "entries": 2, "first_broken_seq": None, "detail": "ok"}
+_REPORT = {
+    "graph": "g",
+    "ok": True,
+    "entries": 2,
+    "first_broken_seq": None,
+    "detail": "ok",
+}
 
 
 def test_no_backend_active_reports_error():

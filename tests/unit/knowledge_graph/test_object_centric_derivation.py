@@ -25,7 +25,9 @@ def _dt(value: str) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
 
 
-def _event(event_id: str, activity: str, at: str, object_id: str = "o1") -> ProcessEvent:
+def _event(
+    event_id: str, activity: str, at: str, object_id: str = "o1"
+) -> ProcessEvent:
     return ProcessEvent(
         event_id=event_id,
         activity=activity,
@@ -58,7 +60,9 @@ def test_object_timeline_keeps_events_ordered_by_time_then_tiebreaker_then_id() 
     timeline = ObjectTimeline()
     timeline.insert(_event("e3", "ship", "2026-01-03T00:00:00"))
     timeline.insert(_event("e1", "create", "2026-01-01T00:00:00"))
-    predecessor, successor = timeline.insert(_event("e2", "approve", "2026-01-02T00:00:00"))
+    predecessor, successor = timeline.insert(
+        _event("e2", "approve", "2026-01-02T00:00:00")
+    )
 
     assert [event.event_id for event in timeline] == ["e1", "e2", "e3"]
     assert predecessor is not None and predecessor.event_id == "e1"
@@ -246,7 +250,10 @@ def test_a_correction_revises_only_the_bounded_suffix_it_could_affect() -> None:
 
     # Only e2 and its successor e3 are in the revised suffix — e1 is untouched.
     revised_event_valid_froms = {state.valid_from for state in delta.revised_states}
-    assert revised_event_valid_froms == {_dt("2026-01-02T00:00:00"), _dt("2026-01-03T00:00:00")}
+    assert revised_event_valid_froms == {
+        _dt("2026-01-02T00:00:00"),
+        _dt("2026-01-03T00:00:00"),
+    }
     assert _dt("2026-01-01T00:00:00") not in revised_event_valid_froms
 
 
@@ -315,7 +322,9 @@ def test_correction_bumps_generation_exactly_once_even_when_also_late() -> None:
 
 
 # ── replay determinism (item 5) ─────────────────────────────────────────────
-def test_replaying_events_in_two_arrival_orders_converges_to_the_same_dfg_and_state() -> None:
+def test_replaying_events_in_two_arrival_orders_converges_to_the_same_dfg_and_state() -> (
+    None
+):
     """Whether events for one object arrive strictly in order or with a late
     insertion, the FINAL aggregate DFG and final object state converge to the
     same result — replay determinism independent of arrival order."""
@@ -355,9 +364,15 @@ def test_replaying_events_in_two_arrival_orders_converges_to_the_same_dfg_and_st
         event.event_id for event in out_of_order.timeline("o1")
     ]
     final_state_in_order = in_order.object_state_as_of(
-        "o1", _dt("2026-01-03T00:00:00"), state_id="final", observed_at=_dt("2026-01-03T00:00:01")
+        "o1",
+        _dt("2026-01-03T00:00:00"),
+        state_id="final",
+        observed_at=_dt("2026-01-03T00:00:01"),
     )
     final_state_out_of_order = out_of_order.object_state_as_of(
-        "o1", _dt("2026-01-03T00:00:00"), state_id="final", observed_at=_dt("2026-01-03T00:00:01")
+        "o1",
+        _dt("2026-01-03T00:00:00"),
+        state_id="final",
+        observed_at=_dt("2026-01-03T00:00:01"),
     )
     assert final_state_in_order.attributes == final_state_out_of_order.attributes

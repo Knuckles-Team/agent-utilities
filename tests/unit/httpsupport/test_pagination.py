@@ -8,7 +8,10 @@ from __future__ import annotations
 
 import pytest
 
-from agent_utilities.httpsupport.pagination import AsyncPaginationIterator, PaginationIterator
+from agent_utilities.httpsupport.pagination import (
+    AsyncPaginationIterator,
+    PaginationIterator,
+)
 
 # --------------------------------------------------------------------------- #
 # helpers

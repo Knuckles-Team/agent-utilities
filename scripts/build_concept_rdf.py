@@ -111,8 +111,10 @@ def main() -> int:
     n_gc = ttl.count("a :GovernedConcept")
     n_pil = ttl.count("a :Pillar")
     n_sch = ttl.count("a skos:ConceptScheme")
-    print(f"wrote {args.out}: {n_gc} GovernedConcepts, {n_pil} shared pillars, "
-          f"{n_sch} schemes, {len(ttl)} bytes")
+    print(
+        f"wrote {args.out}: {n_gc} GovernedConcepts, {n_pil} shared pillars, "
+        f"{n_sch} schemes, {len(ttl)} bytes"
+    )
     return 0
 
 

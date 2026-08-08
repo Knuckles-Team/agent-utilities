@@ -112,9 +112,7 @@ def test_designate_reports_unavailable_engine_vector_surface(monkeypatch):
 
 def test_designate_reports_unavailable_embedding():
     assert (
-        designate_specialists(
-            _make_engine(), "query", embed_fn=lambda _query: None
-        )
+        designate_specialists(_make_engine(), "query", embed_fn=lambda _query: None)
         is None
     )
 

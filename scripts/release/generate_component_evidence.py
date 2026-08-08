@@ -104,7 +104,9 @@ def _regular_descriptor(path: Path, *, maximum: int) -> Any:
         try:
             path_metadata = path.stat(follow_symlinks=False)
         except OSError:
-            raise ComponentEvidenceError("evidence input changed while it was read") from None
+            raise ComponentEvidenceError(
+                "evidence input changed while it was read"
+            ) from None
         if (path_metadata.st_dev, path_metadata.st_ino) != (
             metadata.st_dev,
             metadata.st_ino,
@@ -152,7 +154,9 @@ def _file_digest(path: Path, *, maximum: int) -> tuple[str, int]:
                 break
             observed += len(chunk)
             if observed > maximum:
-                raise ComponentEvidenceError("evidence input violates its size boundary")
+                raise ComponentEvidenceError(
+                    "evidence input violates its size boundary"
+                )
             digest.update(chunk)
         if observed != metadata.st_size:
             raise ComponentEvidenceError("evidence input changed while it was read")
@@ -182,7 +186,9 @@ def _relative(path: Path, release_root: Path) -> str:
     try:
         value = path.resolve().relative_to(release_root.resolve()).as_posix()
     except ValueError as exc:
-        raise ComponentEvidenceError("evidence output must remain under the release root") from exc
+        raise ComponentEvidenceError(
+            "evidence output must remain under the release root"
+        ) from exc
     if not value or value.startswith("../"):
         raise ComponentEvidenceError("evidence output reference is invalid")
     return value
@@ -193,7 +199,9 @@ def _write(path: Path, payload: bytes, *, release_root: Path) -> None:
     try:
         relative = path.absolute().relative_to(root)
     except ValueError as exc:
-        raise ComponentEvidenceError("evidence output must remain under the release root") from exc
+        raise ComponentEvidenceError(
+            "evidence output must remain under the release root"
+        ) from exc
     if not relative.parts or relative.name in {"", ".", ".."}:
         raise ComponentEvidenceError("evidence output reference is invalid")
     root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -236,7 +244,9 @@ def _write(path: Path, payload: bytes, *, release_root: Path) -> None:
         if existing is not None and (
             not stat.S_ISREG(existing.st_mode) or existing.st_nlink != 1
         ):
-            raise ComponentEvidenceError("evidence output must be an unaliased regular file")
+            raise ComponentEvidenceError(
+                "evidence output must be an unaliased regular file"
+            )
         temporary_name = f".{relative.name}.{secrets.token_hex(16)}.tmp"
         flags = (
             os.O_WRONLY
@@ -285,8 +295,13 @@ def _wheel_metadata(path: Path) -> tuple[str, str, str]:
     try:
         parsed_name, parsed_version, _, _ = parse_wheel_filename(path.name)
     except (InvalidVersion, ValueError) as exc:
-        raise ComponentEvidenceError("wheelhouse contains an invalid wheel filename") from exc
-    with _regular_descriptor(path, maximum=_MAX_WHEEL_BYTES) as (descriptor, file_metadata):
+        raise ComponentEvidenceError(
+            "wheelhouse contains an invalid wheel filename"
+        ) from exc
+    with _regular_descriptor(path, maximum=_MAX_WHEEL_BYTES) as (
+        descriptor,
+        file_metadata,
+    ):
         tail_size = min(file_metadata.st_size, 65_557)
         os.lseek(descriptor, file_metadata.st_size - tail_size, os.SEEK_SET)
         tail = os.read(descriptor, tail_size)
@@ -319,7 +334,9 @@ def _wheel_metadata(path: Path) -> tuple[str, str, str]:
             or directory_offset + directory_size > file_metadata.st_size
             or offset + 22 + comment_size != len(tail)
         ):
-            raise ComponentEvidenceError("wheel central directory violates its boundary")
+            raise ComponentEvidenceError(
+                "wheel central directory violates its boundary"
+            )
         digest = hashlib.sha256()
         os.lseek(descriptor, 0, os.SEEK_SET)
         observed = 0
@@ -399,7 +416,9 @@ def _wheel_components(wheelhouse: Path | None) -> list[dict[str, Any]]:
                 "name": name,
                 "version": version,
                 "purl": purl,
-                "hashes": [{"alg": "SHA-256", "content": digest.removeprefix("sha256:")}],
+                "hashes": [
+                    {"alg": "SHA-256", "content": digest.removeprefix("sha256:")}
+                ],
             }
         )
     return components
@@ -481,7 +500,9 @@ def _layer_inventory(
                     entry_count > _MAX_LAYER_ENTRIES
                     or observed_size > _MAX_LAYER_UNCOMPRESSED_BYTES
                 ):
-                    raise ComponentEvidenceError("OCI layer violates its expansion boundary")
+                    raise ComponentEvidenceError(
+                        "OCI layer violates its expansion boundary"
+                    )
                 path = _safe_archive_name(entry.name, "OCI layer")
                 parts = tuple(part for part in path.parts if part != ".")
                 if not parts:
@@ -515,9 +536,14 @@ def _layer_inventory(
                     continue
                 extracted = layer.extractfile(entry)
                 if extracted is None:
-                    raise ComponentEvidenceError("installed distribution metadata is unavailable")
+                    raise ComponentEvidenceError(
+                        "installed distribution metadata is unavailable"
+                    )
                 metadata_payload = extracted.read(_MAX_INSTALLED_METADATA_BYTES + 1)
-                if len(metadata_payload) != entry.size or len(metadata_payload) > _MAX_INSTALLED_METADATA_BYTES:
+                if (
+                    len(metadata_payload) != entry.size
+                    or len(metadata_payload) > _MAX_INSTALLED_METADATA_BYTES
+                ):
                     raise ComponentEvidenceError(
                         "installed distribution metadata violates its size boundary"
                     )
@@ -525,7 +551,9 @@ def _layer_inventory(
                 name = canonicalize_name(str(metadata.get("Name") or ""))
                 version = str(metadata.get("Version") or "")
                 if not name or not version:
-                    raise ComponentEvidenceError("installed distribution metadata is invalid")
+                    raise ComponentEvidenceError(
+                        "installed distribution metadata is invalid"
+                    )
                 inventory[normalized] = (name, version)
     except (OSError, tarfile.TarError) as exc:
         raise ComponentEvidenceError("OCI layer archive is invalid") from exc
@@ -565,7 +593,9 @@ def _oci_archive_identity(
                         member_path = _safe_archive_name(member.name, "OCI archive")
                         normalized = member_path.as_posix()
                         if normalized in members:
-                            raise ComponentEvidenceError("OCI archive contains duplicate paths")
+                            raise ComponentEvidenceError(
+                                "OCI archive contains duplicate paths"
+                            )
                         members[normalized] = member
                         if member.isdir():
                             continue
@@ -575,12 +605,18 @@ def _oci_archive_identity(
                             )
                         if normalized in {"oci-layout", "index.json"}:
                             continue
-                        blob_match = re.fullmatch(r"blobs/sha256/([a-f0-9]{64})", normalized)
+                        blob_match = re.fullmatch(
+                            r"blobs/sha256/([a-f0-9]{64})", normalized
+                        )
                         if blob_match is None:
-                            raise ComponentEvidenceError("OCI archive contains a foreign path")
+                            raise ComponentEvidenceError(
+                                "OCI archive contains a foreign path"
+                            )
                         blob_members["sha256:" + blob_match.group(1)] = member
                     if "oci-layout" not in members or "index.json" not in members:
-                        raise ComponentEvidenceError("OCI archive layout metadata is missing")
+                        raise ComponentEvidenceError(
+                            "OCI archive layout metadata is missing"
+                        )
                     layout = json.loads(
                         _read_tar_member(
                             archive,
@@ -589,7 +625,9 @@ def _oci_archive_identity(
                         )
                     )
                     if layout != {"imageLayoutVersion": "1.0.0"}:
-                        raise ComponentEvidenceError("OCI layout version is unsupported")
+                        raise ComponentEvidenceError(
+                            "OCI layout version is unsupported"
+                        )
                     index = json.loads(
                         _read_tar_member(
                             archive,
@@ -605,7 +643,8 @@ def _oci_archive_identity(
                         )
                         or index.get("schemaVersion") != 2
                         or (
-                            "mediaType" in index and index.get("mediaType") != _OCI_INDEX
+                            "mediaType" in index
+                            and index.get("mediaType") != _OCI_INDEX
                         )
                         or not isinstance(index.get("manifests"), list)
                         or len(index["manifests"]) != 1
@@ -634,14 +673,21 @@ def _oci_archive_identity(
                     def walk(item: dict[str, Any], field: str) -> None:
                         digest = str(item["digest"])
                         if digest in visited:
-                            raise ComponentEvidenceError("OCI descriptor graph contains a cycle")
+                            raise ComponentEvidenceError(
+                                "OCI descriptor graph contains a cycle"
+                            )
                         visited.add(digest)
                         media_type = str(item["mediaType"])
                         try:
                             value = json.loads(blob_payload(item, field))
                         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                            raise ComponentEvidenceError(f"{field} JSON is invalid") from exc
-                        if not isinstance(value, dict) or value.get("schemaVersion") != 2:
+                            raise ComponentEvidenceError(
+                                f"{field} JSON is invalid"
+                            ) from exc
+                        if (
+                            not isinstance(value, dict)
+                            or value.get("schemaVersion") != 2
+                        ):
                             raise ComponentEvidenceError(f"{field} document is invalid")
                         if media_type == _OCI_INDEX:
                             children = value.get("manifests")
@@ -662,15 +708,21 @@ def _oci_archive_identity(
                                 or not children
                                 or len(children) > 64
                             ):
-                                raise ComponentEvidenceError("OCI image index is invalid")
+                                raise ComponentEvidenceError(
+                                    "OCI image index is invalid"
+                                )
                             for position, child in enumerate(children):
                                 walk(
-                                    _oci_descriptor(child, f"{field}.manifests[{position}]"),
+                                    _oci_descriptor(
+                                        child, f"{field}.manifests[{position}]"
+                                    ),
                                     f"{field}.manifests[{position}]",
                                 )
                             return
                         if media_type != _OCI_MANIFEST:
-                            raise ComponentEvidenceError("OCI root is not an image subject")
+                            raise ComponentEvidenceError(
+                                "OCI root is not an image subject"
+                            )
                         if (
                             not {"config", "layers"}.issubset(value)
                             or not set(value).issubset(
@@ -687,14 +739,22 @@ def _oci_archive_identity(
                                 and value.get("mediaType") != _OCI_MANIFEST
                             )
                         ):
-                            raise ComponentEvidenceError("OCI image manifest is not exact")
+                            raise ComponentEvidenceError(
+                                "OCI image manifest is not exact"
+                            )
                         config = _oci_descriptor(value["config"], f"{field}.config")
                         if config["mediaType"] != _OCI_CONFIG:
-                            raise ComponentEvidenceError("OCI image config media type is invalid")
+                            raise ComponentEvidenceError(
+                                "OCI image config media type is invalid"
+                            )
                         try:
-                            config_value = json.loads(blob_payload(config, f"{field}.config"))
+                            config_value = json.loads(
+                                blob_payload(config, f"{field}.config")
+                            )
                         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-                            raise ComponentEvidenceError("OCI image config is invalid") from exc
+                            raise ComponentEvidenceError(
+                                "OCI image config is invalid"
+                            ) from exc
                         if not isinstance(config_value, dict):
                             raise ComponentEvidenceError("OCI image config is invalid")
                         layers = value.get("layers")
@@ -703,7 +763,9 @@ def _oci_archive_identity(
                         image_manifests.append(
                             {
                                 "layers": [
-                                    _oci_descriptor(layer, f"{field}.layers[{position}]")
+                                    _oci_descriptor(
+                                        layer, f"{field}.layers[{position}]"
+                                    )
                                     for position, layer in enumerate(layers)
                                 ]
                             }
@@ -711,19 +773,25 @@ def _oci_archive_identity(
 
                     walk(root, "OCI root")
                     if not image_manifests:
-                        raise ComponentEvidenceError("OCI archive has no image manifests")
+                        raise ComponentEvidenceError(
+                            "OCI archive has no image manifests"
+                        )
                     for image in image_manifests:
                         installed_paths: dict[str, tuple[str, str]] = {}
                         for layer in image["layers"]:
                             digest = str(layer["digest"])
                             member = blob_members.get(digest)
                             if member is None or member.size != layer["size"]:
-                                raise ComponentEvidenceError("OCI layer blob is unavailable")
+                                raise ComponentEvidenceError(
+                                    "OCI layer blob is unavailable"
+                                )
                             referenced_blobs.add(digest)
                             layer_hash = hashlib.sha256()
                             layer_stream = archive.extractfile(member)
                             if layer_stream is None:
-                                raise ComponentEvidenceError("OCI layer blob is unavailable")
+                                raise ComponentEvidenceError(
+                                    "OCI layer blob is unavailable"
+                                )
                             while True:
                                 chunk = layer_stream.read(1024 * 1024)
                                 if not chunk:
@@ -741,7 +809,10 @@ def _oci_archive_identity(
                         for distribution, version in installed_paths.values():
                             if distribution in _BOOTSTRAP_DISTRIBUTIONS:
                                 continue
-                            if distribution in installed and installed[distribution] != version:
+                            if (
+                                distribution in installed
+                                and installed[distribution] != version
+                            ):
                                 raise ComponentEvidenceError(
                                     "OCI image contains duplicate installed distributions"
                                 )
@@ -755,7 +826,12 @@ def _oci_archive_identity(
                             "OCI archive contains unreferenced blob material"
                         )
                     return str(root["digest"]), "sha256:" + archive_hash.hexdigest()
-            except (OSError, tarfile.TarError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            except (
+                OSError,
+                tarfile.TarError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+            ) as exc:
                 if isinstance(exc, ComponentEvidenceError):
                     raise
                 raise ComponentEvidenceError("OCI layout archive is invalid") from exc
@@ -781,7 +857,9 @@ def _signature_bundle(
         value.get("subjectDigest") != subject_digest
         or value.get("artifactDigest") != artifact_digest
     ):
-        raise ComponentEvidenceError("signature bundle is not bound to the exact subject")
+        raise ComponentEvidenceError(
+            "signature bundle is not bound to the exact subject"
+        )
     if not _SCHEME.fullmatch(str(value.get("scheme") or "")):
         raise ComponentEvidenceError("signature scheme is invalid")
     if not _SIGNATURE.fullmatch(str(value.get("signature") or "")):
@@ -806,7 +884,9 @@ def _external_json(env_name: str, payload: bytes) -> dict[str, Any]:
     try:
         command = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise ComponentEvidenceError("external command must be a JSON argv array") from exc
+        raise ComponentEvidenceError(
+            "external command must be a JSON argv array"
+        ) from exc
     if (
         not isinstance(command, list)
         or not command
@@ -901,7 +981,9 @@ def generate(
     try:
         destination.relative_to(root)
     except ValueError as exc:
-        raise ComponentEvidenceError("component evidence must remain under release root") from exc
+        raise ComponentEvidenceError(
+            "component evidence must remain under release root"
+        ) from exc
 
     source = {
         "apiVersion": "graphos.io/v1",
@@ -928,7 +1010,10 @@ def generate(
                 "version": version,
                 "purl": purl,
                 "hashes": [
-                    {"alg": "SHA-256", "content": artifact_digest.removeprefix("sha256:")}
+                    {
+                        "alg": "SHA-256",
+                        "content": artifact_digest.removeprefix("sha256:"),
+                    }
                 ],
             }
         },
@@ -937,7 +1022,10 @@ def generate(
     provenance = {
         "_type": "https://in-toto.io/Statement/v1",
         "subject": [
-            {"name": name, "digest": {"sha256": artifact_digest.removeprefix("sha256:")}}
+            {
+                "name": name,
+                "digest": {"sha256": artifact_digest.removeprefix("sha256:")},
+            }
         ],
         "predicateType": "https://slsa.dev/provenance/v1",
         "predicate": {

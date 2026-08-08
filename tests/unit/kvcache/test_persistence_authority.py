@@ -806,7 +806,9 @@ def test_the_durable_node_carries_the_derivation_for_later_audit(manager, disk):
     assert provenance["authorized_clearance"] == "confidential"
     assert provenance["composed_classification"] == "confidential"
     assert provenance["contributing_sources"] == ["src:crm"]
-    assert any(c.startswith("classification=pass") for c in provenance["eligibility_checks"])
+    assert any(
+        c.startswith("classification=pass") for c in provenance["eligibility_checks"]
+    )
 
 
 def test_a_refusal_is_recorded_on_the_ram_record_for_later_questioning(manager):
@@ -940,7 +942,10 @@ def test_mcp_action_takes_its_sources_from_the_context_bundle_citations(
                                 "dropped_redundant": 3,
                                 "citations": [
                                     {"node_id": "n1", "source_refs": ["src:wiki"]},
-                                    {"node_id": "n2", "source_refs": ["src:wiki", "src:docs"]},
+                                    {
+                                        "node_id": "n2",
+                                        "source_refs": ["src:wiki", "src:docs"],
+                                    },
                                 ],
                             }
                         ),

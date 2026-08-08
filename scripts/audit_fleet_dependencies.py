@@ -146,7 +146,9 @@ def parse_uv_lock(path: pathlib.Path) -> frozenset[Coordinate]:
             raise AuditError("uv dependency lock artifact inventory is invalid")
         artifacts.extend(wheels)
         if not artifacts:
-            raise AuditError("uv dependency lock registry package has no hashed artifact")
+            raise AuditError(
+                "uv dependency lock registry package has no hashed artifact"
+            )
         for artifact in artifacts:
             if not isinstance(artifact, dict):
                 raise AuditError("uv dependency lock artifact inventory is invalid")
@@ -187,12 +189,16 @@ def parse_cargo_lock(path: pathlib.Path) -> frozenset[Coordinate]:
             or not isinstance(checksum, str)
             or CARGO_CHECKSUM_RE.fullmatch(checksum) is None
         ):
-            raise AuditError("Cargo dependency lock contains an unverified registry package")
+            raise AuditError(
+                "Cargo dependency lock contains an unverified registry package"
+            )
         coordinate = _coordinate("crates.io", item.get("name"), item.get("version"))
         if coordinate:
             coordinates.add(coordinate)
     if not coordinates:
-        raise AuditError("Cargo dependency lock contains no auditable registry packages")
+        raise AuditError(
+            "Cargo dependency lock contains no auditable registry packages"
+        )
     return frozenset(coordinates)
 
 
@@ -246,7 +252,9 @@ def parse_pnpm_lock(path: pathlib.Path) -> frozenset[Coordinate]:
             integrity_match = re.search(r"\bintegrity:\s*([^,}\s]+)", line)
             if integrity_match:
                 if NPM_INTEGRITY_RE.fullmatch(integrity_match.group(1)) is None:
-                    raise AuditError("pnpm dependency lock contains an invalid integrity digest")
+                    raise AuditError(
+                        "pnpm dependency lock contains an invalid integrity digest"
+                    )
                 pending_integrity = True
     finish_pending()
     if not coordinates:
@@ -358,7 +366,11 @@ def load_acceptances(repository: pathlib.Path) -> tuple[Acceptance, ...]:
             continue
         declaration, separator, justification = stripped.partition("#")
         fields = declaration.split()
-        if not separator or len(justification.strip()) < 12 or len(fields) not in {3, 4}:
+        if (
+            not separator
+            or len(justification.strip()) < 12
+            or len(fields) not in {3, 4}
+        ):
             raise AuditError(f"security acceptance line {number} is not justified")
         if len(fields) == 3:
             advisory_id, package, expiry_field = fields
@@ -366,7 +378,9 @@ def load_acceptances(repository: pathlib.Path) -> tuple[Acceptance, ...]:
         else:
             advisory_id, ecosystem, package, expiry_field = fields
             if ecosystem not in SUPPORTED_ECOSYSTEMS:
-                raise AuditError(f"security acceptance line {number} has an invalid ecosystem")
+                raise AuditError(
+                    f"security acceptance line {number} has an invalid ecosystem"
+                )
         package = package.casefold()
         expiry_match = EXPIRY_RE.fullmatch(expiry_field)
         if (
@@ -382,7 +396,9 @@ def load_acceptances(repository: pathlib.Path) -> tuple[Acceptance, ...]:
         if expires < today:
             raise AuditError(f"security acceptance line {number} has expired")
         if expires > today + dt.timedelta(days=MAX_ACCEPTANCE_DAYS):
-            raise AuditError(f"security acceptance line {number} exceeds the review horizon")
+            raise AuditError(
+                f"security acceptance line {number} exceeds the review horizon"
+            )
         key = (advisory_id.casefold(), ecosystem, package)
         if key in seen:
             raise AuditError(f"security acceptance line {number} is duplicated")
@@ -420,19 +436,24 @@ def query_osv(coordinates: tuple[Coordinate, ...]) -> dict[Coordinate, frozenset
             if not isinstance(vulnerabilities, list):
                 raise AuditError("OSV batch response is invalid")
             for vulnerability in vulnerabilities:
-                advisory_id = vulnerability.get("id") if isinstance(vulnerability, dict) else None
-                if not isinstance(advisory_id, str) or not ADVISORY_RE.fullmatch(advisory_id):
+                advisory_id = (
+                    vulnerability.get("id") if isinstance(vulnerability, dict) else None
+                )
+                if not isinstance(advisory_id, str) or not ADVISORY_RE.fullmatch(
+                    advisory_id
+                ):
                     raise AuditError("OSV advisory identity is invalid")
                 findings[coordinate].add(advisory_id)
     return {coordinate: frozenset(values) for coordinate, values in findings.items()}
 
 
-def _accepted(
-    acceptance: Acceptance, coordinate: Coordinate, advisory_id: str
-) -> bool:
+def _accepted(acceptance: Acceptance, coordinate: Coordinate, advisory_id: str) -> bool:
     if acceptance.advisory_id.casefold() != advisory_id.casefold():
         return False
-    if acceptance.ecosystem is not None and acceptance.ecosystem != coordinate.ecosystem:
+    if (
+        acceptance.ecosystem is not None
+        and acceptance.ecosystem != coordinate.ecosystem
+    ):
         return False
     return acceptance.package == coordinate.name.casefold()
 
@@ -476,14 +497,17 @@ def main(argv: list[str] | None = None) -> int:
             )
         inventories = inventory(root, repositories=repositories)
         coordinates = tuple(
-            sorted({coordinate for item in inventories for coordinate in item.coordinates})
+            sorted(
+                {coordinate for item in inventories for coordinate in item.coordinates}
+            )
         )
         if arguments.inventory_only:
             by_ecosystem: dict[str, int] = defaultdict(int)
             for coordinate in coordinates:
                 by_ecosystem[coordinate.ecosystem] += 1
             summary = ", ".join(
-                f"{ecosystem}={count}" for ecosystem, count in sorted(by_ecosystem.items())
+                f"{ecosystem}={count}"
+                for ecosystem, count in sorted(by_ecosystem.items())
             )
             print(
                 f"dependency-audit: inventory clean ({len(inventories)} repositories, "
@@ -496,7 +520,9 @@ def main(argv: list[str] | None = None) -> int:
         }
     except AuditError as error:
         if _offline_warn_allowed() and str(error) == "OSV service is unavailable":
-            print("dependency-audit: WARNING - OSV unavailable under explicit local offline policy")
+            print(
+                "dependency-audit: WARNING - OSV unavailable under explicit local offline policy"
+            )
             return 0
         print(f"dependency-audit: FAILED - {error}", file=sys.stderr)
         return 2

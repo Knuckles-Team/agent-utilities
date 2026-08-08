@@ -181,7 +181,9 @@ def build_live_engine() -> Any:
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
-    engine = IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine.get_or_create()
+    engine = (
+        IntelligenceGraphEngine.get_active() or IntelligenceGraphEngine.get_or_create()
+    )
     try:
         engine.query_cypher("MATCH (n) RETURN count(n) AS count LIMIT 1")
     except Exception as exc:

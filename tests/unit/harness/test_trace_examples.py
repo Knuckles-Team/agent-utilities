@@ -158,9 +158,7 @@ def test_gather_trace_examples_unrouted_component_type_returns_empty():
     class OtherTarget:
         component_type = "extraction"
 
-    assert (
-        gather_trace_examples(FakeToolEngine([]), OtherTarget(), {"name": "x"}) == []
-    )
+    assert gather_trace_examples(FakeToolEngine([]), OtherTarget(), {"name": "x"}) == []
 
 
 # ── blend_trainset — the caller-facing entrypoint ────────────────────────────
@@ -192,9 +190,7 @@ def test_blend_trainset_leads_with_trace_derived_negative_example():
     assert len(blended) == 2
     # trace-derived examples lead the blended trainset
     first = blended[0]
-    first_reward = (
-        first.get("reward") if isinstance(first, dict) else first.reward
-    )
+    first_reward = first.get("reward") if isinstance(first, dict) else first.reward
     assert first_reward == pytest.approx(0.0)
     assert trace_reward_fn(first) == pytest.approx(0.0)
 

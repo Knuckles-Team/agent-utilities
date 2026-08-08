@@ -17,7 +17,9 @@ from agent_utilities.knowledge_graph.research.improvement_ledger import (
     improvement_velocity,
 )
 
-pytestmark = pytest.mark.concept("AU-AHE.sdd.recursive-improvement-instrumentation-aggregating")
+pytestmark = pytest.mark.concept(
+    "AU-AHE.sdd.recursive-improvement-instrumentation-aggregating"
+)
 
 
 class LedgerEngine:

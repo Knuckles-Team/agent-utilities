@@ -110,20 +110,14 @@ def test_plan_eviction_preserves_head_and_recent_and_is_minimal():
 
 def test_persist_memento_encrypts_approved_raw_retention(monkeypatch):
     monkeypatch.setenv("MEMENTO_RAW_RETENTION_ENABLED", "true")
-    monkeypatch.setenv(
-        "MEMENTO_RAW_RETENTION_POLICY", mc.MEMENTO_RAW_RETENTION_POLICY
-    )
-    monkeypatch.setenv(
-        "MEMENTO_RAW_ENCRYPTION_KEY_REF", "secret://tests/memento-key"
-    )
+    monkeypatch.setenv("MEMENTO_RAW_RETENTION_POLICY", mc.MEMENTO_RAW_RETENTION_POLICY)
+    monkeypatch.setenv("MEMENTO_RAW_ENCRYPTION_KEY_REF", "secret://tests/memento-key")
     monkeypatch.setattr(mc, "_resolve_secret_reference", lambda _ref: "test-key")
 
     engine = MagicMock()
     engine.backend = MagicMock()
     raw = "the full raw block text"
-    mid = mc._persist_memento(
-        engine, "MEMENTO: state", source="t", raw_block=raw
-    )
+    mid = mc._persist_memento(engine, "MEMENTO: state", source="t", raw_block=raw)
     assert mid is not None
     # A Memento node + encrypted EvictedBlock + SUMMARIZES edge were written. Neither the source
     # identity nor plaintext transcript is present in the persisted properties.
@@ -229,4 +223,6 @@ def test_memento_capability_registered_in_factory_default_on():
     factory_src = inspect.getsource(factory)
     assert "memento_compaction=memento_compaction" in factory_src
     composition_src = inspect.getsource(composition)
-    assert "MementoCompaction(" in composition_src  # actually appended, not just imported
+    assert (
+        "MementoCompaction(" in composition_src
+    )  # actually appended, not just imported

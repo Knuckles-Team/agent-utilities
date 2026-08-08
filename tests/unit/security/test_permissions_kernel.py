@@ -473,9 +473,7 @@ class TestIdentityRenewalSeam:
         assert renewed.capabilities == identity.capabilities
         # Freshly re-issued identity is validly signed and authorizes tools.
         assert kernel.verify_identity(renewed) is True
-        assert (
-            kernel.authorize_tool(renewed, "read_thing") == AuthDecision.ALLOW
-        )
+        assert kernel.authorize_tool(renewed, "read_thing") == AuthDecision.ALLOW
 
     def test_refresh_is_noop_before_skew_window(self) -> None:
         kernel = PermissionsKernel(

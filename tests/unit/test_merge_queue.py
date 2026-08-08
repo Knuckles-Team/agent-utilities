@@ -162,9 +162,7 @@ def test_withdraw_then_reenqueue_from_an_earlier_sorting_lane_is_not_silently_lo
     mq._record_state(withdrawn, mq.WITHDRAWN, "changed mind", canonical)
     mq.enqueue(path=lane)  # re-enqueue, chronologically AFTER the withdrawal
 
-    old_state = _folded_state_under_old_group_last_resolve(
-        canonical, "au-pc-lint-0801"
-    )
+    old_state = _folded_state_under_old_group_last_resolve(canonical, "au-pc-lint-0801")
     assert old_state != mq.QUEUED, (
         "D-ORC-17: this fixture does not reproduce D-CVG-9 under the OLD "
         f"resolver (got {old_state!r}) -- the test below would be vacuous"
@@ -304,9 +302,7 @@ def test_duplicate_symbols_across_two_candidates_are_reported(
         {"pkg/resolve.py": "class CandidateClaim:\n    pass\n"},
     )
     assert mq.trial_merge(canonical, "main", "lane-extract").ok
-    dups = mq.duplicate_definitions(
-        canonical, "main", ["lane-extract", "lane-resolve"]
-    )
+    dups = mq.duplicate_definitions(canonical, "main", ["lane-extract", "lane-resolve"])
     assert [d["symbol"] for d in dups] == ["CandidateClaim"]
     assert {s["branch"] for s in dups[0]["added_by"]} == {
         "lane-extract",
@@ -468,7 +464,9 @@ def test_targeted_selection_maps_changed_source_to_its_tests(
     canonical: Path,
 ) -> None:
     _write(canonical, "tests/unit/test_core.py", "def test_x():\n    assert True\n")
-    _write(canonical, "tests/unit/test_core_wiring.py", "def test_y():\n    assert True\n")
+    _write(
+        canonical, "tests/unit/test_core_wiring.py", "def test_y():\n    assert True\n"
+    )
     _write(canonical, "tests/unit/test_other.py", "def test_z():\n    assert True\n")
     _commit(canonical, "tests")
     selected = mq.select_tests(canonical, ["pkg/core.py"])
@@ -482,7 +480,9 @@ def test_an_untargeted_selection_defers_instead_of_blowing_the_budget(
     all (D-OP-4). It must say it deferred, and stay green."""
     monkeypatch.setattr(mq, "MAX_TARGETED_TEST_FILES", 1)
     _write(canonical, "tests/unit/test_core.py", "def test_x():\n    assert True\n")
-    _write(canonical, "tests/unit/test_core_extra.py", "def test_y():\n    assert True\n")
+    _write(
+        canonical, "tests/unit/test_core_extra.py", "def test_y():\n    assert True\n"
+    )
     _commit(canonical, "tests")
     scope = lanes.lane_scope(canonical)
     gate = mq.run_fast_gate(
@@ -708,12 +708,12 @@ def test_cli_exits_75_so_a_shell_stops_instead_of_proceeding(
 # ---------------------------------------------------------------------------
 # Zero conflicts is not a safety property
 # ---------------------------------------------------------------------------
-CONTRACT = '''\
+CONTRACT = """\
 import pathlib, sys
 root = pathlib.Path(sys.argv[sys.argv.index("--repository-root") + 1])
 src = (root / "pkg" / "identity.py").read_text()
 sys.exit(1 if "resolve_placement" in src else 0)
-'''
+"""
 
 
 def _with_contract(canonical: Path) -> None:
@@ -735,7 +735,9 @@ def test_a_branch_that_reverts_a_fix_merges_cleanly_and_is_caught(
     lane = _branch(
         canonical,
         "lane-revert",
-        {"pkg/identity.py": "def mint():\n    placement = resolve_placement()\n    return Session()\n"},
+        {
+            "pkg/identity.py": "def mint():\n    placement = resolve_placement()\n    return Session()\n"
+        },
     )
     _write(canonical, "pkg/elsewhere.py", "UNRELATED = 1\n")
     _commit(canonical, "main: unrelated work elsewhere")
@@ -817,9 +819,7 @@ def test_deleting_the_contract_is_not_a_way_to_satisfy_it(canonical: Path) -> No
 
 def test_contract_baseline_reads_the_base_ref(canonical: Path) -> None:
     _with_contract(canonical)
-    assert mq.contract_baseline(canonical, "main") == {
-        "check_identity_contract.py"
-    }
+    assert mq.contract_baseline(canonical, "main") == {"check_identity_contract.py"}
 
 
 def test_contract_step_stays_inside_its_share_of_the_budget(canonical: Path) -> None:
@@ -1149,7 +1149,7 @@ def test_baseline_only_runs_the_not_yet_cached_delta(
 # violation to that same already-red script must still be rejected.
 # ---------------------------------------------------------------------------
 
-ITEMIZED_CONTRACT = '''\
+ITEMIZED_CONTRACT = """\
 import pathlib, sys
 root = pathlib.Path(sys.argv[sys.argv.index("--repository-root") + 1])
 src = (root / "pkg" / "core.py").read_text()
@@ -1160,7 +1160,7 @@ if violations:
         print(f"- {v}")
     sys.exit(1)
 sys.exit(0)
-'''
+"""
 
 
 def _with_itemized_contract(canonical: Path) -> None:
@@ -1193,9 +1193,10 @@ def test_new_violation_on_an_already_red_contract_script_is_rejected(
     assert "NEW violation" in check["detail"]
     assert "BAD_new = 2" in check["detail"]
     assert "pre-existing" in check["detail"]
-    assert "BAD_existing" not in check["detail"].split("NEW violation")[1].split(
-        "pre-existing"
-    )[0]
+    assert (
+        "BAD_existing"
+        not in check["detail"].split("NEW violation")[1].split("pre-existing")[0]
+    )
 
 
 def test_pre_existing_contract_debt_does_not_block_an_unrelated_candidate(
@@ -1206,9 +1207,7 @@ def test_pre_existing_contract_debt_does_not_block_an_unrelated_candidate(
     never touches the offending file must land — the debt is reported, not
     silenced, but it is not blocking."""
     _with_itemized_contract(canonical)
-    lane = _branch(
-        canonical, "lane-unrelated", {"pkg/elsewhere.py": "UNRELATED = 1\n"}
-    )
+    lane = _branch(canonical, "lane-unrelated", {"pkg/elsewhere.py": "UNRELATED = 1\n"})
     mq.enqueue(path=lane)
     result = mq.run_queue(path=canonical, prune=False)
     assert result["landed"] == 1 and result["rejected"] == 0
@@ -1341,10 +1340,7 @@ def test_land_writes_the_declared_base_ref_when_canonical_is_not_on_it(
     # Put the canonical checkout on something OTHER than main — the exact
     # configuration the coincidence hid.
     _run(["git", "checkout", "-q", "-b", "parked"], canonical)
-    assert (
-        _run(["git", "symbolic-ref", "--short", "HEAD"], canonical)
-        == "parked"
-    )
+    assert _run(["git", "symbolic-ref", "--short", "HEAD"], canonical) == "parked"
     scope = lanes.lane_scope(canonical)
 
     mq.land(canonical, commit, base="main", scope=scope)

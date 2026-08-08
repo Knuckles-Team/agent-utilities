@@ -237,9 +237,7 @@ class _Compute:
             "embedding": list(embedding),
             "_embedding_index_ready": False,
         }
-        if not self.client.nodes.compare_and_set(
-            node_id, conditions, staged_updates
-        ):
+        if not self.client.nodes.compare_and_set(node_id, conditions, staged_updates):
             return False
         self.embedding_index[node_id] = list(embedding)
         if not self.client.nodes.compare_and_set(
@@ -1363,8 +1361,12 @@ def test_ingest_envelopes_batch_replays_mirror_in_page_order_and_skips_replayed(
     # Only the two genuinely-applied envelopes (offsets 0 and 2) enqueue mirror
     # replay, in the same order the page committed them.
     assert len(publisher.replay_calls) == 2
-    first_ids = {op["id"] for op in publisher.replay_calls[0] if op["op"] == "upsert_node"}
-    second_ids = {op["id"] for op in publisher.replay_calls[1] if op["op"] == "upsert_node"}
+    first_ids = {
+        op["id"] for op in publisher.replay_calls[0] if op["op"] == "upsert_node"
+    }
+    second_ids = {
+        op["id"] for op in publisher.replay_calls[1] if op["op"] == "upsert_node"
+    }
     assert first_ids == {"object-1"}
     assert second_ids == {"object-3"}
 

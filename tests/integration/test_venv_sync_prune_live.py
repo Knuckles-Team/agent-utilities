@@ -61,7 +61,7 @@ def test_prune_removes_an_extraneous_package_from_a_real_venv(
         '[project]\nname = "root-project"\nversion = "0.1.0"\n'
         'requires-python = ">=3.9"\ndependencies = ["alpha"]\n\n'
         '[tool.uv.workspace]\nmembers = ["pkgs/*"]\n\n'
-        '[tool.uv.sources]\nalpha = { workspace = true }\n',
+        "[tool.uv.sources]\nalpha = { workspace = true }\n",
     )
     _local_package(ws_root / "pkgs", "alpha", "alpha", value=1)
     extraneous_pkg_dir = _local_package(

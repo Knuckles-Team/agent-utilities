@@ -20,9 +20,7 @@ def test_load_config_injects_xdg_json(tmp_path, monkeypatch):
     """
     cfg_dir = tmp_path / "agent-utilities"
     cfg_dir.mkdir()
-    (cfg_dir / "config.json").write_text(
-        json.dumps({"mcp_tool_mode": "verbose"})
-    )
+    (cfg_dir / "config.json").write_text(json.dumps({"mcp_tool_mode": "verbose"}))
     monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
     monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(cfg_dir))
     monkeypatch.delenv("MCP_TOOL_MODE", raising=False)

@@ -7,9 +7,12 @@ from agent_utilities.patterns.prompt_chain import _evaluate_branch_condition
 
 def test_branch_condition_supports_declarative_comparisons() -> None:
     assert _evaluate_branch_condition("output == 'approved'", "approved") is True
-    assert _evaluate_branch_condition(
-        "output.startswith('ok') and len(output) < 20", "ok: ready"
-    ) is True
+    assert (
+        _evaluate_branch_condition(
+            "output.startswith('ok') and len(output) < 20", "ok: ready"
+        )
+        is True
+    )
 
 
 @pytest.mark.parametrize(

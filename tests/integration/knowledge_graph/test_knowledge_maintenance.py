@@ -597,7 +597,17 @@ def test_backfill_entity_embeddings_node_types_scopes_the_candidate_query():
     replace it with a second code path that could drift."""
     backend = DummyBackend(
         execute_results=[
-            [{"id": "tool-1", "props": {"id": "tool-1", "node_type": "Tool", "name": "x", "description": "y"}}]
+            [
+                {
+                    "id": "tool-1",
+                    "props": {
+                        "id": "tool-1",
+                        "node_type": "Tool",
+                        "name": "x",
+                        "description": "y",
+                    },
+                }
+            ]
         ]
     )
     engine = MagicMock()

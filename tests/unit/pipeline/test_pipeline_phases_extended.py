@@ -1039,9 +1039,7 @@ def test_embedding_generate_batch_http_success(
     client.post.return_value = fake_response
     factory = MagicMock()
     factory.return_value.__enter__.return_value = client
-    monkeypatch.setattr(
-        "agent_utilities.core.http_client.create_http_client", factory
-    )
+    monkeypatch.setattr("agent_utilities.core.http_client.create_http_client", factory)
     result = embedding._generate_embedding_batch(["text1", "text2"])
     assert result == [[0.1, 0.2], [0.3, 0.4]]
 
@@ -1070,9 +1068,7 @@ def test_embedding_generate_batch_http_sorts_by_index(
     client.post.return_value = fake_response
     factory = MagicMock()
     factory.return_value.__enter__.return_value = client
-    monkeypatch.setattr(
-        "agent_utilities.core.http_client.create_http_client", factory
-    )
+    monkeypatch.setattr("agent_utilities.core.http_client.create_http_client", factory)
     result = embedding._generate_embedding_batch(["text1", "text2"])
     assert result == [[0.1, 0.2], [0.3, 0.4]]
 
@@ -1087,9 +1083,7 @@ def test_embedding_generate_batch_http_exception(
     client.post.side_effect = RuntimeError("network down")
     factory = MagicMock()
     factory.return_value.__enter__.return_value = client
-    monkeypatch.setattr(
-        "agent_utilities.core.http_client.create_http_client", factory
-    )
+    monkeypatch.setattr("agent_utilities.core.http_client.create_http_client", factory)
     result = embedding._generate_embedding_batch(["text"])
     assert result is None
 
@@ -1107,8 +1101,6 @@ def test_embedding_generate_batch_no_data_key(
     client.post.return_value = fake_response
     factory = MagicMock()
     factory.return_value.__enter__.return_value = client
-    monkeypatch.setattr(
-        "agent_utilities.core.http_client.create_http_client", factory
-    )
+    monkeypatch.setattr("agent_utilities.core.http_client.create_http_client", factory)
     result = embedding._generate_embedding_batch(["text"])
     assert result is None

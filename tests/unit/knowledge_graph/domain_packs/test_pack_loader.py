@@ -257,7 +257,9 @@ def test_default_registry_discovers_from_configured_root(tmp_path, monkeypatch):
     assert get_default_registry() is registry
 
 
-def test_default_registry_discovery_failure_does_not_raise(tmp_path, monkeypatch, caplog):
+def test_default_registry_discovery_failure_does_not_raise(
+    tmp_path, monkeypatch, caplog
+):
     from agent_utilities.core.config import config
 
     bad_dir = tmp_path / "bad-pack"

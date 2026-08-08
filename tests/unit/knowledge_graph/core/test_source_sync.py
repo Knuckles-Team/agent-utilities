@@ -1808,7 +1808,9 @@ def test_mcp_tracker_servers_matches_resolve_tracker_instances_call_sites():
         )
         call_sites.append((kwargs["default_name"], kwargs["default_server"]))
 
-    assert call_sites, "expected to find dedicated-tracker call sites via ast — parser drifted?"
+    assert call_sites, (
+        "expected to find dedicated-tracker call sites via ast — parser drifted?"
+    )
 
     for default_name, default_server in call_sites:
         assert default_name in ss._MCP_TRACKER_SERVERS, (

@@ -139,7 +139,9 @@ def test_import_epc_yields_workflow_with_gate_step():
     assert rep["gate_count"] == 1  # "Manager Approval" → gate
     # the WorkflowDefinition + a gate WorkflowStep + REALIZES edge landed
     steps = [
-        d for _n, d in engine.graph.nodes(data=True) if d.get("node_type") == "WorkflowStep"
+        d
+        for _n, d in engine.graph.nodes(data=True)
+        if d.get("node_type") == "WorkflowStep"
     ]
     kinds = {s["kind"] for s in steps}
     assert "gate" in kinds
@@ -178,7 +180,9 @@ def test_import_onetrust_single_gate():
     assert rep["step_count"] == 1
     assert rep["gate_count"] == 1
     step = next(
-        d for _n, d in engine.graph.nodes(data=True) if d.get("node_type") == "WorkflowStep"
+        d
+        for _n, d in engine.graph.nodes(data=True)
+        if d.get("node_type") == "WorkflowStep"
     )
     assert step["kind"] == "gate"
     assert step["boundCapability"] == "onetrust_assessments"
@@ -190,7 +194,9 @@ def test_import_erpnext_single_gate():
         "erpnext:workflow:purchase", "erpnext", name="Purchase Approval"
     )
     step = next(
-        d for _n, d in engine.graph.nodes(data=True) if d.get("node_type") == "WorkflowStep"
+        d
+        for _n, d in engine.graph.nodes(data=True)
+        if d.get("node_type") == "WorkflowStep"
     )
     assert step["kind"] == "gate"
     assert step["boundCapability"] == "erpnext_workflow"

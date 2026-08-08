@@ -101,9 +101,7 @@ def test_cancel_mid_flight_is_terminal_and_never_falsely_completes(loadgen):
 
     cancelled = wi.cancel_work_item(engine, item_id, reason="user_abort", now=5.0)
     assert cancelled is True
-    assert (
-        wi.get_work_item(engine, item_id)["status"] == "cancelled"
-    )
+    assert wi.get_work_item(engine, item_id)["status"] == "cancelled"
 
     # The worker that was still "in flight" eventually tries to commit success —
     # must NOT resurrect a cancelled item into succeeded (falsely-completed guard).
@@ -111,9 +109,7 @@ def test_cancel_mid_flight_is_terminal_and_never_falsely_completes(loadgen):
         engine, item_id, claim, outcome="succeeded", result_ref="late", now=6.0
     )
     assert late in ("fenced", "conflict", "noop")
-    assert (
-        wi.get_work_item(engine, item_id)["status"] == "cancelled"
-    )
+    assert wi.get_work_item(engine, item_id)["status"] == "cancelled"
 
     # Cancelling an already-cancelled item is idempotent (redelivered cancel request).
     assert wi.cancel_work_item(engine, item_id, reason="user_abort", now=7.0) is True
@@ -126,7 +122,4 @@ def test_cancel_mid_flight_is_terminal_and_never_falsely_completes(loadgen):
         engine, other_id, other_claim, outcome="succeeded", result_ref="ok", now=1.0
     )
     assert wi.cancel_work_item(engine, other_id, now=2.0) is False
-    assert (
-        wi.get_work_item(engine, other_id)["status"]
-        == "succeeded"
-    )
+    assert wi.get_work_item(engine, other_id)["status"] == "succeeded"

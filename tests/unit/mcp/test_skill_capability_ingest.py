@@ -219,12 +219,9 @@ def test_all_bundled_skills_are_runnable_and_resolve_by_body_digest(monkeypatch)
     # `is_skill_graph_reference_path`) — an unscoped call ingests those too,
     # which is correct for a real boot but not what this test is asserting
     # about the BUNDLED_SKILLS set specifically.
-    assert (
-        kg_server._ingest_skill_capabilities(
-            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
-        )
-        == len(BUNDLED_SKILLS)
-    )
+    assert kg_server._ingest_skill_capabilities(
+        engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+    ) == len(BUNDLED_SKILLS)
 
     resources = {
         node["name"]: (node_id, node)
@@ -259,12 +256,9 @@ def test_bundled_skill_readiness_is_idempotent(monkeypatch):
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
     monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
-    assert (
-        kg_server._ingest_skill_capabilities(
-            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
-        )
-        == len(BUNDLED_SKILLS)
-    )
+    assert kg_server._ingest_skill_capabilities(
+        engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+    ) == len(BUNDLED_SKILLS)
     ingest = MagicMock(wraps=kg_server._ingest_skill_capabilities)
     monkeypatch.setattr(kg_server, "_ingest_skill_capabilities", ingest)
 
@@ -286,12 +280,9 @@ def test_bundled_skill_readiness_uses_governed_query_boundary(monkeypatch):
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
     monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
-    assert (
-        kg_server._ingest_skill_capabilities(
-            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
-        )
-        == len(BUNDLED_SKILLS)
-    )
+    assert kg_server._ingest_skill_capabilities(
+        engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+    ) == len(BUNDLED_SKILLS)
     governed_query = MagicMock(wraps=engine.query_cypher)
     engine.query_cypher = governed_query
     engine.backend = MagicMock()
@@ -314,12 +305,9 @@ def test_bundled_skill_readiness_repairs_only_missing_resource(monkeypatch):
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
     monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
-    assert (
-        kg_server._ingest_skill_capabilities(
-            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
-        )
-        == len(BUNDLED_SKILLS)
-    )
+    assert kg_server._ingest_skill_capabilities(
+        engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+    ) == len(BUNDLED_SKILLS)
     missing = BUNDLED_SKILLS[-1]
     engine.nodes.pop(f"resource:skill:{missing}")
     ingest = MagicMock(wraps=kg_server._ingest_skill_capabilities)
@@ -410,12 +398,9 @@ def test_ready_bundled_skill_names_rejects_content_drifted_stored_node(
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
     monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
-    assert (
-        kg_server._ingest_skill_capabilities(
-            engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
-        )
-        == len(BUNDLED_SKILLS)
-    )
+    assert kg_server._ingest_skill_capabilities(
+        engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
+    ) == len(BUNDLED_SKILLS)
 
     drifted = BUNDLED_SKILLS[0]
     node = engine.nodes[f"resource:skill:{drifted}"]
@@ -543,7 +528,9 @@ def test_flat_xdg_copy_conflicting_with_provider_identity_fails_closed(
     with caplog.at_level("ERROR", logger="agent_utilities.core.providers"):
         roots = providers.resolve_skill_provider_dirs()
 
-    matches = [(provider, root) for provider, root in roots if root.name == "runtime-audit"]
+    matches = [
+        (provider, root) for provider, root in roots if root.name == "runtime-audit"
+    ]
     assert matches == [("canonical-provider", package_skill)]
     assert "runtime-audit" in caplog.text
     assert "canonical-provider" in caplog.text
@@ -604,7 +591,9 @@ def test_resolve_skill_provider_dirs_exempts_skill_graph_reference_pages(
 
     roots = providers.resolve_skill_provider_dirs()
 
-    matches = [(provider, root) for provider, root in roots if root.name == "shared-topic"]
+    matches = [
+        (provider, root) for provider, root in roots if root.name == "shared-topic"
+    ]
     assert matches == [("topic-provider", atomic_dir)]
 
 

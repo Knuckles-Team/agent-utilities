@@ -99,9 +99,7 @@ async def test_addition_is_catalogued_but_not_auto_exposed_to_prior_loader(
     assert beta_prefixed not in mux.session_loaded(session_key)
 
     # The per-server revision advanced, so staleness IS detectable.
-    live_revision = mux.status_snapshot()["children"][server_name][
-        "catalog_revision"
-    ]
+    live_revision = mux.status_snapshot()["children"][server_name]["catalog_revision"]
     assert live_revision > first["server_catalog_revisions"][server_name]
 
     # Re-loading the server picks the addition up.

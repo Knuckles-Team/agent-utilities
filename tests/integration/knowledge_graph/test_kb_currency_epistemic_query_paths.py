@@ -132,7 +132,9 @@ def _own_backend(graph_name: str) -> Any:
         GraphComputeEngine,
     )
 
-    compute = GraphComputeEngine.get_or_create(graph_name=graph_name, backend_type="rust")
+    compute = GraphComputeEngine.get_or_create(
+        graph_name=graph_name, backend_type="rust"
+    )
     try:
         compute._client.tenants.create(graph_name)
     except Exception:  # noqa: BLE001 - "already exists" is fine
@@ -277,9 +279,7 @@ def test_store_execute_include_epistemic_carries_engine_envelope(
             rows = store.execute(cypher, include_epistemic=True)
             assert len(rows) == 1
             _assert_currency_row(rows[0], claim_id, evidence_id)
-            assert (
-                rows[0].properties.get("name") == "kb-currency query-path test claim"
-            )
+            assert rows[0].properties.get("name") == "kb-currency query-path test claim"
         finally:
             try:
                 store.graph._client.tenants.delete(graph_name)

@@ -27,9 +27,7 @@ def test_every_epistemic_graph_dependency_requests_full_numeric_runtime() -> Non
     requirements = _epistemic_requirements(_metadata())
 
     assert requirements
-    assert set(requirements) == {
-        "epistemic-graph[full]>=2.23.2,<3.0.0"
-    }
+    assert set(requirements) == {"epistemic-graph[full]>=2.23.2,<3.0.0"}
 
 
 def test_flat_requirements_requests_full_numeric_runtime() -> None:
@@ -59,9 +57,7 @@ def test_provider_agent_runtime_excludes_duplicate_optimizer_stack() -> None:
 
 def test_release_metadata_excludes_runtime_generated_package_state() -> None:
     metadata = _metadata()
-    excluded = set(
-        metadata["tool"]["setuptools"]["exclude-package-data"]["*"]
-    )
+    excluded = set(metadata["tool"]["setuptools"]["exclude-package-data"]["*"])
     manifest = (ROOT / "MANIFEST.in").read_text(encoding="utf-8").splitlines()
 
     assert ".agent_data/**" in excluded

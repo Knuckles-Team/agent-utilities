@@ -35,7 +35,9 @@ class _EdgeStubEngine:
     def link_nodes(
         self, source: str, target: str, relationship: Any, *, properties=None
     ) -> None:
-        rel = relationship.value if hasattr(relationship, "value") else str(relationship)
+        rel = (
+            relationship.value if hasattr(relationship, "value") else str(relationship)
+        )
         self.edges.append((source, target, rel, dict(properties or {})))
 
 
@@ -91,9 +93,7 @@ async def test_propose_extracts_a_real_candidate_with_resolvable_evidence(
     import agent_utilities.knowledge_graph.extraction.candidate_claims as cc
 
     quote = "Acme Corp acquired Globex in 2024"
-    stream = _one_shot_stream(
-        _fact_json("Acme Corp", "acquired", "Globex", quote)
-    )
+    stream = _one_shot_stream(_fact_json("Acme Corp", "acquired", "Globex", quote))
     monkeypatch.setattr(
         cc,
         "make_streaming_extract_fn",

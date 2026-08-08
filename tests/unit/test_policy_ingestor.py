@@ -282,7 +282,9 @@ class TestPolicyIngestor:
 
         # Verify policy nodes were created
         policy_nodes = [
-            n for n, d in engine.graph.nodes(data=True) if d.get("node_type") == "policy"
+            n
+            for n, d in engine.graph.nodes(data=True)
+            if d.get("node_type") == "policy"
         ]
         assert len(policy_nodes) == stats["policies_ingested"]
 

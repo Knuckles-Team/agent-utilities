@@ -68,7 +68,10 @@ _KNOWN_SIGNATURES: tuple[tuple[str, str], ...] = (
         "PermissionBootstrapError: permission context bootstrap failed",
         "permission_bootstrap",
     ),
-    ("PermissionError: recursive native GraphOS delegation is forbidden", "access_denied"),
+    (
+        "PermissionError: recursive native GraphOS delegation is forbidden",
+        "access_denied",
+    ),
     ("ToolError: Access denied: component is disabled", "access_denied"),
     ("Security: prompt injection detected (confidence=0.91)", "security_blocked"),
 )
@@ -85,13 +88,19 @@ def test_translate_failure_known_signatures(raw: str, expected_category: str) ->
 
 
 def test_translate_failure_is_case_insensitive() -> None:
-    lower = translate_failure("runtimeerror: fleet mcp endpoint requires https outside loopback")
-    upper = translate_failure("RUNTIMEERROR: FLEET MCP ENDPOINT REQUIRES HTTPS OUTSIDE LOOPBACK")
+    lower = translate_failure(
+        "runtimeerror: fleet mcp endpoint requires https outside loopback"
+    )
+    upper = translate_failure(
+        "RUNTIMEERROR: FLEET MCP ENDPOINT REQUIRES HTTPS OUTSIDE LOOPBACK"
+    )
     assert lower.category == upper.category == "fleet_https_gate"
 
 
 def test_translate_failure_accepts_a_bare_exception_instance() -> None:
-    result = translate_failure(RuntimeError("fleet MCP endpoint requires HTTPS outside loopback"))
+    result = translate_failure(
+        RuntimeError("fleet MCP endpoint requires HTTPS outside loopback")
+    )
     assert result.category == "fleet_https_gate"
 
 

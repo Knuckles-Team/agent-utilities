@@ -27,14 +27,14 @@ from tests.unit.fleet_autonomy_fakes import FakeEngine
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.canonical-gap-lifecycle")
 
-_VALID_CAPABILITY_SOURCE = '''
+_VALID_CAPABILITY_SOURCE = """
 from pydantic_ai.capabilities import AbstractCapability
 
 
 class Loud(AbstractCapability):
     def get_instructions(self):
         return "Be extra enthusiastic."
-'''
+"""
 
 _INVALID_CAPABILITY_SOURCE = "this is not even python syntax :::"
 

@@ -451,7 +451,9 @@ def test_contended_optional_batch_does_not_block_the_run_past_its_grace_period()
     # finished -- proof the caller was not blocked on it. A generous margin
     # (0.3s) keeps this robust against scheduler jitter while still being
     # far short of the 0.5s the old, fully-blocking call would have taken.
-    assert elapsed < 0.3, f"run_agent's caller waited {elapsed:.3f}s -- the optional batch was NOT deferred"
+    assert elapsed < 0.3, (
+        f"run_agent's caller waited {elapsed:.3f}s -- the optional batch was NOT deferred"
+    )
 
     # The mandatory core batch is unaffected: durable immediately.
     assert len(engine.batches) == 1

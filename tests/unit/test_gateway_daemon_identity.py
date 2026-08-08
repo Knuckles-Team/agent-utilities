@@ -236,8 +236,7 @@ def test_sink_install_failure_logs_the_real_cause_not_just_its_type(
     assert matching, f"no warning matched {fragment!r}: {caplog.text}"
     record = matching[0]
     assert marker in record.getMessage(), (
-        "the real cause was dropped — only its type survived: "
-        f"{record.getMessage()!r}"
+        f"the real cause was dropped — only its type survived: {record.getMessage()!r}"
     )
     # NB: ``exc_info`` is deliberately NOT asserted. ``core/log_privacy.py``'s
     # record factory unconditionally nulls ``exc_info``/``exc_text``/``stack_info``

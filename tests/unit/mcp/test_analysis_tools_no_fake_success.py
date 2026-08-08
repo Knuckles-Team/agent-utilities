@@ -66,7 +66,9 @@ def test_evolve_model_no_longer_fake_succeeds(monkeypatch):
 def test_forecast_no_longer_fake_succeeds(monkeypatch):
     payload = _run(monkeypatch, "forecast")
     assert payload["status"] == "not_implemented"
-    assert "deep_forecast" in payload["error"] or "engine_timeseries" in payload["error"]
+    assert (
+        "deep_forecast" in payload["error"] or "engine_timeseries" in payload["error"]
+    )
 
 
 def test_causal_no_longer_fake_succeeds(monkeypatch):

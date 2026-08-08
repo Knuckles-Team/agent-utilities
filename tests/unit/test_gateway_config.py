@@ -39,7 +39,9 @@ def test_widget_url_resolves_process_configuration(monkeypatch):
     monkeypatch.setattr(
         "agent_utilities.gateway.widgets.base.setting",
         lambda key, default="": (
-            "https://service.example.test" if key == "CONFIGURED_SERVICE_URL" else default
+            "https://service.example.test"
+            if key == "CONFIGURED_SERVICE_URL"
+            else default
         ),
     )
     config = ServiceConfig(id="service", name="Service", widget_type="configured")

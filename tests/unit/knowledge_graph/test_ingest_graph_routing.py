@@ -149,7 +149,9 @@ def test_shard_fanout_leaves_codebase_and_tenant_whole() -> None:
         return_value=4,
     ):
         assert (
-            ingest_routing.route_graph(repo="agent-utilities", content_key="x", config=c)
+            ingest_routing.route_graph(
+                repo="agent-utilities", content_key="x", config=c
+            )
             == "code:agent-utilities"
         )
         assert (

@@ -66,9 +66,7 @@ def test_verified_principal_overrides_spoofed_headers(tmp_path, monkeypatch):
         },
     )
 
-    token = SimpleNamespace(
-        client_id="allowed-agent", claims={"sub": "verified-user"}
-    )
+    token = SimpleNamespace(client_id="allowed-agent", claims={"sub": "verified-user"})
     monkeypatch.setattr("fastmcp.server.dependencies.get_access_token", lambda: token)
 
     principal = middleware._extract_principal()
@@ -204,9 +202,7 @@ async def test_remote_response_misalignment_fails_closed():
     middleware = create_eunomia_middleware(
         use_remote_eunomia=True,
         eunomia_endpoint="https://policy.example",
-        transport=httpx.MockTransport(
-            lambda request: httpx.Response(200, json=[])
-        ),
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=[])),
     )
     responses = await middleware._eunomia.bulk_check([_request(), _request()])
     assert len(responses) == 2

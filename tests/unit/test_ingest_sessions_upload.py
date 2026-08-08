@@ -96,7 +96,9 @@ def test_large_upload_enqueues_and_returns_fast(upload_tool, monkeypatch):
 
     bundles = [_bundle_dict(f"s{i}") for i in range(10)]
     out = json.loads(
-        asyncio.run(upload_tool(action="upload", bundles_json=json.dumps(bundles), tenant_id=""))
+        asyncio.run(
+            upload_tool(action="upload", bundles_json=json.dumps(bundles), tenant_id="")
+        )
     )
 
     # Returns enqueued immediately — NOT synchronously ingested.
@@ -137,7 +139,9 @@ def test_small_upload_runs_inline(upload_tool, monkeypatch):
 
     bundles = [_bundle_dict("s0")]
     out = json.loads(
-        asyncio.run(upload_tool(action="upload", bundles_json=json.dumps(bundles), tenant_id=""))
+        asyncio.run(
+            upload_tool(action="upload", bundles_json=json.dumps(bundles), tenant_id="")
+        )
     )
 
     assert out["status"] == "ingested"

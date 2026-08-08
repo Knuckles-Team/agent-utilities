@@ -161,9 +161,7 @@ def test_rejects_retired_dockerfile_runtime_claims(tmp_path):
     )
 
     docker_findings = {
-        finding.rule
-        for finding in findings
-        if finding.path == "docker/Dockerfile"
+        finding.rule for finding in findings if finding.path == "docker/Dockerfile"
     }
     assert docker_findings >= {
         "agent_utilities_dspy_claim",

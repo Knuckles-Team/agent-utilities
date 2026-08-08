@@ -71,10 +71,7 @@ class PdfReader:
         "second page",
     ]
     # read_pdf_text's own contract (join on "\n") is unchanged by the refactor.
-    assert (
-        read_pdf_text(pdf, timeout_seconds=5)
-        == "line one\nline two\nsecond page"
-    )
+    assert read_pdf_text(pdf, timeout_seconds=5) == "line one\nline two\nsecond page"
 
 
 def test_read_pdf_pages_fails_closed_like_read_pdf_text(tmp_path, monkeypatch) -> None:

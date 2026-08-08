@@ -221,7 +221,9 @@ def test_from_nl_query_accepts_nl_planner_request_key():
     }
     b = EvidenceBundle.from_nl_query(payload)
     assert "how many agents exist?" in b.answer_candidate
-    assert any(t.get("planner") == "agent-utilities-fleet-llm" for t in b.reasoning_trace)
+    assert any(
+        t.get("planner") == "agent-utilities-fleet-llm" for t in b.reasoning_trace
+    )
 
 
 def test_from_nl_query_error_path():
@@ -378,9 +380,7 @@ def test_contradiction_detector_fires_on_opposing_claims():
     assert len(b.claims) == 2
     assert b.contradictions  # opposing polarity over the same topic is flagged
     finding = b.contradictions[0]
-    assert {"new_id", "conflict_id", "similarity", "reason", "severity"} <= set(
-        finding
-    )
+    assert {"new_id", "conflict_id", "similarity", "reason", "severity"} <= set(finding)
 
 
 def test_contradiction_detector_silent_on_single_or_no_claims():

@@ -309,9 +309,7 @@ def _logger_coverage(tree: ast.Module) -> dict[str, bool]:
     return coverage
 
 
-def _log_call_violation(
-    call: ast.Call, exc_names: frozenset[str]
-) -> str | None:
+def _log_call_violation(call: ast.Call, exc_names: frozenset[str]) -> str | None:
     """Return a snippet if ``call`` is a log call that unsafely references
     one of ``exc_names``, else ``None``. Caller has already established the
     receiver is an out-of-boundary logger variable."""
@@ -389,7 +387,11 @@ def _walk_scope(
         else:
             for field in ("body", "orelse", "finalbody"):
                 nested = getattr(stmt, field, None)
-                if isinstance(nested, list) and nested and isinstance(nested[0], ast.stmt):
+                if (
+                    isinstance(nested, list)
+                    and nested
+                    and isinstance(nested[0], ast.stmt)
+                ):
                     _walk_scope(nested, frozenset(current), coverage, violations)
 
 
@@ -428,7 +430,10 @@ def _find_violations(rel: str, tree: ast.Module) -> list[Violation]:
     for scope_body, symbol in _iter_scopes(tree):
         scope_raw: list[tuple[int, str, str]] = []
         _walk_scope(scope_body, frozenset(), coverage, scope_raw)
-        raw.extend((lineno, logger_name, snippet, symbol) for lineno, logger_name, snippet in scope_raw)
+        raw.extend(
+            (lineno, logger_name, snippet, symbol)
+            for lineno, logger_name, snippet in scope_raw
+        )
     # A single log call can carry more than one unsafe reference (e.g. both
     # a positional `exc` and a keyword `exc_info=exc`) but is ONE violation
     # site — dedupe by (symbol, line), keep the first snippet found, in
@@ -552,7 +557,7 @@ def _write_baseline(violations: list[Violation]) -> None:
     BASELINE.write_text(
         "# Frozen baseline of pre-existing raw-exception log violations this\n"
         "# lane (D-W2-5, log-redaction sweep) found in\n"
-        "# agent_utilities/mcp/multiplexer.py (logger \"mcp_multiplexer\", OUTSIDE\n"
+        '# agent_utilities/mcp/multiplexer.py (logger "mcp_multiplexer", OUTSIDE\n'
         "# the agent_utilities.* privacy boundary installed by\n"
         "# agent_utilities/core/log_privacy.py — see this script's module\n"
         "# docstring) but could not fix without colliding with the concurrent\n"
@@ -600,7 +605,7 @@ def check(root: Path) -> dict[str, Any]:
 # check_swallowed_errors.py's opposite-direction rule for that case).
 # ---------------------------------------------------------------------------
 
-_GOOD_FIXTURE = '''
+_GOOD_FIXTURE = """
 import logging
 logger = logging.getLogger(__name__)
 
@@ -615,10 +620,10 @@ def g():
         risky()
     except Exception as exc:
         logger.error("op failed", exc_info=True)
-'''
+"""
 
 _BAD_FIXTURES: dict[str, str] = {
-    "root_logger_positional": '''
+    "root_logger_positional": """
 import logging
 logger = logging.getLogger()
 
@@ -627,8 +632,8 @@ def f():
         risky()
     except Exception as exc:
         logger.warning("op failed: %s", exc)
-''',
-    "named_logger_fstring": '''
+""",
+    "named_logger_fstring": """
 import logging
 logger = logging.getLogger("mcp_multiplexer")
 
@@ -637,8 +642,8 @@ def f():
         risky()
     except Exception as exc:
         logger.warning(f"op failed: {exc}")
-''',
-    "named_logger_exc_info_kwarg": '''
+""",
+    "named_logger_exc_info_kwarg": """
 import logging
 logger = logging.getLogger("mcp_multiplexer.child")
 
@@ -647,8 +652,8 @@ def f():
         risky()
     except Exception as exc:
         logger.error("op failed", exc_info=exc)
-''',
-    "named_logger_task_exception_idiom": '''
+""",
+    "named_logger_task_exception_idiom": """
 import logging
 logger = logging.getLogger("mcp_multiplexer")
 
@@ -656,10 +661,10 @@ def f(task):
     exc = task.exception()
     if exc is not None:
         logger.error("task failed: %s", exc)
-''',
+""",
 }
 
-_SAFE_ON_UNCOVERED_LOGGER = '''
+_SAFE_ON_UNCOVERED_LOGGER = """
 import logging
 logger = logging.getLogger("mcp_multiplexer")
 
@@ -668,7 +673,7 @@ def f():
         risky()
     except Exception as exc:
         logger.warning("op failed (%s: %s)", type(exc).__name__, redact_for_log(exc))
-'''
+"""
 
 
 def self_check() -> None:

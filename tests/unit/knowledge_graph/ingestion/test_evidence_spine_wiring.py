@@ -107,7 +107,9 @@ def rows(envelope: Any, node_type: str) -> list[dict[str, Any]]:
 
 def links(envelope: Any, relationship: str) -> list[dict[str, Any]]:
     payload = envelope.typed_payload or {}
-    return [e for e in payload.get("_links", []) if e.get("relationship") == relationship]
+    return [
+        e for e in payload.get("_links", []) if e.get("relationship") == relationship
+    ]
 
 
 def test_a_real_markdown_file_reaches_the_ingest_path_as_an_artifact(
@@ -144,7 +146,9 @@ def test_fragments_ride_the_same_envelope_as_the_document(runbook: Path) -> None
     assert len(fragments) == artifact["fragment_count"] > 0
     assert len(links(envelope, HAS_FRAGMENT_EDGE)) == len(fragments)
     assert len(links(envelope, HAS_ARTIFACT_EDGE)) == 1
-    assert links(envelope, HAS_ARTIFACT_EDGE)[0]["source"] == envelope.typed_payload["id"]
+    assert (
+        links(envelope, HAS_ARTIFACT_EDGE)[0]["source"] == envelope.typed_payload["id"]
+    )
     # Nesting and sibling order are explicit edges in the same transaction.
     assert links(envelope, PARENT_FRAGMENT_EDGE)
     assert links(envelope, NEXT_FRAGMENT_EDGE)
@@ -181,12 +185,14 @@ def test_reingesting_the_unchanged_file_produces_identical_fragment_ids(
     """The load-bearing guarantee: a no-op re-ingest moves no citation."""
     first, second = ingest(runbook), ingest(runbook)
 
-    assert rows(first, ARTIFACT_NODE_TYPE)[0]["id"] == rows(
-        second, ARTIFACT_NODE_TYPE
-    )[0]["id"]
-    assert rows(first, ARTIFACT_NODE_TYPE)[0]["content_hash"] == rows(
-        second, ARTIFACT_NODE_TYPE
-    )[0]["content_hash"]
+    assert (
+        rows(first, ARTIFACT_NODE_TYPE)[0]["id"]
+        == rows(second, ARTIFACT_NODE_TYPE)[0]["id"]
+    )
+    assert (
+        rows(first, ARTIFACT_NODE_TYPE)[0]["content_hash"]
+        == rows(second, ARTIFACT_NODE_TYPE)[0]["content_hash"]
+    )
 
     ids = lambda env: [f["id"] for f in rows(env, FRAGMENT_NODE_TYPE)]  # noqa: E731
     hashes = lambda env: [  # noqa: E731
@@ -235,9 +241,10 @@ def test_editing_one_paragraph_moves_only_that_fragments_hash(runbook: Path) -> 
     after = ingest(runbook)
 
     # Same source object -> same artifact identity, new revision.
-    assert rows(after, ARTIFACT_NODE_TYPE)[0]["id"] == rows(
-        before, ARTIFACT_NODE_TYPE
-    )[0]["id"]
+    assert (
+        rows(after, ARTIFACT_NODE_TYPE)[0]["id"]
+        == rows(before, ARTIFACT_NODE_TYPE)[0]["id"]
+    )
     assert (
         rows(after, ARTIFACT_NODE_TYPE)[0]["content_hash"]
         != rows(before, ARTIFACT_NODE_TYPE)[0]["content_hash"]

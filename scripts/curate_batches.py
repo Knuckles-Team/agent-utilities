@@ -70,7 +70,8 @@ def emit(plan_path: Path, out_dir: Path) -> None:
             batch = {
                 "pillar": pillar,
                 "batch": bname,
-                "default_domains": sorted(allowed) or "PILLAR UNKNOWN — pick a pillar below",
+                "default_domains": sorted(allowed)
+                or "PILLAR UNKNOWN — pick a pillar below",
                 "domain_signals": allowed,
                 # Full closed vocab so a curator can re-home a mis-pillared concept
                 # (e.g. a CTX 'Nested Subfolder Instructions' -> OS.context). The
@@ -93,9 +94,13 @@ def emit(plan_path: Path, out_dir: Path) -> None:
             (out_dir / bname).write_text(json.dumps(batch, indent=1), encoding="utf-8")
             manifest.append({"batch": bname, "pillar": pillar, "count": len(chunk)})
 
-    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
-    print(f"emitted {len(manifest)} batches for {len(need)} needs-curation entries "
-          f"({len(clean)} clean passed through) -> {out_dir}")
+    (out_dir / "manifest.json").write_text(
+        json.dumps(manifest, indent=1), encoding="utf-8"
+    )
+    print(
+        f"emitted {len(manifest)} batches for {len(need)} needs-curation entries "
+        f"({len(clean)} clean passed through) -> {out_dir}"
+    )
     for m in manifest:
         print(f"  {m['batch']:26} {m['count']:>4}")
 
@@ -138,9 +143,17 @@ def merge(plan_path: Path, curated_dir: Path, out_dir: Path) -> int:
                 dupes.append((eid, new_id, seen[new_id][0]))
             continue
         seen[new_id] = (eid, e["old_id"])
-        curated.append({"eid": eid, "old_id": e["old_id"], "new_id": new_id,
-                        "files": e["files"], "slug": parsed.slug,
-                        "pillar": parsed.pillar, "domain": parsed.domain})
+        curated.append(
+            {
+                "eid": eid,
+                "old_id": e["old_id"],
+                "new_id": new_id,
+                "files": e["files"],
+                "slug": parsed.slug,
+                "pillar": parsed.pillar,
+                "domain": parsed.domain,
+            }
+        )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     simple: dict[str, str] = {}
@@ -166,7 +179,9 @@ def merge(plan_path: Path, curated_dir: Path, out_dir: Path) -> int:
             "distinct_domains": len({(c["pillar"], c["domain"]) for c in curated}),
         },
         "invalid": [{"eid": e, "new_id": n, "why": w} for e, n, w in invalid],
-        "duplicate_ids": [{"eid": e, "new_id": n, "clashes_with_eid": o} for e, n, o in dupes],
+        "duplicate_ids": [
+            {"eid": e, "new_id": n, "clashes_with_eid": o} for e, n, o in dupes
+        ],
         "unresolved_eids": unresolved,
         "entries": curated,
     }
@@ -174,11 +189,17 @@ def merge(plan_path: Path, curated_dir: Path, out_dir: Path) -> int:
         yaml.safe_dump(result, sort_keys=False, width=100), encoding="utf-8"
     )
     (out_dir / "legacy_map.yaml").write_text(
-        yaml.safe_dump({"version": 1, "generated_by": "curate_batches.py",
-                        "simple": dict(sorted(simple.items())),
-                        "collisions": {k: v for k, v in sorted(collisions.items())},
-                        "unmapped": [entries[e]["old_id"] for e in unresolved]},
-                       sort_keys=False, width=100),
+        yaml.safe_dump(
+            {
+                "version": 1,
+                "generated_by": "curate_batches.py",
+                "simple": dict(sorted(simple.items())),
+                "collisions": {k: v for k, v in sorted(collisions.items())},
+                "unmapped": [entries[e]["old_id"] for e in unresolved],
+            },
+            sort_keys=False,
+            width=100,
+        ),
         encoding="utf-8",
     )
     s = result["summary"]
@@ -186,7 +207,9 @@ def merge(plan_path: Path, curated_dir: Path, out_dir: Path) -> int:
     for k, v in s.items():
         print(f"  {k}: {v}")
     if invalid or dupes:
-        print("  ⚠ re-run needed for invalid/duplicate entries (see curated_migration_plan.yaml)")
+        print(
+            "  ⚠ re-run needed for invalid/duplicate entries (see curated_migration_plan.yaml)"
+        )
     return 0 if not (invalid or dupes) else 1
 
 

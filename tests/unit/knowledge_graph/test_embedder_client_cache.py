@@ -46,7 +46,7 @@ def counting_builder(monkeypatch):
 
 @pytest.mark.quarantine(
     reason="D-TC-4: no embedding model is configured in this sandbox "
-    '(ValueError: No embedding model is configured)'
+    "(ValueError: No embedding model is configured)"
 )
 def test_built_once_for_many_calls(counting_builder):
     """N create_embedding_model() calls with the same config → ONE construction."""
@@ -59,7 +59,7 @@ def test_built_once_for_many_calls(counting_builder):
 
 @pytest.mark.quarantine(
     reason="D-TC-4: no embedding model is configured in this sandbox "
-    '(ValueError: The OpenAI-compatible embedding provider requires explicit '
+    "(ValueError: The OpenAI-compatible embedding provider requires explicit "
     "credentials; configure an API-key secret reference or OAuth2.)"
 )
 def test_distinct_config_builds_distinct_client(counting_builder):
@@ -72,7 +72,7 @@ def test_distinct_config_builds_distinct_client(counting_builder):
 
 @pytest.mark.quarantine(
     reason="D-TC-4: no embedding model is configured in this sandbox "
-    '(ValueError: No embedding model is configured)'
+    "(ValueError: No embedding model is configured)"
 )
 def test_make_embed_fn_reuses_one_client(counting_builder):
     """The batched enrichment embedder builds the client once across many fns."""
@@ -87,7 +87,7 @@ def test_make_embed_fn_reuses_one_client(counting_builder):
 
 @pytest.mark.quarantine(
     reason="D-TC-4: no embedding model is configured in this sandbox "
-    '(ValueError: No embedding model is configured)'
+    "(ValueError: No embedding model is configured)"
 )
 def test_cache_is_thread_safe(counting_builder):
     """Concurrent first-callers must not race into multiple constructions."""
@@ -113,7 +113,7 @@ def test_cache_is_thread_safe(counting_builder):
 
 @pytest.mark.quarantine(
     reason="D-TC-4: no embedding model is configured in this sandbox "
-    '(ValueError: No embedding model is configured)'
+    "(ValueError: No embedding model is configured)"
 )
 def test_fail_loud_contract_preserved(monkeypatch):
     """A missing/unsupported provider still RAISES (KG-2.3), never caches a stub."""

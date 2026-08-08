@@ -431,8 +431,12 @@ def _sign_evidence(
         **evidence,
         "signature": {
             "algorithm": "ed25519",
-            "public_key": base64.urlsafe_b64encode(public_key).decode("ascii").rstrip("="),
-            "signature": base64.urlsafe_b64encode(signature).decode("ascii").rstrip("="),
+            "public_key": base64.urlsafe_b64encode(public_key)
+            .decode("ascii")
+            .rstrip("="),
+            "signature": base64.urlsafe_b64encode(signature)
+            .decode("ascii")
+            .rstrip("="),
             "signer_id": signer_id,
         },
     }
@@ -607,7 +611,9 @@ def _installed_release_identity(source_root: Path) -> dict[str, Any]:
         _fail("release_distribution_not_materialized")
     marker_path = Path(agent_distribution.locate_file(package_marker))
     try:
-        if marker_path.resolve(strict=True).is_relative_to(source_root.resolve(strict=True)):
+        if marker_path.resolve(strict=True).is_relative_to(
+            source_root.resolve(strict=True)
+        ):
             _fail("release_distribution_uses_source_checkout")
     except OSError:
         _fail("release_distribution_not_materialized")
@@ -886,9 +892,7 @@ def _tool_names(graphos: _GraphOS) -> tuple[str, ...]:
 
 
 def _call_tool(graphos: _GraphOS, name: str, arguments: dict[str, Any]) -> Any:
-    result = graphos.rpc(
-        "tools/call", {"name": name, "arguments": arguments}
-    )
+    result = graphos.rpc("tools/call", {"name": name, "arguments": arguments})
     if result.get("isError") is True:
         _fail("graphos_tool_call_failed")
     structured = result.get("structuredContent")
@@ -924,9 +928,7 @@ def _certify_intent_stdio(graphos_binary: Path, root: Path) -> dict[str, Any]:
         if initial != INTENT_TOOLS:
             _fail("g26_initial_surface_mismatch")
 
-        _call_tool(
-            graphos, "load_tools", {"tools": ["graph_query", "graph_write"]}
-        )
+        _call_tool(graphos, "load_tools", {"tools": ["graph_query", "graph_write"]})
         loaded = _tool_names(graphos)
         if loaded != tuple(sorted((*INTENT_TOOLS, "graph_query", "graph_write"))):
             _fail("g26_dynamic_load_mismatch")
@@ -1035,9 +1037,10 @@ def _certify_intent_stdio(graphos_binary: Path, root: Path) -> dict[str, Any]:
             "graph_write",
             {"action": "delete_node", "node_id": hints["node_id"]},
         )
-        if "added" not in str(added).casefold() or "deleted" not in str(
-            deleted
-        ).casefold():
+        if (
+            "added" not in str(added).casefold()
+            or "deleted" not in str(deleted).casefold()
+        ):
             _fail("g26_exact_tool_approval_route_failed")
 
         injected = _call_tool(
@@ -1071,9 +1074,7 @@ def _certify_intent_stdio(graphos_binary: Path, root: Path) -> dict[str, Any]:
         if ((poisoned or {}).get("security") or {}).get("decision") != "deny":
             _fail("g26_poisoned_feedback_not_denied")
 
-        _call_tool(
-            graphos, "unload_tools", {"tools": ["graph_query", "graph_write"]}
-        )
+        _call_tool(graphos, "unload_tools", {"tools": ["graph_query", "graph_write"]})
         if _tool_names(graphos) != INTENT_TOOLS:
             _fail("g26_dynamic_unload_mismatch")
         return {
@@ -1113,8 +1114,7 @@ class _PytestCollector:
 
     def valid(self, return_code: int) -> bool:
         collected_names = [
-            nodeid.rsplit("::", 1)[-1].split("[", 1)[0]
-            for nodeid in self.collected
+            nodeid.rsplit("::", 1)[-1].split("[", 1)[0] for nodeid in self.collected
         ]
         return (
             return_code == 0
@@ -1205,7 +1205,9 @@ def _run_pytest_gate(
     for selector in selectors:
         relative, separator, suffix = selector.partition("::")
         target = mapping[relative]
-        resolved_selectors.append(str(target) + (separator + suffix if separator else ""))
+        resolved_selectors.append(
+            str(target) + (separator + suffix if separator else "")
+        )
     control = case / "control.json"
     result = case / "result.json"
     _write_private_json(
@@ -1458,9 +1460,7 @@ class _ExactWorkItemAdapter:
                 lease_epoch=int(request.get("expected_epoch") or 0),
                 fencing_token=int(request.get("fencing_token") or 0),
                 now_ms=int(float(request.get("now_unix") or 0) * 1000),
-                lease_ms=max(
-                    1, int(float(request.get("lease_ttl") or 0) * 1000)
-                ),
+                lease_ms=max(1, int(float(request.get("lease_ttl") or 0) * 1000)),
             )
         )
 
@@ -1501,18 +1501,14 @@ class _ExactWorkItemAdapter:
                 lease_epoch=int(request.get("expected_epoch") or 0),
                 fencing_token=int(request.get("fencing_token") or 0),
                 idempotency_key=str(request.get("idempotency_key") or ""),
-                next_retry_at_ms=int(
-                    float(request.get("next_retry_at") or 0) * 1000
-                ),
+                next_retry_at_ms=int(float(request.get("next_retry_at") or 0) * 1000),
                 now_ms=int(float(request.get("now_unix") or 0) * 1000),
                 reason_ref=request.get("reason_ref"),
             )
         )
 
 
-def _work_item_bus_worker(
-    engine_binary: Path, root: Path, result_path: Path
-) -> None:
+def _work_item_bus_worker(engine_binary: Path, root: Path, result_path: Path) -> None:
     from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
     from agent_utilities.messaging.bus_inbox import commit_message_to_work_item
     from agent_utilities.models.company_brain import ActorType
@@ -1579,21 +1575,26 @@ def _work_item_bus_worker(
             or claim_a.get("work_item_id") != fair_a
         ):
             _fail("work_item_fairness_claim_failed")
-        if commit_result(
-            adapter,
-            fair_b,
-            claim_b,
-            outcome="succeeded",
-            result_ref="result:fair-b",
-            now=base + 2,
-        ) != "committed" or commit_result(
-            adapter,
-            fair_a,
-            claim_a,
-            outcome="succeeded",
-            result_ref="result:fair-a",
-            now=base + 2,
-        ) != "committed":
+        if (
+            commit_result(
+                adapter,
+                fair_b,
+                claim_b,
+                outcome="succeeded",
+                result_ref="result:fair-b",
+                now=base + 2,
+            )
+            != "committed"
+            or commit_result(
+                adapter,
+                fair_a,
+                claim_a,
+                outcome="succeeded",
+                result_ref="result:fair-a",
+                now=base + 2,
+            )
+            != "committed"
+        ):
             _fail("work_item_fairness_commit_failed")
 
         renewable = submit("renewable")
@@ -1613,18 +1614,22 @@ def _work_item_bus_worker(
         ):
             _fail("work_item_renewable_lease_failed")
         renewed = get_work_item(adapter, renewable) or {}
-        if renewed.get("status") != "running" or float(
-            renewed.get("lease_expires_at") or 0
-        ) < base + 18.99:
+        if (
+            renewed.get("status") != "running"
+            or float(renewed.get("lease_expires_at") or 0) < base + 18.99
+        ):
             _fail("work_item_renewable_lease_failed")
-        if commit_result(
-            adapter,
-            renewable,
-            renewable_claim,
-            outcome="succeeded",
-            result_ref="result:renewable",
-            now=base + 12,
-        ) != "committed":
+        if (
+            commit_result(
+                adapter,
+                renewable,
+                renewable_claim,
+                outcome="succeeded",
+                result_ref="result:renewable",
+                now=base + 12,
+            )
+            != "committed"
+        ):
             _fail("work_item_renewable_commit_failed")
 
         checkpointed = submit("checkpoint")
@@ -1645,28 +1650,31 @@ def _work_item_bus_worker(
         ):
             _fail("work_item_checkpoint_write_failed")
         stale_checkpoint = dict(checkpoint_claim)
-        stale_checkpoint["fencing_token"] = int(
-            stale_checkpoint["fencing_token"]
-        ) + 1
-        if checkpoint_work_item(
-            adapter,
-            checkpointed,
-            stale_checkpoint,
-            "checkpoint:exact-local:2",
-            now=base + 22,
-            lease_ttl_s=10,
-        ) or (get_work_item(adapter, checkpointed) or {}).get(
-            "checkpoint_id"
-        ) != "checkpoint:exact-local:1":
+        stale_checkpoint["fencing_token"] = int(stale_checkpoint["fencing_token"]) + 1
+        if (
+            checkpoint_work_item(
+                adapter,
+                checkpointed,
+                stale_checkpoint,
+                "checkpoint:exact-local:2",
+                now=base + 22,
+                lease_ttl_s=10,
+            )
+            or (get_work_item(adapter, checkpointed) or {}).get("checkpoint_id")
+            != "checkpoint:exact-local:1"
+        ):
             _fail("work_item_checkpoint_fence_failed")
-        if commit_result(
-            adapter,
-            checkpointed,
-            checkpoint_claim,
-            outcome="succeeded",
-            result_ref="result:checkpoint",
-            now=base + 22,
-        ) != "committed":
+        if (
+            commit_result(
+                adapter,
+                checkpointed,
+                checkpoint_claim,
+                outcome="succeeded",
+                result_ref="result:checkpoint",
+                now=base + 22,
+            )
+            != "committed"
+        ):
             _fail("work_item_checkpoint_commit_failed")
 
         retry = submit("retry", max_attempts=3, backoff_base_s=1)
@@ -1677,15 +1685,19 @@ def _work_item_bus_worker(
             now=base + 30,
             lease_ttl_s=10,
         )
-        if retry_claim is None or commit_result(
-            adapter,
-            retry,
-            retry_claim,
-            outcome="failed",
-            error_ref="error:retry-one",
-            retryable=True,
-            now=base + 31,
-        ) != "retry_scheduled":
+        if (
+            retry_claim is None
+            or commit_result(
+                adapter,
+                retry,
+                retry_claim,
+                outcome="failed",
+                error_ref="error:retry-one",
+                retryable=True,
+                now=base + 31,
+            )
+            != "retry_scheduled"
+        ):
             _fail("work_item_retry_schedule_failed")
         retry_row = get_work_item(adapter, retry) or {}
         retry_at = float(retry_row.get("next_retry_at") or 0)
@@ -1709,14 +1721,18 @@ def _work_item_bus_worker(
             now=retry_at + 0.1,
             lease_ttl_s=10,
         )
-        if retry_second is None or commit_result(
-            adapter,
-            retry,
-            retry_second,
-            outcome="succeeded",
-            result_ref="result:retry",
-            now=retry_at + 1,
-        ) != "committed":
+        if (
+            retry_second is None
+            or commit_result(
+                adapter,
+                retry,
+                retry_second,
+                outcome="succeeded",
+                result_ref="result:retry",
+                now=retry_at + 1,
+            )
+            != "committed"
+        ):
             _fail("work_item_retry_completion_failed")
 
         parent = submit("dependency-parent")
@@ -1730,14 +1746,18 @@ def _work_item_bus_worker(
             now=base + 40,
             lease_ttl_s=10,
         )
-        if parent_claim is None or commit_result(
-            adapter,
-            parent,
-            parent_claim,
-            outcome="succeeded",
-            result_ref="result:dependency-parent",
-            now=base + 41,
-        ) != "committed":
+        if (
+            parent_claim is None
+            or commit_result(
+                adapter,
+                parent,
+                parent_claim,
+                outcome="succeeded",
+                result_ref="result:dependency-parent",
+                now=base + 41,
+            )
+            != "committed"
+        ):
             _fail("work_item_dependency_parent_commit_failed")
         if (get_work_item(adapter, child) or {}).get("status") != "ready":
             _fail("work_item_dependency_release_failed")
@@ -1748,14 +1768,18 @@ def _work_item_bus_worker(
             now=base + 42,
             lease_ttl_s=10,
         )
-        if child_claim is None or commit_result(
-            adapter,
-            child,
-            child_claim,
-            outcome="succeeded",
-            result_ref="result:dependency-child",
-            now=base + 43,
-        ) != "committed":
+        if (
+            child_claim is None
+            or commit_result(
+                adapter,
+                child,
+                child_claim,
+                outcome="succeeded",
+                result_ref="result:dependency-child",
+                now=base + 43,
+            )
+            != "committed"
+        ):
             _fail("work_item_dependency_child_commit_failed")
 
         dead_letter = submit("dead-letter", max_attempts=2, backoff_base_s=1)
@@ -1766,15 +1790,19 @@ def _work_item_bus_worker(
             now=base + 50,
             lease_ttl_s=10,
         )
-        if dead_first is None or commit_result(
-            adapter,
-            dead_letter,
-            dead_first,
-            outcome="failed",
-            error_ref="error:dead-one",
-            retryable=True,
-            now=base + 51,
-        ) != "retry_scheduled":
+        if (
+            dead_first is None
+            or commit_result(
+                adapter,
+                dead_letter,
+                dead_first,
+                outcome="failed",
+                error_ref="error:dead-one",
+                retryable=True,
+                now=base + 51,
+            )
+            != "retry_scheduled"
+        ):
             _fail("work_item_dead_letter_retry_failed")
         dead_retry_at = float(
             (get_work_item(adapter, dead_letter) or {}).get("next_retry_at") or 0
@@ -1786,17 +1814,21 @@ def _work_item_bus_worker(
             now=dead_retry_at + 0.1,
             lease_ttl_s=10,
         )
-        if dead_second is None or commit_result(
-            adapter,
-            dead_letter,
-            dead_second,
-            outcome="failed",
-            error_ref="error:dead-two",
-            retryable=True,
-            now=dead_retry_at + 1,
-        ) != "dead_letter" or (get_work_item(adapter, dead_letter) or {}).get(
-            "status"
-        ) != "dead_letter":
+        if (
+            dead_second is None
+            or commit_result(
+                adapter,
+                dead_letter,
+                dead_second,
+                outcome="failed",
+                error_ref="error:dead-two",
+                retryable=True,
+                now=dead_retry_at + 1,
+            )
+            != "dead_letter"
+            or (get_work_item(adapter, dead_letter) or {}).get("status")
+            != "dead_letter"
+        ):
             _fail("work_item_dead_letter_failed")
 
         fenced = submit("stale-worker")
@@ -1816,29 +1848,36 @@ def _work_item_bus_worker(
         )
         if stale_claim is None or current_claim is None:
             _fail("work_item_stale_reclaim_failed")
-        if heartbeat(
-            adapter,
-            fenced,
-            stale_claim,
-            now=base + 62.1,
-            lease_ttl_s=10,
-        ) or commit_result(
-            adapter,
-            fenced,
-            stale_claim,
-            outcome="succeeded",
-            result_ref="result:stale",
-            now=base + 62.1,
-        ) != "fenced":
+        if (
+            heartbeat(
+                adapter,
+                fenced,
+                stale_claim,
+                now=base + 62.1,
+                lease_ttl_s=10,
+            )
+            or commit_result(
+                adapter,
+                fenced,
+                stale_claim,
+                outcome="succeeded",
+                result_ref="result:stale",
+                now=base + 62.1,
+            )
+            != "fenced"
+        ):
             _fail("work_item_stale_worker_not_rejected")
-        if commit_result(
-            adapter,
-            fenced,
-            current_claim,
-            outcome="succeeded",
-            result_ref="result:current",
-            now=base + 63,
-        ) != "committed":
+        if (
+            commit_result(
+                adapter,
+                fenced,
+                current_claim,
+                outcome="succeeded",
+                result_ref="result:current",
+                now=base + 63,
+            )
+            != "committed"
+        ):
             _fail("work_item_current_worker_commit_failed")
 
         terminal = submit("terminal-replay")
@@ -1849,21 +1888,27 @@ def _work_item_bus_worker(
             now=base + 70,
             lease_ttl_s=10,
         )
-        if terminal_claim is None or commit_result(
-            adapter,
-            terminal,
-            terminal_claim,
-            outcome="succeeded",
-            result_ref="result:terminal",
-            now=base + 71,
-        ) != "committed" or commit_result(
-            adapter,
-            terminal,
-            terminal_claim,
-            outcome="succeeded",
-            result_ref="result:terminal",
-            now=base + 71,
-        ) != "noop":
+        if (
+            terminal_claim is None
+            or commit_result(
+                adapter,
+                terminal,
+                terminal_claim,
+                outcome="succeeded",
+                result_ref="result:terminal",
+                now=base + 71,
+            )
+            != "committed"
+            or commit_result(
+                adapter,
+                terminal,
+                terminal_claim,
+                outcome="succeeded",
+                result_ref="result:terminal",
+                now=base + 71,
+            )
+            != "noop"
+        ):
             _fail("work_item_terminal_replay_failed")
 
         actor = ActorContext(
@@ -2219,7 +2264,7 @@ def _typed_optimizer_payload(optimizer: str) -> tuple[dict[str, Any], tuple[str,
         if not isinstance(evidence, list) or len(evidence) != 1:
             _fail("optimizer_typed_fixture_missing")
         binding = evidence[0]
-        address = ((binding.get("locus") or {}).get("address") or {})
+        address = (binding.get("locus") or {}).get("address") or {}
         if (
             binding.get("modality") != modality
             or address.get("kind") != MODALITY_LOCUS_KINDS[modality]
@@ -2310,7 +2355,13 @@ def _optimizer_worker(engine_binary: Path, root: Path, result_path: Path) -> Non
         bootstrap.close()
         bootstrap = None
         client = engine.connect(graph)
-        for family, variants, execution, model_calls, training_steps in OPTIMIZER_FAMILIES:
+        for (
+            family,
+            variants,
+            execution,
+            model_calls,
+            training_steps,
+        ) in OPTIMIZER_FAMILIES:
             variant_rows = []
             for optimizer in variants:
                 payload, _raw_markers = _typed_optimizer_payload(optimizer)
@@ -2409,9 +2460,7 @@ def _optimizer_worker(engine_binary: Path, root: Path, result_path: Path) -> Non
                     {
                         "subject_ref": row["id"],
                         "aggregate_score": 0.75,
-                        "modality_scores": {
-                            modality: 0.75 for modality in MODALITIES
-                        },
+                        "modality_scores": {modality: 0.75 for modality in MODALITIES},
                         "evidence_refs": [evidence_ref],
                     }
                     for row in candidates
@@ -2548,7 +2597,11 @@ def _provider_worker(root: Path, result_path: Path) -> None:
     _validate_provider_install_result(unified_install.install_unified())
     initial_doctor = _check_unified_install()
     encoded = json.dumps(initial_doctor, sort_keys=True)
-    if initial_doctor.get("status") != "ok" or str(root) in encoded or LOCAL_REFERENCE.search(encoded):
+    if (
+        initial_doctor.get("status") != "ok"
+        or str(root) in encoded
+        or LOCAL_REFERENCE.search(encoded)
+    ):
         _fail("provider_initial_doctor_failed")
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -2569,7 +2622,12 @@ def _provider_worker(root: Path, result_path: Path) -> None:
     )
     if marker is None or not marker.active:
         _fail("provider_current_generation_missing")
-    generation = prompt_root / unified_install.OWN_PROVIDER / ".generations" / marker.content_digest
+    generation = (
+        prompt_root
+        / unified_install.OWN_PROVIDER
+        / ".generations"
+        / marker.content_digest
+    )
     generated_manifest = build_asset_manifest(generation, leg="prompts")
     if (
         generated_manifest.content_digest != marker.content_digest
@@ -2788,7 +2846,12 @@ def _write_evidence(path: Path, evidence: dict[str, Any]) -> None:
     except OSError:
         _fail("evidence_parent_invalid")
     temporary = f".{path.name}.{secrets.token_hex(8)}.tmp"
-    body = json.dumps(evidence, sort_keys=True, indent=2, ensure_ascii=True).encode("utf-8") + b"\n"
+    body = (
+        json.dumps(evidence, sort_keys=True, indent=2, ensure_ascii=True).encode(
+            "utf-8"
+        )
+        + b"\n"
+    )
     descriptor: int | None = None
     try:
         try:
@@ -3046,9 +3109,7 @@ def _campaign(args: argparse.Namespace) -> dict[str, Any]:
             "epistemic_graph": {"sha256": args.engine_sha256},
             "graphos": {"sha256": args.graphos_sha256},
             "harness": {"sha256": manifest["harness_sha256"]},
-            "promotion_evidence": {
-                "sha256": manifest["promotion_evidence_sha256"]
-            },
+            "promotion_evidence": {"sha256": manifest["promotion_evidence_sha256"]},
             "release_manifest": {"sha256": manifest_digest},
             "release_python": {"sha256": manifest["release_python_sha256"]},
             "release_spec": {"sha256": manifest["release_spec_sha256"]},
@@ -3155,7 +3216,10 @@ def main(argv: list[str] | None = None) -> int:
         print(f"exact local certification failed: {error}", file=sys.stderr)
         return 1
     except Exception:
-        print("exact local certification failed: unexpected_runtime_failure", file=sys.stderr)
+        print(
+            "exact local certification failed: unexpected_runtime_failure",
+            file=sys.stderr,
+        )
         return 1
     print("exact local certification passed")
     return 0

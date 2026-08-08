@@ -70,7 +70,9 @@ def test_http_boundary_is_bounded_and_redacts_failure_details(monkeypatch):
         raise cc.SourceEgressError("sensitive endpoint details")
 
     monkeypatch.setattr(cc, "safe_get_json", rejected)
-    with pytest.raises(ProviderRequestError, match="finance provider request failed") as exc:
+    with pytest.raises(
+        ProviderRequestError, match="finance provider request failed"
+    ) as exc:
         cc._http_get_json("https://public.example.invalid/data")
     assert "sensitive" not in str(exc.value)
 

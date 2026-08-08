@@ -215,9 +215,13 @@ def _read_json(response: Any) -> dict[str, Any]:
 def _request(url: str, *, payload: dict[str, Any] | None = None) -> dict[str, Any]:
     if url != OSV_BATCH:
         advisory_id = url.removeprefix(OSV_VULN_PREFIX)
-        if not url.startswith(OSV_VULN_PREFIX) or not ADVISORY_RE.fullmatch(advisory_id):
+        if not url.startswith(OSV_VULN_PREFIX) or not ADVISORY_RE.fullmatch(
+            advisory_id
+        ):
             raise AuditError("OSV request target is invalid")
-    data = None if payload is None else json.dumps(payload, separators=(",", ":")).encode()
+    data = (
+        None if payload is None else json.dumps(payload, separators=(",", ":")).encode()
+    )
     headers = {"Accept": "application/json", "User-Agent": "agent-utilities-audit/1"}
     if data is not None:
         headers["Content-Type"] = "application/json"
@@ -248,9 +252,10 @@ def _advisory_detail(advisory_id: str, package: str) -> tuple[str, ...]:
         if not isinstance(affected, dict):
             continue
         identity = affected.get("package") or {}
-        if not isinstance(identity, dict) or _normalise_package(
-            str(identity.get("name") or "")
-        ) != package:
+        if (
+            not isinstance(identity, dict)
+            or _normalise_package(str(identity.get("name") or "")) != package
+        ):
             continue
         for version_range in affected.get("ranges") or []:
             if not isinstance(version_range, dict):
@@ -287,8 +292,12 @@ def audit(
             if not isinstance(result, dict):
                 raise AuditError("OSV batch response is invalid")
             for vulnerability in result.get("vulns") or []:
-                advisory_id = vulnerability.get("id") if isinstance(vulnerability, dict) else None
-                if not isinstance(advisory_id, str) or not ADVISORY_RE.fullmatch(advisory_id):
+                advisory_id = (
+                    vulnerability.get("id") if isinstance(vulnerability, dict) else None
+                )
+                if not isinstance(advisory_id, str) or not ADVISORY_RE.fullmatch(
+                    advisory_id
+                ):
                     raise AuditError("OSV advisory identity is invalid")
                 findings.append(
                     (
@@ -302,7 +311,9 @@ def audit(
 
 
 def _offline_warn_allowed() -> bool:
-    return os.environ.get("SECURITY_AUDIT_OFFLINE_POLICY", "").strip().casefold() == "warn"
+    return (
+        os.environ.get("SECURITY_AUDIT_OFFLINE_POLICY", "").strip().casefold() == "warn"
+    )
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -317,7 +328,9 @@ def main(argv: list[str] | None = None) -> int:
         findings = audit(packages)
     except AuditError as error:
         if _offline_warn_allowed() and str(error) == "OSV service is unavailable":
-            print("audit: WARNING - OSV unavailable under explicit local offline policy")
+            print(
+                "audit: WARNING - OSV unavailable under explicit local offline policy"
+            )
             return 0
         print(f"audit: FAILED - {error}", file=sys.stderr)
         return 2

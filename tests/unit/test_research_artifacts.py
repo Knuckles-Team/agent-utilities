@@ -126,7 +126,13 @@ class TestArtifactGeneratorWithEngine:
         app_text = " ".join(art.potential_applications)
         assert any(
             concept in app_text
-            for concept in ["OS-5", "AU-ECO.connector.plane-provisioning-auth", "AHE-3", "ORCH-1", "EG-KG.compute.backend"]
+            for concept in [
+                "OS-5",
+                "AU-ECO.connector.plane-provisioning-auth",
+                "AHE-3",
+                "ORCH-1",
+                "EG-KG.compute.backend",
+            ]
         )
 
     def test_generate_digest(self):

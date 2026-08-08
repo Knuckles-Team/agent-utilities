@@ -103,9 +103,7 @@ def test_an_inline_secret_is_never_echoed():
 def test_a_structured_sensitive_value_is_redacted_wholesale():
     """There is no safe partial view of a structure whose key says it holds
     credentials — a per-element filter would leak the ones it didn't recognise."""
-    value, redacted = config_admin.redact(
-        "MESSAGING_DISCORD_TOKEN", ["tok-a", "tok-b"]
-    )
+    value, redacted = config_admin.redact("MESSAGING_DISCORD_TOKEN", ["tok-a", "tok-b"])
     assert value == config_admin.REDACTED
     assert redacted is True
 
@@ -136,7 +134,9 @@ def test_diff_reports_the_changed_key_without_disclosing_either_value(monkeypatc
         config_admin,
         "_effective",
         lambda name: (
-            "literal-secret" if name == "oidc_client_secret_ref" else config_admin._default(name)
+            "literal-secret"
+            if name == "oidc_client_secret_ref"
+            else config_admin._default(name)
         ),
     )
     result = config_admin.diff()
@@ -346,7 +346,5 @@ def test_only_set_is_treated_as_a_mutation():
 def test_config_set_is_policy_gated_at_approval_tier():
     from agent_utilities.orchestration.action_policy import DEFAULT_POLICY
 
-    rule = next(
-        r for r in DEFAULT_POLICY["rules"] if r.get("kind") == "config.set"
-    )
+    rule = next(r for r in DEFAULT_POLICY["rules"] if r.get("kind") == "config.set")
     assert rule["tier"] == "approval_required"

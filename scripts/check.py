@@ -6,7 +6,10 @@ from pathlib import Path
 
 async def main():
     repository_manager = Path(
-        os.environ.get("REPOSITORY_MANAGER_ROOT", Path(__file__).resolve().parents[2] / "repository-manager")
+        os.environ.get(
+            "REPOSITORY_MANAGER_ROOT",
+            Path(__file__).resolve().parents[2] / "repository-manager",
+        )
     )
     process = await asyncio.create_subprocess_exec(
         sys.executable,

@@ -64,7 +64,9 @@ def test_secret_manager_set_accepts_only_value_reference(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with pytest.raises(SystemExit):
-        monkeypatch.setattr(sys, "argv", ["secret-manager", "set", "service/key", "literal"])
+        monkeypatch.setattr(
+            sys, "argv", ["secret-manager", "set", "service/key", "literal"]
+        )
         secret_cli.main()
 
     writes: list[tuple[str, str]] = []
@@ -177,18 +179,12 @@ def test_mcp_environment_defaults_resolve_secret_references(
     monkeypatch.setenv("TEST_DEFAULT_OAUTH_SECRET", "oauth-default-runtime")
     monkeypatch.setenv("TEST_DEFAULT_OPENAPI_PASSWORD", "openapi-password-runtime")
     monkeypatch.setenv("TEST_DEFAULT_OPENAPI_SECRET", "openapi-secret-runtime")
-    monkeypatch.setenv(
-        "OIDC_CLIENT_SECRET_REF", "env://TEST_DEFAULT_OIDC_SECRET"
-    )
+    monkeypatch.setenv("OIDC_CLIENT_SECRET_REF", "env://TEST_DEFAULT_OIDC_SECRET")
     monkeypatch.setenv(
         "OAUTH_UPSTREAM_CLIENT_SECRET_REF", "env://TEST_DEFAULT_OAUTH_SECRET"
     )
-    monkeypatch.setenv(
-        "OPENAPI_PASSWORD_REF", "env://TEST_DEFAULT_OPENAPI_PASSWORD"
-    )
-    monkeypatch.setenv(
-        "OPENAPI_CLIENT_SECRET_REF", "env://TEST_DEFAULT_OPENAPI_SECRET"
-    )
+    monkeypatch.setenv("OPENAPI_PASSWORD_REF", "env://TEST_DEFAULT_OPENAPI_PASSWORD")
+    monkeypatch.setenv("OPENAPI_CLIENT_SECRET_REF", "env://TEST_DEFAULT_OPENAPI_SECRET")
 
     args = create_mcp_parser().parse_args([])
 

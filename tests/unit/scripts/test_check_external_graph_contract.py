@@ -33,8 +33,11 @@ def test_external_graph_gate_accepts_reference_only_examples() -> None:
     gate = _load_gate()
     fixture = gate.ROOT / "fixture.md"
 
-    assert gate.environment_literal_violations(
-        fixture,
-        '"connection_profile_ref": "secret://source/connection"\n'
-        '"mapping_policy_ref": "vault://source/mapping"\n',
-    ) == []
+    assert (
+        gate.environment_literal_violations(
+            fixture,
+            '"connection_profile_ref": "secret://source/connection"\n'
+            '"mapping_policy_ref": "vault://source/mapping"\n',
+        )
+        == []
+    )

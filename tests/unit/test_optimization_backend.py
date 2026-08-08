@@ -251,8 +251,7 @@ def test_avatar_projects_only_governed_tool_and_contrastive_trace_references() -
         "failure",
     }
     assert all(
-        example["trace_ref"] is not None
-        for example in payload["corpus"]["examples"]
+        example["trace_ref"] is not None for example in payload["corpus"]["examples"]
     )
     assert "private-tool-description" not in repr(payload)
     assert "ephemeral-" not in repr(payload)

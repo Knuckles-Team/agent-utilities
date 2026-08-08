@@ -129,7 +129,11 @@ def test_owlready2_promote_edges(ontology_path):
     backend.promote(nodes)
 
     edges = [
-        {"source": "agent:test-agent", "target": "tool:test-tool", "relationship": "provides"}
+        {
+            "source": "agent:test-agent",
+            "target": "tool:test-tool",
+            "relationship": "provides",
+        }
     ]
 
     count = backend.promote_edges(edges)

@@ -44,9 +44,7 @@ def _make_config(**overrides):
     cfg.server_tls_certfile = overrides.get("server_tls_certfile", None)
     cfg.server_tls_keyfile = overrides.get("server_tls_keyfile", None)
     cfg.server_tls_terminated = overrides.get("server_tls_terminated", False)
-    cfg.server_trusted_proxy_cidrs = overrides.get(
-        "server_trusted_proxy_cidrs", None
-    )
+    cfg.server_trusted_proxy_cidrs = overrides.get("server_trusted_proxy_cidrs", None)
     return cfg
 
 
@@ -403,9 +401,7 @@ class TestBearerHeaderParser:
             ),
         ):
             with pytest.raises(HTTPException) as exc_info:
-                await authenticate_header_values(
-                    authorization=[b"Bearer opaque-token"]
-                )
+                await authenticate_header_values(authorization=[b"Bearer opaque-token"])
         assert exc_info.value.status_code == 500
         assert exc_info.value.detail == "joserfc missing"
 
@@ -432,9 +428,7 @@ class TestBearerHeaderParser:
             ),
         ):
             with pytest.raises(PermissionError):
-                await authenticate_header_values(
-                    authorization=[b"Bearer opaque-token"]
-                )
+                await authenticate_header_values(authorization=[b"Bearer opaque-token"])
 
 
 # ---------------------------------------------------------------------------

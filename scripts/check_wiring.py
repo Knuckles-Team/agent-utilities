@@ -404,7 +404,9 @@ def find_orphaned_test_files(
     to say — "a gate that can't fail is not a gate"."""
     if not tests_dir.exists():
         return []
-    collected = set(_load_testpaths(pytest_ini=pytest_ini)) | _load_explicit_pytest_paths(
+    collected = set(
+        _load_testpaths(pytest_ini=pytest_ini)
+    ) | _load_explicit_pytest_paths(
         precommit_config=precommit_config, workflows_dir=workflows_dir
     )
     orphans = []

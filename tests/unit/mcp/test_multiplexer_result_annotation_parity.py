@@ -33,9 +33,7 @@ def _child_result_with_annotations_and_meta() -> mcp.types.CallToolResult:
             mcp.types.TextContent(
                 type="text",
                 text="hello",
-                annotations=mcp.types.Annotations(
-                    audience=["assistant"], priority=0.8
-                ),
+                annotations=mcp.types.Annotations(audience=["assistant"], priority=0.8),
             )
         ],
         isError=False,

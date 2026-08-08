@@ -43,7 +43,10 @@ def test_coalesce_falls_through_falsy_like_or():
 
 def test_coalesce_dotted_paths():
     record = {"attributes": {"group_title": "Groceries"}}
-    assert coalesce(record, "attributes.group_title", "attributes.description") == "Groceries"
+    assert (
+        coalesce(record, "attributes.group_title", "attributes.description")
+        == "Groceries"
+    )
 
 
 def test_stable_id_plain_concatenation():

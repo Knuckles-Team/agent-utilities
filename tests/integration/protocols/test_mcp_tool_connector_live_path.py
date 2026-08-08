@@ -184,7 +184,8 @@ async def test_mcp_tool_sql_source_through_run_connector_entry_point(
     assert {d.get("name") for d in docs} == {"Graphs", "Ontologies", "Retrieval"}
     assert len(chunks) >= 3
     rels = {
-        data.get("relationship") for _u, _v, data in engine.graph_compute.edges(data=True)
+        data.get("relationship")
+        for _u, _v, data in engine.graph_compute.edges(data=True)
     }
     assert "HAS_CHUNK" in rels and "CHUNK_OF" in rels
 

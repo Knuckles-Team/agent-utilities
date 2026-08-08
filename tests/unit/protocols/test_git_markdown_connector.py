@@ -252,13 +252,7 @@ def test_privacy_safe_text_redacts_before_persistence(tmp_path):
 
 @pytest.mark.concept("AU-KG.ingest.stable-fragment-address")
 def test_fragment_markdown_builds_stable_addressable_fragments():
-    text = (
-        "# Top\n"
-        "intro paragraph\n\n"
-        "## Sub\n"
-        "sub paragraph one\n\n"
-        "sub paragraph two\n"
-    )
+    text = "# Top\nintro paragraph\n\n## Sub\nsub paragraph one\n\nsub paragraph two\n"
     fragments = fragment_markdown("artifact:test", text)
     kinds = [(f.kind, f.address) for f in fragments]
     assert ("heading", "heading:top") in kinds
@@ -269,11 +263,16 @@ def test_fragment_markdown_builds_stable_addressable_fragments():
     # A typo fix in one paragraph changes only that fragment's content_hash;
     # every fragment_id (address) is unaffected.
     edited = text.replace("sub paragraph one", "sub paragraph ONE")
-    edited_fragments = {f.fragment_id: f.content_hash for f in fragment_markdown("artifact:test", edited)}
+    edited_fragments = {
+        f.fragment_id: f.content_hash
+        for f in fragment_markdown("artifact:test", edited)
+    }
     original_fragments = {f.fragment_id: f.content_hash for f in fragments}
     assert set(edited_fragments) == set(original_fragments)
     changed = [
-        fid for fid in original_fragments if original_fragments[fid] != edited_fragments[fid]
+        fid
+        for fid in original_fragments
+        if original_fragments[fid] != edited_fragments[fid]
     ]
     assert len(changed) == 1
 
@@ -292,4 +291,6 @@ def test_build_artifact_keys_to_the_file_not_its_content(tmp_path):
     sha2 = _commit(repo)
     art2 = conn.build_artifact(sha2, "a.md")
     assert art2.artifact_id == art1.artifact_id  # same file -> same artifact
-    assert art2.content_hash != art1.content_hash  # different revision -> different hash
+    assert (
+        art2.content_hash != art1.content_hash
+    )  # different revision -> different hash

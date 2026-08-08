@@ -55,9 +55,7 @@ def _invoke(
     try:
         result = run_bounded(
             command,
-            payload=json.dumps(
-                request, sort_keys=True, separators=(",", ":")
-            ).encode(),
+            payload=json.dumps(request, sort_keys=True, separators=(",", ":")).encode(),
             timeout=timeout,
         )
     except AdapterBoundaryError as exc:

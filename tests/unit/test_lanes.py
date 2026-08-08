@@ -218,7 +218,8 @@ def test_workspace_scripts_lease_is_workspace_scoped(canonical: Path) -> None:
     assert lanes.resource_class("workspace-scripts") is lanes.ArbitrationClass.LEASE
     repo_leases = lanes.lane_scope(canonical).arbitration_dir / "leases"
     with lanes.hold_lease(
-        "workspace-scripts", operation="editing scripts/deferred_registry.py",
+        "workspace-scripts",
+        operation="editing scripts/deferred_registry.py",
         path=canonical,
     ):
         assert not (repo_leases / "workspace-scripts.lease").exists()
@@ -236,7 +237,8 @@ def test_workspace_scripts_lease_defers_a_racing_editor(canonical: Path) -> None
     of racing the first one's in-progress edit."""
     lane = _add_worktree(canonical, "lane-scripts")
     with lanes.hold_lease(
-        "workspace-scripts", operation="lane-a editing deferred_registry.py",
+        "workspace-scripts",
+        operation="lane-a editing deferred_registry.py",
         path=canonical,
     ):
         with pytest.raises(lanes.LeaseUnavailable, match="defer, do not proceed"):
@@ -441,8 +443,15 @@ def test_orphan_detector_discriminates_orphaned_from_restored(
     tree = _run(["git", "write-tree"], lane)
     diff = subprocess.run(
         [
-            "git", "diff-index", "--ignore-submodules", "--binary",
-            "--exit-code", "--no-color", "--no-ext-diff", tree, "--",
+            "git",
+            "diff-index",
+            "--ignore-submodules",
+            "--binary",
+            "--exit-code",
+            "--no-color",
+            "--no-ext-diff",
+            tree,
+            "--",
         ],
         cwd=str(lane),
         capture_output=True,
@@ -824,7 +833,9 @@ def test_gate_reaches_a_repo_that_is_not_agent_utilities(tmp_path: Path) -> None
     assert str(foreign) not in proc.stdout
 
 
-def test_gate_still_refuses_a_canonical_commit_in_a_foreign_repo(tmp_path: Path) -> None:
+def test_gate_still_refuses_a_canonical_commit_in_a_foreign_repo(
+    tmp_path: Path,
+) -> None:
     """Reach cuts both ways: a foreign repo's OWN canonical checkout is guarded too."""
     foreign = _init_foreign_repo(tmp_path / "foreign2")
     (foreign / "new.py").write_text("x = 1\n", encoding="utf-8")

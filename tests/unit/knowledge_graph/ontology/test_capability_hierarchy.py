@@ -16,6 +16,7 @@ from agent_utilities.knowledge_graph.ontology.capability_hierarchy import (
     load_capability_hierarchy,
 )
 
+
 # ---------------------------------------------------------------------------
 # Bundled ontology — real rdfs:subClassOf axioms from ontology_capability.ttl
 # ---------------------------------------------------------------------------

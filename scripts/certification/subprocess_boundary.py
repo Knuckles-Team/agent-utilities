@@ -48,8 +48,7 @@ def run_bounded(
         or (
             payload is not None
             and (
-                not isinstance(payload, bytes)
-                or len(payload) > MAX_ADAPTER_INPUT_BYTES
+                not isinstance(payload, bytes) or len(payload) > MAX_ADAPTER_INPUT_BYTES
             )
         )
     ):

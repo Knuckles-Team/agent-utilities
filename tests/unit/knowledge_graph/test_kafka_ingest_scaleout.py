@@ -291,7 +291,9 @@ def test_ensure_topics_grows_but_never_shrinks(confluent_stub):
     admin = _FakeAdmin({"kg_tasks": 3, "kg_staging": 1, "kg_tasks_hydration": 3})
     _kafka_backend(admin, partitions=8)
     assert ("kg_tasks", 8) in admin.grown  # 3 → 8 grows
-    assert admin.grown.count(("kg_tasks_hydration", 3)) == 0  # already at target, not grown
+    assert (
+        admin.grown.count(("kg_tasks_hydration", 3)) == 0
+    )  # already at target, not grown
 
     admin2 = _FakeAdmin({"kg_tasks": 12, "kg_staging": 1, "kg_tasks_hydration": 3})
     _kafka_backend(admin2, partitions=8)

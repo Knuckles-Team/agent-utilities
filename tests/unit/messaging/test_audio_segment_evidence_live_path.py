@@ -93,7 +93,9 @@ def _voice_event() -> InboundEvent:
             author_id="u1",
             channel_id="C1",
             attachments=[
-                MediaAttachment(media_type=MediaType.VOICE_NOTE, url="http://x/voice.ogg")
+                MediaAttachment(
+                    media_type=MediaType.VOICE_NOTE, url="http://x/voice.ogg"
+                )
             ],
         ),
     )
@@ -161,7 +163,9 @@ async def test_persist_media_skips_segment_evidence_for_non_audio(
             id="m1",
             author_id="u1",
             channel_id="C1",
-            attachments=[MediaAttachment(media_type=MediaType.IMAGE, url="http://x/img.png")],
+            attachments=[
+                MediaAttachment(media_type=MediaType.IMAGE, url="http://x/img.png")
+            ],
         ),
     )
     await router._persist_media(object(), ev, message_memory_id="mem:1")

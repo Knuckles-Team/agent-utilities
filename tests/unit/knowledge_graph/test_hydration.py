@@ -588,7 +588,9 @@ def test_hydrate_leanix_mirrors_factsheets(mock_engine):
     envelopes = [call.args[1] for call in mock_ingest.call_args_list]
     assert all(env.connector == "leanix" for env in envelopes)
     entity_envelopes = [
-        env for env in envelopes if env.typed_payload.get("type") != "SourceRelationshipProjection"
+        env
+        for env in envelopes
+        if env.typed_payload.get("type") != "SourceRelationshipProjection"
     ]
     assert {env.source_object_id for env in entity_envelopes} == {
         "app:a1",

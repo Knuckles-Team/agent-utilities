@@ -30,9 +30,7 @@ PRIVATE_IPV4 = re.compile(
     r"\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|"
     r"172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})\b"
 )
-ENVIRONMENT_DNS = re.compile(
-    r"(?i)\b(?:[A-Za-z0-9-]+\.)+(?:arpa|local)(?=[:/\s\"'])"
-)
+ENVIRONMENT_DNS = re.compile(r"(?i)\b(?:[A-Za-z0-9-]+\.)+(?:arpa|local)(?=[:/\s\"'])")
 MACHINE_HOME = re.compile(
     r"(?i)(?:[A-Z]:[\\/]Users[\\/](?![<%$])[^\\/\s]+|"
     r"/(?:home|Users)/(?![<%$])[^/\s]+|"
@@ -74,7 +72,9 @@ def test_tracked_fixtures_do_not_encode_environment_host_aliases() -> None:
         assert ENVIRONMENT_DERIVED_HOST_ALIAS.search(content) is None, relative
 
 
-def test_private_network_gate_keeps_negative_and_documentation_ranges_distinct() -> None:
+def test_private_network_gate_keeps_negative_and_documentation_ranges_distinct() -> (
+    None
+):
     private_examples = (
         "10" + ".0.0.1",
         "172" + ".16.0.1",

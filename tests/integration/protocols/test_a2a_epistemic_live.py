@@ -531,16 +531,12 @@ async def test_native_transaction_conflict_never_partially_commits(
         )
         async with broker:
             iterator = broker.receive_task_operations()
-            await asyncio.wait_for(
-                anext(iterator), timeout=_OPERATION_TIMEOUT_SECONDS
-            )
+            await asyncio.wait_for(anext(iterator), timeout=_OPERATION_TIMEOUT_SECONDS)
             await case.storage.update_task(task["id"], "working")
             context_before = await case.runtime.call(
                 "nodes", "properties", task["context_id"]
             )
-            task_before = await case.runtime.call(
-                "nodes", "properties", task["id"]
-            )
+            task_before = await case.runtime.call("nodes", "properties", task["id"])
             original_call = case.runtime.call
             injected = False
 
@@ -612,9 +608,7 @@ async def test_native_delivery_lease_renews_and_stale_generation_is_fenced(
         )
         async with first:
             iterator = first.receive_task_operations()
-            await asyncio.wait_for(
-                anext(iterator), timeout=_OPERATION_TIMEOUT_SECONDS
-            )
+            await asyncio.wait_for(anext(iterator), timeout=_OPERATION_TIMEOUT_SECONDS)
             first_control = _DELIVERY_CONTROL.get()
             assert first_control is not None
             await asyncio.sleep(0.55)
@@ -637,9 +631,7 @@ async def test_native_delivery_lease_renews_and_stale_generation_is_fenced(
         )
         async with second:
             iterator = second.receive_task_operations()
-            await asyncio.wait_for(
-                anext(iterator), timeout=_OPERATION_TIMEOUT_SECONDS
-            )
+            await asyncio.wait_for(anext(iterator), timeout=_OPERATION_TIMEOUT_SECONDS)
             second_control = _DELIVERY_CONTROL.get()
             assert second_control is not None
             assert second_control.delivery_tag != first_control.delivery_tag
@@ -780,9 +772,7 @@ async def test_native_cancellation_wins_and_late_completion_is_rejected(
                     new_messages=[],
                 )
             assert (
-                await case.runtime.call(
-                    "nodes", "properties", task["context_id"]
-                )
+                await case.runtime.call("nodes", "properties", task["context_id"])
                 == context_before
             )
             loaded = await case.storage.load_task(task["id"])
@@ -876,9 +866,7 @@ async def test_native_crash_restart_recovers_and_fences_precrash_completion(
             _EXECUTION_BINDING.reset(token)
 
         second_parent.send("complete")
-        status, state = await asyncio.to_thread(
-            _receive_process_message, second_parent
-        )
+        status, state = await asyncio.to_thread(_receive_process_message, second_parent)
         assert (status, state) == ("completed", "completed")
         await asyncio.to_thread(second_process.join, _SHUTDOWN_TIMEOUT_SECONDS)
         assert second_process.exitcode == 0

@@ -155,7 +155,10 @@ def live_probe(url: str, timeout: float) -> tuple[bool, str]:
         with opener.open(req, timeout=timeout) as resp:
             if _validated_probe_host(resp.geturl()) != host:
                 return False, "endpoint origin changed"
-            if len(resp.read(_MAX_PROBE_RESPONSE_BYTES + 1)) > _MAX_PROBE_RESPONSE_BYTES:
+            if (
+                len(resp.read(_MAX_PROBE_RESPONSE_BYTES + 1))
+                > _MAX_PROBE_RESPONSE_BYTES
+            ):
                 return False, "response exceeded boundary"
             return (200 <= resp.status < 300), f"HTTP {resp.status}"
     except urllib.error.HTTPError as e:

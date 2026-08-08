@@ -60,7 +60,9 @@ class _SharedCypherBackend:
                 node[prop] = params.get(param)
             return []
         node = self.nodes.get(nid, {})
-        return [{alias: node.get(prop) for prop, alias in _RETURN_ALIAS_RE.findall(query)}]
+        return [
+            {alias: node.get(prop) for prop, alias in _RETURN_ALIAS_RE.findall(query)}
+        ]
 
 
 def _make_engine(nodes: dict[str, dict[str, Any]]) -> Any:
@@ -338,7 +340,9 @@ def test_explain_routing_eligibility_never_raises_for_an_unknown_entity():
 # Misc — no matching embedding / no query embedding available
 # ---------------------------------------------------------------------------
 def test_route_capability_request_returns_empty_list_when_embedding_unavailable():
-    engine = _make_engine({"a": {"type": "tool", "embedding": [1.0], "capabilities": ["x"]}})
+    engine = _make_engine(
+        {"a": {"type": "tool", "embedding": [1.0], "capabilities": ["x"]}}
+    )
     out = route_capability_request(
         engine, "q", required_capability_type="x", embed_fn=lambda q: None
     )

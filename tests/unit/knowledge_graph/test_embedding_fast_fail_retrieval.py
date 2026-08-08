@@ -70,7 +70,9 @@ class _StubEngine:
         return []
 
 
-def _make_retriever(monkeypatch, *, breaker, embed_model) -> tuple[HybridRetriever, _StubEngine]:
+def _make_retriever(
+    monkeypatch, *, breaker, embed_model
+) -> tuple[HybridRetriever, _StubEngine]:
     engine = _StubEngine()
     retriever = HybridRetriever(engine, enable_rerank=False)
     # Bypass the lazy ``embed_model`` property (which would otherwise call the
@@ -78,7 +80,9 @@ def _make_retriever(monkeypatch, *, breaker, embed_model) -> tuple[HybridRetriev
     retriever._embed_model = embed_model
     retriever._embed_model_initialized = True
     monkeypatch.setattr(
-        hr_module, "_query_embedding_circuit_breaker", lambda: (_StubEndpoint(), breaker)
+        hr_module,
+        "_query_embedding_circuit_breaker",
+        lambda: (_StubEndpoint(), breaker),
     )
     return retriever, engine
 
@@ -88,9 +92,13 @@ def test_open_breaker_skips_embedding_call_entirely(monkeypatch):
     """An already-tripped breaker means: no network embed attempt at all."""
     breaker = _StubBreaker(tripped=True)
     embed_model = _StubEmbedModel()
-    retriever, engine = _make_retriever(monkeypatch, breaker=breaker, embed_model=embed_model)
+    retriever, engine = _make_retriever(
+        monkeypatch, breaker=breaker, embed_model=embed_model
+    )
 
-    result = retriever.retrieve_hybrid("what is the deployment architecture?", skip_quality_gate=True)
+    result = retriever.retrieve_hybrid(
+        "what is the deployment architecture?", skip_quality_gate=True
+    )
 
     assert result == []
     assert embed_model.calls == []  # the network call was never attempted
@@ -105,9 +113,13 @@ def test_embedding_failure_records_breaker_and_falls_back(monkeypatch):
     breaker = _StubBreaker(tripped=False)
     boom = RuntimeError("boom")
     embed_model = _StubEmbedModel(error=boom)
-    retriever, engine = _make_retriever(monkeypatch, breaker=breaker, embed_model=embed_model)
+    retriever, engine = _make_retriever(
+        monkeypatch, breaker=breaker, embed_model=embed_model
+    )
 
-    result = retriever.retrieve_hybrid("what is the deployment architecture?", skip_quality_gate=True)
+    result = retriever.retrieve_hybrid(
+        "what is the deployment architecture?", skip_quality_gate=True
+    )
 
     assert result == []
     assert embed_model.calls == ["what is the deployment architecture?"]
@@ -122,7 +134,9 @@ def test_successful_embedding_records_breaker_success(monkeypatch):
     ingestion)."""
     breaker = _StubBreaker(tripped=False)
     embed_model = _StubEmbedModel()
-    retriever, engine = _make_retriever(monkeypatch, breaker=breaker, embed_model=embed_model)
+    retriever, engine = _make_retriever(
+        monkeypatch, breaker=breaker, embed_model=embed_model
+    )
     # The fake engine has no ``.graph``, so ``_engine_vector_search`` returns no
     # candidates and retrieval degrades to keyword search via its OWN "no
     # semantic matches" branch (not the exception branch) — the embed call
@@ -152,7 +166,9 @@ def test_fallback_log_surfaces_real_root_cause(monkeypatch, caplog):
         error = wrapped
 
     embed_model = _StubEmbedModel(error=error)
-    retriever, _engine = _make_retriever(monkeypatch, breaker=breaker, embed_model=embed_model)
+    retriever, _engine = _make_retriever(
+        monkeypatch, breaker=breaker, embed_model=embed_model
+    )
 
     with caplog.at_level(logging.WARNING, logger=hr_module.__name__):
         retriever.retrieve_hybrid("hello", skip_quality_gate=True)

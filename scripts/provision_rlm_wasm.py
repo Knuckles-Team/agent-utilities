@@ -37,7 +37,11 @@ _PAYLOAD_SHA256 = "e5dc5a398b07b54ea8fdb503bf68fb583d533f10ec3f930963e02b9505f7a
 _PAYLOAD_NAME = "python-3.12.0.wasm"
 _MAX_PAYLOAD_BYTES = 128 * 1024 * 1024
 _ALLOWED_DOWNLOAD_HOSTS = frozenset(
-    {"github.com", "objects.githubusercontent.com", "release-assets.githubusercontent.com"}
+    {
+        "github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+    }
 )
 
 
@@ -89,9 +93,10 @@ def _download_verified(target: Path) -> None:
     digest = hashlib.sha256()
     written = 0
     try:
-        with opener.open(_PAYLOAD_URL, timeout=60) as response, os.fdopen(
-            descriptor, "wb"
-        ) as output:
+        with (
+            opener.open(_PAYLOAD_URL, timeout=60) as response,
+            os.fdopen(descriptor, "wb") as output,
+        ):
             descriptor = -1
             _validate_download_url(response.geturl())
             declared = response.headers.get("Content-Length")

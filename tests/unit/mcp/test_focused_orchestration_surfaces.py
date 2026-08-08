@@ -600,9 +600,7 @@ async def test_graph_agents_reason_live_path_drives_real_tot_topology(
                 score=0.4,
                 is_goal=False,
             ),
-            agent_execution_tools.ToTChildOutput(
-                content="42", score=0.9, is_goal=True
-            ),
+            agent_execution_tools.ToTChildOutput(content="42", score=0.9, is_goal=True),
         ]
     )
 
@@ -734,7 +732,11 @@ def test_graph_evolution_evidence_lineage_action_reaches_the_shared_core(
 
     def _fake_lineage(engine: Any, evidence_id: str) -> dict[str, Any]:
         calls.append((engine, evidence_id))
-        return {"evidence_id": evidence_id, "found": True, "chain": [{"stage": "evidence"}]}
+        return {
+            "evidence_id": evidence_id,
+            "found": True,
+            "chain": [{"stage": "evidence"}],
+        }
 
     engine = object()
     monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)

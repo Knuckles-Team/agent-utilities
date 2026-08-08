@@ -586,9 +586,7 @@ def test_cleanup_cron_log_default_max_entries(
     )
     scheduler.cleanup_cron_log()
     delete_call = engine.backend.execute.call_args_list[1]
-    assert delete_call[0][1] == {
-        "cutoff": rows[DEFAULT_MAX_CRON_LOG_ENTRIES - 1]["ts"]
-    }
+    assert delete_call[0][1] == {"cutoff": rows[DEFAULT_MAX_CRON_LOG_ENTRIES - 1]["ts"]}
 
 
 # ---------------------------------------------------------------------------

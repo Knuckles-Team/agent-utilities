@@ -151,7 +151,9 @@ def test_identity_rules_come_from_a_schema_pack_not_a_hardcoded_rule() -> None:
         EntityRecord(id="a", name="Ledger One", kind="finance_ledger"),
         EntityRecord(id="b", name="Ledger Two", kind="finance_ledger"),
     ]
-    candidates = resolve_identity_candidates(records, identity_rules=pack.identity_rules)
+    candidates = resolve_identity_candidates(
+        records, identity_rules=pack.identity_rules
+    )
     assert candidates == []  # different names, no identifiers, out-of-scope rule
 
 
@@ -185,7 +187,10 @@ def test_confirm_then_revert_merge_preserves_evidence_and_is_undoable() -> None:
     candidate = resolve_identity_candidates(records, identity_rules=())[0]
 
     decision = confirm_merge(
-        engine, candidate, decided_by="steward:alice", reason="confirmed duplicate CMDB entry"
+        engine,
+        candidate,
+        decided_by="steward:alice",
+        reason="confirmed duplicate CMDB entry",
     )
     confirm_args, confirm_kwargs = engine.link_nodes.call_args
     assert confirm_args[2] == RegistryEdgeType.SAME_AS
@@ -193,11 +198,15 @@ def test_confirm_then_revert_merge_preserves_evidence_and_is_undoable() -> None:
     assert confirm_kwargs["properties"]["evidence_json"]  # non-empty, evidence retained
     assert decision.reverted is False
 
-    reverted = revert_merge(engine, decision, reason="turned out to be two real entities")
+    reverted = revert_merge(
+        engine, decision, reason="turned out to be two real entities"
+    )
 
     assert engine.link_nodes.call_count == 2
     revert_args, revert_kwargs = engine.link_nodes.call_args
-    assert revert_args[2] == RegistryEdgeType.SAME_AS  # same edge type — marked, not deleted
+    assert (
+        revert_args[2] == RegistryEdgeType.SAME_AS
+    )  # same edge type — marked, not deleted
     props = revert_kwargs["properties"]
     assert props["reverted"] is True
     assert props["reverted_reason"] == "turned out to be two real entities"
@@ -206,7 +215,9 @@ def test_confirm_then_revert_merge_preserves_evidence_and_is_undoable() -> None:
     assert props["reason"] == "confirmed duplicate CMDB entry"
     assert props["confidence"] == confirm_kwargs["properties"]["confidence"]
     assert props["evidence_json"] == confirm_kwargs["properties"]["evidence_json"]
-    assert reverted.evidence == decision.evidence  # same Python objects, never re-derived
+    assert (
+        reverted.evidence == decision.evidence
+    )  # same Python objects, never re-derived
 
 
 def test_resolve_identity_candidates_never_touches_an_engine() -> None:

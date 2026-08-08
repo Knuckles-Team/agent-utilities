@@ -146,7 +146,9 @@ def test_wrap_data_is_noop_when_not_applicable():
     var = {"project_id": "P", "x": 1}
     assert _wrap_data_kwargs(api.flexible, (), dict(var)) == var
     # positional args present — no-op
-    assert _wrap_data_kwargs(api.create_work_item, ("P",), {"name": "T"}) == {"name": "T"}
+    assert _wrap_data_kwargs(api.create_work_item, ("P",), {"name": "T"}) == {
+        "name": "T"
+    }
 
 
 def test_run_blocking_applies_data_wrap_end_to_end():

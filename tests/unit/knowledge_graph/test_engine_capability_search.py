@@ -44,10 +44,22 @@ class _NoUnifiedGraph:
 def test_filter_plan_is_built_for_required_caps_and_tenant():
     filters = build_capability_filters(["web", "search"], "acme", ["gpu"])
     # One Filter condition per capability/policy tag, plus one for tenant.
-    assert {"property": "capabilities", "op": "array_contains", "value": "web"} in filters
-    assert {"property": "capabilities", "op": "array_contains", "value": "search"} in filters
+    assert {
+        "property": "capabilities",
+        "op": "array_contains",
+        "value": "web",
+    } in filters
+    assert {
+        "property": "capabilities",
+        "op": "array_contains",
+        "value": "search",
+    } in filters
     assert {"property": "tenant", "op": "eq_or_null", "value": "acme"} in filters
-    assert {"property": "policy_tags", "op": "array_contains", "value": "gpu"} in filters
+    assert {
+        "property": "policy_tags",
+        "op": "array_contains",
+        "value": "gpu",
+    } in filters
 
 
 def test_no_filters_still_builds_empty_filter_list():
@@ -69,9 +81,11 @@ def test_engine_query_routes_to_unified_plan_with_filter_not_in_process_scan():
     assert len(graph.calls) == 1
     plan = graph.calls[0]
     filter_ops = [op["Filter"] for op in plan if "Filter" in op]
-    assert {"property": "capabilities", "op": "array_contains", "value": "arithmetic"} in (
-        filter_ops
-    )
+    assert {
+        "property": "capabilities",
+        "op": "array_contains",
+        "value": "arithmetic",
+    } in (filter_ops)
     # A Rank + Limit leg is always present (the vector neighbourhood IS the engine ANN).
     assert any("Rank" in op for op in plan)
     assert any("Limit" in op for op in plan)
@@ -166,9 +180,7 @@ def test_native_ann_bounded_post_filter_excludes_non_matching_candidate():
             return self._props.get(nid, {})
 
     engine = types.SimpleNamespace(graph=_NoUnifiedWithProps())
-    out = engine_filtered_search(
-        engine, [1.0], k=5, required_caps=["arithmetic"]
-    )
+    out = engine_filtered_search(engine, [1.0], k=5, required_caps=["arithmetic"])
     assert out == [("tool:has_cap", 0.9)]
 
 

@@ -71,7 +71,9 @@ def test_all_registered_concepts_scans_the_whole_tree_not_just_one_package(tmp_p
 
 
 def test_all_registered_concepts_skips_vcs_and_cache_dirs(tmp_path):
-    _write_markers(tmp_path, path=".git/objects/pack/whatever.py", ids=["AU-KG.demo.ghost"])
+    _write_markers(
+        tmp_path, path=".git/objects/pack/whatever.py", ids=["AU-KG.demo.ghost"]
+    )
     _write_markers(tmp_path, path="src/real.py", ids=["AU-KG.demo.real"])
     assert all_registered_concepts(tmp_path) == ["AU-KG.demo.real"]
 
@@ -120,7 +122,9 @@ def test_audit_merged_does_not_relitigate_baselined_debt(tmp_path):
     design_dir.mkdir()
     baseline = tmp_path / "baseline.txt"
 
-    _write_markers(scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.known-debt"])
+    _write_markers(
+        scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.known-debt"]
+    )
     write_baseline({"AU-KG.demo.known-debt"}, baseline)
 
     rc = audit_merged(
@@ -132,7 +136,9 @@ def test_audit_merged_does_not_relitigate_baselined_debt(tmp_path):
     assert rc == 0
 
 
-def test_audit_merged_distinguishes_retired_from_resolved_baseline_entries(tmp_path, capsys):
+def test_audit_merged_distinguishes_retired_from_resolved_baseline_entries(
+    tmp_path, capsys
+):
     """A baselined id that was RETIRED (marker deleted entirely) must be
     reported only as stale/no-longer-exists, never ALSO as "now documented" —
     those are different, mutually exclusive outcomes. Regression: `resolved`
@@ -147,7 +153,9 @@ def test_audit_merged_distinguishes_retired_from_resolved_baseline_entries(tmp_p
     # Baseline remembers two ids; only "still-here" is still a live marker —
     # "retired" has been removed from the tree entirely (no file references it).
     write_baseline({"AU-KG.demo.still-here", "AU-KG.demo.retired"}, baseline)
-    _write_markers(scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.still-here"])
+    _write_markers(
+        scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.still-here"]
+    )
     (design_dir / "feature.md").write_text(
         "CONCEPT:" + "AU-KG.demo.still-here", encoding="utf-8"
     )
@@ -158,7 +166,9 @@ def test_audit_merged_distinguishes_retired_from_resolved_baseline_entries(tmp_p
     assert rc == 0
     out = capsys.readouterr().out
     assert "AU-KG.demo.still-here" in out  # resolved: still exists, now documented
-    assert "AU-KG.demo.retired" not in out.split("no longer exist")[0]  # never "resolved"
+    assert (
+        "AU-KG.demo.retired" not in out.split("no longer exist")[0]
+    )  # never "resolved"
     assert "AU-KG.demo.retired" in out  # reported once, under stale only
 
 
@@ -194,7 +204,9 @@ def test_update_baseline_freezes_the_current_undocumented_set(tmp_path):
     design_dir = tmp_path / "design"
     design_dir.mkdir()
     baseline = tmp_path / "baseline.txt"
-    _write_markers(scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.a", "AU-KG.demo.b"])
+    _write_markers(
+        scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.a", "AU-KG.demo.b"]
+    )
 
     rc = audit_merged(
         update=True, scan_root=scan_root, design_dir=design_dir, baseline_path=baseline
@@ -277,7 +289,12 @@ def _design(tmp_path, **docs):
 def test_a_declared_parent_makes_a_child_documented(tmp_path):
     design_dir = _design(tmp_path, decision=["AU-KG.demo.the-decision"])
     lineage = _lineage(
-        {"AU-KG.demo.a-marker": {"parent": "AU-KG.demo.the-decision", "rationale": _GOOD_RATIONALE}}
+        {
+            "AU-KG.demo.a-marker": {
+                "parent": "AU-KG.demo.the-decision",
+                "rationale": _GOOD_RATIONALE,
+            }
+        }
     )
     live = frozenset({"AU-KG.demo.a-marker", "AU-KG.demo.the-decision"})
 
@@ -293,7 +310,12 @@ def test_a_parent_without_its_own_doc_is_a_violation_not_a_pass(tmp_path):
     nothing. It must be reported BY NAME, never silently accepted."""
     design_dir = _design(tmp_path)
     lineage = _lineage(
-        {"AU-KG.demo.a-marker": {"parent": "AU-KG.demo.undocumented", "rationale": _GOOD_RATIONALE}}
+        {
+            "AU-KG.demo.a-marker": {
+                "parent": "AU-KG.demo.undocumented",
+                "rationale": _GOOD_RATIONALE,
+            }
+        }
     )
     live = frozenset({"AU-KG.demo.a-marker", "AU-KG.demo.undocumented"})
 
@@ -307,7 +329,12 @@ def test_a_parent_without_its_own_doc_is_a_violation_not_a_pass(tmp_path):
 def test_a_parent_that_is_not_a_live_concept_is_a_violation(tmp_path):
     design_dir = _design(tmp_path, decision=["AU-KG.demo.ghost"])
     lineage = _lineage(
-        {"AU-KG.demo.a-marker": {"parent": "AU-KG.demo.ghost", "rationale": _GOOD_RATIONALE}}
+        {
+            "AU-KG.demo.a-marker": {
+                "parent": "AU-KG.demo.ghost",
+                "rationale": _GOOD_RATIONALE,
+            }
+        }
     )
     documented, broken = resolve_documentation(
         "AU-KG.demo.a-marker",
@@ -325,8 +352,14 @@ def test_parent_chains_are_rejected_at_load_time():
     with pytest.raises(LineageError, match="chains are not allowed"):
         _lineage(
             {
-                "AU-KG.demo.a": {"parent": "AU-KG.demo.b", "rationale": _GOOD_RATIONALE},
-                "AU-KG.demo.b": {"parent": "AU-KG.demo.c", "rationale": _GOOD_RATIONALE},
+                "AU-KG.demo.a": {
+                    "parent": "AU-KG.demo.b",
+                    "rationale": _GOOD_RATIONALE,
+                },
+                "AU-KG.demo.b": {
+                    "parent": "AU-KG.demo.c",
+                    "rationale": _GOOD_RATIONALE,
+                },
             }
         )
 
@@ -348,13 +381,17 @@ def test_a_rationale_that_restates_the_id_is_rejected():
 
 def test_self_parent_is_rejected():
     with pytest.raises(LineageError, match="cannot be its own parent"):
-        _lineage({"AU-KG.demo.a": {"parent": "AU-KG.demo.a", "rationale": _GOOD_RATIONALE}})
+        _lineage(
+            {"AU-KG.demo.a": {"parent": "AU-KG.demo.a", "rationale": _GOOD_RATIONALE}}
+        )
 
 
 def test_a_concept_cannot_be_both_retired_and_linked():
     with pytest.raises(LineageError, match="both retired and used in a parent link"):
         _lineage(
-            parents={"AU-KG.demo.a": {"parent": "AU-KG.demo.b", "rationale": _GOOD_RATIONALE}},
+            parents={
+                "AU-KG.demo.a": {"parent": "AU-KG.demo.b", "rationale": _GOOD_RATIONALE}
+            },
             retired={"AU-KG.demo.b": {"reason": "never named a decision"}},
         )
 
@@ -366,7 +403,9 @@ def test_a_retirement_needs_a_reason():
 
 def test_reintroducing_a_retired_id_is_detected():
     """Retirement is a ratchet, not a deletion: the id coming back must fail."""
-    lineage = _lineage(retired={"AU-KG.demo.gone": {"reason": "a slugified prose fragment"}})
+    lineage = _lineage(
+        retired={"AU-KG.demo.gone": {"reason": "a slugified prose fragment"}}
+    )
     assert reintroduced_retirements(frozenset({"AU-KG.demo.gone"}), lineage) == [
         ("AU-KG.demo.gone", "a slugified prose fragment")
     ]
@@ -520,7 +559,11 @@ def test_reintroducing_a_renamed_old_id_is_detected():
         }
     )
     assert reintroduced_renames(frozenset({"AU-KG.demo.old-name"}), lineage) == [
-        ("AU-KG.demo.old-name", "AU-KG.demo.new-name", "domain word retired from the closed vocab")
+        (
+            "AU-KG.demo.old-name",
+            "AU-KG.demo.new-name",
+            "domain word retired from the closed vocab",
+        )
     ]
     assert reintroduced_renames(frozenset({"AU-KG.demo.new-name"}), lineage) == []
 
@@ -543,9 +586,7 @@ def test_audit_merged_fails_when_a_renamed_old_id_has_a_live_marker_again(tmp_pa
         encoding="utf-8",
     )
     # The old marker is back in the tree, which the rename ratchet forbids.
-    _write_markers(
-        scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.old-name"]
-    )
+    _write_markers(scan_root, path="agent_utilities/x.py", ids=["AU-KG.demo.old-name"])
 
     rc = audit_merged(
         update=False,

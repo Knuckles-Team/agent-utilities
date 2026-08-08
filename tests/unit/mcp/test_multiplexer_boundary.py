@@ -109,7 +109,9 @@ def test_large_but_bounded_child_catalog_is_admitted() -> None:
         "properties": {f"field_{index}": {"type": "string"} for index in range(2048)},
     }
     tools = [
-        SimpleNamespace(name=f"tool_{index}", description="catalog tool", input_schema=schema)
+        SimpleNamespace(
+            name=f"tool_{index}", description="catalog tool", input_schema=schema
+        )
         for index in range(5)
     ]
 

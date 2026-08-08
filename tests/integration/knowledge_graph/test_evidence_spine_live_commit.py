@@ -63,7 +63,9 @@ INSTANCE = "runbooks-live"
 
 
 def _read(engine: Any, cypher: str, params: dict | None = None) -> list[dict]:
-    return engine.backend.execute_read(cypher, {"_clearance_level": 999, **(params or {})})
+    return engine.backend.execute_read(
+        cypher, {"_clearance_level": 999, **(params or {})}
+    )
 
 
 @pytest.fixture()

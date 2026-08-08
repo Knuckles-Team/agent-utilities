@@ -146,7 +146,9 @@ def test_network_mirror_resolves_env_transport_fields_before_construction(monkey
     assert captured["port"] == 6380
 
 
-def test_network_mirror_invalid_resolved_port_is_skipped_before_construction(monkeypatch):
+def test_network_mirror_invalid_resolved_port_is_skipped_before_construction(
+    monkeypatch,
+):
     """A malformed runtime port remains fail-closed and cannot reach a driver."""
     from agent_utilities.core.config import config as cfg
 

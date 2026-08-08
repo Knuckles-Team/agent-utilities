@@ -85,9 +85,7 @@ def test_sql_scope_surfaces_engine_error(monkeypatch):
         "_resolve_target_engines",
         lambda target: ([("kg", _Boom())], {}, False),
     )
-    out = graph_query(
-        cypher="DELETE FROM nodes", scope="sql", params="{}"
-    ).model_dump()
+    out = graph_query(cypher="DELETE FROM nodes", scope="sql", params="{}").model_dump()
     payload = out["reasoning_trace"][-1]["payload"]
     # The standardized, privacy-safe operation-failure envelope
     # (agent_utilities.security.error_surface) no longer echoes raw exception

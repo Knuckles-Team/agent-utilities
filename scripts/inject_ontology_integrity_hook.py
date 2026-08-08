@@ -56,7 +56,9 @@ def inject(filepath: Path, *, dry_run: bool = False) -> bool:
         newline_idx = content.find("\n", hooks_idx)
         if newline_idx == -1:
             return False
-        new_content = content[: newline_idx + 1] + HOOK_BLOCK + content[newline_idx + 1 :]
+        new_content = (
+            content[: newline_idx + 1] + HOOK_BLOCK + content[newline_idx + 1 :]
+        )
 
     if not dry_run:
         filepath.write_text(new_content, encoding="utf-8")
@@ -79,7 +81,9 @@ def main() -> int:
     skipped_already: list[str] = []
 
     for connector_dir in sorted(
-        d for d in args.agents_root.iterdir() if d.is_dir() and not d.name.startswith(".")
+        d
+        for d in args.agents_root.iterdir()
+        if d.is_dir() and not d.name.startswith(".")
     ):
         if not (connector_dir / "connector_manifest.yml").exists():
             skipped_no_manifest.append(connector_dir.name)
@@ -97,7 +101,9 @@ def main() -> int:
     print(f"injected: {len(injected)} -> {injected}")
     print(f"skipped (already present): {len(skipped_already)}")
     print(f"skipped (no connector_manifest.yml): {len(skipped_no_manifest)}")
-    print(f"skipped (no .pre-commit-config.yaml): {len(skipped_no_precommit)} -> {skipped_no_precommit}")
+    print(
+        f"skipped (no .pre-commit-config.yaml): {len(skipped_no_precommit)} -> {skipped_no_precommit}"
+    )
     return 0
 
 

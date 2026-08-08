@@ -141,9 +141,7 @@ def test_fragment_rowset_keys_each_row_by_its_primary_key() -> None:
     records = [f for f in fragments if f.kind == "record"]
     assert {r.label for r in records} == {"row-1", "row-2"}
     # Addresses are content-of-the-key-derived, not positional.
-    assert all(
-        r.fragment_id == fragment_id_for(ARTIFACT, r.path) for r in records
-    )
+    assert all(r.fragment_id == fragment_id_for(ARTIFACT, r.path) for r in records)
 
 
 def test_fragment_rowset_survives_a_resort() -> None:
@@ -158,9 +156,7 @@ def test_fragment_rowset_survives_a_resort() -> None:
 
 def test_fragment_rowset_supports_a_composite_key() -> None:
     rows = [{"tenant": "t1", "id": "1", "name": "a"}]
-    fragments = fragment_rowset(
-        rows, artifact_id=ARTIFACT, key_field=("tenant", "id")
-    )
+    fragments = fragment_rowset(rows, artifact_id=ARTIFACT, key_field=("tenant", "id"))
     record = next(f for f in fragments if f.kind == "record")
     assert record.label == "t1/1"
 

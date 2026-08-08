@@ -111,14 +111,14 @@ def test_generate_action_never_auto_applies(monkeypatch, tools):
     )
 
     def _boom():
-        raise AssertionError("action='generate' must never touch the live ontology system")
+        raise AssertionError(
+            "action='generate' must never touch the live ontology system"
+        )
 
     monkeypatch.setattr(
         "agent_utilities.mcp.kg_server._ontology_system", lambda: _boom()
     )
     ontology_derive = tools["ontology_derive"]
-    raw = ontology_derive(
-        action="generate", sample_text="text", object_type="document"
-    )
+    raw = ontology_derive(action="generate", sample_text="text", object_type="document")
     payload = json.loads(raw)
     assert "error" not in payload

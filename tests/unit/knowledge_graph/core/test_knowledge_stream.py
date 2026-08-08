@@ -313,9 +313,7 @@ def test_pull_record_batches_yields_bounded_batches_threading_the_cursor(monkeyp
             ],
             cols,
         ),
-        page1_payload: _FakeTable(
-            [_row("ref:c", "graph_row", 0.6, None)], cols
-        ),
+        page1_payload: _FakeTable([_row("ref:c", "graph_row", 0.6, None)], cols),
     }
     monkeypatch.setattr(
         knowledge_stream, "_pyarrow", lambda: _FakePyarrow(table_by_payload)
@@ -329,7 +327,12 @@ def test_pull_record_batches_yields_bounded_batches_threading_the_cursor(monkeyp
         "batch_index": 1,
         "exhausted": False,
     }
-    cursor_final = {**cursor_page1, "row_offset": 3, "batch_index": 2, "exhausted": True}
+    cursor_final = {
+        **cursor_page1,
+        "row_offset": 3,
+        "batch_index": 2,
+        "exhausted": True,
+    }
     knowledge = _FakeKnowledgeClient(
         pages=[
             {
@@ -434,7 +437,9 @@ def test_pull_record_batches_degrades_to_none(monkeypatch):
     # No .knowledge streaming surface -> None (e.g. an older engine build).
     monkeypatch.setattr(knowledge_stream, "_pyarrow", lambda: _FakePyarrow({}))
     assert (
-        knowledge_stream.pull_record_batches(_FakeCompute(knowledge=None), {"family": "graph"})
+        knowledge_stream.pull_record_batches(
+            _FakeCompute(knowledge=None), {"family": "graph"}
+        )
         is None
     )
 
@@ -461,7 +466,10 @@ def test_query_batches_builds_the_family_wire_query(monkeypatch):
 
     # Default family is cross_modal (UQL text — subsumes cypher-style MATCH queries).
     list(facade.query_batches("MATCH (n) |> LIMIT 1"))
-    assert captured["query"] == {"family": "cross_modal", "text": "MATCH (n) |> LIMIT 1"}
+    assert captured["query"] == {
+        "family": "cross_modal",
+        "text": "MATCH (n) |> LIMIT 1",
+    }
 
     # "cypher" and "uql" both route to the cross_modal UQL surface.
     for alias in ("cypher", "uql"):

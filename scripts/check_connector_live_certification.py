@@ -111,7 +111,9 @@ def main() -> int:
         if violations:
             failures[bundle.manifest.connector] = violations
     if failures:
-        print(f"connector live-certification gate failed for {len(failures)} provider(s)")
+        print(
+            f"connector live-certification gate failed for {len(failures)} provider(s)"
+        )
         for connector, violations in sorted(failures.items()):
             print(f"- {connector}: {len(violations)} violation(s)")
         return 1

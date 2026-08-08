@@ -37,7 +37,8 @@ class TestMemoryRetrieverNodeSynergies:
         schema = MemoryRetrieverNode.model_json_schema()
         assert "model_synergies" in schema["properties"]
         assert (
-            "CONCEPT:AU-AHE.evaluation.interpretability-tests" in schema["properties"]["model_synergies"]["description"]
+            "CONCEPT:AU-AHE.evaluation.interpretability-tests"
+            in schema["properties"]["model_synergies"]["description"]
         )
 
     def test_synergy_key_format(self):

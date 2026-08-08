@@ -79,7 +79,12 @@ def _session() -> GraphSession:
     # rejects any other value ("request context audience/tenant does not
     # match deployment/graph tenant"), regardless of the caller's scopes
     # being otherwise valid.
-    from _test_engine import TEST_AGENT_ID, TEST_AUDIENCE, TEST_POLICY_VERSION, TEST_TENANT
+    from _test_engine import (
+        TEST_AGENT_ID,
+        TEST_AUDIENCE,
+        TEST_POLICY_VERSION,
+        TEST_TENANT,
+    )
 
     actor = ActorContext(
         actor_id=TEST_AGENT_ID,

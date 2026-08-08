@@ -892,7 +892,15 @@ def uv_plan(
             command = [*base, "run", "--locked", *prerelease, "--package", PROJECT_NAME]
         command.extend(tail)
     elif subcommand == "sync":
-        command = [*base, "sync", "--locked", *prerelease, "--package", PROJECT_NAME, *tail]
+        command = [
+            *base,
+            "sync",
+            "--locked",
+            *prerelease,
+            "--package",
+            PROJECT_NAME,
+            *tail,
+        ]
     elif subcommand == "lock":
         command = [*base, "lock", "--locked", *prerelease, *tail]
     else:
@@ -1204,7 +1212,9 @@ def main(argv: list[str] | None = None) -> int:
         shadow = shadow_workspace(worktree, canonical, workspace)
 
     if namespace.uv_arguments == ["doctor"]:
-        payload = doctor_payload(worktree, canonical, workspace, shadow, own_lock=own_lock)
+        payload = doctor_payload(
+            worktree, canonical, workspace, shadow, own_lock=own_lock
+        )
         print(json.dumps(payload, indent=2, sort_keys=True))
         required_keys = (
             ("member_resolves_to_worktree", "siblings_materialized")

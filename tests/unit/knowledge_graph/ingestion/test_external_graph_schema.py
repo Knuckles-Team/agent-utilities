@@ -669,8 +669,7 @@ def test_graphql_probe_rejects_writes_and_unbounded_operations() -> None:
         adapter.discover(
             disabled,
             probe_document=(
-                "query Probe($limit: Int!) { "
-                "assets(offset: $limit) { id } }"
+                "query Probe($limit: Int!) { assets(offset: $limit) { id } }"
             ),
         )
     with pytest.raises(ExternalGraphSchemaError, match="must bind"):

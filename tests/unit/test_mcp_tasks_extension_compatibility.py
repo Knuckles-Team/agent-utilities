@@ -102,9 +102,7 @@ def test_tasks_extension_degrades_gracefully_when_fastmcp_server_extensions_is_a
     sys.modules.pop("agent_utilities.mcp.server_factory", None)
 
     try:
-        with caplog.at_level(
-            "WARNING", logger="agent_utilities.mcp.tasks_extension"
-        ):
+        with caplog.at_level("WARNING", logger="agent_utilities.mcp.tasks_extension"):
             te = importlib.import_module("agent_utilities.mcp.tasks_extension")
 
         # (1) degraded, not crashed.
@@ -242,7 +240,9 @@ async def test_completed_task_surfaces_the_real_run_trace_output_not_the_opaque_
     D-25-4's fix in ``agent_dispatch_worker.py``)."""
     import agent_utilities.mcp.kg_server as kg
     from agent_utilities.mcp.tasks_extension import WorkItemTasksExtension
-    from agent_utilities.observability.trace_ontology import trace_id as canonical_trace_id
+    from agent_utilities.observability.trace_ontology import (
+        trace_id as canonical_trace_id,
+    )
     from agent_utilities.orchestration.work_item import orchestrator_work_item_id
 
     job_id = "job:mcp-task-result"

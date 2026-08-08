@@ -35,9 +35,7 @@ def test_gate_rejects_intent_matrix_and_exact_artifact_drift() -> None:
         '    parser.add_argument("--engine-sha256", required=True)\n', "", 1
     )
 
-    violations = gate.check_contract(
-        harness, documentation, navigation, workflow, a2a
-    )
+    violations = gate.check_contract(harness, documentation, navigation, workflow, a2a)
 
     assert "intent_surface_drift" in violations
     assert "exact_artifact_arguments_drift" in violations
@@ -50,9 +48,7 @@ def test_gate_rejects_runtime_skips_and_incomplete_release_documentation() -> No
         "There is no artifact discovery or fallback path.", ""
     )
 
-    violations = gate.check_contract(
-        harness, documentation, navigation, workflow, a2a
-    )
+    violations = gate.check_contract(harness, documentation, navigation, workflow, a2a)
 
     assert "runtime_skip_path_present" in violations
     assert "documentation_contract_incomplete" in violations
@@ -64,9 +60,7 @@ def test_gate_rejects_environment_specific_literals_and_missing_navigation() -> 
     navigation = navigation.replace(gate.NAV_ENTRY, "")
     workflow = workflow.replace(gate.CI_ENTRY, "")
 
-    violations = gate.check_contract(
-        harness, documentation, navigation, workflow, a2a
-    )
+    violations = gate.check_contract(harness, documentation, navigation, workflow, a2a)
 
     assert "environment_specific_literal_present" in violations
     assert "documentation_navigation_invalid" in violations
@@ -78,9 +72,7 @@ def test_gate_rejects_missing_optimizer_and_separate_process_controls() -> None:
     harness = harness.replace("_expect_resource_limit(client, graph, invalid)", "pass")
     a2a = a2a.replace("first_process.kill()", "first_process.join()")
 
-    violations = gate.check_contract(
-        harness, documentation, navigation, workflow, a2a
-    )
+    violations = gate.check_contract(harness, documentation, navigation, workflow, a2a)
 
     assert "optimizer_behavior_control_missing" in violations
     assert "a2a_separate_process_crash_control_missing" in violations
@@ -94,9 +86,7 @@ def test_gate_rejects_avatar_artifact_and_plan_evidence_drift() -> None:
         1,
     )
 
-    violations = gate.check_contract(
-        harness, documentation, navigation, workflow, a2a
-    )
+    violations = gate.check_contract(harness, documentation, navigation, workflow, a2a)
 
     assert "optimizer_avatar_evidence_drift" in violations
 
@@ -107,9 +97,7 @@ def test_gate_rejects_work_item_bus_and_permission_case_drift() -> None:
         '    "test_injected_context_must_verify",\n', "", 1
     )
 
-    violations = gate.check_contract(
-        harness, documentation, navigation, workflow, a2a
-    )
+    violations = gate.check_contract(harness, documentation, navigation, workflow, a2a)
 
     assert "g08_runtime_case_matrix_drift" in violations
     assert "g35_permission_cases_incomplete" in violations
@@ -126,9 +114,7 @@ def test_gate_rejects_missing_runtime_worker_and_documentation_controls() -> Non
         "eight-case permission-governance campaign", "permission campaign"
     )
 
-    violations = gate.check_contract(
-        harness, documentation, navigation, workflow, a2a
-    )
+    violations = gate.check_contract(harness, documentation, navigation, workflow, a2a)
 
     assert "work_item_bus_behavior_control_missing" in violations
     assert "documentation_contract_incomplete" in violations
@@ -144,8 +130,6 @@ def test_gate_rejects_work_item_read_before_graph_bootstrap() -> None:
         1,
     )
 
-    violations = gate.check_contract(
-        harness, documentation, navigation, workflow, a2a
-    )
+    violations = gate.check_contract(harness, documentation, navigation, workflow, a2a)
 
     assert "work_item_graph_bootstrap_order_invalid" in violations

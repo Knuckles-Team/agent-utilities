@@ -134,9 +134,7 @@ def test_intelligence_shortest_path(mock_graph):
     mock_graph.add_node(
         "T2", node_type=RegistryNodeType.TOOL, name="T2", mcp_server="TestBot"
     )
-    mock_graph.add_edge(
-        "tool:search", "T2", relationship=RegistryEdgeType.DEPENDS_ON
-    )
+    mock_graph.add_edge("tool:search", "T2", relationship=RegistryEdgeType.DEPENDS_ON)
 
     engine = _bind_isolated_engine(mock_graph)
     path = engine.find_path("TestBot", "T2")

@@ -34,7 +34,10 @@ class MockEngine:
         self.upserted_edges.append(edge)
 
 
-@pytest.mark.concept("AU-KG.compute.spectral-cluster-navigator", "CONCEPT:AU-KG.compute.spectral-cluster-navigator")
+@pytest.mark.concept(
+    "AU-KG.compute.spectral-cluster-navigator",
+    "CONCEPT:AU-KG.compute.spectral-cluster-navigator",
+)
 def test_detect_communities():
     """Test Louvain community detection.
 
@@ -63,7 +66,10 @@ def test_detect_communities():
         assert c2 == {1, 2, 3}
 
 
-@pytest.mark.concept("AU-KG.compute.spectral-cluster-navigator", "CONCEPT:AU-KG.compute.spectral-cluster-navigator")
+@pytest.mark.concept(
+    "AU-KG.compute.spectral-cluster-navigator",
+    "CONCEPT:AU-KG.compute.spectral-cluster-navigator",
+)
 def test_persist_stable_communities():
     """Test community persistence to Cypher backend.
 
@@ -86,7 +92,9 @@ def test_persist_stable_communities():
     assert len(engine.upserted_edges) == 6  # 3 members per community = 6 edges
 
 
-@pytest.mark.concept("AU-AHE.harness.evolution-checkpoint", "CONCEPT:AU-AHE.evaluation.backtest-harness")
+@pytest.mark.concept(
+    "AU-AHE.harness.evolution-checkpoint", "CONCEPT:AU-AHE.evaluation.backtest-harness"
+)
 def test_drift_tracker():
     """Test temporal knowledge drift measurement.
 
@@ -103,7 +111,9 @@ def test_drift_tracker():
     assert report.coefficient_of_variation > 0.0
 
 
-@pytest.mark.concept("AU-AHE.harness.evolution-checkpoint", "CONCEPT:AU-AHE.evaluation.backtest-harness")
+@pytest.mark.concept(
+    "AU-AHE.harness.evolution-checkpoint", "CONCEPT:AU-AHE.evaluation.backtest-harness"
+)
 def test_ewc_synthesis():
     """Test Fisher-proxy Elastic Weight Consolidation.
 

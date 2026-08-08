@@ -305,9 +305,14 @@ def test_atomic_embedding_node_property_mirror_writes_vector_once(
 
         def verify_node_embedding(self, node_id, embedding):
             del node_id
-            return sum(
-                1 for params in self.execute_params if params.get("embedding") == embedding
-            ) == 1
+            return (
+                sum(
+                    1
+                    for params in self.execute_params
+                    if params.get("embedding") == embedding
+                )
+                == 1
+            )
 
     authority = StatefulBackend("authority")
     mirror = _NodePropertyMirror("node-property-mirror")
@@ -327,11 +332,14 @@ def test_atomic_embedding_node_property_mirror_writes_vector_once(
 
         assert fan.flush_mirrors(timeout=2.0)
         assert ("add_embedding", "node-1") not in mirror.writes
-        assert sum(
-            1
-            for params in mirror.execute_params
-            if params.get("embedding") == [1.0, 2.0]
-        ) == 1
+        assert (
+            sum(
+                1
+                for params in mirror.execute_params
+                if params.get("embedding") == [1.0, 2.0]
+            )
+            == 1
+        )
     finally:
         fan.close()
 
@@ -380,9 +388,7 @@ def test_direct_embedding_replay_skips_graph_only_mirror(tmp_path, monkeypatch):
         fan.close()
 
 
-def test_direct_embedding_replay_requires_durable_verification(
-    tmp_path, monkeypatch
-):
+def test_direct_embedding_replay_requires_durable_verification(tmp_path, monkeypatch):
     """A vector mirror retains lag until read-after-write verification succeeds."""
 
     class _DurableVectorMirror(RecordingBackend):
@@ -396,10 +402,14 @@ def test_direct_embedding_replay_requires_durable_verification(
         def verify_node_embedding(self, node_id, embedding):
             del embedding
             self.verification_calls += 1
-            return self.verification_enabled and (
-                "add_embedding",
-                node_id,
-            ) in self.writes
+            return (
+                self.verification_enabled
+                and (
+                    "add_embedding",
+                    node_id,
+                )
+                in self.writes
+            )
 
     authority = RecordingBackend("authority")
     mirror = _DurableVectorMirror("durable-vector")

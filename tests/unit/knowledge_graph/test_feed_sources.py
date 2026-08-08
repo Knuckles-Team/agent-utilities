@@ -34,7 +34,9 @@ class _Engine:
 
     def __init__(self):
         graph_name = f"test_feed_sources_{uuid.uuid4().hex[:12]}"
-        self._session_cm = use_session(GraphSession.from_ambient().with_graph(graph_name))
+        self._session_cm = use_session(
+            GraphSession.from_ambient().with_graph(graph_name)
+        )
         self._session_cm.__enter__()
         self.backend = EpistemicGraphBackend(graph_name=graph_name)
 

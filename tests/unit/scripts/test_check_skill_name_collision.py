@@ -18,7 +18,15 @@ def _module():
 
 
 def _skill(root: Path, package: str, name: str) -> Path:
-    path = root / "agents" / package / package.replace("-", "_") / "skills" / name / "SKILL.md"
+    path = (
+        root
+        / "agents"
+        / package
+        / package.replace("-", "_")
+        / "skills"
+        / name
+        / "SKILL.md"
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"---\nname: {name}\n---\n", encoding="utf-8")
     return path

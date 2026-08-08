@@ -51,7 +51,9 @@ def test_image_generator_raw_bytes_response():
     def http(method, url, **kw):
         return _Resp(content=b"RAWPNG", headers={"content-type": "image/png"})
 
-    img = ImageGenerator(http_fn=http, base_url="http://media-test.local").generate("a dog")
+    img = ImageGenerator(http_fn=http, base_url="http://media-test.local").generate(
+        "a dog"
+    )
     assert img == b"RAWPNG"
 
 
@@ -73,9 +75,9 @@ def test_speech_synthesizer_resolves_studio_speaker():
             )
         return _Resp(j=base64.b64encode(b"WAVDATA").decode())
 
-    wav = SpeechSynthesizer(http_fn=http, base_url="http://media-test.local").synthesize(
-        "hello"
-    )
+    wav = SpeechSynthesizer(
+        http_fn=http, base_url="http://media-test.local"
+    ).synthesize("hello")
     assert wav == b"WAVDATA"
     assert "studio_speakers" in seen and "tts" in seen
 
@@ -113,7 +115,9 @@ def test_transcriber_openai_compatible():
         return _Resp(j={"text": "hello there"})
 
     assert (
-        Transcriber(http_fn=http, base_url="http://media-test.local").transcribe(b"AUDIO")
+        Transcriber(http_fn=http, base_url="http://media-test.local").transcribe(
+            b"AUDIO"
+        )
         == "hello there"
     )
 
@@ -180,9 +184,9 @@ def test_comfyui_client_workflow_image():
             return _Resp(content=b"PNGBYTES")
         return _Resp(j={})
 
-    img = ComfyUIClient(http_fn=http, base_url="http://media-test.local").generate_image(
-        "a cat", checkpoint="sd3.5_medium"
-    )
+    img = ComfyUIClient(
+        http_fn=http, base_url="http://media-test.local"
+    ).generate_image("a cat", checkpoint="sd3.5_medium")
     assert img == b"PNGBYTES"
 
 
@@ -214,9 +218,9 @@ def test_comfyui_backed_image_via_named_backend():
         return _Resp(content=b"IMG")
 
     # Drive the workflow client directly with the SD3.5 checkpoint preset.
-    out = ComfyUIClient(http_fn=http, base_url="http://media-test.local").generate_image(
-        "sunset", checkpoint="sd3.5_medium", steps=28
-    )
+    out = ComfyUIClient(
+        http_fn=http, base_url="http://media-test.local"
+    ).generate_image("sunset", checkpoint="sd3.5_medium", steps=28)
     assert out == b"IMG"
 
 

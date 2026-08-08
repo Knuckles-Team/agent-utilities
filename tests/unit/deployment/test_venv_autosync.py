@@ -72,7 +72,10 @@ def workspace(tmp_path: Path) -> Workspace:
     member = root / "pkgs" / "alpha"
     _write(member / "pyproject.toml", '[project]\nname = "alpha"\nversion = "1.0.0"\n')
     _write(member / "alpha.py", "VALUE = 1\n")
-    _write(root / "uv.lock", 'version = 1\n\n[[package]]\nname = "alpha"\nversion = "1.0.0"\n')
+    _write(
+        root / "uv.lock",
+        'version = 1\n\n[[package]]\nname = "alpha"\nversion = "1.0.0"\n',
+    )
 
     site = root / ".venv" / "lib" / "python3.13" / "site-packages"
     dist = site / "alpha-1.0.0.dist-info"
@@ -146,7 +149,10 @@ def test_metadata_merge_queues_an_intent(
     _enable(workspace)
     monkeypatch.setattr(venv_autosync, "_spawn_reconciler", lambda ws: None)
     member = workspace.root / "pkgs" / "alpha"
-    _write(member / "pyproject.toml", '[project]\nname = "alpha"\nversion = "1.0.0"\ndependencies = ["anyio"]\n')
+    _write(
+        member / "pyproject.toml",
+        '[project]\nname = "alpha"\nversion = "1.0.0"\ndependencies = ["anyio"]\n',
+    )
     _git(member, "add", "-A")
     _git(member, "commit", "-q", "-m", "dependency change")
     _git(member, "update-ref", "ORIG_HEAD", "HEAD~1")

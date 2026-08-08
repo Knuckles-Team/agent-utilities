@@ -128,7 +128,10 @@ def test_scope_cypher_query_conventional_n_variable_unchanged():
     scoped, extra_params = tm.scope_cypher_query(
         "MATCH (n:Entity) RETURN n", tenant_id="tenant-a"
     )
-    assert scoped == "MATCH (n:Entity) WHERE (n.tenant_id = $_tenant_scope_id OR n.tenant_id IS NULL OR n.tenant_id = '') RETURN n"
+    assert (
+        scoped
+        == "MATCH (n:Entity) WHERE (n.tenant_id = $_tenant_scope_id OR n.tenant_id IS NULL OR n.tenant_id = '') RETURN n"
+    )
     assert extra_params == {"_tenant_scope_id": "tenant-a"}
 
 
@@ -188,8 +191,7 @@ def test_scope_cypher_query_closes_the_or_bypass_for_find_relevant_policies():
     # row matching the description clause alone bypass tenant scoping.
     assert (
         "(p.tenant_id = $_tenant_scope_id OR p.tenant_id IS NULL OR p.tenant_id = '') "
-        "AND (p.name CONTAINS $q OR p.description CONTAINS $q)"
-        in scoped
+        "AND (p.name CONTAINS $q OR p.description CONTAINS $q)" in scoped
     )
     assert extra_params == {"_tenant_scope_id": "tenant-a"}
 

@@ -91,7 +91,9 @@ def test_graph_ontology_registered(registered):
 
 
 async def test_load_then_get_serialize_round_trips_turtle(registered):
-    load_payload = await _graph_ontology(action="load", source=PETS_TTL, source_type="text")
+    load_payload = await _graph_ontology(
+        action="load", source=PETS_TTL, source_type="text"
+    )
     assert load_payload["status"] == "ok"
     iri = load_payload["ontology"]["iri"]
     assert iri == "http://example.org/pets"
@@ -167,7 +169,9 @@ async def test_list_action_filters_by_category_tag_and_search(registered):
     assert by_search["count"] == 1
 
     by_explicit_source_type = await _graph_ontology(action="list", source_type="text")
-    assert by_explicit_source_type["count"] == 2  # both were loaded as source_type='text'
+    assert (
+        by_explicit_source_type["count"] == 2
+    )  # both were loaded as source_type='text'
 
     no_match = await _graph_ontology(action="list", category="no-such-category")
     assert no_match["count"] == 0
@@ -183,7 +187,9 @@ async def test_deprecate_action_flips_the_flag_and_is_filterable(registered):
     pets = await _graph_ontology(action="get", iri="http://example.org/pets")
     assert pets["ontology"]["deprecated"] is False
 
-    deprecated = await _graph_ontology(action="deprecate", iri="http://example.org/pets")
+    deprecated = await _graph_ontology(
+        action="deprecate", iri="http://example.org/pets"
+    )
     assert deprecated["status"] == "ok"
     assert deprecated["ontology"]["deprecated"] is True
 
@@ -191,7 +197,9 @@ async def test_deprecate_action_flips_the_flag_and_is_filterable(registered):
     assert only_deprecated["count"] == 1
     assert only_deprecated["ontologies"][0]["iri"] == "http://example.org/pets"
 
-    undeprecated = await _graph_ontology(action="undeprecate", iri="http://example.org/pets")
+    undeprecated = await _graph_ontology(
+        action="undeprecate", iri="http://example.org/pets"
+    )
     assert undeprecated["ontology"]["deprecated"] is False
     assert (await _graph_ontology(action="list", deprecated_only=True))["count"] == 0
 
@@ -200,11 +208,15 @@ async def test_deprecate_is_purely_advisory_and_never_touches_active(registered)
     """A deprecated version can stay active (e.g. mid-migration window) — the
     two flags are independent axes, never coupled."""
     await _graph_ontology(action="load", source=PETS_TTL, source_type="text")
-    deprecated = await _graph_ontology(action="deprecate", iri="http://example.org/pets")
+    deprecated = await _graph_ontology(
+        action="deprecate", iri="http://example.org/pets"
+    )
     assert deprecated["ontology"]["active"] is True
     assert deprecated["ontology"]["deprecated"] is True
 
 
 async def test_deprecate_unknown_ontology_reports_error(registered):
-    payload = await _graph_ontology(action="deprecate", iri="http://example.org/no-such")
+    payload = await _graph_ontology(
+        action="deprecate", iri="http://example.org/no-such"
+    )
     assert "error" in payload

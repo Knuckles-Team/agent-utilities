@@ -460,7 +460,8 @@ class TestKBIngestionEngine:
             else [
                 n
                 for n in kb_engine.graph.predecessors(kb_id)
-                if kb_engine.graph.nodes[n].get("node_type") == RegistryNodeType.RAW_SOURCE
+                if kb_engine.graph.nodes[n].get("node_type")
+                == RegistryNodeType.RAW_SOURCE
             ]
         )
         assert len(raw_sources) >= 1
@@ -557,6 +558,7 @@ class TestKBIngestionEngine:
         report = await kb_engine.run_health_check(kb_id)
         assert isinstance(report, KBHealthReport)
         assert report.kb_id == kb_id
+
 
 # ---------------------------------------------------------------------------
 # Pipeline Phase 13 Tests

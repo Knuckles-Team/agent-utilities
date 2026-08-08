@@ -102,16 +102,24 @@ class TestFunctionRegistryMixin:
         assert data["input_schema"]["type"] == "object"
 
     def test_deregister_function(self, mock_engine):
-        mock_engine.graph.add_node("fn:rm1", node_type="callable_resource", name="to_remove")
+        mock_engine.graph.add_node(
+            "fn:rm1", node_type="callable_resource", name="to_remove"
+        )
         mock_engine.graph.remove_node("fn:rm1")
         assert "fn:rm1" not in mock_engine.graph
 
     def test_discover_functions_by_type(self, mock_engine):
         mock_engine.graph.add_node(
-            "fn:a", node_type="callable_resource", resource_type="MCP_TOOL", name="alpha"
+            "fn:a",
+            node_type="callable_resource",
+            resource_type="MCP_TOOL",
+            name="alpha",
         )
         mock_engine.graph.add_node(
-            "fn:b", node_type="callable_resource", resource_type="A2A_AGENT", name="beta"
+            "fn:b",
+            node_type="callable_resource",
+            resource_type="A2A_AGENT",
+            name="beta",
         )
 
         # Filter MCP_TOOL only

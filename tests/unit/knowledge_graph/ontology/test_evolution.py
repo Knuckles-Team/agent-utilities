@@ -120,7 +120,10 @@ def test_bundled_standard_vocabulary_is_nonempty_and_carries_known_standard_term
 
 def test_compare_against_standards_flags_a_colliding_class_name():
     candidate = {
-        "classes": ["http://example.org/pets#CreativeWork", "http://example.org/pets#Dog"],
+        "classes": [
+            "http://example.org/pets#CreativeWork",
+            "http://example.org/pets#Dog",
+        ],
         "properties": [],
     }
     flags = evolution.compare_against_standards(candidate)
@@ -309,7 +312,10 @@ def test_reject_discards_the_shadow_graph():
     idle-sweep eventually reclaims it."""
     with patch(
         "agent_utilities.knowledge_graph.ontology.evolution.materialize_shadow",
-        return_value=("ontology:tenant__shadow__proposal-1", {"loaded_to_engine": True}),
+        return_value=(
+            "ontology:tenant__shadow__proposal-1",
+            {"loaded_to_engine": True},
+        ),
     ):
         result = evolution.propose_ontology_change(
             None, None, PETS_TTL, iri="http://example.org/pets", source_type="text"
@@ -335,7 +341,10 @@ def test_approve_does_not_discard_the_shadow_graph():
     promote_ontology_proposal) tears it down."""
     with patch(
         "agent_utilities.knowledge_graph.ontology.evolution.materialize_shadow",
-        return_value=("ontology:tenant__shadow__proposal-2", {"loaded_to_engine": True}),
+        return_value=(
+            "ontology:tenant__shadow__proposal-2",
+            {"loaded_to_engine": True},
+        ),
     ):
         result = evolution.propose_ontology_change(
             None, None, PETS_TTL, iri="http://example.org/pets", source_type="text"

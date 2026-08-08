@@ -253,9 +253,10 @@ def validate_evidence(value: dict[str, Any], *, require_signature: bool) -> None
         recovery_seconds = _finite_nonnegative(
             scenario.get("recoverySeconds"), "scenario.recoverySeconds"
         )
-        if recovery_seconds > float(policy["targets"]["rtoSeconds"]) and scenario.get(
-            "result"
-        ) == "pass":
+        if (
+            recovery_seconds > float(policy["targets"]["rtoSeconds"])
+            and scenario.get("result") == "pass"
+        ):
             raise EvidenceError("passing scenario exceeded the canonical RTO")
         invariants = scenario.get("invariants")
         if (
@@ -364,7 +365,9 @@ def _invoke(command: list[str], payload: bytes) -> dict[str, Any]:
     try:
         result = run_bounded(command, payload=payload, timeout=120)
     except AdapterBoundaryError as exc:
-        raise EvidenceError("external evidence operation violated its boundary") from exc
+        raise EvidenceError(
+            "external evidence operation violated its boundary"
+        ) from exc
     if result.returncode != 0:
         raise EvidenceError(
             f"external evidence operation failed; output_digest="

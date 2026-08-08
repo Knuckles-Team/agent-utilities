@@ -202,9 +202,7 @@ def test_claim_churn_fencing_epoch_strictly_increases_and_completes_exactly_once
         engine, item_id, final_claim, outcome="succeeded", result_ref="ok", now=now + 1
     )
     assert outcome == "committed"
-    assert (
-        wi.get_work_item(engine, item_id)["status"] == "succeeded"
-    )
+    assert wi.get_work_item(engine, item_id)["status"] == "succeeded"
 
     # Every stale claim from every earlier crashed cycle — including the very
     # first one — must be rejected forever, never resurrecting/overwriting
@@ -305,9 +303,7 @@ def test_heartbeating_worker_survives_reap_then_reclaimed_once_it_stops(loadgen)
     assert racer_mid is None, (
         "a competing claim reclaimed a heartbeat-extended lease before its new deadline"
     )
-    assert (
-        wi.get_work_item(engine, item_id)["status"] in ("leased", "running")
-    )
+    assert wi.get_work_item(engine, item_id)["status"] in ("leased", "running")
     assert wi.get_work_item(engine, item_id)["lease_epoch"] == 1  # unchanged
 
     # Heartbeat again at t=16, extending to 16+10=26.
@@ -316,7 +312,9 @@ def test_heartbeating_worker_survives_reap_then_reclaimed_once_it_stops(loadgen)
     # Now the worker actually crashes (no more heartbeats). A competing claim
     # at t=20 is still before the t=26 extended deadline — must still be
     # rejected.
-    racer_still_alive = wi.claim_specific(engine, item_id, token="racer-alive", now=20.0)
+    racer_still_alive = wi.claim_specific(
+        engine, item_id, token="racer-alive", now=20.0
+    )
     assert racer_still_alive is None
 
     # Only once t=26 has truly passed does a claim attempt reclaim it —

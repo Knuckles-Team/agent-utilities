@@ -143,9 +143,7 @@ def test_default_retriever_binds_facade_engine_not_bare_graph_compute(monkeypatc
     # schema_pack=...) before this test's monkeypatched _RecordingRetriever
     # (whose __init__ takes no schema_pack) ever got a chance to bind to
     # `active`.
-    monkeypatch.setattr(
-        engine_mod.IntelligenceGraphEngine, "_ACTIVE_ENGINE", active
-    )
+    monkeypatch.setattr(engine_mod.IntelligenceGraphEngine, "_ACTIVE_ENGINE", active)
 
     seen: dict = {}
 

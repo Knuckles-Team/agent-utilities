@@ -87,7 +87,9 @@ async def test_timed_out_compile_runs_on_a_daemon_thread(monkeypatch, messages):
         release.wait(timeout=5.0)
         return _messages, None
 
-    monkeypatch.setattr(contextual_model, "_compiled_evidence_and_bundle", _slow_blocking)
+    monkeypatch.setattr(
+        contextual_model, "_compiled_evidence_and_bundle", _slow_blocking
+    )
 
     with pytest.raises(GroundingUnavailableError, match="timeout"):
         await _compiled_evidence_and_bundle_bounded(messages, "m")
@@ -125,7 +127,9 @@ async def test_inflight_compile_count_tracks_and_clears_the_straggler(
         release.wait(timeout=5.0)
         return _messages, None
 
-    monkeypatch.setattr(contextual_model, "_compiled_evidence_and_bundle", _slow_blocking)
+    monkeypatch.setattr(
+        contextual_model, "_compiled_evidence_and_bundle", _slow_blocking
+    )
 
     assert inflight_compile_count() == 0
     with pytest.raises(GroundingUnavailableError, match="timeout"):
@@ -159,7 +163,9 @@ async def test_drain_inflight_compiles_never_blocks_past_its_own_timeout(
         release.wait(timeout=5.0)
         return _messages, None
 
-    monkeypatch.setattr(contextual_model, "_compiled_evidence_and_bundle", _slow_blocking)
+    monkeypatch.setattr(
+        contextual_model, "_compiled_evidence_and_bundle", _slow_blocking
+    )
 
     with pytest.raises(GroundingUnavailableError, match="timeout"):
         await _compiled_evidence_and_bundle_bounded(messages, "m")

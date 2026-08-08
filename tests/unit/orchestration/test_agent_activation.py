@@ -160,7 +160,9 @@ def test_register_creates_dormant_instance(engine: ActivationEngine) -> None:
 
 
 def test_list_and_terminate(engine: ActivationEngine) -> None:
-    a = aa.register_agent_instance(engine, agent_name="a", tenant="t", subscriptions=["e1"])
+    a = aa.register_agent_instance(
+        engine, agent_name="a", tenant="t", subscriptions=["e1"]
+    )
     aa.register_agent_instance(engine, agent_name="b", tenant="t", subscriptions=["e2"])
     assert {i["id"] for i in aa.list_agent_instances(engine, tenant="t")} == {
         a,
@@ -230,7 +232,9 @@ def test_interactive_activation_is_claimed_before_ingest(
     )
     # claim_next orders by prio_bucket asc → the interactive activation wins despite
     # being submitted later (the backpressure/preemption the QoS lane encodes).
-    claim = wi.claim_next(engine, resource_class=aa.WORK_ITEM_KIND, queue=aa.WORK_ITEM_KIND)
+    claim = wi.claim_next(
+        engine, resource_class=aa.WORK_ITEM_KIND, queue=aa.WORK_ITEM_KIND
+    )
     assert claim is not None
     assert claim["work_item_id"] == hot_wid
 
@@ -286,7 +290,9 @@ def test_e2e_message_to_activation_to_provenance_to_release(
 
     # 3) a stateless worker drains exactly one activation.
     stop = threading.Event()
-    processed = aa.run_activation_worker_loop(engine, stop, tenants=["tenant-a"], max_activations=1)
+    processed = aa.run_activation_worker_loop(
+        engine, stop, tenants=["tenant-a"], max_activations=1
+    )
     assert processed == 1
 
     # 4) the tool call ran under the identity chain + interactive QoS scope. The
@@ -312,7 +318,10 @@ def test_e2e_message_to_activation_to_provenance_to_release(
     item = wi.get_work_item(engine, wid)
     assert item["status"] == "succeeded"
     assert item["lease_owner"] is None  # lease released on commit
-    assert aa.get_agent_instance(engine, instance_id)["lifecycle_state"] == aa.STATE_DORMANT
+    assert (
+        aa.get_agent_instance(engine, instance_id)["lifecycle_state"]
+        == aa.STATE_DORMANT
+    )
     # The mailbox was drained (depth back to 0, message consumed).
     assert aa.get_agent_instance(engine, instance_id)["mailbox_depth"] == 0
     assert aa._mailbox_messages(engine, instance_id) == []
@@ -332,7 +341,10 @@ def test_default_executor_acknowledges_mailbox_and_writes_provenance(
     tool_calls = engine.by_label(aa._TOOLCALL_LABEL)
     acked = sorted(c["args_ref"] for c in tool_calls)
     assert acked == ["m1", "m2"]
-    assert aa.get_agent_instance(engine, instance_id)["lifecycle_state"] == aa.STATE_DORMANT
+    assert (
+        aa.get_agent_instance(engine, instance_id)["lifecycle_state"]
+        == aa.STATE_DORMANT
+    )
 
 
 # ── heartbeats-only-while-active + dead-worker lease expiry re-queues (ADR-6 §3) ─────
@@ -343,7 +355,9 @@ def test_dead_worker_lease_expiry_requeues_activation(engine: ActivationEngine) 
     wid = aa.deliver_activation(engine, instance_id, message_ref="m", source="direct")
 
     # A worker claims but then "dies" (never commits): the lease is short.
-    dead = wi.claim_specific(engine, wid, token="dead-worker", now=100.0, lease_ttl_s=5.0)
+    dead = wi.claim_specific(
+        engine, wid, token="dead-worker", now=100.0, lease_ttl_s=5.0
+    )
     assert dead is not None
     item = wi.get_work_item(engine, wid)
     assert item["status"] == "leased"
@@ -414,7 +428,9 @@ def test_delegation_off_runs_legacy_identity_no_chain(
 ) -> None:
     # With delegation OFF, no chain is built; provenance records an empty chain but the
     # activation still runs + commits (legacy identity).
-    monkeypatch.setattr(_delegation, "delegation_mode", lambda: _delegation.DelegationMode.OFF)
+    monkeypatch.setattr(
+        _delegation, "delegation_mode", lambda: _delegation.DelegationMode.OFF
+    )
     instance_id = aa.register_agent_instance(
         engine, agent_name="legacy", tenant="t", origin_principal="user:bob"
     )

@@ -24,9 +24,7 @@ def _aggregate(values: dict[str, str]) -> str:
 
 
 def _source_freeze_evidence(path: Path, producer_root: Path) -> Path:
-    manifest_payload = (
-        ROOT / "deploy/release/source-freeze-gates.json"
-    ).read_bytes()
+    manifest_payload = (ROOT / "deploy/release/source-freeze-gates.json").read_bytes()
     manifest = json.loads(manifest_payload)
     repository_ids = [item["id"] for item in manifest["repositories"]]
     repository_digests = {

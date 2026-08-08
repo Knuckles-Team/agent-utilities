@@ -917,9 +917,7 @@ async def test_extract_with_semaphore() -> None:
     server.__aexit__.return_value = None
 
     sem = _aio.Semaphore(1)
-    tools = await mgr._extract_single_server_metadata(
-        server, timeout=5, semaphore=sem
-    )
+    tools = await mgr._extract_single_server_metadata(server, timeout=5, semaphore=sem)
     assert len(tools) == 1
 
 

@@ -47,7 +47,9 @@ def test_work_item_consent_defaults_are_not_required_absent_fields() -> None:
     """D-25-3 migration: a pre-existing/ordinary WorkItem (no consent kwargs
     at all) deserializes as consent_required=False — 'not applicable', neither
     'consented forever' nor 'unconsented' (see WorkItemNode's docstring)."""
-    node = WorkItemNode(id="workitem:legacy", name="WorkItem", tenant="t", kind="generic")
+    node = WorkItemNode(
+        id="workitem:legacy", name="WorkItem", tenant="t", kind="generic"
+    )
     assert node.consent_required is False
     assert node.consent_granted_at is None
     assert node.consent_expires_at is None

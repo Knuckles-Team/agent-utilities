@@ -115,9 +115,7 @@ def test_on_graph_end_in_a_different_context_skips_the_corrupting_detach(
     monkeypatch.setattr(otel_context_module, "detach", _spy_detach)
 
     start_ctx = contextvars.Context()
-    start_ctx.run(
-        telemetry.on_graph_start, run_id="run-cross", agent_id="a", query="q"
-    )
+    start_ctx.run(telemetry.on_graph_start, run_id="run-cross", agent_id="a", query="q")
 
     # A genuinely different, unrelated Context -- exactly what a Task created
     # via asyncio.ensure_future/create_task after on_graph_start gets.

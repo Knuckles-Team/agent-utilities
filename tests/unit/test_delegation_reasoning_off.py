@@ -96,7 +96,10 @@ def test_merge_extra_body_does_not_clobber_sibling_keys():
     base = {"priority": 5, "top_k": 20}
     merged = merge_extra_body(
         base,
-        {"reasoning_effort": "none", "chat_template_kwargs": {"enable_thinking": False}},
+        {
+            "reasoning_effort": "none",
+            "chat_template_kwargs": {"enable_thinking": False},
+        },
     )
     assert merged["priority"] == 5
     assert merged["top_k"] == 20

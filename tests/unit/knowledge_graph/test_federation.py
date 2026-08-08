@@ -191,9 +191,7 @@ def test_execute_federated_sparql_uses_registered_read_contract(
 
 
 @patch("agent_utilities.mcp.kg_server.get_connection_registry")
-def test_federated_connection_never_uses_ambiguous_execute(
-    mock_registry, graph_engine
-):
+def test_federated_connection_never_uses_ambiguous_execute(mock_registry, graph_engine):
     mock_backend = MagicMock(spec=["execute"])
     mock_registry.return_value.get_engine.return_value.backend = mock_backend
 

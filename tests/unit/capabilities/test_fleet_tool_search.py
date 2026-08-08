@@ -118,13 +118,20 @@ class TestFleetToolsetGetTools:
         tools = await toolset.get_tools(ctx=None)
 
         mr_tool = next(
-            td for td in tools.values() if td.tool_def.metadata.get("mcp_tool") == "create_merge_request"
+            td
+            for td in tools.values()
+            if td.tool_def.metadata.get("mcp_tool") == "create_merge_request"
         )
-        assert mr_tool.tool_def.parameters_json_schema["properties"]["branch"]["type"] == "string"
+        assert (
+            mr_tool.tool_def.parameters_json_schema["properties"]["branch"]["type"]
+            == "string"
+        )
 
 
 class TestFleetToolsetCallTool:
-    async def test_call_tool_mounts_then_forwards_through_call_proxied_tool(self) -> None:
+    async def test_call_tool_mounts_then_forwards_through_call_proxied_tool(
+        self,
+    ) -> None:
         mux = FakeMultiplexer()
         toolset = FleetToolset(mux)
         tools = await toolset.get_tools(ctx=None)
@@ -155,11 +162,15 @@ class TestFleetRelevanceSearch:
         from pydantic_ai.tools import ToolDefinition
 
         tools = [
-            ToolDefinition(name="a", description="reload the caddy reverse proxy config"),
+            ToolDefinition(
+                name="a", description="reload the caddy reverse proxy config"
+            ),
             ToolDefinition(name="b", description="list gitlab merge requests"),
             ToolDefinition(name="c", description="unrelated tool about weather"),
         ]
-        names = fleet_relevance_search(ctx=None, queries=["reload caddy config"], tools=tools)
+        names = fleet_relevance_search(
+            ctx=None, queries=["reload caddy config"], tools=tools
+        )
 
         assert names[0] == "a"
         assert "c" not in names
@@ -169,7 +180,9 @@ class TestFleetRelevanceSearch:
         static method ``find_tools``/``discover_tools`` rank with."""
         from pydantic_ai.tools import ToolDefinition
 
-        tool = ToolDefinition(name="reload_config", description="Reload the live Caddyfile")
+        tool = ToolDefinition(
+            name="reload_config", description="Reload the live Caddyfile"
+        )
         expected = MCPMultiplexer._relevance(
             "reload caddy", f"{tool.name} {tool.description}"
         )

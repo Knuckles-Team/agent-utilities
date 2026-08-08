@@ -61,7 +61,10 @@ def test_still_scopes_the_conventional_n_variable_case_unchanged():
         "MATCH (n:Entity) RETURN n", tenant_id="acme"
     )
 
-    assert scoped == "MATCH (n:Entity) WHERE (n.tenant_id = $_tenant_scope_id OR n.tenant_id IS NULL OR n.tenant_id = '') RETURN n"
+    assert (
+        scoped
+        == "MATCH (n:Entity) WHERE (n.tenant_id = $_tenant_scope_id OR n.tenant_id IS NULL OR n.tenant_id = '') RETURN n"
+    )
     assert extra_params == {"_tenant_scope_id": "acme"}
 
 

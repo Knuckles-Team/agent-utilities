@@ -193,9 +193,7 @@ def test_introspect_persists_via_write_batch(sqlite_db):
     # bare ``type`` key is a retired alias ``write_entities`` rejects), so
     # read it from the recorded row properties rather than the backend's
     # ``.edges`` tuple (whose third element is derived from the retired key).
-    assert any(
-        props.get("relationship") == "HAS_TABLE" for props in backend.edge_props
-    )
+    assert any(props.get("relationship") == "HAS_TABLE" for props in backend.edge_props)
 
 
 # ---------------------------------------------------------------------- #

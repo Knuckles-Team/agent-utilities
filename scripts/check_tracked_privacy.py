@@ -97,9 +97,7 @@ _CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
     }
 )
 _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
-_MACHINE_HOST_ID_RE = re.compile(
-    r"(?i)(?<![a-z0-9])(?:rw?|host)[0-9]{3,}(?![a-z0-9])"
-)
+_MACHINE_HOST_ID_RE = re.compile(r"(?i)(?<![a-z0-9])(?:rw?|host)[0-9]{3,}(?![a-z0-9])")
 _NEUTRAL_AUTHOR_NAME = "repository maintainers"
 _NEUTRAL_AUTHOR_EMAIL_SUFFIX = "@example.invalid"
 _SCAN_EXCLUDED_DIRECTORIES = frozenset(
@@ -212,9 +210,7 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     return frozenset(
         value.casefold()
         for value in candidates
-        if value
-        and len(value) >= 4
-        and value.casefold() not in _GENERIC_IDENTIFIERS
+        if value and len(value) >= 4 and value.casefold() not in _GENERIC_IDENTIFIERS
     )
 
 
@@ -257,7 +253,10 @@ def classify_line(
     if "persisted machine path" not in categories and _HOME_PATH_RE.search(line):
         categories.add("machine-specific home path")
     folded = line.casefold()
-    if any(re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", folded) for value in identifiers):
+    if any(
+        re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", folded)
+        for value in identifiers
+    ):
         categories.add("local account or host identifier")
     if _MACHINE_HOST_ID_RE.search(line):
         categories.add("machine-specific host identifier")
@@ -448,16 +447,12 @@ def _is_runtime_source_path(path: Path) -> bool:
 
 def _is_bundled_connector_profile(path: Path) -> bool:
     parts = tuple(part.casefold() for part in path.parts)
-    return (
-        parts[:4]
-        == (
-            "agent_utilities",
-            "protocols",
-            "source_connectors",
-            "profiles",
-        )
-        and path.suffix.casefold() in {".py", ".json", ".yaml", ".yml"}
-    )
+    return parts[:4] == (
+        "agent_utilities",
+        "protocols",
+        "source_connectors",
+        "profiles",
+    ) and path.suffix.casefold() in {".py", ".json", ".yaml", ".yml"}
 
 
 def _author_metadata_lines(path: Path, lines: list[str]) -> list[int]:
@@ -489,7 +484,9 @@ def _author_metadata_lines(path: Path, lines: list[str]) -> list[int]:
     return violations
 
 
-def _next_ordinal(counts: dict[tuple[str, str, str], int], group: tuple[str, str, str]) -> int:
+def _next_ordinal(
+    counts: dict[tuple[str, str, str], int], group: tuple[str, str, str]
+) -> int:
     ordinal = counts.get(group, 0)
     counts[group] = ordinal + 1
     return ordinal
@@ -539,14 +536,10 @@ def scan(root: Path = ROOT) -> list[Violation]:
             # it stays stable regardless of the file's own line churn.
             content_hash = _content_hash(rel_str)
             ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
-            violations.append(
-                Violation(rel_str, 1, category, content_hash, ordinal)
-            )
+            violations.append(Violation(rel_str, 1, category, content_hash, ordinal))
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         for number, line in enumerate(lines, 1):
-            for category in classify_runtime_source_line(
-                line, identifiers=identifiers
-            ):
+            for category in classify_runtime_source_line(line, identifiers=identifiers):
                 content_hash = _content_hash(line)
                 ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
                 violations.append(
@@ -573,7 +566,12 @@ BaselineKey = tuple[str, str, str, int]
 
 
 def _baseline_key(violation: Violation) -> BaselineKey:
-    return (violation.path, violation.category, violation.content_hash, violation.ordinal)
+    return (
+        violation.path,
+        violation.category,
+        violation.content_hash,
+        violation.ordinal,
+    )
 
 
 def _load_baseline() -> set[BaselineKey]:
@@ -634,9 +632,7 @@ def _write_baseline(violations: list[Violation]) -> None:
         "# site; it is never compared. A NEW leak (not listed here) FAILS the\n"
         "# gate. Fixing a listed site shrinks this file on the next\n"
         "# --update-baseline; never hand-add an entry to make a real leak\n"
-        "# disappear.\n"
-        + "\n".join(lines)
-        + ("\n" if lines else ""),
+        "# disappear.\n" + "\n".join(lines) + ("\n" if lines else ""),
         encoding="utf-8",
     )
 

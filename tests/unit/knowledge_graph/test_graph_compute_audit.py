@@ -39,7 +39,13 @@ def test_audit_verify_calls_the_raw_audit_verify_wire_method():
     def fake_send_wire(method, payload=None):
         seen["method"] = method
         seen["payload"] = payload
-        return {"graph": "g", "ok": True, "entries": 0, "first_broken_seq": None, "detail": ""}
+        return {
+            "graph": "g",
+            "ok": True,
+            "entries": 0,
+            "first_broken_seq": None,
+            "detail": "",
+        }
 
     eng = _engine_with_send_wire(fake_send_wire)
     eng.audit_verify()

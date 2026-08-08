@@ -30,10 +30,17 @@ def test_worldview_taxonomy_shape() -> None:
 
 
 def test_topic_node_id_deterministic_and_slugified() -> None:
-    a = tc.topic_node_id("Technology & Computing", "Artificial Intelligence & Machine Learning")
-    b = tc.topic_node_id("Technology & Computing", "Artificial Intelligence & Machine Learning")
+    a = tc.topic_node_id(
+        "Technology & Computing", "Artificial Intelligence & Machine Learning"
+    )
+    b = tc.topic_node_id(
+        "Technology & Computing", "Artificial Intelligence & Machine Learning"
+    )
     assert a == b
-    assert a == "topic:technology-and-computing/artificial-intelligence-and-machine-learning"
+    assert (
+        a
+        == "topic:technology-and-computing/artificial-intelligence-and-machine-learning"
+    )
     assert tc.topic_node_id("Science") == "topic:science"
 
 
@@ -65,7 +72,11 @@ async def test_classify_and_link_topics_mints_hierarchy_and_edges(monkeypatch) -
 
     backend = _FakeBackend()
     result = await tc.classify_and_link_topics(
-        backend, "doc:test:1", "some AI content", title="Test Doc", source_type="document"
+        backend,
+        "doc:test:1",
+        "some AI content",
+        title="Test Doc",
+        source_type="document",
     )
 
     assert result["status"] == "classified"
@@ -74,7 +85,9 @@ async def test_classify_and_link_topics_mints_hierarchy_and_edges(monkeypatch) -
     assert result["confidence"] == 0.87
 
     top_id = tc.topic_node_id("Technology & Computing")
-    sub_id = tc.topic_node_id("Technology & Computing", "Artificial Intelligence & Machine Learning")
+    sub_id = tc.topic_node_id(
+        "Technology & Computing", "Artificial Intelligence & Machine Learning"
+    )
     assert result["topic_ids"] == [top_id, sub_id]
     assert result["primary_topic_id"] == sub_id
 
@@ -91,10 +104,14 @@ async def test_classify_and_link_topics_mints_hierarchy_and_edges(monkeypatch) -
     assert (top_id, sub_id, "NARROWER") in rels
 
     # HAS_TOPIC on both levels; CLASSIFIED_AS only on the primary (most specific).
-    has_topic = [(s, t) for s, t, p in backend.edges if p.get("rel_type") == "HAS_TOPIC"]
+    has_topic = [
+        (s, t) for s, t, p in backend.edges if p.get("rel_type") == "HAS_TOPIC"
+    ]
     assert ("doc:test:1", top_id) in has_topic
     assert ("doc:test:1", sub_id) in has_topic
-    classified_as = [(s, t) for s, t, p in backend.edges if p.get("rel_type") == "CLASSIFIED_AS"]
+    classified_as = [
+        (s, t) for s, t, p in backend.edges if p.get("rel_type") == "CLASSIFIED_AS"
+    ]
     assert classified_as == [("doc:test:1", sub_id)]
 
     # Confidence is carried on the edges.
@@ -103,19 +120,25 @@ async def test_classify_and_link_topics_mints_hierarchy_and_edges(monkeypatch) -
             assert p.get("confidence") == 0.87
 
 
-async def test_classify_and_link_topics_no_subtopic_uses_top_level_as_primary(monkeypatch) -> None:
+async def test_classify_and_link_topics_no_subtopic_uses_top_level_as_primary(
+    monkeypatch,
+) -> None:
     async def _fake_classify(text, *, title="", source_type=""):
         return tc.TopicAssignment(top_level="Science", sub_topic="", confidence=0.4)
 
     monkeypatch.setattr(tc, "classify_topic", _fake_classify)
 
     backend = _FakeBackend()
-    result = await tc.classify_and_link_topics(backend, "doc:test:2", "general science content")
+    result = await tc.classify_and_link_topics(
+        backend, "doc:test:2", "general science content"
+    )
 
     top_id = tc.topic_node_id("Science")
     assert result["primary_topic_id"] == top_id
     assert result["topic_ids"] == [top_id]
-    classified_as = [(s, t) for s, t, p in backend.edges if p.get("rel_type") == "CLASSIFIED_AS"]
+    classified_as = [
+        (s, t) for s, t, p in backend.edges if p.get("rel_type") == "CLASSIFIED_AS"
+    ]
     assert classified_as == [("doc:test:2", top_id)]
 
 

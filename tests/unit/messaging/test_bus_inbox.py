@@ -76,9 +76,7 @@ def test_native_transaction_commits_inbox_work_outcome_and_outbox(monkeypatch):
         for _, _, properties in txn.nodes
         if properties.get("tenant") == "tenant-a"
     ]
-    assert [properties["node_type"] for properties in tenant_authority] == [
-        "WorkItem"
-    ]
+    assert [properties["node_type"] for properties in tenant_authority] == ["WorkItem"]
     assert result.work_item_id.startswith("workitem:bus:")
 
 

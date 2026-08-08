@@ -239,7 +239,9 @@ def test_dry_run_default_emits_proposals_without_live_calls():
             }
         ]
     )
-    out = run_asset_mirror(backend=backend, targets=["fake_dry"])  # dry_run defaults True
+    out = run_asset_mirror(
+        backend=backend, targets=["fake_dry"]
+    )  # dry_run defaults True
     assert out["dry_run"] is True
     assert sink.runs[0][1] is True  # ran in dry-run mode
     assert out["sinks"]["fake_dry"]["proposals"]  # intended-writes surfaced
@@ -249,9 +251,7 @@ def test_dry_run_default_emits_proposals_without_live_calls():
 # ── 5. guarded / no-engine no-op ──────────────────────────────────────────────
 def test_stamp_no_engine_is_noop():
     ctx = WritebackContext(backend=None, engine=None)
-    assert (
-        ctx.stamp_external_id("host:storage-node-a", "servicenow", "SYS-1") is False
-    )
+    assert ctx.stamp_external_id("host:storage-node-a", "servicenow", "SYS-1") is False
     # missing id / external id also no-op, never raising
     assert ctx.stamp_external_id(None, "servicenow", "SYS-1") is False
     assert ctx.stamp_external_id("host:storage-node-a", "servicenow", None) is False
@@ -260,6 +260,8 @@ def test_stamp_no_engine_is_noop():
 def test_mirror_no_backend_no_engine_clean_noop():
     sink = RecordingSink("fake_guard")
     register_sink(sink)
-    out = run_asset_mirror(backend=None, engine=None, targets=["fake_guard"], dry_run=True)
+    out = run_asset_mirror(
+        backend=None, engine=None, targets=["fake_guard"], dry_run=True
+    )
     assert out["status"] == "completed"
     assert out["inventory_candidates"] == 0

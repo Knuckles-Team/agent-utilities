@@ -32,6 +32,7 @@ PACKAGE_JSON_PATH = (
     / "capabilities-power.json"
 )
 
+
 def _numeric_kernel_available() -> bool:
     try:
         import agent_utilities.numeric  # noqa: F401

@@ -49,9 +49,7 @@ def test_source_contract_environment_does_not_synthesize_kernel_absence(
     assert environment["PATH"].startswith(f"{tmp_path / 'bin'}{os.pathsep}")
 
 
-def test_build_lean_venv_pool_gates_its_uv_sync(
-    monkeypatch, tmp_path: Path
-) -> None:
+def test_build_lean_venv_pool_gates_its_uv_sync(monkeypatch, tmp_path: Path) -> None:
     """D-CDX-17: the lean venv's `uv sync` was one of 5 heavy uv/pytest call
     sites found unwrapped by any concurrency chokepoint. Pins that
     `_build_lean_venv` now acquires `uv_workspace._dependency_sync_slot()`

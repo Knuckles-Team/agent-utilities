@@ -36,12 +36,12 @@
 #
 # `workspace` is a DEDICATED DETACHED au worktree pinned at 36446919 (au main), NOT the
 # canonical checkout: ~20 lanes are concurrently mutating
-# /home/apps/workspace/agent-packages/agent-utilities, and pointing the build there would
+# ${WORKSPACE_ROOT}/agent-packages/agent-utilities, and pointing the build there would
 # bake whatever half-finished tree happened to exist at build time. This is an
 # engine-only change, so the au layer must be a clean, named, reproducible commit.
 #
-# `eg-wheel` is a DEDICATED staging dir (/home/apps/eg-wheel-eimg0801), NOT the shared
-# /home/apps/eg-wheel. The shared one is NFS-mounted read-only into the LIVE graph-os pod
+# `eg-wheel` is a DEDICATED staging dir (${STAGING_ROOT}/eg-wheel-eimg0801), NOT the shared
+# ${STAGING_ROOT}/eg-wheel. The shared one is NFS-mounted read-only into the LIVE graph-os pod
 # (`eg-wheel` volume), so overwriting the wheel in place would mutate a path the running
 # production pod can see. A separate dir keeps this build side-effect-free.
 #
@@ -49,10 +49,10 @@
 # kaniko wedges in uninterruptible disk sleep during "Taking snapshot of full filesystem"
 # and makes no progress (25+ min at 0m CPU, State: D). Caching is SAFE for this change —
 # kaniko's composite cache key for a RUN layer covers the command string plus the content
-# hash of every COPYed context file, and the eg wheel's content changed, so the layer that
+# hash of every context file copied in, and the eg wheel's content changed, so the layer that
 # installs it cannot hit a warm entry.
 #
-# Both hostPaths are on rw710 (this workspace's NFS server, and where the worktrees live),
+# Both hostPaths are on ${BUILD_NODE} (this workspace's NFS server, and where the worktrees live),
 # hence the nodeSelector.
 apiVersion: batch/v1
 kind: Job
@@ -74,7 +74,7 @@ spec:
     spec:
       restartPolicy: Never
       nodeSelector:
-        kubernetes.io/hostname: rw710
+        kubernetes.io/hostname: ${BUILD_NODE}
       containers:
         - name: kaniko
           image: gcr.io/kaniko-project/executor:latest
@@ -107,15 +107,15 @@ spec:
       volumes:
         - name: workspace
           hostPath:
-            path: /home/apps/worktrees/au-image-eimg0801
+            path: ${WORKTREE_ROOT}/au-image-eimg0801
             type: Directory
         - name: eg-wheel
           hostPath:
-            path: /home/apps/eg-wheel-eimg0801
+            path: ${STAGING_ROOT}/eg-wheel-eimg0801
             type: Directory
         - name: langfuse-agent-src
           hostPath:
-            path: /home/apps/workspace/agent-packages/agents/langfuse-agent
+            path: ${WORKSPACE_ROOT}/agent-packages/agents/langfuse-agent
             type: Directory
         - name: docker-config
           secret:

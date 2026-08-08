@@ -363,7 +363,9 @@ class TestResearchOrchestrator:
         engine = _FakeEngine()
         orch = ResearchOrchestrator(engine=engine)
         subagent = ResearchSubagent(query="spectral clustering for agents")
-        subagent.add_finding("Eigengap heuristic selects k automatically", confidence=0.9)
+        subagent.add_finding(
+            "Eigengap heuristic selects k automatically", confidence=0.9
+        )
 
         orch._persist_session(subagent)
 

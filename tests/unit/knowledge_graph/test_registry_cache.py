@@ -49,7 +49,9 @@ class TestRegistryCache:
         """After first access, subsequent calls should return same object."""
         # Populate with a mock to avoid KG dependency
         mock_registry = MCPAgentRegistryModel(
-            agents=[MCPAgent(name="test", description="test agent", agent_type="specialist")]
+            agents=[
+                MCPAgent(name="test", description="test agent", agent_type="specialist")
+            ]
         )
         _RegistryCache._registry = mock_registry
 
@@ -89,7 +91,9 @@ class TestGetRelevantSpecialists:
     def test_falls_back_to_full_list_without_engine(self):
         """Without engine, should return first top_n agents."""
         agents = [
-            MCPAgent(name=f"agent_{i}", description=f"desc {i}", agent_type="specialist")
+            MCPAgent(
+                name=f"agent_{i}", description=f"desc {i}", agent_type="specialist"
+            )
             for i in range(15)
         ]
         _RegistryCache._registry = MCPAgentRegistryModel(agents=agents)
@@ -101,7 +105,9 @@ class TestGetRelevantSpecialists:
     def test_respects_top_n_limit(self):
         """Should cap results at top_n."""
         agents = [
-            MCPAgent(name=f"agent_{i}", description=f"desc {i}", agent_type="specialist")
+            MCPAgent(
+                name=f"agent_{i}", description=f"desc {i}", agent_type="specialist"
+            )
             for i in range(20)
         ]
         _RegistryCache._registry = MCPAgentRegistryModel(agents=agents)
@@ -111,7 +117,9 @@ class TestGetRelevantSpecialists:
 
     def test_empty_query_returns_all(self):
         """Empty query should return agents without filtering."""
-        agents = [MCPAgent(name="only_one", description="test", agent_type="specialist")]
+        agents = [
+            MCPAgent(name="only_one", description="test", agent_type="specialist")
+        ]
         _RegistryCache._registry = MCPAgentRegistryModel(agents=agents)
 
         result = get_relevant_specialists("", engine=None, top_n=5)

@@ -176,9 +176,7 @@ def test_task_worker_loop_alternates_hydration_priority_on_the_degenerate_single
             "agent_utilities.knowledge_graph.core.engine_tasks.time.sleep",
             return_value=None,
         ),
-        patch(
-            "agent_utilities.core.background_throttle.get_throttle"
-        ) as mock_throttle,
+        patch("agent_utilities.core.background_throttle.get_throttle") as mock_throttle,
     ):
         mock_throttle.return_value.should_yield_background = False
         with pytest.raises(_StopLoop):
@@ -213,13 +211,13 @@ def test_task_worker_loop_no_alternation_when_disabled():
             "agent_utilities.knowledge_graph.core.engine_tasks.time.sleep",
             return_value=None,
         ),
-        patch(
-            "agent_utilities.core.background_throttle.get_throttle"
-        ) as mock_throttle,
+        patch("agent_utilities.core.background_throttle.get_throttle") as mock_throttle,
     ):
         mock_throttle.return_value.should_yield_background = False
         with pytest.raises(_StopLoop):
-            worker._task_worker_loop(hydration_reserved=False, hydration_alternate=False)
+            worker._task_worker_loop(
+                hydration_reserved=False, hydration_alternate=False
+            )
 
     assert seen_hydration_reserved == [False, False, False]
 

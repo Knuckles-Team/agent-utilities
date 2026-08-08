@@ -138,9 +138,10 @@ def test_cosmetic_reformatting_does_not_change_a_content_hash() -> None:
     before = address_map(spine())
     after = {f.text: f for f in spine(reflowed)}
     target = "The payments platform settles card\nand ACH transactions."
-    assert after[target].fragment_id == before[
-        "The payments platform settles card and ACH transactions."
-    ]
+    assert (
+        after[target].fragment_id
+        == before["The payments platform settles card and ACH transactions."]
+    )
     assert after[target].content_hash == content_digest(
         "The payments platform settles card and ACH transactions."
     )

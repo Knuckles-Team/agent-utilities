@@ -77,6 +77,7 @@ def test_map_labels_exact_plural_fuzzy_novel():
     )
     assert out["Movie"]["method"] == "novel" and out["Movie"]["mapped_to"] is None
 
+
 def test_spec_summary_never_returns_endpoint_or_database_material():
     reg = ConnectionRegistry()
     reg.register(

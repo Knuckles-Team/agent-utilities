@@ -40,7 +40,12 @@ _SKIP_DIRS = {"__pycache__", ".git", ".venv", "node_modules", "target", "build",
 
 
 # Historical records legitimately cite old ids — never rewrite them.
-_SKIP_NAMES = {"CHANGELOG.md", "concepts.yaml", "concept_reservations.yaml", "concept_map.md"}
+_SKIP_NAMES = {
+    "CHANGELOG.md",
+    "concepts.yaml",
+    "concept_reservations.yaml",
+    "concept_map.md",
+}
 
 
 def _iter_files(root: Path):
@@ -95,17 +100,28 @@ def resolve(old_id, rel_file, by_file, by_old, primary) -> tuple[str | None, str
     return primary.get(old_id), "primary-ref"
 
 
-def apply_repo(name: str, root: Path, by_file, by_old, primary, *, dry_run: bool, rej_dir: Path):
+def apply_repo(
+    name: str, root: Path, by_file, by_old, primary, *, dry_run: bool, rej_dir: Path
+):
     slug = ch.slug_for_repo(name)
     rewrites = 0
     files_changed = 0
     rej: list[str] = []
     info: list[str] = []  # primary-ref fallbacks (audit, not failures)
     # simple (non-collision) old_ids -> new, for bare prose refs in .md
-    simple = {o: next(iter(ns)) for o, ns in by_old.items() if len(ns) == 1 and not ch.is_okf_id(o)}
+    simple = {
+        o: next(iter(ns))
+        for o, ns in by_old.items()
+        if len(ns) == 1 and not ch.is_okf_id(o)
+    }
     simple_re = (
-        re.compile(r"(?<![\w.-])(" + "|".join(re.escape(o) for o in sorted(simple, key=len, reverse=True)) + r")(?![\w.-])")
-        if simple else None
+        re.compile(
+            r"(?<![\w.-])("
+            + "|".join(re.escape(o) for o in sorted(simple, key=len, reverse=True))
+            + r")(?![\w.-])"
+        )
+        if simple
+        else None
     )
 
     for path in _iter_files(root):
@@ -137,8 +153,10 @@ def apply_repo(name: str, root: Path, by_file, by_old, primary, *, dry_run: bool
 
         # bare prose cross-refs (simple, non-collision ids) in markdown only
         if simple_re and path.suffix == ".md":
+
             def _sub_bare(m: re.Match) -> str:
                 return simple.get(m.group(1), m.group(1))
+
             # don't touch ids already inside a CONCEPT: marker (handled above)
             text = simple_re.sub(_sub_bare, text)
 
@@ -146,6 +164,7 @@ def apply_repo(name: str, root: Path, by_file, by_old, primary, *, dry_run: bool
         # args) — "AU-KG.query.vendor-agnostic-traversal" / 'AU-AHE.assimilation.transliteration-singularization-extend-ahe'. Resolve like a reference (primary for a
         # formerly-collided id). Only exact plan ids, so non-concept strings are safe.
         if path.suffix in {".py", ".rs"}:
+
             def _sub_code(m: re.Match, rel: str = rel) -> str:
                 q, oid = m.group(1), m.group(2)
                 new, reason = resolve(oid, rel, by_file, by_old, primary)
@@ -154,9 +173,11 @@ def apply_repo(name: str, root: Path, by_file, by_old, primary, *, dry_run: bool
                 if reason == "primary-ref":
                     info.append(f"{rel}: {q}{oid}{q} -> {new} [code-primary-ref]")
                 return f"{q}{new}{q}"
+
             text = re.sub(
                 r"([\"'])([A-Z]+-\d+(?:\.[0-9A-Za-z]+)*)\1",
-                _sub_code, text,
+                _sub_code,
+                text,
             )
 
         if text != orig:
@@ -169,11 +190,21 @@ def apply_repo(name: str, root: Path, by_file, by_old, primary, *, dry_run: bool
     if rej or info:
         rej_dir.mkdir(parents=True, exist_ok=True)
         if rej:
-            (rej_dir / f"{name}.rej").write_text("\n".join(rej) + "\n", encoding="utf-8")
+            (rej_dir / f"{name}.rej").write_text(
+                "\n".join(rej) + "\n", encoding="utf-8"
+            )
         if info:
-            (rej_dir / f"{name}.info").write_text("\n".join(info) + "\n", encoding="utf-8")
-    return {"repo": name, "slug": slug, "files_changed": files_changed,
-            "rewrites": rewrites, "rejected": len(rej), "primary_refs": len(info)}
+            (rej_dir / f"{name}.info").write_text(
+                "\n".join(info) + "\n", encoding="utf-8"
+            )
+    return {
+        "repo": name,
+        "slug": slug,
+        "files_changed": files_changed,
+        "rewrites": rewrites,
+        "rejected": len(rej),
+        "primary_refs": len(info),
+    }
 
 
 def main() -> int:
@@ -192,16 +223,27 @@ def main() -> int:
         if ch.slug_for_repo(name) is None:
             print(f"  SKIP {name}: no SLUG registered")
             continue
-        r = apply_repo(name, Path(path), by_file, by_old, primary,
-                       dry_run=args.dry_run, rej_dir=rej_dir)
+        r = apply_repo(
+            name,
+            Path(path),
+            by_file,
+            by_old,
+            primary,
+            dry_run=args.dry_run,
+            rej_dir=rej_dir,
+        )
         tag = "DRY" if args.dry_run else "APPLIED"
-        print(f"  [{tag}] {r['repo']:22} files={r['files_changed']:>4} "
-              f"rewrites={r['rewrites']:>5} primary-ref={r['primary_refs']:>5} "
-              f"rejected={r['rejected']:>4}")
+        print(
+            f"  [{tag}] {r['repo']:22} files={r['files_changed']:>4} "
+            f"rewrites={r['rewrites']:>5} primary-ref={r['primary_refs']:>5} "
+            f"rejected={r['rejected']:>4}"
+        )
         for k in ("files_changed", "rewrites", "rejected", "primary_refs"):
             total[k] += r[k]
-    print(f"  TOTAL files={total['files_changed']} rewrites={total['rewrites']} "
-          f"primary-ref={total['primary_refs']} rejected={total['rejected']}  (reports in {rej_dir})")
+    print(
+        f"  TOTAL files={total['files_changed']} rewrites={total['rewrites']} "
+        f"primary-ref={total['primary_refs']} rejected={total['rejected']}  (reports in {rej_dir})"
+    )
     return 0
 
 

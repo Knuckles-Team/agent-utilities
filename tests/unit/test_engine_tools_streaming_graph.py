@@ -111,9 +111,7 @@ def test_list_triggers_threads_resolved_default_graph(monkeypatch):
 
     with use_actor(NON_ADMIN_ACTOR):
         out = json.loads(
-            asyncio.run(
-                _tool()(action="list_triggers", params_json="{}", graph="")
-            )
+            asyncio.run(_tool()(action="list_triggers", params_json="{}", graph=""))
         )
     assert out == []
     assert client.streaming.calls == [("list_triggers", ("commons-default",), {})]
@@ -137,9 +135,7 @@ def test_list_triggers_threads_explicit_top_level_graph(monkeypatch):
         session_graph = current_session().graph
         out = json.loads(
             asyncio.run(
-                _tool()(
-                    action="list_triggers", params_json="{}", graph=session_graph
-                )
+                _tool()(action="list_triggers", params_json="{}", graph=session_graph)
             )
         )
     assert out == []
@@ -159,9 +155,7 @@ def test_caller_supplied_graph_in_params_json_wins(monkeypatch):
                 graph="",
             )
         )
-    assert client.streaming.calls == [
-        ("list_triggers", ("explicit-in-params",), {})
-    ]
+    assert client.streaming.calls == [("list_triggers", ("explicit-in-params",), {})]
 
 
 def test_cdc_read_also_gets_graph_threaded(monkeypatch):
@@ -202,9 +196,7 @@ def test_list_triggers_threads_graph_through_real_sync_wrapper_shape(monkeypatch
 
     with use_actor(NON_ADMIN_ACTOR):
         out = json.loads(
-            asyncio.run(
-                _tool()(action="list_triggers", params_json="{}", graph="")
-            )
+            asyncio.run(_tool()(action="list_triggers", params_json="{}", graph=""))
         )
     assert out == []
     assert client.streaming._namespace.calls == [

@@ -28,7 +28,11 @@ def main() -> int:
             canonicalize_name(value)
             for value in engine_metadata.get_all("Provides-Extra") or ()
         }
-        server_name = "epistemic-graph-server.exe" if os.name == "nt" else "epistemic-graph-server"
+        server_name = (
+            "epistemic-graph-server.exe"
+            if os.name == "nt"
+            else "epistemic-graph-server"
+        )
         server = Path(sys.executable).with_name(server_name)
         server_metadata = server.lstat()
         engine_numeric = importlib.import_module("epistemic_graph.numeric")

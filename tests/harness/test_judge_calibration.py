@@ -21,7 +21,9 @@ from agent_utilities.harness.judge_calibration import (
 )
 
 
-def _position_biased_judge(task: str, candidate_a: str, candidate_b: str) -> PairwiseVerdict:
+def _position_biased_judge(
+    task: str, candidate_a: str, candidate_b: str
+) -> PairwiseVerdict:
     """A judge that ALWAYS prefers whichever candidate is in position "a".
 
     This reproduces position bias exactly: the verdict depends on argument
@@ -32,7 +34,9 @@ def _position_biased_judge(task: str, candidate_a: str, candidate_b: str) -> Pai
     return PairwiseVerdict(winner="a", score_a=0.9, score_b=0.1, measured=True)
 
 
-def _content_aware_judge(task: str, candidate_a: str, candidate_b: str) -> PairwiseVerdict:
+def _content_aware_judge(
+    task: str, candidate_a: str, candidate_b: str
+) -> PairwiseVerdict:
     """A judge that correctly prefers the longer (here: better) candidate,
     regardless of which position it's presented in — the CONTROL case: no
     position bias, so swap-and-average should agree with a single call and
@@ -115,7 +119,9 @@ def test_swap_and_average_measured_requires_both_calls_live():
     def _one_side_degraded(task: str, a: str, b: str) -> PairwiseVerdict:
         # Degrades (measured=False) only when "x" is in the "a" slot.
         if a == "x":
-            return PairwiseVerdict(winner="tie", score_a=0.0, score_b=0.0, measured=False)
+            return PairwiseVerdict(
+                winner="tie", score_a=0.0, score_b=0.0, measured=False
+            )
         return PairwiseVerdict(winner="a", score_a=0.8, score_b=0.2, measured=True)
 
     result = swap_and_average(_one_side_degraded, "t", "x", "y")

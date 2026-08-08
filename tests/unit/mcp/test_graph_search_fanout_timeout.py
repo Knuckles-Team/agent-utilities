@@ -56,9 +56,7 @@ class _FakeSearchEngine:
         self._results = results or []
         self._delay = delay
 
-    def search_hybrid(
-        self, query, top_k, self_correct=False, as_of=None, session=None
-    ):
+    def search_hybrid(self, query, top_k, self_correct=False, as_of=None, session=None):
         if self._delay:
             time.sleep(self._delay)
         return self._results
@@ -111,9 +109,7 @@ def test_graph_search_default_target_uses_short_fanout_timeout(monkeypatch):
 
     monkeypatch.setattr(kg_server, "fanout_execute", _spy)
 
-    asyncio.run(
-        kg_server._execute_tool("graph_search", query="delegation router")
-    )
+    asyncio.run(kg_server._execute_tool("graph_search", query="delegation router"))
 
     assert seen["timeout"] == kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S
     assert seen["timeout"] < kg_server.DEFAULT_FANOUT_TIMEOUT_S
@@ -139,9 +135,10 @@ def test_graph_search_target_default_string_also_uses_short_timeout(monkeypatch)
     monkeypatch.setattr(
         kg_server,
         "fanout_execute",
-        lambda entries_arg, fn, *, timeout=None: (seen.update(timeout=timeout), ({}, {}))[
-            1
-        ],
+        lambda entries_arg, fn, *, timeout=None: (
+            seen.update(timeout=timeout),
+            ({}, {}),
+        )[1],
     )
 
     asyncio.run(
@@ -172,9 +169,10 @@ def test_graph_search_explicit_all_target_keeps_full_fanout_timeout(monkeypatch)
     monkeypatch.setattr(
         kg_server,
         "fanout_execute",
-        lambda entries_arg, fn, *, timeout=None: (seen.update(timeout=timeout), ({}, {}))[
-            1
-        ],
+        lambda entries_arg, fn, *, timeout=None: (
+            seen.update(timeout=timeout),
+            ({}, {}),
+        )[1],
     )
 
     asyncio.run(
@@ -201,9 +199,7 @@ def test_graph_search_default_grounds_primary_backend_and_skips_slow_backends(
 
     entries = [
         ("default", _FakeSearchEngine(_GROUNDED_HIT)),
-    ] + [
-        (f"code:repo-{i}", _FakeSearchEngine(delay=1.5)) for i in range(5)
-    ]
+    ] + [(f"code:repo-{i}", _FakeSearchEngine(delay=1.5)) for i in range(5)]
     monkeypatch.setattr(
         kg_server, "_resolve_read_engines", _fake_resolve_read_engines_multi(entries)
     )

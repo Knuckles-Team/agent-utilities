@@ -118,7 +118,10 @@ def workspace(tmp_path: Path) -> Workspace:
         ("beta", "0.1.0", True, []),
     ):
         dist = site / f"{name}-{version}.dist-info"
-        _write(dist / "METADATA", f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n")
+        _write(
+            dist / "METADATA",
+            f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n",
+        )
         _write(
             dist / "direct_url.json",
             json.dumps({"url": "file:///x", "dir_info": {"editable": editable}}),
@@ -126,7 +129,9 @@ def workspace(tmp_path: Path) -> Workspace:
         if scripts:
             _write(
                 dist / "entry_points.txt",
-                "[console_scripts]\n" + "\n".join(f"{s} = {name}:main" for s in scripts) + "\n",
+                "[console_scripts]\n"
+                + "\n".join(f"{s} = {name}:main" for s in scripts)
+                + "\n",
             )
     (root / ".venv" / "bin").mkdir(parents=True, exist_ok=True)
 
@@ -227,7 +232,9 @@ def test_guardrails_allow_a_member_rebuild(workspace: Workspace) -> None:
     """The sanctioned sync of a metadata change must not be refused."""
 
     plan = SyncPlan.parse(REBUILD_PLAN)
-    verdict = evaluate_plan(plan, SyncContext(workspace=workspace, ignore_activity=True))
+    verdict = evaluate_plan(
+        plan, SyncContext(workspace=workspace, ignore_activity=True)
+    )
     assert verdict.decision == ALLOW
 
 
@@ -250,7 +257,9 @@ def test_member_uninstall_guardrail_refuses_the_real_destructive_plan(
             "agent-utilities", "beta"
         )
     )
-    verdict = evaluate_plan(plan, SyncContext(workspace=workspace, ignore_activity=True))
+    verdict = evaluate_plan(
+        plan, SyncContext(workspace=workspace, ignore_activity=True)
+    )
     assert verdict.decision == REFUSE
     assert verdict.guardrail == "member_uninstall"
     assert set(verdict.data["members"]) == {"alpha", "beta"}
@@ -446,11 +455,15 @@ def test_dynamic_versions_are_not_reported_as_skew(workspace: Workspace) -> None
 # ─────────────────────────────────────────────────────────────────────────────
 # prune (D-VS-8): the removal class `sync()`'s own --inexact plan can never see
 # ─────────────────────────────────────────────────────────────────────────────
-def _add_extraneous_dist(workspace: Workspace, name: str, version: str = "0.1.0") -> None:
+def _add_extraneous_dist(
+    workspace: Workspace, name: str, version: str = "0.1.0"
+) -> None:
     site = workspace.site_packages()
     assert site is not None
     dist = site / f"{name}-{version}.dist-info"
-    _write(dist / "METADATA", f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n")
+    _write(
+        dist / "METADATA", f"Metadata-Version: 2.4\nName: {name}\nVersion: {version}\n"
+    )
     _write(
         dist / "direct_url.json",
         json.dumps({"url": "file:///x", "dir_info": {"editable": False}}),
@@ -527,9 +540,7 @@ def test_prune_dry_run_reports_without_calling_uv(
         raise AssertionError("uv must not be invoked on a dry-run prune")
 
     monkeypatch.setattr(venv_sync, "run_uv", _explode)
-    outcome = prune(
-        workspace, allow_uninstalls=1, apply=False, ignore_activity=True
-    )
+    outcome = prune(workspace, allow_uninstalls=1, apply=False, ignore_activity=True)
     assert outcome.applied is False
     assert not outcome.refused
     assert len(outcome.plan.candidates) == 1

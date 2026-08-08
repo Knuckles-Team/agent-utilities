@@ -312,9 +312,7 @@ async def test_reference_unresolvable_skipped() -> None:
 
     g = _new_graph()
     g.add_node("caller", node_type="symbol", name="caller")
-    g.add_edge(
-        "caller", "nowhere", relationship="calls_raw", raw="does_not_exist"
-    )
+    g.add_edge("caller", "nowhere", relationship="calls_raw", raw="does_not_exist")
     ctx = _make_ctx(graph=g)
     result = await execute_reference(ctx, {})
     assert result == {"resolved_references": 0}

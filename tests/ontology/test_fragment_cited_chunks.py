@@ -54,7 +54,9 @@ def _process(**kwargs):
         embed_fn=_fake_embed,
         chunking=ChunkingConfig(chunk_size=80, overlap=10),
     )
-    return proc.process(_DOC_TEXT, source="memory://fragment-citation", persist=False, **kwargs)
+    return proc.process(
+        _DOC_TEXT, source="memory://fragment-citation", persist=False, **kwargs
+    )
 
 
 # --- _fragment_ids_for_span (pure function) --------------------------------

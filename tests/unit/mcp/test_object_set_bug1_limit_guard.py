@@ -30,7 +30,9 @@ class _FakeGraph:
     """Minimal duck-typed graph: N nodes all of the same type."""
 
     def __init__(self, n: int, node_type: str = "Concept") -> None:
-        self._nodes = {f"concept:{i}": {"id": f"concept:{i}", "type": node_type} for i in range(n)}
+        self._nodes = {
+            f"concept:{i}": {"id": f"concept:{i}", "type": node_type} for i in range(n)
+        }
 
     def node_ids(self) -> list[str]:
         return list(self._nodes.keys())

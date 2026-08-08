@@ -81,9 +81,7 @@ def test_operational_evidence_rejects_raw_identity_and_location_fields():
     )
     digest = "sha256:" + "1" * 64
     policy = yaml.safe_load(
-        (ROOT / "deploy/release/certification-campaign.yml").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "deploy/release/certification-campaign.yml").read_text(encoding="utf-8")
     )
     value = {
         "apiVersion": "graphos.io/v1",

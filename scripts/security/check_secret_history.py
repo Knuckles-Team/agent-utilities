@@ -86,9 +86,7 @@ CREDENTIAL_PATTERNS: dict[str, re.Pattern[str]] = {
     "gitlab_pat": re.compile(r"\bglpat-[A-Za-z0-9_-]{20}\b"),
     "slack_token": re.compile(r"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
     "stripe_key": re.compile(r"\b(?:sk|pk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b"),
-    "openai_key": re.compile(
-        r"\bsk-[A-Za-z0-9]{20,}(?:T3BlbkFJ[A-Za-z0-9]{20,})?\b"
-    ),
+    "openai_key": re.compile(r"\bsk-[A-Za-z0-9]{20,}(?:T3BlbkFJ[A-Za-z0-9]{20,})?\b"),
     "openai_project_key": re.compile(r"\bsk-proj-[A-Za-z0-9_-]{20,}\b"),
     "anthropic_key": re.compile(r"\bsk-ant-[A-Za-z0-9_-]{20,}\b"),
     "google_api_key": re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b"),
@@ -135,7 +133,9 @@ def _shannon_entropy(s: str) -> float:
 
 def _is_entropy_noise(token: str) -> bool:
     return bool(
-        _HEX_RE.match(token) or _UUID_RE.match(token) or _IDENTIFIER_LIKE_RE.match(token)
+        _HEX_RE.match(token)
+        or _UUID_RE.match(token)
+        or _IDENTIFIER_LIKE_RE.match(token)
     )
 
 
@@ -232,7 +232,8 @@ def scan_entropy(patch_lines: list[str]) -> list[dict]:
             if _is_entropy_noise(token):
                 continue
             classes = sum(
-                bool(re.search(p, token)) for p in (r"[a-z]", r"[A-Z]", r"[0-9]", r"[+/_.=-]")
+                bool(re.search(p, token))
+                for p in (r"[a-z]", r"[A-Z]", r"[0-9]", r"[+/_.=-]")
             )
             if classes < 3:
                 continue
@@ -326,16 +327,24 @@ def check(
     except RuntimeError as exc:
         return 1, {"ok": False, "error": str(exc)}
 
-    added_lines = sum(1 for line in patch_lines if line.startswith("+") and not line.startswith("+++"))
+    added_lines = sum(
+        1 for line in patch_lines if line.startswith("+") and not line.startswith("+++")
+    )
     all_credential_hits = scan_credentials(patch_lines)
     entropy_hits = scan_entropy(patch_lines)
 
     baseline = load_baseline(baseline_path)
-    new_hits = [h for h in all_credential_hits if (h["file"], h["pattern"]) not in baseline]
-    baselined_hits = [h for h in all_credential_hits if (h["file"], h["pattern"]) in baseline]
+    new_hits = [
+        h for h in all_credential_hits if (h["file"], h["pattern"]) not in baseline
+    ]
+    baselined_hits = [
+        h for h in all_credential_hits if (h["file"], h["pattern"]) in baseline
+    ]
     seen_pairs = {(h["file"], h["pattern"]) for h in all_credential_hits}
     stale_baseline_entries = sorted(
-        f"{file_}\t{pattern}" for file_, pattern in baseline if (file_, pattern) not in seen_pairs
+        f"{file_}\t{pattern}"
+        for file_, pattern in baseline
+        if (file_, pattern) not in seen_pairs
     )
 
     ok = not new_hits
@@ -369,12 +378,18 @@ def _self_check() -> tuple[int, dict]:
     tmp = Path(tempfile.mkdtemp(prefix="secret-history-selfcheck-"))
     try:
         subprocess.run(["git", "init", "-q"], cwd=str(tmp), check=True)
-        subprocess.run(["git", "config", "user.email", "gate@example.invalid"], cwd=str(tmp), check=True)
+        subprocess.run(
+            ["git", "config", "user.email", "gate@example.invalid"],
+            cwd=str(tmp),
+            check=True,
+        )
         subprocess.run(["git", "config", "user.name", "gate"], cwd=str(tmp), check=True)
         (tmp / "README.md").write_text("base\n", encoding="utf-8")
         subprocess.run(["git", "add", "."], cwd=str(tmp), check=True)
         subprocess.run(["git", "commit", "-q", "-m", "base"], cwd=str(tmp), check=True)
-        subprocess.run(["git", "branch", "-q", "origin-main-stand-in"], cwd=str(tmp), check=True)
+        subprocess.run(
+            ["git", "branch", "-q", "origin-main-stand-in"], cwd=str(tmp), check=True
+        )
 
         # Known-bad: a real-shaped AWS key, a GitHub PAT, and a PEM block.
         bad = (
@@ -388,18 +403,28 @@ def _self_check() -> tuple[int, dict]:
         )
         (tmp / "leak.py").write_text(bad, encoding="utf-8")
         subprocess.run(["git", "add", "leak.py"], cwd=str(tmp), check=True)
-        subprocess.run(["git", "commit", "-q", "-m", "planted secret"], cwd=str(tmp), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "planted secret"], cwd=str(tmp), check=True
+        )
 
         rc_bad, result_bad = check(tmp, base="origin-main-stand-in")
         caught = rc_bad == 1 and len(result_bad.get("credentialHits", [])) >= 2
 
         # Known-good: same shapes, but marked as an intentional synthetic fixture.
-        subprocess.run(["git", "checkout", "-q", "origin-main-stand-in"], cwd=str(tmp), check=True)
-        subprocess.run(["git", "checkout", "-q", "-B", "exempt-branch"], cwd=str(tmp), check=True)
+        subprocess.run(
+            ["git", "checkout", "-q", "origin-main-stand-in"], cwd=str(tmp), check=True
+        )
+        subprocess.run(
+            ["git", "checkout", "-q", "-B", "exempt-branch"], cwd=str(tmp), check=True
+        )
         exempt = "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'  # sanitizer:ignore - synthetic\n"
         (tmp / "leak.py").write_text(exempt, encoding="utf-8")
         subprocess.run(["git", "add", "leak.py"], cwd=str(tmp), check=True)
-        subprocess.run(["git", "commit", "-q", "-m", "exempted secret-shaped fixture"], cwd=str(tmp), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "exempted secret-shaped fixture"],
+            cwd=str(tmp),
+            check=True,
+        )
 
         rc_good, result_good = check(tmp, base="origin-main-stand-in")
         exempted = rc_good == 0 and not result_good.get("credentialHits")
@@ -407,11 +432,21 @@ def _self_check() -> tuple[int, dict]:
         # D-CIP-14: prove the baseline ratchet in BOTH directions.
         # (a) A hit whose (file, pattern) is baselined must NOT block, but must
         #     still be visible (baselinedCredentialHits), not silently dropped.
-        subprocess.run(["git", "checkout", "-q", "origin-main-stand-in"], cwd=str(tmp), check=True)
-        subprocess.run(["git", "checkout", "-q", "-B", "baselined-branch"], cwd=str(tmp), check=True)
+        subprocess.run(
+            ["git", "checkout", "-q", "origin-main-stand-in"], cwd=str(tmp), check=True
+        )
+        subprocess.run(
+            ["git", "checkout", "-q", "-B", "baselined-branch"],
+            cwd=str(tmp),
+            check=True,
+        )
         (tmp / "leak.py").write_text(bad, encoding="utf-8")
         subprocess.run(["git", "add", "leak.py"], cwd=str(tmp), check=True)
-        subprocess.run(["git", "commit", "-q", "-m", "same planted secret, now baselined"], cwd=str(tmp), check=True)
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "same planted secret, now baselined"],
+            cwd=str(tmp),
+            check=True,
+        )
         baseline_file = tmp / "baseline.txt"
         baseline_file.write_text(
             "# test baseline\n"
@@ -423,9 +458,11 @@ def _self_check() -> tuple[int, dict]:
         rc_baselined, result_baselined = check(
             tmp, base="origin-main-stand-in", baseline_path=baseline_file
         )
-        baseline_exempts = rc_baselined == 0 and not result_baselined.get(
-            "credentialHits"
-        ) and len(result_baselined.get("baselinedCredentialHits", [])) >= 2
+        baseline_exempts = (
+            rc_baselined == 0
+            and not result_baselined.get("credentialHits")
+            and len(result_baselined.get("baselinedCredentialHits", [])) >= 2
+        )
 
         # (b) A baseline entry naming a (file, pattern) that no longer appears in
         #     the range must be reported as stale, not silently retained forever.
@@ -436,8 +473,9 @@ def _self_check() -> tuple[int, dict]:
         _rc_stale, result_stale = check(
             tmp, base="origin-main-stand-in", baseline_path=stale_baseline_file
         )
-        stale_detected = "b/nonexistent-file.py\tgeneric_secret_assignment" in result_stale.get(
-            "staleBaselineEntries", []
+        stale_detected = (
+            "b/nonexistent-file.py\tgeneric_secret_assignment"
+            in result_stale.get("staleBaselineEntries", [])
         )
 
         ok = caught and exempted and baseline_exempts and stale_detected
@@ -459,7 +497,11 @@ def _self_check() -> tuple[int, dict]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base", default=None, help="base ref (default: origin/main)")
-    parser.add_argument("--self-check", action="store_true", help="prove the gate catches a known-bad input")
+    parser.add_argument(
+        "--self-check",
+        action="store_true",
+        help="prove the gate catches a known-bad input",
+    )
     args = parser.parse_args()
 
     if args.self_check:
