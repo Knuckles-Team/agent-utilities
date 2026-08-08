@@ -43,6 +43,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_engineering": ("ask", "write"),
         "graph_table": ("ask", "write"),
         "graph_promql": ("ask",),
+        "graph_logs": ("ask",),
         "graph_federated_search": ("ask",),
         # Most code analysis is read-only, while ADR creation and architecture
         # report materialization mutate the graph.  The action-level allowlist

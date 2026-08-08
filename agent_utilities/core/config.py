@@ -3051,6 +3051,35 @@ class AgentConfig(BaseSettings):
     """OAuth2 client-credentials block used to acquire a short-lived graph
     process JWT. Client secrets must be runtime secret references."""
 
+    kg_admin_broker_oauth2: dict[str, Any] | None = Field(
+        default=None, alias="KG_ADMIN_BROKER_OAUTH2"
+    )
+    """OAuth2 client-credentials block for the placement-routing admin broker
+    (CONCEPT:AU-OS.identity.idp-role-to-engine-capability-bridge, register D-W6-ISO-1).
+
+    Closes a specific, narrow gap: a Keycloak ``kg:admin`` role is verified at
+    AU's own identity boundary (:mod:`agent_utilities.security.request_identity`)
+    but the engine's ``IsolationLayer`` separately requires the caller's
+    ``agent_id`` to already be REGISTERED as an engine-side admin identity
+    (``RegisterIdentity``/RBAC) before ``PlacementRoute`` (an
+    ``admin:cluster-read``-gated method) will answer for it — registering a new
+    engine identity itself requires a Zero-Trust-Consensus signer key this
+    process does not hold, so a verified-``kg:admin`` caller whose identity was
+    never separately provisioned engine-side gets ``ACCESS_DENIED: verified
+    principal lacks admin capability`` on every placement-routed read, even
+    though their JWT already proves admin authority.
+
+    When set, :mod:`agent_utilities.knowledge_graph.core.placement_catalog`
+    resolves the ``PlacementRoute`` lookup — ROUTING METADATA ONLY (which
+    endpoint/epoch serves a graph), never graph data — through this broker
+    identity ONLY as a fallback, and ONLY for a caller whose OWN session
+    already carries the verified ``kg:admin`` scope. The actual data read that
+    follows still executes under the ORIGINAL caller's own session/identity,
+    so per-graph ACL/RLS is unaffected — this widens WHO can learn a graph's
+    routing metadata, never who can read its rows. Unset (default): today's
+    unchanged behavior, a placement-routed read fails exactly as before for a
+    caller with no engine-registered admin identity."""
+
     # --- Fleet events webhook ingress (CONCEPT:AU-OS.config.fleet-event-ingress) ---
 
     fleet_events_token_ref: str | None = Field(
@@ -4247,6 +4276,24 @@ class AgentConfig(BaseSettings):
         if not isinstance(value, dict):
             raise ValueError("KG_IDENTITY_OAUTH2 must be an object")
         return _validate_oauth2_block(value, "KG_IDENTITY_OAUTH2")
+
+    @field_validator("kg_admin_broker_oauth2", mode="before")
+    @classmethod
+    def _validate_kg_admin_broker_oauth2(cls, value: Any) -> dict[str, Any] | None:
+        if value in (None, ""):
+            return None
+        if isinstance(value, str):
+            import json
+
+            try:
+                value = json.loads(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "KG_ADMIN_BROKER_OAUTH2 must be a JSON object"
+                ) from exc
+        if not isinstance(value, dict):
+            raise ValueError("KG_ADMIN_BROKER_OAUTH2 must be an object")
+        return _validate_oauth2_block(value, "KG_ADMIN_BROKER_OAUTH2")
 
     @field_validator(
         "source_http_allowed_private_hosts",
