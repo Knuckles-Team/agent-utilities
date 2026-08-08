@@ -106,15 +106,36 @@ async def _run(
         print(f"node_types scope: {list(node_types)}", flush=True)
 
     from agent_utilities.knowledge_graph.core.session import set_session
-    from agent_utilities.mcp.kg_server import _mint_process_session
+    from agent_utilities.mcp.kg_server import (
+        _mint_process_session,
+        _start_process_authority_supervisor,
+        _stop_process_authority_supervisor,
+    )
     from agent_utilities.security.brain_context import set_actor
 
     session = await asyncio.to_thread(_mint_process_session, "auto")
     session.engine_verified_context()
     set_actor(session.actor)
     set_session(session)
+    # D-EIMG-2: this script mints its verified authority ONCE and, unlike the
+    # long-running graph-os server, never renewed it — so a bounded chunk that
+    # runs long (measured: 282.6s for --limit 30 against a contended engine,
+    # each txn.commit up to ~15s) can outlive the OIDC access token's TTL and
+    # every remaining row fails with ``SessionExpiredError`` for the rest of
+    # the page. Start the SAME renewal supervisor the server uses (proactively
+    # refreshes once <=30s of lease remain, CONCEPT: same lease object the
+    # ambient session/actor already reference) instead of leaving this script
+    # to run on a lease that was never designed to outlive one request.
+    _start_process_authority_supervisor(session)
     print(f"identity ok tenant={session.tenant} graph={session.graph!r}", flush=True)
 
+    try:
+        await _run_backfill(limit=limit, batch_size=batch_size, execute=execute)
+    finally:
+        _stop_process_authority_supervisor()
+
+
+async def _run_backfill(*, limit: int, batch_size: int, execute: bool) -> None:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = (
@@ -261,6 +282,18 @@ async def _run(
     errored = report.get("errored", 0)
     skipped_no_text = report.get("skipped_no_text", 0)
     attempted_with_text = max(0, report.get("scanned", 0) - skipped_no_text)
+
+    if report.get("aborted_early"):
+        print(
+            "\n=== ABORTED EARLY (D-EIMG-2) ===\n"
+            "Dispatch contention (EngineCircuitOpenError/SessionExpiredError) "
+            "persisted across several consecutive nodes even after the "
+            "built-in retry+backoff; the rest of this page was left "
+            "unattempted rather than burning the whole --limit on "
+            "guaranteed-fail rows. Unattempted nodes remain eligible for the "
+            "next chunk. Wait for the engine to settle before re-running.",
+            flush=True,
+        )
 
     if _is_zero_progress_failure(report):
         print(
