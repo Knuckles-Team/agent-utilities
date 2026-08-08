@@ -117,3 +117,28 @@ def test_fallback_inventory_scans_hidden_source_directories(
     )
 
     assert hidden in sanitizer.get_repo_files(tmp_path)
+
+
+def test_fallback_inventory_excludes_rust_build_dirs(tmp_path, sanitizer, monkeypatch):
+    # D-W3Q-2: get_repo_files()'s fallback (triggered on ANY git failure, e.g.
+    # a corrupted worktree admin dir) is a raw os.walk() that does not consult
+    # .gitignore, unlike the normal `git ls-files --exclude-standard` path --
+    # so it must exclude target/target-isolated itself or it walks straight
+    # into a Rust build tree's compiled artifacts (.rlib/.rmeta/.o) and fails
+    # the whole hook with "could not be inspected" noise, not real findings.
+    hidden = _write(tmp_path, ".github/workflows/check.yml", "safe: true\n")
+    artifact = _write(
+        tmp_path, "target-isolated/debug/deps/libfoo.rlib", b"\x7fELF".decode("latin-1")
+    )
+    legacy_artifact = _write(tmp_path, "target/debug/deps/libbar.rmeta", "binary")
+    monkeypatch.setattr(
+        sanitizer.subprocess,
+        "run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(OSError("git unavailable")),
+    )
+
+    files = sanitizer.get_repo_files(tmp_path)
+
+    assert hidden in files
+    assert artifact not in files
+    assert legacy_artifact not in files
