@@ -168,6 +168,13 @@ docker/kaniko-build.env
 # (scripts/uv_workspace.py::_acquire_environment_activity). Persists as an
 # empty flock target file, one per environment directory.
 .venv*.activity.lock
+# D-75-1/D-CIP-19/D-W3BP-4: scripts/uv_workspace.py symlinks the sibling
+# packages this repo's OWN uv.lock pins as editable workspace members here
+# (materialize_own_siblings) so the repo can resolve/lock standalone against
+# its own tracked lock. Dev/lane-machine-only, never tracked -- CI's own
+# `.github/workflows/security.yml` materializes the identical paths with
+# `actions/checkout` instead.
+.uv-workspace-siblings/
 env/
 venv/
 ENV/

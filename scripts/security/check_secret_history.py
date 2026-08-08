@@ -378,9 +378,13 @@ def _self_check() -> tuple[int, dict]:
 
         # Known-bad: a real-shaped AWS key, a GitHub PAT, and a PEM block.
         bad = (
-            "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'\n"  # sanitizer:ignore - deliberate known-bad fixture this test plants+expects the scanner to catch, not a real credential
+            "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'\n"  # sanitizer:ignore - synthetic self-check fixture written into a throwaway tmp git repo, not a real key
             "GITHUB_TOKEN = 'ghp_" + ("a" * 36) + "'\n"
-            "-----BEGIN RSA PRIVATE KEY-----\n"  # sanitizer:ignore - deliberate known-bad PEM fixture this test plants+expects the scanner to catch, not a real key
+            # Built via concatenation (not a contiguous literal) so this synthetic
+            # fixture's own tracked source doesn't trip the pre-commit-hooks
+            # detect-private-key scanner, which has no sanitizer:ignore/marker
+            # support at all -- same convention as the GITHUB_TOKEN line above.
+            "-----BEGIN " + "RSA PRIVATE KEY" + "-----\n"
         )
         (tmp / "leak.py").write_text(bad, encoding="utf-8")
         subprocess.run(["git", "add", "leak.py"], cwd=str(tmp), check=True)

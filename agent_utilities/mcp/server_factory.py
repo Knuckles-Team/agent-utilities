@@ -2096,6 +2096,7 @@ def create_mcp_server(
         )
 
     _register_skill_providers(mcp)
+    _register_prompt_providers(mcp)
 
     return args, mcp, middlewares
 
@@ -2150,3 +2151,78 @@ def _register_skill_providers(mcp: Any) -> None:
         # optional (see the INERT note above); its absence must never stop a
         # server being built. The cause IS logged.
         logger.warning("Could not register skill-over-MCP providers: %s", exc)
+
+
+def _register_prompt_providers(mcp: Any) -> None:
+    """Expose this server's own prompts as ``prompt://`` MCP resources
+    (CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
+    sibling of :func:`_register_skill_providers`'s ``skill://`` wiring).
+
+    Wires one static :class:`~fastmcp.resources.FileResource` per
+    ``*.json`` file under every directory :func:`resolve_prompt_provider_dirs`
+    resolves **in this server's own process** — which, run inside a fleet
+    child's own venv, is exactly that child's own ``prompts/`` directory
+    (its own package is always installed in its own venv, even though it is
+    deliberately NOT co-installed in graph-os's). graph-os cannot see these
+    files by importing this package (``AGENTS.md`` "Dependency discipline"),
+    but it already holds a live probe session to this server, so it reads
+    each ``prompt://{provider}/{stem}`` resource body back over that session
+    (:meth:`~agent_utilities.mcp.multiplexer.MCPMultiplexer._harvest_prompt_bodies`)
+    and promotes it through the SAME ``PromptNode`` primitive the packaged
+    base sweep uses
+    (:func:`agent_utilities.knowledge_graph.ingestion.fleet_prompt_harvest.promote_harvested_prompts`).
+    One discovery-and-write path server-side, two projections (local
+    ``ingest_prompts_to_graph`` for what's co-installed, cross-process
+    harvest for what's not).
+
+    Never raises: a single unreadable provider directory or prompt file logs
+    a ``WARNING`` and is skipped, and any other failure degrades to one
+    ``WARNING`` — serving prompts over the wire must never stop a server
+    being built.
+    """
+    try:
+        from fastmcp.resources import FileResource
+
+        from agent_utilities.core.providers import resolve_prompt_provider_dirs
+
+        registered = 0
+        for provider_name, root_dir in resolve_prompt_provider_dirs():
+            try:
+                json_files = sorted(root_dir.glob("*.json"))
+            except OSError as exc:  # noqa: BLE001 - one unreadable provider
+                # directory must not sink the whole sweep. The cause IS
+                # logged so a systematically broken provider is diagnosable.
+                logger.warning(
+                    "Could not list prompt provider %s: %s", provider_name, exc
+                )
+                continue
+            for json_file in json_files:
+                if json_file.name.startswith("_"):
+                    continue
+                try:
+                    mcp.add_resource(
+                        FileResource(
+                            uri=f"prompt://{provider_name}/{json_file.stem}",
+                            path=json_file,
+                            name=json_file.stem,
+                            mime_type="application/json",
+                        )
+                    )
+                    registered += 1
+                except Exception as exc:  # noqa: BLE001 - one unreadable
+                    # prompt file must not sink the whole sweep. The cause IS
+                    # logged so a systematically broken file is diagnosable.
+                    logger.warning(
+                        "Could not register prompt resource %s/%s: %s",
+                        provider_name,
+                        json_file.stem,
+                        exc,
+                    )
+        logger.info(
+            "Registered %d prompt-over-MCP resource(s) as prompt:// resources",
+            registered,
+        )
+    except Exception as exc:  # noqa: BLE001 - server-side prompt:// support
+        # is optional; its absence must never stop a server being built. The
+        # cause IS logged.
+        logger.warning("Could not register prompt-over-MCP providers: %s", exc)
