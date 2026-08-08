@@ -408,6 +408,42 @@ inspection (`action="stats"` shows both kinds of keys mixed into one
 app-level bundle entry from a raw LMCache token-block hash at a glance). It is
 **not** a second cache implementation.
 
+### Which `kv_backend` the real entrypoint installs — an injectable, auto-detected choice
+
+`compile_model_context` (`agent_utilities/core/contextual_model.py` —
+`create_context_agent`'s single compilation seam, reached by every one of its
+~90+ callers on every model call) never leaves `kv_backend` unset: it always
+passes `_resolve_compiler_cache()`'s result. That resolution is a genuinely
+**injectable** three-tier chain, cheapest/most-specific first:
+
+1. **Explicit override** — `set_context_compiler_cache(backend)` installs ANY
+   object satisfying the duck-typed `get`/`put`(/`delete`) shape above and
+   always wins. This is the literal "inject a KV cache backend" seam — a test
+   double, a custom store, or a hand-picked `EpistemicGraphKVBackend` instance
+   all work the same way. `set_context_compiler_cache(None)` clears the
+   override and falls through to the next tier (it is not a hard disable).
+2. **Networked deployment default** — when no override is installed, bundle
+   caching is enabled (`MODEL_CONTEXT_COMPILER_CACHE_ENABLED=true`, opt-in —
+   see the docstring on `_default_compiler_cache_enabled` for why), AND the
+   engine's remote KV endpoint is configured (`EPISTEMIC_GRAPH_KVCACHE_URL` /
+   `_ADDR` — the SAME signal the LMCache connector itself reads, no separate
+   flag), `_resolve_compiler_cache` auto-installs a lazily-built
+   `EpistemicGraphKVBackend.from_env()` — the fleet-wide, cross-process
+   backend, so a compiled bundle one worker assembles is reusable by every
+   other worker pointed at the same engine.
+3. **In-process fallback** — when caching is enabled but no remote endpoint is
+   configured, `_InProcessBundleCache` (bounded, TTL-expiring, no network)
+   is used instead — single-process reuse only, but zero latency downside.
+
+Before this, tier 2 was plumbed end-to-end (`set_context_compiler_cache`
+existed, was fully unit-tested, and `EpistemicGraphKVBackend` satisfies the
+exact required shape) but had **no caller outside tests** — an operator who
+configured the engine's remote KV endpoint still silently got only the
+single-process cache for compiled bundles. `tests/unit/core/test_contextual_model_bundle_cache.py`
+now proves both the auto-detection logic and, with a wiring test against the
+real `compile_model_context` entrypoint (`tests/wiring.observe` on
+`ContextCompiler.compile`, never mocked), that the argument is actually passed.
+
 ## Serving-layer wire (Seam 6, deep half) — the compiled bundle reaches vLLM's OWN KV cache
 
 The app-level half above caches the *assembled bundle object*; it does not by
