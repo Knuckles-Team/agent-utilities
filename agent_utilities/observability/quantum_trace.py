@@ -86,8 +86,12 @@ def persist_quantum_job(
         "trace_schema_version": TRACE_SCHEMA_VERSION,
         "run_id": trace_ref,
         "operation": str(operation or ""),
-        "actor_ref": persistence_reference("actor", actor or "", namespace="quantum-run"),
-        "tenant_ref": persistence_reference("tenant", tenant or "", namespace="quantum-run"),
+        "actor_ref": persistence_reference(
+            "actor", actor or "", namespace="quantum-run"
+        ),
+        "tenant_ref": persistence_reference(
+            "tenant", tenant or "", namespace="quantum-run"
+        ),
         "backend_id": str(result.get("backend_id") or ""),
         "formalism": str(result.get("formalism") or ""),
         "seed": result.get("seed"),
@@ -104,7 +108,9 @@ def persist_quantum_job(
         # (`"r5_override"` when it did); the full trail is digested (it can carry
         # caller-influenced free text in its `note` fields).
         "backend_override_requested": backend_override_requested,
-        "planner_chosen_backend": planner.get("chosen_backend") if isinstance(planner, dict) else None,
+        "planner_chosen_backend": planner.get("chosen_backend")
+        if isinstance(planner, dict)
+        else None,
         "planner_rule": planner.get("rule") if isinstance(planner, dict) else None,
         "planner_audit_count": len(audit_trail) if isinstance(audit_trail, list) else 0,
         "planner_audit_digest": content_digest(audit_trail),

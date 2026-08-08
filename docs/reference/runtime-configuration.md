@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-552 typed fields · 364 runtime-only call-site inputs.
+553 typed fields · 364 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -270,6 +270,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 |---|---|---|
 | `KG_AUTH_TOKEN_REF` | `Union` | `unset` |
 | `KG_IDENTITY_OAUTH2` | `Union` | `unset` |
+| `KG_ADMIN_BROKER_OAUTH2` | `Union` | `unset` |
 
 ## Fleet events webhook ingress (CONCEPT:AU-OS.config.fleet-event-ingress)
 
@@ -769,13 +770,13 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `EMERALD_API_KEY` | 1 |
 | `EMERALD_URL` | 1 |
 | `ENABLE_DELEGATED_IDENTITY` | 1 |
-| `EPISTEMIC_GRAPH_KVCACHE_ADDR` | 1 |
+| `EPISTEMIC_GRAPH_KVCACHE_ADDR` | 2 |
 | `EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE_REF` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_TOKEN` | 1 |
-| `EPISTEMIC_GRAPH_KVCACHE_URL` | 1 |
+| `EPISTEMIC_GRAPH_KVCACHE_URL` | 2 |
 | `EPISTEMIC_GRAPH_OBS_ADDR` | 1 |
 | `EPISTEMIC_GRAPH_REDB_SHARDS` | 1 |
 | `EPISTEMIC_GRAPH_SOCKET` | 1 |

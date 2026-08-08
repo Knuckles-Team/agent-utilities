@@ -36,7 +36,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from agent_utilities.security.persistence_privacy import persistence_reference
@@ -92,12 +92,15 @@ def _provider_family(backend_id: str) -> str:
 
 
 def _day_bucket(now: datetime | None = None) -> str:
-    return (now or datetime.now(timezone.utc)).strftime("%Y-%m-%d")
+    return (now or datetime.now(UTC)).strftime("%Y-%m-%d")
 
 
 def _window_buckets(now: datetime | None = None) -> list[str]:
-    base = now or datetime.now(timezone.utc)
-    return [(base - timedelta(days=offset)).strftime("%Y-%m-%d") for offset in range(WINDOW_DAYS)]
+    base = now or datetime.now(UTC)
+    return [
+        (base - timedelta(days=offset)).strftime("%Y-%m-%d")
+        for offset in range(WINDOW_DAYS)
+    ]
 
 
 def _usage_node_id(tenant_ref: str, provider_family: str, day_bucket: str) -> str:
@@ -138,15 +141,31 @@ def _load_used_seconds(engine: Any, tenant_ref: str, provider_family: str) -> fl
                 {"id": _usage_node_id(tenant_ref, provider_family, bucket)},
             )
         except Exception as exc:  # noqa: BLE001 -- treat an unreadable bucket as zero, not a crash
-            logger.debug("quantum budget: usage bucket read failed (%s)", type(exc).__name__)
+            logger.debug(
+                "quantum budget: usage bucket read failed (%s)", type(exc).__name__
+            )
             continue
         for row in rows or []:
             raw = row.get("used_seconds") if isinstance(row, dict) else None
             if raw is not None:
                 try:
                     total += max(0.0, float(raw))
-                except (TypeError, ValueError):
-                    pass
+                except (TypeError, ValueError) as exc:
+                    # Not best-effort noise: this is a BUDGET ledger, so an
+                    # unparseable used_seconds silently UNDER-counts usage and
+                    # fails OPEN (a tenant could exceed quota because a corrupt
+                    # row read as zero). Skipping the row is still right --
+                    # refusing every quantum run because one bucket is malformed
+                    # would be worse -- but it must be visible, so warn with the
+                    # real cause rather than dropping it.
+                    logger.warning(
+                        "quantum budget: unparseable used_seconds in bucket %r "
+                        "for %s/%s -- counting it as 0, quota may under-count: %s",
+                        bucket,
+                        tenant_ref,
+                        provider_family,
+                        exc,
+                    )
     return total
 
 

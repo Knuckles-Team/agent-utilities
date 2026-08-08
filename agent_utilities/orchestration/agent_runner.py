@@ -49,6 +49,7 @@ from agent_utilities.orchestration.response_format import (
     validate_response_format,
 )
 from agent_utilities.orchestration.run_identity import new_run_id
+from agent_utilities.security.identifiers import validate_identifier
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -2057,6 +2058,12 @@ def _lookup_server_identity(
     if not name:
         return None
     for label, rel in (("Server", "PROVIDES"), ("MCPServer", "SERVES")):
+        # Hardcoded literals from the tuple above, never caller input, but they
+        # are still interpolated into query text -- validate at the interpolation
+        # site so the invariant is enforced here rather than inferred from how
+        # far away the values happen to be defined.
+        label = validate_identifier(label, "label")
+        rel = validate_identifier(rel, "relationship type")
         try:
             rows = engine.backend.execute(
                 f"MATCH (s:{label} {{name: $name}})-[:{rel}]->(t) "
@@ -2110,6 +2117,7 @@ def _known_kg_server_names(engine: IntelligenceGraphEngine) -> set[str]:
     """
     names: set[str] = set()
     for label in ("MCPServer", "Server"):
+        label = validate_identifier(label, "label")
         try:
             rows = engine.backend.execute(
                 f"MATCH (s:{label}) RETURN s.name AS name", {}
