@@ -93,9 +93,29 @@ def main() -> int:
     if not args.no_tests:
         tests = _mirror_tests(py)
         if tests:
-            results["pytest"] = _run(
-                [sys.executable, "-m", "pytest", "-q", *tests], "pytest (mirrored)"
-            )
+            # D-CDX-17: `sys.executable -m pytest` here is exactly the
+            # documented "poisoned interpreter" trap -- `sys.executable` is
+            # whatever ran THIS script, not necessarily this repo's managed
+            # `.venv` (a bare `uv run pytest`/system pytest silently resolves
+            # to an old fastmcp and produces phantom failures citing this
+            # project's own guards). Routing through
+            # `scripts/uv_workspace.py run --all-extras` fixes that AND
+            # participates in its per-environment sync coordination
+            # (D-W2T-3), instead of running pytest completely unwrapped.
+            if (REPO / "uv.lock").is_file():
+                pytest_cmd = [
+                    sys.executable,
+                    str(REPO / "scripts" / "uv_workspace.py"),
+                    "run",
+                    "--all-extras",
+                    "--",
+                    "pytest",
+                    "-q",
+                    *tests,
+                ]
+            else:
+                pytest_cmd = [sys.executable, "-m", "pytest", "-q", *tests]
+            results["pytest"] = _run(pytest_cmd, "pytest (mirrored)")
         else:
             print("\n(no mirrored test files for the changed modules)")
 

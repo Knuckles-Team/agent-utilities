@@ -44,8 +44,6 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from agent_utilities.core.event_loop import run_blocking_ordered
-
 from .base import TimeSeriesBackend, TimeSeriesDataPoint
 
 logger = logging.getLogger(__name__)
@@ -186,6 +184,42 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         self._report_durability_failure(operation, "no_running_loop")
         return False
 
+    @staticmethod
+    async def _run_offloaded(call: _DurabilityCall) -> object:
+        """Run ``call`` in the default executor without orphaning it on cancel.
+
+        Mirrors :func:`agent_utilities.core.event_loop.run_blocking_ordered`'s
+        cancel-safe retry loop (D-CDX-58): if this coroutine's own task is
+        cancelled while the executor call is still running, keep waiting for
+        it to finish — so an already-started durability write is never left
+        dangling in the background — then re-raise. The difference is the
+        object being waited on: ``loop.run_in_executor`` returns a plain
+        ``asyncio.Future``, not a ``Task``, so this needs no nested
+        ``asyncio.create_task`` the way routing through
+        ``run_blocking_ordered`` (which wraps ``asyncio.to_thread`` in its
+        own task) did — one thread-pool handoff instead of two.
+        """
+        loop = asyncio.get_running_loop()
+        future = loop.run_in_executor(None, call)
+        cancelled = False
+        while not future.done():
+            try:
+                await asyncio.wait({future})
+            except asyncio.CancelledError:
+                cancelled = True
+        if cancelled:
+            try:
+                future.result()
+            except BaseException as exc:  # noqa: BLE001 — caller cancellation supersedes worker failure
+                logger.debug(
+                    "EngineTimeSeriesBackend._run_offloaded: worker failed "
+                    "while the caller was cancelling; cancellation "
+                    "supersedes it: %s",
+                    exc,
+                )
+            raise asyncio.CancelledError
+        return future.result()
+
     async def _run_durability_write(
         self,
         previous: asyncio.Task[bool] | None,
@@ -213,13 +247,28 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         try:
             # The default engine client exposes a synchronous facade that waits
             # on its private engine loop.  Calling it directly from GraphOS's
-            # serving loop would stall that loop, so offload it while retaining
-            # cancellation completion ordering.  Native async clients run on
-            # the current loop directly.
+            # serving loop would stall that loop, so offload it to a worker
+            # thread.  Native async clients run on the current loop directly.
+            #
+            # D-CDX-58: this coroutine is ALREADY running as its own per-series
+            # asyncio.Task (``_queue_durability_write`` created it as
+            # ``runner`` and stored it in ``_pending_writes``). Routing the
+            # offload through ``run_blocking_ordered`` used to wrap it in a
+            # *second* task (its own internal
+            # ``asyncio.create_task(asyncio.to_thread(...))``) purely to get
+            # the same "don't abandon the thread on cancel" guarantee this
+            # task already needs for itself — two tasks and two thread-pool
+            # handoffs measured ~1.0ms/insert versus ~19us/insert for the
+            # direct synchronous path. ``_run_offloaded`` below gets the
+            # IDENTICAL cancel-safety with only one handoff: it waits on the
+            # bare ``asyncio.Future`` that ``loop.run_in_executor`` returns
+            # (never registered in ``asyncio.all_tasks()``, unlike
+            # ``asyncio.to_thread``/``asyncio.create_task``) instead of
+            # wrapping that Future in its own Task.
             if async_callable:
                 result = call()
             else:
-                result = await run_blocking_ordered(call)
+                result = await self._run_offloaded(call)
             if inspect.isawaitable(result):
                 await cast(Awaitable[object], result)
         except asyncio.CancelledError:

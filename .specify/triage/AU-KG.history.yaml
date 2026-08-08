@@ -1,0 +1,37 @@
+domain: AU-KG.history
+generated_at: '2026-08-02T15:51:46+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
+clusters: {}
+concepts:
+  AU-KG.history.scoped-conversation-search:
+    decision: rename
+    parent: ''
+    rationale: ''
+    reason: 'history was never registered in the KG pillar closed vocabulary
+      (agent_utilities/governance/domain_vocab.yaml) and check_domain_vocab.py
+      fails the build on it (D-CC-9); the marker names a real decision
+      (scope-aware conversation-history traversal) that survives whole under a
+      legal domain — retrieval already lists search/recall as signals and is
+      the closest existing home for a search-shaped decision.'
+    rename_to: AU-KG.retrieval.scoped-conversation-search
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in test files — nothing in the shipped tree realises it, which
+      is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files: []
+      test_files:
+      - tests/unit/capabilities/test_eg_history_source.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - tests/unit/capabilities/test_eg_history_source.py:3

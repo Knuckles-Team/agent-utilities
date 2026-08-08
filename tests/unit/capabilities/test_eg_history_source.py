@@ -1,6 +1,6 @@
 """Scope-aware HistorySource over eg's RunTrace/ToolCall provenance (PA-R1.8, Track 5).
 
-CONCEPT:AU-KG.history.scoped-conversation-search — :class:`ScopedEgHistorySource`
+CONCEPT:AU-KG.retrieval.scoped-conversation-search — :class:`ScopedEgHistorySource`
 implements the native ``pydantic_ai_harness.conversation_search.HistorySource`` protocol
 bound to one ``GraphSession`` + one ``root_run_id``, so ``search_conversation_history``
 reaches only runs at or below the calling run's own position in the ``parent_run_id``

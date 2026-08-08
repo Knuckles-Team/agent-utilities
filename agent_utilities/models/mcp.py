@@ -3,6 +3,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from .tool_score import normalize_legacy_relevance_score
+
 SpecialistTier = Literal["light", "medium", "heavy", "reasoning"]
 
 
@@ -95,10 +97,13 @@ class MCPToolInfo(BaseModel):
         that legacy range are converted at this boundary; new writers must
         persist canonical integer points.  Other fractional or out-of-range
         values remain invalid so corrupt rows can be quarantined by callers.
+
+        Delegates to :func:`agent_utilities.models.tool_score.normalize_legacy_relevance_score`,
+        the single source of truth shared with
+        :class:`agent_utilities.models.knowledge_graph.ToolNode` (D-CDX-53/54)
+        so the two models can never apply a different boundary.
         """
-        if isinstance(value, float) and 0.0 <= value <= 1.0:
-            return round(value * 100)
-        return value
+        return normalize_legacy_relevance_score(value)
 
 
 class MCPAgentRegistryModel(BaseModel):

@@ -1057,9 +1057,7 @@ class PostgreSQLBackend(GraphBackend):
         except Exception as e:  # noqa: BLE001 — embedding write is a secondary vector-search accelerator; the node's canonical row is already committed by the primary write path before add_embedding is ever called
             logger.debug("add_embedding failed for %s: %s", node_id, e)
 
-    def verify_node_embedding(
-        self, node_id: str, embedding: list[float]
-    ) -> bool:
+    def verify_node_embedding(self, node_id: str, embedding: list[float]) -> bool:
         """Confirm the durable pgvector value after a mirror replay write."""
         if not self.pgvector_available:
             return False

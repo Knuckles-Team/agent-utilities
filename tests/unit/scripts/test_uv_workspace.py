@@ -688,6 +688,171 @@ def test_run_uv_does_not_pool_gate_an_ordinary_test_execution(
 
 
 # ---------------------------------------------------------------------------
+# D-W2T-3: a second `uv_workspace.py run` invocation against the SAME
+# environment, launched while a first invocation's long-running child was
+# still executing, used to trigger a second concurrent `uv sync` that
+# corrupted the environment out from under the running child (measured:
+# `.venv/bin/pytest` briefly missing mid-run). `_acquire_environment_activity`
+# is the readers-writer flock that closes this specific race.
+# ---------------------------------------------------------------------------
+def test_environment_activity_lets_only_one_sync_win_while_a_reader_is_active(
+    tmp_path: Path,
+) -> None:
+    """A live reader (an exec'd child) must make a concurrent writer lose."""
+    environment_path = tmp_path / ".venv"
+    environment_path.mkdir()
+
+    handle_a, won_a = uv_workspace._acquire_environment_activity(
+        environment_path, want_sync=True
+    )
+    assert won_a is True, "the first, uncontended caller must win the sync"
+    uv_workspace._downgrade_environment_activity(handle_a)  # A is now a reader
+
+    results: dict[str, bool] = {}
+
+    def contend() -> None:
+        handle_b, won_b = uv_workspace._acquire_environment_activity(
+            environment_path, want_sync=True
+        )
+        results["b_won"] = won_b
+        uv_workspace._release_environment_activity(handle_b)
+
+    thread = threading.Thread(target=contend)
+    thread.start()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+    assert results["b_won"] is False, (
+        "B must lose the sync race while A is still reading -- winning here is "
+        "exactly the D-W2T-3 corruption window (a second `uv sync` against an "
+        "environment a sibling's child is actively running in)"
+    )
+
+    uv_workspace._release_environment_activity(handle_a)
+
+    # Once A releases, the environment is free again and a fresh sync can win.
+    handle_c, won_c = uv_workspace._acquire_environment_activity(
+        environment_path, want_sync=True
+    )
+    assert won_c is True
+    uv_workspace._release_environment_activity(handle_c)
+
+
+def test_environment_activity_readers_never_block_each_other(tmp_path: Path) -> None:
+    """Two invocations that both skip syncing (or already synced) may read
+    the SAME environment concurrently -- this is not an exclusive lock for
+    ordinary concurrent test runs, only for a sync racing a reader."""
+    environment_path = tmp_path / ".venv"
+    environment_path.mkdir()
+
+    handle_a, _ = uv_workspace._acquire_environment_activity(
+        environment_path, want_sync=False
+    )
+    results: dict[str, bool] = {}
+
+    def contend() -> None:
+        handle_b, won_b = uv_workspace._acquire_environment_activity(
+            environment_path, want_sync=False
+        )
+        results["b_acquired"] = True
+        uv_workspace._release_environment_activity(handle_b)
+
+    thread = threading.Thread(target=contend)
+    thread.start()
+    thread.join(timeout=5)
+    assert not thread.is_alive(), "a second reader must not block behind the first"
+    assert results.get("b_acquired") is True
+    uv_workspace._release_environment_activity(handle_a)
+
+
+def test_run_uv_never_overlaps_two_syncs_against_the_same_environment(
+    tmp_path: Path,
+) -> None:
+    """End-to-end proof at the `run_uv()` level, using real subprocesses.
+
+    Invocation A's `prepare` step is a real (slow) command that stamps
+    SYNC-START/SYNC-END around a sleep; invocation B starts mid-way through
+    A's prepare/exec and shares the SAME `environment_path`. Proven against
+    the restored bug: with `_acquire_environment_activity` replaced by a
+    no-op that always reports a win (the pre-fix shape -- no coordination at
+    all), the same test observes an OVERLAPPING SYNC-START before the first
+    SYNC-END, reproducing the corruption window this fix closes.
+    """
+    workspace = tmp_path / "workspace"
+    shadow = tmp_path / "shadow"
+    worktree = tmp_path / "worktree"
+    for directory in (workspace, shadow, worktree):
+        directory.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    environment_path = worktree / ".venv"
+    environment_path.mkdir()
+    sync_log = tmp_path / "sync_log.txt"
+
+    prepare_cmd = [
+        sys.executable,
+        "-c",
+        "import time, pathlib, sys; p = pathlib.Path(sys.argv[1]); "
+        "f = p.open('a'); f.write('SYNC-START\\n'); f.close(); "
+        "time.sleep(0.4); "
+        "f = p.open('a'); f.write('SYNC-END\\n'); f.close()",
+        str(sync_log),
+    ]
+    long_child_cmd = [sys.executable, "-c", "import time; time.sleep(1.0)"]
+
+    results: dict[str, int] = {}
+
+    def invocation_a() -> None:
+        results["a_rc"] = uv_workspace.run_uv(
+            long_child_cmd,
+            worktree=worktree,
+            environment=dict(os.environ),
+            workspace=workspace,
+            shadow=shadow,
+            prepare=[prepare_cmd],
+            environment_path=environment_path,
+        )
+
+    def invocation_b() -> None:
+        threading.Event().wait(0.15)  # start while A is still mid-sync/reading
+        results["b_rc"] = uv_workspace.run_uv(
+            [sys.executable, "-c", "pass"],
+            worktree=worktree,
+            environment=dict(os.environ),
+            workspace=workspace,
+            shadow=shadow,
+            prepare=[prepare_cmd],
+            environment_path=environment_path,
+        )
+
+    thread_a = threading.Thread(target=invocation_a)
+    thread_b = threading.Thread(target=invocation_b)
+    thread_a.start()
+    thread_b.start()
+    thread_a.join(timeout=15)
+    thread_b.join(timeout=15)
+    assert not thread_a.is_alive() and not thread_b.is_alive()
+    assert results.get("a_rc") == 0
+    assert results.get("b_rc") == 0
+
+    lines = sync_log.read_text().splitlines()
+    depth = 0
+    overlapping = False
+    for line in lines:
+        if line == "SYNC-START":
+            if depth > 0:
+                overlapping = True
+            depth += 1
+        elif line == "SYNC-END":
+            depth -= 1
+    assert not overlapping, (
+        "two `uv sync`-shaped prepare steps overlapped against the SAME "
+        "environment -- this is the D-W2T-3 corruption window"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Interpreter guard (D-SP-4). `uv run pytest` does not fail when the environment
 # lacks pytest — it falls through to the system one and runs the project's tests
 # under /usr/bin/python against system site-packages.

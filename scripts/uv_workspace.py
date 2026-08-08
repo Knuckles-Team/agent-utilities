@@ -325,6 +325,112 @@ def _dependency_sync_slot() -> Iterator[None]:
                 os.close(handle)
 
 
+def _environment_activity_lock_path(environment_path: Path) -> Path:
+    """Lock file coordinating readers/writers of one partitioned environment.
+
+    One file per environment directory (keyed by its own path), so distinct
+    selections in the same worktree (``.venv`` vs ``.venv-base``) never
+    contend with each other — only concurrent invocations that resolved to
+    the SAME ``environment_path`` do.
+    """
+    environment_path.parent.mkdir(parents=True, exist_ok=True)
+    return environment_path.parent / f"{environment_path.name}.activity.lock"
+
+
+def _acquire_environment_activity(
+    environment_path: Path, *, want_sync: bool, sync_mandatory: bool = False
+) -> tuple[int, bool]:
+    """Readers-writer coordination for one partitioned environment (D-W2T-3).
+
+    A second ``uv_workspace.py run`` invocation in the SAME worktree and
+    selection, launched while a first invocation's long-running child
+    (pytest, etc.) was still executing, used to trigger a SECOND, concurrent
+    ``uv sync`` against the SAME ``.venv`` — mid-sync, uv removes and
+    reinstalls entry-point scripts, and a forkserver child re-exec'ing
+    ``.venv/bin/pytest`` found it briefly gone, corrupting an otherwise-clean
+    baseline run (measured live: 933 failed / 477 errors, almost entirely
+    contamination, confirmed by re-running the same targets in isolation
+    immediately afterward — 77 passed / 0 failed). ``_dependency_sync_slot()``
+    does not close this: it bounds how many syncs run *concurrently
+    workspace-wide*, but releases before the child execs, so nothing stopped
+    a SECOND sync of the SAME environment while the FIRST invocation's child
+    was still reading it.
+
+    One flock per environment directory arbitrates that specific race:
+
+    * a ``uv sync`` (``want_sync=True``) tries a NON-BLOCKING exclusive lock
+      first. Winning means no other invocation currently has a child running
+      against this environment (no readers) and no sibling is mid-sync (no
+      other writer) — safe to sync.
+    * losing that race (or not wanting to sync at all) falls through to a
+      BLOCKING shared-lock wait — immediate if the current holder is only
+      readers (SH+SH is compatible), but genuinely blocks until a current
+      WRITER's sync finishes, so this invocation is never hands a child a
+      torn, mid-sync environment.
+    * every invocation, writer or not, ends up holding a SHARED lock for the
+      remainder of its work (see :func:`_downgrade_environment_activity`) —
+      normally the child process's entire lifetime — so a LATER sibling's own
+      writer attempt correctly loses the exclusive race and skips its sync
+      instead of mutating a live one. Suggested fix (b) from the incident
+      report: "detect an in-progress sync/run ... and skip re-syncing".
+
+    ``sync_mandatory`` covers the DIFFERENT shape where the sync is not an
+    optional pre-step this invocation could skip but the very operation the
+    caller asked for (a bare ``uv sync``/``uv lock``, or a ``run`` whose
+    selection this launcher could not partition — ``execute_is_heavy_sync``
+    in :func:`run_uv`). There, "lose the race, read stale state instead" is
+    not a valid fallback, so this BLOCKS for the exclusive lock instead of
+    trying non-blocking-then-falling-back-to-shared; ``won_sync`` is always
+    ``True`` when it returns.
+
+    Returns ``(fd, won_sync)``. The caller performs the actual ``uv sync``
+    subprocess itself (this function only arbitrates); once it is done, call
+    :func:`_downgrade_environment_activity` before exec'ing the child, and
+    always call :func:`_release_environment_activity` when finished.
+
+    **Stated plainly.** This is a ``flock`` — filesystem-local and advisory.
+    It coordinates concurrent ``uv_workspace.py`` invocations *on this one
+    host* against *this one environment directory*. It provides no
+    protection against a bare ``uv sync``/``pip install`` run outside this
+    launcher (that residual gap is D-VI-1, deliberately not closed here) and
+    no cross-host guarantee for an environment directory reachable from more
+    than one machine.
+    """
+    lock_path = _environment_activity_lock_path(environment_path)
+    handle = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o644)
+    won_sync = False
+    if want_sync:
+        if sync_mandatory:
+            fcntl.flock(handle, fcntl.LOCK_EX)  # blocking: this call IS the sync
+            won_sync = True
+        else:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                won_sync = True
+            except OSError:
+                won_sync = False
+    if not won_sync:
+        fcntl.flock(handle, fcntl.LOCK_SH)
+    return handle, won_sync
+
+
+def _downgrade_environment_activity(handle: int) -> None:
+    """After a won sync completes, drop the exclusive lock to shared (reader).
+
+    A second call with the same fd already holding SH is a harmless no-op —
+    flock re-locking the same fd simply reasserts the mode.
+    """
+    fcntl.flock(handle, fcntl.LOCK_SH)
+
+
+def _release_environment_activity(handle: int) -> None:
+    """Release and close a handle from :func:`_acquire_environment_activity`."""
+    try:
+        fcntl.flock(handle, fcntl.LOCK_UN)
+    finally:
+        os.close(handle)
+
+
 @contextmanager
 def _shadow_materialization_lock(shadow: Path) -> Iterator[None]:
     """Serialize materialization of *shadow* across concurrent invocations.
@@ -447,6 +553,95 @@ def _materialize_shadow(
     finally:
         staged_marker.unlink(missing_ok=True)
     return shadow
+
+
+_OWN_SIBLINGS_DIRNAME = ".uv-workspace-siblings"
+
+
+def has_own_tracked_lock(worktree: Path) -> bool:
+    """Detect whether *worktree*'s own repository tracks its own ``uv.lock``.
+
+    D-75-1 / D-CIP-19 / D-W3BP-4 (operator decision, 2026-08-07): gates used to
+    validate every invocation against the shared, untracked, unshipped
+    ecosystem-workspace lock at ``workspace/uv.lock`` -- even for a repository
+    that ships its own tracked lock and is fully standalone-resolvable on its
+    own. That let a workspace-wide override silently defeat a repo's own,
+    correctly-raised dependency floor (the cryptography CVE fix), and made
+    every gate route through machinery (the giant shared shadow) that a
+    single-repo change had no reason to depend on.
+
+    The fix is detection, not a hardcoded switch: a repository that commits
+    its own ``uv.lock`` is authoritative for itself -- resolve and validate
+    directly against ITS OWN tree. A repository with no tracked lock of its
+    own (there is currently none among this launcher's callers, but nothing
+    prevents one existing later) falls back to the shared ecosystem workspace,
+    unchanged. This is a boolean fact about the tree (``git ls-files``), not a
+    config flag a repo owner has to remember to set.
+    """
+    lock = worktree / "uv.lock"
+    if not lock.is_file():
+        return False
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--error-unmatch", "--", "uv.lock"],
+            cwd=worktree,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return result.returncode == 0 and result.stdout.strip() != ""
+
+
+def _own_sibling_member_names(worktree: Path) -> list[str]:
+    """Return the sibling package names ``[tool.uv.workspace]`` expects under
+    ``.uv-workspace-siblings/`` in *worktree*'s own, self-hosted workspace."""
+    config = _workspace_config(worktree)
+    if config is None:
+        return []
+    members = config.get("members", [])
+    if not isinstance(members, list):
+        return []
+    names: list[str] = []
+    prefix = f"{_OWN_SIBLINGS_DIRNAME}/"
+    for member in members:
+        if isinstance(member, str) and member.startswith(prefix):
+            names.append(member[len(prefix) :])
+    return names
+
+
+def materialize_own_siblings(worktree: Path, workspace: Path) -> None:
+    """Symlink *worktree*'s ``.uv-workspace-siblings/<name>`` entries to the
+    real sibling checkouts already present in the ecosystem workspace tree.
+
+    Mirrors, at repo scope, exactly what CI's own ``actions/checkout`` steps
+    materialize at the same relative paths for the same reason (see
+    ``.github/workflows/security.yml`` and
+    ``scripts/security/check_ci_environment_contract.py``): agent-utilities'
+    own ``[tool.uv.sources]`` pins ``epistemic-graph``/``langfuse-agent`` as
+    editable workspace members at ``.uv-workspace-siblings/<name>``, a path
+    that does not exist in a bare checkout. On a dev machine or lane worktree
+    the real sibling repos already exist in the ecosystem tree, so a symlink
+    is all that is needed -- no clone, no copy.
+    """
+    names = _own_sibling_member_names(worktree)
+    if not names:
+        return
+    config = _workspace_config(workspace)
+    if config is None:
+        raise RuntimeError(f"{workspace} is not a uv workspace")
+    members = _workspace_members(workspace, config)
+    by_name = {member.name: member for member in members}
+    missing = [name for name in names if name not in by_name]
+    if missing:
+        raise RuntimeError(
+            "cannot materialize .uv-workspace-siblings/: "
+            f"{', '.join(missing)} not found among ecosystem workspace members "
+            f"under {workspace}"
+        )
+    for name in names:
+        _safe_symlink(worktree / _OWN_SIBLINGS_DIRNAME / name, by_name[name])
 
 
 def split_selection(tail: Sequence[str]) -> tuple[list[str], bool, int]:
@@ -625,8 +820,25 @@ def uv_plan(
     *,
     worktree: Path,
     shadow: Path,
+    own_lock: bool = False,
 ) -> UvPlan:
-    """Build the partitioned, sync-before-exec plan for this worktree."""
+    """Build the partitioned, sync-before-exec plan for this worktree.
+
+    ``shadow`` is the ``--project`` root uv resolves against: the shared
+    ecosystem shadow workspace for a repo with no tracked lock of its own, or
+    ``worktree`` itself for a repo whose own ``uv.lock`` is authoritative
+    (:func:`has_own_tracked_lock`). The parameter keeps its name for callers,
+    but it is a *resolution project root*, not necessarily a generated shadow.
+
+    ``own_lock`` additionally passes ``--prerelease allow``, matching how this
+    repo's own tracked lock is actually produced (it floors on
+    ``fastmcp>=4.0.0b1``, a pre-release). uv only honours ``[tool.uv]``
+    override-dependencies/prerelease-mode settings declared in the WORKSPACE
+    ROOT manifest -- see the identical note in the ecosystem workspace root's
+    own ``pyproject.toml`` -- and a repo resolving standalone against itself
+    IS that root, so the flag has to travel with the invocation rather than
+    live in a config key.
+    """
     uv = shutil.which("uv")
     if uv is None:
         raise RuntimeError("uv is not installed or visible on PATH")
@@ -645,6 +857,9 @@ def uv_plan(
 
     prepare: list[tuple[str, ...]] = []
     base = [uv, "--project", str(shadow)]
+    # ``--prerelease`` is a per-subcommand option, not a global ``uv`` flag, so
+    # it has to land after the subcommand token in every command built below.
+    prerelease = ["--prerelease", "allow"] if own_lock else []
     if subcommand == "run":
         if recognized:
             # Synchronise explicitly, then exec without syncing, so this
@@ -658,25 +873,51 @@ def uv_plan(
                     "sync",
                     "--locked",
                     "--inexact",
+                    *prerelease,
                     "--package",
                     PROJECT_NAME,
                     *selection,
                 )
             )
-            command = [*base, "run", "--no-sync", "--locked", "--package", PROJECT_NAME]
+            command = [
+                *base,
+                "run",
+                "--no-sync",
+                "--locked",
+                *prerelease,
+                "--package",
+                PROJECT_NAME,
+            ]
         else:
-            command = [*base, "run", "--locked", "--package", PROJECT_NAME]
+            command = [*base, "run", "--locked", *prerelease, "--package", PROJECT_NAME]
         command.extend(tail)
     elif subcommand == "sync":
-        command = [*base, "sync", "--locked", "--package", PROJECT_NAME, *tail]
+        command = [*base, "sync", "--locked", *prerelease, "--package", PROJECT_NAME, *tail]
     elif subcommand == "lock":
-        command = [*base, "lock", "--locked", *tail]
+        command = [*base, "lock", "--locked", *prerelease, *tail]
     else:
         command = [*base, *arguments]
 
     directory = environment_path(worktree, selection)
     environment = os.environ.copy()
     environment.pop("PYTHONPATH", None)
+    # D-W5ALC-1 / D-GS27-2: when this launcher runs as (or under) a git hook
+    # -- `git commit`/`git push` set GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and
+    # GIT_PREFIX in the hook's own subprocess environment, pointing at THIS
+    # repository. Left in place, `os.environ.copy()` above carries them
+    # straight into the `uv` subprocess and, from there, into every git
+    # subprocess `uv` itself shells out to -- including fetching an unrelated
+    # workspace-member git dependency (searxng) into its own, completely
+    # different clone under ~/.cache/uv/git-v0/. That child `git fetch` then
+    # inherits a GIT_DIR pointing at agent-utilities' worktree gitdir, which
+    # is meaningless relative to the searxng clone's own directory, and fails
+    # with "fatal: not a git repository (or any parent up to mount point /)".
+    # Reproduced directly (no git hook involved): exporting GIT_DIR/
+    # GIT_INDEX_FILE to this worktree's real values before invoking this
+    # module standalone reproduces the identical failure; unsetting them
+    # fixes it. Same class of leak as the PYTHONPATH strip above, same fix.
+    for leaked in ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_PREFIX"):
+        environment.pop(leaked, None)
     environment["UV_PROJECT_ENVIRONMENT"] = str(directory)
     environment[_NATIVE_ARTIFACT_CACHE_ENV] = str(_native_artifact_cache_root())
     # D-ORC-33: `prepare`'s own sync step is always pool-gated (see run_uv()).
@@ -735,9 +976,47 @@ def _environment_evidence(worktree: Path) -> list[dict[str, Any]]:
 
 
 def doctor_payload(
-    worktree: Path, canonical: Path, workspace: Path, shadow: Path
+    worktree: Path,
+    canonical: Path,
+    workspace: Path,
+    shadow: Path,
+    *,
+    own_lock: bool = False,
 ) -> dict:
-    """Return bounded evidence that the shadow executes the worktree member."""
+    """Return bounded evidence of how *worktree* resolves.
+
+    Two disjoint shapes (D-75-1/D-CIP-19/D-W3BP-4): a repo with its own
+    tracked ``uv.lock`` resolves directly against itself (``own_lock=True``,
+    ``shadow == worktree``) and is evidenced by its declared
+    ``.uv-workspace-siblings/`` entries actually being materialized; a repo
+    with no lock of its own still resolves through the generated ecosystem
+    shadow and is evidenced exactly as before.
+    """
+    if own_lock:
+        names = _own_sibling_member_names(worktree)
+        siblings = {}
+        for name in names:
+            link = worktree / _OWN_SIBLINGS_DIRNAME / name
+            siblings[name] = {
+                "path": str(link),
+                "is_symlink": link.is_symlink(),
+                "resolves": link.exists(),
+            }
+        return {
+            "status": "ok",
+            "resolution_mode": "own_tracked_lock",
+            "external_worktree": worktree != canonical,
+            "worktree": str(worktree),
+            "canonical_repository": str(canonical),
+            "workspace_root": str(workspace),
+            "project_root": str(shadow),
+            "environments": _environment_evidence(worktree),
+            "member_resolves_to_worktree": True,
+            "siblings": siblings,
+            "siblings_materialized": all(
+                entry["resolves"] for entry in siblings.values()
+            ),
+        }
     member = shadow / canonical.relative_to(workspace)
     manifest = shadow / "pyproject.toml"
     lock = shadow / "uv.lock"
@@ -745,6 +1024,7 @@ def doctor_payload(
     canonical_lock = workspace / "uv.lock"
     return {
         "status": "ok",
+        "resolution_mode": "ecosystem_shadow",
         "external_worktree": worktree != canonical,
         "worktree": str(worktree),
         "canonical_repository": str(canonical),
@@ -796,6 +1076,14 @@ def run_uv(
     for) is deliberately left OUTSIDE the pool: capping that too would cap
     general lane parallelism, not just the disk/cache contention this item
     measured.
+
+    D-W2T-3: whenever ``environment_path`` is known, the WHOLE call (prepare
+    through execute) also holds ``_acquire_environment_activity()``'s
+    readers-writer lock for that one environment directory, so a sibling
+    invocation against the SAME environment either serializes its sync ahead
+    of us, or -- if we are already reading -- skips its own sync rather than
+    mutating the environment out from under our still-running child. See that
+    function's docstring for exactly what this does and does not guarantee.
     """
     protected = (
         workspace / "pyproject.toml",
@@ -812,47 +1100,81 @@ def run_uv(
                 "uv changed a lock-governed workspace input: " + ", ".join(changed)
             )
 
-    for step in prepare:
-        with _dependency_sync_slot():
-            step_result = subprocess.run(
-                list(step),
-                cwd=worktree,
-                env=environment,
-                check=False,
+    activity_handle: int | None = None
+    won_sync = True
+    if environment_path is not None:
+        want_sync = bool(prepare) or execute_is_heavy_sync
+        activity_handle, won_sync = _acquire_environment_activity(
+            environment_path,
+            want_sync=want_sync,
+            sync_mandatory=execute_is_heavy_sync,
+        )
+    try:
+        if prepare and not won_sync:
+            print(
+                f"uv_workspace: another invocation is already using "
+                f"{environment_path} -- skipping `uv sync` for this "
+                "invocation and running directly against its current state "
+                "(D-W2T-3). This only coordinates uv_workspace.py "
+                "invocations on this host; it is not a guarantee against a "
+                "bare `uv sync`/`pip install` run outside this launcher "
+                "(D-VI-1).",
+                file=sys.stderr,
             )
-        _assert_unchanged()
-        if step_result.returncode != 0:
-            return step_result.returncode
-    if environment_path is not None and command_name is not None:
-        foreign = foreign_python_console_script(command_name, environment_path)
-        if foreign is not None:
-            raise RuntimeError(
-                f"refusing to run {command_name!r}: it is not installed in "
-                f"{environment_path}, so uv would fall through to {foreign} and "
-                "execute against a DIFFERENT interpreter and site-packages. That "
-                "run would still execute this project's fail-closed guards, which "
-                "would then report truthfully about the wrong environment and look "
-                "authoritative. Request the extras that provide "
-                f"{command_name!r} (for the test suite: --all-extras), or invoke it "
-                "as 'python -m' so it can only resolve inside the environment."
-            )
-    if execute_is_heavy_sync:
-        with _dependency_sync_slot():
+        else:
+            for step in prepare:
+                with _dependency_sync_slot():
+                    step_result = subprocess.run(
+                        list(step),
+                        cwd=worktree,
+                        env=environment,
+                        check=False,
+                    )
+                _assert_unchanged()
+                if step_result.returncode != 0:
+                    return step_result.returncode
+        if activity_handle is not None and not execute_is_heavy_sync:
+            # Sync (if any) is done; become a plain reader for the exec below
+            # so a LATER sibling's sync attempt correctly loses the exclusive
+            # race instead of mutating a live child's environment. Skipped
+            # when `execute_is_heavy_sync` is true and we won the write lock:
+            # in that shape the sync is baked into `execute` itself (a bare
+            # `sync`/`lock`, or a `run` this launcher could not partition),
+            # so the exclusive lock must stay held through it.
+            _downgrade_environment_activity(activity_handle)
+        if environment_path is not None and command_name is not None:
+            foreign = foreign_python_console_script(command_name, environment_path)
+            if foreign is not None:
+                raise RuntimeError(
+                    f"refusing to run {command_name!r}: it is not installed in "
+                    f"{environment_path}, so uv would fall through to {foreign} and "
+                    "execute against a DIFFERENT interpreter and site-packages. That "
+                    "run would still execute this project's fail-closed guards, which "
+                    "would then report truthfully about the wrong environment and look "
+                    "authoritative. Request the extras that provide "
+                    f"{command_name!r} (for the test suite: --all-extras), or invoke it "
+                    "as 'python -m' so it can only resolve inside the environment."
+                )
+        if execute_is_heavy_sync:
+            with _dependency_sync_slot():
+                result = subprocess.run(
+                    command,
+                    cwd=worktree,
+                    env=environment,
+                    check=False,
+                )
+        else:
             result = subprocess.run(
                 command,
                 cwd=worktree,
                 env=environment,
                 check=False,
             )
-    else:
-        result = subprocess.run(
-            command,
-            cwd=worktree,
-            env=environment,
-            check=False,
-        )
-    _assert_unchanged()
-    return result.returncode
+        _assert_unchanged()
+        return result.returncode
+    finally:
+        if activity_handle is not None:
+            _release_environment_activity(activity_handle)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -869,30 +1191,39 @@ def main(argv: list[str] | None = None) -> int:
     worktree = repository_root(Path.cwd())
     canonical = canonical_repository(worktree)
     workspace = workspace_root(canonical)
-    shadow = shadow_workspace(worktree, canonical, workspace)
+    own_lock = has_own_tracked_lock(worktree)
+    if own_lock:
+        # D-75-1/D-CIP-19/D-W3BP-4: this repo ships its own tracked uv.lock --
+        # resolve and validate directly against ITS OWN tree, not the shared
+        # ecosystem shadow. Still need the ecosystem tree for exactly one
+        # thing: locating the real sibling checkouts to symlink in (the
+        # ecosystem workspace is not otherwise consulted).
+        materialize_own_siblings(worktree, workspace)
+        shadow = worktree
+    else:
+        shadow = shadow_workspace(worktree, canonical, workspace)
 
     if namespace.uv_arguments == ["doctor"]:
-        payload = doctor_payload(worktree, canonical, workspace, shadow)
+        payload = doctor_payload(worktree, canonical, workspace, shadow, own_lock=own_lock)
         print(json.dumps(payload, indent=2, sort_keys=True))
-        return (
-            0
-            if all(
-                payload[key]
-                for key in (
-                    "member_resolves_to_worktree",
-                    "manifest_is_generated_copy",
-                    "manifest_matches_canonical",
-                    "lock_is_generated_copy",
-                    "lock_matches_canonical",
-                )
+        required_keys = (
+            ("member_resolves_to_worktree", "siblings_materialized")
+            if own_lock
+            else (
+                "member_resolves_to_worktree",
+                "manifest_is_generated_copy",
+                "manifest_matches_canonical",
+                "lock_is_generated_copy",
+                "lock_matches_canonical",
             )
-            else 1
         )
+        return 0 if all(payload[key] for key in required_keys) else 1
 
     plan = uv_plan(
         namespace.uv_arguments,
         worktree=worktree,
         shadow=shadow,
+        own_lock=own_lock,
     )
     returncode = run_uv(
         list(plan.execute),

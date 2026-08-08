@@ -227,6 +227,13 @@ parents:
     rationale: 'The write half of the adaptive router loop: feedback.py:374-384 forwards a model_route:
       action outcome into record_model_outcome, training the very reward-EMA the parent decision reads.
       Same loop, opposite end.'
+renamed:
+  AU-KG.history.scoped-conversation-search:
+    reason: history was never registered in the KG pillar closed vocabulary (agent_utilities/governance/domain_vocab.yaml)
+      and check_domain_vocab.py fails the build on it (D-CC-9); the marker names a real decision (scope-aware
+      conversation-history traversal) that survives whole under a legal domain — retrieval already lists
+      search/recall as signals and is the closest existing home for a search-shaped decision.
+    to: AU-KG.retrieval.scoped-conversation-search
 retired:
   AU-KG.compute.automates:
     reason: a single generic verb naming an ontology EDGE TYPE (AUTOMATES), not a decision; the connector-to-skill

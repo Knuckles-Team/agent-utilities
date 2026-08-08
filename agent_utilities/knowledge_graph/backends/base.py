@@ -286,9 +286,7 @@ class GraphBackend(ABC):
         """Add an embedding vector to a specific node."""
         pass
 
-    def verify_node_embedding(
-        self, node_id: str, embedding: list[float]
-    ) -> bool:
+    def verify_node_embedding(self, node_id: str, embedding: list[float]) -> bool:
         """Read after write and confirm a mirror's durable vector value.
 
         Optional mirror capability. Fan-out replay must not advance its cursor

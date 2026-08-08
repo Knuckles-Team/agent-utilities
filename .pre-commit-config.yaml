@@ -471,8 +471,23 @@ repos:
     name: Guardrail — gate meta-tests (prove every gate can fail)
     # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees
     # are gated on their OWN gate tests, matching the prod-profile guard above.
-    # AGENT_UTILITIES_ALLOW_ANY_INTERPRETER: same sanctioned D-CC-6 exception.
-    entry: bash -c 'AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""'
+    # D-CDOC-2: this suite imports the live MCP server surface (kg_server ->
+    # gen_capability_power -> fastmcp), which the AGENT_UTILITIES_ALLOW_ANY_
+    # INTERPRETER escape hatch used to route through the AMBIENT `python3` --
+    # a single host-wide interpreter carrying a SHARED, mutable, non-venv
+    # editable install of agent_utilities (whichever worktree last ran a
+    # system-level `pip install -e .`) plus a stale fastmcp==3.3.1 with no
+    # `fastmcp.server.extensions`. That produced two confirmed failure modes:
+    # a crash (ModuleNotFoundError: fastmcp.server.extensions) and, worse, a
+    # SILENT cross-lane leak -- a traceback rooted entirely in a DIFFERENT,
+    # concurrently-running lane's worktree path while this lane's own hook
+    # run believed it was checking its own tree. Routing through this
+    # worktree's own managed .venv (like the CI-parity suites below) makes
+    # `agent_utilities` and `fastmcp` resolve to what THIS lane actually
+    # committed, every time. Not a D-CC-6 exception: that escape hatch is for
+    # genuinely engine-free, dependency-light checks (see backend-interface-
+    # parity), not for a suite that imports the full MCP surface.
+    entry: bash -c 'if [ -f uv.lock ]; then python3 scripts/uv_workspace.py run --all-extras -- python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""; else AGENT_UTILITIES_ALLOW_ANY_INTERPRETER=1 python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""; fi'
     language: system
     pass_filenames: false
     always_run: true

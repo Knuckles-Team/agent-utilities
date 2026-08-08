@@ -145,6 +145,40 @@ def _prompt_id(source_label: str, name: str, data: dict[str, Any]) -> str:
     return f"prompt:{source_label}/{name}"
 
 
+def ingest_prompt_node(
+    engine: Any, *, source_label: str, stem: str, data: dict[str, Any]
+) -> str:
+    """Write ONE prompt through the canonical ``PromptNode`` shape/id scheme.
+
+    Single writer for both the on-disk boot sweep
+    (:func:`ingest_prompts_to_graph`, packaged base + operator overlay) and the
+    cross-process fleet prompt harvest
+    (:mod:`agent_utilities.knowledge_graph.ingestion.fleet_prompt_harvest`,
+    CONCEPT:AU-ECO.mcp.cross-process-prompt-harvest — the ``prompt://``
+    sibling of the skill harvest), so a prompt has ONE node shape and ONE id
+    scheme regardless of which path discovered it. Returns the written node id.
+    """
+    from agent_utilities.models.knowledge_graph import PromptNode
+
+    name, description, capabilities, system_prompt = _resolve_fields(data, stem)
+    node_id = _prompt_id(source_label, name, data)
+    ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    node = PromptNode(
+        id=node_id,
+        name=name,
+        description=description,
+        system_prompt=system_prompt,
+        json_blueprint=data,
+        capabilities=capabilities,
+        type=RegistryNodeType.PROMPT,
+        timestamp=ts,
+        is_permanent=True,
+    )
+    serialized_data = engine._serialize_node(node, label="Prompt")
+    engine._upsert_node("Prompt", node.id, serialized_data)
+    return node_id
+
+
 def _iter_prompt_sources() -> list[tuple[str, Path]]:
     """Build the ordered ``(source_label, json_file)`` list for prompt ingestion.
 
@@ -303,7 +337,6 @@ async def ingest_prompts_to_graph():
 
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.ingestion.manifest import DeltaManifest
-    from agent_utilities.models.knowledge_graph import PromptNode
 
     workspace = get_agent_workspace()
 
@@ -372,25 +405,10 @@ async def ingest_prompts_to_graph():
             )
 
             try:
-                name, description, capabilities, system_prompt = _resolve_fields(
-                    data, stem
-                )
-                node_id = _prompt_id(source_label, name, data)
-                ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-                node = PromptNode(
-                    id=node_id,
-                    name=name,
-                    description=description,
-                    system_prompt=system_prompt,
-                    json_blueprint=data,
-                    capabilities=capabilities,
-                    type=RegistryNodeType.PROMPT,
-                    timestamp=ts,
-                    is_permanent=True,
+                node_id = ingest_prompt_node(
+                    engine, source_label=source_label, stem=stem, data=data
                 )
                 logger.debug("Ingesting prompt %s via engine.upsert", node_id)
-                serialized_data = engine._serialize_node(node, label="Prompt")
-                engine._upsert_node("Prompt", node.id, serialized_data)
                 # Record the new hash only after a successful upsert so a
                 # failed/partial write retries on the next run.
                 if manifest is not None and content_hash is not None:

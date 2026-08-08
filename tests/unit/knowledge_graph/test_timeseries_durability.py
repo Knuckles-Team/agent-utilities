@@ -282,6 +282,45 @@ async def test_sync_client_does_not_block_a_running_serving_loop() -> None:
 
 
 @pytest.mark.filterwarnings("error::RuntimeWarning")
+async def test_sync_write_allocates_no_extra_inner_task() -> None:
+    """D-CDX-58: no redundant inner task per sync-facade register/append write.
+
+    ``insert()`` legitimately creates TWO outer per-series fence tasks here —
+    ``time-series-register`` and ``time-series-append`` (one per operation,
+    via ``_queue_durability_write``) — that is correct fan-out, not the bug.
+    Before the fix, ``_run_durability_write`` additionally routed each
+    offload through ``run_blocking_ordered``, which created its OWN internal
+    ``asyncio.create_task(asyncio.to_thread(...))`` UNDER each of those two
+    outer tasks — four tasks and four thread-pool handoffs total for one
+    insert, measured at ~1.0ms/insert versus ~19us/insert for the direct
+    synchronous path. ``_run_offloaded`` waits on the bare ``asyncio.Future``
+    ``loop.run_in_executor`` returns instead, which is never registered in
+    ``asyncio.all_tasks()`` — so exactly the two legitimate fence tasks
+    should appear, with no extra inner ones alongside them.
+    """
+    timeseries = _BlockingSyncTimeSeries()
+    backend = EngineTimeSeriesBackend(client=_client(timeseries))
+
+    before = asyncio.all_tasks()
+    backend.insert([_point()])
+    assert await asyncio.to_thread(timeseries.register_started.wait, 0.5)
+    # Give the fence tasks' bodies a chance to actually run and — pre-fix —
+    # create their nested run_blocking_ordered tasks too, before snapshotting.
+    await asyncio.sleep(0)
+    new_task_names = {task.get_name() for task in asyncio.all_tasks() - before}
+
+    tail = next(iter(backend._pending_writes.values()))
+    timeseries.allow_register.set()
+    assert await asyncio.wait_for(tail, timeout=1.0) is True
+    assert timeseries.calls == ["register", "append"]
+
+    assert new_task_names == {"time-series-register", "time-series-append"}, (
+        f"expected exactly the two per-operation fence tasks and no extra "
+        f"inner ones, got: {new_task_names}"
+    )
+
+
+@pytest.mark.filterwarnings("error::RuntimeWarning")
 async def test_async_client_is_nonblocking_and_orders_register_then_append() -> None:
     """A native async client has a per-series register-before-append fence."""
     timeseries = _AsyncTimeSeries()
