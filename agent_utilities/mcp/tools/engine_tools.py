@@ -99,6 +99,11 @@ _DOMAIN_CLASSES: dict[str, str] = {
     "rbac": "RbacClient",
     "admin": "AdminClient",
     "graphlearn": "GraphLearnClient",
+    # D-VZ-1 (lane w6-viz-xy) — native visualization: render a ViewSpec through
+    # the eg-viz ColumnStore/LOD/export pipeline (``Method::Viz``). Degrades
+    # cleanly (see ``_discover_domains`` below) until the engine client ships
+    # ``VizClient``.
+    "viz": "VizClient",
 }
 
 _DOMAIN_BLURB: dict[str, str] = {
@@ -127,6 +132,7 @@ _DOMAIN_BLURB: dict[str, str] = {
     "rbac": "RBAC policy administration: roles + resource/action grants (ADMIN)",
     "admin": "ops/maintenance: online backup + restore (ADMIN)",
     "graphlearn": "KAN graph-learning: fit/predict a learned per-feature edge-function link predictor",
+    "viz": "D-VZ-1 native visualization: render/capability_matrix over the eg-viz LOD ColumnStore/export pipeline",
 }
 
 
@@ -326,6 +332,7 @@ _NORMAL_DOMAINS: frozenset[str] = frozenset(
         "blob",
         "broker",
         "graphlearn",
+        "viz",
     }
 )
 
