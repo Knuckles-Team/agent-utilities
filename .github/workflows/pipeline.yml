@@ -119,8 +119,12 @@ jobs:
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+          # `gh api --jq` takes ONE jq expression and does not accept jq's own
+          # --arg flag; passing it made gh see 4 positional args and abort with
+          # "accepts 1 arg(s), received 4" -- which failed this gate closed and
+          # would have blocked every release. Pipe to real jq so --arg works.
           tags="$(gh api "repos/${{ github.repository }}/tags?per_page=100" \
-            --jq --arg sha "$HEAD_SHA" '.[] | select(.commit.sha == $sha) | .name')"
+            | jq -r --arg sha "$HEAD_SHA" '.[] | select(.commit.sha == $sha) | .name')"
           if ! grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' <<<"$tags"; then
             echo "::error::D-ORC-10 release gate: no vX.Y.Z tag points at $HEAD_SHA -- refusing to publish. Push an annotated release tag (e.g. 'git tag -a vX.Y.Z -m ... && git push origin vX.Y.Z') to authorize this publish."
             exit 1
