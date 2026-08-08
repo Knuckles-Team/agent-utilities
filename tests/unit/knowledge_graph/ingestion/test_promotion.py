@@ -432,9 +432,7 @@ class TestResolveConfidenceThreshold:
         from agent_utilities.core.config import config
 
         monkeypatch.setattr(config, "domain_packs_root", "")
-        monkeypatch.setattr(
-            config, "ingestion_confidence_thresholds", {"cmdb": 0.9}
-        )
+        monkeypatch.setattr(config, "ingestion_confidence_thresholds", {"cmdb": 0.9})
 
         assert promotion.resolve_confidence_threshold("cmdb") == 0.9
 

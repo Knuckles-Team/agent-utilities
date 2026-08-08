@@ -160,8 +160,12 @@ def _real_ingestion_engine(engine_graph: Any) -> IngestionEngine:
     return IngestionEngine(kg_engine=real_engine, backend=real_engine.backend)
 
 
-def _read(engine: IngestionEngine, cypher: str, params: dict | None = None) -> list[dict]:
-    return engine.backend.execute_read(cypher, {"_clearance_level": 999, **(params or {})})
+def _read(
+    engine: IngestionEngine, cypher: str, params: dict | None = None
+) -> list[dict]:
+    return engine.backend.execute_read(
+        cypher, {"_clearance_level": 999, **(params or {})}
+    )
 
 
 async def _run_preset(
@@ -206,7 +210,9 @@ async def test_two_domain_packs_ingested_and_queryable_with_lineage(
     assert pillars_result.status == "success"
     assert skills_result.status == "success"
     n_pillars = len(list((two_corpora_repo / "docs" / "pillars").rglob("*.md")))
-    n_skills = len(list((two_corpora_repo / "agent_utilities" / "skills").glob("*/SKILL.md")))
+    n_skills = len(
+        list((two_corpora_repo / "agent_utilities" / "skills").glob("*/SKILL.md"))
+    )
     assert pillars_result.details["documents"] == n_pillars
     assert skills_result.details["documents"] == n_skills
     # Every file's governed ChangeEnvelope applied cleanly through the SAME
@@ -280,7 +286,10 @@ async def test_incremental_change_updates_only_the_touched_file(
     sha1 = _git(two_corpora_repo, "rev-parse", "HEAD")
 
     first = await _run_preset(
-        engine, preset="au-pillars", root=two_corpora_repo, connector_id="proof-incremental"
+        engine,
+        preset="au-pillars",
+        root=two_corpora_repo,
+        connector_id="proof-incremental",
     )
     n_pillars = first.details["documents"]
     assert first.status == "success"
@@ -299,8 +308,7 @@ async def test_incremental_change_updates_only_the_touched_file(
     unchanged_id_before = unchanged_before[0]["id"]
 
     changed_relpath = (
-        "docs/pillars/2_epistemic_knowledge_graph/"
-        "KG-2.37-Research_State_Domain_Pack.md"
+        "docs/pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md"
     )
     changed_before = _read(
         engine,
@@ -319,7 +327,10 @@ async def test_incremental_change_updates_only_the_touched_file(
     assert sha2 != sha1
 
     second = await _run_preset(
-        engine, preset="au-pillars", root=two_corpora_repo, connector_id="proof-incremental"
+        engine,
+        preset="au-pillars",
+        root=two_corpora_repo,
+        connector_id="proof-incremental",
     )
 
     # Exactly the one touched file was re-ingested — not a batch re-embed of all.
@@ -340,15 +351,21 @@ async def test_incremental_change_updates_only_the_touched_file(
         {"relpath": changed_relpath},
     )
     assert changed_after[0]["id"] == changed_id_before, "document id must stay stable"
-    assert changed_after[0]["git_commit"] == sha2, "revision must advance for the touched file"
+    assert changed_after[0]["git_commit"] == sha2, (
+        "revision must advance for the touched file"
+    )
 
     unchanged_after = _read(
         engine,
         "MATCH (n:Document {relpath: $relpath}) RETURN n.id AS id, n.git_commit AS git_commit",
         {"relpath": unchanged_relpath},
     )
-    assert unchanged_after[0]["id"] == unchanged_id_before, "untouched id must not change"
-    assert unchanged_after[0]["git_commit"] == sha1, "untouched file keeps its ORIGINAL revision"
+    assert unchanged_after[0]["id"] == unchanged_id_before, (
+        "untouched id must not change"
+    )
+    assert unchanged_after[0]["git_commit"] == sha1, (
+        "untouched file keeps its ORIGINAL revision"
+    )
 
 
 def test_evidence_spine_fragments_stable_across_a_real_git_revision(
@@ -411,8 +428,7 @@ def test_evidence_spine_fragments_stable_across_a_real_git_revision(
     assert all(a is not None and a.fragments for a in skill_artifacts)
 
     changed_relpath = (
-        "docs/pillars/2_epistemic_knowledge_graph/"
-        "KG-2.37-Research_State_Domain_Pack.md"
+        "docs/pillars/2_epistemic_knowledge_graph/KG-2.37-Research_State_Domain_Pack.md"
     )
     unchanged_relpath = (
         "docs/pillars/4_ecosystem_peripherals/"
@@ -450,7 +466,9 @@ def test_evidence_spine_fragments_stable_across_a_real_git_revision(
     # Exactly the ONE paragraph fragment whose text contains the typo changed
     # content_hash; every sibling/heading fragment's content_hash is untouched.
     assert len(changed_hashes) == 1, changed_hashes
-    touched = next(f for f in changed_after.fragments if f.fragment_id == changed_hashes[0])
+    touched = next(
+        f for f in changed_after.fragments if f.fragment_id == changed_hashes[0]
+    )
     assert touched.kind == "paragraph"
     assert "proifle" in touched.text
 

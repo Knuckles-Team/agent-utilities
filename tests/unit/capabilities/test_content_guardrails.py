@@ -44,7 +44,9 @@ async def test_pii_in_output_is_redacted_live_path():
         return ModelResponse(parts=[TextPart(content="My SSN is 123-45-6789.")])
 
     agent = create_context_agent(
-        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails(),
+        FunctionModel(func),
+        output_type=str,
+        capabilities=pii_redaction_guardrails(),
         default_capabilities=False,
     )
     with use_grounding_policy("none"):
@@ -60,7 +62,9 @@ async def test_clean_output_passes_pii_guard_unchanged_live_path():
         return ModelResponse(parts=[TextPart(content="The answer is 4.")])
 
     agent = create_context_agent(
-        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails(),
+        FunctionModel(func),
+        output_type=str,
+        capabilities=pii_redaction_guardrails(),
         default_capabilities=False,
     )
     with use_grounding_policy("none"):
@@ -81,7 +85,9 @@ async def test_pii_in_input_is_redacted_before_reaching_model_live_path():
         return ModelResponse(parts=[TextPart(content="ok")])
 
     agent = create_context_agent(
-        FunctionModel(func), output_type=str, capabilities=pii_redaction_guardrails(),
+        FunctionModel(func),
+        output_type=str,
+        capabilities=pii_redaction_guardrails(),
         default_capabilities=False,
     )
     with use_grounding_policy("none"):
@@ -110,7 +116,9 @@ async def test_secret_shaped_output_is_redacted_not_blocked_live_path():
         return ModelResponse(parts=[TextPart(content=fixture_secret)])
 
     agent = create_context_agent(
-        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()],
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[secret_leak_guardrail()],
         default_capabilities=False,
     )
     with use_grounding_policy("none"):
@@ -142,7 +150,9 @@ async def test_k8s_manifest_secret_is_redacted_and_content_survives_live_path():
         return ModelResponse(parts=[TextPart(content=manifest)])
 
     agent = create_context_agent(
-        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()],
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[secret_leak_guardrail()],
         default_capabilities=False,
     )
     with use_grounding_policy("none"):
@@ -162,7 +172,9 @@ async def test_clean_output_passes_secret_leak_guard_live_path():
         return ModelResponse(parts=[TextPart(content="The weather is sunny today.")])
 
     agent = create_context_agent(
-        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()],
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[secret_leak_guardrail()],
         default_capabilities=False,
     )
     with use_grounding_policy("none"):
@@ -182,7 +194,9 @@ async def test_secret_leak_guard_does_not_trip_on_ordinary_prose_live_path():
         return ModelResponse(parts=[TextPart(content=prose)])
 
     agent = create_context_agent(
-        FunctionModel(func), output_type=str, capabilities=[secret_leak_guardrail()],
+        FunctionModel(func),
+        output_type=str,
+        capabilities=[secret_leak_guardrail()],
         default_capabilities=False,
     )
     with use_grounding_policy("none"):
@@ -212,9 +226,7 @@ async def test_output_missing_required_keys_sends_it_back_to_the_model_to_fix_li
         calls.append("call")
         if len(calls) == 1:
             return ModelResponse(parts=[TextPart(content='{"status": "ok"}')])
-        return ModelResponse(
-            parts=[TextPart(content='{"status": "ok", "result": 42}')]
-        )
+        return ModelResponse(parts=[TextPart(content='{"status": "ok", "result": 42}')])
 
     agent = create_context_agent(
         FunctionModel(func),
@@ -259,9 +271,7 @@ async def test_output_not_valid_json_sends_it_back_to_the_model_to_fix_live_path
         calls.append("call")
         if len(calls) == 1:
             return ModelResponse(parts=[TextPart(content="not json at all")])
-        return ModelResponse(
-            parts=[TextPart(content='{"status": "ok", "result": 42}')]
-        )
+        return ModelResponse(parts=[TextPart(content='{"status": "ok", "result": 42}')])
 
     agent = create_context_agent(
         FunctionModel(func),

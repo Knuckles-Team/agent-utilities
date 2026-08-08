@@ -469,9 +469,7 @@ def test_permissions_signing_retired_env_name_is_only_valid_as_exact_ref_target(
     with pytest.raises(ValueError, match="retired durable configuration"):
         AgentConfig()
 
-    monkeypatch.setenv(
-        "PERMISSIONS_SIGNING_KEY_REF", "env://PERMISSIONS_SIGNING_KEY"
-    )
+    monkeypatch.setenv("PERMISSIONS_SIGNING_KEY_REF", "env://PERMISSIONS_SIGNING_KEY")
     config = AgentConfig()
     assert config.permissions_signing_key_ref == "env://PERMISSIONS_SIGNING_KEY"
 

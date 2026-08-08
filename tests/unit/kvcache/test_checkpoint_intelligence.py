@@ -53,6 +53,7 @@ from agent_utilities.kvcache.eligibility import (
     get_persistence_eligibility_gate,
     set_persistence_eligibility_gate,
 )
+
 # The authority fixtures live with the derivation proofs
 # (``test_persistence_authority``); imported rather than duplicated so both modules
 # bind identical sessions and identical source labels.
@@ -582,8 +583,13 @@ def test_persistence_under_an_authority_that_does_not_cover_it_is_refused(manage
 def test_a_covering_authority_persists_and_records_why(manager):
     with caller(roles=("confidential",)):
         outcome = manager.checkpoint_now(
-            b"kv", key=_key(), run_id="run-1", point="post-plan", trigger="user",
-            persist=True, observation=_strong_observation(),
+            b"kv",
+            key=_key(),
+            run_id="run-1",
+            point="post-plan",
+            trigger="user",
+            persist=True,
+            observation=_strong_observation(),
             sources=(public_source(), labelled_source("src:crm")),
         )
     assert outcome.tier is CheckpointTier.DISK
@@ -609,7 +615,9 @@ def test_ram_residency_is_not_disk_consent(manager):
         # No sources were recorded at RAM time, so the promotion has no provenance to
         # judge and is refused — RAM residency is not, by itself, a basis to persist.
         promoted = manager.promote(
-            taken.checkpoint_id, requesting_tenant="t1", trigger="user",
+            taken.checkpoint_id,
+            requesting_tenant="t1",
+            trigger="user",
         )
     assert promoted.tier is CheckpointTier.RAM
     assert manager.disk_store.created == []
@@ -620,7 +628,10 @@ def test_always_deny_gate_refuses_a_fully_covering_authority(manager):
     set_persistence_eligibility_gate(AlwaysDenyEligibility())
     with caller(roles=("kg:admin",)):
         outcome = manager.checkpoint_now(
-            b"kv", key=_key(), trigger="user", persist=True,
+            b"kv",
+            key=_key(),
+            trigger="user",
+            persist=True,
             sources=(public_source(),),
         )
     assert outcome.tier is CheckpointTier.RAM
@@ -676,7 +687,10 @@ def test_a_manager_without_a_durable_store_refuses_promotion_cleanly():
     ram_only = TieredCheckpointManager(disk_store=None)
     with caller(roles=("kg:admin",)):
         outcome = ram_only.checkpoint_now(
-            b"kv", key=_key(), trigger="user", persist=True,
+            b"kv",
+            key=_key(),
+            trigger="user",
+            persist=True,
             sources=(public_source(),),
         )
     assert outcome.tier is CheckpointTier.RAM
@@ -735,8 +749,13 @@ def test_ram_tier_refuses_an_empty_payload():
 def test_explain_returns_the_full_reasoning_for_a_persisted_checkpoint(manager):
     with caller(roles=("confidential",)):
         outcome = manager.checkpoint_now(
-            b"kv", key=_key(), run_id="run-1", point="post-plan", trigger="user",
-            persist=True, observation=_strong_observation(),
+            b"kv",
+            key=_key(),
+            run_id="run-1",
+            point="post-plan",
+            trigger="user",
+            persist=True,
+            observation=_strong_observation(),
             sources=(labelled_source("src:crm"),),
         )
         explanation = manager.explain(outcome.checkpoint_id, requesting_tenant="t1")
@@ -890,13 +909,25 @@ def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
     )
 
     common = dict(
-        graph="", model_identity="qwen3.6-27b", quantization="fp16",
-        serving_engine="vllm", engine_version="0.9.0",
-        prefix_digest=prefix_digest("ctx"), tenant="t1", policy_version="v1",
-        run_id="run-1", point="post-plan", requesting_tenant="t1",
-        observation_json="{}", evidence_bundle_json="{}",
-        context_bundle_json="{}", sources_json="[]", checkpoint_id="", data_b64="",
-        trigger="user", persist=False,
+        graph="",
+        model_identity="qwen3.6-27b",
+        quantization="fp16",
+        serving_engine="vllm",
+        engine_version="0.9.0",
+        prefix_digest=prefix_digest("ctx"),
+        tenant="t1",
+        policy_version="v1",
+        run_id="run-1",
+        point="post-plan",
+        requesting_tenant="t1",
+        observation_json="{}",
+        evidence_bundle_json="{}",
+        context_bundle_json="{}",
+        sources_json="[]",
+        checkpoint_id="",
+        data_b64="",
+        trigger="user",
+        persist=False,
     )
     labelled = json.dumps(
         [
@@ -929,7 +960,9 @@ def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
         assert stats["result"]["eligibility_gate"] == "authority-derived"
         # A score is uninterpretable without knowing which signals produced it.
         assert {s["name"] for s in stats["result"]["scorers"]} >= {
-            "rebuild_cost", "contradictions", "model_self_report",
+            "rebuild_cost",
+            "contradictions",
+            "model_self_report",
         }
 
         promoted = json.loads(
@@ -948,9 +981,10 @@ def test_user_invoked_checkpoint_end_to_end_over_the_mcp_action(monkeypatch):
     assert explained["result"]["tier"] == "disk"
     assert explained["result"]["eligibility"]["permitted"] is True
     # The derivation travels with the explanation, so "why?" is answerable.
-    assert explained["result"]["eligibility"]["derivation"]["label"][
-        "classification"
-    ] == "confidential"
+    assert (
+        explained["result"]["eligibility"]["derivation"]["label"]["classification"]
+        == "confidential"
+    )
 
 
 def test_mcp_recommend_action_returns_a_rendered_advisory(monkeypatch):
@@ -986,12 +1020,25 @@ def test_mcp_recommend_action_returns_a_rendered_advisory(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json=observation,
-            evidence_bundle_json="{}", context_bundle_json="{}", sources_json="[]",
-            trigger="agent", persist=False,
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="",
+            observation_json=observation,
+            evidence_bundle_json="{}",
+            context_bundle_json="{}",
+            sources_json="[]",
+            trigger="agent",
+            persist=False,
         )
     )
     assert "checkpoint-worthy: score" in payload["result"]["advisory"]
@@ -1008,12 +1055,25 @@ def test_mcp_recommend_rejects_a_malformed_observation(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json="[1,2,3]",
-            evidence_bundle_json="{}", context_bundle_json="{}", sources_json="[]",
-            trigger="agent", persist=False,
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="",
+            observation_json="[1,2,3]",
+            evidence_bundle_json="{}",
+            context_bundle_json="{}",
+            sources_json="[]",
+            trigger="agent",
+            persist=False,
         )
     )
     assert payload["error"]["code"] == "invalid_request"
@@ -1030,11 +1090,23 @@ def test_mcp_recommend_derives_signals_from_handed_in_bundles(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json="{}", sources_json="[]",
-            trigger="agent", persist=False,
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="",
+            observation_json="{}",
+            sources_json="[]",
+            trigger="agent",
+            persist=False,
             evidence_bundle_json=json.dumps(
                 {
                     "claims": [{"id": "c1"}, {"id": "c2"}],
@@ -1062,10 +1134,22 @@ def test_mcp_explicit_observation_fields_win_over_a_bundle(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", sources_json="[]", trigger="agent", persist=False,
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="",
+            sources_json="[]",
+            trigger="agent",
+            persist=False,
             observation_json=json.dumps({"claim_count": 99}),
             evidence_bundle_json=json.dumps({"claims": [{"id": "c1"}]}),
             context_bundle_json="{}",
@@ -1086,12 +1170,25 @@ def test_mcp_rejects_a_malformed_bundle(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "recommend",
-            graph="", data_b64="", model_identity="", quantization="",
-            serving_engine="", engine_version="", prefix_digest="", tenant="",
-            policy_version="", run_id="", point="", checkpoint_id="",
-            requesting_tenant="", observation_json="{}", sources_json="[]",
-            evidence_bundle_json="[1,2,3]", context_bundle_json="{}",
-            trigger="agent", persist=False,
+            graph="",
+            data_b64="",
+            model_identity="",
+            quantization="",
+            serving_engine="",
+            engine_version="",
+            prefix_digest="",
+            tenant="",
+            policy_version="",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="",
+            observation_json="{}",
+            sources_json="[]",
+            evidence_bundle_json="[1,2,3]",
+            context_bundle_json="{}",
+            trigger="agent",
+            persist=False,
         )
     )
     assert payload["error"]["code"] == "invalid_request"
@@ -1110,12 +1207,25 @@ def test_mcp_rejects_an_unrecognized_trigger(monkeypatch):
     payload = json.loads(
         est._kv_checkpoint_intelligence(
             "checkpoint_now",
-            graph="", data_b64=base64.b64encode(b"kv").decode(),
-            model_identity="m", quantization="fp16", serving_engine="vllm",
-            engine_version="1", prefix_digest="abc", tenant="t1", policy_version="v1",
-            run_id="", point="", checkpoint_id="", requesting_tenant="t1",
-            observation_json="{}", evidence_bundle_json="{}", sources_json="[]",
-            context_bundle_json="{}", trigger="root", persist=True,
+            graph="",
+            data_b64=base64.b64encode(b"kv").decode(),
+            model_identity="m",
+            quantization="fp16",
+            serving_engine="vllm",
+            engine_version="1",
+            prefix_digest="abc",
+            tenant="t1",
+            policy_version="v1",
+            run_id="",
+            point="",
+            checkpoint_id="",
+            requesting_tenant="t1",
+            observation_json="{}",
+            evidence_bundle_json="{}",
+            sources_json="[]",
+            context_bundle_json="{}",
+            trigger="root",
+            persist=True,
         )
     )
     assert payload["error"]["code"] == "invalid_request"

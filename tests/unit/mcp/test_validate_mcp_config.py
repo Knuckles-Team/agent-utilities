@@ -60,9 +60,7 @@ def test_validate_all_valid():
     # off, since an unscoped Caddyfile may legitimately route third-party hosts
     # never meant to appear in mcp_config.json); opt in to ".arpa" to exercise
     # the coverage-gap detection this test is about.
-    report = vmc.validate(
-        config, vmc.parse_caddy_hosts(CADDY), managed_suffix=".arpa"
-    )
+    report = vmc.validate(config, vmc.parse_caddy_hosts(CADDY), managed_suffix=".arpa")
     assert report["passed"] is True
     assert report["invalid"] == {}
     assert set(report["ok"]) == {"github-mcp", "container-manager-mcp"}

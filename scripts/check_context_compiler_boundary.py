@@ -275,10 +275,7 @@ def violations() -> list[str]:
     ):
         failures.append("GraphDeps leaves direct model-id construction ungoverned")
     serving = (
-        PACKAGE
-        / "knowledge_graph"
-        / "retrieval"
-        / "context_compiler_serving.py"
+        PACKAGE / "knowledge_graph" / "retrieval" / "context_compiler_serving.py"
     ).read_text(encoding="utf-8")
     if "compile_model_context(" not in serving:
         failures.append("context serving does not compile governed evidence")

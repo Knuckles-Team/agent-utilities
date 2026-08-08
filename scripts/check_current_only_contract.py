@@ -420,7 +420,9 @@ _README_RETIRED_KEY_LINE = (
 # ``check()`` runs ``PATH_REQUIRED_IDENTIFIERS`` (scoped to the real
 # repository root, exactly as the removed ripgrep path scoped it, so the
 # tmp_path-based unit tests are unaffected).
-_SKIP_DIR_NAMES = frozenset({"__pycache__", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache"})
+_SKIP_DIR_NAMES = frozenset(
+    {"__pycache__", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
+)
 
 
 def _iter_files() -> list[Path]:

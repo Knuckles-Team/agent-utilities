@@ -69,7 +69,9 @@ def test_default_approval_class_is_auto_for_a_non_destructive_capability():
 
 def test_destructive_side_effect_defaults_to_human_approval_required():
     d = CapabilityDescriptor(
-        id="tool:x", capability_type="DNSCapability", side_effects=(SIDE_EFFECT_DESTRUCTIVE,)
+        id="tool:x",
+        capability_type="DNSCapability",
+        side_effects=(SIDE_EFFECT_DESTRUCTIVE,),
     )
     assert d.approval_class == APPROVAL_HUMAN_REQUIRED
 
@@ -161,7 +163,10 @@ def test_registry_hydrate_from_engine_reads_declared_properties():
     engine = types.SimpleNamespace(
         graph=types.SimpleNamespace(
             _get_node_properties=lambda nid: {
-                "tool:a": {"capability_type": "DNSCapability", "capability_version": "3.0.0"},
+                "tool:a": {
+                    "capability_type": "DNSCapability",
+                    "capability_version": "3.0.0",
+                },
             }.get(nid, {})
         )
     )

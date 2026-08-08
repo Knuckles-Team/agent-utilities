@@ -105,7 +105,9 @@ if __name__ == "__main__":
     out_path = (
         Path(sys.argv[2])
         if len(sys.argv) > 2
-        else Path("agent_utilities/workflows/presets/finance/awesome-deep-trading-pack.yaml")
+        else Path(
+            "agent_utilities/workflows/presets/finance/awesome-deep-trading-pack.yaml"
+        )
     )
     KnowledgePackExporter.to_yaml(bundle, out_path)
     print(

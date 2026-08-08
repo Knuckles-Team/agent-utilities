@@ -176,9 +176,7 @@ def find_callers(
             # Name(...) call where Name was bound via `from mod import symbol [as x]`
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 if direct_alias and node.func.id == direct_alias:
-                    hits.append(
-                        Hit(rel, node.lineno, "call", f"{node.func.id}(...)")
-                    )
+                    hits.append(Hit(rel, node.lineno, "call", f"{node.func.id}(...)"))
                 continue
             # attribute call: alias.symbol(...) where alias resolves to module_path
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):
@@ -220,7 +218,9 @@ def find_callers(
         # matches, not import-resolved, by necessity -- flagged separately so
         # a human can eyeball them rather than trusting them silently.
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            if not (
+                isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            ):
                 continue
             func_attr = node.func.attr
             if func_attr not in ("setattr",):
@@ -228,7 +228,9 @@ def find_callers(
             if len(node.args) < 2:
                 continue
             name_arg = node.args[1]
-            if not (isinstance(name_arg, ast.Constant) and name_arg.value == simple_name):
+            if not (
+                isinstance(name_arg, ast.Constant) and name_arg.value == simple_name
+            ):
                 continue
             target_dotted = None
             target_node = node.args[0]
@@ -241,11 +243,20 @@ def find_callers(
                 or (module_alias and target_dotted == module_alias)
             ):
                 hits.append(
-                    Hit(rel, node.lineno, "monkeypatch", f"setattr({target_dotted}, {simple_name!r}, ...)")
+                    Hit(
+                        rel,
+                        node.lineno,
+                        "monkeypatch",
+                        f"setattr({target_dotted}, {simple_name!r}, ...)",
+                    )
                 )
 
         for node in ast.walk(tree):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "getattr":
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+            ):
                 if len(node.args) < 2:
                     continue
                 name_arg = node.args[1]
@@ -256,10 +267,17 @@ def find_callers(
                         if isinstance(target_node, (ast.Name, ast.Attribute))
                         else None
                     )
-                    target_resolved = _resolve(target_dotted, fi) if target_dotted else None
+                    target_resolved = (
+                        _resolve(target_dotted, fi) if target_dotted else None
+                    )
                     if target_resolved == module_path or target_dotted == module_alias:
                         hits.append(
-                            Hit(rel, node.lineno, "getattr", f"getattr({target_dotted}, {simple_name!r})")
+                            Hit(
+                                rel,
+                                node.lineno,
+                                "getattr",
+                                f"getattr({target_dotted}, {simple_name!r})",
+                            )
                         )
 
     hits.sort(key=lambda h: (h.file, h.line))
@@ -267,8 +285,13 @@ def find_callers(
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("symbol", help="fully-qualified dotted symbol, e.g. pkg.mod.Class or pkg.mod.func")
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    parser.add_argument(
+        "symbol",
+        help="fully-qualified dotted symbol, e.g. pkg.mod.Class or pkg.mod.func",
+    )
     parser.add_argument(
         "--roots",
         default=",".join(DEFAULT_ROOTS),
@@ -285,7 +308,11 @@ def main(argv: list[str] | None = None) -> int:
     roots = tuple(r.strip() for r in args.roots.split(",") if r.strip())
     hits = find_callers(args.symbol, roots=roots)
     if args.exclude_tests:
-        hits = [h for h in hits if "/tests/" not in f"/{h.file}" and not h.file.startswith("tests/")]
+        hits = [
+            h
+            for h in hits
+            if "/tests/" not in f"/{h.file}" and not h.file.startswith("tests/")
+        ]
 
     if args.json:
         print(json.dumps([h.__dict__ for h in hits], indent=2))

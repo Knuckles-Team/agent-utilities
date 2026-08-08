@@ -32,7 +32,9 @@ ROOT = Path(__file__).resolve().parents[3]
 
 def _load(name: str) -> ModuleType:
     alias = f"{name}_alias_drift"
-    spec = importlib.util.spec_from_file_location(alias, ROOT / "scripts" / f"{name}.py")
+    spec = importlib.util.spec_from_file_location(
+        alias, ROOT / "scripts" / f"{name}.py"
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     # Registered before execution so module-level ``@dataclass`` can resolve its

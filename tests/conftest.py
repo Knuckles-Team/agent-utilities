@@ -510,9 +510,7 @@ def isolate_graph_compute_engine(monkeypatch):
 
     def _isolated_egb_init(self, graph_name: str | None = None, **kwargs):
         effective_name = (
-            _test_graph_name
-            if graph_name in _default_graph_sentinels
-            else graph_name
+            _test_graph_name if graph_name in _default_graph_sentinels else graph_name
         )
         _original_egb_init(self, graph_name=effective_name, **kwargs)
 

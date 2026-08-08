@@ -299,7 +299,9 @@ class TestSecretResolution:
 
         with patch(
             "agent_utilities.security.secrets_client.create_secrets_client",
-            side_effect=AssertionError("env refs must not initialize the graph secret backend"),
+            side_effect=AssertionError(
+                "env refs must not initialize the graph secret backend"
+            ),
         ) as create_secrets_client:
             provider = build_provider_from_config(cfg)
 
@@ -489,9 +491,7 @@ class TestMutualExclusion:
         "reference",
         ["env://not/a/name", "env://has-hyphen", "env://1STARTS_WITH_DIGIT"],
     )
-    def test_chat_model_config_rejects_invalid_environment_reference(
-        self, reference
-    ):
+    def test_chat_model_config_rejects_invalid_environment_reference(self, reference):
         from agent_utilities.core.config import ChatModelConfig
 
         with pytest.raises(ValueError, match="secret reference"):

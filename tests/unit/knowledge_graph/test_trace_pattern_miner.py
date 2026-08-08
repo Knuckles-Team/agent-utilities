@@ -120,7 +120,9 @@ def test_mine_trace_patterns_invokes_graph_mine_sequence_surface(monkeypatch):
                 "surface": surface,
                 "action": action,
                 "result": {
-                    "patterns": [{"items": ["Read", "Edit"], "support": 0.8, "count": 4}],
+                    "patterns": [
+                        {"items": ["Read", "Edit"], "support": 0.8, "count": 4}
+                    ],
                     "n_sequences": 2,
                     "n_patterns": 1,
                 },
@@ -412,7 +414,9 @@ def test_route_policy_update_default_never_auto():
         TIER_APPROVAL,
     )
 
-    rule = next(r for r in DEFAULT_POLICY["rules"] if r["kind"] == "route_policy_update")
+    rule = next(
+        r for r in DEFAULT_POLICY["rules"] if r["kind"] == "route_policy_update"
+    )
     assert rule["tier"] == TIER_APPROVAL
 
 
@@ -498,9 +502,9 @@ def test_gate_runs_before_any_outcome_record(monkeypatch):
     # index in the shared call log — record() is never observed before decide().
     for idx, entry in enumerate(call_log):
         if entry.startswith("record:"):
-            assert any(
-                call_log[j].startswith("decide:") for j in range(idx)
-            ), f"record() at position {idx} has no preceding decide() call: {call_log}"
+            assert any(call_log[j].startswith("decide:") for j in range(idx)), (
+                f"record() at position {idx} has no preceding decide() call: {call_log}"
+            )
 
     # And specifically: the very first call in this stage is always decide(),
     # never record() — no path reaches record() cold.
@@ -526,7 +530,9 @@ def test_gate_runs_before_record_even_when_decide_denies(monkeypatch):
     monkeypatch.setattr(router_mod.OutcomeRouter, "record", spy_record)
 
     _patch_mine_result(monkeypatch, support=0.8)
-    engine = _TraceMiningStubEngine()  # shipped default ⇒ approval_required ⇒ denied-to-auto
+    engine = (
+        _TraceMiningStubEngine()
+    )  # shipped default ⇒ approval_required ⇒ denied-to-auto
     rep = LoopController(engine)._run_trace_mining()
 
     assert rep["routed"] == 0

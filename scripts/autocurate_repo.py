@@ -9,6 +9,7 @@ kebab'd from the marker's doc). Emits a supplement plan; the applier consumes it
 
 Usage: autocurate_repo.py <repo-name> <repo-path> <out-supplement.yaml>
 """
+
 from __future__ import annotations
 
 import re
@@ -23,20 +24,61 @@ sys.path.insert(0, CANON)
 from agent_utilities.governance import concept_hierarchy as ch  # noqa: E402
 
 PILLAR_REASSIGN = {
-    "KG": "KG", "ORCH": "ORCH", "AHE": "AHE", "ECO": "ECO", "OS": "OS", "GBOT": "GBOT",
-    "EG": "KG", "EE": "AHE", "ML": "AHE", "CE": "KG", "SAFE": "OS", "CTX": "KG",
-    "LGC": "OS", "UTIL": "OS",
+    "KG": "KG",
+    "ORCH": "ORCH",
+    "AHE": "AHE",
+    "ECO": "ECO",
+    "OS": "OS",
+    "GBOT": "GBOT",
+    "EG": "KG",
+    "EE": "AHE",
+    "ML": "AHE",
+    "CE": "KG",
+    "SAFE": "OS",
+    "CTX": "KG",
+    "LGC": "OS",
+    "UTIL": "OS",
 }
 # safe default domain per pillar when scoring finds nothing
-DEFAULT_DOMAIN = {"KG": "compute", "ORCH": "execution", "AHE": "harness",
-                  "ECO": "mcp", "OS": "config", "GBOT": "cockpit"}
+DEFAULT_DOMAIN = {
+    "KG": "compute",
+    "ORCH": "execution",
+    "AHE": "harness",
+    "ECO": "mcp",
+    "OS": "config",
+    "GBOT": "cockpit",
+}
 _LEGACY_RE = re.compile(r"CONCEPT:([A-Z]+-\d+(?:\.[0-9A-Za-z]+)*)")
 _DEF_SEP = re.compile(r"^\)?\s*[—:–-]\s+\S")
 _EXT = {".py", ".rs", ".md"}
 _SKIP_DIRS = {"__pycache__", ".git", ".venv", "node_modules", "target", "build", "dist"}
-_SKIP_NAMES = {"CHANGELOG.md", "concepts.yaml", "concept_reservations.yaml", "concept_map.md"}
-_STOP = {"the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "via",
-         "engine", "layer", "system", "support", "based", "driven", "new"}
+_SKIP_NAMES = {
+    "CHANGELOG.md",
+    "concepts.yaml",
+    "concept_reservations.yaml",
+    "concept_map.md",
+}
+_STOP = {
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "of",
+    "for",
+    "to",
+    "in",
+    "on",
+    "with",
+    "via",
+    "engine",
+    "layer",
+    "system",
+    "support",
+    "based",
+    "driven",
+    "new",
+}
 
 
 def _kebab(s: str) -> str:
@@ -83,7 +125,7 @@ def main() -> int:
                 if ch.is_okf_id(cid):
                     continue
                 files[cid].add(rel)
-                tail = line[m.end():]
+                tail = line[m.end() :]
                 if _DEF_SEP.match(tail):
                     d = re.sub(r"^[\s—:\-–)]+", "", tail).strip()[:80]
                     if len(d) > len(docs.get(cid, "")):
@@ -103,8 +145,16 @@ def main() -> int:
         used.add((slug, pillar, domain, concept))
         new_id = f"{slug}-{pillar}.{domain}.{concept}"
         assert ch.is_okf_id(new_id) and ch.is_valid_domain(pillar, domain), new_id
-        entries.append({"old_id": cid, "new_id": new_id, "slug": slug,
-                        "pillar": pillar, "domain": domain, "files": []})
+        entries.append(
+            {
+                "old_id": cid,
+                "new_id": new_id,
+                "slug": slug,
+                "pillar": pillar,
+                "domain": domain,
+                "files": [],
+            }
+        )
     yaml.safe_dump({"entries": entries}, open(out, "w"), sort_keys=False, width=100)
     print(f"{name}: auto-curated {len(entries)} remaining legacy ids -> {out}")
     return 0

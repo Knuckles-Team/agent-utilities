@@ -58,9 +58,7 @@ def test_worker_crash_mid_lease_is_reclaimed_and_completes_exactly_once(loadgen)
     # "leased" and "running" are one engine-native ownership decision (see
     # work_item.py's mark_running docstring) — precedent:
     # tests/unit/orchestration/test_work_item.py:610.
-    assert (
-        wi.get_work_item(engine, item_id)["status"] in ("leased", "running")
-    )
+    assert wi.get_work_item(engine, item_id)["status"] in ("leased", "running")
     assert claim_a["fence_token"] == 1
 
     # 90s later (well past the 30s lease). A reap sweep is confirmation-only
@@ -84,9 +82,7 @@ def test_worker_crash_mid_lease_is_reclaimed_and_completes_exactly_once(loadgen)
 
     # Worker A's crash never let it record a side effect — exactly one execution total.
     assert side_effects == [f"executed:{item_id}:{claim_b['attempt']}"]
-    assert (
-        wi.get_work_item(engine, item_id)["status"] == "succeeded"
-    )
+    assert wi.get_work_item(engine, item_id)["status"] == "succeeded"
 
     # Worker A's belated commit attempt (it "wakes up" and tries to finish anyway)
     # must be rejected, never silently overwriting the real completion.

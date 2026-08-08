@@ -135,8 +135,7 @@ def test_claim_next_task_admission_denied_defers_claim_live_path(monkeypatch):
     assert len(deferred_calls) == 1
     assert deferred_calls[0]["reason_ref"] == "admission_denied"
     assert (
-        deferred_calls[0]["work_item_id"]
-        == "workitem:ingest_task:new-connector-sync"
+        deferred_calls[0]["work_item_id"] == "workitem:ingest_task:new-connector-sync"
     )
     # The registry still shows only the pre-existing worker — this worker was
     # never recorded as claiming the new task.
@@ -150,9 +149,11 @@ def test_claim_next_task_admission_allowed_starts_worker_live_path(monkeypatch):
     from agent_utilities.orchestration import work_item
 
     monkeypatch.setattr(
-        work_item, "defer_work_item", lambda *_a, **_k: (_ for _ in ()).throw(
+        work_item,
+        "defer_work_item",
+        lambda *_a, **_k: (_ for _ in ()).throw(
             AssertionError("defer_work_item must not be called on an admitted claim")
-        )
+        ),
     )
     _patch_claim(
         monkeypatch,

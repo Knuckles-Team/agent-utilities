@@ -184,7 +184,9 @@ def test_load_rejects_empty_ontology(lc):
 
 
 def test_load_stores_category_and_tags(lc):
-    result = lc.load(PETS_TTL, source_type="text", category="animals", tags=["demo", "Pets"])
+    result = lc.load(
+        PETS_TTL, source_type="text", category="animals", tags=["demo", "Pets"]
+    )
     onto = result["ontology"]
     assert onto["category"] == "animals"
     assert onto["tags"] == ["demo", "Pets"]

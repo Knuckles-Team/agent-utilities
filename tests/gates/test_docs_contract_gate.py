@@ -329,9 +329,7 @@ def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path)
     leaked = tmp_path / "docker" / "build-job.yaml"
     leaked.parent.mkdir(parents=True)
     leaked.write_text("            path: /home/someone/state/tree\n", encoding="utf-8")
-    subprocess.run(
-        ["git", "-C", str(tmp_path), "add", "-A"], check=True, env=git_env
-    )
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, env=git_env)
     subprocess.run(
         [
             "git",

@@ -616,8 +616,7 @@ def test_json_schemas_are_strict_and_match_current_formats() -> None:
     assert evidence_gates["minItems"] == len(gate.EXPECTED_GATES)
     assert evidence_gates["maxItems"] == len(gate.EXPECTED_GATES)
     assert [
-        item["properties"]["id"]["const"]
-        for item in evidence_gates["prefixItems"]
+        item["properties"]["id"]["const"] for item in evidence_gates["prefixItems"]
     ] == list(gate.EXPECTED_GATES)
     evidence_gate = evidence_gates["items"]
     assert "source_status" in evidence_gate["required"]

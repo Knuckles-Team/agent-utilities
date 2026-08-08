@@ -347,7 +347,9 @@ def test_ensure_messaging_log_visibility_emits_info_to_stderr(
         if getattr(h, messaging_daemon._MESSAGING_LOG_HANDLER_MARK, False)
     ]
     assert len(marked) == 1
-    assert marked[0].stream is sys.stderr  # stderr, never stdout (stdio JSON-RPC safety)
+    assert (
+        marked[0].stream is sys.stderr
+    )  # stderr, never stdout (stdio JSON-RPC safety)
 
     # An INFO record from a child messaging logger now reaches stderr.
     logging.getLogger("agent_utilities.messaging.router").info(

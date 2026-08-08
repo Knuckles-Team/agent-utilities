@@ -544,8 +544,9 @@ def test_explicit_root_does_not_mint_workflowdefinition_for_declared_atomic_skil
     report = ingest_skill_workflows(eng, root=str(root))
     assert report["workflows"] == 1
     assert report["not_workflow"] == 1
-    assert "skill://servicenow-incident-management: skill_type='skill'" in (
-        report["not_workflow_detail"]
+    assert (
+        "skill://servicenow-incident-management: skill_type='skill'"
+        in (report["not_workflow_detail"])
     )
     assert report["errors"] == 0
 

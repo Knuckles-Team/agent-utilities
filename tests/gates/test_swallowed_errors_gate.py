@@ -24,11 +24,7 @@ def _run(target: str) -> subprocess.CompletedProcess[str]:
 
 def test_gate_trips_on_bare_except_pass(tmp_path):
     (tmp_path / "bad_bare.py").write_text(
-        "def f():\n"
-        "    try:\n"
-        "        do_thing()\n"
-        "    except:\n"
-        "        pass\n"
+        "def f():\n    try:\n        do_thing()\n    except:\n        pass\n"
     )
     result = _run(str(tmp_path))
     assert result.returncode == 1, result.stdout
@@ -38,11 +34,7 @@ def test_gate_trips_on_bare_except_pass(tmp_path):
 
 def test_gate_trips_on_except_pass_with_no_justification(tmp_path):
     (tmp_path / "bad_pass.py").write_text(
-        "def f():\n"
-        "    try:\n"
-        "        do_thing()\n"
-        "    except Exception:\n"
-        "        pass\n"
+        "def f():\n    try:\n        do_thing()\n    except Exception:\n        pass\n"
     )
     result = _run(str(tmp_path))
     assert result.returncode == 1, result.stdout
@@ -336,11 +328,7 @@ def test_baseline_key_survives_unrelated_line_shift(tmp_path, monkeypatch):
     pkg.mkdir()
     target = pkg / "mod.py"
     source = (
-        "def f():\n"
-        "    try:\n"
-        "        do_thing()\n"
-        "    except Exception:\n"
-        "        pass\n"
+        "def f():\n    try:\n        do_thing()\n    except Exception:\n        pass\n"
     )
     target.write_text(source)
 
@@ -409,11 +397,7 @@ def test_baseline_key_changes_when_the_handler_actually_moves_symbol(
     pkg.mkdir()
     target = pkg / "mod.py"
     target.write_text(
-        "def f():\n"
-        "    try:\n"
-        "        a()\n"
-        "    except Exception:\n"
-        "        pass\n"
+        "def f():\n    try:\n        a()\n    except Exception:\n        pass\n"
     )
 
     monkeypatch.setattr(mod, "ROOT", tmp_path)
@@ -425,11 +409,7 @@ def test_baseline_key_changes_when_the_handler_actually_moves_symbol(
     baseline_before = mod._load_baseline()
 
     target.write_text(
-        "def g():\n"
-        "    try:\n"
-        "        a()\n"
-        "    except Exception:\n"
-        "        pass\n"
+        "def g():\n    try:\n        a()\n    except Exception:\n        pass\n"
     )
     moved_current = mod.scan(pkg, display_root=tmp_path)
     new_entries = set(moved_current) - baseline_before

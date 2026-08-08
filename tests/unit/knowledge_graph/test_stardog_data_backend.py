@@ -140,9 +140,7 @@ def test_public_read_uses_stardog_query_operation(backend, fake_stardog):
         "results": {"bindings": [{"s": {"value": "app:1"}}]}
     }
 
-    assert backend.execute_read("SELECT ?s WHERE { ?s ?p ?o }") == [
-        {"s": "app:1"}
-    ]
+    assert backend.execute_read("SELECT ?s WHERE { ?s ?p ?o }") == [{"s": "app:1"}]
     fake_stardog.select.assert_called_once()
     fake_stardog.update.assert_not_called()
 

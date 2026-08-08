@@ -377,9 +377,13 @@ def _has_broad_suppression(node: ast.AST | None) -> bool:
     if node is None:
         return True
     for handler in (
-        candidate for candidate in ast.walk(node) if isinstance(candidate, ast.ExceptHandler)
+        candidate
+        for candidate in ast.walk(node)
+        if isinstance(candidate, ast.ExceptHandler)
     ):
-        if handler.type is None and any(isinstance(item, ast.Pass) for item in handler.body):
+        if handler.type is None and any(
+            isinstance(item, ast.Pass) for item in handler.body
+        ):
             return True
         if (
             isinstance(handler.type, ast.Name)
@@ -433,10 +437,7 @@ def check_contract(
             for row in optimizer_families
         )
     )
-    if (
-        optimizer_families != EXPECTED_OPTIMIZER_FAMILIES
-        or not one_spelling_per_family
-    ):
+    if optimizer_families != EXPECTED_OPTIMIZER_FAMILIES or not one_spelling_per_family:
         violations.append("optimizer_matrix_drift")
     artifact_kinds = assignments.get("OPTIMIZER_ARTIFACT_KINDS")
     plan_step_kinds = assignments.get("ARTIFACT_PLAN_STEP_KINDS")
@@ -472,13 +473,16 @@ def check_contract(
         violations.append("exact_artifact_arguments_drift")
 
     campaign_calls = _called_names(_function(tree, "_campaign"))
-    if not {
-        "_read_release_manifest",
-        "_sign_evidence",
-        "_assert_evidence_safe",
-        "_invoke_identity",
-        "_test_catalog_sha256",
-    } <= campaign_calls:
+    if (
+        not {
+            "_read_release_manifest",
+            "_sign_evidence",
+            "_assert_evidence_safe",
+            "_invoke_identity",
+            "_test_catalog_sha256",
+        }
+        <= campaign_calls
+    ):
         violations.append("release_provenance_control_missing")
     optimizer = _function(tree, "_optimizer_worker")
     if not {
@@ -489,61 +493,79 @@ def check_contract(
     } <= _called_names(optimizer) or _has_broad_suppression(optimizer):
         violations.append("optimizer_behavior_control_missing")
     provider_calls = _called_names(_function(tree, "_provider_worker"))
-    if not {"_validate_provider_install_result", "_check_unified_install"} <= provider_calls:
+    if (
+        not {"_validate_provider_install_result", "_check_unified_install"}
+        <= provider_calls
+    ):
         violations.append("provider_behavior_control_missing")
     work_item_calls = _called_names(_function(tree, "_work_item_bus_worker"))
-    if not {
-        "submit_work_item",
-        "claim_specific",
-        "claim_next",
-        "heartbeat",
-        "checkpoint_work_item",
-        "commit_result",
-        "commit_message_to_work_item",
-    } <= work_item_calls:
+    if (
+        not {
+            "submit_work_item",
+            "claim_specific",
+            "claim_next",
+            "heartbeat",
+            "checkpoint_work_item",
+            "commit_result",
+            "commit_message_to_work_item",
+        }
+        <= work_item_calls
+    ):
         violations.append("work_item_bus_behavior_control_missing")
     work_item_worker = _function(tree, "_work_item_bus_worker")
-    tenant_create_lines = [
-        call.lineno
-        for call in ast.walk(work_item_worker)
-        if isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr == "create"
-        and isinstance(call.func.value, ast.Attribute)
-        and call.func.value.attr == "tenants"
-    ] if work_item_worker is not None else []
-    adapter_lines = [
-        call.lineno
-        for call in ast.walk(work_item_worker)
-        if isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Name)
-        and call.func.id == "_ExactWorkItemAdapter"
-    ] if work_item_worker is not None else []
+    tenant_create_lines = (
+        [
+            call.lineno
+            for call in ast.walk(work_item_worker)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Attribute)
+            and call.func.attr == "create"
+            and isinstance(call.func.value, ast.Attribute)
+            and call.func.value.attr == "tenants"
+        ]
+        if work_item_worker is not None
+        else []
+    )
+    adapter_lines = (
+        [
+            call.lineno
+            for call in ast.walk(work_item_worker)
+            if isinstance(call, ast.Call)
+            and isinstance(call.func, ast.Name)
+            and call.func.id == "_ExactWorkItemAdapter"
+        ]
+        if work_item_worker is not None
+        else []
+    )
     if (
         len(tenant_create_lines) != 1
         or len(adapter_lines) != 1
         or tenant_create_lines[0] >= adapter_lines[0]
     ):
         violations.append("work_item_graph_bootstrap_order_invalid")
-    permission_calls = _called_names(
-        _function(tree, "_permission_governance_worker")
-    )
-    if not {
-        "resolve_permission_context",
-        "authorize_tool",
-        "flag_mcp_tool_definitions",
-        "markings_for",
-        "ActionExecutor",
-        "create_context_agent",
-        "_build_graph_config",
-        "PermissionsKernel",
-    } <= permission_calls:
+    permission_calls = _called_names(_function(tree, "_permission_governance_worker"))
+    if (
+        not {
+            "resolve_permission_context",
+            "authorize_tool",
+            "flag_mcp_tool_definitions",
+            "markings_for",
+            "ActionExecutor",
+            "create_context_agent",
+            "_build_graph_config",
+            "PermissionsKernel",
+        }
+        <= permission_calls
+    ):
         violations.append("permission_governance_behavior_control_missing")
     worker_entry_calls = _called_names(_function(tree, "_worker_entry"))
-    if not {
-        "_work_item_bus_worker",
-        "_permission_governance_worker",
-    } <= worker_entry_calls:
+    if (
+        not {
+            "_work_item_bus_worker",
+            "_permission_governance_worker",
+        }
+        <= worker_entry_calls
+    ):
         violations.append("exact_runtime_worker_entry_missing")
     intent_calls = _called_names(_function(tree, "_certify_intent_stdio"))
     if not {"_start_graphos", "_call_tool", "_tool_names"} <= intent_calls:

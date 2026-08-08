@@ -27,7 +27,9 @@ class _FakeBackend:
     def add_node(self, node_id: str, label: str = "", **props) -> None:
         self.nodes[node_id] = {"label": label, **props}
 
-    def add_edge(self, source: str, target: str, relationship: str = "", **props) -> None:
+    def add_edge(
+        self, source: str, target: str, relationship: str = "", **props
+    ) -> None:
         self.edges.append((source, target, {"relationship": relationship, **props}))
 
     def nodes_by_label(self, label: str, limit: int = 0):

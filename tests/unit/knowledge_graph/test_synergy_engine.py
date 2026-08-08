@@ -120,14 +120,25 @@ class TestConceptBridges:
 
     def test_bridge_has_correct_primary_pillar(self, engine: SynergyEngine) -> None:
         bridges = engine.discover_concept_bridges()
-        ahe_35 = next(b for b in bridges if b.concept_id == "AU-AHE.harness.self-evolution-narrative")
+        ahe_35 = next(
+            b
+            for b in bridges
+            if b.concept_id == "AU-AHE.harness.self-evolution-narrative"
+        )
         assert ahe_35.primary_pillar == "AHE-3"
         assert "EG-KG.compute.backend" in ahe_35.bridged_pillars
 
     def test_dependency_bridges_discovered(self, engine: SynergyEngine) -> None:
         bridges = engine.discover_concept_bridges()
         # ORCH-1.2 depends on KG-2.1, so it should bridge ORCH→KG
-        orch_12 = next((b for b in bridges if b.concept_id == "AU-ORCH.adapter.hot-cache-invalidation"), None)
+        orch_12 = next(
+            (
+                b
+                for b in bridges
+                if b.concept_id == "AU-ORCH.adapter.hot-cache-invalidation"
+            ),
+            None,
+        )
         assert orch_12 is not None
         # It's in _KNOWN_BRIDGES, so check bridged pillars
         assert "EG-KG.compute.backend" in orch_12.bridged_pillars
@@ -171,7 +182,9 @@ class TestPillarCoupling:
     def test_ahe_kg_highly_coupled(self, engine: SynergyEngine) -> None:
         couplings = engine.compute_pillar_coupling()
         ahe_kg = next(
-            c for c in couplings if {c.pillar_a, c.pillar_b} == {"AHE-3", "EG-KG.compute.backend"}
+            c
+            for c in couplings
+            if {c.pillar_a, c.pillar_b} == {"AHE-3", "EG-KG.compute.backend"}
         )
         assert ahe_kg.coupling_score > 0.0
         assert len(ahe_kg.shared_edge_types) > 0

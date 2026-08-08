@@ -213,37 +213,56 @@ _SYNTHETIC_PEM_HEADER = "-----BEGIN " + "RSA PRIVATE KEY" + "-----"
 def test_secret_scan_flags_unmarked_credential_shaped_content() -> None:
     """D-W5AL-1 proof-of-catch: the gate must still fail on real-looking input."""
 
-    assert POLICY._secret_content_finding(
-        "repo", "leak.py", 1, "AWS_ACCESS_KEY_ID = 'AKIAQWERTYUIOPASDFGH'"  # sanitizer:ignore - proof-of-catch literal for the argument value, not a real key
-    ) is not None
-    assert POLICY._secret_content_finding(
-        "repo", "leak.py", 2, _SYNTHETIC_PEM_HEADER
-    ) is not None
+    assert (
+        POLICY._secret_content_finding(
+            "repo",
+            "leak.py",
+            1,
+            "AWS_ACCESS_KEY_ID = 'AKIAQWERTYUIOPASDFGH'",  # sanitizer:ignore - proof-of-catch literal for the argument value, not a real key
+        )
+        is not None
+    )
+    assert (
+        POLICY._secret_content_finding("repo", "leak.py", 2, _SYNTHETIC_PEM_HEADER)
+        is not None
+    )
 
 
 def test_secret_scan_honors_sanitizer_ignore_marker_with_reason() -> None:
     """A '# sanitizer:ignore - <reason>'-annotated fixture is exempt from SC-SEC-002."""
 
-    assert POLICY._secret_content_finding(
-        "repo",
-        "leak.py",
-        1,
-        "AWS_ACCESS_KEY_ID = 'AKIAQWERTYUIOPASDFGH'  # sanitizer:ignore - synthetic fixture",
-    ) is None
-    assert POLICY._secret_content_finding(
-        "repo",
-        "leak.py",
-        2,
-        _SYNTHETIC_PEM_HEADER + "  # sanitizer:ignore - synthetic fixture",
-    ) is None
+    assert (
+        POLICY._secret_content_finding(
+            "repo",
+            "leak.py",
+            1,
+            "AWS_ACCESS_KEY_ID = 'AKIAQWERTYUIOPASDFGH'  # sanitizer:ignore - synthetic fixture",
+        )
+        is None
+    )
+    assert (
+        POLICY._secret_content_finding(
+            "repo",
+            "leak.py",
+            2,
+            _SYNTHETIC_PEM_HEADER + "  # sanitizer:ignore - synthetic fixture",
+        )
+        is None
+    )
 
 
 def test_secret_scan_rejects_bare_marker_without_a_reason() -> None:
     """A bare 'sanitizer:ignore' with no reason after the separator must not exempt."""
 
-    assert POLICY._secret_content_finding(
-        "repo", "leak.py", 1, "AWS_ACCESS_KEY_ID = 'AKIAQWERTYUIOPASDFGH'  # sanitizer:ignore"  # sanitizer:ignore - proof-of-catch literal for the argument value (bare marker, no reason), not a real key
-    ) is not None
+    assert (
+        POLICY._secret_content_finding(
+            "repo",
+            "leak.py",
+            1,
+            "AWS_ACCESS_KEY_ID = 'AKIAQWERTYUIOPASDFGH'  # sanitizer:ignore",  # sanitizer:ignore - proof-of-catch literal for the argument value (bare marker, no reason), not a real key
+        )
+        is not None
+    )
 
 
 def test_source_snapshot_findings_are_repository_relative(

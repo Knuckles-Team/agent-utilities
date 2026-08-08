@@ -335,9 +335,7 @@ async def test_pre_dispatch_failure_still_records_a_terminal_run_trace(
         _boom,
     )
 
-    with patch.object(
-        agent_runner, "_record_execution_trace_ordered"
-    ) as record_trace:
+    with patch.object(agent_runner, "_record_execution_trace_ordered") as record_trace:
         record_trace.return_value = True
         with pytest.raises(_StillOnlyOne):
             await agent_runner.run_agent(
@@ -367,9 +365,7 @@ async def test_pre_dispatch_cancellation_records_a_cancelled_trace_and_still_pro
         _cancel,
     )
 
-    with patch.object(
-        agent_runner, "_record_execution_trace_ordered"
-    ) as record_trace:
+    with patch.object(agent_runner, "_record_execution_trace_ordered") as record_trace:
         record_trace.return_value = True
         with pytest.raises(asyncio.CancelledError):
             await agent_runner.run_agent(
@@ -396,9 +392,7 @@ async def test_pre_dispatch_repeated_cancellation_records_exactly_once_per_run(
         _cancel,
     )
 
-    with patch.object(
-        agent_runner, "_record_execution_trace_ordered"
-    ) as record_trace:
+    with patch.object(agent_runner, "_record_execution_trace_ordered") as record_trace:
         record_trace.return_value = True
         for _ in range(2):
             with pytest.raises(asyncio.CancelledError):
@@ -428,9 +422,7 @@ async def test_pre_dispatch_keyboard_interrupt_is_never_recorded_or_swallowed(
         _raise_ki,
     )
 
-    with patch.object(
-        agent_runner, "_record_execution_trace_ordered"
-    ) as record_trace:
+    with patch.object(agent_runner, "_record_execution_trace_ordered") as record_trace:
         record_trace.return_value = True
         with pytest.raises(KeyboardInterrupt):
             await agent_runner.run_agent(

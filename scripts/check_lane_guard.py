@@ -142,7 +142,7 @@ def _check_cargo_target_override(scope: lanes.LaneScope) -> str | None:
         "  cargo builds across worktrees (CONCEPT:AU-OS.governance.lane-partitioned-resources).\n"
         "  cargo's env var always wins over this repo's .cargo/config.toml, so this\n"
         "  export would silently defeat the per-worktree binding. Unset it —\n"
-        "  `.cargo/config.toml` (target-dir = \"target-isolated\") already gives this\n"
+        '  `.cargo/config.toml` (target-dir = "target-isolated") already gives this\n'
         "  worktree its own target dir with no export needed."
     )
 

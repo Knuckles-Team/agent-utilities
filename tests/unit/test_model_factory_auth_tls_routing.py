@@ -71,10 +71,10 @@ def test_default_routing_uses_defined_default_not_hardcoded_qwen(monkeypatch):
             default_chat_model=SimpleNamespace(id="house-model"),
             openai_base_url="http://house.arpa/v1",
             openai_api_key="k",
-                model_tls_profile=None,
-                model_tls_profile_ref=None,
-                model_http_allowed_private_hosts=[],
-            ),
+            model_tls_profile=None,
+            model_tls_profile_ref=None,
+            model_http_allowed_private_hosts=[],
+        ),
     )
     monkeypatch.setattr(model_factory, "get_model_config", fake_get_model_config)
     monkeypatch.setenv("AGENT_UTILITIES_TESTING", "false")

@@ -38,7 +38,16 @@ def test_compute_baseline_distills_distribution_and_inertia():
     trends = [
         _trend(t, f, f"2026-07-{d:02d}T00:00:00Z")
         for d, (t, f) in enumerate(
-            [(50, 10), (52, 10), (54, 15), (56, 15), (58, 20), (60, 20), (62, 25), (64, 25)],
+            [
+                (50, 10),
+                (52, 10),
+                (54, 15),
+                (56, 15),
+                (58, 20),
+                (60, 20),
+                (62, 25),
+                (64, 25),
+            ],
             1,
         )
     ]
@@ -54,7 +63,9 @@ def test_compute_baseline_distills_distribution_and_inertia():
 
 
 def test_compute_baseline_insufficient_history_is_none():
-    trends = [_trend(55, 10, f"2026-07-0{d}T00:00:00Z") for d in range(1, 4)]  # 3 < default 6
+    trends = [
+        _trend(55, 10, f"2026-07-0{d}T00:00:00Z") for d in range(1, 4)
+    ]  # 3 < default 6
     assert h.compute_baseline(trends, value_key="avg") is None
     assert h.compute_baseline(trends, value_key="avg", min_windows=3) is not None
 
@@ -80,23 +91,41 @@ def test_compute_baseline_falls_back_to_value_key_without_peak_key():
 
 
 # --- detect_anomaly ------------------------------------------------------------ #
-_BASE = {"p50": 55.0, "p95": 62.0, "min_env": 45.0, "max_env": 60.0, "inertia": 0.4, "windows": 300}
+_BASE = {
+    "p50": 55.0,
+    "p95": 62.0,
+    "min_env": 45.0,
+    "max_env": 60.0,
+    "inertia": 0.4,
+    "windows": 300,
+}
 
 
 def test_detect_anomaly_above_baseline():
-    recent = [_trend(t, 20, f"2026-07-14T0{i}:00:00Z") for i, t in enumerate([79, 80, 81])]
+    recent = [
+        _trend(t, 20, f"2026-07-14T0{i}:00:00Z") for i, t in enumerate([79, 80, 81])
+    ]
     a = h.detect_anomaly(recent, _BASE, value_key="avg", control_key="avg_control")
     assert a is not None
-    assert a["kind"] == "above-baseline" and a["observed"] == 80.0 and a["zscore"] >= 3.0
+    assert (
+        a["kind"] == "above-baseline" and a["observed"] == 80.0 and a["zscore"] >= 3.0
+    )
 
 
 def test_detect_anomaly_none_when_normal():
-    recent = [_trend(t, 20, f"2026-07-14T0{i}:00:00Z") for i, t in enumerate([56, 57, 58])]
-    assert h.detect_anomaly(recent, _BASE, value_key="avg", control_key="avg_control") is None
+    recent = [
+        _trend(t, 20, f"2026-07-14T0{i}:00:00Z") for i, t in enumerate([56, 57, 58])
+    ]
+    assert (
+        h.detect_anomaly(recent, _BASE, value_key="avg", control_key="avg_control")
+        is None
+    )
 
 
 def test_detect_anomaly_saturated():
-    recent = [_trend(61, c, f"2026-07-14T0{i}:00:00Z") for i, c in enumerate([96, 97, 98])]
+    recent = [
+        _trend(61, c, f"2026-07-14T0{i}:00:00Z") for i, c in enumerate([96, 97, 98])
+    ]
     a = h.detect_anomaly(recent, _BASE, value_key="avg", control_key="avg_control")
     assert a is not None
     assert a["kind"] == "saturated"  # control pinned yet still above the load envelope
@@ -104,7 +133,12 @@ def test_detect_anomaly_saturated():
 
 def test_detect_anomaly_none_without_baseline_or_recent():
     assert h.detect_anomaly([], _BASE, value_key="avg") is None
-    assert h.detect_anomaly([_trend(80, 20, "2026-07-14T00:00:00Z")], None, value_key="avg") is None
+    assert (
+        h.detect_anomaly(
+            [_trend(80, 20, "2026-07-14T00:00:00Z")], None, value_key="avg"
+        )
+        is None
+    )
 
 
 def test_detect_anomaly_without_control_key_never_saturates():

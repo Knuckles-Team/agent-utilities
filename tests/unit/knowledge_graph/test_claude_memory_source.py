@@ -80,7 +80,9 @@ def test_sync_claude_memory_ingests_typed_nodes_and_links(tmp_path, monkeypatch)
     _write(tmp_path, "bar", "Bar", "reference", "no links here.")
     # The MEMORY.md / MEMORY-ARCHIVE.md indexes must NOT be ingested.
     (tmp_path / "MEMORY.md").write_text("- [Foo](foo.md) — hook\n", encoding="utf-8")
-    (tmp_path / "MEMORY-ARCHIVE.md").write_text("- [old](old.md) — x\n", encoding="utf-8")
+    (tmp_path / "MEMORY-ARCHIVE.md").write_text(
+        "- [old](old.md) — x\n", encoding="utf-8"
+    )
     monkeypatch.setenv("CLAUDE_MEMORY_DIR", str(tmp_path))
 
     engine = _FakeEngine()
@@ -99,7 +101,11 @@ def test_sync_claude_memory_ingests_typed_nodes_and_links(tmp_path, monkeypatch)
     assert foo["memory_type"] == "project"
     assert foo["description"] == "Foo summary line"
     # the [[bar]] link → a RELATED_TO edge foo → bar
-    assert {"source": "claude_memory:foo", "target": "claude_memory:bar", "type": "RELATED_TO"} in rels
+    assert {
+        "source": "claude_memory:foo",
+        "target": "claude_memory:bar",
+        "type": "RELATED_TO",
+    } in rels
 
 
 @pytest.mark.quarantine(

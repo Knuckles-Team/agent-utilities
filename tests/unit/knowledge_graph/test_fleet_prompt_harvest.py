@@ -89,11 +89,7 @@ def test_a_body_that_does_not_parse_as_json_is_an_error_not_a_silent_drop():
     engine = _FakeEngine()
     report = promote_harvested_prompts(
         engine,
-        {
-            "servicenow-mcp": _server(
-                _entry("incident-triage", body="not-json-at-all")
-            )
-        },
+        {"servicenow-mcp": _server(_entry("incident-triage", body="not-json-at-all"))},
     )
 
     assert report["promoted"] == 0

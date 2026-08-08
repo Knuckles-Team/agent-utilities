@@ -52,9 +52,7 @@ def loop_env(tmp_path, monkeypatch):
     # whatever is there right now (the pre-test ambient value) and restores
     # exactly that at teardown, regardless of what this fixture sets it to
     # in between.
-    monkeypatch.setattr(
-        IntelligenceGraphEngine, "_ACTIVE_ENGINE", None, raising=False
-    )
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", None, raising=False)
     compute = GraphComputeEngine(backend_type="rust")
     isolated_backend = object.__new__(EpistemicGraphBackend)
     isolated_backend._graph = compute

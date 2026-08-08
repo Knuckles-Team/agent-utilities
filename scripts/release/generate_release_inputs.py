@@ -15,8 +15,7 @@ from scripts.release import check_compatibility
 from scripts.release.generate_release_assembly import write
 
 _INDEX_MIGRATION_SCHEMA = (
-    check_compatibility._RELEASE_SCHEMA_ROOT
-    / "index-migration-catalog.schema.json"
+    check_compatibility._RELEASE_SCHEMA_ROOT / "index-migration-catalog.schema.json"
 )
 
 
@@ -98,9 +97,7 @@ def generate_migration_plan(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="generate-graphos-release-input")
-    parser.add_argument(
-        "kind", choices=("configuration", "migration-plan")
-    )
+    parser.add_argument("kind", choices=("configuration", "migration-plan"))
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--matrix", type=Path, required=True)
     parser.add_argument("--index-migration-catalog", type=Path)
@@ -109,9 +106,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         input_paths = {arguments.matrix.resolve(strict=False)}
         if arguments.index_migration_catalog is not None:
-            input_paths.add(
-                arguments.index_migration_catalog.resolve(strict=False)
-            )
+            input_paths.add(arguments.index_migration_catalog.resolve(strict=False))
         if arguments.output.resolve(strict=False) in input_paths:
             raise ReleaseInputError("release input output must not alias an input")
         if arguments.kind == "configuration":

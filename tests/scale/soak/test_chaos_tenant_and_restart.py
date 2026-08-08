@@ -129,17 +129,11 @@ def test_full_restart_cold_activation_recovers_in_flight_work(loadgen):
     )
 
     # Everything durable survived the restart, including the in-flight item's state.
-    assert (
-        wi.get_work_item(restarted, done_id)["status"]
-        == "succeeded"
-    )
+    assert wi.get_work_item(restarted, done_id)["status"] == "succeeded"
     # "leased" and "running" are one engine-native ownership decision (see
     # work_item.py's mark_running docstring) — precedent:
     # tests/unit/orchestration/test_work_item.py:610.
-    assert (
-        wi.get_work_item(restarted, in_flight_id)["status"]
-        in ("leased", "running")
-    )
+    assert wi.get_work_item(restarted, in_flight_id)["status"] in ("leased", "running")
 
     # A post-restart reap sweep is confirmation-only (AU-P1-1: no Python-side
     # reaper transition writer — ClaimWorkItem reclaims expired leases
@@ -164,10 +158,7 @@ def test_full_restart_cold_activation_recovers_in_flight_work(loadgen):
         now=1002.0,
     )
     assert outcome == "committed"
-    assert (
-        wi.get_work_item(restarted, in_flight_id)["status"]
-        == "succeeded"
-    )
+    assert wi.get_work_item(restarted, in_flight_id)["status"] == "succeeded"
 
     # The pre-restart claim (now long dead) cannot resurrect/overwrite the outcome.
     stale = wi.commit_result(

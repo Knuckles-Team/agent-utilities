@@ -104,7 +104,9 @@ async def test_persist_media_creates_distinct_call_per_message(
 
 
 @pytest.mark.asyncio
-async def test_persist_media_noop_without_store(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_persist_media_noop_without_store(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     monkeypatch.setattr(httpx, "AsyncClient", _FakeHttpxClient)
     monkeypatch.setattr(router, "_resolve_media_store", lambda engine: None)
     ev = _event(channel_id="C1", user_id="u1", msg_id="m1", url="http://x/img.png")
@@ -113,7 +115,9 @@ async def test_persist_media_noop_without_store(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio
-async def test_persist_media_noop_without_media(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_persist_media_noop_without_media(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     store = _FakeStore()
     monkeypatch.setattr(router, "_resolve_media_store", lambda engine: store)
     ev = InboundEvent(

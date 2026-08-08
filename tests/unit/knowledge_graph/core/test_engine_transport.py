@@ -22,9 +22,9 @@ def _config(**overrides):
 
 
 def test_plaintext_native_engine_is_loopback_only_by_default():
-    assert engine_client_transport_kwargs(
-        "tcp://127.0.0.1:9100", config=_config()
-    ) == {}
+    assert (
+        engine_client_transport_kwargs("tcp://127.0.0.1:9100", config=_config()) == {}
+    )
     with pytest.raises(EngineTransportError, match="requires tls://"):
         engine_client_transport_kwargs(
             "tcp://engine.example.invalid:9100", config=_config()

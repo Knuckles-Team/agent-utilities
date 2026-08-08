@@ -50,9 +50,9 @@ class TestEntitledResources:
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
     def test_no_catalog_returns_named_resources(self):
-        assert entitled_resources(
-            ["k8s:prod", "ssh:analysis-node-a"], "k8s"
-        ) == ("prod",)
+        assert entitled_resources(["k8s:prod", "ssh:analysis-node-a"], "k8s") == (
+            "prod",
+        )
 
     @pytest.mark.concept("CONCEPT:AU-OS.identity.identity-scoped-resource-autoload")
     def test_is_entitled(self):
@@ -127,9 +127,7 @@ class TestIdentityScopedResources:
         "actor",
         [
             ActorContext(actor_id="principal", tenant_id="tenant-a"),
-            ActorContext(
-                actor_id="principal", tenant_id="", authenticated=True
-            ),
+            ActorContext(actor_id="principal", tenant_id="", authenticated=True),
         ],
     )
     def test_unverified_or_tenantless_actor_fails_closed(self, actor):

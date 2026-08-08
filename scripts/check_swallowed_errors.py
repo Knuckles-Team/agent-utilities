@@ -202,7 +202,7 @@ def _call_preserves_cause(
 def _cause_preservation_level(
     body: list[ast.stmt], bound_name: str | None, source_lines: list[str]
 ) -> str:
-    """"loud" (a non-DEBUG log call already carries the real cause forward —
+    """ "loud" (a non-DEBUG log call already carries the real cause forward —
     fully justified, no violation), "debug_only" (the ONLY cause-preserving
     log call(s) are at DEBUG level — D-SWG-2: invisible in production unless
     explicitly justified via ``# noqa: BLE001 — <reason>``), or "none" (no

@@ -248,7 +248,9 @@ def test_defer_loading_shrinks_first_turn_prompt(
     # Sanity: the deferred capability contributes NO function tools of its own on
     # turn 1 (only the internal loader's `load_capability` tool exists, which this
     # capability-only Agent does carry — but none of THIS capability's tools).
-    assert not any(td.name in {n for n, _ in tool_specs} for td in deferred_info.function_tools)
+    assert not any(
+        td.name in {n for n, _ in tool_specs} for td in deferred_info.function_tools
+    )
 
     reduction_pct = round(100 * (1 - deferred_tokens / baseline_tokens), 1)
     print(

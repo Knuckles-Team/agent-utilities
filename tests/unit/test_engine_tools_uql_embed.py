@@ -80,9 +80,7 @@ def _fresh_client_pool(monkeypatch):
 @pytest.fixture
 def fake_embed_model(monkeypatch):
     model = _FakeEmbedModel()
-    monkeypatch.setattr(
-        embedding_utilities, "create_embedding_model", lambda: model
-    )
+    monkeypatch.setattr(embedding_utilities, "create_embedding_model", lambda: model)
     return model
 
 
@@ -249,9 +247,7 @@ def test_uql_rank_text_embedder_unavailable_fails_loud(monkeypatch):
 
 # ── the bare-helper unit surface (span-finder + rewrite) ──────────────────────
 def test_uql_rank_text_spans_helper_escaping():
-    spans = engine_tools._uql_rank_text_spans(
-        'RANK BY ~"he said \\"hi\\"" |> LIMIT 1'
-    )
+    spans = engine_tools._uql_rank_text_spans('RANK BY ~"he said \\"hi\\"" |> LIMIT 1')
     assert len(spans) == 1
     _start, _end, literal = spans[0]
     assert literal == 'he said "hi"'

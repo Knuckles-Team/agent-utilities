@@ -131,7 +131,9 @@ def signer(release_signing_key: None) -> object:
 def test_build_manifest_projects_all_artifacts(
     connector_root: Path, registry: Path, signer: object
 ):
-    m = gen.build_manifest(connector_root, now=_NOW, registry_path=registry, release_signer=signer)
+    m = gen.build_manifest(
+        connector_root, now=_NOW, registry_path=registry, release_signer=signer
+    )
     assert m.connector == "acme-api"
     assert m.ontology_source == "acme"  # detected from the ttl's owl:Ontology IRI
     assert {r.name for r in m.resources} == {"Order", "Person"}

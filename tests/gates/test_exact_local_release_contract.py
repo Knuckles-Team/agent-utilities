@@ -413,37 +413,53 @@ def test_promoter_verifier_and_schemas_are_installed() -> None:
         "deploy/release/skill-validation-deployment-evidence.schema.json",
         "deploy/release/skill-validation-deployment.schema.json",
     } <= wheel_contract._REQUIRED_MEMBERS
-    assert wheel_contract._SCHEMA_ID_SUFFIXES[
-        "deploy/release/oci-scanner-attestation.schema.json"
-    ] == "oci-scanner-attestation-v1.json"
-    assert wheel_contract._SCHEMA_ID_SUFFIXES[
-        "deploy/release/oci-vulnerability-database-attestation.schema.json"
-    ] == "oci-vulnerability-database-attestation-v1.json"
-    assert wheel_contract._SCHEMA_ID_SUFFIXES[
-        "deploy/release/prebundled-skill-validation-evidence.schema.json"
-    ] == "prebundled-skill-validation-evidence-v2.json"
-    assert wheel_contract._SCHEMA_ID_SUFFIXES[
-        "deploy/release/skill-validation-deployment-evidence.schema.json"
-    ] == "skill-validation-lifecycle-evidence-v2.json"
-    assert wheel_contract._SCHEMA_ID_SUFFIXES[
-        "deploy/release/skill-validation-deployment.schema.json"
-    ] == "skill-validation-deployment-v2.json"
-    assert wheel_contract._ENTRY_POINTS[
-        "generate-oci-acquisition-attestation"
-    ] == "scripts.release.generate_oci_acquisition_attestation:main"
-    assert wheel_contract._ENTRY_POINTS[
-        "generate-exact-local-gates-manifest"
-    ] == "scripts.release.exact_local_gates_manifest:main"
-    assert wheel_contract._ENTRY_POINTS[
-        "bind-exact-local-release-evidence"
-    ] == "scripts.release.exact_artifact_closure:main"
+    assert (
+        wheel_contract._SCHEMA_ID_SUFFIXES[
+            "deploy/release/oci-scanner-attestation.schema.json"
+        ]
+        == "oci-scanner-attestation-v1.json"
+    )
+    assert (
+        wheel_contract._SCHEMA_ID_SUFFIXES[
+            "deploy/release/oci-vulnerability-database-attestation.schema.json"
+        ]
+        == "oci-vulnerability-database-attestation-v1.json"
+    )
+    assert (
+        wheel_contract._SCHEMA_ID_SUFFIXES[
+            "deploy/release/prebundled-skill-validation-evidence.schema.json"
+        ]
+        == "prebundled-skill-validation-evidence-v2.json"
+    )
+    assert (
+        wheel_contract._SCHEMA_ID_SUFFIXES[
+            "deploy/release/skill-validation-deployment-evidence.schema.json"
+        ]
+        == "skill-validation-lifecycle-evidence-v2.json"
+    )
+    assert (
+        wheel_contract._SCHEMA_ID_SUFFIXES[
+            "deploy/release/skill-validation-deployment.schema.json"
+        ]
+        == "skill-validation-deployment-v2.json"
+    )
+    assert (
+        wheel_contract._ENTRY_POINTS["generate-oci-acquisition-attestation"]
+        == "scripts.release.generate_oci_acquisition_attestation:main"
+    )
+    assert (
+        wheel_contract._ENTRY_POINTS["generate-exact-local-gates-manifest"]
+        == "scripts.release.exact_local_gates_manifest:main"
+    )
+    assert (
+        wheel_contract._ENTRY_POINTS["bind-exact-local-release-evidence"]
+        == "scripts.release.exact_artifact_closure:main"
+    )
     assert {
         "agent-utilities-validate-skills": (
             "agent_utilities.skills.runtime_validation:main"
         ),
-        "graph-os-certify-skills": (
-            "agent_utilities.deployment.skill_validation:main"
-        ),
+        "graph-os-certify-skills": ("agent_utilities.deployment.skill_validation:main"),
         "graph-os-generate-skill-certification": (
             "agent_utilities.deployment.skill_validation_assets:generator_main"
         ),
@@ -606,9 +622,7 @@ def test_release_wheel_contract_requires_exact_skill_certification_surface(
         ):
             wheel_contract.check_wheel(wheel)
 
-    for index, entry_point in enumerate(
-        sorted(_SKILL_CERTIFICATION_ENTRY_POINTS)
-    ):
+    for index, entry_point in enumerate(sorted(_SKILL_CERTIFICATION_ENTRY_POINTS)):
         wheel = _synthetic_release_wheel(
             tmp_path / f"missing-entry-point-{index}.whl",
             omitted_entry_point=entry_point,
@@ -644,9 +658,7 @@ def test_release_wheel_contract_requires_installed_production_campaign_surface(
         ):
             wheel_contract.check_wheel(wheel)
 
-    for index, entry_point in enumerate(
-        sorted(_PRODUCTION_CERTIFICATION_ENTRY_POINTS)
-    ):
+    for index, entry_point in enumerate(sorted(_PRODUCTION_CERTIFICATION_ENTRY_POINTS)):
         wheel = _synthetic_release_wheel(
             tmp_path / f"missing-production-entry-{index}.whl",
             omitted_entry_point=entry_point,
@@ -713,9 +725,7 @@ def test_release_wheel_rejects_resource_or_catalog_schema_substitution(
     ):
         wheel_contract.check_wheel(wheel)
 
-    catalog = json.loads(
-        (ROOT / wheel_contract._RELEASE_RESOURCE_CATALOG).read_text()
-    )
+    catalog = json.loads((ROOT / wheel_contract._RELEASE_RESOURCE_CATALOG).read_text())
     for resource in catalog["resources"]:
         if resource["path"] == schema_name:
             resource["sha256"] = hashlib.sha256(gutted_schema).hexdigest()

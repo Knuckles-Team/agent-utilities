@@ -33,7 +33,9 @@ def _write(path: Path, payload: bytes) -> None:
     if path.is_symlink():
         raise ValueError("index migration catalog output symlinks are not accepted")
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary_name = tempfile.mkstemp(prefix=".index-catalog-", dir=path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=".index-catalog-", dir=path.parent
+    )
     temporary = Path(temporary_name)
     try:
         os.fchmod(descriptor, 0o600)

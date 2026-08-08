@@ -37,10 +37,7 @@ def _unsafe_exception_uses(path: Path) -> list[str]:
                             for arg in expression.args
                         )
             elif isinstance(node, ast.Call):
-                if (
-                    isinstance(node.func, ast.Name)
-                    and node.func.id in {"str", "repr"}
-                ):
+                if isinstance(node.func, ast.Name) and node.func.id in {"str", "repr"}:
                     unsafe |= any(
                         isinstance(arg, ast.Name) and arg.id == exception_name
                         for arg in node.args

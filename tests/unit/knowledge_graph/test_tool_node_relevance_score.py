@@ -116,6 +116,8 @@ def test_matches_mcp_tool_info_legacy_boundary() -> None:
     the codebase agrees on ambiguous historical data."""
     from agent_utilities.models.mcp import MCPToolInfo
 
-    tool_info = MCPToolInfo(name="t1", description="d", mcp_server="s1", relevance_score=0.7)
+    tool_info = MCPToolInfo(
+        name="t1", description="d", mcp_server="s1", relevance_score=0.7
+    )
     node = _make(relevance_score=0.7)
     assert tool_info.relevance_score == node.relevance_score == 70

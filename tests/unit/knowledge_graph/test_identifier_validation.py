@@ -241,7 +241,9 @@ class TestLadybugBackendPruneRejectsMaliciousNodeType:
         )
         monkeypatch.setattr(backend, "checkpoint_wal", lambda: None, raising=False)
         backend.prune({"min_importance": 0.2})
-        assert calls == ["MATCH (n) WHERE n.importance_score < $min_imp DETACH DELETE n"]
+        assert calls == [
+            "MATCH (n) WHERE n.importance_score < $min_imp DETACH DELETE n"
+        ]
 
 
 class TestLadybugAutoDdlGuards:
@@ -647,7 +649,9 @@ class TestXIngestionPersistNodeFiltersMaliciousPropertyKeys:
     def test_persist_node_keeps_a_valid_property_key(self, bridge):
         calls: list[tuple[str, dict]] = []
         bridge.graph = MagicMock()
-        bridge.graph.nodes = {"n1": {"id": "n1", "node_type": "person", "safe_key": "ok"}}
+        bridge.graph.nodes = {
+            "n1": {"id": "n1", "node_type": "person", "safe_key": "ok"}
+        }
         bridge.backend = MagicMock()
         bridge.backend.execute = lambda q, p: calls.append((q, p))
 

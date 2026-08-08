@@ -70,6 +70,7 @@ before/after inventory, the 4 langfuse-agent name-conflict skips, and the
 ``step_count=0`` ``WorkflowDefinition`` nodes pose (NOT deleted — deletion is
 out of scope for this lane).
 """
+
 from __future__ import annotations
 
 import argparse
@@ -97,7 +98,14 @@ def _agent_packages_root() -> Path:
     here = Path(__file__).resolve().parent
     common_dir = Path(
         subprocess.run(
-            ["git", "-C", str(here), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            [
+                "git",
+                "-C",
+                str(here),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -357,7 +365,9 @@ def main() -> int:
         "--dry-run", action="store_true", help="plan only, no KG mutation"
     )
     mode.add_argument(
-        "--execute", action="store_true", help="actually create missing CallableResource nodes"
+        "--execute",
+        action="store_true",
+        help="actually create missing CallableResource nodes",
     )
     p.add_argument(
         "--limit",

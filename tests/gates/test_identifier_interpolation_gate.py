@@ -60,7 +60,7 @@ def test_gate_trips_on_unguarded_create_table(tmp_path):
     (tmp_path / "bad_table.py").write_text(
         "class Store:\n"
         "    def ensure(self, cur, table_name):\n"
-        '        cur.execute(f\'CREATE TABLE IF NOT EXISTS "{table_name}" (id TEXT)\')\n'
+        "        cur.execute(f'CREATE TABLE IF NOT EXISTS \"{table_name}\" (id TEXT)')\n"
     )
     result = _run(str(tmp_path))
     assert result.returncode == 1, result.stdout
@@ -73,7 +73,7 @@ def test_gate_passes_on_validated_create_table(tmp_path):
         "class Store:\n"
         "    def ensure(self, cur, table_name):\n"
         "        table_name = validate_sql_identifier(table_name, kind='table')\n"
-        '        cur.execute(f\'CREATE TABLE IF NOT EXISTS "{table_name}" (id TEXT)\')\n'
+        "        cur.execute(f'CREATE TABLE IF NOT EXISTS \"{table_name}\" (id TEXT)')\n"
     )
     result = _run(str(tmp_path))
     assert result.returncode == 0, result.stdout
@@ -86,7 +86,7 @@ def test_gate_ignores_ordinary_value_interpolation(tmp_path):
     (tmp_path / "fine.py").write_text(
         "def query_lineage(limit):\n"
         '    where = ["n.kind = $kind"]\n'
-        '    return f"MATCH (n) WHERE {\' AND \'.join(where)} LIMIT {int(limit)}"\n'
+        "    return f\"MATCH (n) WHERE {' AND '.join(where)} LIMIT {int(limit)}\"\n"
     )
     result = _run(str(tmp_path))
     assert result.returncode == 0, result.stdout

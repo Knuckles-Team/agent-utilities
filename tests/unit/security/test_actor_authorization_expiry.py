@@ -39,9 +39,7 @@ def _expired_actor(*roles: str, lease: CredentialLease | None = None) -> ActorCo
 @pytest.mark.parametrize(
     "authorize",
     [
-        lambda actor: identity_scoped_resources(
-            "k8s", ["prod"], actor=actor
-        ),
+        lambda actor: identity_scoped_resources("k8s", ["prod"], actor=actor),
         lambda actor: secured_reads.scope("MATCH (n) RETURN n", actor),
         lambda actor: permissioning.redact_object({"id": "node"}, actor),
         lambda actor: tenant_sharing.visibility_predicate(actor),
@@ -84,9 +82,7 @@ def test_ontology_action_handler_does_not_run_for_expired_actor() -> None:
     )
     executor = ActionExecutor(
         registry,
-        kernel=PermissionsKernel(
-            signing_key="test-signing-authority-material-32b"
-        ),
+        kernel=PermissionsKernel(signing_key="test-signing-authority-material-32b"),
         persist=False,
     )
 
@@ -114,9 +110,7 @@ def test_ontology_action_rejects_unverified_role_claims() -> None:
     )
     executor = ActionExecutor(
         registry,
-        kernel=PermissionsKernel(
-            signing_key="test-signing-authority-material-32b"
-        ),
+        kernel=PermissionsKernel(signing_key="test-signing-authority-material-32b"),
         persist=False,
     )
 

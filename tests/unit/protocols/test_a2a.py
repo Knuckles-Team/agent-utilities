@@ -320,9 +320,7 @@ def test_setup_otel_with_public_secret_keys(monkeypatch):
             )
         ),
     )
-    monkeypatch.setattr(
-        obs, "disable_context_agent_instrumentation", MagicMock()
-    )
+    monkeypatch.setattr(obs, "disable_context_agent_instrumentation", MagicMock())
 
     obs.setup_otel(service_name="svc")
     assert "OTEL_EXPORTER_OTLP_HEADERS" in os.environ

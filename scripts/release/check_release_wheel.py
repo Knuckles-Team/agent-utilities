@@ -46,9 +46,7 @@ _PREBUNDLED_SKILL_CATALOG = (
 _MAX_WHEEL_BYTES = 4 * 1024 * 1024 * 1024
 _MAX_CONTRACT_MEMBER_BYTES = 1024 * 1024
 _MAX_MEMBERS = 400_000
-_RELEASE_RESOURCE_CATALOG = (
-    "deploy/release/release-contract-resources.catalog.json"
-)
+_RELEASE_RESOURCE_CATALOG = "deploy/release/release-contract-resources.catalog.json"
 _RELEASE_RESOURCE_CATALOG_SHA256 = (
     "35efd2aeff0ad6c50e5bb11581b5ece77960feac4d8f8a6c82a25010a5d23111"
 )
@@ -225,12 +223,8 @@ _SCHEMA_ID_SUFFIXES = {
     "deploy/release/certification-campaign.schema.json": (
         "certification-campaign-v1.json"
     ),
-    "deploy/release/compatibility-matrix.schema.json": (
-        "compatibility-matrix-v2.json"
-    ),
-    "deploy/release/component-provenance.schema.json": (
-        "component-provenance-v1.json"
-    ),
+    "deploy/release/compatibility-matrix.schema.json": ("compatibility-matrix-v2.json"),
+    "deploy/release/component-provenance.schema.json": ("component-provenance-v1.json"),
     "deploy/release/component-signature-bundle.schema.json": (
         "component-signature-bundle-v2.json"
     ),
@@ -263,9 +257,7 @@ _SCHEMA_ID_SUFFIXES = {
     "deploy/release/oci-vulnerability-scan-evidence.schema.json": (
         "oci-vulnerability-scan-evidence-v1.json"
     ),
-    "deploy/release/operational-evidence.schema.json": (
-        "operational-evidence-v1.json"
-    ),
+    "deploy/release/operational-evidence.schema.json": ("operational-evidence-v1.json"),
     "deploy/release/prebundled-skill-catalog.schema.json": (
         "prebundled-skill-catalog-v1.json"
     ),
@@ -286,9 +278,7 @@ _SCHEMA_ID_SUFFIXES = {
     "deploy/release/skill-validation-deployment.schema.json": (
         "skill-validation-deployment-v2.json"
     ),
-    "deploy/release/source-freeze-evidence.schema.json": (
-        "source-freeze-evidence:1"
-    ),
+    "deploy/release/source-freeze-evidence.schema.json": ("source-freeze-evidence:1"),
     "deploy/release/source-freeze-gates.schema.json": "source-freeze-gates:1",
 }
 _ENTRY_POINTS = {
@@ -303,9 +293,7 @@ _ENTRY_POINTS = {
     "generate-graphos-component-evidence": (
         "scripts.release.generate_component_evidence:main"
     ),
-    "generate-graphos-release-input": (
-        "scripts.release.generate_release_inputs:main"
-    ),
+    "generate-graphos-release-input": ("scripts.release.generate_release_inputs:main"),
     "generate-graphos-release-assembly": (
         "scripts.release.generate_release_assembly:main"
     ),
@@ -324,9 +312,7 @@ _ENTRY_POINTS = {
     "materialize-component-wheelhouse": (
         "scripts.release.materialize_component_wheelhouse:main"
     ),
-    "graph-os-certify-skills": (
-        "agent_utilities.deployment.skill_validation:main"
-    ),
+    "graph-os-certify-skills": ("agent_utilities.deployment.skill_validation:main"),
     "graph-os-generate-skill-certification": (
         "agent_utilities.deployment.skill_validation_assets:generator_main"
     ),

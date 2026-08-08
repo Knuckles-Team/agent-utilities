@@ -17,10 +17,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_AGENTS_ROOT = ROOT.parent / "agents"
 DEFAULT_WORKSPACE = (
-    DEFAULT_AGENTS_ROOT
-    / "repository-manager"
-    / "repository_manager"
-    / "workspace.yml"
+    DEFAULT_AGENTS_ROOT / "repository-manager" / "repository_manager" / "workspace.yml"
 )
 DEFAULT_OUTPUT = ROOT / "docs" / "ecosystem-capability-fleet.md"
 
@@ -28,8 +25,9 @@ DEFAULT_OUTPUT = ROOT / "docs" / "ecosystem-capability-fleet.md"
 def _agent_entries(workspace: Path) -> list[dict]:
     data = yaml.safe_load(workspace.read_text(encoding="utf-8"))
     return list(
-        data["subdirectories"]["agent-packages"]["subdirectories"]["agents"]
-        ["repositories"]
+        data["subdirectories"]["agent-packages"]["subdirectories"]["agents"][
+            "repositories"
+        ]
     )
 
 
@@ -59,7 +57,9 @@ def render(workspace: Path, agents_root: Path) -> str:
         repository = agents_root / package
         skills = _canonical_skills(repository)
         provider_root = skills[0].parents[2] if skills else repository / "missing"
-        openai = bool(skills and (skills[0].parent / "agents" / "openai.yaml").is_file())
+        openai = bool(
+            skills and (skills[0].parent / "agents" / "openai.yaml").is_file()
+        )
         manifest = (repository / "connector_manifest.yml").is_file()
         bundle = all(
             (provider_root / "ontology" / name).exists()
@@ -71,9 +71,7 @@ def render(workspace: Path, agents_root: Path) -> str:
                 "certification.json",
             )
         )
-        presets = (
-            provider_root / "connectors" / "mcp_source_presets.json"
-        ).is_file()
+        presets = (provider_root / "connectors" / "mcp_source_presets.json").is_file()
         schema = (
             provider_root / "connectors" / "tool_schema_fingerprints.json"
         ).is_file()

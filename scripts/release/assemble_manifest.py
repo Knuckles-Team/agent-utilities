@@ -47,7 +47,9 @@ def _mapping(path: Path) -> dict[str, Any]:
             or metadata.st_size == 0
             or metadata.st_size > maximum
         ):
-            raise AssemblyError("release input must be a bounded unaliased regular file")
+            raise AssemblyError(
+                "release input must be a bounded unaliased regular file"
+            )
         before = (
             metadata.st_dev,
             metadata.st_ino,
@@ -62,13 +64,17 @@ def _mapping(path: Path) -> dict[str, Any]:
                 break
             payload.extend(chunk)
         after = os.fstat(descriptor)
-        if before != (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        ) or len(payload) != metadata.st_size:
+        if (
+            before
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            or len(payload) != metadata.st_size
+        ):
             raise AssemblyError("release input changed while it was read")
         try:
             path_metadata = path.stat(follow_symlinks=False)
@@ -120,7 +126,9 @@ def _validate_component(
         expected.get("version"), f"{name}.version"
     )
     if version_text != expected_version or str(version) != version_text:
-        raise AssemblyError(f"component {name} version is not the current matrix version")
+        raise AssemblyError(
+            f"component {name} version is not the current matrix version"
+        )
     if component.get("kind") != expected.get("artifactKind"):
         raise AssemblyError(f"component {name} artifact kind differs from the matrix")
     artifact = str(component.get("artifact") or "")
@@ -208,7 +216,9 @@ def assemble(
     configuration = compatibility._evidence_bytes(
         output_path, configuration_ref, "configuration"
     )
-    migration = compatibility._evidence_bytes(output_path, migration_ref, "migrationPlan")
+    migration = compatibility._evidence_bytes(
+        output_path, migration_ref, "migrationPlan"
+    )
     source_freeze = compatibility._evidence_bytes(
         output_path,
         source_freeze_ref,
@@ -233,7 +243,9 @@ def assemble(
     )
     certification_digests = {
         name: _digest(
-            compatibility._evidence_bytes(output_path, reference, f"certification.{name}")
+            compatibility._evidence_bytes(
+                output_path, reference, f"certification.{name}"
+            )
         )
         for name, reference in sorted(certifications.items())
     }
@@ -270,7 +282,9 @@ def assemble(
         )
         verifier_env = str(declaration.get("signatureVerifierEnv") or "")
         if not _ENV_NAME.fullmatch(verifier_env):
-            raise AssemblyError(f"component {name} verifier environment name is invalid")
+            raise AssemblyError(
+                f"component {name} verifier environment name is invalid"
+            )
         component_base = {
             "version": str(declaration["version"]),
             "kind": str(declaration["kind"]),
@@ -319,9 +333,7 @@ def assemble(
         matrix_digest=matrix_digest,
         index_migration_catalog_digest=str(index_migrations["digest"]),
     )
-    if migration_document["indexMigrationCount"] != index_migrations.get(
-        "entryCount"
-    ):
+    if migration_document["indexMigrationCount"] != index_migrations.get("entryCount"):
         raise AssemblyError(
             "release migration plan entry count differs from the index catalog"
         )
@@ -433,7 +445,13 @@ def sign(
     response = _external_command(signer_env, payload)
     _exact(
         response,
-        {"scheme", "subjectDigest", "bundleDigest", "signerIdentityDigest", "signature"},
+        {
+            "scheme",
+            "subjectDigest",
+            "bundleDigest",
+            "signerIdentityDigest",
+            "signature",
+        },
         field="external signer response",
     )
     if response.get("subjectDigest") != subject_digest:
@@ -554,7 +572,9 @@ def main(argv: list[str] | None = None) -> int:
             )
         else:
             if args.input.parent.resolve() != args.output.parent.resolve():
-                raise AssemblyError("signed and unsigned manifests must share an evidence root")
+                raise AssemblyError(
+                    "signed and unsigned manifests must share an evidence root"
+                )
             result = sign(
                 _mapping(args.input),
                 matrix,

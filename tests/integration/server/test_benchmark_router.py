@@ -62,7 +62,10 @@ def test_health_endpoint(client: TestClient):
     resp = client.get("/benchmark/health")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["status"] == "ok" and body["concept"] == "AU-AHE.evaluation.longmemeval-validation-harness"
+    assert (
+        body["status"] == "ok"
+        and body["concept"] == "AU-AHE.evaluation.longmemeval-validation-harness"
+    )
 
 
 @pytest.mark.concept(id="AU-AHE.evaluation.longmemeval-validation-harness")

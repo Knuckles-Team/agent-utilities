@@ -194,7 +194,10 @@ class TestMemoryMaterializer:
         m = MemoryMaterializer(engine)
         paths = m.materialize()
         active = paths["active.md"].read_text()
-        assert "cross-agent memory bridge" in active.lower() or "AU-KG.query.vendor-agnostic-traversal" in active
+        assert (
+            "cross-agent memory bridge" in active.lower()
+            or "AU-KG.query.vendor-agnostic-traversal" in active
+        )
 
     def test_detect_edits_after_modification(self, engine, memory_tmpdir):
         from agent_utilities.knowledge_graph.memory import MemoryMaterializer

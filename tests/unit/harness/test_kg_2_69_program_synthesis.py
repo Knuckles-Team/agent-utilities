@@ -15,7 +15,9 @@ from agent_utilities.harness.program_synthesis import (
 )
 from agent_utilities.harness.selection_operators import select_top_k
 
-pytestmark = pytest.mark.concept("AU-KG.coordination.inductive-program-synthesis-search")
+pytestmark = pytest.mark.concept(
+    "AU-KG.coordination.inductive-program-synthesis-search"
+)
 
 PRIMS = {
     "inc": lambda x: x + 1,

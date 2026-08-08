@@ -396,7 +396,9 @@ def test_exit8_external_event_loop_kind_resolves_registered_probe():
 
     # A not-yet-fired signal keeps the ``external_event`` loop polling until the
     # turn cap (a terminal WorkItem can't be re-run, so use two distinct loops).
-    waiting = _submit(engine, loop_id="loop:external_event:waiting", kind="external_event")
+    waiting = _submit(
+        engine, loop_id="loop:external_event:waiting", kind="external_event"
+    )
     ctrl_wait = LoopController(
         engine, event_probes={"loop:external_event:waiting": lambda: False}
     )

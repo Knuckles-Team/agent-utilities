@@ -54,6 +54,9 @@ def test_log_record_drops_traceback_and_sanitizes_exception_message() -> None:
         (RuntimeError, error, None),
     )
 
-    assert record.getMessage() == "operation failed (RuntimeError: secret endpoint <endpoint>)"
+    assert (
+        record.getMessage()
+        == "operation failed (RuntimeError: secret endpoint <endpoint>)"
+    )
     assert record.exc_info is None
     assert record.stack_info is None

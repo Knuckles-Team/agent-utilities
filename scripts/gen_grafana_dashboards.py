@@ -29,6 +29,7 @@ from pathlib import Path
 PROM = {"type": "prometheus", "uid": "prometheus"}
 LOKI = {"type": "loki", "uid": "loki"}
 
+
 def _target(expr: str, legend: str = "", instant: bool = False) -> dict:
     return {
         "datasource": PROM,

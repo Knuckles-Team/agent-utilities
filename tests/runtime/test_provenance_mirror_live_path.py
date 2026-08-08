@@ -85,9 +85,7 @@ async def test_next_replay_edge_links_consecutive_actions(recording_engine):
 
     next_edges = [(s, t) for s, t, r in recording_engine.edges if r == "NEXT"]
     run_ref = trace_id("prov2").removeprefix("trace:")
-    assert next_edges == [
-        (f"wsaction:{run_ref}:1", f"wsaction:{run_ref}:2")
-    ]
+    assert next_edges == [(f"wsaction:{run_ref}:1", f"wsaction:{run_ref}:2")]
 
 
 async def test_file_edit_grounds_to_code_symbol(recording_engine):

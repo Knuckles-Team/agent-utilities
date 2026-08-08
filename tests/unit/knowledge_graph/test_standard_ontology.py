@@ -86,6 +86,7 @@ def _quant_ontology_text() -> str:
     )
     raise AssertionError("unreachable")  # pragma: no cover
 
+
 # ---------------------------------------------------------------------------
 # Standard Ontology Node Types — enum existence
 # ---------------------------------------------------------------------------

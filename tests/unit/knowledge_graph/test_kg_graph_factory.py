@@ -119,7 +119,11 @@ class MockBackend:
         elif "DEPENDS_ON" in query:
             ids = params.get("ids", [])
             for src, tgt, edata in self._graph.edges(data=True):
-                if edata.get("relationship") == "depends_on" and src in ids and tgt in ids:
+                if (
+                    edata.get("relationship") == "depends_on"
+                    and src in ids
+                    and tgt in ids
+                ):
                     results.append({"source": src, "target": tgt})
 
         # Handle Tool queries
@@ -250,8 +254,12 @@ def _build_mock_engine_parallel() -> MockEngine:
     )
 
     # DEPENDS_ON: both researchers → synthesizer
-    g.add_edge("at:web_researcher", "at:synthesizer", relationship="depends_on", weight=1.0)
-    g.add_edge("at:doc_researcher", "at:synthesizer", relationship="depends_on", weight=1.0)
+    g.add_edge(
+        "at:web_researcher", "at:synthesizer", relationship="depends_on", weight=1.0
+    )
+    g.add_edge(
+        "at:doc_researcher", "at:synthesizer", relationship="depends_on", weight=1.0
+    )
 
     return engine
 

@@ -121,7 +121,13 @@ def sign_ledger(
     response = _external_command(signer_env, _canonical(unsigned))
     _exact(
         response,
-        {"scheme", "subjectDigest", "bundleDigest", "signerIdentityDigest", "signature"},
+        {
+            "scheme",
+            "subjectDigest",
+            "bundleDigest",
+            "signerIdentityDigest",
+            "signature",
+        },
         field="external signer response",
     )
     if response.get("subjectDigest") != subject_digest:
@@ -204,20 +210,22 @@ def _validate_signed(value: dict[str, Any]) -> None:
         field="connector ledger signature",
     )
     for field in ("subjectDigest", "bundleDigest", "signerIdentityDigest"):
-        compatibility._digest(signature.get(field), f"connector ledger signature.{field}")
+        compatibility._digest(
+            signature.get(field), f"connector ledger signature.{field}"
+        )
     if signature["subjectDigest"] != compatibility.canonical_digest(unsigned):
         raise AssemblyError("connector ledger signature does not bind the ledger")
     if not _SIGNATURE_SCHEME.fullmatch(str(signature.get("scheme") or "")):
         raise AssemblyError("connector ledger signature scheme is invalid")
     if not _SIGNATURE_VALUE.fullmatch(str(signature.get("value") or "")):
         raise AssemblyError("connector ledger signature value is invalid")
-    if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,63}", str(signature.get("verifierEnv") or "")):
+    if not re.fullmatch(
+        r"[A-Z][A-Z0-9_]{2,63}", str(signature.get("verifierEnv") or "")
+    ):
         raise AssemblyError("connector ledger verifier environment name is invalid")
 
 
-def verify_ledger(
-    signed: dict[str, Any], expected_unsigned: dict[str, Any]
-) -> None:
+def verify_ledger(signed: dict[str, Any], expected_unsigned: dict[str, Any]) -> None:
     _validate_signed(signed)
     unsigned = {key: value for key, value in signed.items() if key != "signature"}
     if unsigned != expected_unsigned:
@@ -229,7 +237,9 @@ def verify_ledger(
     try:
         command = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise AssemblyError("connector ledger verifier must be a JSON argv array") from exc
+        raise AssemblyError(
+            "connector ledger verifier must be a JSON argv array"
+        ) from exc
     if (
         not isinstance(command, list)
         or not command

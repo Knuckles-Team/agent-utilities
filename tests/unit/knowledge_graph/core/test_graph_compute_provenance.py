@@ -18,7 +18,9 @@ from typing import Any
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 
-def _bundle_with(proof_refs: list[str], contradiction_refs: list[str]) -> dict[str, Any]:
+def _bundle_with(
+    proof_refs: list[str], contradiction_refs: list[str]
+) -> dict[str, Any]:
     """A wire-shaped ``EvidenceBundle`` dict exactly as
     ``client.query.explain_provenance_by_ids`` returns it (one claim)."""
     return {

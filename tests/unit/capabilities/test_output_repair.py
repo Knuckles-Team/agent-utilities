@@ -325,7 +325,9 @@ async def test_budget_exceeded_mid_output_provenance_survives_the_raise():
     would have passed with the ``_record(...)`` call deleted outright.
     """
     capability = await StructuredOutputRepair().for_run(MagicMock())
-    error = UsageLimitExceeded("Exceeded the total_tokens_limit of 10 (total_tokens=11)")
+    error = UsageLimitExceeded(
+        "Exceeded the total_tokens_limit of 10 (total_tokens=11)"
+    )
 
     with pytest.raises(UsageLimitExceeded) as excinfo:
         await capability.on_run_error(MagicMock(), error=error)

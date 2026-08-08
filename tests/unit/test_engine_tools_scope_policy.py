@@ -107,9 +107,7 @@ def test_admin_action_denied_for_non_admin_actor(monkeypatch, domain, action, pa
     session = _session(NON_ADMIN_ACTOR, "kg:read", "kg:write")
     with use_actor(NON_ADMIN_ACTOR), use_session(session):
         with pytest.raises(PermissionError, match="kg:admin"):
-            asyncio.run(
-                tool(action=action, params_json=json.dumps(params), graph="")
-            )
+            asyncio.run(tool(action=action, params_json=json.dumps(params), graph=""))
 
 
 def test_unknown_domain_defaults_to_admin_fail_closed():
@@ -191,8 +189,10 @@ def test_admin_role_without_admin_scope_is_denied(monkeypatch):
     )
     tool = kg_server.REGISTERED_TOOLS["engine_tenants"]
     session = _session(admin_actor, "kg:read", "kg:write")
-    with use_actor(admin_actor), use_session(session), pytest.raises(
-        PermissionError, match="kg:admin"
+    with (
+        use_actor(admin_actor),
+        use_session(session),
+        pytest.raises(PermissionError, match="kg:admin"),
     ):
         asyncio.run(tool(action="list", params_json="{}", graph=""))
     assert calls == []
@@ -209,9 +209,7 @@ def test_admin_action_allowed_via_graph_session_scope(monkeypatch):
     session = _session(NON_ADMIN_ACTOR, "kg:admin")
     with use_actor(NON_ADMIN_ACTOR), use_session(session):
         out = json.loads(
-            asyncio.run(
-                tool(action="catalog_list", params_json="{}", graph="")
-            )
+            asyncio.run(tool(action="catalog_list", params_json="{}", graph=""))
         )
     assert out.get("ok") is True, out
     assert calls == [("resharding", "catalog_list", {})]
@@ -252,7 +250,9 @@ def test_client_pool_is_bounded_lru_and_evicts(monkeypatch):
         created.append(key)
         return _FakeWireClient(key)
 
-    pool = TenantEnginePool(capacity=2, factory=factory, on_evict=engine_tools._client_evict)
+    pool = TenantEnginePool(
+        capacity=2, factory=factory, on_evict=engine_tools._client_evict
+    )
     monkeypatch.setattr(engine_tools, "_CLIENT_POOL", pool)
 
     engine_tools._client_for("g1")

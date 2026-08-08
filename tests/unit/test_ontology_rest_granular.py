@@ -38,7 +38,12 @@ def client(monkeypatch):
         if tool == "graph_ontology" and kwargs.get("action") == "validate":
             if kwargs.get("source") == "bad turtle":
                 return _json.dumps(
-                    {"valid": False, "errors": ["parse error"], "warnings": [], "summary": {}}
+                    {
+                        "valid": False,
+                        "errors": ["parse error"],
+                        "warnings": [],
+                        "summary": {},
+                    }
                 )
             return _json.dumps(
                 {
@@ -46,14 +51,19 @@ def client(monkeypatch):
                     "errors": [],
                     "warnings": [],
                     "summary": {"n_classes": 1},
-                    "shacl_report": {"conforms": True, "text": "Validation Report\nConforms: True"},
+                    "shacl_report": {
+                        "conforms": True,
+                        "text": "Validation Report\nConforms: True",
+                    },
                 }
             )
         if tool == "ontology_derive" and kwargs.get("action") == "generate":
             return _json.dumps(
                 {
                     "domain_hint": kwargs.get("object_type", ""),
-                    "interfaces": [{"name": "VetClinic", "description": "", "properties": []}],
+                    "interfaces": [
+                        {"name": "VetClinic", "description": "", "properties": []}
+                    ],
                     "link_types": [],
                     "counts": {"interfaces": 1, "link_types": 0},
                     "ttl_proposal": "# PROPOSED ontology extension\n",
@@ -215,7 +225,10 @@ def test_validate_ontology_round_trips_with_shacl_report(client):
     tc, captured = client
     resp = tc.post(
         "/api/ontology/validate",
-        json={"source": "@prefix ex: <http://example.org/> . ex:X a <http://www.w3.org/2002/07/owl#Class> .", "source_type": "text"},
+        json={
+            "source": "@prefix ex: <http://example.org/> . ex:X a <http://www.w3.org/2002/07/owl#Class> .",
+            "source_type": "text",
+        },
     )
     assert resp.status_code == 200
     result = resp.json()["result"]
@@ -260,7 +273,10 @@ def test_load_ontology_round_trips(client):
     tc, captured = client
     resp = tc.post(
         "/api/ontology/load",
-        json={"source": "@prefix ex: <http://example.org/pets#> . ex:Dog a ex:Animal .", "source_type": "text"},
+        json={
+            "source": "@prefix ex: <http://example.org/pets#> . ex:Dog a ex:Animal .",
+            "source_type": "text",
+        },
     )
     assert resp.status_code == 200
     result = resp.json()["result"]
@@ -363,7 +379,12 @@ def test_catalogue_forwards_all_filters(client):
     tc, captured = client
     resp = tc.get(
         "/api/ontology/catalogue",
-        params={"search": "pets", "category": "animals", "source": "text", "tag": "demo"},
+        params={
+            "search": "pets",
+            "category": "animals",
+            "source": "text",
+            "tag": "demo",
+        },
     )
     assert resp.status_code == 200
     assert (

@@ -72,11 +72,16 @@ def test_top_k_cosine_orders_and_thresholds():
 
 def test_decide_prefers_covered_over_related():
     ms = [
-        Match("AU-KG.memory.tiered-memory-caching", 0.7, "related", 0.8, 0.76, "llm_judge"),
+        Match(
+            "AU-KG.memory.tiered-memory-caching", 0.7, "related", 0.8, 0.76, "llm_judge"
+        ),
         Match("AU-KG.ingest.engineering-rules", 0.8, "covered", 0.9, 0.86, "llm_judge"),
     ]
     fm = _decide("f", ms, judge_accept=0.6)
-    assert fm.decision == "covered" and fm.best.concept_id == "AU-KG.ingest.engineering-rules"
+    assert (
+        fm.decision == "covered"
+        and fm.best.concept_id == "AU-KG.ingest.engineering-rules"
+    )
 
 
 # --- explicit-id stage ----------------------------------------------------- #

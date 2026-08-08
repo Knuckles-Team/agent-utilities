@@ -315,15 +315,11 @@ def test_mine_predicted_edges_emits_real_neural_relation_prediction_live_path(
     # every entity onto ONE untyped node while still reporting success (the same
     # defect D-61-4 fixed in graph_mine's OCEL commit). Patching the writer the
     # code no longer calls would silently stop covering this path.
-    def fake_ingest_graph_slice(
-        engine, connector, entities, relationships, **kwargs
-    ):
+    def fake_ingest_graph_slice(engine, connector, entities, relationships, **kwargs):
         captured_slices.append((connector, entities, relationships))
         return {"status": "success", "envelope_id": "env:test"}
 
-    monkeypatch.setattr(
-        envelope_ingest, "ingest_graph_slice", fake_ingest_graph_slice
-    )
+    monkeypatch.setattr(envelope_ingest, "ingest_graph_slice", fake_ingest_graph_slice)
 
     eng = _StubEngine([], [])
     rep = LoopController(eng)._run_mine_discovery()
@@ -336,7 +332,9 @@ def test_mine_predicted_edges_emits_real_neural_relation_prediction_live_path(
     assert len(captured_slices) == 1
     connector, entities, _relationships = captured_slices[0]
     assert connector == "ocel"
-    neural_entities = [e for e in entities if e["node_type"] == "NeuralRelationPrediction"]
+    neural_entities = [
+        e for e in entities if e["node_type"] == "NeuralRelationPrediction"
+    ]
     assert len(neural_entities) == 1
     neural_entity = neural_entities[0]
     assert neural_entity["prediction_score"] == 0.9

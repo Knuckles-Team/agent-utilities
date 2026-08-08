@@ -119,9 +119,7 @@ def test_write_batch_persists():
 
     assert n == 5
     assert e == 3
-    assert (
-        backend.nodes["bpmn_process:invoice:1:abc"]["node_type"] == "BusinessProcess"
-    )
+    assert backend.nodes["bpmn_process:invoice:1:abc"]["node_type"] == "BusinessProcess"
     assert (
         "bpmn_task:task-1",
         "bpmn_process:invoice:1:abc",

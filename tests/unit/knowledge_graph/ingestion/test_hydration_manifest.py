@@ -525,6 +525,7 @@ def test_record_hydration_manifest_drives_the_real_build_sign_persist_chain(
 
     built = _Manifest()
     monkeypatch.setattr(hm, "build_hydration_manifest", lambda: built)
+
     def _sign(manifest):
         seen["signed"] = manifest
         return "DOC"

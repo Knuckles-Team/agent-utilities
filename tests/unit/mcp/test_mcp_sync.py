@@ -595,9 +595,7 @@ async def test_extract_with_semaphore() -> None:
     server.__aexit__.return_value = None
 
     sem = _aio.Semaphore(1)
-    tools = await mgr._extract_single_server_metadata(
-        server, timeout=5, semaphore=sem
-    )
+    tools = await mgr._extract_single_server_metadata(server, timeout=5, semaphore=sem)
     assert len(tools) == 1
 
 
@@ -956,9 +954,7 @@ async def test_link_knowledge_nodes_success() -> None:
     assert "depends_on" in result
     # link_knowledge_nodes calls engine.link_nodes(...) (a typed native call),
     # not a raw backend.execute(...) Cypher query.
-    ctx.deps.knowledge_engine.link_nodes.assert_called_once_with(
-        "a", "b", "depends_on"
-    )
+    ctx.deps.knowledge_engine.link_nodes.assert_called_once_with("a", "b", "depends_on")
 
 
 @pytest.mark.asyncio

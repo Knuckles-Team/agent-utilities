@@ -103,9 +103,13 @@ async def test_unavailable_model_class_fails_before_workflow_load(
     from unittest.mock import Mock
 
     load_workflow_spy = Mock()
-    monkeypatch.setattr(workflow_store.WorkflowStore, "load_workflow", load_workflow_spy)
+    monkeypatch.setattr(
+        workflow_store.WorkflowStore, "load_workflow", load_workflow_spy
+    )
 
-    with pytest.raises(RuntimeError, match="configured economy model class is unavailable"):
+    with pytest.raises(
+        RuntimeError, match="configured economy model class is unavailable"
+    ):
         await orchestrator.execute_dynamic_workflow(
             "some-workflow",
             model_class="economy",
@@ -135,7 +139,9 @@ async def test_available_model_class_still_reaches_workflow_load(
     from unittest.mock import Mock
 
     load_workflow_spy = Mock(return_value=None)
-    monkeypatch.setattr(workflow_store.WorkflowStore, "load_workflow", load_workflow_spy)
+    monkeypatch.setattr(
+        workflow_store.WorkflowStore, "load_workflow", load_workflow_spy
+    )
 
     with pytest.raises(ValueError, match="not found in KG or catalog"):
         await orchestrator.execute_dynamic_workflow(
@@ -168,7 +174,9 @@ async def test_preresolved_orchestrator_model_bypasses_the_availability_check(
     monkeypatch.setattr(
         workflow_store.WorkflowStore,
         "load_workflow",
-        lambda _self, _name: GraphPlan(steps=[Task(id="reviewer", description="review")]),
+        lambda _self, _name: GraphPlan(
+            steps=[Task(id="reviewer", description="review")]
+        ),
     )
 
     from unittest.mock import MagicMock
@@ -186,7 +194,9 @@ async def test_preresolved_orchestrator_model_bypasses_the_availability_check(
         gdw_module.GovernedDynamicWorkflow,
         "execute",
         AsyncMock(
-            side_effect=RuntimeError("stop here — this test only checks the preflight bypass")
+            side_effect=RuntimeError(
+                "stop here — this test only checks the preflight bypass"
+            )
         ),
     )
 

@@ -655,7 +655,9 @@ class TestGetActionPolicyCache:
             .decision
             for _ in range(num_calls)
         ]
-        assert all(d in ap._ALLOWING | {ap.DECISION_QUEUE, ap.DECISION_DENY} for d in decisions)
+        assert all(
+            d in ap._ALLOWING | {ap.DECISION_QUEUE, ap.DECISION_DENY} for d in decisions
+        )
 
         assert construct_calls == 1, (
             f"expected ActionPolicy constructed once across {num_calls} "

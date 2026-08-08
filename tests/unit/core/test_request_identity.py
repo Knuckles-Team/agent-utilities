@@ -291,9 +291,7 @@ class TestActorFromClaims:
         )
         with (
             observe(placement_catalog, "resolve_placement") as resolved,
-            observe(
-                graph_compute.GraphComputeEngine, "get_or_create"
-            ) as provisioned,
+            observe(graph_compute.GraphComputeEngine, "get_or_create") as provisioned,
         ):
             session = _mint(actor)
 

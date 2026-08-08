@@ -214,7 +214,10 @@ def main() -> int:
     try:
         _build_lean_venv(venv_dir, sync_command)
         env = _gate_env(venv_dir)
-        print(f"\n[lean] running {len(gates)} guardrail gate(s) in the lean env\n", flush=True)
+        print(
+            f"\n[lean] running {len(gates)} guardrail gate(s) in the lean env\n",
+            flush=True,
+        )
         for gate in gates:
             tag = " (advisory)" if gate.advisory else ""
             print(f"::: {gate.name}{tag}", flush=True)
@@ -225,10 +228,15 @@ def main() -> int:
             )
             if result.returncode != 0:
                 if gate.advisory:
-                    print(f"    WARN: advisory gate failed (ignored): {gate.name}", flush=True)
+                    print(
+                        f"    WARN: advisory gate failed (ignored): {gate.name}",
+                        flush=True,
+                    )
                 else:
                     failures.append(gate.name)
-                    print(f"    FAIL: {gate.name} (exit {result.returncode})", flush=True)
+                    print(
+                        f"    FAIL: {gate.name} (exit {result.returncode})", flush=True
+                    )
             else:
                 print("    OK", flush=True)
     finally:
@@ -237,7 +245,9 @@ def main() -> int:
 
     print("\n" + "=" * 64)
     if failures:
-        print(f"LEAN PARITY FAILED — {len(failures)} blocking gate(s) red in the lean env:")
+        print(
+            f"LEAN PARITY FAILED — {len(failures)} blocking gate(s) red in the lean env:"
+        )
         for name in failures:
             print(f"  - {name}")
         print("These would fail CI's Guardrails job. Make the agent-runtime import")

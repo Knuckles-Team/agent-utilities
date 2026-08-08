@@ -17,9 +17,7 @@ async def test_runtime_configured_eunomia_decision_point():
     from agent_utilities.mcp.eunomia_principal import create_eunomia_middleware
 
     api_key_ref = (
-        "env://EUNOMIA_TEST_API_KEY"
-        if setting("EUNOMIA_TEST_API_KEY")
-        else None
+        "env://EUNOMIA_TEST_API_KEY" if setting("EUNOMIA_TEST_API_KEY") else None
     )
     middleware = create_eunomia_middleware(
         use_remote_eunomia=True,

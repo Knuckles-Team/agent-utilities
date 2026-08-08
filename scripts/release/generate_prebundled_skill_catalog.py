@@ -73,7 +73,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         if args.check:
             if _regular_bytes(args.output) != payload:
-                print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
+                print(
+                    json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True)
+                )
                 return 1
         else:
             write_catalog(args.output, payload, prefix=".skill-catalog-")

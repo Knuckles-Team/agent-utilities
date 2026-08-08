@@ -102,7 +102,9 @@ def violations() -> list[str]:
         if ("KG_ENVELOPE_" + "LEGACY_ADAPTER") in text or (
             "kg_envelope_" + "legacy_adapter"
         ) in text:
-            failures.append(f"{label} still exposes the retired envelope adapter switch")
+            failures.append(
+                f"{label} still exposes the retired envelope adapter switch"
+            )
         leaked_symbols = sorted(
             symbol for symbol in _RETIRED_SEQUENTIAL_SYMBOLS if symbol in text
         )

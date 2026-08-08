@@ -85,7 +85,9 @@ def loopback_otlp_receiver() -> Iterator[str]:
 
 
 class TestBuildFleetInstrumentation:
-    def test_returns_none_when_no_collector_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_returns_none_when_no_collector_configured(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.delenv("EPISTEMIC_GRAPH_OBS_ADDR", raising=False)
         monkeypatch.delenv("OTEL_EXPORTER_OTLP_ENDPOINT", raising=False)
         engine = TelemetryEngine()

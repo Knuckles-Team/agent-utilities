@@ -25,9 +25,7 @@ def test_reference_is_stable_idempotent_and_contains_no_input(monkeypatch):
         lambda: type("Secrets", (), {"resolve_ref": lambda self, _ref: "test-key"})(),
     )
 
-    first = bus_privacy.bus_reference(
-        "agent", "person@example.test", tenant="tenant-a"
-    )
+    first = bus_privacy.bus_reference("agent", "person@example.test", tenant="tenant-a")
     second = bus_privacy.bus_reference(
         "agent", "person@example.test", tenant="tenant-a"
     )
@@ -58,5 +56,5 @@ def test_content_is_sanitized_before_persistence(monkeypatch):
     assert "/home/local-account" not in payload
     assert "private-host" not in metadata
     assert "secret-value" not in metadata
-    assert '\"safe\":\"ok\"' in metadata
+    assert '"safe":"ok"' in metadata
     assert report["redactions"] >= 4

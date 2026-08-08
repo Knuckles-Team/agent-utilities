@@ -603,7 +603,12 @@ class TestTransparencyFooter:
     def test_ok_outcome_produces_no_footer(self) -> None:
         from agent_utilities.messaging.router import _transparency_footer
 
-        summary = {"outcome": "ok", "route": {}, "stage_reached": "x", "trace_ref": "trace:y"}
+        summary = {
+            "outcome": "ok",
+            "route": {},
+            "stage_reached": "x",
+            "trace_ref": "trace:y",
+        }
         assert _transparency_footer(summary) == ""
 
     def test_none_or_non_dict_summary_produces_no_footer(self) -> None:
@@ -645,7 +650,9 @@ class TestTransparencyFooter:
         assert "degraded" in footer
         assert "portainer-mcp" in footer
 
-    def test_footer_respects_the_off_setting(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_footer_respects_the_off_setting(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from agent_utilities.messaging.router import _transparency_footer
 
         monkeypatch.setenv("MESSAGING_TRANSPARENCY_FOOTER", "false")
@@ -654,7 +661,10 @@ class TestTransparencyFooter:
     def test_footer_never_raises_on_malformed_summary(self) -> None:
         from agent_utilities.messaging.router import _transparency_footer
 
-        for junk in ({"outcome": "degraded", "failure": "not a dict"}, {"outcome": object()}):
+        for junk in (
+            {"outcome": "degraded", "failure": "not a dict"},
+            {"outcome": object()},
+        ):
             assert isinstance(_transparency_footer(junk), str)  # never raises
 
     def test_with_transparency_appends_only_when_non_empty(self) -> None:
@@ -709,7 +719,9 @@ class TestGraphAgentReplyTransparency:
     the final reply string; an ok outcome is untouched."""
 
     @pytest.mark.asyncio
-    async def test_ok_result_has_no_footer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_ok_result_has_no_footer(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from agent_utilities.orchestration import manager as mgr
 
         class _Orch:
@@ -725,7 +737,11 @@ class TestGraphAgentReplyTransparency:
                         "output": "Found 3 running containers.",
                         "run_id": kwargs["run_id"],
                         "run_summary": {
-                            "route": {"agents": [], "servers": ["portainer-mcp"], "why": "x"},
+                            "route": {
+                                "agents": [],
+                                "servers": ["portainer-mcp"],
+                                "why": "x",
+                            },
                             "outcome": "ok",
                             "stage_reached": "tool-call: portainer-mcp",
                             "trace_ref": "trace:pref_run_ok",

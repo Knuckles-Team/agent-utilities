@@ -17,6 +17,7 @@ from agent_utilities.knowledge_graph.backends.base import GraphBackend
 _NODE_MERGE = re.compile(r"MERGE \(n:")
 _EDGE_MERGE = re.compile(r"MERGE \(s\)-\[r:")
 
+
 # The materialization core's canonical relationship-type key is "relationship"
 # (CONCEPT:AU-KG.ingest.enterprise-source-extractor — "type"/"rel_type" are retired
 # aliases write_entities() now rejects); direct add_edge() callers still pass

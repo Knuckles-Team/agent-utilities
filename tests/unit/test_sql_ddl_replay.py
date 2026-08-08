@@ -79,9 +79,13 @@ def test_replay_maps_db_node_types():
     count = _replay_parse_result(_RESULT, g, RegistryNodeType)
     assert count == 5
     assert g.nodes["table:users"]["node_type"] == RegistryNodeType.DATABASE_TABLE
-    assert g.nodes["column:users.user_id"]["node_type"] == RegistryNodeType.DATABASE_COLUMN
+    assert (
+        g.nodes["column:users.user_id"]["node_type"] == RegistryNodeType.DATABASE_COLUMN
+    )
     assert g.nodes["column:users.user_id"]["primary_key"] == "true"
-    assert g.nodes["view:active_sessions"]["node_type"] == RegistryNodeType.DATABASE_VIEW
+    assert (
+        g.nodes["view:active_sessions"]["node_type"] == RegistryNodeType.DATABASE_VIEW
+    )
     # SYMBOL path preserved (line coerced to int).
     assert g.nodes["symbol:abc"]["node_type"] == RegistryNodeType.SYMBOL
     assert g.nodes["symbol:abc"]["line"] == 10

@@ -74,9 +74,7 @@ def test_run_loop_resumes_from_checkpoint():
         assert claim_loop(engine, loop["id"])
         claim = wi.current_work_item_claim(engine, item_id)
         assert claim is not None
-        assert wi.checkpoint_work_item(
-            engine, item_id, claim, "checkpoint:iteration:2"
-        )
+        assert wi.checkpoint_work_item(engine, item_id, claim, "checkpoint:iteration:2")
     engine.nodes[item_id]["lease_expires_at"] = 0.0
 
     seen: list[str] = []

@@ -28,12 +28,25 @@ def sample_graph() -> GraphComputeEngine:
     g = GraphComputeEngine(backend_type="rust")
 
     # Add nodes with types
-    g.add_node("agent_1", node_type="agent", name="TestAgent", description="A test agent")
+    g.add_node(
+        "agent_1", node_type="agent", name="TestAgent", description="A test agent"
+    )
     g.add_node("tool_1", node_type="tool", name="CodeSearch", description="Search code")
-    g.add_node("concept_1", node_type="concept", name="AU-KG.query.vendor-agnostic-traversal", description="Architecture")
-    g.add_node("policy_1", node_type="policy", name="NoDelete", description="No deletions")
-    g.add_node("server_1", node_type="server", name="MCPServer", description="MCP endpoint")
-    g.add_node("goal_1", node_type="goal", name="Governance", description="Full governance")
+    g.add_node(
+        "concept_1",
+        node_type="concept",
+        name="AU-KG.query.vendor-agnostic-traversal",
+        description="Architecture",
+    )
+    g.add_node(
+        "policy_1", node_type="policy", name="NoDelete", description="No deletions"
+    )
+    g.add_node(
+        "server_1", node_type="server", name="MCPServer", description="MCP endpoint"
+    )
+    g.add_node(
+        "goal_1", node_type="goal", name="Governance", description="Full governance"
+    )
 
     # Add edges
     g.add_edge("agent_1", "tool_1", relationship="provides")
@@ -280,7 +293,10 @@ class TestArchitectureDecisionRecords:
             consequences=["No native SPARQL", "WAL corruption risk"],
             authority="user",
             pillar="KG",
-            impacted_concepts=["AU-KG.query.object-graph-mapper", "AU-KG.query.vendor-agnostic-traversal"],
+            impacted_concepts=[
+                "AU-KG.query.object-graph-mapper",
+                "AU-KG.query.vendor-agnostic-traversal",
+            ],
         )
 
         assert adr.type == RegistryNodeType.ARCHITECTURE_DECISION  # type: ignore[attr-defined]
@@ -335,7 +351,11 @@ class TestArchitectureDecisionRecords:
         adr = ArchitectureDecisionRecord(
             id="adr-sparql",
             name="Add SPARQL endpoint",
-            impacted_concepts=["AU-KG.query.vendor-agnostic-traversal", "AU-KG.query.object-graph-mapper", "AU-ORCH.planning.recursion-nesting-depth"],
+            impacted_concepts=[
+                "AU-KG.query.vendor-agnostic-traversal",
+                "AU-KG.query.object-graph-mapper",
+                "AU-ORCH.planning.recursion-nesting-depth",
+            ],
         )
 
         assert len(adr.impacted_concepts) == 3

@@ -104,9 +104,7 @@ def test_foreground_lease_expires_after_a_crashed_process(tmp_path, monkeypatch)
     assert not host.foreground_active
 
 
-def test_rapid_foreground_reentry_cannot_revive_an_old_heartbeat(
-    tmp_path, monkeypatch
-):
+def test_rapid_foreground_reentry_cannot_revive_an_old_heartbeat(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
     throttle = BackgroundThrottle(
         lease_ttl=0.12, lease_heartbeat=0.02, lease_scan_interval=0.0
@@ -148,7 +146,9 @@ def test_foreground_lease_scan_is_bounded(tmp_path, monkeypatch):
     assert len(inspected) == 128
 
 
-def test_foreground_lease_is_private_and_rejects_symlink_directories(tmp_path, monkeypatch):
+def test_foreground_lease_is_private_and_rejects_symlink_directories(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path))
     throttle = BackgroundThrottle(lease_scan_interval=0.0)
     with throttle.foreground():

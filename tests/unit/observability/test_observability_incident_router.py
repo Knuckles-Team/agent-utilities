@@ -38,8 +38,7 @@ _INCIDENT = {
     "severity": "critical",
     "opened_at": "2026-07-11T00:00:00Z",
     "summary": (
-        "storage-node-a: hardware/cpu_temp_c + os/load1 — "
-        "correlated within 2 anomalies"
+        "storage-node-a: hardware/cpu_temp_c + os/load1 — correlated within 2 anomalies"
     ),
 }
 

@@ -100,7 +100,10 @@ class ScaleActivationEngine(ActivationEngine):
                 continue
             if request.queue_ref and node.get("queue") != request.queue_ref:
                 continue
-            if request.resource_class and node.get("resource_class") != request.resource_class:
+            if (
+                request.resource_class
+                and node.get("resource_class") != request.resource_class
+            ):
                 continue
             status = node.get("status")
             if status in {"leased", "running"}:
@@ -110,7 +113,10 @@ class ScaleActivationEngine(ActivationEngine):
                 continue
             if float(node.get("next_retry_at") or 0) > now:
                 continue
-            key = (int(node.get("prio_bucket") or 0), float(node.get("created_at") or 0))
+            key = (
+                int(node.get("prio_bucket") or 0),
+                float(node.get("created_at") or 0),
+            )
             if best_key is None or key < best_key:
                 best_key, best = key, (wid, node)
         return best
@@ -172,7 +178,11 @@ class ScaleMetrics:
 
     @property
     def activations_per_sec(self) -> float:
-        return self.completed_activations / self.activate_seconds if self.activate_seconds else 0.0
+        return (
+            self.completed_activations / self.activate_seconds
+            if self.activate_seconds
+            else 0.0
+        )
 
 
 def run_scale_proof(
@@ -259,7 +269,9 @@ def run_scale_proof(
     # ── The core-thesis assertions: activation touched ONLY the M activated instances.
     m.touched_instances = len(engine.by_label(aa._RUNTRACE_LABEL))
     m.dormant_after = len(
-        aa.list_agent_instances(engine, lifecycle_state=aa.STATE_DORMANT, limit=instances + 1)
+        aa.list_agent_instances(
+            engine, lifecycle_state=aa.STATE_DORMANT, limit=instances + 1
+        )
     )
     log(
         f"  activated {m.completed_activations}/{activations} via {workers} workers in "
@@ -268,8 +280,12 @@ def run_scale_proof(
         f"RSS {m.rss_after_register_mb:.0f}->{m.rss_after_activate_mb:.0f} MiB"
     )
 
-    assert m.completed_activations == activations, "every activation must reach a terminal state"
-    assert m.touched_instances == activations, "activation must touch ONLY the activated instances"
+    assert m.completed_activations == activations, (
+        "every activation must reach a terminal state"
+    )
+    assert m.touched_instances == activations, (
+        "activation must touch ONLY the activated instances"
+    )
     # After release, every activated instance is dormant again ⇒ all N are dormant.
     assert m.dormant_after == instances, "all instances dormant again after release"
     return engine, m
@@ -333,7 +349,9 @@ def test_dormant_registration_footprint_is_bounded_per_instance() -> None:
     # The two-passive-rows-per-dormant-agent footprint is bounded (well under the
     # engine's own paging threshold). Loose ceiling — the assertion is "small + bounded",
     # and the absolute number is logged for the W5.3 soak.
-    assert m.rss_per_dormant_kb < 50.0, "dormant per-instance footprint unexpectedly large"
+    assert m.rss_per_dormant_kb < 50.0, (
+        "dormant per-instance footprint unexpectedly large"
+    )
 
 
 if __name__ == "__main__":  # pragma: no cover — the standalone high-scale proof
@@ -343,8 +361,10 @@ if __name__ == "__main__":  # pragma: no cover — the standalone high-scale pro
     N = _cfg("AGENT_ACTIVATION_SCALE_INSTANCES", 100_000)
     M = _cfg("AGENT_ACTIVATION_SCALE_ACTIVATIONS", 1_000)
     W = _cfg("AGENT_ACTIVATION_SCALE_WORKERS", 8)
-    print(f"[scale-proof] agents-as-data: {N} dormant instances, {M} concurrent "
-          f"activations, {W} workers (in-memory floor)")
+    print(
+        f"[scale-proof] agents-as-data: {N} dormant instances, {M} concurrent "
+        f"activations, {W} workers (in-memory floor)"
+    )
     _engine, metrics = run_scale_proof(instances=N, activations=M, workers=W, log=print)
     print("[scale-proof] RSS registration curve (instances -> MiB):")
     for count, rss in metrics.register_curve:

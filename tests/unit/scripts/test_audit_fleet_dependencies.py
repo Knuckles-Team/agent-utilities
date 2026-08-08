@@ -79,9 +79,7 @@ wheels = [
     result = module.inventory(tmp_path, repositories=repositories)
 
     assert len(result) == 1
-    assert result[0].coordinates == {
-        module.Coordinate("PyPI", "example", "1.0.0")
-    }
+    assert result[0].coordinates == {module.Coordinate("PyPI", "example", "1.0.0")}
 
 
 def test_single_source_snapshot_rejects_symlink(tmp_path: Path) -> None:

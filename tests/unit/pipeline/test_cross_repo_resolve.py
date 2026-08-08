@@ -61,7 +61,10 @@ async def test_resolve_cross_repo_import() -> None:
     )
     # Raw import edge
     g.add_edge(
-        "file_a", "placeholder_b", relationship="depends_on_raw", raw="agent_utilities.server"
+        "file_a",
+        "placeholder_b",
+        relationship="depends_on_raw",
+        raw="agent_utilities.server",
     )
 
     ctx = _make_ctx(g)
@@ -97,14 +100,21 @@ async def test_resolve_package_level_import() -> None:
         repo_origin="utils",
     )
     g.add_edge(
-        "src", "placeholder", relationship="depends_on_raw", raw="agent_utilities.server"
+        "src",
+        "placeholder",
+        relationship="depends_on_raw",
+        raw="agent_utilities.server",
     )
 
     ctx = _make_ctx(g)
     result = await execute_resolve(ctx, {})
 
     assert result["resolved_dependencies"] >= 1
-    edges = [(u, v) for u, v, d in g.edges(data=True) if d.get("relationship") == "depends_on"]
+    edges = [
+        (u, v)
+        for u, v, d in g.edges(data=True)
+        if d.get("relationship") == "depends_on"
+    ]
     assert ("src", "srv") in edges
 
 
@@ -113,9 +123,15 @@ async def test_resolve_package_level_import() -> None:
 async def test_cross_repo_edge_has_provenance() -> None:
     """Resolved cross-repo edges should have cross_repo=True attribute."""
     g = GraphComputeEngine(backend_type="rust")
-    g.add_node("a", node_type="file", name="a.py", file_path="/w/r1/a.py", repo_origin="r1")
     g.add_node(
-        "b", node_type="file", name="utils.py", file_path="/w/r2/utils.py", repo_origin="r2"
+        "a", node_type="file", name="a.py", file_path="/w/r1/a.py", repo_origin="r1"
+    )
+    g.add_node(
+        "b",
+        node_type="file",
+        name="utils.py",
+        file_path="/w/r2/utils.py",
+        repo_origin="r2",
     )
     g.add_edge("a", "ph", relationship="depends_on_raw", raw="utils")
 

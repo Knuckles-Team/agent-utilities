@@ -233,7 +233,11 @@ def _seed(b):
     # sets up fixture state for the *read*-side tests below, so it writes
     # directly to the injected fake graph instead, reproducing exactly what the
     # old UNWIND MERGE achieved (a `Code`-labeled node per row, `calls` edges).
-    for row in ({"id": "top", "name": "top"}, {"id": "mid", "name": "mid"}, {"id": "leaf", "name": "leaf"}):
+    for row in (
+        {"id": "top", "name": "top"},
+        {"id": "mid", "name": "mid"},
+        {"id": "leaf", "name": "leaf"},
+    ):
         b._graph.add_node(row["id"], properties={**row, "label": "Code"})
     for source, target in (("top", "mid"), ("mid", "leaf")):
         b._graph.add_edge(source, target, properties={"rel_type": "calls"})

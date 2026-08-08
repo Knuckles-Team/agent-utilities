@@ -68,8 +68,14 @@ class _BoomPolicy:
 class TestEvaluatePromotion:
     def test_strict_true_requires_strictly_greater(self):
         # skill_gate.evaluate_promotion parity: a tie never promotes.
-        assert evaluate_promotion(_candidate(candidate_value=0.7, incumbent_value=0.7)) is False
-        assert evaluate_promotion(_candidate(candidate_value=0.71, incumbent_value=0.7)) is True
+        assert (
+            evaluate_promotion(_candidate(candidate_value=0.7, incumbent_value=0.7))
+            is False
+        )
+        assert (
+            evaluate_promotion(_candidate(candidate_value=0.71, incumbent_value=0.7))
+            is True
+        )
 
     def test_strict_false_allows_tie_at_min_delta(self):
         # program_optimization.should_promote parity: candidate >= baseline + min_delta.

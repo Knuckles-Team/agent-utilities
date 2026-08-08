@@ -117,7 +117,9 @@ def test_forkd_client_routes_methods_through_bounded_http_boundary(monkeypatch):
 
     assert [call[0] for call in calls] == ["GET", "POST", "DELETE"]
     assert all(call[3]["tls_service"] == "forkd" for call in calls)
-    assert all(call[3]["headers"]["Authorization"] == "Bearer runtime-token" for call in calls)
+    assert all(
+        call[3]["headers"]["Authorization"] == "Bearer runtime-token" for call in calls
+    )
     assert calls[0][3]["max_redirects"] == 0
 
 

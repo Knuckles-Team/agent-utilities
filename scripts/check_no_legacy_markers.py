@@ -29,8 +29,11 @@ def scan(root: Path) -> list[str]:
         # skip files that legitimately record legacy ids: this gate (documents the
         # pattern), CHANGELOG/concept_map (history), and the generated registries.
         if p.name in {
-            "check_no_legacy_markers.py", "CHANGELOG.md", "concept_map.md",
-            "concepts.yaml", "concept_reservations.yaml",
+            "check_no_legacy_markers.py",
+            "CHANGELOG.md",
+            "concept_map.md",
+            "concepts.yaml",
+            "concept_reservations.yaml",
         }:
             continue
         try:

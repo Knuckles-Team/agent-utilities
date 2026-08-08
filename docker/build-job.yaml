@@ -1,1 +1,1 @@
-            path: /home/someone/state/tree
+            path: ${HOST_STATE_DIR}/state/tree

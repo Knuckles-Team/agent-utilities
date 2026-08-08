@@ -485,13 +485,16 @@ def test_semantic_search_rejects_property_until_txn_ann_projection_is_ready() ->
         assert nodes.props["_embedding_index_ready"] is False
         assert graph_ns.score == 0.2
         assert compute.semantic_search([0.9], 1) == []
-        assert compute.query_unified(
-            [
-                {"Scan": {"label": "Fixture"}},
-                {"Rank": {"query": [0.9]}},
-                {"Limit": {"k": 1}},
-            ]
-        ) == []
+        assert (
+            compute.query_unified(
+                [
+                    {"Scan": {"label": "Fixture"}},
+                    {"Rank": {"query": [0.9]}},
+                    {"Limit": {"k": 1}},
+                ]
+            )
+            == []
+        )
         assert worker.is_alive()
 
         release_ann_projection.set()

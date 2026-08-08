@@ -566,7 +566,10 @@ def test_readiness_is_false_when_the_engine_itself_is_unhealthy(monkeypatch):
         rh,
         "_CHECKS",
         (
-            ("engine", lambda _cfg: {"name": "engine", "status": "unhealthy", "reason": "x"}),
+            (
+                "engine",
+                lambda _cfg: {"name": "engine", "status": "unhealthy", "reason": "x"},
+            ),
             ("messaging", lambda _cfg: {"name": "messaging", "status": "ok"}),
         ),
     )

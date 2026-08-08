@@ -202,9 +202,7 @@ class TestMaterialization:
         private_windows = "\\".join(("C:", "SyntheticUsers", "Private", "workflow"))
         private_unix = "/".join(("", "synthetic", "private", "project"))
         private_name = f"person@example.test {private_windows}"
-        private_detail = (
-            f"token failed under {private_unix} for person@example.test"
-        )
+        private_detail = f"token failed under {private_unix} for person@example.test"
         private_trace = "11111111-2222-4333-8444-555555555555"
         backend = _FakeBackend(
             errors=[
@@ -222,7 +220,9 @@ class TestMaterialization:
         )
 
         report = _analyzer(engine, backend).run_once()
-        durable = json.dumps({"nodes": engine.nodes, "edges": engine.edges, "report": report})
+        durable = json.dumps(
+            {"nodes": engine.nodes, "edges": engine.edges, "report": report}
+        )
 
         for raw in (
             "person@example.test",

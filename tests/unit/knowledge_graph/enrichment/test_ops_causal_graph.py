@@ -230,7 +230,12 @@ def test_control_evidence_chain_gathers_governed_and_upstream(model: OpsCausalMo
     chain = control_evidence_chain(model, "policy:pci")
     assert set(chain["governs"]) == {"cap:payments", "evidence:ev1"}
     upstream = set(chain["upstream_operational_history"])
-    assert {"commit:bad123", "incident:INC001", "svc:checkout", "stack:checkout-v3"} <= upstream
+    assert {
+        "commit:bad123",
+        "incident:INC001",
+        "svc:checkout",
+        "stack:checkout-v3",
+    } <= upstream
     assert "policy:pci" not in upstream
     assert chain["is_consistent"] is True
     assert chain["consistency_score"] == 1.0
@@ -278,7 +283,9 @@ def test_as_enrichment_edge_carries_strength_and_recency():
 
 
 def test_materialize_batch_category_is_ops_causal(ops_links: list[OpsCausalLink]):
-    batch = ExtractionBatch(category=CATEGORY, edges=[ops_links[0].as_enrichment_edge()])
+    batch = ExtractionBatch(
+        category=CATEGORY, edges=[ops_links[0].as_enrichment_edge()]
+    )
     assert batch.category == "ops_causal"
     assert batch.nodes == []
 

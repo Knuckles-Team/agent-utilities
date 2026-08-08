@@ -265,9 +265,7 @@ class TestGatewayWiring:
         async def fake_jwks(_uri):
             return jwks
 
-        monkeypatch.setattr(
-            "agent_utilities.security.auth._fetch_jwks", fake_jwks
-        )
+        monkeypatch.setattr("agent_utilities.security.auth._fetch_jwks", fake_jwks)
 
         # Real JWT verification runs (that's the point — a genuine Bearer
         # credential). Session-minting itself (placement/engine-catalog

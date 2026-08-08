@@ -174,9 +174,7 @@ def _metric_values(**overrides: float) -> dict[str, float]:
 
 def _campaign_targets() -> dict:
     value = yaml.safe_load(
-        (ROOT / "deploy/release/certification-campaign.yml").read_text(
-            encoding="utf-8"
-        )
+        (ROOT / "deploy/release/certification-campaign.yml").read_text(encoding="utf-8")
     )
     return value["targets"]
 
@@ -205,9 +203,10 @@ def test_metric_summary_fails_closed_when_a_metric_is_missing(missing: str) -> N
     values = _metric_values()
     values.pop(missing)
 
-    assert campaign._metric_summary(
-        [{"values": values}], _campaign_targets()
-    ) == (False, float("inf"))
+    assert campaign._metric_summary([{"values": values}], _campaign_targets()) == (
+        False,
+        float("inf"),
+    )
 
 
 def test_load_report_requires_full_configured_wall_duration() -> None:
@@ -247,7 +246,9 @@ def test_campaign_requires_a_precreated_private_empty_artifact_directory(
         campaign._validate_artifacts_directory(private)
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX directory modes are not authoritative")
+@pytest.mark.skipif(
+    os.name == "nt", reason="POSIX directory modes are not authoritative"
+)
 def test_campaign_rejects_nonprivate_or_aliased_artifact_directory(
     tmp_path: Path,
 ) -> None:
@@ -349,9 +350,7 @@ def _passing_evidence() -> dict:
             "digest": digest,
             "configurationDigest": digest,
             "componentDigests": {name: digest for name in evidence._COMPONENTS},
-            "certificationDigests": {
-                name: digest for name in evidence._CERTIFICATIONS
-            },
+            "certificationDigests": {name: digest for name in evidence._CERTIFICATIONS},
         },
         "campaign": {
             "digest": evidence.digest_bytes(evidence.canonical_bytes(policy)),
@@ -386,7 +385,9 @@ def _passing_evidence() -> dict:
     }
 
 
-def test_passing_signed_subject_cannot_substitute_sample_coverage_for_elapsed_time() -> None:
+def test_passing_signed_subject_cannot_substitute_sample_coverage_for_elapsed_time() -> (
+    None
+):
     value = _passing_evidence()
     value["campaign"]["observedDurationSeconds"] = 82_080.0
     value["metrics"]["sampleCount"] = 5_472

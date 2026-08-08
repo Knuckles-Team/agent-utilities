@@ -186,7 +186,10 @@ def test_kg_2_309_distill_records_a_named_procedural_artifact() -> None:
     assert call["memory_type"] == "procedural"
     assert call["name"] == "Rotate deploy credentials"
     assert "STEPS:" in call["content"]
-    assert call["extra_props"]["concept"] == "AU-KG.memory.episodic-procedural-memory-distillation"
+    assert (
+        call["extra_props"]["concept"]
+        == "AU-KG.memory.episodic-procedural-memory-distillation"
+    )
     assert call["extra_props"]["step_count"] == 4
     # Provenance: the source episode ids are stamped on the artifact.
     assert "ep-rot-0" in call["extra_props"]["distilled_from"]

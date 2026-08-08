@@ -97,9 +97,7 @@ def test_persist_goal_upserts(goal_db):
     assert node["loop_kind"] == "develop"
 
     # Update path
-    _sessions.active_goals["loop:develop:g1"]["status"] = (
-        "succeeded"
-    )
+    _sessions.active_goals["loop:develop:g1"]["status"] = "succeeded"
     _sessions.active_goals["loop:develop:g1"]["total_iterations"] = 3
     _sessions._persist_goal("loop:develop:g1")
     node = goal_db.nodes["loop:develop:g1"]

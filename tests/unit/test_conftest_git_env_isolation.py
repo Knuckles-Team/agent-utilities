@@ -58,7 +58,9 @@ def test_strip_inherited_git_repository_env_clears_every_named_var(
         assert name not in os.environ
 
 
-def _git(args: list[str], cwd: Path, env: dict[str, str]) -> subprocess.CompletedProcess:
+def _git(
+    args: list[str], cwd: Path, env: dict[str, str]
+) -> subprocess.CompletedProcess:
     return subprocess.run(
         ["git", "-C", str(cwd), *args],
         env=env,
@@ -96,10 +98,37 @@ def test_inherited_git_index_file_redirects_a_dash_c_add_to_the_wrong_repo(
         base_env.pop(name, None)
 
     _git(["init", "-q"], decoy, base_env)
-    _git(["-c", "user.email=d@test", "-c", "user.name=d", "commit", "-q", "--allow-empty", "-m", "base"], decoy, base_env)
+    _git(
+        [
+            "-c",
+            "user.email=d@test",
+            "-c",
+            "user.name=d",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        ],
+        decoy,
+        base_env,
+    )
     (decoy / "real-tracked-file.txt").write_text("real content\n", encoding="utf-8")
     _git(["add", "-A"], decoy, base_env)
-    _git(["-c", "user.email=d@test", "-c", "user.name=d", "commit", "-q", "-m", "add real file"], decoy, base_env)
+    _git(
+        [
+            "-c",
+            "user.email=d@test",
+            "-c",
+            "user.name=d",
+            "commit",
+            "-q",
+            "-m",
+            "add real file",
+        ],
+        decoy,
+        base_env,
+    )
     tracked_before = _git(["ls-files"], decoy, base_env).stdout.split()
     assert tracked_before == ["real-tracked-file.txt"]
 
@@ -128,7 +157,9 @@ def test_inherited_git_index_file_redirects_a_dash_c_add_to_the_wrong_repo(
     # on git's work-tree-boundary inference and is not asserted here --
     # what matters, and what is common to every real occurrence observed,
     # is that content from the WRONG repository lands in the index.)
-    staged_in_decoy = _git(["diff", "--cached", "--name-only"], decoy, base_env).stdout.split()
+    staged_in_decoy = _git(
+        ["diff", "--cached", "--name-only"], decoy, base_env
+    ).stdout.split()
     assert "fixture-file.txt" in staged_in_decoy, (
         "expected the poisoned env to redirect the `-C fixture` add into the "
         "decoy repo's index -- if this fails, the underlying git behaviour "
@@ -154,10 +185,37 @@ def test_strip_inherited_git_repository_env_prevents_the_redirect(
         base_env.pop(name, None)
 
     _git(["init", "-q"], decoy, base_env)
-    _git(["-c", "user.email=d@test", "-c", "user.name=d", "commit", "-q", "--allow-empty", "-m", "base"], decoy, base_env)
+    _git(
+        [
+            "-c",
+            "user.email=d@test",
+            "-c",
+            "user.name=d",
+            "commit",
+            "-q",
+            "--allow-empty",
+            "-m",
+            "base",
+        ],
+        decoy,
+        base_env,
+    )
     (decoy / "real-tracked-file.txt").write_text("real content\n", encoding="utf-8")
     _git(["add", "-A"], decoy, base_env)
-    _git(["-c", "user.email=d@test", "-c", "user.name=d", "commit", "-q", "-m", "add real file"], decoy, base_env)
+    _git(
+        [
+            "-c",
+            "user.email=d@test",
+            "-c",
+            "user.name=d",
+            "commit",
+            "-q",
+            "-m",
+            "add real file",
+        ],
+        decoy,
+        base_env,
+    )
 
     _git(["init", "-q"], fixture, base_env)
     (fixture / "fixture-file.txt").write_text("fixture content\n", encoding="utf-8")
@@ -191,10 +249,16 @@ def test_strip_inherited_git_repository_env_prevents_the_redirect(
             else:
                 os.environ[name] = value
 
-    staged_in_decoy = _git(["diff", "--cached", "--name-only"], decoy, base_env).stdout.split()
-    assert staged_in_decoy == [], "the fix must prevent the redirect into the decoy repo"
+    staged_in_decoy = _git(
+        ["diff", "--cached", "--name-only"], decoy, base_env
+    ).stdout.split()
+    assert staged_in_decoy == [], (
+        "the fix must prevent the redirect into the decoy repo"
+    )
 
-    staged_in_fixture = _git(["diff", "--cached", "--name-only"], fixture, base_env).stdout.split()
+    staged_in_fixture = _git(
+        ["diff", "--cached", "--name-only"], fixture, base_env
+    ).stdout.split()
     assert staged_in_fixture == ["fixture-file.txt"], (
         "the add must land in the fixture repo it was actually targeting"
     )

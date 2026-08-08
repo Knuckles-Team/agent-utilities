@@ -131,9 +131,7 @@ def test_reconcile_marks_landed_in_the_mcp_v2_gateway_sidecar_package(
 
 def test_reconcile_expires_stale_claim(repo: Path) -> None:
     concept_id = "AU-KG.compute.expired-feature"
-    ca.reserve_concept_id(
-        concept_id, session_id="s", repo_root=repo, ttl_seconds=-1
-    )
+    ca.reserve_concept_id(concept_id, session_id="s", repo_root=repo, ttl_seconds=-1)
     assert ca.reconcile(repo_root=repo)["expired"] == [concept_id]
     assert (
         ca.reserve_concept_id(concept_id, session_id="s2", repo_root=repo)["id"]

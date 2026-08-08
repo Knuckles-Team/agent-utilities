@@ -101,9 +101,7 @@ def test_recompute_confidence_stronger_evidence_moves_more() -> None:
 
 def test_recompute_confidence_stays_in_bounds_under_heavy_contradiction() -> None:
     belief = _belief("b1", "x is true", 0.9)
-    contradicting = [
-        _belief(f"c{i}", "x is false", 0.99) for i in range(20)
-    ]
+    contradicting = [_belief(f"c{i}", "x is false", 0.99) for i in range(20)]
     result = recompute_confidence(belief, [], contradicting)
     assert 0.0 <= result < 0.05
 
@@ -297,8 +295,7 @@ def test_scan_never_produces_overlapping_support_and_contradiction() -> None:
     assert "x" in a_revision.new_contradicted_by_node_ids
     revised_a = apply_revision(beliefs[0], a_revision)
     assert not (
-        set(revised_a.supported_by_node_ids)
-        & set(revised_a.contradicted_by_node_ids)
+        set(revised_a.supported_by_node_ids) & set(revised_a.contradicted_by_node_ids)
     )
 
 

@@ -56,7 +56,9 @@ def _load_regular(path: Path) -> dict[str, Any]:
             or metadata.st_size == 0
             or metadata.st_size > _MAX_DECLARATION_BYTES
         ):
-            raise ReleaseAssemblyError("component declaration violates its size boundary")
+            raise ReleaseAssemblyError(
+                "component declaration violates its size boundary"
+            )
         before = (
             metadata.st_dev,
             metadata.st_ino,
@@ -74,14 +76,20 @@ def _load_regular(path: Path) -> dict[str, Any]:
                 break
             payload.extend(chunk)
         after = os.fstat(descriptor)
-        if before != (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        ) or len(payload) != metadata.st_size:
-            raise ReleaseAssemblyError("component declaration changed while it was read")
+        if (
+            before
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            or len(payload) != metadata.st_size
+        ):
+            raise ReleaseAssemblyError(
+                "component declaration changed while it was read"
+            )
         try:
             path_metadata = path.stat(follow_symlinks=False)
         except OSError:
@@ -122,7 +130,9 @@ def _load_matrix(path: Path) -> dict[str, Any]:
             or metadata.st_size == 0
             or metadata.st_size > _MAX_DECLARATION_BYTES
         ):
-            raise ReleaseAssemblyError("compatibility matrix violates its size boundary")
+            raise ReleaseAssemblyError(
+                "compatibility matrix violates its size boundary"
+            )
         before = (
             metadata.st_dev,
             metadata.st_ino,
@@ -140,13 +150,17 @@ def _load_matrix(path: Path) -> dict[str, Any]:
                 break
             payload.extend(chunk)
         after = os.fstat(descriptor)
-        if before != (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        ) or len(payload) != metadata.st_size:
+        if (
+            before
+            != (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+                after.st_ctime_ns,
+            )
+            or len(payload) != metadata.st_size
+        ):
             raise ReleaseAssemblyError("compatibility matrix changed while it was read")
         try:
             path_metadata = path.stat(follow_symlinks=False)
@@ -158,9 +172,7 @@ def _load_matrix(path: Path) -> dict[str, Any]:
             metadata.st_dev,
             metadata.st_ino,
         ):
-            raise ReleaseAssemblyError(
-                "compatibility matrix changed while it was read"
-            )
+            raise ReleaseAssemblyError("compatibility matrix changed while it was read")
     finally:
         os.close(descriptor)
     try:
@@ -262,8 +274,13 @@ def generate(
         ),
     }
     output_absolute = output_path.resolve(strict=False)
-    protected_paths = {matrix_path.resolve(), *(path.resolve() for path in component_files.values())}
-    protected_paths.update((output_path.parent / reference).resolve() for reference in referenced)
+    protected_paths = {
+        matrix_path.resolve(),
+        *(path.resolve() for path in component_files.values()),
+    }
+    protected_paths.update(
+        (output_path.parent / reference).resolve() for reference in referenced
+    )
     if output_absolute in protected_paths or (
         output_path.exists() and output_path.resolve() in protected_paths
     ):

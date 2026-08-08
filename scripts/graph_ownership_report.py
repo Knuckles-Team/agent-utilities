@@ -48,7 +48,14 @@ def _workspace_root() -> Path:
     """
     common_dir = Path(
         subprocess.run(
-            ["git", "-C", str(ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            [
+                "git",
+                "-C",
+                str(ROOT),
+                "rev-parse",
+                "--path-format=absolute",
+                "--git-common-dir",
+            ],
             capture_output=True,
             text=True,
             check=True,
@@ -56,6 +63,7 @@ def _workspace_root() -> Path:
     ).resolve()
     au_canonical = common_dir.parent  # .git's parent is the canonical checkout
     return au_canonical.parent.parent  # agent-packages -> workspace root
+
 
 from agent_utilities.knowledge_graph.maintenance.graph_ownership import (  # noqa: E402
     EngineCatalogClient,

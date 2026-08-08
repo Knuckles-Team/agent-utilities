@@ -453,6 +453,7 @@ class TestTenantStamping:
         """No ambient actor means no identity reference is synthesized."""
         transport = _CapturingTransport()
         sink = SelfIngestSink(_enabled_config(), transport=transport)
+
         def emit_unscoped():
             sink.emit_log(body="unscoped")
             assert sink.flush() == 1

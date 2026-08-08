@@ -46,7 +46,9 @@ class _SessionScoped:
         return _call
 
 
-def _wire(relay_from: BusFederationRelay, relay_to: BusFederationRelay, to_session) -> None:
+def _wire(
+    relay_from: BusFederationRelay, relay_to: BusFederationRelay, to_session
+) -> None:
     """Point ``relay_from``'s HTTP forward at ``relay_to``.apply_inbound (in-process).
 
     The simulated HTTP call crosses into hub B's own process/session boundary,

@@ -155,9 +155,7 @@ async def _run_backfill(*, limit: int, batch_size: int, execute: bool) -> None:
     )
 
     exclusion_clause, exclusion_params = embedding_backfill_eligibility_clause()
-    type_clause = (
-        embedding_backfill_type_scope_clause(node_types) if node_types else ""
-    )
+    type_clause = embedding_backfill_type_scope_clause(node_types) if node_types else ""
 
     # ---- current population snapshot (same counts the diagnosis used) ----
     total = embedded = with_text = eligible = 0

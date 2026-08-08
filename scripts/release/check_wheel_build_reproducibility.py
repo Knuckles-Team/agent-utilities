@@ -74,13 +74,19 @@ def _build_wheel(repo_root: Path, out_dir: Path) -> tuple[bool, str, Path | None
         return False, "\n".join(tail.splitlines()[-15:]), None
     candidates = sorted(out_dir.glob("agent_utilities-*.whl"))
     if len(candidates) != 1:
-        return False, f"expected exactly 1 wheel in {out_dir}, found {len(candidates)}", None
+        return (
+            False,
+            f"expected exactly 1 wheel in {out_dir}, found {len(candidates)}",
+            None,
+        )
     return True, "ok", candidates[0]
 
 
 def check(repo_root: Path = REPO_ROOT) -> tuple[int, dict]:
-    with tempfile.TemporaryDirectory(prefix="wheel-repro-primary-") as primary_dir, \
-         tempfile.TemporaryDirectory(prefix="wheel-repro-reproduction-") as repro_dir:
+    with (
+        tempfile.TemporaryDirectory(prefix="wheel-repro-primary-") as primary_dir,
+        tempfile.TemporaryDirectory(prefix="wheel-repro-reproduction-") as repro_dir,
+    ):
         result: dict = {"ok": False, "steps": {}}
 
         ok, detail, primary_wheel = _build_wheel(repo_root, Path(primary_dir))
@@ -168,7 +174,9 @@ def _self_check() -> tuple[int, dict]:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--self-check", action="store_true", help="prove the digest-mismatch path fails closed"
+        "--self-check",
+        action="store_true",
+        help="prove the digest-mismatch path fails closed",
     )
     args = parser.parse_args()
 

@@ -69,7 +69,9 @@ def _tracked_index(root: Path) -> tuple[set[str], set[str]]:
             capture_output=True,
         )
     except (OSError, subprocess.CalledProcessError) as exc:
-        raise RuntimeError("tracked project tree requires a readable git index") from exc
+        raise RuntimeError(
+            "tracked project tree requires a readable git index"
+        ) from exc
 
     files = {
         raw.decode("utf-8", errors="strict")
@@ -176,11 +178,13 @@ def concepts_section() -> str:
         # OKF-CIS ids are <SLUG>-<PILLAR>.<domain>.<concept>; summarize by the
         # closed domain set (compact + surfaces the taxonomy) rather than listing
         # every id (908 long ids would bloat AGENTS.md far past its size gate).
-        doms = sorted({
-            c["id"].split(".")[1]
-            for c in members
-            if "." in c["id"] and "-" in c["id"].split(".")[0]
-        })
+        doms = sorted(
+            {
+                c["id"].split(".")[1]
+                for c in members
+                if "." in c["id"] and "-" in c["id"].split(".")[0]
+            }
+        )
         summary = ", ".join(doms) if doms else f"{len(members)} concept(s)"
         lines.append(f"| **{pillar}** | {len(members)} | {summary} |")
     lines.append("")

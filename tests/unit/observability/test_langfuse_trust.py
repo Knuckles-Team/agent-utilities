@@ -216,9 +216,7 @@ def test_resolve_credentials_prefers_ref_over_direct_value_when_both_set() -> No
 
 def test_resolve_credentials_rejects_incomplete_direct_pair() -> None:
     with pytest.raises(LangfuseTrustError, match="langfuse_credentials_missing"):
-        resolve_langfuse_credentials(
-            environ={"LANGFUSE_PUBLIC_KEY": "pk-lf-synthetic"}
-        )
+        resolve_langfuse_credentials(environ={"LANGFUSE_PUBLIC_KEY": "pk-lf-synthetic"})
 
 
 def test_resolve_credentials_rejects_sentinel_direct_value() -> None:
@@ -460,9 +458,7 @@ def test_mcp_launcher_uses_canonical_default_host_with_credential_refs() -> None
     assert config["env"]["LANGFUSE_HOST"] == "https://cloud.langfuse.com"
 
 
-def test_mcp_launcher_resolves_remote_entry_with_no_env_block_via_direct_keys() -> (
-    None
-):
+def test_mcp_launcher_resolves_remote_entry_with_no_env_block_via_direct_keys() -> None:
     """Reproduces the graph-os fleet-catalog gap: a durable ``langfuse-mcp``
     entry with NO ``env`` block (e.g. a remote streamable-http child) must
     still admit successfully when the *parent process* environment carries

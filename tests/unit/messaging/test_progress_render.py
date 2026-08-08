@@ -140,14 +140,18 @@ async def test_checklist_edits_one_message_in_place_when_not_throttled() -> None
         await checklist.sink(_event(stage))
 
     assert len(stub.sent) == 1  # ONE status message, ever
-    assert len(stub.edited) == 3  # the 3 events after the initial post each edited in place
+    assert (
+        len(stub.edited) == 3
+    )  # the 3 events after the initial post each edited in place
 
 
 @pytest.mark.asyncio
 async def test_checklist_degrades_to_final_reply_when_status_not_postable() -> None:
     """When the status message cannot be posted (a failing/edit-less surface), finalize returns
     False so the caller sends the answer as a normal reply — the answer is never lost."""
-    stub = _EditStub(post_ok=False)  # the initial status post fails → no message id captured
+    stub = _EditStub(
+        post_ok=False
+    )  # the initial status post fails → no message id captured
     checklist = _ProgressChecklist(stub, "chan", min_interval_s=0.0)
 
     await checklist.sink(_event("start"))

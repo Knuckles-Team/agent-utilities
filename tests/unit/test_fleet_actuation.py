@@ -101,14 +101,22 @@ def test_apply_without_kubectl_is_a_safe_no_op(monkeypatch):
     )
 
     def _must_not_be_called(*a, **k):
-        raise AssertionError("subprocess.run must not be invoked when kubectl is unavailable")
+        raise AssertionError(
+            "subprocess.run must not be invoked when kubectl is unavailable"
+        )
 
     monkeypatch.setattr(subprocess, "run", _must_not_be_called)
     act = KubernetesActuator(kubectl_bin=None)
     result = act.apply(
-        ActionRequest(kind="scale_service", target="graph-os-dispatch", params={"replicas": 3})
+        ActionRequest(
+            kind="scale_service", target="graph-os-dispatch", params={"replicas": 3}
+        )
     )
-    assert result == {"ok": False, "dry_run": False, "detail": "kubectl CLI not available"}
+    assert result == {
+        "ok": False,
+        "dry_run": False,
+        "detail": "kubectl CLI not available",
+    }
 
 
 def test_apply_rejects_unsafe_target(monkeypatch):
@@ -164,7 +172,14 @@ def test_restart_service_issues_rollout_restart(monkeypatch):
     act, recorder = _actuator(monkeypatch)
     act.apply(ActionRequest(kind="restart_service", target="graph-os-ingest"))
     assert recorder.calls == [
-        ["/usr/bin/kubectl", "-n", "platform", "rollout", "restart", "deployment/graph-os-ingest"]
+        [
+            "/usr/bin/kubectl",
+            "-n",
+            "platform",
+            "rollout",
+            "restart",
+            "deployment/graph-os-ingest",
+        ]
     ]
 
 
@@ -172,7 +187,14 @@ def test_rollback_service_issues_rollout_undo(monkeypatch):
     act, recorder = _actuator(monkeypatch)
     act.apply(ActionRequest(kind="rollback_service", target="graph-os-ingest"))
     assert recorder.calls == [
-        ["/usr/bin/kubectl", "-n", "platform", "rollout", "undo", "deployment/graph-os-ingest"]
+        [
+            "/usr/bin/kubectl",
+            "-n",
+            "platform",
+            "rollout",
+            "undo",
+            "deployment/graph-os-ingest",
+        ]
     ]
 
 
@@ -182,7 +204,10 @@ def test_deploy_service_with_image_sets_image(monkeypatch):
         ActionRequest(
             kind="deploy_service",
             target="graph-os-dispatch",
-            params={"image": "registry.local/graph-os:1.2.3", "container": "graph-os-dispatch"},
+            params={
+                "image": "registry.local/graph-os:1.2.3",
+                "container": "graph-os-dispatch",
+            },
         )
     )
     assert recorder.calls == [
@@ -225,9 +250,11 @@ def test_nonzero_returncode_is_reported_as_failure(monkeypatch):
     act, recorder = _actuator(monkeypatch)
     recorder.returncode = 1
     recorder.stdout = ""
-    recorder.stderr = "deployments.apps \"graph-os-dispatch\" not found"
+    recorder.stderr = 'deployments.apps "graph-os-dispatch" not found'
     result = act.apply(
-        ActionRequest(kind="scale_service", target="graph-os-dispatch", params={"replicas": 2})
+        ActionRequest(
+            kind="scale_service", target="graph-os-dispatch", params={"replicas": 2}
+        )
     )
     assert result["ok"] is False
     assert "not found" in result["detail"]
@@ -245,7 +272,9 @@ def test_execute_action_stamps_actuator_name(monkeypatch):
     engine = FakeEngine()
     result = execute_action(
         engine,
-        ActionRequest(kind="scale_service", target="graph-os-dispatch", params={"replicas": 2}),
+        ActionRequest(
+            kind="scale_service", target="graph-os-dispatch", params={"replicas": 2}
+        ),
         act,
     )
     assert result["ok"] is True
@@ -335,7 +364,9 @@ PERMISSIVE = (
 )
 
 
-def _k8s_autoscaler(engine, observations, tmp_path, monkeypatch, recorder, policy_body=None):
+def _k8s_autoscaler(
+    engine, observations, tmp_path, monkeypatch, recorder, policy_body=None
+):
     from agent_utilities.orchestration import fleet_autoscaler as fa
 
     registry = tmp_path / "registry.yml"
@@ -367,8 +398,11 @@ def test_default_policy_gates_k8s_actuator_no_kubectl_call(tmp_path, monkeypatch
     engine = FakeEngine()
     recorder = _RecordingRun()
     scaler = _k8s_autoscaler(
-        engine, {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)}, tmp_path,
-        monkeypatch, recorder,
+        engine,
+        {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)},
+        tmp_path,
+        monkeypatch,
+        recorder,
     )
     report = scaler.evaluate()
     assert report["evaluations"][0]["outcome"] == "proposed"
@@ -377,7 +411,9 @@ def test_default_policy_gates_k8s_actuator_no_kubectl_call(tmp_path, monkeypatch
     assert len(engine.by_type("ActionApproval")) == 1
 
 
-def test_permissive_policy_lets_k8s_actuator_issue_real_scale_call(tmp_path, monkeypatch):
+def test_permissive_policy_lets_k8s_actuator_issue_real_scale_call(
+    tmp_path, monkeypatch
+):
     """ANTI-CHEATING (real call): under a permissive policy the loop must
     actually reach ``kubectl scale`` with the right Deployment + replica
     count — not a no-op / dry-run."""
@@ -386,8 +422,12 @@ def test_permissive_policy_lets_k8s_actuator_issue_real_scale_call(tmp_path, mon
     engine = FakeEngine()
     recorder = _RecordingRun()
     scaler = _k8s_autoscaler(
-        engine, {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)}, tmp_path,
-        monkeypatch, recorder, policy_body=PERMISSIVE,
+        engine,
+        {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)},
+        tmp_path,
+        monkeypatch,
+        recorder,
+        policy_body=PERMISSIVE,
     )
     report = scaler.evaluate()
     assert report["scaled"] == 1
@@ -415,8 +455,12 @@ def test_cooldown_blocks_repeat_k8s_scale_call(tmp_path, monkeypatch):
     engine = FakeEngine()
     recorder = _RecordingRun()
     scaler = _k8s_autoscaler(
-        engine, {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)}, tmp_path,
-        monkeypatch, recorder, policy_body=PERMISSIVE,
+        engine,
+        {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)},
+        tmp_path,
+        monkeypatch,
+        recorder,
+        policy_body=PERMISSIVE,
     )
     first = scaler.evaluate()
     assert first["scaled"] == 1

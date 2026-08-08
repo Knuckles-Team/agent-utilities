@@ -124,16 +124,12 @@ def test_extract_prompt_content_raises_on_non_json():
 
 def test_extract_prompt_content_happy_path():
     """_extract_prompt_content returns the canonical body."""
-    payload = json.dumps(
-        {"task": "n", "instructions": {"core_directive": "hello"}}
-    )
+    payload = json.dumps({"task": "n", "instructions": {"core_directive": "hello"}})
     assert _extract_prompt_content(payload) == "hello"
 
     for retired_key in ("content", "input"):
         with pytest.raises(ValueError, match="retired prompt body key"):
-            _extract_prompt_content(
-                json.dumps({"task": "t", retired_key: "# Plan"})
-            )
+            _extract_prompt_content(json.dumps({"task": "t", retired_key: "# Plan"}))
 
 
 def test_resolve_prompt():
@@ -178,9 +174,7 @@ def test_extract_agent_metadata_rejects_persisted_raw_demonstrations():
         {
             "task": "test_agent",
             "instructions": {"core_directive": "Use governed evidence."},
-            "few_shot_examples": [
-                {"task": "raw task", "response": "raw response"}
-            ],
+            "few_shot_examples": [{"task": "raw task", "response": "raw response"}],
         }
     )
 

@@ -91,15 +91,15 @@ _BENIGN_HINTS: dict[str, str] = {
     "assess_credit_quality": "one optional credit-risk sub-factor (Merton DD); caller aggregates several and tolerates a missing one",
     "gap_fill": "engine-accelerated path with an equivalent pandas-only fallback immediately below",
     "asof_align": "engine-accelerated path with an equivalent pandas-only fallback immediately below",
-    "_client": "engine client construction; caller already treats None as \"use local fallback\"",
+    "_client": 'engine client construction; caller already treats None as "use local fallback"',
     "_check_skills_usage": "dashboard status probe; failure just leaves that panel's row unpopulated",
     "_ingest_capabilities": "per-module best-effort skip inside a loop; the outer scan already logs failures",
     "mcp_server": "best-effort teardown of a lazily-mounted fleet child at process exit",
-    "_register_and_heartbeat_forever": "retry loop explicitly says \"will retry\" on the next iteration",
+    "_register_and_heartbeat_forever": 'retry loop explicitly says "will retry" on the next iteration',
     "is_server_healthy": "health probe; a failed probe already returns False to the caller",
     "cleanup_rogue_instances": "best-effort process-listing lookup with another fallback method below",
     "ingest_jpeg_via_sidecar": "narrow-typed thumbnail decode fallback; degrades to no-thumbnail, not data loss",
-    "schemacandidateauditor.record": "audit-log write explicitly documented \"never block the write path\"",
+    "schemacandidateauditor.record": 'audit-log write explicitly documented "never block the write path"',
     "kgrulebackend.get_rules": "per-rule best-effort skip inside a loop while loading many rules",
     "fileacpsessionstore._save_sync": "fd-close-during-cleanup; the original exception is re-raised regardless",
     "evaluationengine.evaluate_disentangled": "one optional metric computation; other metrics still returned",
@@ -118,7 +118,10 @@ def _reason_for(symbol: str, file_rel: str, snippet: str) -> tuple[str, str]:
             return "benign", reason
     # No keyword matched (new site introduced after this script was written):
     # fail safe toward hand-review rather than silently accepting risk.
-    return "control_write_path", "UNCLASSIFIED — no keyword matched; hand-review before accepting"
+    return (
+        "control_write_path",
+        "UNCLASSIFIED — no keyword matched; hand-review before accepting",
+    )
 
 
 def _count_reraise_without_from(root: Path) -> int:
@@ -142,7 +145,11 @@ def _count_reraise_without_from(root: Path) -> int:
                     continue  # has `from ...`
                 if node.exc is None:
                     continue  # bare `raise` — re-raises the original, no cause dropped
-                if isinstance(node.exc, ast.Name) and handler.name and node.exc.id == handler.name:
+                if (
+                    isinstance(node.exc, ast.Name)
+                    and handler.name
+                    and node.exc.id == handler.name
+                ):
                     continue  # `raise exc` — same object, no new exception constructed
                 count += 1
     return count
@@ -179,7 +186,12 @@ def main() -> int:
     reraise_without_from = _count_reraise_without_from(ROOT)
 
     if args.json:
-        print(json.dumps({"sites": rows, "reraise_without_from_count": reraise_without_from}, indent=2))
+        print(
+            json.dumps(
+                {"sites": rows, "reraise_without_from_count": reraise_without_from},
+                indent=2,
+            )
+        )
         return 0
 
     benign = [r for r in rows if r["bucket"] == "benign"]
@@ -188,8 +200,12 @@ def main() -> int:
 
     print(f"debug_only_swallow live sites: {len(rows)}")
     print(f"  (i)   benign (accept w/ noqa reason):      {len(benign)}")
-    print(f"  (ii)  control/write path (hand-fix):        {len(control)}  ({len(unclassified)} unclassified)")
-    print(f"  (iii) cause-discarding re-raise (raise w/o from), repo-wide sanity count: {reraise_without_from}")
+    print(
+        f"  (ii)  control/write path (hand-fix):        {len(control)}  ({len(unclassified)} unclassified)"
+    )
+    print(
+        f"  (iii) cause-discarding re-raise (raise w/o from), repo-wide sanity count: {reraise_without_from}"
+    )
     print(
         "        (structurally disjoint from debug_only_swallow — a handler that re-raises\n"
         "        is excluded from this shape by check_swallowed_errors.py's _has_raise() check;\n"

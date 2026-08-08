@@ -55,7 +55,10 @@ class _Engine:
 def test_record_and_set_status():
     engine = _Engine()
     record_feature(
-        engine, feature_id="f1", name="exec-rag planner", concept_ids=["AU-KG.retrieval.memory-first-retrieval"]
+        engine,
+        feature_id="f1",
+        name="exec-rag planner",
+        concept_ids=["AU-KG.retrieval.memory-first-retrieval"],
     )
     st = ledger_state(engine)
     assert st["total"] == 1 and st["open"] == 1 and st["by_status"]["open"] == 1
@@ -123,7 +126,9 @@ def test_promote_feature_ledger():
     n = promote_feature_ledger(engine, rows)
     assert n == 2  # the id-less row is skipped
     data = dict(engine.graph.nodes(data=True))
-    assert data["graph_pagerank"]["concept_ids"] == ["AU-KG.compute.spectral-cluster-navigator"]
+    assert data["graph_pagerank"]["concept_ids"] == [
+        "AU-KG.compute.spectral-cluster-navigator"
+    ]
     assert data["x_unknown"]["concept_ids"] == []  # UNKNOWN dropped
 
 

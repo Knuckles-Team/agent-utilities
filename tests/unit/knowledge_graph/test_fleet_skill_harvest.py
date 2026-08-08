@@ -83,7 +83,9 @@ def _entry(name: str, **overrides) -> dict:
 def _server(*entries: dict, error: str | None = None, tools: bool = True) -> dict:
     return {
         "error": error,
-        "tools": [{"name": "t", "description": "d", "inputSchema": {}}] if tools else [],
+        "tools": [{"name": "t", "description": "d", "inputSchema": {}}]
+        if tools
+        else [],
         "skills": list(entries),
     }
 

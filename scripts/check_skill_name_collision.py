@@ -115,7 +115,9 @@ def _iter_skill_files(root: Path) -> list[Path]:
             continue
         if r.is_symlink():
             raise RuntimeError("installable skill root must not be a symlink")
-        for directory, dirnames, filenames in os.walk(r, topdown=True, followlinks=False):
+        for directory, dirnames, filenames in os.walk(
+            r, topdown=True, followlinks=False
+        ):
             current = Path(directory)
             depth = len(current.relative_to(r).parts)
             if depth > MAX_TREE_DEPTH:
@@ -129,7 +131,9 @@ def _iter_skill_files(root: Path) -> list[Path]:
                 if stat.S_ISLNK(metadata.st_mode):
                     raise RuntimeError("installable skill tree contains a symlink")
                 if not stat.S_ISDIR(metadata.st_mode):
-                    raise RuntimeError("installable skill tree contains a special entry")
+                    raise RuntimeError(
+                        "installable skill tree contains a special entry"
+                    )
                 retained.append(name)
             dirnames[:] = retained
             entries += len(retained) + len(filenames)
@@ -145,10 +149,14 @@ def _iter_skill_files(root: Path) -> list[Path]:
                     or not stat.S_ISREG(metadata.st_mode)
                     or not 0 < metadata.st_size <= MAX_SKILL_BYTES
                 ):
-                    raise RuntimeError("installable skill file is unavailable or too large")
+                    raise RuntimeError(
+                        "installable skill file is unavailable or too large"
+                    )
                 files.append(skill)
                 if len(files) > MAX_SKILL_FILES:
-                    raise RuntimeError("installable skill inventory exceeds the safe bound")
+                    raise RuntimeError(
+                        "installable skill inventory exceeds the safe bound"
+                    )
     return sorted(files)
 
 
@@ -160,7 +168,11 @@ def _iter_prompt_files(root: Path) -> list[tuple[str, Path]]:
         return []
     prompts: list[tuple[str, Path]] = []
     for package in sorted(agents.iterdir()):
-        if package.name in _EXCLUDE_SEGMENTS or not package.is_dir() or package.is_symlink():
+        if (
+            package.name in _EXCLUDE_SEGMENTS
+            or not package.is_dir()
+            or package.is_symlink()
+        ):
             continue
         for module in sorted(package.iterdir()):
             if not module.is_dir() or module.is_symlink():

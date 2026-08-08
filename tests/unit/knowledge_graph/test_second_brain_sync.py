@@ -136,9 +136,7 @@ class _SecondBrainStubEngine:
     ) -> None:
         self.edges.append((source, target, rel_type, properties))
 
-    def _serialize_node(
-        self, node: Any, label: str | None = None
-    ) -> dict[str, Any]:
+    def _serialize_node(self, node: Any, label: str | None = None) -> dict[str, Any]:
         """Mirror ``core/engine.py``'s ``IntelligenceGraphEngine._serialize_node``
         closely enough for ``EntityClaimExtractor`` (part of the ``_EngineProtocol``
         contract, see ``knowledge_graph/_engine_protocol.py``): dump the Pydantic
@@ -154,7 +152,9 @@ class _SecondBrainStubEngine:
         for k, v in data.items():
             if v is None:
                 continue
-            if hasattr(v, "value") and not isinstance(v, str | int | float | bool | list | dict):
+            if hasattr(v, "value") and not isinstance(
+                v, str | int | float | bool | list | dict
+            ):
                 clean[k] = v.value
             elif isinstance(v, dict | list):
                 clean[k] = json.dumps(v)

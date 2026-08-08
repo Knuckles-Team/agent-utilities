@@ -387,6 +387,5 @@ def test_enumeration_failure_falls_back_to_active_only(monkeypatch):
     # No peers registered (enumeration failed) → falls back to active-only behaviour;
     # the single active model still registers itself via _register_gpu_member elsewhere.
     assert (
-        "accelerator-a" not in gb._budgets
-        or gb._budgets["accelerator-a"].members == {}
+        "accelerator-a" not in gb._budgets or gb._budgets["accelerator-a"].members == {}
     )

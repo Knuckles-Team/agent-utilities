@@ -45,7 +45,9 @@ def test_resolve_known_connector_resources():
     # ``:Commit`` label the first-party git-history ingest already writes.
     assert gitlab_commit.registry_type is None
 
-    leanix_capability = resolve_ops_causal_node_type("leanix-agent", "BusinessCapability")
+    leanix_capability = resolve_ops_causal_node_type(
+        "leanix-agent", "BusinessCapability"
+    )
     assert leanix_capability is not None
     assert leanix_capability.registry_type == RegistryNodeType.CAPABILITY
 

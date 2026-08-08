@@ -217,7 +217,9 @@ def test_gap_fill_rejects_malformed_or_non_positive_intervals_before_any_work(
 
 def test_gap_fill_rejects_invalid_interval_even_for_an_empty_series() -> None:
     """The interval is validated at the API boundary regardless of the data."""
-    series = pd.Series([], index=pd.DatetimeIndex([], tz="UTC"), name="close", dtype=float)
+    series = pd.Series(
+        [], index=pd.DatetimeIndex([], tz="UTC"), name="close", dtype=float
+    )
 
     with pytest.raises(engine_series.InvalidIntervalError):
         engine_series.gap_fill_series(series, "0H")

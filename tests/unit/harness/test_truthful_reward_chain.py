@@ -139,7 +139,9 @@ def test_run_program_optimization_hands_the_native_backend_a_negative_example(
         target, {"name": "some-skill"}, [], engine=engine
     )
 
-    assert result is None  # native backend reported "unavailable" — no fabricated result
+    assert (
+        result is None
+    )  # native backend reported "unavailable" — no fabricated result
     assert "request" in captured
     trainset = captured["request"].data["trainset"]
     assert len(trainset) == 1

@@ -919,7 +919,9 @@ def _check_or_write(path: Path, expected: str, write: bool) -> None:
 
 def run(engine_root: Path | None, *, write: bool) -> dict[str, Any]:
     manifest, python_source = build_manifest()
-    _check_or_write(AU_GENERATED, _format_python_source(_render_python(manifest)), write)
+    _check_or_write(
+        AU_GENERATED, _format_python_source(_render_python(manifest)), write
+    )
     _assert_projection(
         manifest["bindings"],
         _python_fields(python_source),
