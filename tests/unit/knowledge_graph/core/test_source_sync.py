@@ -555,6 +555,50 @@ def test_sweep_enqueues_only_installed_materialize_providers(monkeypatch):
     } & set(engine.enqueued)
 
 
+def test_source_sync_all_mode_delta_returns_durable_job_handle_immediately(
+    monkeypatch,
+):
+    """D-CDX-7 (premise recheck): the item's reproduction was
+    ``source_sync(source='all', mode='delta')`` -- the KG-first recovery
+    instruction's own recommended command -- blocking 130+ seconds with no
+    durable job id, progress, or cancellation token. ``sweep_all_sources``'s
+    ``if enqueue and hasattr(engine, "submit_task")`` fast path is NOT gated
+    on ``mode`` (it applies identically to 'full' and 'delta') and predates
+    this item's filing (added 2026-06-20). Reached through the SAME public
+    entrypoint the item's own recovery instruction calls
+    (``_dispatch_sync_source`` -> ``sweep_all_sources``), a task-capable
+    engine gets an immediate ``status: "enqueued"`` + a job id per
+    candidate -- never the fully-blocking per-source ``sync_source`` loop.
+    A regression that made 'delta' skip this fast path (e.g. an accidental
+    ``mode == "full"`` guard copied from the single-source chunked-drain
+    branch) would call the ``sync_source`` stub below and fail loudly here.
+    """
+    import agent_utilities.knowledge_graph.core.source_sync as ss
+    from agent_utilities.knowledge_graph.core.hydration import HydrationManager
+
+    monkeypatch.setattr(HydrationManager, "get_status", lambda self: {})
+    monkeypatch.setattr(
+        "agent_utilities.protocols.source_connectors.connectors.mcp_package._load_mcp_config",
+        lambda: {"github-mcp": {"url": "http://github-mcp.arpa/mcp"}},
+    )
+
+    def _must_not_run_inline(*_args, **_kwargs):
+        raise AssertionError(
+            "sync_source ran inline during a source='all' mode='delta' "
+            "sweep -- the durable-job enqueue fast path was bypassed, "
+            "reproducing D-CDX-7's fully-blocking symptom"
+        )
+
+    monkeypatch.setattr(ss, "sync_source", _must_not_run_inline)
+
+    eng = _EnqueueEngine()
+    result = ss._dispatch_sync_source(eng, "all", mode="delta")
+
+    assert result["status"] == "enqueued"
+    assert result["mode"] == "delta"
+    assert eng.enqueued  # at least one candidate got a real, pollable job id
+
+
 def test_sweep_mcp_tracker_gate_is_per_server(monkeypatch):
     """Only the trackers whose server is present are kept: plane-mcp without
     atlassian-mcp keeps plane but drops jira/confluence."""

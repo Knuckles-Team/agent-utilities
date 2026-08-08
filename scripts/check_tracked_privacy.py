@@ -170,6 +170,39 @@ def _identifier_from_path(value: str) -> set[str]:
 
 
 def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
+    """Identifiers this gate treats as sensitive if they appear in tracked text.
+
+    D-ORC-57: purely ambient derivation (OS username, hostname, the CALLING
+    process's local git config) makes the verdict depend on who/where the
+    scan runs, not on the tree being scanned -- the same tree can PASS
+    standalone and FAIL under pre-commit for no reason other than the two
+    invocations seeing different ambient identities. Observed live: a lane's
+    throwaway sandbox had ``git config user.name`` set to "Guard Test" (an
+    isolated test identity, unrelated to this repository), and "guard test"
+    then substring-matched the unrelated phrase "architecture guard test"
+    already present in a tracked comment -- 279 manufactured false leaks from
+    one ambient identity accident.
+
+    ``AGENT_UTILITIES_PRIVACY_IDENTIFIERS`` is a DECLARED, stable override:
+    when set (comma- or newline-separated), it is used INSTEAD of the
+    ambient OS/git-config-derived candidates below, so CI/pre-commit can pin
+    one deterministic identity set regardless of which sandbox or host runs
+    the scan. Unset, behaviour is unchanged from before this fix -- additive
+    only, so a caller that has not opted in loses no coverage (the real
+    absolute-homelab-path leak D-GDI-1 caught stays caught either way; that
+    detector is independent of this identifier set).
+    """
+    override = os.environ.get("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", "").strip()
+    if override:
+        declared = {
+            value.strip() for value in re.split(r"[,\n]", override) if value.strip()
+        }
+        return frozenset(
+            value.casefold()
+            for value in declared
+            if len(value) >= 4 and value.casefold() not in _GENERIC_IDENTIFIERS
+        )
+
     candidates = {
         getpass.getuser(),
         pwd.getpwuid(os.getuid()).pw_name,
