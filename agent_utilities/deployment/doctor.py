@@ -3646,7 +3646,7 @@ def _check_connector_coverage() -> dict[str, Any]:
 
 
 def _check_workspace_config() -> dict[str, Any]:
-    """Validate the ``workspace.yml`` repository manifest (CONCEPT:AU-OS.deployment.os-4).
+    """Validate the ``workspace.yml`` repository manifest.
 
     ``workspace.yml`` is the canonical map of the ecosystem's repositories: the
     bootstrap (``clone_missing_projects``), the read-only project enumeration that

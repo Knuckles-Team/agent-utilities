@@ -88,7 +88,7 @@ def deploy_status(
     tok = next(iter(_re.findall(r"[A-Za-z_][A-Za-z0-9_]{3,}", query or "")), "")
     routes = _routes_for(engine, tok)
 
-    # The governed plan to make a merged change live (CONCEPT:AU-OS.deployment.os-2).
+    # The governed plan to make a merged change live.
     try:
         from agent_utilities.deployment.self_deploy import plan_redeploy
 

@@ -1,0 +1,1160 @@
+domain: AU-OS.deployment
+generated_at: '2026-08-02T16:11:03+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
+  `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
+  and `apply --write`.'
+clusters:
+  AU-OS.deployment.connector-coverage-check:
+  - AU-OS.deployment.connector-coverage-check
+  - AU-OS.deployment.os-4
+  - AU-OS.deployment.report-resolved-mode
+concepts:
+  AU-OS.deployment.agent-factory-autoload:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 14 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/cli/__init__.py
+      - agent_utilities/deployment/doctor.py
+      - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+      - scripts/check_no_env_sprawl.py
+      - scripts/check_skill_name_collision.py
+      - scripts/retrofit_fleet_contribution.py
+      test_files: []
+      doc_files:
+      - AGENTS.head.md
+      - AGENTS.md
+      - docs/NAMING.md
+      - docs/architecture/modular-prompt-skill-contribution.md
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.59-MCP_Tool_Source_Connector.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - AGENTS.head.md:719
+      - AGENTS.md:719
+      - agent_utilities/cli/__init__.py:104
+      - agent_utilities/cli/__init__.py:371
+      - agent_utilities/cli/__init__.py:382
+      - agent_utilities/deployment/doctor.py:3777
+      - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py:1050
+      - docs/NAMING.md:70
+      - docs/architecture/modular-prompt-skill-contribution.md:3
+      - docs/pillars/2_epistemic_knowledge_graph/KG-2.59-MCP_Tool_Source_Connector.md:129
+      - scripts/check_no_env_sprawl.py:66
+      - scripts/check_skill_name_collision.py:4
+      - scripts/check_skill_name_collision.py:280
+      - scripts/retrofit_fleet_contribution.py:4
+  AU-OS.deployment.airgap-mode:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - .env.example
+      - agent_utilities/core/config.py
+      - agent_utilities/core/http_client.py
+      - agent_utilities/core/model_factory.py
+      test_files:
+      - tests/unit/core/test_airgap_mode.py
+      doc_files: []
+      introduced: 'bc6c2c46 2026-07-13 feat(sovereign,a2a): AIRGAP_MODE gate + fleet a2a.json epistemic
+        enrichment (WS-4 items 2, 6)'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .env.example:95
+      - agent_utilities/core/config.py:2792
+      - agent_utilities/core/http_client.py:99
+      - agent_utilities/core/model_factory.py:605
+      - tests/unit/core/test_airgap_mode.py:1
+  AU-OS.deployment.blueprint-library:
+    decision: retire
+    parent: ''
+    rationale: ''
+    reason: 'Names no implemented decision: the only ''source'' hit is a hardcoded string key in synergy_engine.py''s
+      _KNOWN_BRIDGES cross-pillar report table (itself explicitly ''hardcoded from architecture docs'');
+      every other site is prose in docs/journey.md and the derived pillars/*.md walkthrough describing
+      a speculative ''Infrastructure Blueprint Library'' component distinct from the REAL, code-backed
+      AU-OS.deployment.infrastructure-blueprint-library model. scripts/consolidate_concepts.py already
+      lists this id among ones slated for consolidation elsewhere, confirming it was never meant to stand
+      alone.'
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files: []
+      doc_files:
+      - docs/journey.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - docs/journey.md:159
+  AU-OS.deployment.cold-boot-import-reentrancy:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in test files — nothing in the shipped tree realises it, which
+      is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files: []
+      test_files:
+      - tests/unit/core/test_config.py
+      doc_files:
+      - .specify/design/cold-boot-import-reentrancy/design.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/cold-boot-import-reentrancy/design.md:3
+      - .specify/design/cold-boot-import-reentrancy/design.md:29
+      - tests/unit/core/test_config.py:910
+  AU-OS.deployment.concept-2:
+    decision: parent
+    parent: AU-OS.deployment.standard-repo-templates
+    rationale: 'Names the generalized, reusable GitLab CI templates half of the SAME module (repo_templates.py:3,205,550)
+      whose docstring cites both ids together as one decision: standard operator-owned private repos plus
+      CI templates.'
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 6 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/repo_templates.py
+      - genesis.yaml
+      test_files:
+      - tests/unit/deployment/test_repo_templates.py
+      doc_files:
+      - docs/guides/genesis-private-repos.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/repo_templates.py:3
+      - agent_utilities/deployment/repo_templates.py:205
+      - agent_utilities/deployment/repo_templates.py:550
+      - docs/guides/genesis-private-repos.md:47
+      - genesis.yaml:295
+      - tests/unit/deployment/test_repo_templates.py:3
+  AU-OS.deployment.connector-coverage-check:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/doctor.py
+      - agent_utilities/knowledge_graph/ingestion/connector_coverage.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/doctor.py:3583
+      - agent_utilities/knowledge_graph/ingestion/connector_coverage.py:4
+  AU-OS.deployment.cross-platform-locks-plus:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/preflight.py
+      - agent_utilities/knowledge_graph/core/file_lock.py
+      - agent_utilities/knowledge_graph/core/shard_topology.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/preflight.py:50
+      - agent_utilities/knowledge_graph/core/file_lock.py:3
+      - agent_utilities/knowledge_graph/core/shard_topology.py:50
+  AU-OS.deployment.dynamic-two-fail-closed:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 6 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/claude_harness/__init__.py
+      - agent_utilities/claude_harness/pretooluse_gate.py
+      - agent_utilities/cli/__init__.py
+      - agent_utilities/ecosystem/hook_installer.py
+      - agent_utilities/orchestration/action_policy.py
+      test_files:
+      - tests/unit/security/test_pretooluse_gate.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/claude_harness/__init__.py:19
+      - agent_utilities/claude_harness/pretooluse_gate.py:6
+      - agent_utilities/cli/__init__.py:85
+      - agent_utilities/ecosystem/hook_installer.py:84
+      - agent_utilities/orchestration/action_policy.py:661
+      - tests/unit/security/test_pretooluse_gate.py:4
+  AU-OS.deployment.embedded-auto-provision:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/core/graph_compute.py
+      - agent_utilities/server/__init__.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1159
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1699
+      - agent_utilities/server/__init__.py:476
+  AU-OS.deployment.engine-resolver-auto-provision:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (7 source
+      file(s), 35 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/core/engine_resolver.py
+      - agent_utilities/knowledge_graph/core/graph_compute.py
+      - agent_utilities/mcp/tools/engine_surface_tools.py
+      - genesis.yaml
+      - pyproject.toml
+      - scripts/gen_genesis_manifest.py
+      test_files:
+      - tests/conftest.py
+      - tests/unit/knowledge_graph/core/test_engine_resolver.py
+      doc_files:
+      - CHANGELOG.md
+      - README.md
+      - docs/architecture/configuration.md
+      - docs/examples/config.json
+      - docs/guides/backend-parity-and-profile-testing.md
+      - docs/guides/sovereign-self-hosted.md
+      - docs/recipes/tiny.md
+      - docs/recipes/unified-self-contained.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - CHANGELOG.md:729
+      - README.md:364
+      - agent_utilities/core/config.py:4648
+      - agent_utilities/core/config.py:4665
+      - agent_utilities/knowledge_graph/core/engine_resolver.py:1
+      - agent_utilities/knowledge_graph/core/engine_resolver.py:4
+      - agent_utilities/knowledge_graph/core/engine_resolver.py:98
+      - agent_utilities/knowledge_graph/core/engine_resolver.py:134
+      - agent_utilities/knowledge_graph/core/engine_resolver.py:202
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1165
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1467
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1556
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1704
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1709
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1755
+      - agent_utilities/mcp/tools/engine_surface_tools.py:184
+      - docs/architecture/configuration.md:70
+      - docs/architecture/configuration.md:72
+      - docs/architecture/configuration.md:73
+      - docs/architecture/configuration.md:134
+      - docs/examples/config.json:28
+      - docs/guides/backend-parity-and-profile-testing.md:166
+      - docs/guides/sovereign-self-hosted.md:1
+      - docs/recipes/tiny.md:34
+      - docs/recipes/unified-self-contained.md:10
+      - docs/reference/documentation-catalog.md:108
+      - genesis.yaml:158
+      - pyproject.toml:80
+      - scripts/gen_genesis_manifest.py:69
+      - scripts/gen_genesis_manifest.py:170
+      - scripts/gen_genesis_manifest.py:294
+      - scripts/gen_genesis_manifest.py:330
+      - scripts/gen_genesis_manifest.py:339
+      - tests/conftest.py:608
+      - tests/unit/knowledge_graph/core/test_engine_resolver.py:1
+  AU-OS.deployment.flagging-repos:
+    decision: parent
+    parent: AU-OS.deployment.connector-coverage-check
+    rationale: The repo-ingestion freshness check (doctor.py:3489, coverage.py) is the original half of
+      the SAME doctor coverage-and-freshness pattern that connector_coverage's own docstring calls itself
+      'the connector analogue of' at doctor.py:3582, comparing against the same DeltaManifest watermarks.
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/doctor.py
+      - agent_utilities/knowledge_graph/ingestion/coverage.py
+      - agent_utilities/knowledge_graph/ingestion/manifest.py
+      test_files:
+      - tests/unit/test_ingestion_coverage.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/doctor.py:3491
+      - agent_utilities/knowledge_graph/ingestion/coverage.py:4
+      - agent_utilities/knowledge_graph/ingestion/manifest.py:191
+      - tests/unit/test_ingestion_coverage.py:1
+  AU-OS.deployment.fleet-lifecycle-control:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (10 source
+      file(s), 22 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/gateway/fleet.py
+      - agent_utilities/knowledge_graph/adaptation/remediation_playbooks.py
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      - agent_utilities/knowledge_graph/research/auto_merge.py
+      - agent_utilities/knowledge_graph/research/change_publisher.py
+      - agent_utilities/orchestration/fleet_actuation.py
+      - agent_utilities/orchestration/fleet_autoscaler.py
+      - agent_utilities/orchestration/fleet_reconciler.py
+      - agent_utilities/runtime/policy.py
+      test_files:
+      - tests/unit/test_action_policy.py
+      - tests/unit/test_fleet_supervisory.py
+      doc_files:
+      - docs/architecture/configuration.md
+      - docs/examples/action-policy-postures.md
+      - docs/examples/autoscaling-signals.md
+      - docs/examples/fleet-events-wiring.md
+      - docs/pillars/5_agent_os_infrastructure.md
+      - docs/reference/runtime-configuration.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:3822
+      - agent_utilities/core/config.py:3837
+      - agent_utilities/gateway/fleet.py:402
+      - agent_utilities/knowledge_graph/adaptation/remediation_playbooks.py:16
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1545
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1575
+      - agent_utilities/knowledge_graph/research/auto_merge.py:23
+      - agent_utilities/knowledge_graph/research/auto_merge.py:139
+      - agent_utilities/knowledge_graph/research/auto_merge.py:183
+      - agent_utilities/knowledge_graph/research/change_publisher.py:31
+      - agent_utilities/orchestration/fleet_actuation.py:335
+      - agent_utilities/orchestration/fleet_autoscaler.py:39
+      - agent_utilities/orchestration/fleet_reconciler.py:28
+      - agent_utilities/runtime/policy.py:2
+      - docs/architecture/configuration.md:111
+      - docs/examples/action-policy-postures.md:5
+      - docs/examples/autoscaling-signals.md:168
+      - docs/examples/fleet-events-wiring.md:209
+      - docs/pillars/5_agent_os_infrastructure.md:448
+      - docs/reference/runtime-configuration.md:442
+      - tests/unit/test_action_policy.py:1
+      - tests/unit/test_fleet_supervisory.py:179
+  AU-OS.deployment.governance-derived-claude-code:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 10 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/claude_harness/__init__.py
+      - agent_utilities/claude_harness/claude_fence.py
+      - agent_utilities/cli/__init__.py
+      - agent_utilities/deployment/cli.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      - scripts/gen_genesis_manifest.py
+      test_files:
+      - tests/gates/test_harness_fence_gate.py
+      - tests/unit/security/test_harness_fence.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/claude_harness/__init__.py:14
+      - agent_utilities/claude_harness/claude_fence.py:6
+      - agent_utilities/claude_harness/claude_fence.py:287
+      - agent_utilities/claude_harness/claude_fence.py:298
+      - agent_utilities/cli/__init__.py:87
+      - agent_utilities/deployment/cli.py:53
+      - agent_utilities/mcp/tools/analysis_tools.py:3847
+      - scripts/gen_genesis_manifest.py:382
+      - tests/gates/test_harness_fence_gate.py:4
+      - tests/unit/security/test_harness_fence.py:4
+  AU-OS.deployment.infra-orchestration:
+    decision: retire
+    parent: ''
+    rationale: ''
+    reason: 'Same shape as blueprint-library: sourced only from the docs/journey.md narrative walkthrough
+      and its derived pillar-summary docs, plus one hardcoded string key in synergy_engine.py''s documentation-derived
+      bridge table; no code path implements a ''Company Infrastructure Orchestration layer'' distinct
+      from the already-documented, code-backed decisions it merely narrates over.'
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files: []
+      doc_files:
+      - docs/journey.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - docs/journey.md:159
+  AU-OS.deployment.infrastructure-blueprint-library:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/models/company.py
+      - agent_utilities/models/knowledge_graph.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/models/company.py:320
+      - agent_utilities/models/knowledge_graph.py:390
+  AU-OS.deployment.liveness-vs-readiness-split:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/gateway/api.py
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/observability/runtime_health.py
+      - agent_utilities/server/routers/core.py
+      test_files:
+      - tests/integration/core/test_security_server.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/gateway/api.py:184
+      - agent_utilities/mcp/kg_server.py:3811
+      - agent_utilities/observability/runtime_health.py:44
+      - agent_utilities/observability/runtime_health.py:85
+      - agent_utilities/server/routers/core.py:42
+      - agent_utilities/server/routers/core.py:53
+      - tests/integration/core/test_security_server.py:104
+  AU-OS.deployment.merge-triggered-venv-flip:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/deployment/venv_autosync.py
+      test_files:
+      - tests/unit/deployment/test_venv_autosync.py
+      doc_files:
+      - .specify/design/shared-venv-lifecycle/design.md
+      - docs/architecture/shared-venv-lifecycle.md
+      introduced: '84726f5a 2026-07-31 feat(os): sanctioned reconciler + merge-triggered auto-flip for
+        the shared venv'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/shared-venv-lifecycle/design.md:14
+      - agent_utilities/deployment/venv_autosync.py:3
+      - agent_utilities/deployment/venv_autosync.py:392
+      - docs/architecture/shared-venv-lifecycle.md:5
+      - tests/unit/deployment/test_venv_autosync.py:3
+  AU-OS.deployment.os-2:
+    decision: retire
+    parent: ''
+    rationale: ''
+    reason: Bare legacy pillar-numbering citation (OS-2), attached to TWO unrelated pieces of code (scripts/scaffold_graph_action.py's
+      tool-action scaffolder and scripts/validate_change.py's diff-scoped validator) that share no decision
+      in common beyond both once having lived under the old OS-2 pillar number -- an id glued on by the
+      OKF-CIS migration, not a name anyone chose for either.
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a bare legacy pillar reference (os-2) — a citation of the old KG-N.NN numbering,
+      not a name anyone chose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/self_deploy.py
+      - agent_utilities/knowledge_graph/retrieval/deploy_context.py
+      - scripts/scaffold_graph_action.py
+      - scripts/validate_change.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: is a bare legacy pillar reference (os-2) — a citation of the old KG-N.NN numbering,
+        not a name anyone chose
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/self_deploy.py:4
+      - agent_utilities/knowledge_graph/retrieval/deploy_context.py:91
+      - scripts/scaffold_graph_action.py:2
+      - scripts/validate_change.py:2
+  AU-OS.deployment.os-4:
+    decision: retire
+    parent: ''
+    rationale: ''
+    reason: Bare legacy pillar-numbering citation (OS-4), migrated onto _check_workspace_config's workspace.yml
+      validation by the OKF-CIS cutover commit as a citation of the old numbering rather than a chosen
+      name; the underlying behaviour (validate through the same loader used elsewhere) is a minor, non-standalone
+      instance of the general doctor-check-reuses-canonical-parsers pattern, not an independent architectural
+      decision worth its own id.
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a bare legacy pillar reference (os-4) — a citation of the old KG-N.NN numbering,
+      not a name anyone chose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/doctor.py
+      test_files:
+      - tests/unit/deployment/test_workspace_config_doctor.py
+      doc_files:
+      - docs/guides/workspace-config.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: is a bare legacy pillar reference (os-4) — a citation of the old KG-N.NN numbering,
+        not a name anyone chose
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/doctor.py:3649
+      - docs/guides/workspace-config.md:16
+      - docs/guides/workspace-config.md:110
+      - tests/unit/deployment/test_workspace_config_doctor.py:3
+  AU-OS.deployment.platform-journey:
+    decision: retire
+    parent: ''
+    rationale: ''
+    reason: 'The id is internally inconsistent about what it even names: docs/journey.md''s prose associates
+      it with an ''OS-Level Hardened WASM Sandbox Executor'' (itself a citation of the separately-documented
+      AU-OS.governance.wasm-micro-agent-sandbox concept), while synergy_engine.py''s _KNOWN_BRIDGES table
+      and scripts/consolidate_concepts.py both instead associate it with the unrelated ''Guardrail Engine''
+      concept. An id that two of the repo''s own generation scripts disagree on the meaning of names no
+      single decision.'
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files: []
+      doc_files:
+      - docs/journey.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - docs/journey.md:44
+  AU-OS.deployment.report-resolved-mode:
+    decision: parent
+    parent: AU-OS.deployment.engine-resolver-auto-provision
+    rationale: doctor.py:1486's engine check reports the RESOLVED connection mode (remote/shared/autostart)
+      that engine_resolver.resolve_engine decides; it is the reporting surface for that resolver's own
+      precedence decision, not a separate choice.
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-OS.deployment.connector-coverage-check
+    suggestion_why: clusters with 2 sibling(s) around AU-OS.deployment.connector-coverage-check; shares
+      agent_utilities/deployment/doctor.py; both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities
+      (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/doctor.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/doctor.py:1486
+  AU-OS.deployment.standard-repo-templates:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('(`CONCEPT·AU-OS.deployment.standard-repo-templates/5.75`).
+      → [Standard Private Repos + CI]') — the id itself reads like a real name, so the marker text needs
+      cleaning either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/repo_templates.py
+      - scripts/gen_genesis_manifest.py
+      test_files:
+      - tests/unit/deployment/test_repo_templates.py
+      doc_files:
+      - docs/architecture/north-star-architecture.md
+      - docs/guides/genesis-private-repos.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: (`CONCEPT·AU-OS.deployment.standard-repo-templates/5.75`). → [Standard Private
+        Repos + CI](../guides/genesis-private-repos.md)
+      sites:
+      - agent_utilities/deployment/repo_templates.py:3
+      - agent_utilities/deployment/repo_templates.py:534
+      - docs/architecture/north-star-architecture.md:154
+      - docs/guides/genesis-private-repos.md:3
+      - scripts/gen_genesis_manifest.py:36
+      - scripts/gen_genesis_manifest.py:396
+      - tests/unit/deployment/test_repo_templates.py:3
+  AU-OS.deployment.unified-install-tree:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/agent/registry_builder.py
+      - agent_utilities/knowledge_graph/core/ontology_federation.py
+      - scripts/check_ontology.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.vault-first-routine-genesis
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/agent/registry_builder.py:169
+      - agent_utilities/knowledge_graph/core/ontology_federation.py:147
+      - scripts/check_ontology.py:253
+  AU-OS.deployment.universal-outbound-credentialprovider:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/security/__init__.py
+      - agent_utilities/security/credential_provider.py
+      - agent_utilities/security/source_credentials.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/security/__init__.py:68
+      - agent_utilities/security/credential_provider.py:6
+      - agent_utilities/security/source_credentials.py:8
+  AU-OS.deployment.vault-first-routine-genesis:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/doctor.py
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/security/secrets_client.py
+      test_files:
+      - tests/unit/core/test_secrets_client.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-seed-service
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/doctor.py:1810
+      - agent_utilities/mcp/kg_server.py:2034
+      - agent_utilities/security/secrets_client.py:786
+      - tests/unit/core/test_secrets_client.py:290
+      - tests/unit/core/test_secrets_client.py:297
+      - tests/unit/core/test_secrets_client.py:311
+      - tests/unit/core/test_secrets_client.py:328
+  AU-OS.deployment.vault-seed-service:
+    decision: parent
+    parent: AU-OS.deployment.vault-first-routine-genesis
+    rationale: analysis_tools.py:2655 is a caller of the SAME read-existing-then-seed vault_sync routine
+      (secrets_client.py:776) that vault-first-routine-genesis documents; the comment literally restates
+      vault_sync's own 'read-existing + seed' contract at a second call site.
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.deployment.agent-factory-autoload
+      - AU-OS.deployment.concept-2
+      - AU-OS.deployment.connector-coverage-check
+      - AU-OS.deployment.cross-platform-locks-plus
+      - AU-OS.deployment.dynamic-two-fail-closed
+      - AU-OS.deployment.embedded-auto-provision
+      - AU-OS.deployment.engine-resolver-auto-provision
+      - AU-OS.deployment.flagging-repos
+      - AU-OS.deployment.fleet-lifecycle-control
+      - AU-OS.deployment.governance-derived-claude-code
+      - AU-OS.deployment.infrastructure-blueprint-library
+      - AU-OS.deployment.os-4
+      - AU-OS.deployment.report-resolved-mode
+      - AU-OS.deployment.standard-repo-templates
+      - AU-OS.deployment.unified-install-tree
+      - AU-OS.deployment.vault-first-routine-genesis
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/tools/analysis_tools.py:2655
+  AU-OS.deployment.workspace-venv-reconciler:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 9 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/deployment/venv_sync.py
+      - agent_utilities/ecosystem/hook_installer.py
+      - scripts/venvctl
+      test_files:
+      - tests/integration/test_venv_sync_prune_live.py
+      - tests/unit/deployment/test_venv_sync.py
+      - tests/unit/ecosystem/test_hook_installer_session_hint.py
+      doc_files:
+      - .specify/design/shared-venv-lifecycle/design.md
+      - docs/architecture/shared-venv-lifecycle.md
+      introduced: '31a5f5d7 2026-07-31 docs(os): shared-venv lifecycle contract + AGENTS.md dependency-discipline
+        banner'
+      cohort:
+      - AU-OS.deployment.merge-triggered-venv-flip
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/shared-venv-lifecycle/design.md:12
+      - agent_utilities/deployment/venv_sync.py:3
+      - agent_utilities/deployment/venv_sync.py:2322
+      - agent_utilities/ecosystem/hook_installer.py:57
+      - docs/architecture/shared-venv-lifecycle.md:3
+      - scripts/venvctl:4
+      - tests/integration/test_venv_sync_prune_live.py:1
+      - tests/unit/deployment/test_venv_sync.py:675
+      - tests/unit/ecosystem/test_hook_installer_session_hint.py:1
