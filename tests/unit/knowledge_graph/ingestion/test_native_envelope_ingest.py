@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import contextvars
+import threading
+from types import SimpleNamespace
+
 import msgpack
 import pytest
 
@@ -15,10 +19,15 @@ from agent_utilities.knowledge_graph.core.session import (
     reset_session,
     set_session,
 )
+from agent_utilities.knowledge_graph.enrichment.semantic import (
+    configured_embedding_dimension,
+)
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
 from agent_utilities.models.company_brain import ActorType, DataClassification
 from agent_utilities.protocols.source_connectors.base import ExternalAccess
 from agent_utilities.security.brain_context import ActorContext
+
+TEST_EMBEDDING_DIMENSION = configured_embedding_dimension()
 
 
 class _Nodes:
@@ -28,8 +37,29 @@ class _Nodes:
     def properties(self, node_id: str):
         return self.values.get(node_id)
 
+    def properties_batch(self, node_ids: list[str]):
+        return {
+            node_id: self.values[node_id]
+            for node_id in node_ids
+            if node_id in self.values
+        }
+
     def list(self):
         return list(self.values.items())
+
+    def compare_and_set(
+        self,
+        node_id: str,
+        conditions: dict[str, object],
+        updates: dict[str, object],
+    ) -> bool:
+        current = self.values.get(node_id)
+        if current is None or any(
+            current.get(field) != expected for field, expected in conditions.items()
+        ):
+            return False
+        current.update(updates)
+        return True
 
 
 class _Changes:
@@ -180,10 +210,81 @@ class _Compute:
         self.catalog_epoch = 3
         self.placement_group = 8
         self.client = _Client(supported=supported, batch_supported=batch_supported)
+        self.embedding_index: dict[str, list[float]] = {}
+        self.atomic_embedding_calls: list[
+            tuple[str, dict[str, object], dict[str, object], list[float]]
+        ] = []
+        self.atomic_embedding_hook = None
 
     def for_graph(self, graph: str):
         self.graph_name = graph
         return self
+
+    def add_embedding(self, node_id: str, embedding: list[float]) -> None:
+        self.embedding_index[node_id] = list(embedding)
+
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, object],
+        updates: dict[str, object],
+        embedding: list[float],
+    ) -> bool:
+        if self.atomic_embedding_hook is not None:
+            self.atomic_embedding_hook(node_id, conditions, updates, embedding)
+        staged_updates = {
+            **updates,
+            "embedding": list(embedding),
+            "_embedding_index_ready": False,
+        }
+        if not self.client.nodes.compare_and_set(
+            node_id, conditions, staged_updates
+        ):
+            return False
+        self.embedding_index[node_id] = list(embedding)
+        if not self.client.nodes.compare_and_set(
+            node_id,
+            {
+                "embedding": list(embedding),
+                "_embedding_index_ready": False,
+            },
+            {"_embedding_index_ready": True},
+        ):
+            return False
+        self.atomic_embedding_calls.append(
+            (node_id, dict(conditions), dict(updates), list(embedding))
+        )
+        return True
+
+
+class _FanoutMirrorPublisher:
+    """Minimal fan-out-shaped fake used to prove D-BFR-12: a native
+    ``ApplyChangeEnvelope``/``ApplyChangeEnvelopes`` commit must still enqueue
+    its node/edge delta through the OUTER fan-out mirror seam, exactly the way
+    ``FanOutBackend.replay_committed_change`` is wired to do in production —
+    it never re-commits to the authority, only records what it would enqueue.
+    """
+
+    def __init__(self, compute: _Compute) -> None:
+        self._authority = SimpleNamespace(graph=compute)
+        self.replay_calls: list[list[dict[str, object]]] = []
+
+    def replay_committed_change(self, operations: list[dict[str, object]]) -> None:
+        self.replay_calls.append([dict(op) for op in operations])
+
+    def compare_and_set_node_embedding_for_graph(
+        self,
+        graph_name: str,
+        node_id: str,
+        conditions: dict[str, object],
+        updates: dict[str, object],
+        embedding: list[float],
+    ) -> bool:
+        return bool(
+            self._authority.graph.compare_and_set_node_embedding(
+                node_id, conditions, updates, embedding
+            )
+        )
 
 
 @pytest.fixture(autouse=True)
@@ -447,9 +548,7 @@ def test_privacy_gate_still_rejects_a_real_iban_shaped_identifier(
         module._privacy_gate(_envelope(source_object_id=real_iban))
 
     with pytest.raises(ValueError, match="unsafe envelope identity"):
-        module._privacy_gate(
-            _envelope(source_object_id=f"account:{real_iban}")
-        )
+        module._privacy_gate(_envelope(source_object_id=f"account:{real_iban}"))
 
 
 def test_native_cursor_read_uses_the_same_hashed_source_partition() -> None:
@@ -553,6 +652,109 @@ def test_native_apply_commits_auxiliary_nodes_edges_and_policy_together() -> Non
         compute.client.nodes.values[node_id]["tenant_id"] == "fixture-tenant"
         for node_id in ("object-1", "chunk-1", "section-1")
     )
+
+
+def test_native_graph_mutation_replays_primary_auxiliary_and_edges_through_fanout() -> (
+    None
+):
+    """D-BFR-12: a native ChangeEnvelope graph slice must reach the mirror outbox.
+
+    ``_apply_native_change_envelope`` commits node/edge material through the
+    unwrapped native engine client directly (``authority.compute.client``),
+    bypassing ``FanOutBackend.execute``/``apply_typed_batch`` entirely. Before
+    the fix nothing durable ever reached ``replay_committed_change`` for this
+    path — only the later embedding CAS did (D-BFR-13). This must fail against
+    the restored bug (comment out the ``_replay_native_graph_mutation`` call in
+    ``_apply_native_change_envelope``) to prove it actually exercises the gap.
+    """
+    compute = _Compute("graph-fanout-mutation")
+    publisher = _FanoutMirrorPublisher(compute)
+    engine = SimpleNamespace(backend=publisher)
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "Document",
+            "_nodes": [
+                {"id": "chunk-1", "type": "Chunk", "content": "synthetic"},
+                {"id": "section-1", "type": "Section", "title": "Overview"},
+            ],
+            "_links": [
+                {"source": "object-1", "target": "chunk-1", "type": "HAS_CHUNK"},
+                {"source": "object-1", "target": "section-1", "type": "HAS_SECTION"},
+            ],
+        }
+    )
+
+    result = module.ingest_envelope(engine, envelope)
+
+    assert result["status"] == "success"
+    assert len(publisher.replay_calls) == 1
+    ops = publisher.replay_calls[0]
+    node_ops = {op["id"]: op for op in ops if op["op"] == "upsert_node"}
+    edge_ops = [op for op in ops if op["op"] == "upsert_edge"]
+    assert set(node_ops) == {"object-1", "chunk-1", "section-1"}
+    for node_id, op in node_ops.items():
+        # The replay op normalizes a synthesized ``node_type`` (from the raw
+        # ``type`` key) onto the mirror payload so FanOutBackend's typed-upsert
+        # contract resolves a label; every OTHER committed property must be the
+        # exact material the authority just accepted.
+        committed = compute.client.nodes.values[node_id]
+        assert {k: v for k, v in op["properties"].items() if k != "node_type"} == {
+            k: v for k, v in committed.items() if k != "node_type"
+        }
+        assert op["properties"]["node_type"] == committed["type"]
+    assert len(edge_ops) == 2
+    by_target = {op["target"]: op for op in edge_ops}
+    assert by_target["chunk-1"]["source"] == "object-1"
+    assert by_target["chunk-1"]["properties"]["relationship"] == "HAS_CHUNK"
+    assert by_target["section-1"]["properties"]["relationship"] == "HAS_SECTION"
+
+
+def test_native_graph_mutation_replay_is_skipped_on_idempotent_redelivery() -> None:
+    """D-BFR-12 replay-skip: a recovered/idempotent commit must not re-enqueue."""
+    compute = _Compute("graph-fanout-replay-skip")
+    publisher = _FanoutMirrorPublisher(compute)
+    engine = SimpleNamespace(backend=publisher)
+    access = ExternalAccess(is_public=False, read_roles=["kg:read"])
+    first = _envelope(source_acl=access)
+    second = _envelope(source_acl=access)
+    assert first.idempotency_key == second.idempotency_key
+
+    assert module.ingest_envelope(engine, first)["status"] == "success"
+    assert len(publisher.replay_calls) == 1
+
+    replay = module.ingest_envelope(engine, second)
+
+    assert replay["status"] == "skipped"
+    # The idempotent redelivery committed nothing new at authority, so it must
+    # not enqueue a second mirror mutation either.
+    assert len(publisher.replay_calls) == 1
+
+
+def test_native_delete_tombstone_replays_through_fanout() -> None:
+    """D-BFR-12 covers deletion: a delete is an ``archived=True`` upsert on the
+    native wire, so it must mirror through the SAME upsert_node replay seam."""
+    compute = _Compute("graph-fanout-delete")
+    publisher = _FanoutMirrorPublisher(compute)
+    engine = SimpleNamespace(backend=publisher)
+    assert module.ingest_envelope(engine, _envelope())["status"] == "success"
+    assert len(publisher.replay_calls) == 1
+
+    delete_envelope = _envelope(
+        operation="delete",
+        typed_payload=None,
+        source_version="2",
+        checkpoint="2",
+    )
+    result = module.ingest_envelope(engine, delete_envelope)
+
+    assert result["status"] == "success"
+    assert len(publisher.replay_calls) == 2
+    ops = publisher.replay_calls[1]
+    assert len(ops) == 1
+    assert ops[0]["op"] == "upsert_node"
+    assert ops[0]["id"] == "object-1"
+    assert ops[0]["properties"]["archived"] is True
 
 
 def test_public_access_and_classification_project_consistently() -> None:
@@ -1144,6 +1346,29 @@ def test_ingest_envelopes_reports_idempotent_replay_as_skipped() -> None:
     assert results[1]["reason"] == "idempotent replay — envelope already applied"
 
 
+def test_ingest_envelopes_batch_replays_mirror_in_page_order_and_skips_replayed() -> (
+    None
+):
+    """D-BFR-12 batch ordering: mirror replay follows the SAME page order the
+    authority committed, and a replayed/idempotent-skip entry enqueues nothing."""
+    compute = _Compute("graph-fanout-batch")
+    publisher = _FanoutMirrorPublisher(compute)
+    engine = SimpleNamespace(backend=publisher)
+    compute.client.changes.batch_replayed_indices = {1}
+    envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 4)]
+
+    results = module.ingest_envelopes(engine, envelopes)
+
+    assert [r["status"] for r in results] == ["success", "skipped", "success"]
+    # Only the two genuinely-applied envelopes (offsets 0 and 2) enqueue mirror
+    # replay, in the same order the page committed them.
+    assert len(publisher.replay_calls) == 2
+    first_ids = {op["id"] for op in publisher.replay_calls[0] if op["op"] == "upsert_node"}
+    second_ids = {op["id"] for op in publisher.replay_calls[1] if op["op"] == "upsert_node"}
+    assert first_ids == {"object-1"}
+    assert second_ids == {"object-3"}
+
+
 def test_ingest_envelopes_falls_back_to_per_record_when_batch_unsupported() -> None:
     compute = _Compute("graph-fallback", batch_supported=False)
     envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 4)]
@@ -1180,3 +1405,413 @@ def test_ingest_envelopes_reports_conflict_and_stops_the_batch_outcome() -> None
     # The engine per-envelope conflict surfaces as a failed status the caller can act
     # on; the OCC loop retried the injected content-version conflict to exhaustion.
     assert results[2]["status"] == "failed"
+
+
+# ── D-EMB: ingest-time embedding chokepoint ──────────────────────────────────
+
+
+@pytest.fixture
+def _fake_embed_fn(monkeypatch: pytest.MonkeyPatch):
+    """Patch the lazily-imported ``make_embed_fn`` to a deterministic stub and
+    return the list of texts it was called with (batched, one call per commit)."""
+    import agent_utilities.knowledge_graph.enrichment.semantic as semantic_module
+
+    calls: list[list[str]] = []
+
+    def _embed_fn(texts: list[str]) -> list[list[float]]:
+        calls.append(list(texts))
+        return [[0.1] * TEST_EMBEDDING_DIMENSION for _ in texts]
+
+    monkeypatch.setattr(semantic_module, "make_embed_fn", lambda: _embed_fn)
+    return calls
+
+
+def test_ingest_envelope_auto_embeds_and_indexes_on_success(_fake_embed_fn) -> None:
+    """A typed entity with no pre-computed embedding gets one at ingest time,
+    written both as the ``embedding`` node property AND registered in the
+    engine's ANN index through one atomic cross-modal commit (D-EMB/D-PERF-5)."""
+    compute = _Compute("graph-embed")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "Synthetic record",
+            "description": "a fixture used to exercise the embedding chokepoint",
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION
+    assert compute.embedding_index["object-1"] == stored["embedding"]
+    assert len(compute.atomic_embedding_calls) == 1
+
+
+def test_ingest_envelope_skips_embedding_when_already_present(_fake_embed_fn) -> None:
+    """A document-shaped connector that already computed its own embedding is
+    left untouched — no second embed call, no overwrite."""
+    compute = _Compute("graph-embed-preset")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "Synthetic record",
+            "embedding": [0.9, 0.9, 0.9],
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["embedding"] == [0.9, 0.9, 0.9]
+    assert compute.embedding_index["object-1"] == stored["embedding"]
+    assert len(compute.atomic_embedding_calls) == 1
+    assert _fake_embed_fn == []  # never called
+
+
+def test_ingest_envelope_auto_embed_disabled_by_config(
+    monkeypatch: pytest.MonkeyPatch, _fake_embed_fn
+) -> None:
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_ingest_auto_embed", False, raising=False)
+    compute = _Compute("graph-embed-off")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "Synthetic record",
+            "_embedding_backfill_state": "no_text",
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["embedding"] is None
+    assert stored["_embedding_backfill_state"] is None
+    assert _fake_embed_fn == []
+
+
+def test_text_change_invalidates_backfill_embedding_when_auto_embed_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch, _fake_embed_fn
+) -> None:
+    """D-BFR-2: source text after a CAS cannot retain the old-text vector."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_ingest_auto_embed", False, raising=False)
+    compute = _Compute("graph-stale-vector")
+    # This is the state immediately after the legacy backfill CAS won for the
+    # old source text. The next source envelope must atomically replace the text
+    # and invalidate that vector even though no embedder is available.
+    compute.client.nodes.values["object-1"] = {
+        "id": "object-1",
+        "node_type": "FixtureRecord",
+        "name": "Old source text",
+        "embedding": [0.25] * TEST_EMBEDDING_DIMENSION,
+        "classification": "INTERNAL",
+    }
+    envelope = _envelope(
+        source_version="2",
+        checkpoint="2",
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "New source text",
+        },
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["name"] == "New source text"
+    assert stored["embedding"] is None
+    assert stored["_embedding_backfill_state"] is None
+    assert _fake_embed_fn == []
+
+
+@pytest.mark.parametrize("auto_embed", [False, True], ids=["disabled", "enabled"])
+def test_partial_non_text_upsert_preserves_current_embedding(
+    monkeypatch: pytest.MonkeyPatch, _fake_embed_fn, auto_embed: bool
+) -> None:
+    """D-BFR-10: field merge cannot erase a vector for unchanged entity text."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_ingest_auto_embed", auto_embed, raising=False)
+    compute = _Compute("graph-partial-vector")
+    current_embedding = [0.25] * TEST_EMBEDDING_DIMENSION
+    compute.client.nodes.values["object-1"] = {
+        "id": "object-1",
+        "node_type": "FixtureRecord",
+        "name": "Stable source text",
+        "description": "The effective embedding text is unchanged",
+        "embedding": current_embedding,
+        "classification": "INTERNAL",
+        "active": True,
+    }
+    envelope = _envelope(
+        source_version="2",
+        checkpoint="2",
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "active": False,
+        },
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["active"] is False
+    assert stored["name"] == "Stable source text"
+    assert stored["embedding"] == current_embedding
+    assert _fake_embed_fn == []
+
+
+def test_partial_non_text_upsert_preserves_embedding_when_batch_hydration_degrades(
+    monkeypatch: pytest.MonkeyPatch, _fake_embed_fn
+) -> None:
+    """Malformed batch hydration falls back safely instead of assuming no node."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_ingest_auto_embed", False, raising=False)
+    compute = _Compute("graph-degraded-hydration")
+    current_embedding = [0.25] * TEST_EMBEDDING_DIMENSION
+    compute.client.nodes.values["object-1"] = {
+        "id": "object-1",
+        "node_type": "FixtureRecord",
+        "name": "Stable source text",
+        "embedding": current_embedding,
+        "classification": "INTERNAL",
+        "active": True,
+    }
+    compute.client.nodes.properties_batch = lambda _ids: ["malformed"]
+    envelope = _envelope(
+        source_version="2",
+        checkpoint="2",
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "active": False,
+        },
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["active"] is False
+    assert stored["embedding"] == current_embedding
+    assert _fake_embed_fn == []
+
+
+def test_partial_upsert_fails_closed_when_all_property_hydration_is_malformed(
+    monkeypatch: pytest.MonkeyPatch, _fake_embed_fn
+) -> None:
+    """Ambiguous hydration aborts before a healthy vector can be cleared."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "kg_ingest_auto_embed", False, raising=False)
+    compute = _Compute("graph-invalid-hydration")
+    current_embedding = [0.25] * TEST_EMBEDDING_DIMENSION
+    compute.client.nodes.values["object-1"] = {
+        "id": "object-1",
+        "node_type": "FixtureRecord",
+        "name": "Stable source text",
+        "embedding": current_embedding,
+        "active": True,
+    }
+    compute.client.nodes.properties_batch = lambda _ids: ["malformed"]
+    compute.client.nodes.properties = lambda _node_id: ["also-malformed"]
+    envelope = _envelope(
+        source_version="2",
+        checkpoint="2",
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "active": False,
+        },
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "failed"
+    assert result["error"] == "RuntimeError"
+    stored = compute.client.nodes.values["object-1"]
+    assert stored["active"] is True
+    assert stored["embedding"] == current_embedding
+    assert _fake_embed_fn == []
+
+
+def test_native_embedding_publication_uses_outer_fanout_seam(_fake_embed_fn) -> None:
+    """Native ChangeEnvelope publication must enqueue mirrors through fanout."""
+    compute = _Compute("graph-fanout-publication")
+
+    class _FanoutPublisher:
+        def __init__(self) -> None:
+            self._authority = SimpleNamespace(graph=compute)
+            self.calls: list[
+                tuple[
+                    str,
+                    str,
+                    dict[str, object],
+                    dict[str, object],
+                    list[float],
+                ]
+            ] = []
+
+        def compare_and_set_node_embedding_for_graph(
+            self,
+            graph_name: str,
+            node_id: str,
+            conditions: dict[str, object],
+            updates: dict[str, object],
+            embedding: list[float],
+        ) -> bool:
+            self.calls.append(
+                (
+                    graph_name,
+                    node_id,
+                    dict(conditions),
+                    dict(updates),
+                    list(embedding),
+                )
+            )
+            return compute.compare_and_set_node_embedding(
+                node_id, conditions, updates, embedding
+            )
+
+    publisher = _FanoutPublisher()
+    engine = SimpleNamespace(backend=publisher)
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "A record that must be mirrored",
+        }
+    )
+
+    result = module.ingest_envelope(engine, envelope)
+
+    assert result["status"] == "success"
+    assert len(publisher.calls) == 1
+    assert publisher.calls[0][0] == "fixture-graph"
+    assert publisher.calls[0][1] == "object-1"
+    assert len(compute.atomic_embedding_calls) == 1
+
+
+def test_replacement_embedding_is_property_invisible_until_atomic_ann_commit(
+    _fake_embed_fn,
+) -> None:
+    """Old ANN score + new text is rejected until vector/property commit together."""
+    compute = _Compute("graph-atomic-vector")
+    old_embedding = [0.25] * TEST_EMBEDDING_DIMENSION
+    compute.client.nodes.values["object-1"] = {
+        "id": "object-1",
+        "node_type": "FixtureRecord",
+        "name": "Old source text",
+        "embedding": old_embedding,
+        "classification": "INTERNAL",
+    }
+    compute.embedding_index["object-1"] = old_embedding
+    atomic_started = threading.Event()
+    release_atomic = threading.Event()
+
+    def _block_atomic(*_args) -> None:
+        atomic_started.set()
+        assert release_atomic.wait(timeout=5.0)
+
+    compute.atomic_embedding_hook = _block_atomic
+    envelope = _envelope(
+        source_version="2",
+        checkpoint="2",
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "New source text",
+        },
+    )
+    result: dict[str, object] = {}
+    errors: list[BaseException] = []
+    context = contextvars.copy_context()
+
+    def _ingest() -> None:
+        try:
+            result.update(context.run(module.ingest_envelope, compute, envelope))
+        except BaseException as exc:  # noqa: BLE001 - thread assertion relay
+            errors.append(exc)
+
+    worker = threading.Thread(target=_ingest)
+    worker.start()
+    try:
+        assert atomic_started.wait(timeout=1.0)
+        staged = compute.client.nodes.properties("object-1")
+        assert staged["name"] == "New source text"
+        assert staged["embedding"] is None
+        assert compute.embedding_index["object-1"] == old_embedding
+        assert worker.is_alive()
+
+        release_atomic.set()
+        worker.join(timeout=5.0)
+        assert not worker.is_alive()
+        assert not errors
+        assert result["status"] == "success"
+        current = compute.client.nodes.properties("object-1")
+        assert current["embedding"] == compute.embedding_index["object-1"]
+        assert current["embedding"] != old_embedding
+        assert len(compute.atomic_embedding_calls) == 1
+    finally:
+        release_atomic.set()
+        worker.join(timeout=5.0)
+
+
+def test_ingest_envelope_embedding_failure_never_fails_the_write(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An unreachable/misconfigured embedder degrades to 'no vector', never to
+    a failed entity write (embedding is a retrieval nicety, not a durability gate)."""
+    import agent_utilities.knowledge_graph.enrichment.semantic as semantic_module
+
+    def _raise() -> None:
+        raise RuntimeError("embedding model unavailable: no endpoint configured")
+
+    monkeypatch.setattr(semantic_module, "make_embed_fn", _raise)
+    compute = _Compute("graph-embed-down")
+    envelope = _envelope(
+        typed_payload={
+            "id": "object-1",
+            "type": "FixtureRecord",
+            "name": "Synthetic record",
+        }
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    stored = compute.client.nodes.properties("object-1")
+    assert stored["embedding"] is None
+
+
+def test_ingest_envelopes_batch_auto_embeds_in_one_call(_fake_embed_fn) -> None:
+    """The whole batch is embedded in ONE call to the embed fn (never
+    per-record — CONCEPT:AU-KG.ingest.applying-agents-md-batch), and every
+    successfully committed entity is registered in the ANN index."""
+    compute = _Compute("graph-embed-batch")
+    envelopes = [_batch_envelope(f"object-{i}", str(i)) for i in range(1, 4)]
+
+    results = module.ingest_envelopes(compute, envelopes)
+
+    assert [r["status"] for r in results] == ["success"] * 3
+    assert len(_fake_embed_fn) == 1  # one batched embed call for the whole page
+    assert len(_fake_embed_fn[0]) == 3
+    assert len(compute.atomic_embedding_calls) == 3
+    for i in range(1, 4):
+        stored = compute.client.nodes.properties(f"object-{i}")
+        assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION
+        assert compute.embedding_index[f"object-{i}"] == stored["embedding"]

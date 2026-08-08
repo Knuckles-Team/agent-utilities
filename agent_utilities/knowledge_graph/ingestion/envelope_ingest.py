@@ -45,6 +45,7 @@ import random
 import re
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from importlib.resources import files
@@ -645,7 +646,11 @@ def _resolve_native_authority(engine: Any) -> _NativeAuthority:
     authority_backend = getattr(backend, "_authority", backend)
     compute = getattr(authority_backend, "graph", None)
     if _has_change_client(compute):
-        return _NativeAuthority(compute, authority_backend)
+        # Keep the OUTER backend as the publication seam. In a fan-out topology
+        # ``authority_backend`` is intentionally unwrapped only to reach the
+        # native ChangeEnvelope client; later embedding publication must traverse
+        # the outer fan-out so its mirror outbox receives the committed vector.
+        return _NativeAuthority(compute, backend)
 
     # A compute scratch graph is not an authority when another backend exists.
     if backend is None:
@@ -806,6 +811,66 @@ def _node_properties(client: Any, node_id: str) -> dict[str, Any]:
         except (TypeError, ValueError):
             return {}
     return {}
+
+
+def _node_properties_verified(client: Any, node_id: str) -> dict[str, Any]:
+    """Point-hydrate one node, rejecting ambiguous malformed responses."""
+    value = client.nodes.properties(node_id)
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return _json_value(value)
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "node property hydration returned malformed JSON"
+            ) from exc
+        if isinstance(decoded, dict):
+            return decoded
+    raise RuntimeError("node property hydration returned an invalid payload")
+
+
+def _node_properties_batch(
+    client: Any, node_ids: list[str]
+) -> dict[str, dict[str, Any]]:
+    """Read a bounded node set in one RPC, with a compatibility fallback."""
+    if not node_ids:
+        return {}
+    properties_batch = getattr(client.nodes, "properties_batch", None)
+    if not callable(properties_batch):
+        return {
+            node_id: _node_properties_verified(client, node_id) for node_id in node_ids
+        }
+    raw = properties_batch(node_ids)
+    if not isinstance(raw, dict):
+        # A malformed/degraded batch response is not evidence that every node is
+        # absent.  Falling through as ``{}`` makes a partial non-text upsert look
+        # like a new entity and clears a healthy vector.  Bound the compatibility
+        # fallback to exactly the requested IDs and fail closed via point reads.
+        return {
+            node_id: _node_properties_verified(client, node_id) for node_id in node_ids
+        }
+    result: dict[str, dict[str, Any]] = {}
+    for node_id, properties in raw.items():
+        if isinstance(properties, dict):
+            result[str(node_id)] = _json_value(properties)
+        elif isinstance(properties, str):
+            try:
+                decoded = json.loads(properties)
+            except (TypeError, ValueError):
+                decoded = None
+            if isinstance(decoded, dict):
+                result[str(node_id)] = decoded
+        elif properties is None:
+            result[str(node_id)] = {}
+    # A partial batch response is equally ambiguous: hydrate omitted requested
+    # IDs individually instead of treating them as non-existent nodes.
+    for node_id in node_ids:
+        if node_id not in result:
+            result[node_id] = _node_properties_verified(client, node_id)
+    return result
 
 
 def _snapshot_rows(
@@ -1385,6 +1450,119 @@ def _native_material(
     return native, counts, sorted(governed_ids), cursor_advanced
 
 
+def _mirror_replay_operations(native: dict[str, Any]) -> list[dict[str, Any]]:
+    """Rebuild fan-out typed-batch mirror ops from an already-committed native DTO.
+
+    D-BFR-12: a native ``ApplyChangeEnvelope(s)`` commit calls the unwrapped
+    engine client directly (see ``_resolve_native_authority``), so the graph
+    slice it commits never passes through ``FanOutBackend.execute``/
+    ``apply_typed_batch`` and therefore never reaches the mirror outbox on its
+    own. ``native["mutation"]["operations"]`` is the exact ``AddNode``/
+    ``AddEdge`` wire list the engine just committed (built by
+    ``_graph_operations``); reusing it here — rather than re-deriving node/edge
+    state — guarantees the mirror replay is the SAME material the authority
+    accepted, not a second independently-computed mutation.
+    """
+    import msgpack
+
+    operations = ((native.get("mutation") or {}).get("operations")) or []
+    replay: list[dict[str, Any]] = []
+    for operation in operations:
+        if not isinstance(operation, dict):
+            continue
+        method = operation.get("method") or {}
+        name = method.get("method")
+        params = method.get("params") or {}
+        if name == "AddNode":
+            node_id = str(params.get("node_id") or "").strip()
+            packed = params.get("properties_msgpack")
+            if not node_id or not packed:
+                continue
+            properties = msgpack.unpackb(packed, raw=False)
+            if not isinstance(properties, dict):
+                continue
+            # ``ChangeEnvelope.to_entity_dict()``/auxiliary ``_nodes`` rows carry
+            # the connector's own ``type`` key verbatim (never renamed) — only
+            # ``ingest_graph_slice``'s stricter external contract commits the
+            # canonical ``node_type`` key. Accept either, matching the AddEdge
+            # ``type``/``relationship`` normalization just above: the mirror op
+            # must resolve the SAME label the authority just committed.
+            node_type = str(
+                properties.get("node_type") or properties.get("type") or ""
+            ).strip()
+            if not node_type:
+                # An untyped node cannot be replayed through the typed mirror
+                # seam; reconcile() is the backstop for it.
+                continue
+            replay.append(
+                {
+                    "op": "upsert_node",
+                    "id": node_id,
+                    "properties": {**properties, "node_type": node_type},
+                }
+            )
+        elif name == "AddEdge":
+            source_id = str(params.get("source_id") or "").strip()
+            target_id = str(params.get("target_id") or "").strip()
+            packed = params.get("properties_msgpack")
+            if not source_id or not target_id or not packed:
+                continue
+            properties = msgpack.unpackb(packed, raw=False)
+            if not isinstance(properties, dict):
+                continue
+            # A ChangeEnvelope ``_links`` item's edge-type key is caller-shaped:
+            # ``ingest_graph_slice`` requires the canonical ``relationship`` key,
+            # but a raw ``_links`` entry (as most connectors emit it) commits
+            # ``type`` straight onto the wire the same way ``AddNode`` commits
+            # ``node_type`` — neither is renamed before packing. Accept either so
+            # the mirror op always resolves the SAME edge label the authority
+            # just committed, never a second independently-guessed one.
+            relationship = str(
+                properties.get("relationship") or properties.get("type") or ""
+            ).strip()
+            if not relationship:
+                continue
+            replay.append(
+                {
+                    "op": "upsert_edge",
+                    "source": source_id,
+                    "target": target_id,
+                    "properties": {**properties, "relationship": relationship},
+                }
+            )
+    return replay
+
+
+def _replay_native_graph_mutation(
+    authority: _NativeAuthority, native: dict[str, Any]
+) -> None:
+    """Enqueue mirror replay for one just-committed native ChangeEnvelope.
+
+    Best-effort by the SAME contract ``FanOutBackend.apply_typed_batch`` already
+    uses for an authority-committed mutation: the authoritative graph is the
+    durable acknowledgement source, so a mirror handoff failure is logged loudly
+    (reconcile() is the backstop) rather than raised back through the ingest
+    caller and made to look like the source write itself failed.
+    """
+    publisher = getattr(authority, "backend", None)
+    replay = getattr(publisher, "replay_committed_change", None)
+    if not callable(replay):
+        return
+    operations = _mirror_replay_operations(native)
+    if not operations:
+        return
+    from ..backends.fanout_backend import AuthorityCommittedMirrorHandoffError
+
+    try:
+        replay(operations)
+    except AuthorityCommittedMirrorHandoffError as exc:
+        logger.critical(
+            "native ChangeEnvelope committed but mirror replay failed; "
+            "reconciliation required: %s",
+            exc,
+        )
+
+
 def _filtered_receipt(receipt: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
     source = receipt if isinstance(receipt, dict) else {}
     allowed = {
@@ -1461,6 +1639,7 @@ def _apply_native_change_envelope(
         governed_ids: list[str] = []
         cursor_advanced = False
         conflict_sequence: list[str] = []
+        native: dict[str, Any] | None = None
         receipt: Any = _recover_native_receipt(client, envelope)
         if receipt is not None:
             governed_ids = _policy_cache_object_ids(client, envelope)
@@ -1525,6 +1704,13 @@ def _apply_native_change_envelope(
                 raise _NativeOccRetryBudgetExhausted(conflict_sequence)
 
     replayed = bool(receipt.get("replayed")) if isinstance(receipt, dict) else False
+    # D-BFR-12: mirror the node/edge delta ONLY for a genuine first commit. A
+    # recovered/idempotent replay means the mirror outbox already saw this
+    # exact material on the attempt that actually committed it — re-enqueueing
+    # here would be a no-op delta at best, a wasted duplicate outbox write at
+    # worst (the "replay-skip" contract).
+    if native is not None and not replayed:
+        _replay_native_graph_mutation(authority, native)
     # This is a read-policy cache refresh, never the durability authority.
     # Both first apply and idempotent replay project it; replay is the bounded
     # recovery path after process-local cache loss.
@@ -1720,6 +1906,15 @@ def _apply_native_change_envelopes(
                     _NATIVE_GRAPH_VERSIONS.get(scope, 0), expected + applied
                 )
 
+            # D-BFR-12: mirror each genuinely-applied envelope's node/edge delta,
+            # in the SAME page order the authority just committed it, so the
+            # mirror outbox preserves batch ordering. A replayed/idempotent-skip
+            # or conflicted entry is never re-enqueued (the "replay-skip"
+            # contract — see the single-envelope path for why).
+            for offset, result in enumerate(engine_results):
+                if str(result.get("status")) == "applied":
+                    _replay_native_graph_mutation(authority, natives[offset])
+
             # Refresh the read-policy cache for governed objects that committed, each
             # under ITS OWN envelope's source ACL/classification (a page may mix them).
             from ...protocols.source_connectors.permission_sync import sync_access
@@ -1749,6 +1944,216 @@ def _apply_native_change_envelopes(
                 for offset, envelope in enumerate(envelopes)
             ]
         raise _NativeOccRetryBudgetExhausted(conflict_sequence)
+
+
+# ── D-EMB / D-PERF-5: ingest-time embedding chokepoint ──────────────────────
+#
+# Every typed-entity connector (ServiceNow, LeanIX, GitHub, Twenty, ...) funnels
+# its writes through `_ingest_entities_via_envelope` (source_sync.py) into
+# `ingest_envelope`/`ingest_envelopes` here — this is the one point where EVERY
+# ChangeEnvelope-based write converges (grepped: 15+ production callers beyond
+# source_sync alone — domain_packs, external_graph, promotion, supersession,
+# document_processing, worldmodel_pipeline, feed_sources, research/loop_controller,
+# engine_surface_tools, neural/governance). Only ~6 document-shaped connectors
+# computed their own embedding before calling in; every other entity landed with
+# no vector (26,680 KG nodes, 136 embedded — 0.5%). This hooks embedding
+# generation HERE, once, instead of at each connector, so no future connector can
+# bypass it the way the ACL fix's 4 write-chokepoint precedent established.
+#
+# Best-effort by design: a down/unconfigured embedding endpoint must never fail
+# an entity's write (embedding is a retrieval nicety, not a durability gate) —
+# every failure path below degrades to "no vector this write" and is logged at
+# most once per call, never raised.
+def _prepare_embedding_envelopes(
+    client: Any, envelopes: list[ChangeEnvelope]
+) -> dict[int, tuple[list[float], str]]:
+    """Stage fail-closed embedding changes and batch-generate replacements.
+
+    Native entity writes are field merges.  For each primary upsert this compares
+    the durable entity text with the effective post-merge text. An omitted vector
+    therefore preserves a current embedding when only non-text fields changed,
+    while a real text change commits ``embedding = null`` in the source envelope.
+    Replacement vectors are returned for a later atomic field+ANN transaction;
+    they are deliberately *not* made durable in the source mutation first.
+    """
+    from ..enrichment.semantic import (
+        EMBEDDING_BACKFILL_STATE_FIELD,
+        EMBEDDING_INDEX_READY_FIELD,
+        derive_entity_text,
+    )
+
+    primary: list[tuple[int, str, dict[str, Any]]] = []
+    for position, envelope in enumerate(envelopes):
+        if envelope.operation != "upsert" or envelope.typed_payload is None:
+            continue
+        node_id, row = _resolve_identity(envelope)
+        if node_id and row is not None:
+            primary.append((position, str(node_id), row))
+    existing = _node_properties_batch(client, [node_id for _, node_id, _ in primary])
+
+    supplied: dict[int, tuple[list[float], str]] = {}
+    pending: list[tuple[int, str]] = []
+    for position, node_id, row in primary:
+        envelope = envelopes[position]
+        payload = envelope.typed_payload
+        assert payload is not None
+        payload[EMBEDDING_BACKFILL_STATE_FIELD] = None
+
+        current = existing.get(node_id, {})
+        effective = dict(current)
+        effective.update(row)
+        old_text = derive_entity_text(current)
+        new_text = derive_entity_text(effective)
+        explicit_embedding = "embedding" in payload
+        incoming_embedding = payload.get("embedding")
+
+        if explicit_embedding:
+            # Explicit null/empty is an invalidation request. A supplied vector
+            # also passes through null first, then becomes visible atomically with
+            # its ANN replacement after the source envelope commits.
+            payload["embedding"] = None
+            payload[EMBEDDING_INDEX_READY_FIELD] = False
+            if incoming_embedding:
+                supplied[position] = (list(incoming_embedding), new_text)
+            continue
+
+        if current.get("embedding") and old_text == new_text:
+            # D-BFR-10: a partial ACL/classification/operational field merge did
+            # not alter the effective embedding text, so preserve the current
+            # vector and avoid needless embedder + ANN work.
+            continue
+
+        # New/missing vectors and real text changes are fail-closed. If the
+        # embedder is unavailable the source write still lands, but the obsolete
+        # ANN candidate is rejected because its durable vector property is null.
+        payload["embedding"] = None
+        payload[EMBEDDING_INDEX_READY_FIELD] = False
+        if new_text:
+            pending.append((position, new_text))
+
+    try:
+        from agent_utilities.core.config import config
+
+        if not bool(getattr(config, "kg_ingest_auto_embed", True)):
+            return supplied
+    except Exception:  # noqa: BLE001 - config unavailable defaults to enabled
+        pass
+
+    if not pending:
+        return supplied
+    try:
+        from ..enrichment.semantic import make_embed_fn, validate_embedding_vectors
+
+        embed_fn = make_embed_fn()
+        vectors = validate_embedding_vectors(
+            embed_fn([text for _, text in pending]),
+            expected_count=len(pending),
+        )
+    except Exception as exc:  # noqa: BLE001 - embedding is not a durability gate
+        logger.debug("ingest-time auto-embed skipped (%s): %s", type(exc).__name__, exc)
+        return supplied
+
+    embedded = dict(supplied)
+    for (position, text), vector in zip(pending, vectors, strict=True):
+        embedded[position] = (list(vector), text)
+    return embedded
+
+
+def _commit_embedded_vectors(
+    authority: Any,
+    node_ids: dict[int, str | None],
+    vectors: dict[int, tuple[list[float], str]],
+) -> None:
+    """Atomically publish freshly embedded vectors to properties and ANN.
+
+    ``node_ids`` is deliberately ``str | None``-valued: callers build it from a
+    result payload's ``node_id``, which is absent for a skipped/failed record.
+    The source envelope has already committed the effective text with a null
+    embedding. Each successful cross-modal CAS commits the vector property and
+    native ANN replacement durably, with served visibility fenced until ANN
+    projection completes. A text change between generation and this transaction
+    loses the exact-field CAS and applies neither side.
+    """
+    compute = getattr(authority, "compute", None)
+    publisher = getattr(authority, "backend", None)
+    scoped_atomic_embedding = getattr(
+        publisher, "compare_and_set_node_embedding_for_graph", None
+    )
+    atomic_embedding: (
+        Callable[[str, dict[str, Any], dict[str, Any], list[float]], bool] | None
+    )
+    if callable(scoped_atomic_embedding):
+        graph_name = str(getattr(compute, "graph_name", "") or "")
+
+        def _scoped_atomic_embedding(
+            node_id: str,
+            conditions: dict[str, Any],
+            updates: dict[str, Any],
+            vector: list[float],
+        ) -> bool:
+            return bool(
+                scoped_atomic_embedding(
+                    graph_name, node_id, conditions, updates, vector
+                )
+            )
+
+        atomic_embedding = _scoped_atomic_embedding
+
+    else:
+        candidate = getattr(compute, "compare_and_set_node_embedding", None)
+        atomic_embedding = candidate if callable(candidate) else None
+    if not callable(atomic_embedding):
+        logger.warning(
+            "ingest-time embedding remains unavailable: authority lacks atomic "
+            "field+ANN transactions"
+        )
+        return
+    from ..enrichment.semantic import (
+        EMBEDDING_BACKFILL_STATE_FIELD,
+        EMBEDDING_INDEX_READY_FIELD,
+        derive_entity_text_snapshot,
+    )
+
+    client = getattr(compute, "client", None)
+    if client is None:
+        logger.warning(
+            "ingest-time embedding remains unavailable: authority lacks a native client"
+        )
+        return
+    positioned_ids = {
+        position: str(node_id)
+        for position, node_id in node_ids.items()
+        if node_id and position in vectors
+    }
+    properties = _node_properties_batch(client, list(positioned_ids.values()))
+    for position, (vector, expected_text) in vectors.items():
+        node_id = node_ids.get(position)
+        if not node_id:
+            continue
+        current = properties.get(str(node_id), {})
+        text, text_conditions = derive_entity_text_snapshot(current)
+        if text != expected_text:
+            logger.debug("ingest-time embedding text changed before atomic commit")
+            continue
+        conditions = {
+            "embedding": None,
+            EMBEDDING_BACKFILL_STATE_FIELD: None,
+            EMBEDDING_INDEX_READY_FIELD: False,
+            **text_conditions,
+        }
+        updates = {
+            "embedding": list(vector),
+            EMBEDDING_BACKFILL_STATE_FIELD: None,
+        }
+        try:
+            atomic_embedding(str(node_id), conditions, updates, list(vector))
+        except Exception as exc:  # noqa: BLE001 - source write remains valid and vector stays null
+            logger.debug(
+                "ingest-time atomic embedding commit skipped for %s (%s): %s",
+                node_id,
+                type(exc).__name__,
+                exc,
+            )
 
 
 def ingest_envelopes(
@@ -1815,8 +2220,29 @@ def ingest_envelopes(
     try:
         authority = _resolve_native_authority(engine)
         authority, session = _native_session(authority, prepared[0][1])
+        supports = getattr(authority.compute.client, "supports", None)
+        if not callable(supports) or not bool(supports("ApplyChangeEnvelopes")):
+            raise NativeChangeEnvelopeUnavailable(
+                "engine does not advertise ApplyChangeEnvelopes"
+            )
+        # Mutate private payload copies so a capability fallback can safely
+        # re-enter the single-envelope path with the original DTOs.
+        prepared_envelopes = [
+            replace(
+                envelope,
+                typed_payload=(
+                    dict(envelope.typed_payload)
+                    if envelope.typed_payload is not None
+                    else None
+                ),
+            )
+            for _, envelope in prepared
+        ]
+        embedded_by_position = _prepare_embedding_envelopes(
+            authority.compute.client, prepared_envelopes
+        )
         batch_results = _apply_native_change_envelopes(
-            authority, session, [envelope for _, envelope in prepared]
+            authority, session, prepared_envelopes
         )
     except NativeChangeEnvelopeUnavailable:
         logger.info(
@@ -1867,6 +2293,15 @@ def ingest_envelopes(
 
     for (index, _envelope), result in zip(prepared, batch_results, strict=True):
         results[index] = result
+
+    if embedded_by_position:
+        node_ids_by_position = {
+            position: results[index].get("node_id")
+            for position, (index, _envelope) in enumerate(prepared)
+            if results[index].get("status") in {"success", "skipped"}
+        }
+        _commit_embedded_vectors(authority, node_ids_by_position, embedded_by_position)
+
     return results
 
 
@@ -2078,7 +2513,15 @@ def ingest_envelope(engine: Any, envelope: ChangeEnvelope) -> dict[str, Any]:
     try:
         authority = _resolve_native_authority(engine)
         authority, session = _native_session(authority, envelope)
-        return _apply_native_change_envelope(authority, session, envelope)
+        embedded_by_position = _prepare_embedding_envelopes(
+            authority.compute.client, [envelope]
+        )
+        result = _apply_native_change_envelope(authority, session, envelope)
+        if embedded_by_position and result.get("status") in {"success", "skipped"}:
+            _commit_embedded_vectors(
+                authority, {0: result.get("node_id")}, embedded_by_position
+            )
+        return result
     except NativeChangeEnvelopeUnavailable:
         logger.warning("native ChangeEnvelope capability is unavailable")
         return {

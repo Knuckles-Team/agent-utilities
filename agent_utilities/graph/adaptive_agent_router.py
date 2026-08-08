@@ -714,7 +714,7 @@ class TopologicalRoutingPolicy(RoutingPolicy):
                 if not props:
                     continue
                 if (
-                    props.get("type") == "subagent_pattern_decision"
+                    props.get("node_type") == "subagent_pattern_decision"
                     and props.get("pattern") == candidate.primitive.value
                 ):
                     total_count += 1

@@ -10,6 +10,7 @@ live model or daemon.
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Callable
 from typing import Any
 
@@ -28,6 +29,185 @@ SearchFn = Callable[[list[float], int], list[dict[str, Any]]]
 # pin on the llama-index model's ``embed_batch_size`` so it stops splitting our
 # chunk into ``DEFAULT_EMBED_BATCH_SIZE``-sized POSTs). (CONCEPT:AU-KG.ingest.applying-agents-md-batch)
 _EMBED_MAX_BATCH = 256
+
+# Durable maintenance state shared by the bounded legacy backfill and the
+# ingest-time upsert chokepoint. A real source upsert always clears this marker
+# so a formerly textless entity becomes eligible when its content evolves.
+EMBEDDING_BACKFILL_STATE_FIELD = "_embedding_backfill_state"
+EMBEDDING_BACKFILL_NO_TEXT = "no_text"
+# Served-read publication fence for cross-modal embedding replacements.  A
+# literal ``False`` means the durable vector property has not yet been projected
+# into the engine ANN.  Missing remains readable for legacy records; writers set
+# False before replacement and flip it to True only after ANN commit returns.
+EMBEDDING_INDEX_READY_FIELD = "_embedding_index_ready"
+
+# D-HYD-4 / D-GS27-6 / D-ORC-7 (2026-08-06) -- the node types
+# `find_tools` / `find_relevant_callable_resources`
+# and delegation actually search over. `backfill_entity_embeddings`'s default
+# candidate order is a blind `ORDER BY n.id` scan across the WHOLE graph with no
+# type awareness, so these -- a few thousand nodes -- sort behind ~36k unrelated
+# nodes (RuntimeSignal, WorkItem, IngestManifest, mandatory_marking, raw
+# Entity/Blob extraction rows with unprefixed ids that sort first of all) and are
+# never reached at the 5-minute/64-node governance cadence. Kept as ONE list
+# (mirrors `embedding_backfill_eligibility_clause`'s rationale) so the
+# governance-agent's steady-state discovery pass, the operator backfill script,
+# and any future caller scope to the IDENTICAL set instead of drifting copies.
+DISCOVERY_NODE_TYPES: tuple[str, ...] = (
+    "Tool",
+    "WorkflowDefinition",
+    "Skill",
+    "CallableResource",
+    "Concept",
+    "Prompt",
+    "MCPServer",
+    "NativeTool",
+)
+
+
+def embedding_backfill_eligibility_clause(
+    *, alias: str = "n"
+) -> tuple[str, dict[str, Any]]:
+    """Cypher ``AND``-clause + params excluding secret-bearing nodes from
+    embedding-backfill candidacy (D-CDX-102).
+
+    A semantic vector index is queried by SIMILARITY and its hits are handed
+    back to agents — embedding a node is a disclosure surface, not a neutral
+    read. This is the ONE place the legacy entity-embedding backfill decides
+    what is eligible, so every caller (the real backfill, the operator dry
+    run, the population/eligible-count snapshot) shares an IDENTICAL,
+    construction-time exclusion instead of three copies that can silently
+    drift apart:
+
+    * ``graph_name`` — excludes :data:`~agent_utilities.security.
+      secrets_client.SECRETS_GRAPH` (``__secrets__``), the dedicated
+      engine-encrypted graph secret VALUES live in. Bookkeeping records
+      (``IngestManifest`` rows) that merely reference it still carry
+      ``graph_name="__secrets__"`` and are excluded too — a manifest of
+      *which* prompt/credential file was ingested is itself sensitive
+      metadata a similarity search should never surface.
+    * ``node_type`` — excludes :data:`~agent_utilities.security.
+      secrets_client.SECRET_LABEL` (``Secret``) node labels directly, as
+      defense in depth if a future unified-read path ever makes an actual
+      ``:Secret`` node reachable from a cross-graph query.
+
+    This is intentionally NOT a maintained denylist of node ids/patterns —
+    it is sourced from the SAME constants ``secrets_client`` uses to define
+    the secrets store, so it can only drift if that store's own identity
+    changes (in which case this clause changes with it, by construction).
+
+    Deliberately ``IS NULL OR <>`` rather than ``coalesce(...) <> $x``:
+    ``coalesce()`` (like ``properties(n)`` elsewhere in this module's
+    callers) is NOT in the native engine's supported Cypher subset and is
+    REJECTED outright (``CypherEngineError(..., error_type=RuntimeError)``,
+    empirically confirmed against the live engine) rather than merely
+    behaving unexpectedly — so this uses only primitives already proven live
+    (``IS NULL``, ``<>``, parameterized literals, ``AND``/``OR``).
+    """
+    from agent_utilities.security.secrets_client import SECRET_LABEL, SECRETS_GRAPH
+
+    clause = (
+        f"AND ({alias}.graph_name IS NULL OR {alias}.graph_name <> "
+        "$embedding_backfill_excluded_graph) "
+        f"AND ({alias}.node_type IS NULL OR {alias}.node_type <> "
+        "$embedding_backfill_excluded_label)"
+    )
+    params: dict[str, Any] = {
+        "embedding_backfill_excluded_graph": SECRETS_GRAPH,
+        "embedding_backfill_excluded_label": SECRET_LABEL,
+    }
+    return clause, params
+
+
+def embedding_backfill_type_scope_clause(
+    node_types: tuple[str, ...] | list[str], *, alias: str = "n"
+) -> str:
+    """Cypher ``AND``-clause restricting embedding-backfill candidates to
+    ``node_types`` (D-HYD-4 addendum, 2026-08-06).
+
+    The default backfill candidate query is a blind ``ORDER BY n.id`` scan with
+    no type awareness at all, which is why the small discovery-relevant corpus
+    (:data:`DISCOVERY_NODE_TYPES`) was measured at exactly zero embeddings
+    despite the governance loop running continuously: those ids sort behind
+    tens of thousands of unrelated nodes. This clause lets a caller (the
+    governance agent's discovery pass, the operator script's ``--node-types``)
+    scope a bounded run to just the types it cares about, so it stops competing
+    with the general sweep for the same per-cycle budget.
+
+    Values are inlined as literals rather than bound as a ``$`` list parameter
+    — the same choice ``research/loop_controller.py``'s watermark query and
+    ``retrieval/governance_rules.py``'s active-rule query already make, because
+    this backend does not reliably bind list params. Safe here because callers
+    pass a fixed, code-defined enum (:data:`DISCOVERY_NODE_TYPES` or a literal
+    list at a call site), never raw external/user input; single quotes are
+    stripped defensively regardless.
+    """
+    literal_list = ", ".join(
+        "'" + str(t).replace("'", "") + "'" for t in node_types if str(t).strip()
+    )
+    if not literal_list:
+        return ""
+    return f"AND {alias}.node_type IN [{literal_list}] "
+
+
+def configured_embedding_dimension() -> int:
+    """Return the positive vector dimension declared for the active KG schema."""
+    from agent_utilities.core.config import config
+
+    try:
+        dimension = int(config.kg_embedding_dim or 0)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("KG embedding dimension is not a valid integer") from exc
+    if dimension <= 0:
+        raise RuntimeError("KG embedding dimension must be positive")
+    return dimension
+
+
+def validate_embedding_vectors(
+    vectors: Any,
+    *,
+    expected_count: int,
+    expected_dimension: int | None = None,
+) -> list[list[float]]:
+    """Validate and normalize an embed response before any vector write."""
+    try:
+        raw_vectors = list(vectors)
+    except TypeError as exc:
+        raise RuntimeError(
+            "embedding endpoint returned a non-iterable vector response"
+        ) from exc
+    if len(raw_vectors) != expected_count:
+        raise RuntimeError(
+            "embedding endpoint returned a vector count that does not match "
+            f"the request ({len(raw_vectors)} != {expected_count})"
+        )
+
+    dimension = expected_dimension or configured_embedding_dimension()
+    if dimension <= 0:
+        raise RuntimeError("expected embedding dimension must be positive")
+    normalized: list[list[float]] = []
+    for index, vector in enumerate(raw_vectors):
+        if isinstance(vector, str | bytes | bytearray):
+            raise RuntimeError(
+                f"embedding endpoint returned an invalid vector at index {index}"
+            )
+        try:
+            values = [float(value) for value in vector]
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                f"embedding endpoint returned an invalid vector at index {index}"
+            ) from exc
+        if not values or any(not math.isfinite(value) for value in values):
+            raise RuntimeError(
+                f"embedding endpoint returned an empty or non-finite vector "
+                f"at index {index}"
+            )
+        if len(values) != dimension:
+            raise RuntimeError(
+                "embedding endpoint returned the wrong vector dimension "
+                f"at index {index} ({len(values)} != {dimension})"
+            )
+        normalized.append(values)
+    return normalized
 
 
 def _embed_concurrency() -> int:
@@ -252,6 +432,152 @@ def entity_text(node_type: str, name: str, summary: str = "", extra: str = "") -
     if extra:
         parts.append(extra)
     return " — ".join(p for p in parts if p)
+
+
+# Field-name priority for the generic (connector-agnostic) text extractor below.
+# Every typed-entity connector (ServiceNow, LeanIX, GitHub, Twenty, Jellyfin, ...)
+# builds its own ``{"id", "type", **props}`` record shape (see
+# ``ChangeEnvelope.from_connector_record``) with its own field names, so there is
+# no single canonical "the title field" — these are the common ones observed
+# across the fleet, checked in priority order. NAME_FIELDS come first (identity),
+# then SUMMARY_FIELDS (free text), mirroring ``entity_text``'s (name, summary)
+# shape.
+_ENTITY_NAME_FIELDS: tuple[str, ...] = (
+    "name",
+    "title",
+    "displayName",
+    "display_name",
+    "label",
+    "subject",
+    "short_description",
+)
+_ENTITY_SUMMARY_FIELDS: tuple[str, ...] = (
+    "description",
+    "summary",
+    "body",
+    "content",
+    "comment",
+    "message",
+    "text",
+    "notes",
+    # Appended, not inserted, so a real description always wins where one
+    # exists. Added for D-HYD-4's discovery-eligibility pass (2026-08-06):
+    # measured live, `Prompt` nodes carry NO description/summary/content field
+    # at all but DO carry `system_prompt` (8/8 sampled) — without this, every
+    # Prompt embeds from its bare name alone. `synonyms` (a JSON-list-shaped
+    # string of alternate phrasings, e.g. MCPServer nodes) is genuine
+    # query-matching signal the priority list otherwise never reaches.
+    "system_prompt",
+    "synonyms",
+)
+# Never embed identifiers, timestamps, urls, or other low-signal/high-churn
+# fields even when they happen to be strings — keeps ``derive_entity_text``
+# deterministic and avoids polluting the embedding with noise.
+_ENTITY_TEXT_SKIP_KEYS = frozenset(
+    {
+        "id",
+        "embedding",
+        "text",
+        "tenant_id",
+        "tenant",
+        "source_instance",
+        "source_system",
+        "domain",
+        "classification",
+        "retention",
+        "legal_hold",
+        "external_access",
+        "_links",
+        "_features",
+        "_evidence",
+        "_nodes",
+    }
+)
+# Property-value length cap and overall text cap keep one pathological field
+# (e.g. an inlined document body) from producing an oversized embedding input.
+_ENTITY_FIELD_VALUE_CAP = 2000
+_ENTITY_TEXT_CAP = 4000
+
+
+def derive_entity_text_snapshot(
+    props: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    """Return entity text plus the exact property values that selected it.
+
+    CONCEPT:AU-KG.ingest.entity-embedding-at-write — every typed-entity
+    connector builds a differently-shaped ``dict`` (see
+    ``ChangeEnvelope.from_connector_record``'s docstring), so there is no
+    single field name to embed. This checks a priority list of common
+    name/title fields, then common description/body fields, then — only if
+    neither produced anything — falls back to concatenating every short
+    string-valued leaf property (skipping ids/timestamps/governance fields)
+    so an entity with unusual field names still gets *something* embedded
+    rather than silently landing with no vector.
+
+    The snapshot is suitable for an atomic compare-and-set fence around a slow
+    embedding call: if any field that selected or contributed text changes, the
+    CAS fails instead of persisting a vector derived from stale content. Missing
+    well-known fields are included as ``None`` because adding a higher-priority
+    name or summary while the embedder is running also changes the derived text.
+
+    Returns ``("", conditions)`` when no usable text was found. Callers must
+    treat that as "defer this record", not as an embedding value.
+    """
+    if not props:
+        return "", {}
+    conditions = {
+        key: props.get(key)
+        for key in (
+            "type",
+            "node_type",
+            *_ENTITY_NAME_FIELDS,
+            *_ENTITY_SUMMARY_FIELDS,
+        )
+    }
+    node_type = str(props.get("type") or props.get("node_type") or "")
+    name = ""
+    for key in _ENTITY_NAME_FIELDS:
+        value = props.get(key)
+        if isinstance(value, str) and value.strip():
+            name = value.strip()[:_ENTITY_FIELD_VALUE_CAP]
+            break
+    summary = ""
+    for key in _ENTITY_SUMMARY_FIELDS:
+        value = props.get(key)
+        if isinstance(value, str) and value.strip():
+            summary = value.strip()[:_ENTITY_FIELD_VALUE_CAP]
+            break
+    if name or summary:
+        return (
+            entity_text(node_type, name or node_type, summary)[:_ENTITY_TEXT_CAP],
+            conditions,
+        )
+
+    # Fallback: no recognized field matched — concatenate short string leaves so
+    # an unusual connector shape still yields embeddable text.
+    fallback_parts: list[str] = [node_type] if node_type else []
+    for key, value in props.items():
+        if key in _ENTITY_TEXT_SKIP_KEYS or key in _ENTITY_NAME_FIELDS:
+            continue
+        # The fallback considers every current non-skipped value. Fence even
+        # non-string values so a concurrent change from (say) numeric to text
+        # cannot make this snapshot stale without failing the CAS.
+        conditions[key] = value
+        if isinstance(value, str) and value.strip() and len(value) < 500:
+            fallback_parts.append(value.strip())
+        if sum(len(p) for p in fallback_parts) > _ENTITY_TEXT_CAP:
+            break
+    return " — ".join(fallback_parts)[:_ENTITY_TEXT_CAP], conditions
+
+
+def derive_entity_text(props: dict[str, Any]) -> str:
+    """Best-effort connector-agnostic text extraction for embedding an entity.
+
+    Returns "" when no usable text was found (callers must treat that as
+    "skip embedding this record", not as an error). See
+    :func:`derive_entity_text_snapshot` when a caller needs a concurrency fence.
+    """
+    return derive_entity_text_snapshot(props)[0]
 
 
 def embed_and_store(

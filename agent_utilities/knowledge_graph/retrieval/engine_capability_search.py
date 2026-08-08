@@ -16,7 +16,8 @@ Two engine-native paths, in preference order (mirrors
 ``docs/architecture/vector_index_lifecycle.md``'s retrieval tiers):
 
 1. **Unified filtered plan** — ``Scan(label) |> Filter(caps/tenant/policy) |>
-   Rank(query) |> Limit`` in ONE costed round-trip. The engine composes the
+   Rank(query) |> Limit`` in one costed native plan. The GraphCompute wrapper
+   temporarily adds one bounded property-batch readiness fence. The engine composes the
    capability/tenant/policy restriction with the vector ``Rank`` leg itself — this
    is the "filtered ANN" the engine provides natively; there is no Python-side
    pre-filter-then-scan.

@@ -795,7 +795,7 @@ def submit_work_item(
         consent_expires_at=consent_expires_at,
     )
     _authority(engine).add_node(
-        item_id, _NODE_LABEL, properties=node.model_dump(exclude={"id", "type"})
+        item_id, _NODE_LABEL, properties=node.to_graph_properties(exclude={"id"})
     )
 
     edge_type = _task_depends_on_edge_type()

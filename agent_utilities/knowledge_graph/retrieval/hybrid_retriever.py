@@ -7,6 +7,7 @@ Combines semantic vector similarity with topological graph traversal
 and optional backlink-density retrieval weighting (CONCEPT:AU-KG.ingest.engineering-rules).
 """
 
+import contextvars
 import json
 import logging
 import math
@@ -26,6 +27,24 @@ if TYPE_CHECKING:
     from agent_utilities.models.schema_pack import SchemaPack
 
 logger = logging.getLogger(__name__)
+
+# CONCEPT:AU-KG.retrieval.memory-first-retrieval / D-39 — the quality report
+# from the most recent ``retrieve_hybrid`` call was previously plain instance
+# state on ``HybridRetriever`` (``self._last_quality_report``). A
+# ``HybridRetriever`` is shared per-engine, not per-request, so two concurrent
+# callers (two OS threads both inside ``retrieve_hybrid`` via a thread pool, or
+# two overlapping requests against one shared engine) could have caller A's
+# read observe caller B's write if B's set landed between A's call returning
+# and A's read of the property. A ``ContextVar`` fixes this at the root: it is
+# both thread-local (each OS thread gets its own value once it calls ``.set``)
+# and asyncio-task-local (each ``Task``, and each ``run_in_executor`` hop,
+# gets its own copy of the current context), so a write on one call stack can
+# never leak into a concurrent, unrelated call stack's read -- without
+# changing ``retrieve_hybrid``/``search_hybrid``'s external return signature
+# (still just the node list) for their many existing callers.
+_LAST_QUALITY_REPORT: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
+    "hybrid_retriever_last_quality_report", default=None
+)
 
 # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — how many independent
 # neighbour point-reads the context-assembly BFS may have in flight at once.
@@ -189,13 +208,29 @@ class HybridRetriever:
 
         # CONCEPT:AU-KG.research.research-pipeline-runner: Retrieval Quality Gate
         self._quality_gate: Any = None  # Lazy-initialized
-        self._last_quality_report = None
+        # last_quality_report (D-39) lives in the module-level, context-local
+        # ``_LAST_QUALITY_REPORT`` ContextVar, not instance state -- see its
+        # definition above for why.
 
         # CONCEPT:AU-KG.memory.auto-similarity-memory-graph: Lazy embedding model — defer HTTP connection to first use
         # (typed Any to avoid importing the heavy llama_index BaseEmbedding onto the
         # retrieval path — dependency discipline).
         self._embed_model: Any = None
         self._embed_model_initialized = False
+
+        # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — D-DPF-3: once a
+        # UNWIND+variable-length probe fails against this instance's backend, don't
+        # retry the batched shape per traversal; degrade straight to the (already
+        # batched) BFS fallback for the remainder of this retriever's lifetime.
+        self._varlen_batch_unsupported = False
+
+        # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — D-DPF-1: once
+        # the engine's true multi-node ``neighbors_batch`` RPC proves unsupported
+        # against this instance's backend, don't retry it per call; degrade
+        # straight to the (already overlapped) per-node fallback for the
+        # remainder of this retriever's lifetime — same idiom as
+        # ``_varlen_batch_unsupported`` above.
+        self._neighbors_batch_unsupported = False
 
     @property
     def embed_model(self):
@@ -301,7 +336,7 @@ class HybridRetriever:
         *,
         label: str | None = None,
     ) -> list[tuple[str, float]]:
-        """Return ``(id, score)`` from the engine's vector index — ONE round-trip.
+        """Return ``(id, score)`` from the engine's vector index.
 
         When a ``label`` is given, the ranking is the unified plan
         ``Scan(label) |> Rank(query) |> Limit`` — the engine
@@ -311,6 +346,10 @@ class HybridRetriever:
         engine error (e.g. a build without the ``query`` feature, or no engine
         reachable) it degrades to the native ANN, then to ``[]`` — never a Python
         cosine scan.
+
+        The native unified rank is one costed plan; GraphCompute currently adds
+        one bounded property-batch readiness fence until the engine provides a
+        single served-publication barrier for graph fields and ANN projection.
         """
         qvec = [float(x) for x in query_emb]
         if label:
@@ -403,24 +442,35 @@ class HybridRetriever:
         return {nid: bool(has_node(nid)) for nid in wanted}
 
     def _neighbors_batch(self, ids: list[str]) -> dict[str, list[str]]:
-        """Undirected neighbour ids for many nodes, overlapping the round-trips.
+        """Undirected neighbour ids for many nodes in as few round-trips as possible.
 
-        CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — two independent
-        wins over the previous per-node ``get_successors`` + ``get_predecessors``
-        pair:
+        CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch — three wins over
+        the original per-node ``get_successors`` + ``get_predecessors`` pair,
+        applied in preference order:
 
-        1. **One call instead of two.** ``get_neighbors`` is the engine's own
-           predecessors-∪-successors op, so a node's undirected neighbourhood
-           costs one round-trip rather than two. The BFS unions both directions
-           into a single frontier set anyway, so this is byte-for-byte the same
-           id set.
-        2. **Overlapped, not serialized.** The engine has no batched multi-node
-           neighbour op, so N nodes genuinely need N calls — but they are
-           mutually independent, and the client blocks on a socket rather than
-           burning CPU. Issuing them through a small bounded pool turns N
-           sequential round-trips into ``ceil(N / _NEIGHBOR_FETCH_CONCURRENCY)``
-           waves. The pool is deliberately small: the engine is the contended
-           resource, and the resource-priority edict
+        0. **One call for ALL nodes (D-DPF-1).** When the engine exposes a
+           genuine ``neighbors_batch`` RPC (``epistemic_graph``'s
+           ``NodeClient.neighbors_batch`` / ``Method::GetNeighborsBatch``), this
+           issues exactly ONE round-trip for the whole ``ids`` set instead of
+           ``ceil(N / _NEIGHBOR_FETCH_CONCURRENCY)`` waves — the same shape as
+           :meth:`_properties_batch` / :meth:`_exists_batch` above. A capability
+           failure (older engine build without the RPC, or an unexpected error)
+           is cached on the instance (``_neighbors_batch_unsupported``) so a
+           backend that genuinely lacks it degrades ONCE per retriever instance,
+           not per call — mirroring :meth:`_varlen_neighbors_batch`'s
+           ``_varlen_batch_unsupported`` capability cache.
+        1. **One call instead of two (fallback).** ``get_neighbors`` is the
+           engine's own predecessors-∪-successors op, so a node's undirected
+           neighbourhood costs one round-trip rather than two. The BFS unions
+           both directions into a single frontier set anyway, so this is
+           byte-for-byte the same id set.
+        2. **Overlapped, not serialized (fallback).** Without either batched op,
+           N nodes genuinely need N calls — but they are mutually independent,
+           and the client blocks on a socket rather than burning CPU. Issuing
+           them through a small bounded pool turns N sequential round-trips into
+           ``ceil(N / _NEIGHBOR_FETCH_CONCURRENCY)`` waves. The pool is
+           deliberately small: the engine is the contended resource, and the
+           resource-priority edict
            (CONCEPT:AU-ORCH.scheduling.resource-priority-edict) means a retrieval
            leg must not stampede it.
 
@@ -434,6 +484,28 @@ class HybridRetriever:
         wanted = [nid for nid in dict.fromkeys(ids) if nid]
         if not wanted or graph is None:
             return {}
+
+        if not self._neighbors_batch_unsupported:
+            client = getattr(graph, "_client", None)
+            nodes_ns = getattr(client, "nodes", None) if client is not None else None
+            true_batch = getattr(nodes_ns, "neighbors_batch", None)
+            if callable(true_batch):
+                try:
+                    result = true_batch(wanted)
+                except Exception as e:  # noqa: BLE001 — capability probe, degrade once (see docstring)
+                    self._neighbors_batch_unsupported = True
+                    logger.debug(
+                        "neighbors_batch RPC unavailable, falling back to "
+                        "per-node fetch for the rest of this retriever "
+                        "instance's lifetime: %s",
+                        e,
+                    )
+                else:
+                    return {
+                        str(nid): [str(n) for n in (neighbors or [])]
+                        for nid, neighbors in (result or {}).items()
+                    }
+
         unioned = getattr(graph, "get_neighbors", None)
         if callable(unioned):
             fetch: Callable[[str], list[str]] = unioned
@@ -487,6 +559,69 @@ class HybridRetriever:
                         type(e).__name__,
                         e,
                     )
+        return out
+
+    def _varlen_neighbors_batch(
+        self, ids: list[str], depth: int
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Variable-length neighbourhood (``-[*1..depth]-``) for many base nodes, in ONE round trip.
+
+        CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch (D-DPF-3) — the
+        base-node loop in :meth:`retrieve_hybrid` used to issue this exact
+        ``MATCH (n {id:$id})-[*1..N]-(m) RETURN m`` probe once PER base node
+        (measured live: 22 calls totaling 35.05s, avg 1.59s/call — the dominant
+        grounding-latency term once D-EGP-1's projection-cache fix and the
+        properties_batch/neighbors N+1s were addressed). The native engine's
+        Cypher parser/executor supports both ``UNWIND`` (``ReadStage::Unwind``)
+        and variable-length patterns (``EdgePat.var_len`` → ``bfs_reachable``) on
+        the read path — confirmed live against the production engine (not just
+        by reading the Rust source): a 10-base-node ``UNWIND $ids AS bid MATCH
+        (n {id:bid})-[*1..2]-(m) RETURN bid AS base_id, m`` returns the SAME row
+        set as the 10 individual per-node calls it replaces, in one round trip.
+
+        So this collapses N round trips into 1 by moving the ``UNWIND`` up front
+        of the pattern instead of substituting a literal id per call — the
+        engine does the fan-out, not a Python loop.
+
+        Returns ``{}`` for an id that has no matches (empty neighbourhood is a
+        valid result, distinct from "unresolved" — same contract as the
+        surrounding BFS fallback, which callers already trigger on an empty
+        result for a base node). If the batched shape itself is rejected by the
+        backend (e.g. a fake/older backend without UNWIND or varlen support),
+        the failure is logged once and cached on this instance
+        (``_varlen_batch_unsupported``) so every remaining base node in this AND
+        later ``retrieve_hybrid`` calls degrades straight to the already-batched
+        BFS fallback, instead of re-attempting (and re-failing) the batched
+        Cypher call once per node.
+        """
+        wanted = [nid for nid in dict.fromkeys(ids) if nid]
+        if not wanted or not self.engine.backend or self._varlen_batch_unsupported:
+            return {}
+        query_str = (
+            "UNWIND $ids AS base_id MATCH (n {id: base_id})-[*1.."
+            f"{depth}]-(m) RETURN base_id, m"
+        )
+        try:
+            rows = self.engine.backend.execute(query_str, {"ids": wanted})
+        except Exception as e:  # noqa: BLE001 — capability probe, degrades to the BFS fallback path
+            self._varlen_batch_unsupported = True
+            logger.debug(
+                "UNWIND+variable-length neighbour batch unsupported by this "
+                "backend (%s: %s) — falling back to per-base-node BFS "
+                "traversal for the remainder of this retriever instance",
+                type(e).__name__,
+                e,
+            )
+            return {}
+        out: dict[str, list[dict[str, Any]]] = {}
+        for row in rows or []:
+            if not isinstance(row, dict):
+                continue
+            base_id = row.get("base_id")
+            m = row.get("m")
+            if base_id is None or not m or not isinstance(m, dict):
+                continue
+            out.setdefault(str(base_id), []).append(m)
         return out
 
     def _compute_positional_interactions(self, pos_a: int, pos_b: int) -> list[float]:
@@ -840,6 +975,17 @@ class HybridRetriever:
             else {}
         )
 
+        # CONCEPT:AU-KG.retrieval.batched-neighborhood-prefetch (D-DPF-3) — the
+        # loop below used to issue one `MATCH (n {id:$id})-[*1..N]-(m) RETURN m`
+        # Cypher round trip PER base node. Collapse that into ONE `UNWIND`-driven
+        # call across every base node up front; the loop then looks results up
+        # from this dict instead of calling the backend itself.
+        _varlen_neighbors_by_base = (
+            self._varlen_neighbors_batch(_base_ids, multi_hop_depth)
+            if _base_ids
+            else {}
+        )
+
         _expansion_budget = [_MAX_NEIGHBOR_EXPANSIONS - len(_neighbors)]
 
         def _expand(ids: list[str]) -> None:
@@ -888,31 +1034,24 @@ class HybridRetriever:
             if node_id in visited:
                 continue
 
-            # Fetch immediate neighborhood using backend Cypher
+            # Immediate (1..multi_hop_depth) neighborhood, from the ONE
+            # UNWIND-batched Cypher call issued for every base node up front
+            # (D-DPF-3) — never a per-node backend round trip.
             context_nodes: list[dict[str, Any]] = []
-            if self.engine.backend:
-                # Get 1 to multi_hop_depth neighbors
-                query_str = (
-                    f"MATCH (n {{id: $id}})-[*1..{multi_hop_depth}]-(m) RETURN m"
-                )
-                neighbors = self.engine.backend.execute(query_str, {"id": node_id})
+            for m in _varlen_neighbors_by_base.get(node_id, []):
+                if m.get("id") not in visited:
+                    # Apply backlink boost during context assembly (CONCEPT:AU-KG.ingest.engineering-rules)
+                    if self._boost_strategy == "context_only":
+                        m_id = m.get("id", "")
+                        boost = self._backlink_boost(m_id)
+                        m["_context_boost"] = boost
+                    visited.add(m["id"])
+                    context_nodes.append(m)
 
-                for n_row in neighbors:
-                    if not isinstance(n_row, dict):
-                        continue
-                    m = n_row.get("m")
-                    if m and isinstance(m, dict) and m.get("id") not in visited:
-                        # Apply backlink boost during context assembly (CONCEPT:AU-KG.ingest.engineering-rules)
-                        if self._boost_strategy == "context_only":
-                            m_id = m.get("id", "")
-                            boost = self._backlink_boost(m_id)
-                            m["_context_boost"] = boost
-                        visited.add(m["id"])
-                        context_nodes.append(m)
-
-            # The epistemic-graph backend cannot evaluate variable-length path
-            # patterns, so yielding no usable neighbors is not authoritative —
-            # fall through to the resident-graph BFS traversal in that case.
+            # A backend that rejects the batched UNWIND+variable-length shape
+            # (`_varlen_batch_unsupported`) is not authoritative for "no
+            # neighbors" either — fall through to the resident-graph BFS
+            # traversal in that case, same as an empty-but-supported result.
             if context_nodes:
                 assembled_subgraph.append(node)
                 assembled_subgraph.extend(context_nodes)
@@ -996,7 +1135,7 @@ class HybridRetriever:
         if skip_quality_gate:
             return _qa(assembled_subgraph)
 
-        self._last_quality_report = None
+        _LAST_QUALITY_REPORT.set(None)
         try:
             from .retrieval_quality import RetrievalQualityGate
 
@@ -1008,7 +1147,7 @@ class HybridRetriever:
             filtered, report = self._quality_gate.gate_results(
                 assembled_subgraph, query
             )
-            self._last_quality_report = report
+            _LAST_QUALITY_REPORT.set(report)
             if not report.gate_passed:
                 logger.warning(
                     "[CONCEPT:AU-KG.research.research-pipeline-runner] Retrieval quality gate failed: %s",
@@ -1233,8 +1372,17 @@ class HybridRetriever:
 
     @property
     def last_quality_report(self):
-        """The quality report from the most recent retrieval, if available."""
-        return self._last_quality_report
+        """The quality report from the most recent retrieval on THIS call
+        stack (thread/asyncio-task), if available.
+
+        D-39: this used to be plain shared instance state
+        (``self._last_quality_report``), which raced across concurrent
+        callers of a shared ``HybridRetriever`` -- see
+        ``_LAST_QUALITY_REPORT``'s module-level docstring. Backed by a
+        ``ContextVar`` now, so a concurrent, unrelated call stack's write can
+        never be observed here.
+        """
+        return _LAST_QUALITY_REPORT.get()
 
     def retrieve_decomposed(
         self,

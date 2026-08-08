@@ -24,7 +24,7 @@ from agent_utilities.core.model_runtime_auth import (
 )
 
 if TYPE_CHECKING:
-    pass
+    from pydantic_ai.profiles import ModelProfile
 
 
 def _load_model_class(*candidates: tuple[str, str]) -> Any:
@@ -104,7 +104,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def _single_system_message_profile(base: dict[str, Any]) -> dict[str, Any]:
+def _single_system_message_profile(base: ModelProfile | None) -> ModelProfile:
     """Make OpenAI-compatible chat requests portable to strict local gateways.
 
     Some vLLM/LiteLLM chat templates reject a second leading ``system`` message
@@ -119,10 +119,11 @@ def _single_system_message_profile(base: dict[str, Any]) -> dict[str, Any]:
     before a bound MCP tool can be called.
     """
     from pydantic_ai.profiles import merge_profile
+    from pydantic_ai.profiles.openai import OpenAIModelProfile
 
     return merge_profile(
         base,
-        {"openai_chat_supports_multiple_system_messages": False},
+        OpenAIModelProfile(openai_chat_supports_multiple_system_messages=False),
     )
 
 

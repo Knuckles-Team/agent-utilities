@@ -44,6 +44,11 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from agent_utilities.core.config import setting
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +89,7 @@ class _NativeGraphSliceCapture:
     ) -> None:
         row = dict(properties)
         if "type" in row:
-            raise ValueError("node property 'type' is retired; use node_type")
+            raise retired_node_type_property_error()
         node_type = str(row.pop("node_type", "") or label or "Entity")
         row["id"] = str(node_id)
         row["node_type"] = node_type
@@ -100,11 +105,9 @@ class _NativeGraphSliceCapture:
         **properties: Any,
     ) -> None:
         row = dict(properties)
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            row
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)
         if aliases:
-            raise ValueError("edge relationship aliases are retired")
+            raise retired_edge_relationship_property_error(aliases)
         edge_type = str(row.pop("relationship", "") or rel_type or "RELATED_TO")
         edge = {
             "source": str(source),
@@ -982,7 +985,7 @@ class IngestionEngine:
 
     async def _enrich_payload(
         self, payload: dict[str, Any], default_source_type: str
-    ) -> dict[str, int]:
+    ) -> dict[str, Any]:
         """Enrich one ``enrichable`` payload — the unit a downstream ENRICH worker runs.
 
         Best-effort: a failed payload counts zero and never propagates, so a slow or
@@ -1447,7 +1450,7 @@ class IngestionEngine:
         enrich_concepts: bool = True,
         enrich_facts: bool = True,
         enrich_entities: bool = True,
-    ) -> dict[str, int]:
+    ) -> dict[str, Any]:
         """Unified always-on intelligence layer for any text-bearing ingestion.
 
         The single seam every content type funnels text through so enrichment is
@@ -3841,7 +3844,7 @@ class IngestionEngine:
                     "description": str(tool.get("description") or ""),
                     "mcp_server": SELF_MCP_SERVER_NAME,
                     "tags": ["graph-os"],
-                    "relevance_score": 0.5,
+                    "relevance_score": 50,
                     "requires_approval": False,
                     "synonyms": [],
                     "kind": "mcp_tool",

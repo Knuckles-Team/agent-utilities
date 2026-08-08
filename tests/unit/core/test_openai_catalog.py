@@ -16,7 +16,14 @@ from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
 pytestmark = pytest.mark.concept(id="AU-ORCH.adapter.openai-catalog-verification")
 
-_FAKE_KEY = "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
+# Self-identifying synthetic fixture: the literal carries the "example"
+# marker `scripts/check_fleet_supply_chain.py` (SC-SEC-002 /
+# SYNTHETIC_TOKEN_MARKERS) uses to tell a test double from live credential
+# material, while keeping the exact `sk-proj-` shape the redactors match
+# (`agent_utilities/security/persistence_privacy.py`,
+# `agent_utilities/httpsupport/redaction.py`), so the test still exercises the
+# real redaction path.
+_FAKE_KEY = "sk-proj-example-abcdefghijklmnopqrstuvwxyz0123456789"
 
 
 @pytest.mark.asyncio
@@ -84,6 +91,27 @@ async def test_verify_openai_model_exists(monkeypatch):
     assert result.owned_by == "openai"
     assert result.created == 1700000000
     assert result.error is None
+
+
+@pytest.mark.asyncio
+async def test_verify_openai_model_empty_base_url_uses_sdk_default(monkeypatch):
+    record = _FakeRecord(owned_by="openai", created=1700000000)
+
+    class _Client(_FakeAsyncOpenAI):
+        def __init__(self, **kwargs):
+            super().__init__(**kwargs)
+            self.models = _FakeModelsResource(raise_exc=None, record=record)
+
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "openai",
+        type("M", (), {"AsyncOpenAI": _Client}),
+    )
+
+    result = await verify_openai_model("gpt-4o-mini", api_key=_FAKE_KEY, base_url="")
+
+    assert result.exists is True
+    assert _FakeAsyncOpenAI.last_init_kwargs == {"api_key": _FAKE_KEY}
 
 
 @pytest.mark.asyncio

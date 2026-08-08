@@ -51,7 +51,8 @@ def _session() -> GraphSession:
 def _identity_read_policy(monkeypatch):
     from agent_utilities.knowledge_graph.core import secured_reads
 
-    monkeypatch.setattr(secured_reads, "scope", lambda query, _actor: query)
+    # D-W2T-2: secured_reads.scope() returns (query, extra_params) now.
+    monkeypatch.setattr(secured_reads, "scope", lambda query, _actor: (query, {}))
     monkeypatch.setattr(secured_reads, "filter_rows", lambda rows, _actor: rows)
     monkeypatch.setattr(secured_reads, "visible", lambda rows, _actor: rows)
     monkeypatch.setattr(secured_reads, "audit_read", lambda *_args, **_kwargs: None)

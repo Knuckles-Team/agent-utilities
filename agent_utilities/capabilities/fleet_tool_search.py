@@ -36,6 +36,8 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+from pydantic_ai.toolsets import AbstractToolset
+
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from pydantic_ai import RunContext
     from pydantic_ai.capabilities import ToolSearch
@@ -50,9 +52,9 @@ __all__ = ["FleetToolset", "fleet_relevance_search", "fleet_tool_search_capabili
 
 
 def fleet_relevance_search(
-    ctx: "RunContext[Any]",
+    ctx: RunContext[Any],
     queries: Sequence[str],
-    tools: Sequence["ToolDefinition"],
+    tools: Sequence[ToolDefinition],
 ) -> list[str]:
     """``ToolSearchFunc`` backed by the multiplexer's own relevance backbone.
 
@@ -65,7 +67,9 @@ def fleet_relevance_search(
     """
     from agent_utilities.mcp.multiplexer import MCPMultiplexer
 
-    del ctx  # unused — relevance here is query/text-only, matching the built-in contract
+    del (
+        ctx
+    )  # unused — relevance here is query/text-only, matching the built-in contract
     joined_query = " ".join(queries)
     scored: list[tuple[float, str]] = []
     for tool_def in tools:
@@ -77,7 +81,7 @@ def fleet_relevance_search(
     return [name for _, name in scored]
 
 
-class FleetToolset:
+class FleetToolset(AbstractToolset[Any]):
     """Exposes the mcp-multiplexer's fleet catalog as a native pydantic-ai toolset.
 
     Every fleet tool is registered ``defer_loading=True`` — hidden from the model
@@ -93,7 +97,7 @@ class FleetToolset:
     surface. One execution boundary, two front doors.
     """
 
-    def __init__(self, multiplexer: "MCPMultiplexer", *, id: str = "mcp-fleet") -> None:
+    def __init__(self, multiplexer: MCPMultiplexer, *, id: str = "mcp-fleet") -> None:
         self._mux = multiplexer
         self._toolset_id = id
 
@@ -101,10 +105,10 @@ class FleetToolset:
     def id(self) -> str | None:
         return self._toolset_id
 
-    async def for_run(self, ctx: Any) -> "FleetToolset":
+    async def for_run(self, ctx: Any) -> FleetToolset:
         return self
 
-    async def __aenter__(self) -> "FleetToolset":
+    async def __aenter__(self) -> FleetToolset:
         return self
 
     async def __aexit__(self, *args: Any) -> bool | None:
@@ -113,7 +117,7 @@ class FleetToolset:
     async def get_instructions(self, ctx: Any) -> str | None:
         return None
 
-    async def get_tools(self, ctx: Any) -> dict[str, "ToolsetTool[Any]"]:
+    async def get_tools(self, ctx: Any) -> dict[str, ToolsetTool[Any]]:
         from pydantic_ai.mcp import TOOL_SCHEMA_VALIDATOR
         from pydantic_ai.tools import ToolDefinition
         from pydantic_ai.toolsets import ToolsetTool
@@ -152,7 +156,7 @@ class FleetToolset:
         return tools
 
     async def call_tool(
-        self, name: str, tool_args: dict[str, Any], ctx: Any, tool: "ToolsetTool[Any]"
+        self, name: str, tool_args: dict[str, Any], ctx: Any, tool: ToolsetTool[Any]
     ) -> Any:
         del ctx, tool
         _mounted_servers, _to_expose, failed = await self._mux.resolve_and_mount(
@@ -191,7 +195,7 @@ def _fleet_call_result(result: Any) -> Any:
     return "\n".join(texts)
 
 
-def fleet_tool_search_capability(*, max_results: int = 10, **kwargs: Any) -> "ToolSearch":
+def fleet_tool_search_capability(*, max_results: int = 10, **kwargs: Any) -> ToolSearch:
     """Build the ``ToolSearch`` capability wired to :func:`fleet_relevance_search`.
 
     Pair with ``toolsets=[FleetToolset(mux)]`` on the ``Agent`` construction so the
@@ -200,4 +204,6 @@ def fleet_tool_search_capability(*, max_results: int = 10, **kwargs: Any) -> "To
     """
     from pydantic_ai.capabilities import ToolSearch
 
-    return ToolSearch(strategy=fleet_relevance_search, max_results=max_results, **kwargs)
+    return ToolSearch(
+        strategy=fleet_relevance_search, max_results=max_results, **kwargs
+    )

@@ -233,22 +233,22 @@ def _bundled_standard_vocabulary() -> frozenset[str]:
         return frozenset()
     names: set[str] = set()
     for s in graph.subjects(predicate=rdflib.RDF.type, object=rdflib.OWL.Class):
-        names.add(_local_name(s))
+        names.add(_local_name(str(s)))
     for s in graph.subjects(
         predicate=rdflib.RDF.type, object=rdflib.OWL.ObjectProperty
     ):
-        names.add(_local_name(s))
+        names.add(_local_name(str(s)))
     for s in graph.subjects(
         predicate=rdflib.RDF.type, object=rdflib.OWL.DatatypeProperty
     ):
-        names.add(_local_name(s))
+        names.add(_local_name(str(s)))
     for pred in (
         rdflib.OWL.equivalentClass,
         rdflib.OWL.equivalentProperty,
         rdflib.RDFS.seeAlso,
     ):
         for o in graph.objects(predicate=pred):
-            names.add(_local_name(o))
+            names.add(_local_name(str(o)))
     return frozenset(n for n in names if n)
 
 
@@ -490,7 +490,7 @@ def propose_ontology_change(
     shadow_graph, shadow_report = materialize_shadow(
         engine, tenant, proposal_id, turtle
     )
-    replay = (
+    replay: dict[str, Any] = (
         replay_competency_queries(
             engine, tenant, shadow_graph, queries=competency_queries
         )

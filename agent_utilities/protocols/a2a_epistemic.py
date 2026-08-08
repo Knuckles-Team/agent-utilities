@@ -288,7 +288,7 @@ def _admit_structure(
             raise ValueError(f"{label} exceeds the configured admission bound")
 
 
-def _validated_json(adapter: TypeAdapter[_T], value: Any, *, label: str) -> _T:
+def _validated_json(adapter: TypeAdapter[_T], value: _T, *, label: str) -> _T:
     """Validate and JSON-project without returning validation input in errors."""
 
     try:
@@ -428,16 +428,18 @@ class EpistemicGraphA2ARuntime:
                 self.client = await anyio.to_thread.run_sync(_resolve_client)
                 self.session = session
 
-            session = self.session
-            tenant = str(getattr(session, "tenant", "") or "").strip()
+            active_session = self.session
+            tenant = str(getattr(active_session, "tenant", "") or "").strip()
             if (
-                session is None
+                active_session is None
                 or not tenant
-                or not getattr(getattr(session, "actor", None), "authenticated", False)
+                or not getattr(
+                    getattr(active_session, "actor", None), "authenticated", False
+                )
             ):
                 raise RuntimeError("A2A persistence requires verified tenant authority")
-            session.require_scope("kg:read")
-            session.require_scope("kg:write")
+            active_session.require_scope("kg:read")
+            active_session.require_scope("kg:write")
             self.tenant_ref = persistence_reference(
                 "tenant", tenant, namespace="a2a-runtime"
             )
@@ -580,7 +582,9 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
                 for item in raw.get("extensions") or []
             ]
         message = _validated_json(
-            _MESSAGE_ADAPTER, clean, label="privacy-approved A2A message"
+            _MESSAGE_ADAPTER,
+            cast(Message, clean),
+            label="privacy-approved A2A message",
         )
         _bounded(
             message,
@@ -611,7 +615,9 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             namespace=f"a2a:{self.runtime.tenant_key}",
         )
         artifact = _validated_json(
-            _ARTIFACT_ADAPTER, clean, label="privacy-approved A2A artifact"
+            _ARTIFACT_ADAPTER,
+            cast(Artifact, clean),
+            label="privacy-approved A2A artifact",
         )
         _bounded(
             artifact,
@@ -663,7 +669,9 @@ class EpistemicGraphA2AStorage(Storage[list[ModelMessage]]):
             not in {"none", "pending", "published"}
         ):
             raise RuntimeError("native A2A task record is invalid")
-        task = _validated_json(_TASK_ADAPTER, value["payload"], label="stored A2A task")
+        task = _validated_json(
+            _TASK_ADAPTER, cast(Task, value["payload"]), label="stored A2A task"
+        )
         context_id = self.runtime.context_id(str(task.get("context_id") or ""))
         if (
             task.get("id") != task_id

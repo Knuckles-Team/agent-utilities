@@ -206,9 +206,7 @@ class TestTradingPipelineIntegration:
         # storage key, which fail-closed rejects a literal "type" property —
         # translate on the way in.
         for n in [strat, signal, order, pos, port]:
-            dumped = n.model_dump()
-            node_type = dumped.pop("type")
-            g.add_node(n.id, node_type=node_type, **dumped)
+            g.add_node(n.id, **n.to_graph_properties())
 
         # Add pipeline edges — canonical kwarg is "relationship", not "type".
         g.add_edge(
@@ -240,10 +238,8 @@ class TestTradingPipelineIntegration:
         g = GraphComputeEngine(backend_type="rust")
         strat = StrategyNode(id="strat:v1", name="V1")
         bt = BacktestRunNode(id="bt:001", name="Backtest V1", strategy_id="strat:v1")
-        strat_dumped = strat.model_dump()
-        bt_dumped = bt.model_dump()
-        g.add_node(strat.id, node_type=strat_dumped.pop("type"), **strat_dumped)
-        g.add_node(bt.id, node_type=bt_dumped.pop("type"), **bt_dumped)
+        g.add_node(strat.id, **strat.to_graph_properties())
+        g.add_node(bt.id, **bt.to_graph_properties())
         g.add_edge(strat.id, bt.id, relationship=RegistryEdgeType.BACKTESTED_WITH)
 
         assert g.has_edge(strat.id, bt.id)

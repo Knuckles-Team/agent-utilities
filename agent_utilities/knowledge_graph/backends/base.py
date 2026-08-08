@@ -8,6 +8,7 @@ Backends may optionally support SPARQL via ``supports_sparql`` / ``execute_sparq
 """
 
 import json
+import math
 import re
 from abc import ABC, abstractmethod
 from typing import Any
@@ -17,6 +18,27 @@ def sanitize_label(label: str) -> str:
     """Reduce a label/relationship to a transpiler-safe identifier (``\\w+``)."""
     s = re.sub(r"\W+", "_", str(label or "Node")).strip("_")
     return s or "Node"
+
+
+def embedding_values_match(actual: Any, expected: list[float]) -> bool:
+    """Compare a backend-returned vector with its requested floating values."""
+    value = actual
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            value = [part.strip() for part in value.strip("[]").split(",") if part]
+    if isinstance(value, bytes | bytearray | dict) or value is None:
+        return False
+    try:
+        observed = [float(item) for item in value]
+        wanted = [float(item) for item in expected]
+    except (TypeError, ValueError):
+        return False
+    return len(observed) == len(wanted) and all(
+        math.isclose(left, right, rel_tol=1e-6, abs_tol=1e-6)
+        for left, right in zip(observed, wanted, strict=True)
+    )
 
 
 # Cypher clauses that mutate the graph. A query containing any of these (even
@@ -154,6 +176,11 @@ class GraphBackend(ABC):
     ``True`` and implement ``execute_sparql()`` with real SPARQL execution.
     """
 
+    # True when a structural node upsert carrying ``embedding`` is itself the
+    # backend's sole vector write. Fan-out uses this storage contract to avoid a
+    # redundant follow-up ``add_embedding`` call while still verifying the value.
+    embedding_is_node_property: bool = False
+
     # ------------------------------------------------------------------
     # Core CRUD & Query
     # ------------------------------------------------------------------
@@ -233,6 +260,23 @@ class GraphBackend(ABC):
             f"{type(self).__name__} does not support compare_and_set_node_fields"
         )
 
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Atomically condition node fields and replace the served ANN vector.
+
+        Optional cross-modal capability. Implementations must commit the field
+        updates and vector together or apply neither; composing the ordinary CAS
+        and ``add_embedding`` methods is not a valid implementation.
+        """
+        raise NotImplementedError(  # ABSTRACT-OK - optional cross-modal CAS capability
+            f"{type(self).__name__} does not support compare_and_set_node_embedding"
+        )
+
     # ------------------------------------------------------------------
     # Vector / Embedding Support
     # ------------------------------------------------------------------
@@ -241,6 +285,18 @@ class GraphBackend(ABC):
     def add_embedding(self, node_id: str, embedding: list[float]) -> None:
         """Add an embedding vector to a specific node."""
         pass
+
+    def verify_node_embedding(self, node_id: str, embedding: list[float]) -> bool:
+        """Read after write and confirm a mirror's durable vector value.
+
+        Optional mirror capability. Fan-out replay must not advance its cursor
+        merely because a backend's void write method returned: several external
+        backends historically swallowed operational failures. Implementations
+        use a fail-loud read and exact vector comparison; the default declines.
+        """
+        raise NotImplementedError(  # ABSTRACT-OK - optional mirror verification capability
+            f"{type(self).__name__} does not verify embedding writes"
+        )
 
     @abstractmethod
     def semantic_search(

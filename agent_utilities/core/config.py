@@ -1813,6 +1813,33 @@ class ProviderRuntimeProfile(BaseModel):
 # _load_xdg_json_config() is called dynamically via _ensure_env_loaded().
 
 
+#: Fleet servers graph-os mounts EAGERLY on a session's first contact
+#: (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Deliberately short: these are the
+#: cross-cutting operational servers an agent needs for almost any real task
+#: (remote hosts, host/system state, git repositories, containers), so paying a
+#: ``find_tools`` round trip for them is pure overhead. Every name here is a
+#: catalog server name verified against the deployed fleet config. Mounting is
+#: fail-soft — see ``AgentConfig.mcp_always_load``.
+DEFAULT_MCP_ALWAYS_LOAD: tuple[str, ...] = (
+    "tunnel-manager-mcp",
+    "systems-manager-mcp",
+    "repository-manager-mcp",
+    "container-manager-mcp",
+)
+
+#: Individual fleet tools graph-os mounts eagerly, for servers too large to
+#: mount whole. ``github-mcp``/``gitlab-mcp`` carry dozens of tools each; only
+#: the issue and pull/merge-request surfaces are core enough to be always-on.
+#: Server-qualified ORIGINAL tool names, so a shift in the multiplexer's derived
+#: prefixes cannot silently break the defaults.
+DEFAULT_MCP_ALWAYS_LOAD_TOOLS: tuple[str, ...] = (
+    "github-mcp:github_issues",
+    "github-mcp:github_pulls",
+    "gitlab-mcp:gitlab_issues",
+    "gitlab-mcp:gitlab_merge_requests",
+)
+
+
 class AgentConfig(BaseSettings):
     """Configuration schema for the AI Agent server.
 
@@ -2499,6 +2526,19 @@ class AgentConfig(BaseSettings):
     # column size is derived from this, so a mismatch breaks node inserts.
     kg_embedding_dim: str | None = Field(default="768", alias="KG_EMBEDDING_DIM")
 
+    # Auto-embed at ingest time (D-PERF-5 / D-EMB): every typed-entity write that
+    # goes through the ChangeEnvelope boundary (``ingestion/envelope_ingest.py``)
+    # gets a best-effort embedding computed from its own record text, so an entity
+    # never lands with zero vector coverage the way the whole typed-entity fleet
+    # did before this flag existed (only ~6 document-shaped connectors embedded;
+    # every ChangeEnvelope-based connector — ServiceNow, LeanIX, GitHub, Twenty,
+    # ... — did not). A missing/unreachable embedding endpoint degrades this to a
+    # no-op (logged once) rather than failing the entity's write — embedding is a
+    # retrieval nicety, never a durability gate. Default on in production; unit
+    # tests that construct envelopes without a live embedding endpoint configured
+    # get the same no-op behavior for free.
+    kg_ingest_auto_embed: bool = Field(default=True, alias="KG_INGEST_AUTO_EMBED")
+
     # Single dev switch that disables ALL KG background daemons (maintenance
     # scheduler: enrichment/reconcile/file-watch/hygiene/task-reaper + the
     # embedding backfill). Production keeps them all on; this replaces the old
@@ -3120,7 +3160,11 @@ class AgentConfig(BaseSettings):
 
     # GraphOS has one strict-current fleet posture: its own tools and the fleet
     # meta-tools are registered at boot, while child servers are mounted lazily.
-    # There is deliberately no alternate eager/standalone fleet posture.
+    # The ONE bounded exception is the explicitly-declared always-load set below
+    # (``MCP_ALWAYS_LOAD`` / ``MCP_ALWAYS_LOAD_TOOLS``): a short, operator-chosen
+    # list of core capability that is mounted eagerly on a session's first
+    # contact. There is deliberately still no "eager everything" posture — the
+    # fleet is far too large for that to be anything but a context flood.
 
     mcp_dynamic_top_k: int = Field(default=8, alias="MCP_DYNAMIC_TOP_K")
     """Default number of ranked tool candidates ``find_tools`` returns when the
@@ -3138,6 +3182,64 @@ class AgentConfig(BaseSettings):
     per-server probe timeout. Full ingestion remains an explicit, unbounded
     operation through ``probe_catalog()``.
     """
+
+    mcp_always_load: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_MCP_ALWAYS_LOAD),
+        alias="MCP_ALWAYS_LOAD",
+    )
+    """Fleet servers mounted EAGERLY on a session's first contact with graph-os,
+    before any ``find_tools`` round trip (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+    Core operational capability should not cost a discovery hop. The motivating
+    reason is concrete: semantic ``find_tools`` ranking degrades to noise
+    whenever the graph's tool embeddings are sparse relative to its node count
+    (observed returning six results all scored *exactly* 0.25, none related to
+    the query). Capability an operator considers core must not be reachable only
+    through a ranker that can silently regress — this list is the deterministic
+    path that always works.
+
+    Names are catalog server names (e.g. ``tunnel-manager-mcp``), not prefixes.
+    Mounting is ALWAYS fail-soft: a server that is missing, unreachable, or
+    crash-looping is logged loudly and left to the normal lazy path; it can
+    never block graph-os startup or a session's first ``tools/list``. Set to
+    ``[]`` to restore fully-lazy behaviour. Accepts a JSON array or a
+    comma-separated string."""
+
+    mcp_always_load_tools: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_MCP_ALWAYS_LOAD_TOOLS),
+        alias="MCP_ALWAYS_LOAD_TOOLS",
+    )
+    """INDIVIDUAL fleet tools mounted eagerly, for servers too large to mount
+    whole (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+    ``MCP_ALWAYS_LOAD`` exposes a server's entire condensed surface. Some
+    servers are far too large for that — ``github-mcp`` and ``gitlab-mcp``
+    carry dozens of tools, and mounting either whole to reach issues and
+    pull/merge requests would flood exactly the context the multiplexer exists
+    to protect. This list is the finer granularity: name the two or three tools
+    that are genuinely core and leave the rest lazy.
+
+    Two accepted entry forms:
+
+    * ``"<server>:<tool>"`` — server-qualified ORIGINAL tool name, e.g.
+      ``"github-mcp:github_issues"``. Preferred, because it survives a change in
+      the multiplexer's computed prefix (prefixes are derived and can shift when
+      a new server collides).
+    * ``"<prefix>__<tool>"`` — an already-prefixed aggregated name, e.g.
+      ``"gith__issues"``.
+
+    Fail-soft exactly like ``MCP_ALWAYS_LOAD``. Accepts a JSON array or a
+    comma-separated string."""
+
+    @field_validator("mcp_always_load", "mcp_always_load_tools", mode="before")
+    @classmethod
+    def _coerce_always_load(cls, v: Any) -> Any:
+        """Accept comma-separated or JSON-encoded always-load lists via the
+        canonical ``to_list`` so env wiring matches the rest of the fleet's list
+        flags (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+        if v is None or isinstance(v, list):
+            return v
+        return [str(item).strip() for item in to_list(v) if str(item).strip()]
 
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
 
@@ -4497,6 +4599,15 @@ class AgentConfig(BaseSettings):
     deployments are unaffected (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw)."""
     graph_schema_pack: str = Field(default="core", alias="GRAPH_SCHEMA_PACK")
     """Registered schema pack selected for the graph ontology runtime."""
+    domain_packs_root: str = Field(default="", alias="DOMAIN_PACKS_ROOT")
+    """Filesystem root an operator installs versioned domain packs under
+    (CONCEPT:AU-KG.ingest.domain-pack-framework, ``knowledge_graph/domain_packs/
+    pack_loader.py``'s ``DomainPackRegistry``) — each immediate child directory
+    containing a ``domain_pack.yml`` is discovered and fail-closed-validated by
+    ``pack_loader.get_default_registry()``. Empty (the default) means no packs
+    are installed; every consumer of the default registry (e.g.
+    ``ingestion.promotion.resolve_confidence_threshold``) degrades to its own
+    non-pack fallback rather than erroring."""
     kg_ingest_shard_fanout: bool = Field(default=False, alias="KG_INGEST_SHARD_FANOUT")
     """Within a single routed content source, spread writes across per-shard
     content-keyed sub-graphs (``src:freshrss#0`` … ``#K-1``) instead of one graph
@@ -6153,7 +6264,7 @@ def _fetch_registry_from_kg() -> tuple[MCPAgentRegistryModel, bool]:
     tools = _fetch_tools(engine, errors)
     agents.extend(_synthesize_partition_agents(tools, {a.name for a in agents}))
 
-    return MCPAgentRegistryModel(agents=agents, tools=tools), not errors
+    return MCPAgentRegistryModel(agents=agents, tools=tuple(tools)), not errors
 
 
 def _fetch_prompt_agents(
@@ -6271,7 +6382,52 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
         tool_rows = engine.backend.execute(
             "MATCH (t:Tool) RETURN t.name, t.description, t.mcp_server, t.relevance_score, t.tags, t.requires_approval"
         )
-        for row in tool_rows:
+    except Exception as exc:  # noqa: BLE001 — backend details may contain credentials; report only the exception class
+        # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
+        # (see _fetch_prompt_agents above) — a failure here additionally drops
+        # all dynamically-synthesized partition agents (they're derived from
+        # `tools`), so it is especially important this isn't cached as
+        # "complete" for the process's whole lifetime.
+        logger.warning(
+            "Failed to fetch Tool nodes (registry cache may go stale) (%s)",
+            type(exc).__name__,
+        )
+        if errors is not None:
+            errors.append(f"tools: query failed ({type(exc).__name__})")
+        return tools
+
+    try:
+        row_iterator = iter(tool_rows)
+    except Exception as exc:  # noqa: BLE001 — backend iteration details may contain secrets; report only the exception class
+        logger.warning(
+            "Tool query returned a non-iterable result (%s); registry will retry",
+            type(exc).__name__,
+        )
+        if errors is not None:
+            errors.append(f"tools: result is not iterable ({type(exc).__name__})")
+        return tools
+
+    rejected_rows = 0
+    row_index = 0
+    while True:
+        try:
+            row = next(row_iterator)
+        except StopIteration:
+            break
+        except Exception as exc:  # noqa: BLE001 — lazy backend errors are sanitized and make the registry explicitly incomplete
+            logger.warning(
+                "Tool row stream failed after %d row(s) (%s); registry will retry",
+                row_index,
+                type(exc).__name__,
+            )
+            if errors is not None:
+                errors.append(
+                    f"tools: row stream failed after {row_index} row(s) "
+                    f"({type(exc).__name__})"
+                )
+            return tools
+
+        try:
             tools.append(
                 MCPToolInfo(
                     name=row.get("t.name", ""),
@@ -6282,15 +6438,20 @@ def _fetch_tools(engine: Any, errors: list[str] | None = None) -> list[MCPToolIn
                     requires_approval=row.get("t.requires_approval", False),
                 )
             )
-    except Exception as e:
-        # D-DST-6 raised this to warning; D-DSTO-1 reports it via ``errors``
-        # (see _fetch_prompt_agents above) — a failure here additionally drops
-        # all dynamically-synthesized partition agents (they're derived from
-        # `tools`), so it is especially important this isn't cached as
-        # "complete" for the process's whole lifetime.
-        logger.warning(f"Failed to fetch Tool nodes (registry cache may go stale): {e}")
-        if errors is not None:
-            errors.append(f"tools: {e}")
+        except Exception:  # noqa: BLE001 — quarantine untrusted row objects without evaluating or logging their contents
+            rejected_rows += 1
+        finally:
+            row_index += 1
+
+    if rejected_rows:
+        logger.warning(
+            "Rejected %d malformed Tool row(s); registry will retry",
+            rejected_rows,
+        )
+    if rejected_rows and errors is not None:
+        # Preserve valid tools for this request, but keep the assembled registry
+        # out of the process-lifetime cache until the bad graph rows are fixed.
+        errors.append(f"tools: rejected {rejected_rows} malformed row(s)")
     return tools
 
 

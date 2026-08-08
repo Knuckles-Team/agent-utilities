@@ -554,6 +554,7 @@ class TestSelfToolSurfaceIngestion:
         assert servers[0]["name"] == "graph-os"
         assert {t["name"] for t in tools} == {"graph_query", "engine_broker"}
         assert all(t["mcp_server"] == "graph-os" for t in tools)
+        assert all(t["relevance_score"] == 50 for t in tools)
         # Canonical shape only — never the raw 'type'/'rel_type' aliases.
         assert all("type" not in e for e in entities)
 

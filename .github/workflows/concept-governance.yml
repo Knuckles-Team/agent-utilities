@@ -29,13 +29,34 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # D-CIP-4: this job used to run scripts/check_concept_governance.py with no
+      # dependencies installed at all -- it imports agent_utilities.governance.
+      # concept_hierarchy, which transitively needs yaml + httpx (via
+      # agent_utilities.security.browser_auth), so every push-triggered run failed
+      # on import (ModuleNotFoundError: No module named 'httpx'), unvalidated since
+      # this job had only ever run on pull_request before. Same static
+      # source-contract sync as guardrails.yml's job (no runtime engine needed for
+      # a static design-corpus audit), and the same '3.12' floor as
+      # requires-python = ">=3.12,<3.15" in pyproject.toml (this job previously
+      # pinned 3.11, which doesn't satisfy that floor either).
+      - name: Sync immutable source-contract environment (no runtime engine)
+        run: |
+          uv sync --frozen --group guardrails \
+            --no-install-package epistemic-graph \
+            --no-install-package langfuse-agent
 
       - name: Audit every live concept id against the design corpus
-        run: python3 scripts/check_concept_governance.py --audit-merged
+        run: uv run --no-sync python3 scripts/check_concept_governance.py --audit-merged
 
   concept-check:
     if: github.event_name == 'pull_request'
@@ -50,7 +71,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.11'
+          python-version: '3.12'
 
       - name: Derive valid pillars from registry
         run: |

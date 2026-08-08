@@ -39,9 +39,9 @@ __all__ = ["build_fleet_instrumentation"]
 
 def build_fleet_instrumentation(
     *,
-    telemetry: "TelemetryEngine | None" = None,
+    telemetry: TelemetryEngine | None = None,
     **settings_kwargs: Any,
-) -> "Instrumentation | None":
+) -> Instrumentation | None:
     """Return an ``Instrumentation`` capability bound to our live OTel pipeline.
 
     Returns ``None`` — a clean no-op, never a placeholder capability — when no

@@ -51,7 +51,9 @@ _OK_RESULT: dict[str, Any] = {
 
 
 @contextmanager
-def _mocked_focused_run(result: dict[str, Any]) -> Iterator[None]:
+def _mocked_focused_run(
+    result: dict[str, Any],
+) -> Iterator[tuple[MagicMock, MagicMock]]:
     """Patch the minimal boundary so ``run_agent`` flows the focused-tools path to ``result``.
 
     Same minimal set as ``test_run_summary.py``'s end-to-end tests: the engine boundary, the
@@ -83,11 +85,13 @@ def _mocked_focused_run(result: dict[str, Any]) -> Iterator[None]:
             "_execute_focused_tools",
             new=AsyncMock(return_value=result),
         ),
-        patch.object(agent_runner, "_record_execution_trace"),
+        patch.object(agent_runner, "_record_execution_trace") as record_trace,
         patch.object(agent_runner, "_write_step_credit"),
-        patch.object(agent_runner, "_persist_tool_calls"),
+        patch.object(agent_runner, "_persist_tool_calls") as persist_tool_calls,
     ):
-        yield
+        # Return both writer seams so callers can prove provenance was not split
+        # into a second serial write after being handed to the RunTrace batch seam.
+        yield record_trace, persist_tool_calls
 
 
 @pytest.mark.asyncio
@@ -120,6 +124,25 @@ async def test_default_none_sink_is_byte_identical() -> None:
     assert out_with_sink == out_default
     # The sink is the ONLY behavioral difference: it received events; the None path emitted none.
     assert recorder.events, "a supplied sink should receive events"
+
+
+@pytest.mark.asyncio
+async def test_tool_calls_are_handed_to_the_single_runtrace_writer() -> None:
+    """The direct fleet path gives the batch seam all tool evidence exactly once."""
+    with _mocked_focused_run(dict(_OK_RESULT)) as (
+        record_trace,
+        persist_tool_calls,
+    ):
+        out = await agent_runner.run_agent(
+            agent_name="messaging-assistant",
+            task="list repos",
+            run_id="run:" + "p" * 32,
+        )
+
+    assert out == "ANSWER"
+    assert record_trace.call_count == 1
+    assert record_trace.call_args.kwargs["tool_calls"] == _OK_RESULT["tool_calls"]
+    assert persist_tool_calls.call_count == 0
 
 
 @pytest.mark.asyncio

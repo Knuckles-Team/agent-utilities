@@ -97,17 +97,81 @@ class GraphGovernanceAgent:
             await self._evaluate_proposal(proposal)
 
         # 3. Trigger Semantic Consolidation
-        # Call the SynthesisEngine if available (from Phase 2)
+        # D-EMB/D-PERF-5: this was a dead stub (import + bare `pass`) — the
+        # governance cycle never actually ran any GraphMaintainer operation.
+        # A small, bounded entity-embedding backfill batch each cycle is the
+        # SAFE (text-snapshot-fenced embedding CAS + ANN indexing, with a
+        # separate no-text deferral state rather than a placeholder vector; see
+        # backfill_entity_embeddings's docstring for why this preserves the
+        # existing ACL and never re-upserts through ChangeEnvelope), self-
+        # healing catch-up for legacy under-embedded nodes — this governance
+        # loop already runs continuously in production
+        # (`agent_utilities/server/app.py` starts `GraphGovernanceAgent`), so
+        # this is a real reachable path, not another orphaned capability.
+        # Deliberately small per cycle (never the whole ~26k-node backlog at
+        # once): a full backfill is the operator-run
+        # `scripts/backfill_embeddings.py` / GraphMaintainer.trigger_operation
+        # path instead.
         try:
-            from agent_utilities.knowledge_graph.core.maintainer import (  # noqa: F401
+            from agent_utilities.knowledge_graph.core.maintainer import (
                 GraphMaintainer,
             )
 
-            # Or whichever class handles synthesis
-            # E.g. trigger compaction
-            pass
+            maintainer = GraphMaintainer(self.engine)
+            report = maintainer.backfill_entity_embeddings(limit=64, batch_size=64)
+            if report.get("embedded"):
+                logger.info("GovernanceAgent embedding backfill: %s", report)
         except ImportError:
             pass
+        except Exception as e:  # noqa: BLE001 — best-effort background maintenance step; must never break the governance cycle's proposal review above
+            logger.debug("GovernanceAgent embedding backfill skipped: %s", e)
+
+        # 3b. Discovery-scoped embedding pass (D-HYD-4 addendum, 2026-08-06).
+        # The blind sweep above is `ORDER BY n.id` with no type awareness, and
+        # was measured live to leave `find_tools` / `find_relevant_callable_
+        # resources`'s entire search corpus (Tool/WorkflowDefinition/Skill/
+        # CallableResource/Concept/Prompt/MCPServer/NativeTool) at EXACTLY
+        # ZERO embeddings — those ids sort behind tens of thousands of
+        # unrelated nodes (RuntimeSignal, WorkItem, IngestManifest, raw
+        # entity-extraction rows with unprefixed ids) it would take the 64
+        # node/5-min cadence roughly two days to fully clear, and new
+        # discoverable/delegatable entities keep landing behind that frontier
+        # in the meantime. A second small, separately-budgeted pass scoped to
+        # DISCOVERY_NODE_TYPES keeps that corpus current going forward without
+        # taking budget from the general catch-up above.
+        try:
+            from agent_utilities.knowledge_graph.core.maintainer import (
+                GraphMaintainer,
+            )
+            from agent_utilities.knowledge_graph.enrichment.semantic import (
+                DISCOVERY_NODE_TYPES,
+            )
+
+            maintainer = GraphMaintainer(self.engine)
+            discovery_report = maintainer.backfill_entity_embeddings(
+                limit=64, batch_size=64, node_types=DISCOVERY_NODE_TYPES
+            )
+            if discovery_report.get("embedded"):
+                logger.info(
+                    "GovernanceAgent discovery-scoped embedding backfill: %s",
+                    discovery_report,
+                )
+        except ImportError as e:
+            # Best-effort: an optional/uninstalled dependency of the maintainer
+            # or semantic module must never break the governance cycle's
+            # proposal review above, but the cause is still worth a level
+            # someone actually watches (D-CDX-101/AGENTS.md swallowed-error
+            # discipline) rather than a bare `pass` someone has to reproduce
+            # blind later.
+            logger.warning(
+                "GovernanceAgent discovery-scoped embedding backfill skipped "
+                "(import failed): %s",
+                e,
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort background maintenance step; must never break the governance cycle's proposal review above
+            logger.debug(
+                "GovernanceAgent discovery-scoped embedding backfill skipped: %s", e
+            )
 
     async def _evaluate_proposal(self, proposal: ChangeProposal) -> None:
         """Autonomously evaluate a pending proposal."""

@@ -26,7 +26,7 @@ profile; this package is the orthogonal axis (a genuinely new, versioned,
 hash-verified, MULTI-COEXISTING per-corpus ontology + extraction layer). See
 :mod:`domain_pack`'s module docstring for the full reasoning, including why
 entity-identity rules stay on ``SchemaPack`` (``IdentityRule``,
-Track 5/entity-resolution) rather than being re-declared here.
+Track 5/entity-resolution) rather than being redeclared here.
 """
 
 from __future__ import annotations

@@ -99,7 +99,19 @@ def validate_mermaid_block(filepath, start_line, block_lines):
                 r"\{(.*?)\}"  # Decision { ... }
                 r")"
             )
-            matches = shape_pattern.findall(l_clean)
+            # Edge labels (`-->|text| B`) are a SEPARATE Mermaid construct with
+            # their own lexer rules — they are not node labels and must not be
+            # scanned as one. Left in place they also corrupt the node scan: the
+            # asymmetric-shape alternative `id > label ]` happily matches from an
+            # identifier inside an edge label, across the closing `|`, into the
+            # next node's brackets (e.g. `D -->|node_transitions > cap| E1[...]`
+            # was reported as a node label `cap| E1[...` containing an illegal
+            # `[`). That is a false positive that no edit to the diagram can
+            # satisfy — quoting the real node label does not remove it. Mask the
+            # pipe-delimited runs before scanning; `|` is not legal inside any
+            # node label, so nothing checkable is hidden by this.
+            scan_line = re.sub(r"\|[^|\n]*\|", " ", l_clean)
+            matches = shape_pattern.findall(scan_line)
             for m in matches:
                 label = next((item for item in m if item), "").strip()
                 if label:

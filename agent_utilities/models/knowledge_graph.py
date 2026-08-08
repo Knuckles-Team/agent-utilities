@@ -12,7 +12,9 @@ discovery of adaptive_agent_router and their tools.
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .tool_score import normalize_legacy_relevance_score
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.workflow_store import WorkflowStore
@@ -1023,6 +1025,49 @@ class RegistryEdgeType(StrEnum):
     SAME_AS = "same_as"
 
 
+# ── The model → graph-engine property contract ────────────────────────────────
+#
+# The engine stores a node's class under exactly ONE property name
+# (``node_type``) and an edge's kind under exactly ONE property name
+# (``relationship``); the native node identity is persisted as ``id``. Registry
+# models, however, carry the node-class discriminator as ``type``
+# (``RegistryNode.type``), so a raw ``model_dump()`` can never be handed to a
+# graph write — it always carries the retired spelling.
+#
+# ``RegistryNode.to_graph_properties()`` below is the SINGLE place that
+# translation happens; ``model_dump()`` keeps its plain Pydantic meaning.
+# Every guard that rejects the retired spelling raises through the factories
+# here so one rule reads as one rule everywhere it is enforced.
+
+GRAPH_NODE_TYPE_PROPERTY = "node_type"
+GRAPH_EDGE_RELATIONSHIP_PROPERTY = "relationship"
+RETIRED_EDGE_RELATIONSHIP_PROPERTIES = frozenset(
+    {"type", "rel_type", "relationship_type", "relation"}
+)
+
+
+def retired_node_type_property_error(*, context: str = "") -> ValueError:
+    """Build the ONE error raised for a graph write carrying a bare ``type``."""
+    where = f"{context}: " if context else ""
+    return ValueError(
+        f"{where}node property 'type' is retired; the canonical node-class "
+        f"property is '{GRAPH_NODE_TYPE_PROPERTY}' "
+        "(project typed models with RegistryNode.to_graph_properties())"
+    )
+
+
+def retired_edge_relationship_property_error(
+    aliases: Any, *, context: str = ""
+) -> ValueError:
+    """Build the ONE error raised for a graph write carrying a retired edge alias."""
+    where = f"{context}: " if context else ""
+    names = ", ".join(f"'{alias}'" for alias in sorted(aliases))
+    return ValueError(
+        f"{where}edge properties ({names}) are retired; the canonical "
+        f"relationship property is '{GRAPH_EDGE_RELATIONSHIP_PROPERTY}'"
+    )
+
+
 class RegistryNode(BaseModel):
     """Base class for all nodes in the registry graph."""
 
@@ -1037,6 +1082,38 @@ class RegistryNode(BaseModel):
     is_permanent: bool = False
     ewc_fisher_diag: list[float] | None = None
     temporal_drift_score: float = 0.0
+
+    def to_graph_properties(
+        self,
+        *,
+        exclude: Any = None,
+        exclude_none: bool = False,
+    ) -> dict[str, Any]:
+        """Project this node onto the property map a graph write accepts.
+
+        The graph write surface fail-closed rejects a bare ``type`` property:
+        the sole canonical node-class property is ``node_type`` and the native
+        identity is persisted as ``id``. This model carries the same
+        discriminator as ``type``, so ``**node.model_dump()`` is always
+        rejected. This method is the explicit, named model → engine projection
+        — every field in JSON-safe form, with ``type`` replaced by
+        ``node_type`` — and leaves ``model_dump()``'s Pydantic contract intact
+        for serialization, API responses, and fixtures that genuinely want
+        ``type``.
+
+        Args:
+            exclude: Extra field names to omit (e.g. ``{"id"}`` where the
+                caller supplies identity out of band).
+            exclude_none: Drop fields whose value is ``None``.
+
+        Returns:
+            The node's properties keyed exactly as the engine stores them.
+        """
+        skip = set(exclude or ())
+        skip.add("type")
+        props = self.model_dump(mode="json", exclude=skip, exclude_none=exclude_none)
+        props[GRAPH_NODE_TYPE_PROPERTY] = getattr(self.type, "value", str(self.type))
+        return props
 
 
 class CommunityNode(RegistryNode):
@@ -1148,13 +1225,52 @@ class AgentNode(RegistryNode):
 
 
 class ToolNode(RegistryNode):
-    """Represents a specific tool provided by an agent."""
+    """Represents a specific tool provided by an agent.
+
+    ``relevance_score`` is aligned with the canonical strict domain enforced
+    by :class:`agent_utilities.models.mcp.MCPToolInfo` (CONCEPT:
+    D-CDX-54) — a deterministic integer point score in ``0..100``. ``strict``
+    rejects bool/str/out-of-range values outright instead of silently
+    coercing them (Pydantic's default lax int validator would happily turn
+    ``True`` into ``1`` and truncate ``1.9`` into ``1``), and
+    ``validate_assignment`` closes the same hole for post-construction
+    mutation, not just construction. The ``mode="before"`` validator is the
+    one explicit legacy-migration boundary: early writers persisted
+    normalized floats in ``[0, 1]``, and those — and only those — are
+    rescaled to canonical points. Any other out-of-range/ambiguous value
+    (negative, >100, bool, numeric string, non-legacy float) is left to fail
+    the strict validator so corrupt rows are quarantined at construction
+    rather than silently persisted.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
 
     type: RegistryNodeType = RegistryNodeType.TOOL
     mcp_server: str
-    relevance_score: int = 0
+    relevance_score: int = Field(
+        default=0,
+        ge=0,
+        le=100,
+        strict=True,
+        description="Deterministic quality score (0-100)",
+    )
     requires_approval: bool = False
     tags: list[str] = Field(default_factory=list)
+
+    @field_validator("relevance_score", mode="before")
+    @classmethod
+    def _normalize_legacy_relevance_score(cls, value: Any) -> Any:
+        """Read legacy normalized graph scores without weakening the schema.
+
+        Delegates to :func:`agent_utilities.models.tool_score.normalize_legacy_relevance_score`,
+        the single source of truth shared with
+        :class:`agent_utilities.models.mcp.MCPToolInfo` (D-CDX-53/54), so
+        every canonical-score model in the codebase applies the identical
+        legacy boundary. Floats in the legacy ``[0, 1]`` range are converted
+        to canonical points; every other fractional or out-of-range value
+        remains invalid.
+        """
+        return normalize_legacy_relevance_score(value)
 
 
 class SkillNode(RegistryNode):

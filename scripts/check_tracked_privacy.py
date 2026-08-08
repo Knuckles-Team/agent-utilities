@@ -9,7 +9,9 @@ checked independently, so the gate remains useful in clean CI environments.
 
 from __future__ import annotations
 
+import argparse
 import getpass
+import hashlib
 import os
 import pwd
 import re
@@ -70,7 +72,30 @@ _SOURCE_INTERNAL_URL_RE = re.compile(
     r"\.svc\.cluster\.local\b)"
 )
 _PRIVATE_KEY_LINE_RE = re.compile(r"^\s*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----\s*$")
-_CREDENTIAL_URI_RE = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:[^\s/@]+@")
+_CREDENTIAL_URI_RE = re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:(?P<secret>[^\s/@]+)@"
+)
+# D-CIP-15: a documented template placeholder (the repo's own convention --
+# see deploy_wizard.py's ``_warn_production_safety`` and
+# agent_utilities.observability.langfuse_trust's ``_CREDENTIAL_SENTINELS``)
+# is never a live credential, so a URI shaped like one must not be flagged as
+# though it were. Mirrors scripts/check_wheel_privacy.py's
+# ``_CREDENTIAL_PLACEHOLDER_TOKENS`` so the same words are safe everywhere.
+_CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
+    {
+        "changeme",
+        "change_me",
+        "example",
+        "masked",
+        "placeholder",
+        "redacted",
+        "your",
+        "xxxx",
+        "replace",
+        "todo",
+        "fixme",
+    }
+)
 _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
 _MACHINE_HOST_ID_RE = re.compile(
     r"(?i)(?<![a-z0-9])(?:rw?|host)[0-9]{3,}(?![a-z0-9])"
@@ -109,9 +134,31 @@ class Violation:
     path: str
     line: int
     category: str
+    content_hash: str
+    ordinal: int
 
     def render(self) -> str:
         return f"{self.path}:{self.line}: {self.category}"
+
+
+def _content_hash(text: str) -> str:
+    """Irreversible fingerprint of a line's content, never the value itself.
+
+    A SHA-256 digest cannot be inverted back to the sensitive substring that
+    produced it, so it is safe to persist in the baseline file even though
+    ``render()``/every printed message still withholds the matched value.
+    """
+    return hashlib.sha256(text.encode("utf-8", errors="replace")).hexdigest()[:16]
+
+
+def _is_credential_placeholder(secret: str) -> bool:
+    rendered = secret.strip()
+    if not rendered:
+        return True
+    if re.fullmatch(r"(?:\*+|#+|x{4,})", rendered, flags=re.IGNORECASE):
+        return True
+    tokens = set(re.findall(r"[a-z0-9]+", rendered.lower()))
+    return bool(tokens & _CREDENTIAL_PLACEHOLDER_TOKENS)
 
 
 def _identifier_from_path(value: str) -> set[str]:
@@ -216,40 +263,52 @@ def classify_line(
         categories.add("machine-specific host identifier")
     if deployment_doc and _INTERNAL_ENDPOINT_RE.search(line):
         categories.add("hard-coded internal endpoint")
-    if deployment_doc and _CREDENTIAL_URI_RE.search(line):
-        categories.add("credential-bearing URI")
+    if deployment_doc:
+        credential_match = _CREDENTIAL_URI_RE.search(line)
+        if credential_match and not _is_credential_placeholder(
+            credential_match.group("secret")
+        ):
+            categories.add("credential-bearing URI")
     if deployment_doc and _HOST_IDENTITY_RE.search(line):
         categories.add("hard-coded remote account")
     return frozenset(categories)
 
 
-def classify_changed_source_line(
+def classify_runtime_source_line(
     line: str, *, identifiers: frozenset[str]
 ) -> frozenset[str]:
-    """Classify changed source without applying public-doc path heuristics.
+    """Classify runtime/deployment source without applying public-doc path heuristics.
 
     Source code legitimately manipulates path-shaped values, so the generic
     ``source_path = ...`` rule would be noisy here. Concrete account paths,
     environment endpoints, credential-bearing URLs, and local identities are
-    never legitimate package defaults and are checked for every changed source,
-    skill, script, and test instead.
+    never legitimate package defaults and are checked for every shipped runtime
+    and deployment file instead.
+
+    D-CIP-10: the categories below used to be suffixed ``in changed source``,
+    from when :func:`_runtime_source_artifacts` only looked at ``git diff``.
+    That scope was the bug; the label is now ``in runtime source`` so the gate's
+    own output cannot imply a narrower guarantee than it actually gives.
     """
 
     categories: set[str] = set()
     if _HOME_PATH_RE.search(line):
-        categories.add("machine-specific home path in changed source")
+        categories.add("machine-specific home path in runtime source")
     folded = line.casefold()
     if any(
         re.search(rf"(?<![\w-]){re.escape(value)}(?![\w-])", folded)
         for value in identifiers
     ):
-        categories.add("local account or host identifier in changed source")
+        categories.add("local account or host identifier in runtime source")
     if _SOURCE_INTERNAL_URL_RE.search(line):
-        categories.add("hard-coded internal endpoint in changed source")
-    if _CREDENTIAL_URI_RE.search(line):
-        categories.add("credential-bearing URI in changed source")
+        categories.add("hard-coded internal endpoint in runtime source")
+    credential_match = _CREDENTIAL_URI_RE.search(line)
+    if credential_match and not _is_credential_placeholder(
+        credential_match.group("secret")
+    ):
+        categories.add("credential-bearing URI in runtime source")
     if _PRIVATE_KEY_LINE_RE.fullmatch(line):
-        categories.add("private key material in changed source")
+        categories.add("private key material in runtime source")
     return frozenset(categories)
 
 
@@ -326,23 +385,36 @@ def _tracked_artifacts(root: Path) -> list[Path]:
     ]
 
 
-def _changed_source_artifacts(root: Path) -> list[Path]:
-    """Return changed/untracked source paths for the source privacy boundary."""
+def _runtime_source_artifacts(root: Path) -> list[Path]:
+    """Every **tracked** runtime/deployment source path, not merely the changed ones.
 
-    names: set[str] = set()
-    for command in (
-        ["git", "diff", "--name-only", "--diff-filter=ACMR"],
-        ["git", "diff", "--cached", "--name-only", "--diff-filter=ACMR"],
-        ["git", "ls-files", "--others", "--exclude-standard"],
-    ):
-        values = _git_file_names(root, command)
-        if values is None:
-            names.clear()
-            candidates = _filesystem_files(root)
-            break
-        names.update(values)
-    else:
-        candidates = [root / name for name in names]
+    D-CIP-10. This pass used to be scoped to ``git diff``/untracked files, which
+    made the gate structurally blind to its own back-catalogue: a machine path
+    that landed in an earlier commit was never re-examined, so it stayed public
+    forever. Combined with :func:`_is_public_artifact`'s *location* filter — which
+    admits only ``docs/``, ``.github/``, top-level and ``*.toml`` — the two passes
+    left a hole exactly where the real leaks live. ``docker/*.yaml`` passes the
+    suffix test and fails the location test, so nothing scanned it; the gate
+    reported 7 lines in 2 ``docs/`` files while 11 tracked files carried machine
+    paths, two of them a **personal** account name (D-PCC-1).
+
+    Scanning the whole tracked tree here closes that hole without inventing a
+    heuristic: the classification (:func:`classify_changed_source_line`) and the
+    scope (:func:`_is_runtime_source_path`, which already lists ``docker``) were
+    both already correct and already noise-tuned. Only the *diff* restriction was
+    wrong.
+
+    A public GitHub repository publishes its history, not just its tip, so
+    "changed in this commit" was never the right boundary for a privacy gate.
+    """
+
+    names = _git_file_names(
+        root,
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+    )
+    candidates = (
+        _filesystem_files(root) if names is None else [root / name for name in names]
+    )
     return sorted(
         (
             path
@@ -417,20 +489,33 @@ def _author_metadata_lines(path: Path, lines: list[str]) -> list[int]:
     return violations
 
 
+def _next_ordinal(counts: dict[tuple[str, str, str], int], group: tuple[str, str, str]) -> int:
+    ordinal = counts.get(group, 0)
+    counts[group] = ordinal + 1
+    return ordinal
+
+
 def scan(root: Path = ROOT) -> list[Violation]:
     identifiers = derive_local_identifiers(root)
     violations: list[Violation] = []
+    # (path, category, content_hash) -> count so far, i.e. an ordinal
+    # disambiguating two genuinely-identical lines in the same file/category —
+    # never the line number, which drifts under unrelated edits and would
+    # otherwise report a moved (not new) leak as a phantom NEW finding.
+    ordinals: dict[tuple[str, str, str], int] = {}
     for path in _tracked_artifacts(root):
         if not path.is_file():
             continue
         relative = path.relative_to(root)
+        rel_str = relative.as_posix()
         deployment_doc = _is_deployment_doc(relative)
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         for number in _author_metadata_lines(path, lines):
+            category = "non-neutral package author identity"
+            content_hash = _content_hash(lines[number - 1])
+            ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
             violations.append(
-                Violation(
-                    relative.as_posix(), number, "non-neutral package author identity"
-                )
+                Violation(rel_str, number, category, content_hash, ordinal)
             )
         for number, line in enumerate(lines, 1):
             for category in classify_line(
@@ -438,40 +523,178 @@ def scan(root: Path = ROOT) -> list[Violation]:
                 identifiers=identifiers,
                 deployment_doc=deployment_doc,
             ):
+                content_hash = _content_hash(line)
+                ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
                 violations.append(
-                    Violation(relative.as_posix(), number, category)
+                    Violation(rel_str, number, category, content_hash, ordinal)
                 )
-    for path in _changed_source_artifacts(root):
+    for path in _runtime_source_artifacts(root):
         if not path.is_file():
             continue
         relative = path.relative_to(root)
+        rel_str = relative.as_posix()
         if _is_bundled_connector_profile(relative):
+            category = "bundled environment-specific connector profile"
+            # Whole-file finding, not line-anchored: hash the path itself so
+            # it stays stable regardless of the file's own line churn.
+            content_hash = _content_hash(rel_str)
+            ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
             violations.append(
-                Violation(
-                    relative.as_posix(),
-                    1,
-                    "bundled environment-specific connector profile",
-                )
+                Violation(rel_str, 1, category, content_hash, ordinal)
             )
         lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
         for number, line in enumerate(lines, 1):
-            for category in classify_changed_source_line(
+            for category in classify_runtime_source_line(
                 line, identifiers=identifiers
             ):
+                content_hash = _content_hash(line)
+                ordinal = _next_ordinal(ordinals, (rel_str, category, content_hash))
                 violations.append(
-                    Violation(relative.as_posix(), number, category)
+                    Violation(rel_str, number, category, content_hash, ordinal)
                 )
     return violations
 
 
+BASELINE = Path(__file__).resolve().parent / "tracked_privacy_baseline.txt"
+
+_BASELINE_SEP = "\t"
+
+
+# BaselineKey: (path, category, content_hash, ordinal) — stable under pure
+# line motion elsewhere in the file. ``content_hash`` fingerprints the
+# offending line itself (irreversibly — see ``_content_hash``), so a leak
+# that merely shifted line number because unrelated code was inserted above
+# it keys identically before and after the shift. ``ordinal`` only
+# disambiguates two genuinely-identical lines in the same file/category.
+# Same scheme as ``check_swallowed_errors.py``'s ``HandlerKey`` (D-SWG-1) and
+# ``check_wiring.py``'s ``_finding_key`` (D-OP-11) — canonical across every
+# gate baseline in this repo, not a bespoke third scheme.
+BaselineKey = tuple[str, str, str, int]
+
+
+def _baseline_key(violation: Violation) -> BaselineKey:
+    return (violation.path, violation.category, violation.content_hash, violation.ordinal)
+
+
+def _load_baseline() -> set[BaselineKey]:
+    """Pre-existing leaks this gate newly *sees* but did not previously report.
+
+    A missing baseline file is an EMPTY baseline — stricter, never laxer — so a
+    lost or renamed path can only turn known debt back into hard failures, it
+    can never silently excuse a real leak.
+    """
+    if not BASELINE.exists():
+        return set()
+    out: set[BaselineKey] = set()
+    for raw in BASELINE.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        fields = line.split(_BASELINE_SEP)
+        if len(fields) < 5 or not fields[4].isdigit():
+            continue
+        # fields: path, line(informational), category, content_hash, ordinal
+        out.add((fields[0], fields[2], fields[3], int(fields[4])))
+    return out
+
+
+def _write_baseline(violations: list[Violation]) -> None:
+    lines = [
+        f"{v.path}{_BASELINE_SEP}{v.line}{_BASELINE_SEP}{v.category}"
+        f"{_BASELINE_SEP}{v.content_hash}{_BASELINE_SEP}{v.ordinal}"
+        for v in sorted(
+            violations,
+            key=lambda v: (v.path, v.category, v.content_hash, v.ordinal),
+        )
+    ]
+    BASELINE.write_text(
+        "# Frozen baseline of pre-existing privacy leaks that D-CIP-10's scope\n"
+        "# fix made VISIBLE for the first time (a ratchet — burn down toward\n"
+        "# zero, same convention as scripts/security/cypher_write_subset_baseline.txt).\n"
+        "#\n"
+        "# Until D-CIP-10, check_tracked_privacy had two passes with a hole\n"
+        "# between them: the whole-tree pass was location-filtered to docs/,\n"
+        "# .github/, top-level and *.toml, and the unrestricted pass was scoped\n"
+        "# to `git diff`. Anything committed earlier under docker/ or\n"
+        "# agent_utilities/ was scanned by neither, so these leaks were public\n"
+        "# and invisible. They are NOT new — only newly seen.\n"
+        "#\n"
+        "# These entries are tracked debt, not exemptions. Two are the personal\n"
+        "# account name in live kaniko Job manifests (D-PCC-1, owned by\n"
+        "# lane-release-0801); the rest are internal endpoints and shared-account\n"
+        "# paths. GitHub is public-facing and gets STRICT standards, so this file\n"
+        "# must reach zero before the repository is pushed.\n"
+        "#\n"
+        "# TAB-separated: path\\tline\\tcategory\\tcontent_hash\\tordinal. The KEY is\n"
+        "# (path, category, content_hash, ordinal) -- content_hash is an\n"
+        "# irreversible fingerprint of the offending line, so the entry is stable\n"
+        "# under pure line motion elsewhere in the file (D-W2P: this file used to\n"
+        "# key on line number alone and reported moved-not-new leaks as phantom\n"
+        "# NEW findings). `line` is informational only, for a human to locate the\n"
+        "# site; it is never compared. A NEW leak (not listed here) FAILS the\n"
+        "# gate. Fixing a listed site shrinks this file on the next\n"
+        "# --update-baseline; never hand-add an entry to make a real leak\n"
+        "# disappear.\n"
+        + "\n".join(lines)
+        + ("\n" if lines else ""),
+        encoding="utf-8",
+    )
+
+
 def main() -> int:
+    parser = argparse.ArgumentParser(prog="check-tracked-privacy")
+    parser.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help="re-anchor the frozen baseline to the current violations",
+    )
+    args = parser.parse_args()
+
     violations = scan()
-    if violations:
+    if args.update_baseline:
+        _write_baseline(violations)
+        print(f"Wrote {BASELINE.name}: {len(violations)} baselined leak(s).")
+        return 0
+
+    baseline = _load_baseline()
+    new = [v for v in violations if _baseline_key(v) not in baseline]
+    current = {_baseline_key(v) for v in violations}
+    fixed = len(baseline - current)
+
+    if new:
         print("Tracked artifact privacy gate FAILED:")
-        for violation in violations:
+        for violation in new:
             print(f"  - {violation.render()}")
         print("Matched values are intentionally suppressed.")
+        print(
+            f"{len(new)} NEW leak(s) not in {BASELINE.name}. "
+            f"({len(baseline)} pre-existing leak(s) remain baselined — "
+            "burn them down, never grow the file.)"
+        )
+        # D-ORC-53: this gate returned a DIFFERENT verdict for the SAME tree
+        # depending on invocation method (standalone script vs. via
+        # pre-commit) at least once, with no code change in between — a
+        # non-reproducible privacy verdict trains people to skip a gate that
+        # is right often enough to be dangerous when it is silent. Printing
+        # exactly what was resolved turns the NEXT occurrence into evidence
+        # instead of another "prove it happened after the fact" investigation
+        # (this pass could not reproduce the discrepancy against ROOT/cwd/
+        # baseline resolution alone — see that item for what was ruled out).
+        print(
+            "resolution (D-ORC-53 forensic breadcrumb): "
+            f"ROOT={ROOT} cwd={Path.cwd()} BASELINE={BASELINE} "
+            f"baseline_found={BASELINE.is_file()} "
+            f"total_violations={len(violations)} baselined={len(baseline)} "
+            f"PRE_COMMIT_HOME={os.environ.get('PRE_COMMIT_HOME', '<unset>')!r}"
+        )
         return 1
+    if fixed:
+        print(
+            f"Tracked artifact privacy gate passed. {fixed} baselined leak(s) "
+            f"are now fixed — re-run with --update-baseline to shrink "
+            f"{BASELINE.name}."
+        )
+        return 0
     print("Tracked artifact privacy gate PASSED.")
     return 0
 

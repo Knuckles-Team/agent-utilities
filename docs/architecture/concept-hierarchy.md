@@ -19,6 +19,26 @@ Numeric IDs, alternate spellings, aliases, and implicit hierarchy levels are
 invalid. `agent_utilities.governance.concept_hierarchy` owns parsing, path/IRI
 projection, and domain validation.
 
+## Marker parsing
+
+All scanners use `iter_okf_markers()` rather than slicing a raw regular-expression
+match. The parser keeps the canonical ID separate from an immediately adjacent
+tail such as `/2.15`, `_legacy`, or `UppercaseSuffix`. Historical slash annotations
+remain visible as `OkfMarker.tail`, but tails are never treated as part of the ID or
+as generated concept documentation. The marker's full span includes the tail, so
+the description begins only after that span.
+
+```mermaid
+flowchart LR
+    Source["Source text"] --> Parser["iter_okf_markers"]
+    Parser --> Id["canonical id"]
+    Parser --> Tail["explicit adjacent tail"]
+    Parser --> Span["full marker span"]
+    Id --> Registry["registry and governance scanners"]
+    Span --> Docs["description starts after span"]
+    Tail --> Triage["migration and triage evidence"]
+```
+
 ## Deterministic projections
 
 For `AU-KG.ingest.entropy-dedup`:

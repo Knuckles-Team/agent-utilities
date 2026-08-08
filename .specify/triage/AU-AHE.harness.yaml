@@ -1,5 +1,5 @@
 domain: AU-AHE.harness
-generated_at: '2026-08-01T15:06:48+00:00'
+generated_at: '2026-08-01T18:04:37+00:00'
 generator: scripts/concept_domain_triage.py
 how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
   `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
@@ -487,7 +487,7 @@ concepts:
       - agent_utilities/harness/hote_tri_evolution.py
       - agent_utilities/knowledge_graph/research/loop_controller.py
       test_files:
-      - tests/test_hote_tri_evolution.py
+      - tests/unit/harness/test_hote_tri_evolution.py
       doc_files: []
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -535,7 +535,7 @@ concepts:
       - agent_utilities/harness/hote_tri_evolution.py:4
       - agent_utilities/knowledge_graph/research/loop_controller.py:579
       - agent_utilities/knowledge_graph/research/loop_controller.py:595
-      - tests/test_hote_tri_evolution.py:1
+      - tests/unit/harness/test_hote_tri_evolution.py:1
   AU-AHE.harness.concept-2:
     decision: PENDING
     parent: ''
@@ -562,7 +562,7 @@ concepts:
       - docs/journey.md:192
       - docs/pillars/3_agentic_harness_engineering/AHE-3.7-Distributed_State_Manager.md:1
       - docs/pillars/3_agentic_harness_engineering/AHE-3.7-Distributed_State_Manager.md:38
-      - docs/reference/documentation-catalog.md:332
+      - docs/reference/documentation-catalog.md:334
   AU-AHE.harness.empirical-evidence-that-latent:
     decision: PENDING
     parent: ''
@@ -580,7 +580,7 @@ concepts:
       - agent_utilities/harness/latent_efficiency_benchmark.py
       - agent_utilities/mcp/tools/analysis_tools.py
       test_files:
-      - tests/test_ahe_3_48_latent_efficiency_live_path.py
+      - tests/unit/harness/test_ahe_3_48_latent_efficiency_live_path.py
       doc_files: []
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -627,8 +627,8 @@ concepts:
       sites:
       - agent_utilities/harness/__init__.py:117
       - agent_utilities/harness/latent_efficiency_benchmark.py:6
-      - agent_utilities/mcp/tools/analysis_tools.py:1462
-      - tests/test_ahe_3_48_latent_efficiency_live_path.py:1
+      - agent_utilities/mcp/tools/analysis_tools.py:1474
+      - tests/unit/harness/test_ahe_3_48_latent_efficiency_live_path.py:1
   AU-AHE.harness.evolution-branch-bridge:
     decision: PENDING
     parent: ''
@@ -761,12 +761,12 @@ concepts:
       - agent_utilities/patterns/first_run_tests.py
       - agent_utilities/tools/self_improvement_tools.py
       test_files:
-      - tests/test_config_versioning.py
-      - tests/test_evolutionary_aggregation.py
-      - tests/test_population_drift.py
+      - tests/unit/graph/test_evolutionary_aggregation.py
+      - tests/unit/harness/test_population_drift.py
       - tests/unit/harness/test_variant_pool.py
       - tests/unit/knowledge_graph/test_kg_models.py
       - tests/unit/knowledge_graph/test_patterns.py
+      - tests/unit/observability/test_config_versioning.py
       doc_files:
       - docs/architecture/multi_agent_social_system.md
       - docs/guides/design-patterns-alignment.md
@@ -867,13 +867,13 @@ concepts:
       - docs/journey.md:186
       - docs/pillars/3_agentic_harness_engineering/AHE-3.2-Agentic_Evolution_Engine.md:1
       - docs/pillars/3_agentic_harness_engineering/AHE-3.6-Backtest_And_Curriculum.md:45
-      - docs/reference/documentation-catalog.md:328
-      - tests/test_config_versioning.py:1
-      - tests/test_evolutionary_aggregation.py:4
-      - tests/test_population_drift.py:4
+      - docs/reference/documentation-catalog.md:330
+      - tests/unit/graph/test_evolutionary_aggregation.py:4
+      - tests/unit/harness/test_population_drift.py:4
       - tests/unit/harness/test_variant_pool.py:4
       - tests/unit/knowledge_graph/test_kg_models.py:19
       - tests/unit/knowledge_graph/test_patterns.py:3
+      - tests/unit/observability/test_config_versioning.py:1
   AU-AHE.harness.evolvable-sampling-profiles:
     decision: PENDING
     parent: ''
@@ -1066,11 +1066,11 @@ concepts:
       sites:
       - agent_utilities/models/knowledge_graph.py:154
       - agent_utilities/models/knowledge_graph.py:671
-      - agent_utilities/models/knowledge_graph.py:3322
-      - agent_utilities/models/knowledge_graph.py:3453
-      - agent_utilities/models/knowledge_graph.py:3460
-      - agent_utilities/models/knowledge_graph.py:3480
-      - agent_utilities/models/knowledge_graph.py:3487
+      - agent_utilities/models/knowledge_graph.py:3397
+      - agent_utilities/models/knowledge_graph.py:3528
+      - agent_utilities/models/knowledge_graph.py:3535
+      - agent_utilities/models/knowledge_graph.py:3555
+      - agent_utilities/models/knowledge_graph.py:3562
   AU-AHE.harness.failure-evolution:
     decision: PENDING
     parent: ''
@@ -1092,9 +1092,9 @@ concepts:
       - agent_utilities/knowledge_graph/research/change_publisher.py
       - agent_utilities/knowledge_graph/research/loop_controller.py
       test_files:
-      - tests/test_failure_regression_check.py
-      - tests/test_trace_backend_failure_reads.py
+      - tests/unit/harness/test_trace_backend_failure_reads.py
       - tests/unit/knowledge_graph/test_failure_analyzer.py
+      - tests/unit/knowledge_graph/test_failure_regression_check.py
       doc_files:
       - docs/architecture/configuration.md
       - docs/architecture/failure_driven_evolution.md
@@ -1162,10 +1162,10 @@ concepts:
       - docs/architecture/configuration.md:301
       - docs/architecture/configuration.md:354
       - docs/architecture/failure_driven_evolution.md:1
-      - docs/reference/documentation-catalog.md:184
-      - tests/test_failure_regression_check.py:1
-      - tests/test_trace_backend_failure_reads.py:1
+      - docs/reference/documentation-catalog.md:186
+      - tests/unit/harness/test_trace_backend_failure_reads.py:1
       - tests/unit/knowledge_graph/test_failure_analyzer.py:1
+      - tests/unit/knowledge_graph/test_failure_regression_check.py:1
   AU-AHE.harness.forecasting-discipline:
     decision: PENDING
     parent: ''
@@ -1366,9 +1366,9 @@ concepts:
       - agent_utilities/rlm/config.py
       test_files:
       - tests/harness/test_replay_buffer.py
-      - tests/test_ahe_harness.py
-      - tests/test_attribution_reliability.py
       - tests/unit/graph/test_graph_steps.py
+      - tests/unit/harness/test_ahe_harness.py
+      - tests/unit/harness/test_attribution_reliability.py
       - tests/unit/sdd/test_governance_graph.py
       doc_files:
       - docs/architecture/failure_driven_evolution.md
@@ -1434,7 +1434,7 @@ concepts:
       - agent_utilities/harness/verifier.py:5
       - agent_utilities/harness/verifier.py:150
       - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:73
-      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:214
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:217
       - agent_utilities/knowledge_graph/core/owl_bridge.py:196
       - agent_utilities/knowledge_graph/core/owl_bridge.py:480
       - agent_utilities/knowledge_graph/kb/x_workflows.py:216
@@ -1456,9 +1456,9 @@ concepts:
       - docs/guides/sdd.md:3
       - docs/journey.md:167
       - tests/harness/test_replay_buffer.py:4
-      - tests/test_ahe_harness.py:3
-      - tests/test_attribution_reliability.py:4
       - tests/unit/graph/test_graph_steps.py:6
+      - tests/unit/harness/test_ahe_harness.py:3
+      - tests/unit/harness/test_attribution_reliability.py:4
       - tests/unit/sdd/test_governance_graph.py:3
   AU-AHE.harness.instead-context-stuffing-small:
     decision: PENDING
@@ -1551,7 +1551,7 @@ concepts:
       sites:
       - agent_utilities/harness/co_evolution.py:1
       - agent_utilities/harness/harness_grounding.py:33
-      - agent_utilities/mcp/tools/analysis_tools.py:2155
+      - agent_utilities/mcp/tools/analysis_tools.py:2167
   AU-AHE.harness.loop-exit-conditions:
     decision: PENDING
     parent: ''
@@ -1594,7 +1594,7 @@ concepts:
       - agent_utilities/orchestration/agent_runner.py:3436
       - agent_utilities/orchestration/engine.py:543
       - agent_utilities/orchestration/loop_guards.py:4
-      - tests/unit/capabilities/test_content_guardrails.py:179
+      - tests/unit/capabilities/test_content_guardrails.py:197
       - tests/unit/knowledge_graph/test_loop_exits.py:2
       - tests/unit/orchestration/test_graph_runaway_halt.py:3
       - tests/unit/orchestration/test_graph_runaway_halt.py:64
@@ -1765,7 +1765,7 @@ concepts:
       - agent_utilities/claude_harness/overnight_runner.py
       - agent_utilities/cli/__init__.py
       test_files:
-      - tests/test_overnight_runner.py
+      - tests/unit/security/test_overnight_runner.py
       doc_files: []
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -1814,7 +1814,7 @@ concepts:
       - agent_utilities/claude_harness/overnight_runner.py:6
       - agent_utilities/claude_harness/overnight_runner.py:220
       - agent_utilities/cli/__init__.py:94
-      - tests/test_overnight_runner.py:4
+      - tests/unit/security/test_overnight_runner.py:4
   AU-AHE.harness.per-dimension-ship-outcome:
     decision: PENDING
     parent: ''
@@ -2041,7 +2041,7 @@ concepts:
       - agent_utilities/harness/preference_pairs.py
       - agent_utilities/knowledge_graph/adaptation/feedback.py
       test_files:
-      - tests/test_preference_pairs.py
+      - tests/unit/harness/test_preference_pairs.py
       doc_files: []
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -2088,7 +2088,7 @@ concepts:
       sites:
       - agent_utilities/harness/preference_pairs.py:6
       - agent_utilities/knowledge_graph/adaptation/feedback.py:146
-      - tests/test_preference_pairs.py:2
+      - tests/unit/harness/test_preference_pairs.py:2
   AU-AHE.harness.promotion-governance-validator:
     decision: PENDING
     parent: ''
@@ -2352,8 +2352,8 @@ concepts:
       - agent_utilities/harness/trace_backend.py:902
       - agent_utilities/harness/trace_backend.py:1040
       - agent_utilities/models/knowledge_graph.py:61
-      - agent_utilities/models/knowledge_graph.py:1641
-      - agent_utilities/models/knowledge_graph.py:1653
+      - agent_utilities/models/knowledge_graph.py:1716
+      - agent_utilities/models/knowledge_graph.py:1728
       - tests/harness/test_online_scoring.py:1
   AU-AHE.harness.research-craft-discipline:
     decision: PENDING
@@ -2441,7 +2441,7 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/harness/aegis_loop.py:1
-      - agent_utilities/mcp/tools/analysis_tools.py:2126
+      - agent_utilities/mcp/tools/analysis_tools.py:2138
       - tests/unit/harness/test_aegis_loop.py:1
   AU-AHE.harness.runtime-reliability-loop:
     decision: PENDING
@@ -2739,7 +2739,7 @@ concepts:
       - agent_utilities/knowledge_graph/research/code_synthesis.py
       test_files:
       - tests/harness/test_swebench_harness.py
-      - tests/test_ahe_3_22_code_synthesis.py
+      - tests/unit/knowledge_graph/test_ahe_3_22_code_synthesis.py
       doc_files:
       - .specify/specs/ahe-3-22-deployed-loop-is-prose-proposal-only-no-autonomo/spec.md
       - .specify/specs/ahe-3-22-deployed-loop-is-prose-proposal-only-no-autonomo/tasks.md
@@ -2793,7 +2793,7 @@ concepts:
       - agent_utilities/knowledge_graph/research/change_synthesis.py:398
       - agent_utilities/knowledge_graph/research/code_synthesis.py:6
       - tests/harness/test_swebench_harness.py:1
-      - tests/test_ahe_3_22_code_synthesis.py:1
+      - tests/unit/knowledge_graph/test_ahe_3_22_code_synthesis.py:1
   AU-AHE.harness.structured-output-repair:
     decision: PENDING
     parent: ''
@@ -2967,7 +2967,7 @@ concepts:
       source_files:
       - agent_utilities/graph/trading_team_seed.py
       test_files:
-      - tests/test_trading_team_seed.py
+      - tests/unit/graph/test_trading_team_seed.py
       doc_files: []
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -3013,7 +3013,7 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/graph/trading_team_seed.py:1
-      - tests/test_trading_team_seed.py:1
+      - tests/unit/graph/test_trading_team_seed.py:1
   AU-AHE.harness.unified-artifact-lineage:
     decision: PENDING
     parent: ''
@@ -3038,7 +3038,7 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/knowledge_graph/research/evolution_state.py:313
-      - agent_utilities/models/knowledge_graph.py:1678
+      - agent_utilities/models/knowledge_graph.py:1753
       - tests/unit/knowledge_graph/test_artifact_evolution_summary.py:2
   AU-AHE.harness.unified-promotion-gate:
     decision: PENDING
@@ -3086,7 +3086,7 @@ concepts:
       - agent_utilities/mcp/tools/ops_causal_tools.py:34
       - agent_utilities/mcp/tools/ops_causal_tools.py:104
       - agent_utilities/models/knowledge_graph.py:72
-      - agent_utilities/models/knowledge_graph.py:1850
+      - agent_utilities/models/knowledge_graph.py:1925
       - agent_utilities/orchestration/action_policy.py:154
       - agent_utilities/orchestration/artifact_promotion.py:4
       - docs/architecture/self-evolution-flywheel.md:322
@@ -3244,7 +3244,7 @@ concepts:
       - agent_utilities/harness/agentic_evolution_engine.py
       - agent_utilities/harness/self_guided_play.py
       test_files:
-      - tests/test_self_guided_play.py
+      - tests/unit/harness/test_self_guided_play.py
       doc_files:
       - docs/architecture/multi_source_assimilation.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -3299,7 +3299,7 @@ concepts:
       - agent_utilities/harness/self_guided_play.py:164
       - agent_utilities/harness/self_guided_play.py:219
       - docs/architecture/multi_source_assimilation.md:212
-      - tests/test_self_guided_play.py:1
+      - tests/unit/harness/test_self_guided_play.py:1
   AU-AHE.harness.width-diverse-best-k:
     decision: PENDING
     parent: ''
@@ -3318,7 +3318,7 @@ concepts:
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       - agent_utilities/models/knowledge_graph.py
       test_files:
-      - tests/test_time_diversity.py
+      - tests/unit/harness/test_time_diversity.py
       doc_files: []
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -3369,4 +3369,4 @@ concepts:
       - agent_utilities/knowledge_graph/core/owl_bridge.py:541
       - agent_utilities/models/knowledge_graph.py:246
       - agent_utilities/models/knowledge_graph.py:748
-      - tests/test_time_diversity.py:2
+      - tests/unit/harness/test_time_diversity.py:2

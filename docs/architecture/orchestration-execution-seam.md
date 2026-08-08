@@ -239,6 +239,15 @@ linked `(:RunTrace)-[:USED_TOOL]->(:ToolCall)`. The pipeline:
    epistemic-graph for graph-os traversal queries. A provenance write **never fails the
    run** (best-effort).
 
+   Where the configured authority supports typed batches, the direct delegation path
+   commits the self-contained `RunTrace` / `OutcomeEvaluation` / `ToolCall` core and its
+   `PRODUCED_OUTCOME` / `USED_TOOL` edges first. It then performs one endpoint preflight
+   and at most one best-effort enrichment batch for `EXECUTED_ON`, `USES_SKILL`, and
+   `ACTED_ON`. A server, skill, or target disappearing between the read and that
+   enrichment write leaves the durable core intact; it never falls back to duplicate
+   serial provenance writes. Authorities without the typed core batch retain the
+   portable path above.
+
 Each `:ToolCall` node (id `toolcall:<opaque-run-ref>:<i>`) carries:
 
 | Field | Meaning |

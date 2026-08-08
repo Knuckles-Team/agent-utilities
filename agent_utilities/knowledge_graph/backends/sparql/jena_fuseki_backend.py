@@ -66,6 +66,11 @@ class JenaFusekiBackend(SparqlAdapter):
         - Automatic dataset creation if missing
     """
 
+    # ``_embeddings`` is only a process-local brute-force cache.  A fresh
+    # backend instance cannot recover it from Fuseki, so fan-out must treat this
+    # target as graph-only and never acknowledge vector replay from that cache.
+    supports_native_vector_search = False
+
     def __init__(
         self,
         jena_fuseki_url: str | None = None,

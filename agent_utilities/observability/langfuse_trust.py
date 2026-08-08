@@ -417,25 +417,32 @@ def _signature_is_valid(
 ) -> bool:
     """Verify one certificate link without exposing certificate identities."""
     key = issuer.public_key()
+    signature_hash_algorithm = certificate.signature_hash_algorithm
     try:
         if isinstance(key, rsa.RSAPublicKey):
+            if signature_hash_algorithm is None:
+                return False
             key.verify(
                 certificate.signature,
                 certificate.tbs_certificate_bytes,
                 padding.PKCS1v15(),
-                certificate.signature_hash_algorithm,
+                signature_hash_algorithm,
             )
         elif isinstance(key, ec.EllipticCurvePublicKey):
+            if signature_hash_algorithm is None:
+                return False
             key.verify(
                 certificate.signature,
                 certificate.tbs_certificate_bytes,
-                ec.ECDSA(certificate.signature_hash_algorithm),
+                ec.ECDSA(signature_hash_algorithm),
             )
         elif isinstance(key, dsa.DSAPublicKey):
+            if signature_hash_algorithm is None:
+                return False
             key.verify(
                 certificate.signature,
                 certificate.tbs_certificate_bytes,
-                certificate.signature_hash_algorithm,
+                signature_hash_algorithm,
             )
         elif isinstance(key, ed25519.Ed25519PublicKey | ed448.Ed448PublicKey):
             key.verify(certificate.signature, certificate.tbs_certificate_bytes)
@@ -532,7 +539,8 @@ def validate_ca_bundle(value: bytes | str | Path) -> LangfuseTrustStatus:
             basic = certificate.extensions.get_extension_for_oid(
                 ExtensionOID.BASIC_CONSTRAINTS
             ).value
-            ca_count += int(bool(basic.ca))
+            if isinstance(basic, x509.BasicConstraints):
+                ca_count += int(bool(basic.ca))
         except x509.ExtensionNotFound:
             continue
     if ca_count < 1 or any(

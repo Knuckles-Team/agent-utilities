@@ -1,5 +1,5 @@
 domain: AU-KG.ingest
-generated_at: '2026-08-01T15:05:53+00:00'
+generated_at: '2026-08-01T18:03:57+00:00'
 generator: scripts/concept_domain_triage.py
 how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
   `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
@@ -23,6 +23,7 @@ clusters:
   - AU-KG.ingest.claude-memory-connector
   - AU-KG.ingest.envelope-atomic
   - AU-KG.ingest.envelope-atomic-transaction
+  - AU-KG.ingest.fleet-sync-rejected-row-cache
   - AU-KG.ingest.research-connector-presets
   - AU-KG.ingest.source-sync-canonical
   AU-KG.ingest.atomic-compare-and-set:
@@ -39,6 +40,7 @@ clusters:
   - AU-KG.ingest.okf-type-mapping
   - AU-KG.ingest.structure-verify
   - AU-KG.ingest.toc-detection
+  - AU-KG.ingest.verbatim-extraction-before-fragmenting
   AU-KG.ingest.dead-letter-drain:
   - AU-KG.ingest.dead-letter-drain
   - AU-KG.ingest.fact-supersession
@@ -47,6 +49,7 @@ clusters:
   - AU-KG.ingest.source-id-naming-schema
   AU-KG.ingest.domain-pack-framework:
   - AU-KG.ingest.domain-pack-framework
+  - AU-KG.ingest.governed-claim-promotion
   - AU-KG.ingest.mapping-dsl
   AU-KG.ingest.evidence-spine-artifact:
   - AU-KG.ingest.evidence-spine-artifact
@@ -75,7 +78,7 @@ concepts:
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files:
-      - tests/test_breadth_preskip.py
+      - tests/unit/knowledge_graph/test_breadth_preskip.py
       doc_files: []
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -135,9 +138,9 @@ concepts:
       - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py:377
       - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py:381
       - agent_utilities/knowledge_graph/core/engine_tasks.py:4779
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1858
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1906
-      - tests/test_breadth_preskip.py:78
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1900
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1948
+      - tests/unit/knowledge_graph/test_breadth_preskip.py:78
   AU-KG.ingest.ambient-connector-provenance:
     decision: PENDING
     parent: ''
@@ -145,7 +148,7 @@ concepts:
     reason: ''
     suggestion: document
     suggested_parent: ''
-    suggestion_why: the head of a 7-concept cluster — the siblings are proposed as pointers at this one,
+    suggestion_why: the head of a 8-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
       has_design_doc: true
@@ -162,7 +165,7 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/knowledge_graph/core/source_sync.py:40
-      - agent_utilities/knowledge_graph/core/source_sync.py:2509
+      - agent_utilities/knowledge_graph/core/source_sync.py:2593
       - agent_utilities/knowledge_graph/etl/lineage.py:5
       - agent_utilities/knowledge_graph/etl/lineage.py:177
       - agent_utilities/knowledge_graph/etl/lineage.py:238
@@ -257,7 +260,7 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 6 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
       agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
       has_design_doc: false
@@ -269,7 +272,7 @@ concepts:
       - agent_utilities/knowledge_graph/research/loop_controller.py
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py
       test_files:
-      - tests/test_arxiv_and_scholarx_research_feeds.py
+      - tests/unit/knowledge_graph/test_arxiv_and_scholarx_research_feeds.py
       - tests/unit/protocols/test_source_connectors.py
       doc_files: []
       introduced: 'cee2a6e9 2026-07-30 feat(connectors): wire FreshRSS/ScholarX/arXiv research feeds into
@@ -282,13 +285,13 @@ concepts:
       sites:
       - agent_utilities/core/config.py:3586
       - agent_utilities/core/schedule_engine.py:756
-      - agent_utilities/knowledge_graph/core/source_sync.py:1663
+      - agent_utilities/knowledge_graph/core/source_sync.py:1747
       - agent_utilities/knowledge_graph/research/loop_controller.py:343
       - agent_utilities/knowledge_graph/research/loop_controller.py:3151
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py:3
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py:20
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py:115
-      - tests/test_arxiv_and_scholarx_research_feeds.py:1
+      - tests/unit/knowledge_graph/test_arxiv_and_scholarx_research_feeds.py:1
       - tests/unit/protocols/test_source_connectors.py:913
   AU-KG.ingest.atomic-compare-and-set:
     decision: PENDING
@@ -538,7 +541,7 @@ concepts:
       - agent_utilities/knowledge_graph/core/graph_compute.py
       - agent_utilities/knowledge_graph/core/ingest_routing.py
       test_files:
-      - tests/test_ingest_graph_routing.py
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py
       - tests/unit/knowledge_graph/test_multi_graph_batch_facade.py
       doc_files:
       - docs/architecture/ingestion_throughput.md
@@ -548,14 +551,14 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/config.py:4503
-      - agent_utilities/knowledge_graph/core/graph_compute.py:3787
+      - agent_utilities/core/config.py:4512
+      - agent_utilities/knowledge_graph/core/graph_compute.py:3827
       - agent_utilities/knowledge_graph/core/ingest_routing.py:95
       - agent_utilities/knowledge_graph/core/ingest_routing.py:103
       - agent_utilities/knowledge_graph/core/ingest_routing.py:112
       - agent_utilities/knowledge_graph/core/ingest_routing.py:148
       - docs/architecture/ingestion_throughput.md:196
-      - tests/test_ingest_graph_routing.py:88
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:87
       - tests/unit/knowledge_graph/test_multi_graph_batch_facade.py:1
   AU-KG.ingest.big-repo-structural-split:
     decision: PENDING
@@ -635,7 +638,7 @@ concepts:
     reason: ''
     suggestion: document
     suggested_parent: ''
-    suggestion_why: the head of a 4-concept cluster — the siblings are proposed as pointers at this one,
+    suggestion_why: the head of a 5-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
       has_design_doc: true
@@ -654,9 +657,9 @@ concepts:
       - .specify/design/okf-skillgraph-roundtrip/design.md:53
       - agent_utilities/knowledge_graph/ontology/document_processing.py:99
       - agent_utilities/knowledge_graph/ontology/document_processing.py:112
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:352
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:440
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1043
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:387
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:475
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1137
   AU-KG.ingest.capability-writeback:
     decision: PENDING
     parent: ''
@@ -726,17 +729,17 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:400
-      - agent_utilities/knowledge_graph/ingestion/engine.py:568
-      - agent_utilities/knowledge_graph/ingestion/engine.py:590
-      - agent_utilities/knowledge_graph/ingestion/engine.py:616
-      - agent_utilities/knowledge_graph/ingestion/engine.py:719
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1163
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1211
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1693
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1791
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1812
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1841
+      - agent_utilities/knowledge_graph/ingestion/engine.py:403
+      - agent_utilities/knowledge_graph/ingestion/engine.py:571
+      - agent_utilities/knowledge_graph/ingestion/engine.py:593
+      - agent_utilities/knowledge_graph/ingestion/engine.py:619
+      - agent_utilities/knowledge_graph/ingestion/engine.py:722
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1166
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1214
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1735
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1833
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1854
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1883
   AU-KG.ingest.change-envelope:
     decision: PENDING
     parent: ''
@@ -744,14 +747,16 @@ concepts:
     reason: ''
     suggestion: document
     suggested_parent: ''
-    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 6 marker site(s))'
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 8 marker site(s))'
     evidence:
       has_design_doc: false
       in_baseline: true
       source_files:
+      - agent_utilities/automation/worldmodel_pipeline.py
       - agent_utilities/knowledge_graph/argumentation/aif.py
       - agent_utilities/knowledge_graph/ingestion/change_envelope.py
+      - agent_utilities/knowledge_graph/ingestion/engine.py
       - agent_utilities/knowledge_graph/ingestion/external_graph.py
       - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
       test_files:
@@ -763,9 +768,11 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - agent_utilities/automation/worldmodel_pipeline.py:376
       - agent_utilities/knowledge_graph/argumentation/aif.py:444
       - agent_utilities/knowledge_graph/ingestion/change_envelope.py:3
       - agent_utilities/knowledge_graph/ingestion/change_envelope.py:114
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1695
       - agent_utilities/knowledge_graph/ingestion/external_graph.py:14
       - agent_utilities/knowledge_graph/ingestion/graphql_connection.py:21
       - tests/unit/knowledge_graph/test_change_envelope.py:1
@@ -858,12 +865,12 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/document_processing.py:150
       - agent_utilities/knowledge_graph/ontology/document_processing.py:192
       - agent_utilities/knowledge_graph/ontology/document_processing.py:206
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:321
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:342
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:392
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:402
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:473
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1986
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:344
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:377
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:427
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:437
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:508
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:2080
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:552
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:682
       - agent_utilities/mcp/tools/ontology_tools.py:2174
@@ -881,7 +888,7 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 6 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
       agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
       has_design_doc: false
@@ -889,7 +896,7 @@ concepts:
       source_files:
       - agent_utilities/knowledge_graph/core/source_sync.py
       test_files:
-      - tests/test_claude_memory_source.py
+      - tests/unit/knowledge_graph/test_claude_memory_source.py
       doc_files:
       - CHANGELOG.md
       introduced: ''
@@ -898,8 +905,8 @@ concepts:
       truncated_marker: ''
       sites:
       - CHANGELOG.md:1586
-      - agent_utilities/knowledge_graph/core/source_sync.py:4277
-      - tests/test_claude_memory_source.py:1
+      - agent_utilities/knowledge_graph/core/source_sync.py:4361
+      - tests/unit/knowledge_graph/test_claude_memory_source.py:1
   AU-KG.ingest.code-source-partition:
     decision: PENDING
     parent: ''
@@ -935,10 +942,10 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/enrichment/pipeline.py:174
-      - agent_utilities/knowledge_graph/enrichment/pipeline.py:361
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1814
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2041
+      - agent_utilities/knowledge_graph/enrichment/pipeline.py:179
+      - agent_utilities/knowledge_graph/enrichment/pipeline.py:364
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1856
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2083
       - tests/unit/knowledge_graph/enrichment/test_batched_backend.py:52
   AU-KG.ingest.content-acquisition:
     decision: PENDING
@@ -1202,7 +1209,7 @@ concepts:
       source_files:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files:
-      - tests/test_repo_classification.py
+      - tests/unit/knowledge_graph/test_repo_classification.py
       doc_files: []
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -1257,9 +1264,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1730
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2012
-      - tests/test_repo_classification.py:181
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1772
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2054
+      - tests/unit/knowledge_graph/test_repo_classification.py:181
   AU-KG.ingest.deterministic-extraction-default:
     decision: PENDING
     parent: ''
@@ -1286,11 +1293,11 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1381
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1461
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1552
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1384
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1464
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1555
       - agent_utilities/knowledge_graph/kb/entity_claim_extractor.py:293
-      - agent_utilities/models/knowledge_graph.py:2030
+      - agent_utilities/models/knowledge_graph.py:2105
       - tests/unit/knowledge_graph/test_extraction_run.py:2
       - tests/unit/knowledge_graph/test_extraction_run.py:350
       - tests/unit/knowledge_graph/test_ingestion_enrich.py:270
@@ -1301,17 +1308,20 @@ concepts:
     reason: ''
     suggestion: document
     suggested_parent: ''
-    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
       has_design_doc: false
       in_baseline: false
       source_files:
+      - agent_utilities/core/config.py
       - agent_utilities/knowledge_graph/domain_packs/__init__.py
       - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
       - agent_utilities/knowledge_graph/domain_packs/envelope_bridge.py
       - agent_utilities/knowledge_graph/domain_packs/pack_loader.py
       - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+      - agent_utilities/knowledge_graph/ingestion/promotion.py
       test_files:
       - tests/unit/knowledge_graph/domain_packs/test_pack_loader.py
       - tests/unit/knowledge_graph/domain_packs/test_wiring_ingest.py
@@ -1322,12 +1332,16 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - agent_utilities/core/config.py:4502
       - agent_utilities/knowledge_graph/domain_packs/__init__.py:1
       - agent_utilities/knowledge_graph/domain_packs/domain_pack.py:1
       - agent_utilities/knowledge_graph/domain_packs/envelope_bridge.py:2
       - agent_utilities/knowledge_graph/domain_packs/pack_loader.py:2
-      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:1905
-      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:1912
+      - agent_utilities/knowledge_graph/domain_packs/pack_loader.py:396
+      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:1933
+      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:1940
+      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:148
+      - agent_utilities/knowledge_graph/ingestion/promotion.py:221
       - tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:2
       - tests/unit/knowledge_graph/domain_packs/test_wiring_ingest.py:3
   AU-KG.ingest.drain-session-bundle:
@@ -1438,9 +1452,8 @@ concepts:
       - agent_utilities/prompting/provider_adapter.py
       - agent_utilities/prompting/structured.py
       test_files:
-      - tests/test_backlink_boost.py
-      - tests/test_distillation.py
-      - tests/test_schema_packs.py
+      - tests/unit/knowledge_graph/test_backlink_boost.py
+      - tests/unit/knowledge_graph/test_distillation.py
       - tests/unit/knowledge_graph/test_entity_claim_extractor.py
       - tests/unit/knowledge_graph/test_ontological_identifier.py
       - tests/unit/knowledge_graph/test_ontology_bootstrap.py
@@ -1450,6 +1463,7 @@ concepts:
       - tests/unit/knowledge_graph/test_rust_compute.py
       - tests/unit/test_engineering_rules.py
       - tests/unit/test_policy_ingestor.py
+      - tests/unit/test_schema_packs.py
       doc_files:
       - agent_utilities/prompts/README.md
       - docs/guides/conductor-orchestration.md
@@ -1517,20 +1531,20 @@ concepts:
       sites:
       - agent_utilities/automation/research_pipeline.py:24
       - agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:6
-      - agent_utilities/knowledge_graph/core/engine_ingestion.py:449
-      - agent_utilities/knowledge_graph/core/engine_ingestion.py:459
-      - agent_utilities/knowledge_graph/core/engine_ingestion.py:486
-      - agent_utilities/knowledge_graph/core/engine_ingestion.py:495
-      - agent_utilities/knowledge_graph/core/engine_ingestion.py:525
-      - agent_utilities/knowledge_graph/core/engine_ingestion.py:623
-      - agent_utilities/knowledge_graph/core/engine_ingestion.py:638
-      - agent_utilities/knowledge_graph/core/engine_ingestion.py:682
+      - agent_utilities/knowledge_graph/core/engine_ingestion.py:481
+      - agent_utilities/knowledge_graph/core/engine_ingestion.py:491
+      - agent_utilities/knowledge_graph/core/engine_ingestion.py:518
+      - agent_utilities/knowledge_graph/core/engine_ingestion.py:527
+      - agent_utilities/knowledge_graph/core/engine_ingestion.py:557
+      - agent_utilities/knowledge_graph/core/engine_ingestion.py:655
+      - agent_utilities/knowledge_graph/core/engine_ingestion.py:670
+      - agent_utilities/knowledge_graph/core/engine_ingestion.py:714
       - agent_utilities/knowledge_graph/core/inference_engine.py:6
       - agent_utilities/knowledge_graph/core/model_display.py:17
       - agent_utilities/knowledge_graph/core/owl_bridge.py:228
       - agent_utilities/knowledge_graph/core/owl_bridge.py:489
       - agent_utilities/knowledge_graph/core/owl_bridge.py:705
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1113
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1120
       - agent_utilities/knowledge_graph/id_management/ontological_identifier.py:3
       - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:7
       - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:141
@@ -1552,16 +1566,16 @@ concepts:
       - agent_utilities/models/knowledge_graph.py:700
       - agent_utilities/models/knowledge_graph.py:744
       - agent_utilities/models/knowledge_graph.py:759
-      - agent_utilities/models/knowledge_graph.py:1336
-      - agent_utilities/models/knowledge_graph.py:1990
-      - agent_utilities/models/knowledge_graph.py:2232
-      - agent_utilities/models/knowledge_graph.py:2906
-      - agent_utilities/models/knowledge_graph.py:2988
-      - agent_utilities/models/knowledge_graph.py:4732
-      - agent_utilities/models/knowledge_graph.py:5240
-      - agent_utilities/models/knowledge_graph.py:5246
-      - agent_utilities/models/knowledge_graph.py:5260
-      - agent_utilities/models/knowledge_graph.py:5294
+      - agent_utilities/models/knowledge_graph.py:1411
+      - agent_utilities/models/knowledge_graph.py:2065
+      - agent_utilities/models/knowledge_graph.py:2307
+      - agent_utilities/models/knowledge_graph.py:2981
+      - agent_utilities/models/knowledge_graph.py:3063
+      - agent_utilities/models/knowledge_graph.py:4832
+      - agent_utilities/models/knowledge_graph.py:5340
+      - agent_utilities/models/knowledge_graph.py:5346
+      - agent_utilities/models/knowledge_graph.py:5360
+      - agent_utilities/models/knowledge_graph.py:5394
       - agent_utilities/policies/__init__.py:3
       - agent_utilities/prompting/prompt.schema.json:5
       - agent_utilities/prompting/provider_adapter.py:57
@@ -1595,10 +1609,9 @@ concepts:
       - docs/pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md:1
       - docs/pillars/5_agent_os_infrastructure.md:315
       - docs/pillars/memory_architecture.md:10
-      - docs/reference/documentation-catalog.md:295
-      - tests/test_backlink_boost.py:5
-      - tests/test_distillation.py:3
-      - tests/test_schema_packs.py:5
+      - docs/reference/documentation-catalog.md:297
+      - tests/unit/knowledge_graph/test_backlink_boost.py:5
+      - tests/unit/knowledge_graph/test_distillation.py:3
       - tests/unit/knowledge_graph/test_entity_claim_extractor.py:2
       - tests/unit/knowledge_graph/test_entity_claim_extractor.py:238
       - tests/unit/knowledge_graph/test_ontological_identifier.py:1
@@ -1609,6 +1622,7 @@ concepts:
       - tests/unit/knowledge_graph/test_rust_compute.py:1
       - tests/unit/test_engineering_rules.py:3
       - tests/unit/test_policy_ingestor.py:3
+      - tests/unit/test_schema_packs.py:5
   AU-KG.ingest.enqueue-large-batch:
     decision: PENDING
     parent: ''
@@ -1892,11 +1906,11 @@ concepts:
       - agent_utilities/knowledge_graph/backends/postgresql_backend.py:148
       - agent_utilities/knowledge_graph/backends/postgresql_backend.py:358
       - agent_utilities/knowledge_graph/backends/postgresql_backend.py:377
-      - agent_utilities/knowledge_graph/core/engine.py:382
-      - agent_utilities/knowledge_graph/core/engine.py:503
+      - agent_utilities/knowledge_graph/core/engine.py:427
+      - agent_utilities/knowledge_graph/core/engine.py:563
       - agent_utilities/knowledge_graph/core/hydration.py:514
       - agent_utilities/knowledge_graph/core/materialization.py:1
-      - agent_utilities/knowledge_graph/core/materialization.py:222
+      - agent_utilities/knowledge_graph/core/materialization.py:236
       - agent_utilities/knowledge_graph/core/owl_bridge.py:60
       - agent_utilities/knowledge_graph/core/owl_bridge.py:91
       - agent_utilities/knowledge_graph/core/owl_bridge.py:103
@@ -1904,9 +1918,9 @@ concepts:
       - agent_utilities/knowledge_graph/core/owl_bridge.py:412
       - agent_utilities/knowledge_graph/core/owl_bridge.py:425
       - agent_utilities/knowledge_graph/core/source_sync.py:1
-      - agent_utilities/knowledge_graph/core/source_sync.py:4551
-      - agent_utilities/knowledge_graph/core/source_sync.py:4578
-      - agent_utilities/knowledge_graph/core/source_sync.py:4636
+      - agent_utilities/knowledge_graph/core/source_sync.py:4635
+      - agent_utilities/knowledge_graph/core/source_sync.py:4662
+      - agent_utilities/knowledge_graph/core/source_sync.py:4720
       - agent_utilities/knowledge_graph/enrichment/extractors/ansible.py:1
       - agent_utilities/knowledge_graph/enrichment/extractors/archer.py:1
       - agent_utilities/knowledge_graph/enrichment/extractors/archimate.py:1
@@ -1967,7 +1981,7 @@ concepts:
       - agent_utilities/knowledge_graph/infra/__init__.py:4
       - agent_utilities/knowledge_graph/infra/inventory_collector.py:4
       - agent_utilities/knowledge_graph/infra/placement_optimizer.py:4
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2704
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2746
       - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py:47
       - agent_utilities/knowledge_graph/memory/native_ingest.py:3
       - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py:1
@@ -2074,7 +2088,7 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 6 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
       agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
       has_design_doc: false
@@ -2098,7 +2112,7 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 6 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
       agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
       has_design_doc: false
@@ -2108,9 +2122,9 @@ concepts:
       - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
       - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
       test_files:
-      - tests/test_claude_memory_source.py
       - tests/unit/knowledge_graph/core/test_source_sync.py
       - tests/unit/knowledge_graph/core/test_tracker_connectors.py
+      - tests/unit/knowledge_graph/test_claude_memory_source.py
       - tests/unit/protocols/test_ard_connector.py
       doc_files: []
       introduced: 'ad23c532 2026-07-11 feat(kg): ChangeEnvelope ingestion consolidation + L27 ops-connector
@@ -2120,34 +2134,34 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/source_sync.py:750
-      - agent_utilities/knowledge_graph/core/source_sync.py:1138
-      - agent_utilities/knowledge_graph/core/source_sync.py:2000
-      - agent_utilities/knowledge_graph/core/source_sync.py:2096
-      - agent_utilities/knowledge_graph/core/source_sync.py:2155
-      - agent_utilities/knowledge_graph/core/source_sync.py:2217
-      - agent_utilities/knowledge_graph/core/source_sync.py:2486
-      - agent_utilities/knowledge_graph/core/source_sync.py:2543
-      - agent_utilities/knowledge_graph/core/source_sync.py:2618
-      - agent_utilities/knowledge_graph/core/source_sync.py:2730
+      - agent_utilities/knowledge_graph/core/source_sync.py:834
+      - agent_utilities/knowledge_graph/core/source_sync.py:1222
+      - agent_utilities/knowledge_graph/core/source_sync.py:2084
+      - agent_utilities/knowledge_graph/core/source_sync.py:2180
+      - agent_utilities/knowledge_graph/core/source_sync.py:2239
+      - agent_utilities/knowledge_graph/core/source_sync.py:2301
+      - agent_utilities/knowledge_graph/core/source_sync.py:2570
+      - agent_utilities/knowledge_graph/core/source_sync.py:2627
+      - agent_utilities/knowledge_graph/core/source_sync.py:2702
       - agent_utilities/knowledge_graph/core/source_sync.py:2814
-      - agent_utilities/knowledge_graph/core/source_sync.py:2937
-      - agent_utilities/knowledge_graph/core/source_sync.py:3024
-      - agent_utilities/knowledge_graph/core/source_sync.py:3133
-      - agent_utilities/knowledge_graph/core/source_sync.py:3218
-      - agent_utilities/knowledge_graph/core/source_sync.py:3360
-      - agent_utilities/knowledge_graph/core/source_sync.py:3530
-      - agent_utilities/knowledge_graph/core/source_sync.py:3773
-      - agent_utilities/knowledge_graph/core/source_sync.py:4066
-      - agent_utilities/knowledge_graph/core/source_sync.py:4158
-      - agent_utilities/knowledge_graph/core/source_sync.py:4292
-      - agent_utilities/knowledge_graph/core/source_sync.py:4422
-      - agent_utilities/knowledge_graph/core/source_sync.py:4431
+      - agent_utilities/knowledge_graph/core/source_sync.py:2898
+      - agent_utilities/knowledge_graph/core/source_sync.py:3021
+      - agent_utilities/knowledge_graph/core/source_sync.py:3108
+      - agent_utilities/knowledge_graph/core/source_sync.py:3217
+      - agent_utilities/knowledge_graph/core/source_sync.py:3302
+      - agent_utilities/knowledge_graph/core/source_sync.py:3444
+      - agent_utilities/knowledge_graph/core/source_sync.py:3614
+      - agent_utilities/knowledge_graph/core/source_sync.py:3857
+      - agent_utilities/knowledge_graph/core/source_sync.py:4150
+      - agent_utilities/knowledge_graph/core/source_sync.py:4242
+      - agent_utilities/knowledge_graph/core/source_sync.py:4376
+      - agent_utilities/knowledge_graph/core/source_sync.py:4506
+      - agent_utilities/knowledge_graph/core/source_sync.py:4515
       - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:3
-      - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:452
-      - tests/test_claude_memory_source.py:6
+      - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:453
       - tests/unit/knowledge_graph/core/test_source_sync.py:698
       - tests/unit/knowledge_graph/core/test_tracker_connectors.py:114
+      - tests/unit/knowledge_graph/test_claude_memory_source.py:6
       - tests/unit/protocols/test_ard_connector.py:140
   AU-KG.ingest.evidence-spine-artifact:
     decision: PENDING
@@ -2156,17 +2170,19 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.stable-fragment-address
-    suggestion_why: 'clusters with 1 sibling(s) around AU-KG.ingest.stable-fragment-address; shares agent_utilities/knowledge_graph/ingestion/evidence_spine.py,
-      agent_utilities/knowledge_graph/ontology.ttl, agent_utilities/knowledge_graph/ontology/document_processing.py;
+    suggestion_why: 'clusters with 1 sibling(s) around AU-KG.ingest.stable-fragment-address; shares agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py,
+      agent_utilities/knowledge_graph/ingestion/evidence_spine.py, agent_utilities/knowledge_graph/ontology.ttl;
       both introduced by 961698b8 (feat(ingest): Artifact -> Fragment evidence-spine contract)'
     evidence:
       has_design_doc: false
       in_baseline: false
       source_files:
+      - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
       - agent_utilities/knowledge_graph/ontology.ttl
       - agent_utilities/knowledge_graph/ontology/document_processing.py
       - agent_utilities/knowledge_graph/shapes/governance.shapes.ttl
+      - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
       test_files:
       - tests/integration/knowledge_graph/test_evidence_spine_live_commit.py
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine.py
@@ -2179,16 +2195,19 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py:100
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:3
-      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:421
+      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:433
       - agent_utilities/knowledge_graph/ontology.ttl:465
       - agent_utilities/knowledge_graph/ontology.ttl:746
       - agent_utilities/knowledge_graph/ontology.ttl:752
       - agent_utilities/knowledge_graph/ontology.ttl:970
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:367
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:601
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1115
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:402
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:581
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:674
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1209
       - agent_utilities/knowledge_graph/shapes/governance.shapes.ttl:162
+      - agent_utilities/protocols/source_connectors/connectors/git_markdown.py:712
       - docs/architecture/evidence-spine.md:3
       - tests/integration/knowledge_graph/test_evidence_spine_live_commit.py:3
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine.py:3
@@ -2511,6 +2530,29 @@ concepts:
       - agent_utilities/knowledge_graph/research/loop_controller.py:774
       - tests/unit/knowledge_graph/test_assimilation_feature_matrix.py:30
       - tests/unit/knowledge_graph/test_assimilation_feature_matrix.py:277
+  AU-KG.ingest.fleet-sync-rejected-row-cache:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.ambient-connector-provenance
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+      agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/core/source_sync.py
+      test_files: []
+      doc_files: []
+      introduced: 'c9fdf6f9 2026-07-31 fix(kg): D-SH-2 — persist rejected fleet-catalog rows, skip re-bisecting
+        known offenders'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/source_sync.py:541
   AU-KG.ingest.floor-codebase-admission-cap:
     decision: PENDING
     parent: ''
@@ -2663,8 +2705,8 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/automation/research_pipeline.py:1092
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1491
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2448
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1494
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2490
   AU-KG.ingest.gotcha-feedback-capture:
     decision: PENDING
     parent: ''
@@ -2752,15 +2794,16 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: document
-    suggested_parent: ''
-    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 9 marker site(s))'
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.domain-pack-framework
+    suggestion_why: clusters with 2 sibling(s) around AU-KG.ingest.domain-pack-framework; shares agent_utilities/core/config.py,
+      agent_utilities/knowledge_graph/domain_packs/domain_pack.py, agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
     evidence:
       has_design_doc: false
       in_baseline: false
       source_files:
       - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
       - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
       - agent_utilities/knowledge_graph/ingestion/promotion.py
       - agent_utilities/mcp/tools/claim_tools.py
@@ -2776,6 +2819,7 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/core/config.py:2842
+      - agent_utilities/knowledge_graph/domain_packs/domain_pack.py:326
       - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:289
       - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:380
       - agent_utilities/knowledge_graph/ingestion/promotion.py:4
@@ -2909,7 +2953,7 @@ concepts:
       source_files:
       - agent_utilities/automation/worldmodel_pipeline.py
       test_files:
-      - tests/test_freshrss_worldmodel.py
+      - tests/unit/knowledge_graph/test_freshrss_worldmodel.py
       doc_files:
       - docs/architecture/ingestion_throughput.md
       introduced: ''
@@ -2920,7 +2964,7 @@ concepts:
       - agent_utilities/automation/worldmodel_pipeline.py:91
       - agent_utilities/automation/worldmodel_pipeline.py:268
       - docs/architecture/ingestion_throughput.md:91
-      - tests/test_freshrss_worldmodel.py:152
+      - tests/unit/knowledge_graph/test_freshrss_worldmodel.py:152
   AU-KG.ingest.keys-off:
     decision: PENDING
     parent: ''
@@ -3031,7 +3075,7 @@ concepts:
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 10 marker site(s))'
+      file(s), 11 marker site(s))'
     evidence:
       has_design_doc: false
       in_baseline: true
@@ -3103,6 +3147,7 @@ concepts:
       - agent_utilities/messaging/router.py:776
       - agent_utilities/messaging/router.py:826
       - agent_utilities/messaging/router.py:890
+      - agent_utilities/messaging/router.py:934
   AU-KG.ingest.mapping-dsl:
     decision: PENDING
     parent: ''
@@ -3110,7 +3155,7 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.domain-pack-framework
-    suggestion_why: 'clusters with 1 sibling(s) around AU-KG.ingest.domain-pack-framework; shares agent_utilities/knowledge_graph/domain_packs/__init__.py,
+    suggestion_why: 'clusters with 2 sibling(s) around AU-KG.ingest.domain-pack-framework; shares agent_utilities/knowledge_graph/domain_packs/__init__.py,
       agent_utilities/knowledge_graph/domain_packs/domain_pack.py; both introduced by 24b84021 (feat(kg):
       domain-pack framework + declarative mapping DSL)'
     evidence:
@@ -3120,7 +3165,6 @@ concepts:
       - agent_utilities/knowledge_graph/domain_packs/__init__.py
       - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
       - agent_utilities/knowledge_graph/domain_packs/dsl.py
-      - agent_utilities/knowledge_graph/domain_packs/fragment_contract.py
       - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
       test_files:
       - tests/unit/knowledge_graph/domain_packs/test_dsl.py
@@ -3134,10 +3178,8 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/knowledge_graph/domain_packs/__init__.py:2
-      - agent_utilities/knowledge_graph/domain_packs/domain_pack.py:262
+      - agent_utilities/knowledge_graph/domain_packs/domain_pack.py:269
       - agent_utilities/knowledge_graph/domain_packs/dsl.py:1
-      - agent_utilities/knowledge_graph/domain_packs/fragment_contract.py:1
-      - agent_utilities/knowledge_graph/domain_packs/fragment_contract.py:60
       - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py:1
       - tests/unit/knowledge_graph/domain_packs/test_dsl.py:1
       - tests/unit/knowledge_graph/domain_packs/test_markdown_fragmenter.py:2
@@ -3221,8 +3263,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - AGENTS.head.md:387
-      - AGENTS.md:387
+      - AGENTS.head.md:388
+      - AGENTS.md:388
       - agent_utilities/knowledge_graph/extraction/second_brain_sync.py:51
       - agent_utilities/knowledge_graph/ontology/connector_manifest.py:8
       - agent_utilities/protocols/source_connectors/connectors/__init__.py:21
@@ -3237,7 +3279,7 @@ concepts:
       - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py:2082
       - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py:2159
       - docs/pillars/2_epistemic_knowledge_graph/KG-2.59-MCP_Tool_Source_Connector.md:1
-      - docs/reference/documentation-catalog.md:307
+      - docs/reference/documentation-catalog.md:309
       - tests/integration/protocols/test_mcp_tool_connector_live_path.py:1
       - tests/unit/protocols/test_mcp_tool_source_connector.py:1
       - tests/unit/protocols/test_mcp_tool_source_connector.py:815
@@ -3365,8 +3407,8 @@ concepts:
       sites:
       - agent_utilities/knowledge_graph/enrichment/git_coupling.py:1
       - agent_utilities/knowledge_graph/enrichment/git_coupling.py:31
-      - agent_utilities/mcp/kg_server.py:1738
-      - agent_utilities/mcp/tools/analysis_tools.py:2002
+      - agent_utilities/mcp/kg_server.py:1739
+      - agent_utilities/mcp/tools/analysis_tools.py:2014
       - docs/architecture/intelligent-ingestion.md:105
   AU-KG.ingest.mirror-inbound:
     decision: PENDING
@@ -3453,10 +3495,10 @@ concepts:
       - agent_utilities/mcp/tools/ontology_tools.py:1358
       - agent_utilities/mcp/tools/query_tools.py:324
       - agent_utilities/mcp/tools/query_tools.py:395
-      - agent_utilities/mcp/tools/query_tools.py:648
-      - agent_utilities/mcp/tools/query_tools.py:653
-      - agent_utilities/mcp/tools/query_tools.py:839
-      - agent_utilities/mcp/tools/query_tools.py:844
+      - agent_utilities/mcp/tools/query_tools.py:658
+      - agent_utilities/mcp/tools/query_tools.py:663
+      - agent_utilities/mcp/tools/query_tools.py:849
+      - agent_utilities/mcp/tools/query_tools.py:854
       - tests/unit/knowledge_graph/core/test_nl_query.py:1
       - tests/unit/knowledge_graph/core/test_table_ingest.py:1
       - tests/unit/knowledge_graph/etl/test_etl_table_sink.py:1
@@ -3546,7 +3588,7 @@ concepts:
       - agent_utilities/knowledge_graph/kb/ingestion.py:351
       - agent_utilities/knowledge_graph/kb/ingestion.py:418
       - agent_utilities/knowledge_graph/research/fleet_relevance.py:159
-      - agent_utilities/knowledge_graph/security/policy_ingestor.py:630
+      - agent_utilities/knowledge_graph/security/policy_ingestor.py:637
       - agent_utilities/knowledge_graph/security/rule_ingestor.py:656
       - tests/unit/knowledge_graph/test_bounded_read.py:1
       - tests/unit/mcp/test_graph_analyze_inspect.py:12
@@ -3629,7 +3671,7 @@ concepts:
       - agent_utilities/automation/research_pipeline.py:374
       - agent_utilities/automation/worldmodel_pipeline.py:1
       - agent_utilities/automation/worldmodel_pipeline.py:40
-      - agent_utilities/knowledge_graph/core/source_sync.py:1429
+      - agent_utilities/knowledge_graph/core/source_sync.py:1513
       - agent_utilities/knowledge_graph/research/loop_controller.py:3138
       - docs/architecture/chunked-async-drain.md:134
   AU-KG.ingest.non-blocking-graph-validation:
@@ -3780,7 +3822,7 @@ concepts:
       sites:
       - agent_utilities/knowledge_graph/enrichment/git_history.py:1
       - agent_utilities/knowledge_graph/enrichment/git_history.py:266
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1924
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1966
       - docs/architecture/intelligent-ingestion.md:91
       - docs/architecture/north-star-architecture.md:78
       - tests/unit/knowledge_graph/enrichment/test_git_history.py:1
@@ -3817,7 +3859,7 @@ concepts:
       - agent_utilities/knowledge_graph/extraction/fact_extractor.py:608
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:17701
       - agent_utilities/mcp/tools/analyze_suite.py:11
-      - agent_utilities/mcp/tools/analyze_suite.py:241
+      - agent_utilities/mcp/tools/analyze_suite.py:249
       - docs/capabilities-power.json:17701
       - docs/capabilities-power.md:3024
       - tests/harness/test_trace_analytics.py:1
@@ -3829,7 +3871,7 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.broken-link-tolerance
-    suggestion_why: 'clusters with 3 sibling(s) around AU-KG.ingest.broken-link-tolerance; both introduced
+    suggestion_why: 'clusters with 4 sibling(s) around AU-KG.ingest.broken-link-tolerance; both introduced
       by f111ac42 (feat(kg): OKF round-trip + openwiki on skill-graph standard); the candidate parent
       already has a design document'
     evidence:
@@ -3937,7 +3979,7 @@ concepts:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       - agent_utilities/knowledge_graph/ingestion/repo_classifier.py
       test_files:
-      - tests/test_repo_classification.py
+      - tests/unit/knowledge_graph/test_repo_classification.py
       doc_files:
       - docs/architecture/intelligent-ingestion.md
       - docs/architecture/north-star-architecture.md
@@ -3995,15 +4037,15 @@ concepts:
       truncated_marker: '# classifier (CONCEPT·AU-KG.ingest.over-same-tree-fan/2.283) over this tree AFTER
         the structural'
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1731
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1973
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2012
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1773
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2015
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2054
       - agent_utilities/knowledge_graph/ingestion/repo_classifier.py:3
       - agent_utilities/knowledge_graph/ingestion/repo_classifier.py:218
       - docs/architecture/intelligent-ingestion.md:43
       - docs/architecture/north-star-architecture.md:77
-      - tests/test_repo_classification.py:3
-      - tests/test_repo_classification.py:77
+      - tests/unit/knowledge_graph/test_repo_classification.py:3
+      - tests/unit/knowledge_graph/test_repo_classification.py:77
   AU-KG.ingest.package-install-autoingest:
     decision: PENDING
     parent: ''
@@ -4021,7 +4063,7 @@ concepts:
       - agent_utilities/knowledge_graph/core/source_sync.py
       - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py
       test_files:
-      - tests/test_package_install_ingest.py
+      - tests/unit/knowledge_graph/test_package_install_ingest.py
       doc_files: []
       introduced: d29c66d2 2026-07-12 Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest)
       cohort:
@@ -4032,10 +4074,10 @@ concepts:
       - agent_utilities/knowledge_graph/core/engine_tasks.py:387
       - agent_utilities/knowledge_graph/core/engine_tasks.py:1372
       - agent_utilities/knowledge_graph/core/engine_tasks.py:1419
-      - agent_utilities/knowledge_graph/core/source_sync.py:4258
+      - agent_utilities/knowledge_graph/core/source_sync.py:4342
       - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py:1
       - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py:158
-      - tests/test_package_install_ingest.py:1
+      - tests/unit/knowledge_graph/test_package_install_ingest.py:1
   AU-KG.ingest.partial-materialization:
     decision: PENDING
     parent: ''
@@ -4167,7 +4209,7 @@ concepts:
       - agent_utilities/automation/feed_sources.py
       - agent_utilities/knowledge_graph/core/source_sync.py
       test_files:
-      - tests/test_arxiv_and_scholarx_research_feeds.py
+      - tests/unit/knowledge_graph/test_arxiv_and_scholarx_research_feeds.py
       doc_files: []
       introduced: 'cee2a6e9 2026-07-30 feat(connectors): wire FreshRSS/ScholarX/arXiv research feeds into
         source_sync (7.3)'
@@ -4180,9 +4222,9 @@ concepts:
       sites:
       - agent_utilities/automation/feed_sources.py:69
       - agent_utilities/automation/feed_sources.py:143
-      - agent_utilities/knowledge_graph/core/source_sync.py:1584
-      - agent_utilities/knowledge_graph/core/source_sync.py:4593
-      - tests/test_arxiv_and_scholarx_research_feeds.py:91
+      - agent_utilities/knowledge_graph/core/source_sync.py:1668
+      - agent_utilities/knowledge_graph/core/source_sync.py:4677
+      - tests/unit/knowledge_graph/test_arxiv_and_scholarx_research_feeds.py:91
   AU-KG.ingest.role-enforcement:
     decision: PENDING
     parent: ''
@@ -4442,7 +4484,7 @@ concepts:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       - agent_utilities/mcp/kg_server.py
       test_files:
-      - tests/test_unified_ingestion.py
+      - tests/unit/knowledge_graph/test_unified_ingestion.py
       - tests/unit/mcp/test_graphos_bootstrap_isolation.py
       doc_files:
       - .specify/design/graphos-self-tool-surface-ingestion/design.md
@@ -4453,11 +4495,11 @@ concepts:
       truncated_marker: ''
       sites:
       - .specify/design/graphos-self-tool-surface-ingestion/design.md:24
-      - agent_utilities/knowledge_graph/ingestion/engine.py:385
-      - agent_utilities/knowledge_graph/ingestion/engine.py:3723
-      - agent_utilities/mcp/kg_server.py:3055
-      - agent_utilities/mcp/kg_server.py:3075
-      - tests/test_unified_ingestion.py:448
+      - agent_utilities/knowledge_graph/ingestion/engine.py:388
+      - agent_utilities/knowledge_graph/ingestion/engine.py:3765
+      - agent_utilities/mcp/kg_server.py:3062
+      - agent_utilities/mcp/kg_server.py:3082
+      - tests/unit/knowledge_graph/test_unified_ingestion.py:483
       - tests/unit/mcp/test_graphos_bootstrap_isolation.py:1211
   AU-KG.ingest.semantic-event-contract:
     decision: PENDING
@@ -4621,7 +4663,7 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 6 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
       agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
       has_design_doc: false
@@ -4683,8 +4725,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/source_sync.py:4027
-      - agent_utilities/knowledge_graph/core/source_sync.py:4150
+      - agent_utilities/knowledge_graph/core/source_sync.py:4111
+      - agent_utilities/knowledge_graph/core/source_sync.py:4234
   AU-KG.ingest.stable-fragment-address:
     decision: PENDING
     parent: ''
@@ -4698,13 +4740,16 @@ concepts:
       has_design_doc: false
       in_baseline: false
       source_files:
+      - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
       - agent_utilities/knowledge_graph/ontology.ttl
       - agent_utilities/knowledge_graph/ontology/document_processing.py
       - agent_utilities/knowledge_graph/shapes/governance.shapes.ttl
       - agent_utilities/mcp/tools/query_tools.py
+      - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
       test_files:
       - tests/integration/knowledge_graph/test_evidence_spine_live_commit.py
+      - tests/unit/knowledge_graph/domain_packs/test_markdown_fragmenter.py
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine.py
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine_contract.py
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine_wiring.py
@@ -4716,9 +4761,10 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py:23
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:4
-      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:242
-      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:743
+      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:254
+      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:761
       - agent_utilities/knowledge_graph/ontology.ttl:505
       - agent_utilities/knowledge_graph/ontology.ttl:537
       - agent_utilities/knowledge_graph/ontology.ttl:543
@@ -4728,13 +4774,16 @@ concepts:
       - agent_utilities/knowledge_graph/ontology.ttl:611
       - agent_utilities/knowledge_graph/ontology.ttl:623
       - agent_utilities/knowledge_graph/ontology.ttl:1049
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:532
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:810
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:361
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:567
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:896
       - agent_utilities/knowledge_graph/shapes/governance.shapes.ttl:180
-      - agent_utilities/mcp/tools/query_tools.py:1630
-      - agent_utilities/mcp/tools/query_tools.py:1798
+      - agent_utilities/mcp/tools/query_tools.py:1669
+      - agent_utilities/mcp/tools/query_tools.py:1837
+      - agent_utilities/protocols/source_connectors/connectors/git_markdown.py:296
       - docs/architecture/evidence-spine.md:3
       - tests/integration/knowledge_graph/test_evidence_spine_live_commit.py:3
+      - tests/unit/knowledge_graph/domain_packs/test_markdown_fragmenter.py:3
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine.py:4
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine_contract.py:3
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine_wiring.py:4
@@ -4753,7 +4802,7 @@ concepts:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       - agent_utilities/knowledge_graph/ingestion/staged_pipeline.py
       test_files:
-      - tests/test_staged_pipeline.py
+      - tests/unit/knowledge_graph/test_staged_pipeline.py
       doc_files: []
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -4808,14 +4857,14 @@ concepts:
       artifact_id: is a single generic noun — it names a subject area, not a choice
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:858
-      - agent_utilities/knowledge_graph/ingestion/engine.py:909
-      - agent_utilities/knowledge_graph/ingestion/engine.py:944
-      - agent_utilities/knowledge_graph/ingestion/engine.py:989
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1008
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1054
+      - agent_utilities/knowledge_graph/ingestion/engine.py:861
+      - agent_utilities/knowledge_graph/ingestion/engine.py:912
+      - agent_utilities/knowledge_graph/ingestion/engine.py:947
+      - agent_utilities/knowledge_graph/ingestion/engine.py:992
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1011
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1057
       - agent_utilities/knowledge_graph/ingestion/staged_pipeline.py:1
-      - tests/test_staged_pipeline.py:1
+      - tests/unit/knowledge_graph/test_staged_pipeline.py:1
   AU-KG.ingest.standardized-document-ingestion:
     decision: PENDING
     parent: ''
@@ -4845,7 +4894,7 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.broken-link-tolerance
-    suggestion_why: clusters with 3 sibling(s) around AU-KG.ingest.broken-link-tolerance; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
+    suggestion_why: clusters with 4 sibling(s) around AU-KG.ingest.broken-link-tolerance; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
       the candidate parent already has a design document
     evidence:
       has_design_doc: false
@@ -4861,8 +4910,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:642
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1820
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:715
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1914
       - agent_utilities/knowledge_graph/pipeline/document_ingestion.py:60
   AU-KG.ingest.subtask-routing-key:
     decision: PENDING
@@ -4938,7 +4987,7 @@ concepts:
       - agent_utilities/knowledge_graph/core/engine_tasks.py:3121
       - agent_utilities/knowledge_graph/core/engine_tasks.py:4785
       - agent_utilities/knowledge_graph/core/engine_tasks.py:4799
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1763
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1805
       - tests/unit/knowledge_graph/test_ingest_tail_optimization.py:7
   AU-KG.ingest.then-by-its-node:
     decision: PENDING
@@ -5018,7 +5067,7 @@ concepts:
     reason: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.broken-link-tolerance
-    suggestion_why: clusters with 3 sibling(s) around AU-KG.ingest.broken-link-tolerance; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
+    suggestion_why: clusters with 4 sibling(s) around AU-KG.ingest.broken-link-tolerance; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
       the candidate parent already has a design document
     evidence:
       has_design_doc: false
@@ -5033,8 +5082,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1309
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1647
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1403
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1741
   AU-KG.ingest.unified-query-routing:
     decision: PENDING
     parent: ''
@@ -5055,8 +5104,8 @@ concepts:
       - agent_utilities/mcp/kg_server.py
       - agent_utilities/mcp/tools/query_tools.py
       test_files:
-      - tests/test_ingest_graph_routing.py
-      - tests/test_repo_classification.py
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py
+      - tests/unit/knowledge_graph/test_repo_classification.py
       - tests/unit/mcp/test_graph_query_fanout_timeout.py
       - tests/unit/mcp/test_graph_search_fanout_timeout.py
       doc_files: []
@@ -5113,26 +5162,26 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/graph_compute.py:3795
-      - agent_utilities/knowledge_graph/core/graph_compute.py:3819
+      - agent_utilities/knowledge_graph/core/graph_compute.py:3835
+      - agent_utilities/knowledge_graph/core/graph_compute.py:3859
       - agent_utilities/knowledge_graph/core/ingest_routing.py:1
       - agent_utilities/knowledge_graph/core/ingest_routing.py:2
       - agent_utilities/knowledge_graph/core/ingest_routing.py:300
       - agent_utilities/knowledge_graph/core/worker_scheduler.py:156
-      - agent_utilities/knowledge_graph/ingestion/engine.py:725
-      - agent_utilities/knowledge_graph/ingestion/engine.py:736
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1757
-      - agent_utilities/mcp/kg_server.py:2258
-      - agent_utilities/mcp/kg_server.py:2323
+      - agent_utilities/knowledge_graph/ingestion/engine.py:728
+      - agent_utilities/knowledge_graph/ingestion/engine.py:739
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1799
+      - agent_utilities/mcp/kg_server.py:2259
+      - agent_utilities/mcp/kg_server.py:2324
       - agent_utilities/mcp/tools/query_tools.py:435
-      - agent_utilities/mcp/tools/query_tools.py:528
-      - agent_utilities/mcp/tools/query_tools.py:1353
-      - agent_utilities/mcp/tools/query_tools.py:1364
-      - tests/test_ingest_graph_routing.py:1
-      - tests/test_ingest_graph_routing.py:185
-      - tests/test_ingest_graph_routing.py:231
-      - tests/test_ingest_graph_routing.py:401
-      - tests/test_repo_classification.py:160
+      - agent_utilities/mcp/tools/query_tools.py:538
+      - agent_utilities/mcp/tools/query_tools.py:1392
+      - agent_utilities/mcp/tools/query_tools.py:1403
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:1
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:184
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:230
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:441
+      - tests/unit/knowledge_graph/test_repo_classification.py:160
       - tests/unit/mcp/test_graph_query_fanout_timeout.py:1
       - tests/unit/mcp/test_graph_search_fanout_timeout.py:1
   AU-KG.ingest.universal-data-connector:
@@ -5208,6 +5257,29 @@ concepts:
       - agent_utilities/protocols/source_connectors/connectors/graphql_document.py:11
       - agent_utilities/protocols/universal_connector.py:5
       - agent_utilities/protocols/universal_connector.py:121
+  AU-KG.ingest.verbatim-extraction-before-fragmenting:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.broken-link-tolerance
+    suggestion_why: clusters with 4 sibling(s) around AU-KG.ingest.broken-link-tolerance; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/ontology/document_processing.py
+      test_files: []
+      doc_files: []
+      introduced: '9874c6ff 2026-07-31 fix(kg): D-ES-1 — file-sourced markdown was structure-flattened
+        before fragmenting'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:849
   AU-KG.ingest.web-fetch-front-door:
     decision: PENDING
     parent: ''
@@ -5462,8 +5534,8 @@ concepts:
       truncated_marker: '"""Route a Research/arXiv item to the unified research path (CONCEPT·AU-KG.ingest.worldmodel-gated-ingestion/2.121).'
       sites:
       - agent_utilities/automation/worldmodel_pipeline.py:18
-      - agent_utilities/automation/worldmodel_pipeline.py:441
-      - agent_utilities/knowledge_graph/core/source_sync.py:1432
+      - agent_utilities/automation/worldmodel_pipeline.py:446
+      - agent_utilities/knowledge_graph/core/source_sync.py:1516
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py:16
   AU-KG.ingest.worldview-stream:
     decision: PENDING
@@ -5550,7 +5622,7 @@ concepts:
       source_files:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files:
-      - tests/test_repo_classification.py
+      - tests/unit/knowledge_graph/test_repo_classification.py
       doc_files:
       - docs/architecture/north-star-architecture.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -5606,6 +5678,6 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2238
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2280
       - docs/architecture/north-star-architecture.md:81
-      - tests/test_repo_classification.py:168
+      - tests/unit/knowledge_graph/test_repo_classification.py:168

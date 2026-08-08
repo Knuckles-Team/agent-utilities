@@ -1,7 +1,9 @@
 import time
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from .tool_score import normalize_legacy_relevance_score
 
 SpecialistTier = Literal["light", "medium", "heavy", "reasoning"]
 
@@ -62,6 +64,8 @@ class MCPAgent(BaseModel):
 
 
 class MCPToolInfo(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     name: str = Field(description="Full tool name")
     description: str = Field(description="Tool description")
     tag: str | None = Field(
@@ -72,17 +76,45 @@ class MCPToolInfo(BaseModel):
         default_factory=list, description="All tags associated with the tool"
     )
     relevance_score: int = Field(
-        default=0, description="Deterministic quality score (0-100)"
+        default=0,
+        ge=0,
+        le=100,
+        strict=True,
+        description="Deterministic quality score (0-100)",
     )
     requires_approval: bool = Field(
         default=False,
         description="Whether this tool requires human-in-the-loop approval",
     )
 
+    @field_validator("relevance_score", mode="before")
+    @classmethod
+    def _normalize_legacy_relevance_score(cls, value: Any) -> Any:
+        """Read legacy normalized graph scores without weakening the schema.
+
+        Early Tool writers persisted floating-point scores in ``[0, 1]`` while
+        every router and scorer uses integer points in ``[0, 100]``.  Floats in
+        that legacy range are converted at this boundary; new writers must
+        persist canonical integer points.  Other fractional or out-of-range
+        values remain invalid so corrupt rows can be quarantined by callers.
+
+        Delegates to :func:`agent_utilities.models.tool_score.normalize_legacy_relevance_score`,
+        the single source of truth shared with
+        :class:`agent_utilities.models.knowledge_graph.ToolNode` (D-CDX-53/54)
+        so the two models can never apply a different boundary.
+        """
+        return normalize_legacy_relevance_score(value)
+
 
 class MCPAgentRegistryModel(BaseModel):
+    model_config = ConfigDict(validate_assignment=True)
+
     agents: list[MCPAgent] = Field(default_factory=list)
-    tools: list[MCPToolInfo] = Field(default_factory=list)
+    # Registry snapshots are immutable at the collection boundary. Pydantic
+    # still accepts list-shaped construction/assignment input and validates
+    # every element, while tuple storage prevents append/setitem from bypassing
+    # model validation after the registry has entered the process cache.
+    tools: tuple[MCPToolInfo, ...] = Field(default_factory=tuple)
 
 
 class DiscoveredSpecialist(BaseModel):

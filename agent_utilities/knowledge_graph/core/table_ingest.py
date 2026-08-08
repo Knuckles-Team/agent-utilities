@@ -269,7 +269,7 @@ def ingest_connector_to_table(
     from agent_utilities.protocols.source_connectors.registry import build_connector
 
     def _result(payload: dict[str, Any]) -> dict[str, Any]:
-        canonical = {
+        canonical: dict[str, Any] = {
             key: payload[key]
             for key in ("status", "counts", "watermark", "error", "reason")
             if key in payload

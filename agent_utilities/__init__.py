@@ -13,6 +13,14 @@ from agent_utilities.core.log_privacy import install_log_privacy_boundary
 
 install_log_privacy_boundary()
 
+# D-EGK-1: assert this package was actually loaded from its live hostPath
+# mount, not a stale image-baked copy left behind by a pythonX.Y mount-path
+# drift. Import-time side effect is intentional -- see
+# agent_utilities/core/live_mount_guard.py for why this is the one guard
+# that still fires when the other two (a parity gate, a version-independent
+# mount path) were bypassed or skipped.
+from agent_utilities.core import live_mount_guard  # noqa: F401
+
 
 # Lazy imports for all modules to avoid heavy import chains
 def __getattr__(name):
@@ -227,14 +235,6 @@ def __getattr__(name):
         from .observability.audit_logger import AuditLogger, AuditRecord
 
         return AuditLogger if name == "AuditLogger" else AuditRecord
-    elif name in ["GuardrailEngine", "GuardrailRule", "GuardrailAction"]:
-        from .security.threat_defense_engine import (
-            GuardrailAction,
-            GuardrailEngine,
-            GuardrailRule,
-        )
-
-        return locals()[name]
     elif name in ["AgentConfigVersionManager", "AgentConfigSnapshot"]:
         from .observability.config_versioning import (
             AgentConfigSnapshot,
@@ -494,10 +494,6 @@ __all__ = [
     # MATE Integration — Audit Logging (CONCEPT:AU-OS.config.secrets-authentication)
     "AuditLogger",
     "AuditRecord",
-    # MATE Integration — Guardrail Engine (CONCEPT:AU-OS.config.secrets-authentication)
-    "GuardrailEngine",
-    "GuardrailRule",
-    "GuardrailAction",
     # MATE Integration — Config Versioning (CONCEPT:AU-AHE.harness.evolutionary-aggregation)
     "AgentConfigVersionManager",
     "AgentConfigSnapshot",

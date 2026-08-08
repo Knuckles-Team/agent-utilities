@@ -130,7 +130,7 @@ def test_write_fleet_nodes_creates_tool_nodes_with_dispatcher_schema():
     assert props["mcp_server"] == "portainer-agent"
     assert props["tags"] == ["portainer"]  # == dispatcher's derived server_tag
     assert props["requires_approval"] is False
-    assert isinstance(props["relevance_score"], (int, float))
+    assert props["relevance_score"] == 50
     # gate vocabulary
     assert "portainer" in props["synonyms"]
 

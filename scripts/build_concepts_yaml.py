@@ -40,8 +40,10 @@ EXTERNAL_PATH = ROOT / "docs" / "external_concepts.yaml"
 # generator, the validator (check_concepts.py), and the allocator never drift.
 # Adding ROOT lets this resolve to the local source even without an install.
 sys.path.insert(0, str(ROOT))
-from agent_utilities.governance.concept_allocator import MARKER_RE  # noqa: E402
-from agent_utilities.governance.concept_hierarchy import parse_okf_id  # noqa: E402
+from agent_utilities.governance.concept_hierarchy import (  # noqa: E402
+    iter_okf_markers,
+    parse_okf_id,
+)
 
 _PRIVATE_DOC_PATTERNS = (
     re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"),
@@ -51,6 +53,14 @@ _PRIVATE_DOC_PATTERNS = (
     re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE),
 )
 
+#: A slash-separated token immediately after a leading ``/`` — e.g. the
+#: ``KG-2.91`` in ``... / KG-2.91)``. ``OKF_MARKER_RE``'s own tail only
+#: consumes an ADJACENT (no-space) slash/underscore/uppercase run
+#: (D-CC-4); a SPACED slash, as in ``CONCEPT:<id> / KG-2.91``, is left
+#: outside the marker span entirely (D-CC-10) and would otherwise leak
+#: straight into ``doc`` as ``"/ KG-2.91"``.
+_CITATION_TOKEN_RE = re.compile(r"^/\s*([A-Za-z0-9](?:[A-Za-z0-9.\-]*[A-Za-z0-9])?)")
+
 
 def _clean_doc(rest: str) -> str:
     """Extract a best-effort one-line description from text after the marker."""
@@ -59,6 +69,20 @@ def _clean_doc(rest: str) -> str:
     # ": Nested Subfolder Instructions", "] Adversarial ...".
     # Strip a single leading separator.
     text = re.sub(r"^[\s\)\]\}\.:,;—\-–]+", "", text)
+    # A spaced slash citation is always metadata, never doc prose — but only
+    # the TOKEN after it is dropped wholesale when it reads as a legacy
+    # numbering (contains a digit: `KG-2.91`, `ECO-4.97`, `D-INT-4`, a bare
+    # `2.186`, chained as `/ 2.186 / ORCH-1.84`). A token with no digit
+    # (`Universal-capability`) is real prose that happens to share the same
+    # slug character class, so only the separating slash itself is dropped,
+    # never the word. Looped because chained citations repeat the pattern.
+    while text.startswith("/"):
+        match = _CITATION_TOKEN_RE.match(text)
+        if match and any(ch.isdigit() for ch in match.group(1)):
+            text = text[match.end() :]
+        else:
+            text = text[1:]
+        text = re.sub(r"^[\s\)\]\}\.:,;—\-–]+", "", text)
     # Cut at characters that usually terminate a human-readable phrase.
     # Stop at code-ish punctuation that signals the prose has ended.
     for stop in ("(", ")", "]", "}", '"', "'", "`", "{", ":", "%", "#"):
@@ -86,11 +110,11 @@ def collect() -> dict[str, dict]:
         except (UnicodeDecodeError, OSError):
             continue
         rel = path.relative_to(ROOT).as_posix()
-        for m in MARKER_RE.finditer(content):
-            cid = m.group("id")
-            # The shared marker regex captures only the id; the trailing
-            # descriptive text is the remainder of the same line.
-            rest = content[m.end() :].split("\n", 1)[0]
+        for marker in iter_okf_markers(content):
+            cid = marker.id
+            # The marker parser consumes any adjacent slash/underscore/uppercase
+            # tail; descriptive text begins only after the complete marker span.
+            rest = content[marker.end :].split("\n", 1)[0]
             doc = _clean_doc(rest)
             parsed = parse_okf_id(cid)
             pillar = f"{parsed.slug}-{parsed.pillar}"

@@ -15,7 +15,7 @@ machinery already exists and is extended here, not rebuilt —
   same primitives rather than calling the higher-level
   :func:`~.fact_extractor.extract_facts` wrapper, for one deliberate reason:
   ``extract_facts`` hands callers an already-``ExtractedFact``-coerced dict,
-  and that coercion (``_coerce_fact``) defaults a missing/unparseable
+  and that coercion (``_coerce_fact``) defaults a missing/unparsable
   ``confidence`` to ``0`` — exactly the fabrication the "Confidence honesty"
   section below refuses to do. Reading the raw parsed JSON (before any
   coercion) is the only way to tell "the model said zero" apart from "the
@@ -76,19 +76,23 @@ written (confirmed by survey), so :class:`EvidenceSpan` here is a deliberately
 minimal, duck-typed interim: it only requires whatever object it is given to
 expose ``fragment_id``/``text`` (see :class:`FragmentLike`).
 
-**Re-verified against the now-published evidence-spine contract**
-(``feat/evidence-spine`` @ ``961698b8``, ``agent_utilities.knowledge_graph.
-ingestion.evidence_spine.Fragment``, not yet merged to ``main``): the real
-``Fragment`` dataclass exposes its stable address as ``.fragment_id``, **not**
-``.id`` — it has no ``id`` attribute at all. :class:`FragmentLike` originally
-duck-typed on ``.id``/``.text``, which the real class would **not** have
-satisfied. Renamed the protocol's address attribute to ``.fragment_id`` to
-match the real contract exactly, so a real ``Fragment`` instance already
-satisfies :class:`FragmentLike` with zero changes once the evidence-spine
-branch merges and this module imports it directly — only the import line
-changes, per the original plan. Tracked as ``D-CE-1`` in
+**Re-verified against the now-published, now-MERGED evidence-spine contract**
+(``agent_utilities.knowledge_graph.ingestion.evidence_spine.Fragment``, on
+``main`` since the evidence-spine lane merged): the real ``Fragment``
+dataclass exposes its stable address as ``.fragment_id``, **not** ``.id`` — it
+has no ``id`` attribute at all. :class:`FragmentLike` originally duck-typed on
+``.id``/``.text``, which the real class would **not** have satisfied. Renamed
+the protocol's address attribute to ``.fragment_id`` to match the real
+contract exactly, so a real ``Fragment`` instance already satisfies
+:class:`FragmentLike` with zero changes — no import line change needed either:
+this module deliberately keeps the structural ``Protocol`` (never a concrete
+``evidence_spine.Fragment`` import) so a plain dict/``SimpleNamespace`` test
+double stays satisfying too; see :class:`_FragmentDict` for the JSON-caller
+adapter :func:`~agent_utilities.mcp.tools.candidate_claim_tools.
+register_candidate_claim_tools`'s ``graph_candidate_claims(action="propose")``
+MCP/REST surface (D-CE-2) uses. Tracked as ``D-CE-1`` in
 ``reports/deferred/lane-claims-er.md`` (closed: contract re-verified and
-aligned, real import still pending the sibling lane's merge to ``main``).
+aligned).
 """
 
 from __future__ import annotations
@@ -155,13 +159,18 @@ class FragmentLike(Protocol):
 
 
 class _FragmentDict:
-    """Adapts a ``{"id": ..., "text": ...}`` mapping to :class:`FragmentLike`.
+    """Adapts a ``{"id"|"fragment_id": ..., "text": ...}`` mapping to
+    :class:`FragmentLike`.
 
-    Callers that have not yet wired the evidence spine's real ``Fragment``
-    dataclass may pass plain dicts keyed ``id``/``text`` (the pre-existing,
-    already-widespread shorthand); this wrapper is the ONE place that
-    tolerance lives so :meth:`CandidateClaimExtractor.propose` itself only
-    ever handles the protocol shape (``fragment_id``/``text``).
+    Callers that only have JSON (an MCP/REST caller, e.g. ``graph_candidate_claims``,
+    D-CE-2) may pass plain dicts rather than a real evidence-spine ``Fragment``
+    object; this wrapper is the ONE place that tolerance lives so
+    :meth:`CandidateClaimExtractor.propose` itself only ever handles the
+    protocol shape (``fragment_id``/``text``). Accepts BOTH key spellings:
+    ``fragment_id`` (the real ``evidence_spine.Fragment``'s own attribute
+    name — what a caller serializing a real fragment to JSON actually has)
+    and the pre-existing ``id`` shorthand (kept for the callers already using
+    it) — ``fragment_id`` wins if a dict somehow has both.
     """
 
     __slots__ = ("fragment_id", "text")
@@ -174,8 +183,10 @@ class _FragmentDict:
 def _as_fragment(obj: Any) -> FragmentLike | None:
     if isinstance(obj, FragmentLike):
         return obj
-    if isinstance(obj, dict) and "id" in obj and "text" in obj:
-        return _FragmentDict(str(obj["id"]), str(obj["text"]))
+    if isinstance(obj, dict) and "text" in obj:
+        fragment_id = obj.get("fragment_id", obj.get("id"))
+        if fragment_id is not None:
+            return _FragmentDict(str(fragment_id), str(obj["text"]))
     return None
 
 
@@ -218,7 +229,7 @@ class EvidenceSpan(BaseModel):
 def claim_confidence(raw: Any) -> float | None:
     """Coerce a model's raw ``confidence`` (0..100) to ``[0, 1]``, or ``None``.
 
-    ``None`` is an explicit abstain — missing/unparseable is NOT the same as
+    ``None`` is an explicit abstain — missing/unparsable is NOT the same as
     "the model said zero" and must never be silently coerced to ``0.0``
     (that would fabricate a confident-sounding low score where there is
     actually no signal at all).

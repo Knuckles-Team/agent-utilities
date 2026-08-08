@@ -57,7 +57,7 @@ import argparse
 import json
 import logging
 import os
-import random
+import secrets
 import shlex
 import subprocess
 import sys
@@ -601,7 +601,7 @@ def trigger(
         change_class = METADATA
 
     intent = Intent(
-        id=f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}-{random.randrange(1 << 24):06x}",
+        id=f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%S%fZ')}-{secrets.randbelow(1 << 24):06x}",
         created_at=datetime.now(UTC).isoformat(),
         repo=str(repo),
         branch=branch,
@@ -701,31 +701,31 @@ def drain(workspace: Workspace, *, ignore_activity: bool = False) -> dict[str, A
     try:
         with exclusive_lock(workspace):
             if worst.change_class == METADATA and config.on_metadata_change == "relock":
-                outcome = upgrade(
+                upgrade_outcome = upgrade(
                     workspace,
                     all_packages=True,
                     reason="merge flip: metadata change",
                     ignore_activity=ignore_activity,
                     hold_lock=False,
                 )
-                payload["upgrade"] = outcome.as_dict()
-                applied = outcome.ok
-                verdict = outcome.verdict
+                payload["upgrade"] = upgrade_outcome.as_dict()
+                applied = upgrade_outcome.ok
+                verdict = upgrade_outcome.verdict
             else:
-                outcome = sync(
+                sync_outcome = sync(
                     workspace,
                     reason=f"merge flip: {worst.change_class}",
                     apply=True,
                     ignore_activity=ignore_activity,
                     hold_lock=False,
                 )
-                payload["sync"] = outcome.as_dict()
-                applied = outcome.verdict.allowed
-                verdict = outcome.verdict
+                payload["sync"] = sync_outcome.as_dict()
+                applied = sync_outcome.verdict.allowed
+                verdict = sync_outcome.verdict
                 if (
                     worst.change_class == METADATA
                     and config.on_metadata_change == "propose"
-                    and not outcome.verdict.allowed
+                    and not sync_outcome.verdict.allowed
                 ):
                     payload["proposal"] = (
                         "a merge changed packaging metadata, so uv.lock no longer "

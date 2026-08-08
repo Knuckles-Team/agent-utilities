@@ -184,9 +184,10 @@ Messaging ships as **one serving implementation** (`messaging/daemon.run_forever
    `agent_utilities/messaging/daemon.py`'s `mint_process_identity`.
 
 A deployment that previously ran messaging as its own always-on Deployment/service should
-retire it once GraphOS MCP is redeployed with the bundling code — see
-`deploy/k8s/messaging-bundle-retirement.yaml` for the (not auto-applied) cutover plan and
-the rendered `deploy/k8s/production-cell/` assets /
+retire it once GraphOS MCP is redeployed with the bundling code. The step-by-step (not
+auto-applied) cutover plan is held by the operator outside this public repository — it
+narrates a real homelab topology (live hostnames, a real Keycloak realm/client-id) that
+should not ship on GitHub — see the rendered `deploy/k8s/production-cell/` assets /
 `deploy/swarm/graphos.stack.yml` for where channel tokens now live (the SAME
 Secret/ConfigMap GraphOS MCP already reads).
 

@@ -430,12 +430,6 @@ namespace; concepts are :partOf their pillar.""" ;
             owl:onProperty :hasMember ],
         bfo:0000004 .
 
-:Tool a owl:Class ;
-    rdfs:label "Tool" ;
-    rdfs:comment "A software tool or instrument. BFO:IndependentContinuant, aligned to schema:SoftwareApplication." ;
-    rdfs:seeAlso schema:SoftwareApplication ;
-    rdfs:subClassOf bfo:0000004 .
-
 :ValidityInterval a owl:Class ;
     rdfs:label "Validity Interval" ;
     rdfs:comment "The event-time window during which a fact is TRUE in the world. Aligned to OWL-Time time:Interval." ;
@@ -509,12 +503,6 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:label "corrects" ;
     rdfs:comment "Links a Correction to the node/output it corrects." ;
     rdfs:domain :Correction .
-
-:provides a owl:ObjectProperty ;
-    rdfs:label "provides" ;
-    rdfs:comment "An Agent offers/exposes a Tool as one of its callable capabilities." ;
-    rdfs:domain :Agent ;
-    rdfs:range :Tool .
 
 :dependencyOf a owl:ObjectProperty ;
     rdfs:label "dependency of" ;
@@ -631,6 +619,12 @@ necessarily depends on what it extends.""" ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :succeeds .
 
+:provides a owl:ObjectProperty ;
+    rdfs:label "provides" ;
+    rdfs:comment "An Agent offers/exposes a Tool as one of its callable capabilities." ;
+    rdfs:domain :Agent ;
+    rdfs:range :Tool .
+
 :supersedes a owl:ObjectProperty ;
     rdfs:label "supersedes" ;
     rdfs:comment "Links a TemporalFact to the prior fact it superseded on contradiction (KG-2.251)." ;
@@ -735,6 +729,12 @@ necessarily depends on what it extends.""" ;
             owl:onProperty :dependsOn ],
         bfo:0000004 .
 
+:Tool a owl:Class ;
+    rdfs:label "Tool" ;
+    rdfs:comment "A software tool or instrument. BFO:IndependentContinuant, aligned to schema:SoftwareApplication." ;
+    rdfs:seeAlso schema:SoftwareApplication ;
+    rdfs:subClassOf bfo:0000004 .
+
 :blocksTask a owl:ObjectProperty ;
     rdfs:label "blocks task" ;
     rdfs:comment "Links an Incident to the Task(s) it blocks." ;
@@ -808,12 +808,6 @@ Aligned to prov:wasAssociatedWith (inverse direction).""" ;
 Works for versions, phases, events, role transitions, etc.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 .
-
-:Agent a owl:Class ;
-    rdfs:label "Agent Specialist" ;
-    rdfs:comment "An autonomous software agent. BFO:IndependentContinuant, aligned to prov:SoftwareAgent." ;
-    rdfs:subClassOf bfo:0000004 ;
-    owl:equivalentClass prov:SoftwareAgent .
 
 :DomainEntity a owl:Class ;
     rdfs:label "Domain Entity" ;
@@ -928,6 +922,12 @@ bfo:0000008 a owl:Class ;
             owl:allValuesFrom :Incident ;
             owl:onProperty :resolvedIncident ],
         bfo:0000015 .
+
+:Agent a owl:Class ;
+    rdfs:label "Agent Specialist" ;
+    rdfs:comment "An autonomous software agent. BFO:IndependentContinuant, aligned to prov:SoftwareAgent." ;
+    rdfs:subClassOf bfo:0000004 ;
+    owl:equivalentClass prov:SoftwareAgent .
 
 :System a owl:Class ;
     rdfs:label "System" ;

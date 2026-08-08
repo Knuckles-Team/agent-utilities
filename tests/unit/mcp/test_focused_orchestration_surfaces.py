@@ -88,7 +88,14 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "submit_risk_veto",
             "verify_action",
         },
-        "graph_jobs": {"dispatch", "status", "cancel", "input"},
+        "graph_jobs": {
+            "dispatch",
+            "status",
+            "cancel",
+            "input",
+            "drain",
+            "dead_letter",
+        },
         "graph_rlm": {"run", "benchmark", "evolve_prompt"},
         "graph_workflows": {
             "compile",
@@ -101,16 +108,18 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    # 37, computed from `expected_actions` above, not guessed. Reconciliation
-    # gate 2 merged TWO lanes that each add exactly one action:
+    # 39, computed from `expected_actions` above, not guessed. This total has now
+    # gone stale three times, each time the same way: a lane adds an action to a
+    # tool, updates the action SET here, and does not touch this line -- so git
+    # merges the set change cleanly and leaves the count behind.
     #   feat/wave7-followups-evolution -> graph_evolution "evidence_lineage" (D-71-4)
     #   feat/wave25-followups-mcpapps  -> graph_jobs      "input"
-    # Each lane updated the action SET but not this total (they touched different
-    # lines, so git merged both sets cleanly and left the stale count). The
-    # `harvest_actions(...) == actions` assertion below is what actually pins the
-    # surface against the real tools; this total is the redundant ratchet that
-    # catches a silently added action.
-    assert sum(map(len, expected_actions.values())) == 37
+    #   83ee1066 governed-promotion    -> graph_jobs      "drain", "dead_letter"
+    # The third did not update the set either, so this test was RED on main until
+    # both were added above. The `harvest_actions(...) == actions` assertion below
+    # is what actually pins the surface against the real tools; this total is the
+    # redundant ratchet that catches a silently added action.
+    assert sum(map(len, expected_actions.values())) == 39
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 
@@ -550,6 +559,170 @@ async def test_graph_agents_reason_live_path_drives_real_cot_topology(
     _query, params = engine.backend.calls[-1]
     assert params["tid"] == COT_SPEC.topology_id
     assert params["score"] == 0.8
+
+
+@pytest.mark.asyncio
+async def test_graph_agents_reason_live_path_drives_real_tot_topology(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """(D-5.3-5.6-3) ``graph_agents(action="reason", topology="tot_bfs")`` must
+    actually drive the real ``agent_utilities.graph.reasoning.tot.run_tot`` —
+    before this wiring, ToT/GoT had no live entry point at all (only
+    cot/self_consistent_cot did). Scripts ONE LLM expansion call that proposes
+    two candidate next-thoughts (one of which is itself a complete answer,
+    self-scored highest) and asserts the REAL ``run_tot`` BFS search picks it
+    via GOAL_REACHED — not a fabricated/static response.
+    """
+    from agent_utilities.mcp.tools import agent_execution_tools
+
+    class _StubBackend:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, dict]] = []
+
+        def execute(self, query, params):
+            self.calls.append((query, params))
+
+    class _StubEngine:
+        def __init__(self) -> None:
+            self.nodes: dict[str, tuple[str, dict]] = {}
+            self.backend = _StubBackend()
+
+        def add_node(self, node_id, node_type, props):
+            self.nodes[node_id] = (node_type, props)
+
+    engine = _StubEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+
+    expansion = agent_execution_tools.ToTGenerateOutput(
+        children=[
+            agent_execution_tools.ToTChildOutput(
+                content="Break 6*7 into (6*5)+(6*2) = 30+12",
+                score=0.4,
+                is_goal=False,
+            ),
+            agent_execution_tools.ToTChildOutput(
+                content="42", score=0.9, is_goal=True
+            ),
+        ]
+    )
+
+    class _FakeRunResult:
+        def __init__(self, output) -> None:
+            self.output = output
+
+    class _FakeAgent:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def run_sync(self, _prompt: str):
+            self.calls += 1
+            return _FakeRunResult(expansion)
+
+    fake_agent = _FakeAgent()
+    monkeypatch.setattr(
+        "agent_utilities.core.model_factory.create_model", lambda **_kw: object()
+    )
+    monkeypatch.setattr(
+        "agent_utilities.core.contextual_model.create_context_agent",
+        lambda **_kw: fake_agent,
+    )
+
+    tool = _register_all().tools["graph_agents"]
+    payload = json.loads(
+        await tool(
+            action="reason",
+            task="What is 6*7?",
+            context="",
+            context_ref="",
+            max_fan_out=5,
+            max_steps=10,
+            host="",
+            container_id="",
+            options_json="{}",
+            topology="tot_bfs",
+            num_samples=3,
+            branching_factor=3,
+            beam_width=3,
+            max_depth=5,
+        )
+    )
+
+    # Only ONE expansion round is needed: the goal-scoring child sorts first
+    # under top_k pruning and is popped first under BFS -- proving the REAL
+    # run_tot search order, not a scripted answer.
+    assert fake_agent.calls == 1
+    assert payload["topology"] == "tot_bfs"
+    assert payload["answer"] == "42"
+    assert payload["node_count"] == 3  # root + the two expanded children
+    assert payload["termination"]["success"] is True
+    assert payload["termination"]["degraded"] is False
+    assert payload["termination"]["reason"] == "goal_reached"
+
+    from agent_utilities.graph.reasoning import TOT_BFS_SPEC
+
+    assert payload["topology_id"] == TOT_BFS_SPEC.topology_id
+    node_type, props = engine.nodes[TOT_BFS_SPEC.topology_id]
+    assert node_type == "reasoning_topology_version"
+    assert props["artifact_id"] == "tot_bfs"
+    assert props["version_hash"] == TOT_BFS_SPEC.digest
+    assert engine.backend.calls, "record_topology_outcome never reached the backend"
+
+
+@pytest.mark.asyncio
+async def test_graph_agents_reason_tot_degrades_honestly_with_no_reachable_model(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No model reachable -> ToT's generate_fn returns no children, so
+    run_tot converges on the ROOT node itself (degraded, never a crash and
+    never a fabricated answer) -- mirrors _reasoning_step_fn's same
+    no-model-reachable honesty contract for CoT."""
+    from agent_utilities.mcp.tools import agent_execution_tools  # noqa: F401
+
+    class _StubEngine:
+        def __init__(self) -> None:
+            self.nodes: dict[str, tuple[str, dict]] = {}
+
+            class _Backend:
+                def execute(self, query, params):
+                    pass
+
+            self.backend = _Backend()
+
+        def add_node(self, node_id, node_type, props):
+            self.nodes[node_id] = (node_type, props)
+
+    engine = _StubEngine()
+    monkeypatch.setattr(kg_server, "_get_engine", lambda: engine)
+    monkeypatch.setattr(
+        "agent_utilities.core.model_factory.create_model",
+        lambda **_kw: (_ for _ in ()).throw(RuntimeError("no model reachable")),
+    )
+
+    tool = _register_all().tools["graph_agents"]
+    payload = json.loads(
+        await tool(
+            action="reason",
+            task="What is 6*7?",
+            context="",
+            context_ref="",
+            max_fan_out=5,
+            max_steps=10,
+            host="",
+            container_id="",
+            options_json="{}",
+            topology="tot_dfs",
+            num_samples=3,
+            branching_factor=3,
+            beam_width=3,
+            max_depth=5,
+        )
+    )
+
+    assert payload["topology"] == "tot_dfs"
+    assert payload["node_count"] == 1  # only the root -- no children generated
+    assert payload["termination"]["degraded"] is True
+
+
 def test_graph_evolution_evidence_lineage_action_reaches_the_shared_core(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

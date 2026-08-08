@@ -134,3 +134,37 @@ def test_finance_gap_fill_parity(engine_graph):
     grid = pd.date_range(idx.min(), idx.max(), freq="1D", tz="UTC")
     pandas_locf = s.reindex(s.index.union(grid)).ffill().reindex(grid)
     assert list(filled.to_numpy()) == pytest.approx(list(pandas_locf.to_numpy()))
+
+
+def test_finance_gap_fill_new_york_dst_engine_fallback_parity(
+    engine_graph, monkeypatch
+):
+    """The real engine and fallback use the same UTC instants across a DST fold."""
+    import warnings
+
+    pd = pytest.importorskip("pandas")
+    from agent_utilities.domains.finance import engine_series
+
+    local_index = pd.date_range(
+        "2026-11-01 00:00", periods=4, freq="h", tz="America/New_York"
+    )
+    series = pd.Series([10.0, 30.0, 40.0], index=local_index[[0, 2, 3]], name="close")
+    expected = pd.Series(
+        [10.0, 10.0, 30.0, 40.0],
+        index=pd.date_range("2026-11-01 04:00", periods=4, freq="h", tz="UTC"),
+        name="close",
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        accelerated = engine_series.gap_fill_series(
+            series, "1H", client=engine_graph._client
+        )
+
+    monkeypatch.setattr(engine_series, "_client", lambda: None)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fallback = engine_series.gap_fill_series(series, "1H")
+
+    pd.testing.assert_series_equal(accelerated, expected, check_freq=False)
+    pd.testing.assert_series_equal(fallback, expected, check_freq=False)

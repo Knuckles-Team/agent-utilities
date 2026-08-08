@@ -14,12 +14,14 @@ import logging
 import os
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
+from pydantic import ValidationError
 
 from agent_utilities.core import config as ch
+from agent_utilities.models.mcp import MCPAgentRegistryModel, MCPToolInfo
 
 
 def _prompt_blueprint(body: str, *, task: str = "router") -> dict[str, Any]:
@@ -465,7 +467,7 @@ def test_get_discovery_registry_no_engine_active(
     )
     result = ch.get_discovery_registry()
     assert result.agents == []
-    assert result.tools == []
+    assert result.tools == ()
     assert path_calls == 1
     fake_engine_cls.get_or_create.assert_called_once_with(db_path=str(expected_path))
 
@@ -686,7 +688,7 @@ def test_get_discovery_registry_tool_query_error(
         fake_kg,
     )
     result = ch.get_discovery_registry()
-    assert result.tools == []
+    assert result.tools == ()
 
 
 # ---------------------------------------------------------------------------
@@ -698,7 +700,9 @@ def test_get_discovery_registry_tool_query_error(
 # ---------------------------------------------------------------------------
 
 
-def _install_fake_engine(monkeypatch: pytest.MonkeyPatch, fake_engine: MagicMock) -> None:
+def _install_fake_engine(
+    monkeypatch: pytest.MonkeyPatch, fake_engine: MagicMock
+) -> None:
     fake_engine_cls = MagicMock(get_active=MagicMock(return_value=fake_engine))
     fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
     monkeypatch.setitem(
@@ -724,7 +728,7 @@ def test_a_degraded_fetch_is_not_cached_and_the_next_call_retries(
     _install_fake_engine(monkeypatch, failing_engine)
 
     degraded = ch.get_discovery_registry()
-    assert degraded.tools == []
+    assert degraded.tools == ()
     # The bug: this used to latch permanently regardless of the failure.
     assert ch._RegistryCache._registry is None
 
@@ -769,6 +773,297 @@ def test_a_clean_fetch_still_caches_exactly_as_before(
     result2 = ch.get_discovery_registry()
     assert result2 is result
     fake_engine.backend.execute.assert_not_called()
+
+
+def test_legacy_tool_scores_are_normalized_and_bad_rows_are_quarantined(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """One corrupt Tool must not erase healthy tools or poison the cache."""
+    mixed_engine = MagicMock()
+    mixed_engine.backend = MagicMock()
+    mixed_engine.backend.execute.side_effect = [
+        [],
+        [],
+        [
+            {
+                "t.name": "legacy",
+                "t.description": "legacy normalized score",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 0.5,
+                "t.tags": ["legacy"],
+                "t.requires_approval": False,
+            },
+            {
+                "t.name": "canonical",
+                "t.description": "canonical point score",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 80,
+                "t.tags": ["canonical"],
+                "t.requires_approval": False,
+            },
+            {
+                "t.name": "corrupt",
+                "t.description": "fractional score outside the legacy range",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 1.5,
+                "t.tags": [],
+                "t.requires_approval": False,
+            },
+        ],
+    ]
+    _install_fake_engine(monkeypatch, mixed_engine)
+
+    degraded = ch.get_discovery_registry()
+    assert {tool.name: tool.relevance_score for tool in degraded.tools} == {
+        "legacy": 50,
+        "canonical": 80,
+    }
+    assert ch._RegistryCache._registry is None
+
+    healthy_engine = MagicMock()
+    healthy_engine.backend = MagicMock()
+    healthy_engine.backend.execute.side_effect = [
+        [],
+        [],
+        [
+            {
+                "t.name": "repaired",
+                "t.description": "valid after repair",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 75,
+                "t.tags": [],
+                "t.requires_approval": False,
+            }
+        ],
+    ]
+    _install_fake_engine(monkeypatch, healthy_engine)
+
+    repaired = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in repaired.tools] == [
+        ("repaired", 75)
+    ]
+    assert ch._RegistryCache._registry is repaired
+
+
+def test_tool_relevance_score_preserves_canonical_bounds() -> None:
+    """Compatibility conversion must not admit corrupt point scores."""
+    legacy = MCPToolInfo(
+        name="legacy", description="", mcp_server="srv", relevance_score=1.0
+    )
+    assert legacy.relevance_score == 100
+
+    rounded_down = MCPToolInfo(
+        name="rounded-down", description="", mcp_server="srv", relevance_score=0.005
+    )
+    rounded_up = MCPToolInfo(
+        name="rounded-up", description="", mcp_server="srv", relevance_score=0.015
+    )
+    assert rounded_down.relevance_score == 0
+    assert rounded_up.relevance_score == 2
+
+    with pytest.raises(ValidationError):
+        MCPToolInfo(
+            name="too-high", description="", mcp_server="srv", relevance_score=101
+        )
+
+    with pytest.raises(ValidationError):
+        MCPToolInfo(
+            name="negative", description="", mcp_server="srv", relevance_score=-1
+        )
+
+    with pytest.raises(ValidationError):
+        MCPToolInfo(
+            name="boolean", description="", mcp_server="srv", relevance_score=True
+        )
+
+    with pytest.raises(ValidationError):
+        MCPToolInfo(
+            name="fractional-writer",
+            description="",
+            mcp_server="srv",
+            relevance_score=80.0,
+        )
+
+
+def test_tool_relevance_score_validates_assignment() -> None:
+    """Nested registry models cannot be corrupted after construction."""
+    tool = MCPToolInfo(
+        name="canonical", description="", mcp_server="srv", relevance_score=75
+    )
+
+    tool.relevance_score = cast(int, 0.5)
+    assert tool.relevance_score == 50
+
+    invalid_values: tuple[Any, ...] = (1.5, 101, -1, True, "50")
+    for invalid in invalid_values:
+        with pytest.raises(ValidationError):
+            tool.relevance_score = invalid
+        assert tool.relevance_score == 50
+
+    registry = MCPAgentRegistryModel(tools=[tool])
+    replacement: Any = [
+        {
+            "name": "corrupt",
+            "description": "",
+            "mcp_server": "srv",
+            "relevance_score": 1.5,
+        }
+    ]
+    with pytest.raises(ValidationError):
+        registry.tools = replacement
+    assert registry.tools == (tool,)
+
+    assert not hasattr(registry.tools, "append")
+
+
+def test_tool_row_stream_failure_retains_valid_rows_without_caching(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A lazy backend failure degrades the request without losing prior rows."""
+
+    def interrupted_rows():
+        yield {
+            "t.name": "before-failure",
+            "t.description": "valid row",
+            "t.mcp_server": "srv",
+            "t.relevance_score": 60,
+            "t.tags": [],
+            "t.requires_approval": False,
+        }
+        raise RuntimeError("sensitive backend detail")
+
+    interrupted_engine = MagicMock()
+    interrupted_engine.backend.execute.side_effect = [[], [], interrupted_rows()]
+    _install_fake_engine(monkeypatch, interrupted_engine)
+
+    degraded = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in degraded.tools] == [
+        ("before-failure", 60)
+    ]
+    assert ch._RegistryCache._registry is None
+
+    healthy_engine = MagicMock()
+    healthy_engine.backend.execute.side_effect = [
+        [],
+        [],
+        [
+            {
+                "t.name": "after-retry",
+                "t.description": "valid row",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 90,
+                "t.tags": [],
+                "t.requires_approval": False,
+            }
+        ],
+    ]
+    _install_fake_engine(monkeypatch, healthy_engine)
+
+    repaired = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in repaired.tools] == [
+        ("after-retry", 90)
+    ]
+    assert ch._RegistryCache._registry is repaired
+
+
+@pytest.mark.parametrize("bad_result", [None, 42])
+def test_noniterable_tool_query_result_is_degraded_not_cached(
+    monkeypatch: pytest.MonkeyPatch, bad_result: object
+) -> None:
+    engine = MagicMock()
+    engine.backend.execute.side_effect = [[], [], bad_result]
+    _install_fake_engine(monkeypatch, engine)
+
+    result = ch.get_discovery_registry()
+    assert result.tools == ()
+    assert ch._RegistryCache._registry is None
+
+
+def test_tool_query_failure_is_sanitized(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    engine = MagicMock()
+    engine.backend.execute.side_effect = RuntimeError("sensitive-backend-token=abc123")
+    errors: list[str] = []
+    caplog.set_level(logging.WARNING)
+
+    assert ch._fetch_tools(engine, errors) == []
+    assert errors == ["tools: query failed (RuntimeError)"]
+    assert "sensitive-backend-token" not in caplog.text
+
+
+def test_tool_iterator_creation_failure_is_sanitized_and_not_cached(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class BrokenIterable:
+        def __iter__(self):
+            raise RuntimeError("sensitive iterator detail")
+
+    engine = MagicMock()
+    engine.backend.execute.side_effect = [[], [], BrokenIterable()]
+    _install_fake_engine(monkeypatch, engine)
+    caplog.set_level(logging.WARNING)
+
+    result = ch.get_discovery_registry()
+    assert result.tools == ()
+    assert ch._RegistryCache._registry is None
+    assert "sensitive iterator detail" not in caplog.text
+
+
+def test_tool_row_getter_failure_is_quarantined_without_losing_valid_rows(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    class BrokenRow:
+        def get(self, _key: str, _default: object = None) -> object:
+            raise RuntimeError("sensitive row detail")
+
+    valid_row = {
+        "t.name": "valid",
+        "t.description": "valid row",
+        "t.mcp_server": "srv",
+        "t.relevance_score": 40,
+        "t.tags": [],
+        "t.requires_approval": False,
+    }
+    engine = MagicMock()
+    engine.backend.execute.side_effect = [[], [], [valid_row, BrokenRow()]]
+    _install_fake_engine(monkeypatch, engine)
+    caplog.set_level(logging.WARNING)
+
+    result = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in result.tools] == [
+        ("valid", 40)
+    ]
+    assert ch._RegistryCache._registry is None
+    assert "sensitive row detail" not in caplog.text
+
+
+def test_nonmapping_tool_row_is_quarantined_without_losing_valid_rows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = MagicMock()
+    engine.backend.execute.side_effect = [
+        [],
+        [],
+        [
+            object(),
+            {
+                "t.name": "valid",
+                "t.description": "valid row",
+                "t.mcp_server": "srv",
+                "t.relevance_score": 40,
+                "t.tags": [],
+                "t.requires_approval": False,
+            },
+        ],
+    ]
+    _install_fake_engine(monkeypatch, engine)
+
+    result = ch.get_discovery_registry()
+    assert [(tool.name, tool.relevance_score) for tool in result.tools] == [
+        ("valid", 40)
+    ]
+    assert ch._RegistryCache._registry is None
 
 
 def test_missing_backend_is_treated_as_degraded_not_cached(

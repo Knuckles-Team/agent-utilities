@@ -1,5 +1,5 @@
 domain: AU-ECO.messaging
-generated_at: '2026-08-01T15:07:23+00:00'
+generated_at: '2026-08-01T18:05:04+00:00'
 generator: scripts/concept_domain_triage.py
 how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
   `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
@@ -296,7 +296,7 @@ concepts:
       - agent_utilities/messaging/router.py:621
       - agent_utilities/messaging/router.py:682
       - agent_utilities/messaging/router.py:736
-      - agent_utilities/messaging/router.py:1373
+      - agent_utilities/messaging/router.py:1386
       - docs/architecture/non-blocking-execution.md:44
   AU-ECO.messaging.durable-inbound-pending:
     decision: PENDING
@@ -637,13 +637,13 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/messaging/router.py:467
-      - agent_utilities/messaging/router.py:989
-      - agent_utilities/messaging/router.py:1023
-      - agent_utilities/messaging/router.py:1375
-      - agent_utilities/messaging/router.py:1411
-      - agent_utilities/messaging/router.py:1418
-      - agent_utilities/messaging/router.py:1532
-      - agent_utilities/messaging/router.py:1645
+      - agent_utilities/messaging/router.py:1002
+      - agent_utilities/messaging/router.py:1036
+      - agent_utilities/messaging/router.py:1388
+      - agent_utilities/messaging/router.py:1424
+      - agent_utilities/messaging/router.py:1431
+      - agent_utilities/messaging/router.py:1545
+      - agent_utilities/messaging/router.py:1658
       - tests/unit/messaging/test_messaging_routing.py:523
       - tests/unit/messaging/test_messaging_routing.py:557
       - tests/unit/messaging/test_messaging_voice.py:89
@@ -757,7 +757,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/messaging/router.py:1614
+      - agent_utilities/messaging/router.py:1627
   AU-ECO.messaging.last-active-channel:
     decision: PENDING
     parent: ''
@@ -1292,9 +1292,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/messaging/router.py:1583
-      - agent_utilities/messaging/router.py:1585
-      - agent_utilities/messaging/router.py:1644
+      - agent_utilities/messaging/router.py:1596
+      - agent_utilities/messaging/router.py:1598
+      - agent_utilities/messaging/router.py:1657
       - tests/unit/messaging/test_messaging_routing.py:254
   AU-ECO.messaging.native-backend-abstraction:
     decision: PENDING
@@ -1385,16 +1385,14 @@ concepts:
       - tests/integration/protocols/test_a2a_discovery.py
       - tests/integration/protocols/test_acp_adapter.py
       - tests/integration/protocols/test_acp_integration.py
-      - tests/test_a2a_graph_skill.py
-      - tests/test_durable_execution.py
-      - tests/test_function_registry.py
-      - tests/test_jupyter_adapter.py
-      - tests/test_provider_adapter.py
-      - tests/test_research_enhancements.py
       - tests/unit/graph/test_tool_resolver.py
       - tests/unit/knowledge_graph/test_agent_toolkit_ingestion.py
       - tests/unit/knowledge_graph/test_ecosystem_topology.py
+      - tests/unit/knowledge_graph/test_function_registry.py
       - tests/unit/knowledge_graph/test_memory_bridge.py
+      - tests/unit/knowledge_graph/test_provider_adapter.py
+      - tests/unit/knowledge_graph/test_research_enhancements.py
+      - tests/unit/mcp/test_jupyter_adapter.py
       - tests/unit/mcp/test_mcp_manager.py
       - tests/unit/mcp/test_mcp_manager_extended.py
       - tests/unit/mcp/test_mcp_partitioning.py
@@ -1407,7 +1405,9 @@ concepts:
       - tests/unit/messaging/test_messaging.py
       - tests/unit/messaging/test_render.py
       - tests/unit/messaging/test_router_supervision.py
+      - tests/unit/orchestration/test_durable_execution.py
       - tests/unit/protocols/test_a2a.py
+      - tests/unit/protocols/test_a2a_graph_skill.py
       - tests/unit/protocols/test_ctx_helpers.py
       - tests/unit/protocols/test_ctx_scenarios.py
       doc_files:
@@ -1479,44 +1479,44 @@ concepts:
       - agent_utilities/__init__.py:504
       - agent_utilities/capabilities/manager.py:2
       - agent_utilities/core/config.py:3142
-      - agent_utilities/core/config.py:5066
-      - agent_utilities/core/config.py:5068
-      - agent_utilities/core/config.py:5151
-      - agent_utilities/core/config.py:5156
+      - agent_utilities/core/config.py:5075
+      - agent_utilities/core/config.py:5077
       - agent_utilities/core/config.py:5160
       - agent_utilities/core/config.py:5165
-      - agent_utilities/core/config.py:5170
-      - agent_utilities/core/config.py:5176
-      - agent_utilities/core/config.py:5181
-      - agent_utilities/core/config.py:5186
-      - agent_utilities/core/config.py:5191
-      - agent_utilities/core/config.py:5196
-      - agent_utilities/core/config.py:5201
-      - agent_utilities/core/config.py:5206
-      - agent_utilities/core/config.py:5211
-      - agent_utilities/core/config.py:5216
-      - agent_utilities/core/config.py:5221
-      - agent_utilities/core/config.py:5226
-      - agent_utilities/core/config.py:5231
-      - agent_utilities/core/config.py:5236
-      - agent_utilities/core/config.py:5241
-      - agent_utilities/core/config.py:5246
-      - agent_utilities/core/config.py:5251
-      - agent_utilities/core/config.py:5254
-      - agent_utilities/core/config.py:5257
-      - agent_utilities/core/config.py:5262
-      - agent_utilities/core/config.py:5267
-      - agent_utilities/core/config.py:5272
-      - agent_utilities/core/config.py:5275
-      - agent_utilities/core/config.py:5280
-      - agent_utilities/core/config.py:5285
-      - agent_utilities/core/config.py:5290
-      - agent_utilities/core/config.py:5295
-      - agent_utilities/core/config.py:5300
-      - agent_utilities/core/config.py:5305
-      - agent_utilities/core/config.py:5310
-      - agent_utilities/core/config.py:5315
-      - agent_utilities/core/config.py:5320
+      - agent_utilities/core/config.py:5169
+      - agent_utilities/core/config.py:5174
+      - agent_utilities/core/config.py:5179
+      - agent_utilities/core/config.py:5185
+      - agent_utilities/core/config.py:5190
+      - agent_utilities/core/config.py:5195
+      - agent_utilities/core/config.py:5200
+      - agent_utilities/core/config.py:5205
+      - agent_utilities/core/config.py:5210
+      - agent_utilities/core/config.py:5215
+      - agent_utilities/core/config.py:5220
+      - agent_utilities/core/config.py:5225
+      - agent_utilities/core/config.py:5230
+      - agent_utilities/core/config.py:5235
+      - agent_utilities/core/config.py:5240
+      - agent_utilities/core/config.py:5245
+      - agent_utilities/core/config.py:5250
+      - agent_utilities/core/config.py:5255
+      - agent_utilities/core/config.py:5260
+      - agent_utilities/core/config.py:5263
+      - agent_utilities/core/config.py:5266
+      - agent_utilities/core/config.py:5271
+      - agent_utilities/core/config.py:5276
+      - agent_utilities/core/config.py:5281
+      - agent_utilities/core/config.py:5284
+      - agent_utilities/core/config.py:5289
+      - agent_utilities/core/config.py:5294
+      - agent_utilities/core/config.py:5299
+      - agent_utilities/core/config.py:5304
+      - agent_utilities/core/config.py:5309
+      - agent_utilities/core/config.py:5314
+      - agent_utilities/core/config.py:5319
+      - agent_utilities/core/config.py:5324
+      - agent_utilities/core/config.py:5329
       - agent_utilities/core/paths.py:251
       - agent_utilities/core/paths.py:265
       - agent_utilities/core/registry/package_adapter.py:22
@@ -1772,14 +1772,14 @@ concepts:
       - agent_utilities/models/knowledge_graph.py:723
       - agent_utilities/models/knowledge_graph.py:753
       - agent_utilities/models/knowledge_graph.py:916
-      - agent_utilities/models/knowledge_graph.py:2122
-      - agent_utilities/models/knowledge_graph.py:2128
-      - agent_utilities/models/knowledge_graph.py:2283
-      - agent_utilities/models/knowledge_graph.py:2317
-      - agent_utilities/models/knowledge_graph.py:2506
-      - agent_utilities/models/knowledge_graph.py:4941
-      - agent_utilities/models/knowledge_graph.py:4947
-      - agent_utilities/models/knowledge_graph.py:4979
+      - agent_utilities/models/knowledge_graph.py:2197
+      - agent_utilities/models/knowledge_graph.py:2203
+      - agent_utilities/models/knowledge_graph.py:2358
+      - agent_utilities/models/knowledge_graph.py:2392
+      - agent_utilities/models/knowledge_graph.py:2581
+      - agent_utilities/models/knowledge_graph.py:5041
+      - agent_utilities/models/knowledge_graph.py:5047
+      - agent_utilities/models/knowledge_graph.py:5079
       - agent_utilities/models/schema_packs/finance.py:62
       - agent_utilities/models/schema_packs/finance.py:102
       - agent_utilities/orchestration/durable_execution.py:2
@@ -1856,10 +1856,10 @@ concepts:
       - docs/pillars/4_ecosystem_peripherals/ECO-4.5-Native_Messaging_Backend.md:267
       - docs/reference/documentation-catalog.md:62
       - docs/reference/documentation-catalog.md:102
-      - docs/reference/documentation-catalog.md:334
-      - docs/reference/documentation-catalog.md:335
-      - docs/reference/runtime-configuration.md:308
-      - docs/reference/runtime-configuration.md:618
+      - docs/reference/documentation-catalog.md:336
+      - docs/reference/documentation-catalog.md:337
+      - docs/reference/runtime-configuration.md:309
+      - docs/reference/runtime-configuration.md:619
       - scripts/gen_genesis_manifest.py:189
       - tests/integration/core/check_openapi.py:1
       - tests/integration/core/merge_mcp_configs.py:1
@@ -1875,20 +1875,16 @@ concepts:
       - tests/integration/protocols/test_a2a_discovery.py:1
       - tests/integration/protocols/test_acp_adapter.py:1
       - tests/integration/protocols/test_acp_integration.py:1
-      - tests/test_a2a_graph_skill.py:1
-      - tests/test_a2a_graph_skill.py:14
-      - tests/test_a2a_graph_skill.py:45
-      - tests/test_durable_execution.py:2
-      - tests/test_function_registry.py:1
-      - tests/test_jupyter_adapter.py:2
-      - tests/test_provider_adapter.py:1
-      - tests/test_research_enhancements.py:7
-      - tests/test_research_enhancements.py:218
-      - tests/test_research_enhancements.py:222
       - tests/unit/graph/test_tool_resolver.py:4
       - tests/unit/knowledge_graph/test_agent_toolkit_ingestion.py:3
       - tests/unit/knowledge_graph/test_ecosystem_topology.py:6
+      - tests/unit/knowledge_graph/test_function_registry.py:1
       - tests/unit/knowledge_graph/test_memory_bridge.py:5
+      - tests/unit/knowledge_graph/test_provider_adapter.py:1
+      - tests/unit/knowledge_graph/test_research_enhancements.py:7
+      - tests/unit/knowledge_graph/test_research_enhancements.py:218
+      - tests/unit/knowledge_graph/test_research_enhancements.py:222
+      - tests/unit/mcp/test_jupyter_adapter.py:2
       - tests/unit/mcp/test_mcp_manager.py:1
       - tests/unit/mcp/test_mcp_manager_extended.py:3
       - tests/unit/mcp/test_mcp_partitioning.py:3
@@ -1908,7 +1904,11 @@ concepts:
       - tests/unit/messaging/test_messaging.py:366
       - tests/unit/messaging/test_render.py:1
       - tests/unit/messaging/test_router_supervision.py:1
+      - tests/unit/orchestration/test_durable_execution.py:2
       - tests/unit/protocols/test_a2a.py:3
+      - tests/unit/protocols/test_a2a_graph_skill.py:1
+      - tests/unit/protocols/test_a2a_graph_skill.py:14
+      - tests/unit/protocols/test_a2a_graph_skill.py:45
       - tests/unit/protocols/test_ctx_helpers.py:1
       - tests/unit/protocols/test_ctx_scenarios.py:1
   AU-ECO.messaging.post-conversation-enrichment:
@@ -2455,11 +2455,11 @@ concepts:
       - agent_utilities/messaging/router.py:742
       - agent_utilities/messaging/router.py:779
       - agent_utilities/messaging/router.py:802
-      - agent_utilities/messaging/router.py:1360
-      - agent_utilities/messaging/router.py:1489
-      - agent_utilities/messaging/router.py:1518
-      - agent_utilities/messaging/router.py:1637
-      - agent_utilities/messaging/router.py:1662
+      - agent_utilities/messaging/router.py:1373
+      - agent_utilities/messaging/router.py:1502
+      - agent_utilities/messaging/router.py:1531
+      - agent_utilities/messaging/router.py:1650
+      - agent_utilities/messaging/router.py:1675
       - agent_utilities/orchestration/agent_runner.py:2605
       - agent_utilities/orchestration/manager.py:490
       - agent_utilities/orchestration/session_continuity.py:168
@@ -2519,7 +2519,7 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/messaging/router.py:610
-      - agent_utilities/messaging/router.py:973
+      - agent_utilities/messaging/router.py:986
   AU-ECO.messaging.whisper-transcription:
     decision: PENDING
     parent: ''

@@ -14,14 +14,23 @@ import threading
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
+from types import ModuleType
 from typing import Any, cast
 
 from agent_utilities.core.config import setting
+from agent_utilities.models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 from agent_utilities.security.identifiers import CYPHER_IDENTIFIER_RE
 from agent_utilities.security.log_redaction import redact_for_log
 
+_otel_trace: ModuleType | None
 try:
-    from opentelemetry import trace as _otel_trace
+    from opentelemetry import trace
+
+    _otel_trace = trace
 except ImportError:  # pragma: no cover - exercised by the OTel-absent import-guard test
     _otel_trace = None
 
@@ -2243,9 +2252,7 @@ class GraphComputeEngine:
         props = dict(properties or {})
         props.update(kwargs)
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is not supported; use canonical 'node_type'"
-            )
+            raise retired_node_type_property_error()
         declared_id = props.get("id")
         if declared_id is not None and str(declared_id) != str(node_id):
             raise ValueError("node property 'id' must match the native node identity")
@@ -2317,15 +2324,9 @@ class GraphComputeEngine:
 
         props = dict(properties or {})
         props.update(kwargs)
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            props
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
         if aliases:
-            names = ", ".join(sorted(aliases))
-            raise ValueError(
-                f"edge relationship aliases are not supported ({names}); "
-                "use canonical 'relationship'"
-            )
+            raise retired_edge_relationship_property_error(aliases)
         if not props.get("relationship"):
             raise ValueError("edge property 'relationship' is required")
         props = clean_props(props)
@@ -2394,6 +2395,81 @@ class GraphComputeEngine:
         """
         return bool(self._client.nodes.compare_and_set(node_id, conditions, updates))
 
+    def compare_and_set_node_embedding(
+        self,
+        node_id: str,
+        conditions: dict[str, Any],
+        updates: dict[str, Any],
+        embedding: list[float],
+    ) -> bool:
+        """Atomically condition node fields and replace its native ANN vector.
+
+        ``TxnCas`` captures the node fingerprint before the explicit point read.
+        Reading after staging proves the caller's field conditions matched that
+        captured snapshot; any mutation after either operation fails transaction
+        OCC at commit. The transaction publishes the durable vector with a
+        fail-closed readiness marker. Once ``TxnAddEmbedding`` has completed its
+        ANN projection, a second exact CAS opens served visibility. This fences
+        the engine's current graph-before-ANN in-memory publication order.
+        """
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
+        vector = [float(value) for value in embedding]
+        if updates.get("embedding") != vector:
+            raise ValueError(
+                "atomic embedding updates must store the same vector in node fields"
+            )
+
+        staged_updates = {
+            **updates,
+            "embedding": vector,
+            EMBEDDING_INDEX_READY_FIELD: False,
+        }
+        txn = self._client.txn
+        txn_id = txn.begin()
+        commit_started = False
+        try:
+            if not txn.cas(txn_id, node_id, conditions, staged_updates):
+                txn.rollback(txn_id)
+                return False
+
+            # TxnCas captures its OCC fingerprint at stage time but deliberately
+            # does not evaluate conditions until commit. Read AFTER staging: if
+            # this snapshot mismatches, rollback before a vector is staged; if it
+            # changes later, commit's fingerprint validation rejects everything.
+            current = self._get_node_properties(node_id)
+            if any(
+                current.get(field) != expected for field, expected in conditions.items()
+            ):
+                txn.rollback(txn_id)
+                return False
+            if not txn.add_embedding(txn_id, node_id, vector):
+                txn.rollback(txn_id)
+                return False
+
+            commit_started = True
+            if not bool(txn.commit(txn_id)):
+                return False
+            return bool(
+                self._client.nodes.compare_and_set(
+                    node_id,
+                    {
+                        "embedding": vector,
+                        EMBEDDING_INDEX_READY_FIELD: False,
+                    },
+                    {EMBEDDING_INDEX_READY_FIELD: True},
+                )
+            )
+        except BaseException:
+            if not commit_started:
+                try:
+                    txn.rollback(txn_id)
+                except Exception:  # noqa: BLE001 - preserve the staging failure
+                    logger.debug(
+                        "atomic embedding transaction rollback failed", exc_info=True
+                    )
+            raise
+
     def create_node_if_absent(
         self, node_id: str, properties: Any = None, **kwargs: Any
     ) -> bool:
@@ -2411,9 +2487,7 @@ class GraphComputeEngine:
         props = dict(properties or {})
         props.update(kwargs)
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is not supported; use canonical 'node_type'"
-            )
+            raise retired_node_type_property_error()
         declared_id = props.get("id")
         if declared_id is not None and str(declared_id) != str(node_id):
             raise ValueError("node property 'id' must match the native node identity")
@@ -2554,8 +2628,50 @@ class GraphComputeEngine:
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5
     ) -> list[tuple[str, float]]:
-        """Native HNSW vector search via the engine — returns (node_id, score)."""
-        return self._client.graph.semantic_search(query_embedding, n_results) or []
+        """Return current durable embeddings from the native HNSW candidate set.
+
+        A source-text update clears its durable ``embedding`` property in the same
+        native mutation that installs the new text.  Older engines do not yet
+        expose a vector-only removal operation, however, so their ANN can retain a
+        stale candidate until it is rebuilt or replaced.  Hydrating one bounded,
+        over-fetched candidate set in a single RPC prevents that stale candidate
+        from escaping while preserving native ANN ranking and O(log N) selection.
+        """
+        if n_results <= 0:
+            return []
+
+        # Over-fetch is additive and capped: invalidated ANN entries cannot starve
+        # the requested result count, while the temporary compatibility fence can
+        # never turn into an unbounded property scan.
+        extra_candidates = min(512, max(32, n_results * 3))
+        raw_hits = (
+            self._client.graph.semantic_search(
+                query_embedding, n_results + extra_candidates
+            )
+            or []
+        )
+        hits: list[tuple[str, float]] = []
+        for item in raw_hits:
+            if not isinstance(item, list | tuple) or len(item) < 2:
+                continue
+            node_id = str(item[0])
+            if node_id:
+                hits.append((node_id, float(item[1])))
+
+        from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
+        properties = self._get_node_properties_batch([node_id for node_id, _ in hits])
+        current: list[tuple[str, float]] = []
+        for node_id, score in hits:
+            node_properties = properties.get(node_id, {})
+            if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
+                continue
+            embedding = node_properties.get("embedding")
+            if isinstance(embedding, list | tuple) and embedding:
+                current.append((node_id, score))
+                if len(current) >= n_results:
+                    break
+        return current
 
     def query_unified(
         self,
@@ -2564,7 +2680,7 @@ class GraphComputeEngine:
         reorder_filter_selectivity: float | None = None,
         include_epistemic: bool = False,
     ) -> list[dict[str, Any]]:
-        """Run ONE cross-modal unified plan in a single costed round-trip.
+        """Run one native cross-modal plan with bounded served-read fencing.
 
         ``plan`` is the engine's closed algebra over a shared ``RowSet`` — an
         ordered list of externally-tagged ``Op`` dicts (``Scan``/``Filter``/
@@ -2578,6 +2694,9 @@ class GraphComputeEngine:
 
         Requires an engine built with the ``query`` feature; on a build without it
         the call raises a clear engine error — there is no O(N) Python fallback.
+        Until the engine publishes GraphCore and SemanticStore under one served
+        barrier, Rank-bearing plans add one bounded property-batch round-trip to
+        reject not-ready/stale vector rows.
 
         Args:
             include_epistemic: Opt-in (CONCEPT:AU-KB-CURRENCY, Seam 1 — the
@@ -2611,6 +2730,34 @@ class GraphComputeEngine:
                     "is dropped, not silently honored."
                 )
             rows = unified_fn(plan) or []
+        if rows and any(
+            isinstance(operation, dict) and "Rank" in operation for operation in plan
+        ):
+            # The engine currently publishes GraphCore fields before its
+            # SemanticStore projection inside a cross-modal transaction.  Rank
+            # rows therefore require the same bounded durable-property fence as
+            # semantic_search: a literal not-ready marker or missing vector
+            # cannot escape through the unified surface preferred by hybrid and
+            # capability retrieval.
+            from ..enrichment.semantic import EMBEDDING_INDEX_READY_FIELD
+
+            ranked_ids = [
+                str(row["id"])
+                for row in rows
+                if isinstance(row, dict) and row.get("id") is not None
+            ]
+            properties = self._get_node_properties_batch(ranked_ids)
+            current_rows: list[dict[str, Any]] = []
+            for row in rows:
+                if not isinstance(row, dict) or row.get("id") is None:
+                    continue
+                node_properties = properties.get(str(row["id"]), {})
+                if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
+                    continue
+                embedding = node_properties.get("embedding")
+                if isinstance(embedding, list | tuple) and embedding:
+                    current_rows.append(row)
+            rows = current_rows
         if include_epistemic:
             from .epistemic_row import attach_epistemic_rows
 
@@ -3354,6 +3501,10 @@ class GraphComputeEngine:
                     "SET r.metadata = $meta"
                 )
                 try:
+                    # cypher-write-subset-allow: flush_ledger_to_backend's sole
+                    # caller (agent_utilities/workflows/epistemic_sync.py) always
+                    # passes a LadybugBackend, which hands the query to Kuzu's
+                    # full openCypher engine, not the native subset parser.
                     backend.execute_write(
                         query,
                         parameters={

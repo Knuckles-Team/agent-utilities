@@ -13,6 +13,10 @@ from agent_utilities.core.config import (
     DEFAULT_EMBEDDING_BASE_URL,
     DEFAULT_EMBEDDING_MODEL_ID,
 )
+from agent_utilities.knowledge_graph.enrichment.semantic import (
+    EMBEDDING_BACKFILL_NO_TEXT,
+    EMBEDDING_BACKFILL_STATE_FIELD,
+)
 
 from .engine import IntelligenceGraphEngine
 
@@ -86,6 +90,259 @@ class GraphMaintainer:
 
         logger.info(f"Enriched {updated_count} messages with embeddings.")
         return updated_count
+
+    def backfill_entity_embeddings(
+        self,
+        *,
+        limit: int = 500,
+        batch_size: int = 256,
+        node_types: tuple[str, ...] | list[str] | None = None,
+    ) -> dict[str, int]:
+        """Generalized twin of :meth:`enrich_embeddings` for the WHOLE typed-
+        entity graph, not just ``:Message`` nodes (D-EMB/D-PERF-5).
+
+        The ingest-time chokepoint (``ingestion/envelope_ingest.py``) now
+        embeds every NEW upsert going forward, but a graph ingested before
+        that fix landed still has legacy nodes carrying no vector at all
+        (measured: 26,680 nodes, 136 embedded — 0.5%). This is the operator-
+        run catch-up for those: bounded (``limit``), batched (one embed call
+        per ``batch_size`` texts — never per-node, CONCEPT:
+        AU-KG.ingest.applying-agents-md-batch), and reuses the SAME
+        connector-agnostic text extractor
+        (:func:`~..enrichment.semantic.derive_entity_text`) the chokepoint
+        uses.
+
+        Persists the generated vector with the engine authority's cross-modal
+        ``compare_and_set_node_embedding`` transaction, which conditions the
+        exact text snapshot and commits the property plus ANN/HNSW replacement
+        together. The field-level update preserves every existing ACL, classification,
+        ownership and connector property; it deliberately does NOT re-upsert an
+        existing entity through a new ``ChangeEnvelope`` carrying an invented
+        policy. The durable property is also the progress ledger: a confirmed
+        update removes the node from the next ``embedding IS NULL`` page, so
+        bounded operator chunks are disjoint and restart-safe. A transaction
+        conflict or ANN failure applies neither side, leaving the node eligible
+        for a later bounded retry without a property/index split.
+
+        A textless legacy node is marked separately as ``no_text`` so it cannot
+        pin the first ordered page forever; no placeholder embedding is written.
+        A later full entity upsert replaces that maintenance-only marker and the
+        ingest-time embedding path handles newly-added text normally.
+
+        ``node_types``, if given, scopes candidates to those ``node_type``
+        values only (D-HYD-4 addendum, 2026-08-06). The default (``None``) is
+        the ORIGINAL blind ``ORDER BY n.id`` sweep across the WHOLE graph,
+        unchanged — measured live to leave the small discovery-relevant corpus
+        (:data:`~..enrichment.semantic.DISCOVERY_NODE_TYPES`, a few thousand
+        nodes) at exactly zero embeddings indefinitely, because those ids sort
+        behind tens of thousands of unrelated nodes (``RuntimeSignal``,
+        ``WorkItem``, ``IngestManifest``, raw entity-extraction rows with
+        unprefixed ids) at this method's per-cycle budget. Pass
+        ``DISCOVERY_NODE_TYPES`` for a bounded run that targets exactly what
+        ``find_tools`` / ``find_relevant_callable_resources`` / delegation
+        search over, instead of competing with the general sweep for the same
+        budget.
+
+        Returns ``{"scanned": N, "embedded": N, "indexed": N,
+        "skipped_no_text": N, "deferred_no_text": N, "conflicted": N,
+        "errored": N}``. ``embedded`` counts durable node-property updates;
+        ``indexed`` counts immediate ANN registrations; ``conflicted`` counts
+        rows whose text or embedding state changed after hydration and
+        therefore lost their CAS (an ordinary, expected concurrent-writer
+        outcome); ``errored`` counts rows whose atomic commit raised instead
+        of returning — a BACKEND/infra failure (e.g. an unmet transaction
+        precondition), never silently folded into ``conflicted`` (D-CDX-101:
+        a run that raises for every row must never be indistinguishable from
+        one that lost an ordinary OCC race).
+        """
+        result = {
+            "scanned": 0,
+            "embedded": 0,
+            "indexed": 0,
+            "errored": 0,
+            "skipped_no_text": 0,
+            "deferred_no_text": 0,
+            "conflicted": 0,
+        }
+        if not self.engine.backend:
+            return result
+
+        from ..enrichment.semantic import (
+            embedding_backfill_eligibility_clause,
+            embedding_backfill_type_scope_clause,
+        )
+
+        exclusion_clause, exclusion_params = embedding_backfill_eligibility_clause()
+        type_clause = (
+            embedding_backfill_type_scope_clause(node_types) if node_types else ""
+        )
+        query = (
+            "MATCH (n) WHERE n.embedding IS NULL "
+            f"AND n.{EMBEDDING_BACKFILL_STATE_FIELD} IS NULL "
+            f"{type_clause}"
+            f"{exclusion_clause} "
+            "RETURN n.id AS id "
+            "ORDER BY n.id LIMIT $limit"
+        )
+        rows = (
+            self.engine.backend.execute(
+                query, {"limit": int(limit), **exclusion_params}
+            )
+            or []
+        )
+        result["scanned"] = len(rows)
+        if not rows:
+            return result
+
+        node_ids = [str(row["id"]) for row in rows if row.get("id")]
+        graph = getattr(self.engine.backend, "_graph", self.engine.backend)
+        batch_properties = getattr(graph, "_get_node_properties_batch", None)
+        if not callable(batch_properties):
+            raise RuntimeError(
+                "embedding backfill requires batched node-property hydration; "
+                f"{type(graph).__name__} does not expose _get_node_properties_batch"
+            )
+        properties_by_id = batch_properties(node_ids) or {}
+
+        compare_and_set = getattr(
+            self.engine.backend, "compare_and_set_node_fields", None
+        )
+        if not callable(compare_and_set):
+            raise RuntimeError(
+                "embedding backfill requires atomic field updates to preserve "
+                "existing node governance"
+            )
+        compare_and_set_embedding = getattr(
+            self.engine.backend, "compare_and_set_node_embedding", None
+        )
+        if not callable(compare_and_set_embedding):
+            raise RuntimeError(
+                "embedding backfill requires atomic field+ANN transactions"
+            )
+
+        def _compare(
+            node_id: str,
+            conditions: dict[str, Any],
+            updates: dict[str, Any],
+        ) -> bool:
+            try:
+                return bool(compare_and_set(node_id, conditions, updates))
+            except NotImplementedError as exc:
+                raise RuntimeError(
+                    "embedding backfill requires backend compare-and-set support"
+                ) from exc
+
+        from ..enrichment.semantic import (
+            derive_entity_text_snapshot,
+            make_embed_fn,
+            validate_embedding_vectors,
+        )
+
+        items: list[tuple[str, str, dict[str, Any]]] = []
+        deferred: list[tuple[str, dict[str, Any]]] = []
+        for node_id in node_ids:
+            props = properties_by_id.get(node_id) or {}
+            text, text_conditions = derive_entity_text_snapshot(props)
+            conditions = {
+                "embedding": None,
+                EMBEDDING_BACKFILL_STATE_FIELD: None,
+                **text_conditions,
+            }
+            if not text:
+                result["skipped_no_text"] += 1
+                deferred.append((node_id, conditions))
+                continue
+            items.append((str(node_id), text, conditions))
+
+        vectors: list[list[float]] = []
+        if items:
+            embed_fn = make_embed_fn(batch_size=batch_size)
+            vectors = validate_embedding_vectors(
+                embed_fn([text for _, text, _ in items]),
+                expected_count=len(items),
+            )
+
+        for node_id, conditions in deferred:
+            if _compare(
+                node_id,
+                conditions,
+                {EMBEDDING_BACKFILL_STATE_FIELD: EMBEDDING_BACKFILL_NO_TEXT},
+            ):
+                result["deferred_no_text"] += 1
+            else:
+                result["conflicted"] += 1
+
+        for (node_id, _, conditions), vector in zip(items, vectors, strict=True):
+            try:
+                applied = bool(
+                    compare_and_set_embedding(
+                        node_id,
+                        conditions,
+                        {
+                            "embedding": vector,
+                            EMBEDDING_BACKFILL_STATE_FIELD: None,
+                        },
+                        vector,
+                    )
+                )
+            except Exception as exc:
+                # D-CDX-101: this ISOLATES one node's atomic commit failure so
+                # it cannot abort the other N-1 rows already staged in this
+                # batch (the documented per-node retry design — a later
+                # bounded run revisits this node since neither side
+                # committed). What must NEVER happen again is discarding the
+                # cause: the prior version logged only ``type(exc).__name__``
+                # ("RuntimeError") and dropped the message, so an operator
+                # saw scanned=200 embedded=0 with no actionable detail. Count
+                # it under its OWN bucket — ``errored`` is a backend/infra
+                # failure, never merged into ``conflicted`` (an ordinary lost
+                # OCC race), so "every row raised the same RuntimeError" stays
+                # visibly distinct from "every row lost a race to another
+                # writer". The caller (``scripts/backfill_embeddings.py``)
+                # turns a nonzero ``errored`` count with zero durable
+                # ``embedded`` progress into a NONZERO process exit — this
+                # method itself stays row-isolating and never raises.
+                #
+                # Pass ``exc``/``cause`` as logging ARGS (never pre-flattened
+                # into the message string) so agent_utilities' process-wide
+                # log-privacy factory (``core/log_privacy.py``) renders each
+                # as its own ``"Type: sanitized message"`` — that factory
+                # already exists precisely to stop this exact "collapsed to
+                # class name" regression; duplicating its "Type: " prefix
+                # here would only double it.
+                result["errored"] += 1
+                cause = exc.__cause__
+                if cause is not None:
+                    logger.warning(
+                        "Atomic embedding commit failed for %s: %s (caused by %s)",
+                        node_id,
+                        exc,
+                        cause,
+                    )
+                else:
+                    logger.warning(
+                        "Atomic embedding commit failed for %s: %s",
+                        node_id,
+                        exc,
+                    )
+                continue
+            if not applied:
+                result["conflicted"] += 1
+                continue
+            result["embedded"] += 1
+            result["indexed"] += 1
+        logger.info(
+            "Entity embedding backfill: scanned=%d embedded=%d indexed=%d "
+            "skipped_no_text=%d deferred_no_text=%d conflicted=%d errored=%d",
+            result["scanned"],
+            result["embedded"],
+            result["indexed"],
+            result["skipped_no_text"],
+            result["deferred_no_text"],
+            result["conflicted"],
+            result["errored"],
+        )
+        return result
 
     def prune_cron_logs(self, keep_days: int = 30) -> int:
         """Delete successful cron logs older than keep_days."""
@@ -919,6 +1176,7 @@ class GraphMaintainer:
             "status": "ready",
             "operations": {
                 "enrich_embeddings": "idle",
+                "backfill_entity_embeddings": "idle",
                 "prune_cron_logs": "idle",
                 "summarize_old_chats": "idle",
                 "consolidate_memory": "idle",
@@ -936,6 +1194,7 @@ class GraphMaintainer:
         """Trigger a specific maintenance operation."""
         op_map: dict[str, Callable[[], Any]] = {
             "enrich_embeddings": self.enrich_embeddings,
+            "backfill_entity_embeddings": self.backfill_entity_embeddings,
             "prune_cron_logs": self.prune_cron_logs,
             "summarize_old_chats": self.summarize_old_chats,
             "consolidate_memory": self.consolidate_memory,

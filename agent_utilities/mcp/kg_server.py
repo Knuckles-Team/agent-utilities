@@ -693,6 +693,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_explain": "/graph/explain",
     "graph_observe": "/graph/observe",
     "graph_orchestrate": "/graph/orchestrate",
+    "graph_config": "/graph/config",
     "graph_configure": "/graph/configure",
     "graph_context": "/graph/context",
     "graph_feedback": "/graph/feedback",
@@ -734,6 +735,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_sandbox": "/graph/sandbox",
     "graph_runvcs": "/graph/runvcs",
     "graph_claims": "/graph/claims",
+    "graph_candidate_claims": "/graph/candidate-claims",
 }
 
 # Immutable seed used by deterministic catalog generators. Runtime registrars
@@ -2718,7 +2720,13 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
             "ingested": 0,
             "ready": 0,
             "not_ready": sorted(BUNDLED_SKILLS),
-            "error": f"{type(exc).__name__}: {exc}",
+            # Unlike the logger.error above (an agent_utilities.* logger,
+            # already inside the process-wide privacy boundary), this dict is
+            # published via _set_bundled_skill_readiness for the /health HTTP
+            # surface (agent_utilities/observability/runtime_health.py's
+            # _check_bundled_skills) -- an external caller, so only the
+            # exception TYPE is exposed here, never its raw text (D-LR-2).
+            "error": type(exc).__name__,
         }
     return {
         "required": len(BUNDLED_SKILLS),
@@ -2805,7 +2813,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                                     "disabled": disabled,
                                 },
                             )
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
                     logger.debug("Failed to ingest a native-tool module: %s", exc)
         logger.info("Ingested Native Tools")
     except Exception as exc:
@@ -3241,6 +3249,13 @@ async def _ensure_process_authority_current() -> Any:
             ambient.ensure_authority_current(minimum_ttl_seconds=30)
         except SessionExpiredError:
             ambient = await asyncio.to_thread(_refresh_process_authority, ambient)
+        if ambient is None:
+            # `_refresh_process_authority` is typed `Any` (it renews in place and
+            # returns the same session), so this should be unreachable in
+            # practice — but if it ever did return nothing, failing closed with
+            # the same PermissionError the no-ambient-session branch below uses
+            # is correct, not an opaque AttributeError on the next line.
+            raise PermissionError("Verified GraphSession required")
         ambient.ensure_authority_current(minimum_ttl_seconds=30)
         return ambient
     session = _PROCESS_SESSION
@@ -3655,7 +3670,10 @@ def _start_engine_bootstrap(session: Any) -> None:
                 "required": len(BUNDLED_SKILLS),
                 "ready": 0,
                 "not_ready": sorted(BUNDLED_SKILLS),
-                "error": f"{type(exc).__name__}: {exc}",
+                # See _ensure_bundled_skills_ready's identical comment: this
+                # dict is published for the /health HTTP surface, not logged,
+                # so only the exception TYPE is exposed here (D-LR-2).
+                "error": type(exc).__name__,
             }
         )
         return
@@ -3774,7 +3792,17 @@ def _build_server(
             "  • unload_tools(...) — retract tools to reclaim context\n"
             "  • multiplexer_status — health of mounted children\n"
             "Always discover (find_tools/list_catalog) before concluding a tool "
-            "doesn't exist."
+            "doesn't exist.\n\n"
+            "EXCEPTION — the always-load set (MCP_ALWAYS_LOAD / "
+            "MCP_ALWAYS_LOAD_TOOLS): a short operator-chosen list of core servers "
+            "and individual tools is mounted EAGERLY on your first request, so it "
+            "is already in your tool list and needs no find_tools/load_tools hop. "
+            "Its absence is therefore meaningful — if an always-load tool is NOT "
+            "listed, that server is genuinely degraded (eager mounting fails soft), "
+            "not merely undiscovered; multiplexer_status says which and why. "
+            "Everything OUTSIDE that set still follows the discover-first rule "
+            "above. Inspect or change the set with "
+            "graph_config(action='get'/'describe'/'set', key='MCP_ALWAYS_LOAD')."
         ),
         command_args=None if bootstrap else [],
         transport_choices=("stdio", "streamable-http"),
@@ -3852,8 +3880,10 @@ def _build_server(
         register_argument_tools,
         register_audit_tools,
         register_bus_tools,
+        register_candidate_claim_tools,
         register_claim_tools,
         register_compliance_tools,
+        register_config_tools,
         register_domain_ops_tools,
         register_engine_surface_tools,
         register_engine_tools,
@@ -3895,8 +3925,10 @@ def _build_server(
             register_ontology_tools,
             register_reach_tools,
             register_bus_tools,
+            register_candidate_claim_tools,
             register_claim_tools,
             register_secret_tools,
+            register_config_tools,
             register_engine_tools,
             register_engine_surface_tools,
             register_domain_ops_tools,
@@ -4377,7 +4409,7 @@ def _preflight_mcp_sdk_floor() -> None:
         logger.warning("MCP SDK floor check skipped: %s", result["detail"])
         return
 
-    mode = os.environ.get("MCP_SDK_FLOOR_ENFORCE", "error").strip().lower()
+    mode = str(setting("MCP_SDK_FLOOR_ENFORCE", "error") or "error").strip().lower()
     message = (
         f"installed MCP SDK does not satisfy the declared [mcp] floor: {result['detail']}. "
         "The runtime image and this source tree have diverged — rebuild the image "
@@ -4521,7 +4553,7 @@ def mcp_server() -> None:
         if fleet_mux is not None:
             try:
                 asyncio.run(fleet_mux.aclose())
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — best-effort teardown of a lazily-mounted fleet child at process exit
                 logger.debug("fleet loader close failed: %s", exc)
 
 

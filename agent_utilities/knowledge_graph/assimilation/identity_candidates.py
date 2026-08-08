@@ -361,9 +361,7 @@ def resolve_identity_candidates(
                 if identity_rules is None
                 else identity_rules
             )
-            rules = [
-                r for r in pair_rules if r.applies(a.kind) or r.applies(b.kind)
-            ]
+            rules = [r for r in pair_rules if r.applies(a.kind) or r.applies(b.kind)]
             evidence: list[IdentityEvidence] = []
             exact = _exact_identifier_evidence(a, b, rules)
             if exact is not None:

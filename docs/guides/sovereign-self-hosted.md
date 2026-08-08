@@ -113,7 +113,7 @@ the whole stack, not just the KG.
 `agent_utilities/core/config.py`) turns on a host guard in the **canonical**
 outbound HTTP path: `create_http_client`/`create_async_http_client`
 (`agent_utilities/core/http_client.py`) — which the fleet HTTP client
-library (`agent_utilities/http/client.py`, the shared base every connector
+library (`agent_utilities/httpsupport/client.py`, the shared base every connector
 in the fleet is being strangled onto) and most of the codebase's outbound
 calls already build on — and the LLM client constructor
 (`agent_utilities/core/model_factory.py`, the model-call egress path this

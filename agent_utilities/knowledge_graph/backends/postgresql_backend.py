@@ -24,7 +24,7 @@ from agent_utilities.security.identifiers import (
     validate_sql_identifier,
 )
 
-from .base import GraphBackend
+from .base import GraphBackend, embedding_values_match
 from .mirror_target import MirrorTarget, resolve_mirror_target
 
 logger = logging.getLogger(__name__)
@@ -82,6 +82,8 @@ class PostgreSQLBackend(GraphBackend):
         pool_max: Maximum pool connections.
         pggraph_schema: Schema name for pgGraph registration.
     """
+
+    embedding_is_node_property = True
 
     @property
     def cypher_support(self) -> str:
@@ -1054,6 +1056,23 @@ class PostgreSQLBackend(GraphBackend):
                     conn.commit()
         except Exception as e:  # noqa: BLE001 — embedding write is a secondary vector-search accelerator; the node's canonical row is already committed by the primary write path before add_embedding is ever called
             logger.debug("add_embedding failed for %s: %s", node_id, e)
+
+    def verify_node_embedding(self, node_id: str, embedding: list[float]) -> bool:
+        """Confirm the durable pgvector value after a mirror replay write."""
+        if not self.pgvector_available:
+            return False
+        table = self._find_node_table(node_id)
+        if not table:
+            return False
+        table = validate_sql_identifier(table, kind="table")
+        with self._conn(read_only=True) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f'SELECT embedding::text FROM "{table}" WHERE id = %s LIMIT 1',
+                    (node_id,),
+                )
+                row = cur.fetchone()
+        return bool(row) and embedding_values_match(row[0], embedding)
 
     def semantic_search(
         self, query_embedding: list[float], n_results: int = 5

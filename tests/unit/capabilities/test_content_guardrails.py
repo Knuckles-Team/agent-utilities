@@ -31,7 +31,7 @@ from agent_utilities.core.contextual_model import (
     create_context_agent,
     use_grounding_policy,
 )
-from agent_utilities.http.redaction import REDACTED
+from agent_utilities.httpsupport.redaction import REDACTED
 
 # ---------------------------------------------------------------------------
 # Live path: PII redaction (output)
@@ -102,7 +102,7 @@ async def test_pii_in_input_is_redacted_before_reaching_model_live_path():
 @pytest.mark.asyncio
 async def test_secret_shaped_output_is_redacted_not_blocked_live_path():
     fixture_value = (
-        "AKIAABCDEFGHIJKLMNOP"  # sanitizer:ignore - synthetic, not a live credential
+        "AKIAEXAMPLEABCDEFGHI"  # sanitizer:ignore - synthetic, not a live credential
     )
     fixture_secret = f"here is the key: {fixture_value}"
 

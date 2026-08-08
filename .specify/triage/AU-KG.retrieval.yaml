@@ -1,5 +1,5 @@
 domain: AU-KG.retrieval
-generated_at: '2026-08-01T15:07:06+00:00'
+generated_at: '2026-08-01T18:04:51+00:00'
 generator: scripts/concept_domain_triage.py
 how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
   `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
@@ -23,6 +23,39 @@ clusters:
   - AU-KG.retrieval.section-tree
   - AU-KG.retrieval.tree-navigation
 concepts:
+  AU-KG.retrieval.acl-aware-vector-retrieval:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      - agent_utilities/mcp/tools/query_tools.py
+      - agent_utilities/observability/gateway_metrics.py
+      test_files:
+      - tests/unit/knowledge_graph/orchestration/test_engine_query_acl_wiring.py
+      doc_files: []
+      introduced: '3f96b8e9 2026-07-31 feat(kg): ACL-aware vector/hybrid retrieval (search_hybrid) — opt-in
+        session enforcement'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:711
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:800
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:813
+      - agent_utilities/mcp/tools/analysis_tools.py:1382
+      - agent_utilities/mcp/tools/query_tools.py:1224
+      - agent_utilities/observability/gateway_metrics.py:610
+      - tests/unit/knowledge_graph/orchestration/test_engine_query_acl_wiring.py:1
   AU-KG.retrieval.adaptive-stopping-iterative-retrieval:
     decision: PENDING
     parent: ''
@@ -40,7 +73,7 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/adaptive_stopping.py
       test_files:
       - tests/retrieval/test_retrieval_assimilation_live_path.py
-      - tests/test_adaptive_stopping.py
+      - tests/unit/knowledge_graph/test_adaptive_stopping.py
       doc_files:
       - docs/architecture/multi_source_assimilation.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -73,13 +106,13 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:829
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:837
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:945
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:953
       - agent_utilities/knowledge_graph/retrieval/adaptive_stopping.py:6
       - agent_utilities/knowledge_graph/retrieval/adaptive_stopping.py:115
       - docs/architecture/multi_source_assimilation.md:135
       - tests/retrieval/test_retrieval_assimilation_live_path.py:10
-      - tests/test_adaptive_stopping.py:4
+      - tests/unit/knowledge_graph/test_adaptive_stopping.py:4
   AU-KG.retrieval.architecture-report:
     decision: PENDING
     parent: ''
@@ -132,8 +165,8 @@ concepts:
       sites:
       - agent_utilities/knowledge_graph/retrieval/code_metrics.py:4
       - agent_utilities/knowledge_graph/retrieval/code_metrics.py:362
-      - agent_utilities/mcp/kg_server.py:1905
-      - agent_utilities/mcp/tools/analysis_tools.py:2306
+      - agent_utilities/mcp/kg_server.py:1906
+      - agent_utilities/mcp/tools/analysis_tools.py:2318
   AU-KG.retrieval.assimilated-from-mragent:
     decision: PENDING
     parent: ''
@@ -188,14 +221,14 @@ concepts:
       truncated_marker: ''
       sites:
       - .specify/design/retrieval-latency-optimization/design.md:28
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:606
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:950
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1009
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1030
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1168
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1234
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1421
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1442
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:636
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1066
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1142
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1163
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1301
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1367
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1579
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:1600
       - agent_utilities/knowledge_graph/retrieval/graph_engineering.py:225
       - agent_utilities/knowledge_graph/retrieval/graph_engineering.py:591
       - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:872
@@ -270,7 +303,7 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/capability_power_descriptor.py:4
       - agent_utilities/knowledge_graph/retrieval/capability_power_descriptor.py:597
       - agent_utilities/knowledge_graph/retrieval/context_plane.py:63
-      - agent_utilities/mcp/tools/analyze_suite.py:217
+      - agent_utilities/mcp/tools/analyze_suite.py:221
       - docs/capabilities-power.md:3
       - scripts/check_cpd.py:4
       - scripts/gen_capability_power.py:4
@@ -343,7 +376,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - .pre-commit-config.yaml:197
+      - .pre-commit-config.yaml:203
       - CHANGELOG.md:361
       - agent_utilities/core/contextual_model.py:17
       - agent_utilities/core/contextual_model.py:608
@@ -360,9 +393,9 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/context_compiler.py:556
       - agent_utilities/knowledge_graph/retrieval/context_compiler.py:1080
       - agent_utilities/knowledge_graph/retrieval/context_compiler_serving.py:533
-      - agent_utilities/mcp/tools/query_tools.py:1175
-      - agent_utilities/mcp/tools/query_tools.py:1198
-      - agent_utilities/mcp/tools/query_tools.py:1308
+      - agent_utilities/mcp/tools/query_tools.py:1185
+      - agent_utilities/mcp/tools/query_tools.py:1208
+      - agent_utilities/mcp/tools/query_tools.py:1347
       - agent_utilities/observability/__init__.py:903
       - agent_utilities/observability/gateway_metrics.py:476
       - agent_utilities/observability/gateway_metrics.py:512
@@ -524,7 +557,7 @@ concepts:
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
       file(s), 10 marker site(s))'
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: true
       source_files:
       - agent_utilities/core/embedding_utilities.py
@@ -551,6 +584,43 @@ concepts:
       - tests/unit/core/test_embedding_sdk_retry_bound.py:1
       - tests/unit/knowledge_graph/test_embedding_fast_fail_retrieval.py:1
       - tests/unit/observability/test_runtime_health.py:609
+  AU-KG.retrieval.embedding-version-identity:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 11 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/ontology/document_processing.py
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py
+      - agent_utilities/knowledge_graph/retrieval/embedding_versioning.py
+      - agent_utilities/observability/gateway_metrics.py
+      - scripts/check_citation_lineage.py
+      test_files:
+      - tests/ontology/test_fragment_cited_chunks.py
+      doc_files: []
+      introduced: '4e19249a 2026-07-31 fix(kg): fail-closed Cypher scoping + versioned embeddings in CapabilityIndex'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:367
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:604
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:383
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:425
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:504
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:817
+      - agent_utilities/knowledge_graph/retrieval/embedding_versioning.py:5
+      - agent_utilities/knowledge_graph/retrieval/embedding_versioning.py:69
+      - agent_utilities/observability/gateway_metrics.py:600
+      - scripts/check_citation_lineage.py:14
+      - tests/ontology/test_fragment_cited_chunks.py:131
   AU-KG.retrieval.every-usage-published-symbol:
     decision: PENDING
     parent: ''
@@ -606,8 +676,8 @@ concepts:
       sites:
       - agent_utilities/knowledge_graph/retrieval/code_context.py:332
       - agent_utilities/knowledge_graph/retrieval/code_context.py:483
-      - agent_utilities/mcp/kg_server.py:1870
-      - agent_utilities/mcp/tools/analysis_tools.py:2267
+      - agent_utilities/mcp/kg_server.py:1871
+      - agent_utilities/mcp/tools/analysis_tools.py:2279
       - tests/unit/test_code_context.py:111
       - tests/unit/test_context_plane.py:20
       - tests/unit/test_operator_phase4_dx.py:43
@@ -670,7 +740,7 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20816
       - agent_utilities/knowledge_graph/search_synthesis/__init__.py:6
       - agent_utilities/knowledge_graph/search_synthesis/models.py:4
-      - agent_utilities/mcp/tools/query_tools.py:1424
+      - agent_utilities/mcp/tools/query_tools.py:1463
       - docs/capabilities-power.json:20816
       - docs/capabilities-power.md:3601
   AU-KG.retrieval.evidence-subgraph-construction:
@@ -750,7 +820,7 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:516
       - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py:549
       - docs/pillars/2_epistemic_knowledge_graph/KG-2.18-Evidence_Weighted_Memory.md:1
-      - docs/reference/documentation-catalog.md:293
+      - docs/reference/documentation-catalog.md:295
       - tests/knowledge_graph/core/test_quant_ffi.py:3
       - tests/unit/knowledge_graph/test_kg_2_18_evidence_weighted_memory.py:1
       - tests/unit/knowledge_graph/test_kg_2_18_live_path.py:1
@@ -762,7 +832,7 @@ concepts:
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (10 source
-      file(s), 26 marker site(s))'
+      file(s), 27 marker site(s))'
     evidence:
       has_design_doc: false
       in_baseline: true
@@ -779,9 +849,10 @@ concepts:
       - agent_utilities/workflows/runner.py
       test_files:
       - tests/harness/test_model_tracing_wrap.py
+      - tests/integration/protocols/test_acp_adapter.py
       - tests/orchestration/test_swe_agent_loop.py
-      - tests/test_workflow_gate_suspend_resume.py
       - tests/unit/core/test_contextual_model_bounded.py
+      - tests/unit/knowledge_graph/test_workflow_gate_suspend_resume.py
       doc_files:
       - docs/capabilities-power.json
       - docs/capabilities-power.md
@@ -802,22 +873,23 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/context_compiler.py:267
       - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:828
       - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1017
-      - agent_utilities/mcp/tools/analysis_tools.py:2588
+      - agent_utilities/mcp/tools/analysis_tools.py:2600
       - agent_utilities/observability/__init__.py:965
       - agent_utilities/observability/trace_ontology.py:213
       - agent_utilities/orchestration/agent_runner.py:1321
       - agent_utilities/orchestration/agent_runner.py:1485
       - agent_utilities/orchestration/manager.py:506
       - agent_utilities/orchestration/manager.py:784
-      - agent_utilities/orchestration/manager.py:986
-      - agent_utilities/workflows/runner.py:692
+      - agent_utilities/orchestration/manager.py:1001
+      - agent_utilities/workflows/runner.py:705
       - docs/capabilities-power.json:18670
       - docs/capabilities-power.json:18786
       - docs/capabilities-power.md:3194
       - tests/harness/test_model_tracing_wrap.py:32
+      - tests/integration/protocols/test_acp_adapter.py:88
       - tests/orchestration/test_swe_agent_loop.py:89
-      - tests/test_workflow_gate_suspend_resume.py:214
       - tests/unit/core/test_contextual_model_bounded.py:1
+      - tests/unit/knowledge_graph/test_workflow_gate_suspend_resume.py:218
   AU-KG.retrieval.fixed-corpus-evaluation:
     decision: PENDING
     parent: ''
@@ -916,6 +988,35 @@ concepts:
       sites:
       - agent_utilities/knowledge_graph/search_synthesis/__init__.py:7
       - agent_utilities/knowledge_graph/search_synthesis/shortcut_risks.py:4
+  AU-KG.retrieval.fragment-cited-chunk:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/ontology/document_processing.py
+      test_files:
+      - tests/ontology/test_fragment_cited_chunks.py
+      doc_files: []
+      introduced: '8d1cc8da 2026-07-31 feat(kg): wire evidence-spine Fragment citations + embedding_version
+        onto Chunk nodes'
+      cohort:
+      - AU-KG.retrieval.embedding-version-identity
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:318
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:360
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:583
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1099
+      - tests/ontology/test_fragment_cited_chunks.py:2
   AU-KG.retrieval.god-nodes-communities:
     decision: PENDING
     parent: ''
@@ -971,7 +1072,7 @@ concepts:
       - agent_utilities/domains/finance/engine_series.py:12
       - agent_utilities/knowledge_graph/memory/timeseries/__init__.py:8
       - agent_utilities/knowledge_graph/retrieval/code_metrics.py:3
-      - agent_utilities/mcp/kg_server.py:1887
+      - agent_utilities/mcp/kg_server.py:1888
       - tests/unit/test_code_metrics.py:1
   AU-KG.retrieval.graph-distillation-migration:
     decision: PENDING
@@ -1279,6 +1380,35 @@ concepts:
       - docs/architecture/north-star-architecture.md:144
       - docs/architecture/troubleshooting.md:3
       - tests/unit/test_troubleshoot_context.py:3
+  AU-KG.retrieval.mandatory-evidence-citation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/lineage.py
+      - agent_utilities/observability/gateway_metrics.py
+      - scripts/check_citation_lineage.py
+      test_files:
+      - tests/gates/test_citation_lineage_gate.py
+      doc_files: []
+      introduced: '0e9c3ddb 2026-07-31 feat(eval): source-to-claim lineage resolver + citation-lineage
+        gate'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/lineage.py:31
+      - agent_utilities/observability/gateway_metrics.py:619
+      - scripts/check_citation_lineage.py:8
+      - tests/gates/test_citation_lineage_gate.py:3
   AU-KG.retrieval.memory-first-retrieval:
     decision: PENDING
     parent: ''
@@ -1339,8 +1469,8 @@ concepts:
       sites:
       - .specify/design/kg-2.12-memory-first-retrieval/design.md:42
       - .specify/specs/kg-2.12-memory-first-retrieval/spec.md:8
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:672
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:680
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:703
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:726
       - agent_utilities/knowledge_graph/retrieval/direct_corpus.py:6
       - agent_utilities/knowledge_graph/retrieval/executable_rag.py:6
       - agent_utilities/knowledge_graph/retrieval/executable_rag.py:169
@@ -1351,9 +1481,9 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1357
       - agent_utilities/knowledge_graph/retrieval/hyde_planner.py:1
       - agent_utilities/knowledge_graph/retrieval/hyde_planner.py:178
-      - agent_utilities/mcp/tools/analysis_tools.py:2245
+      - agent_utilities/mcp/tools/analysis_tools.py:2257
       - docs/pillars/2_epistemic_knowledge_graph/KG-2.12-Memory_First_Retrieval.md:1
-      - docs/reference/documentation-catalog.md:288
+      - docs/reference/documentation-catalog.md:290
       - tests/retrieval/test_direct_corpus.py:4
       - tests/retrieval/test_executable_rag.py:4
       - tests/unit/knowledge_graph/test_kg_2_12_memory_first_retrieval.py:1
@@ -1402,7 +1532,7 @@ concepts:
       - agent_utilities/harness/graph_search_evolution.py
       - agent_utilities/mcp/tools/analysis_tools.py
       test_files:
-      - tests/test_graph_search_evolution.py
+      - tests/unit/harness/test_graph_search_evolution.py
       doc_files:
       - docs/architecture/multi_source_assimilation.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -1440,7 +1570,7 @@ concepts:
       - agent_utilities/harness/graph_search_evolution.py:6
       - agent_utilities/mcp/tools/analysis_tools.py:1277
       - docs/architecture/multi_source_assimilation.md:216
-      - tests/test_graph_search_evolution.py:4
+      - tests/unit/harness/test_graph_search_evolution.py:4
   AU-KG.retrieval.ops-context:
     decision: PENDING
     parent: ''
@@ -1506,7 +1636,7 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/generative_recommender.py
       - agent_utilities/mcp/tools/analysis_tools.py
       test_files:
-      - tests/test_generative_recommender.py
+      - tests/unit/knowledge_graph/test_generative_recommender.py
       doc_files:
       - docs/architecture/multi_source_assimilation.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -1545,7 +1675,7 @@ concepts:
       - agent_utilities/mcp/tools/analysis_tools.py:1367
       - docs/architecture/multi_source_assimilation.md:325
       - docs/architecture/multi_source_assimilation.md:398
-      - tests/test_generative_recommender.py:4
+      - tests/unit/knowledge_graph/test_generative_recommender.py:4
   AU-KG.retrieval.per-item-relevance-ranking:
     decision: PENDING
     parent: ''
@@ -1855,9 +1985,9 @@ concepts:
       - agent_utilities/core/source_paths.py:4
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:13241
       - agent_utilities/knowledge_graph/retrieval/context_plane.py:4
-      - agent_utilities/mcp/kg_server.py:1844
-      - agent_utilities/mcp/tools/analysis_tools.py:2344
-      - agent_utilities/mcp/tools/analyze_suite.py:207
+      - agent_utilities/mcp/kg_server.py:1845
+      - agent_utilities/mcp/tools/analysis_tools.py:2356
+      - agent_utilities/mcp/tools/analyze_suite.py:211
       - docs/capabilities-power.json:13241
       - docs/capabilities-power.md:62
       - docs/capabilities-power.md:2208
@@ -1900,24 +2030,24 @@ concepts:
       sites:
       - agent_utilities/knowledge_graph/ontology/contextual_enrichment.py:107
       - agent_utilities/knowledge_graph/ontology/document_processing.py:90
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:359
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:632
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1246
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1297
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1322
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1344
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1568
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1595
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1869
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1936
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:2009
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:394
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:705
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1340
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1391
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1416
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1438
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1662
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1689
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1963
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:2030
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:2103
       - agent_utilities/knowledge_graph/pipeline/document_ingestion.py:60
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:11546
       - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:14
       - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:124
       - agent_utilities/mcp/tools/query_tools.py:65
-      - agent_utilities/mcp/tools/query_tools.py:1611
-      - agent_utilities/mcp/tools/query_tools.py:1622
+      - agent_utilities/mcp/tools/query_tools.py:1650
+      - agent_utilities/mcp/tools/query_tools.py:1661
       - docs/capabilities-power.json:11546
       - docs/capabilities-power.md:1912
       - tests/ontology/test_section_tree.py:2
@@ -1951,14 +2081,42 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20685
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20718
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20728
-      - agent_utilities/mcp/tools/query_tools.py:1175
-      - agent_utilities/mcp/tools/query_tools.py:1180
+      - agent_utilities/mcp/tools/query_tools.py:1185
+      - agent_utilities/mcp/tools/query_tools.py:1190
       - docs/capabilities-power.json:20671
       - docs/capabilities-power.json:20685
       - docs/capabilities-power.json:20718
       - docs/capabilities-power.json:20728
       - docs/capabilities-power.md:3569
       - docs/capabilities-power.md:3584
+  AU-KG.retrieval.source-to-claim-lineage:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+      - agent_utilities/knowledge_graph/retrieval/lineage.py
+      - agent_utilities/mcp/tools/audit_tools.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:456
+      - agent_utilities/knowledge_graph/retrieval/lineage.py:4
+      - agent_utilities/mcp/tools/audit_tools.py:26
+      - agent_utilities/mcp/tools/audit_tools.py:64
+      - agent_utilities/mcp/tools/audit_tools.py:181
   AU-KG.retrieval.structural-analytics:
     decision: PENDING
     parent: ''
@@ -2005,7 +2163,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/mcp/tools/analysis_tools.py:2284
+      - agent_utilities/mcp/tools/analysis_tools.py:2296
   AU-KG.retrieval.synthesized-cited-answer:
     decision: PENDING
     parent: ''
@@ -2066,8 +2224,8 @@ concepts:
       - AGENTS.md:137
       - AGENTS.md:170
       - agent_utilities/knowledge_graph/retrieval/code_context.py:4
-      - agent_utilities/mcp/kg_server.py:1818
-      - agent_utilities/mcp/tools/analysis_tools.py:2216
+      - agent_utilities/mcp/kg_server.py:1819
+      - agent_utilities/mcp/tools/analysis_tools.py:2228
       - agent_utilities/skills/agent-utilities-self-evolution/scripts/wiring_sweep.py:48
       - docs/architecture/delegation-first-operating-model.md:47
       - docs/architecture/intelligent-ingestion.md:123
@@ -2156,7 +2314,7 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:287
       - agent_utilities/knowledge_graph/retrieval/hierarchical_document_retriever.py:398
       - agent_utilities/mcp/tools/query_tools.py:38
-      - agent_utilities/mcp/tools/query_tools.py:1612
+      - agent_utilities/mcp/tools/query_tools.py:1651
       - tests/retrieval/test_hierarchical_document_retriever.py:2
   AU-KG.retrieval.triviality-gate:
     decision: PENDING
@@ -2215,7 +2373,7 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/hyde_planner.py:39
       - agent_utilities/knowledge_graph/retrieval/hyde_planner.py:77
       - docs/pillars/2_epistemic_knowledge_graph/KG-2.15-Resilient_Retrieval.md:1
-      - docs/reference/documentation-catalog.md:291
+      - docs/reference/documentation-catalog.md:293
       - tests/unit/knowledge_graph/test_kg_2_15_resilient_retrieval.py:1
   AU-KG.retrieval.unified-capability-contract:
     decision: PENDING
@@ -2236,7 +2394,7 @@ concepts:
       - agent_utilities/mcp/tools/analysis_tools.py
       - agent_utilities/orchestration/manager.py
       test_files:
-      - tests/test_multiplexer_skills_over_mcp.py
+      - tests/unit/mcp/test_multiplexer_skills_over_mcp.py
       - tests/unit/test_capability_binding_survives_real_guards.py
       - tests/unit/test_find_capability_unified_ranking.py
       - tests/unit/test_graphos_skill_gateway.py
@@ -2255,8 +2413,8 @@ concepts:
       - agent_utilities/core/capability_contract.py:1
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18565
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18683
-      - agent_utilities/mcp/multiplexer.py:2706
-      - agent_utilities/mcp/tools/analysis_tools.py:2501
+      - agent_utilities/mcp/multiplexer.py:2736
+      - agent_utilities/mcp/tools/analysis_tools.py:2513
       - agent_utilities/orchestration/manager.py:82
       - agent_utilities/orchestration/manager.py:650
       - agent_utilities/orchestration/manager.py:859
@@ -2264,8 +2422,8 @@ concepts:
       - docs/capabilities-power.json:18565
       - docs/capabilities-power.json:18683
       - docs/capabilities-power.md:3179
-      - docs/reference/documentation-catalog.md:254
-      - tests/test_multiplexer_skills_over_mcp.py:7
+      - docs/reference/documentation-catalog.md:256
+      - tests/unit/mcp/test_multiplexer_skills_over_mcp.py:7
       - tests/unit/test_capability_binding_survives_real_guards.py:1
       - tests/unit/test_find_capability_unified_ranking.py:1
       - tests/unit/test_graphos_skill_gateway.py:104
@@ -2290,8 +2448,8 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/score_gate.py
       test_files:
       - tests/retrieval/test_retrieval_assimilation_live_path.py
-      - tests/test_neural_reranker.py
-      - tests/test_score_gate.py
+      - tests/unit/knowledge_graph/test_neural_reranker.py
+      - tests/unit/knowledge_graph/test_score_gate.py
       doc_files:
       - docs/architecture/multi_source_assimilation.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -2324,8 +2482,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/config.py:4516
-      - agent_utilities/knowledge_graph/orchestration/engine_query.py:722
+      - agent_utilities/core/config.py:4525
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:768
       - agent_utilities/knowledge_graph/retrieval/neural_reranker.py:6
       - agent_utilities/knowledge_graph/retrieval/neural_reranker.py:78
       - agent_utilities/knowledge_graph/retrieval/neural_reranker.py:183
@@ -2333,5 +2491,5 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/score_gate.py:6
       - docs/architecture/multi_source_assimilation.md:122
       - tests/retrieval/test_retrieval_assimilation_live_path.py:6
-      - tests/test_neural_reranker.py:2
-      - tests/test_score_gate.py:4
+      - tests/unit/knowledge_graph/test_neural_reranker.py:2
+      - tests/unit/knowledge_graph/test_score_gate.py:4

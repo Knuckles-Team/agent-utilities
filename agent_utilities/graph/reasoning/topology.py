@@ -155,11 +155,29 @@ def record_topology_outcome(
     try:
         alpha = 0.15
         score = quality_score if clean_success else 0.0
+        # D-W2C-5: the original single-statement rewrite SET a function-call
+        # value (``coalesce(...)``), which the native engine's write subset
+        # rejects (SET values must be literals/parameters). Split into a
+        # bounded read (a plain MATCH, no write keyword — outside the write
+        # subset's scope entirely) that resolves the PRIOR reward/task_count,
+        # the EMA math done in Python, then the SAME MATCH+SET write with
+        # only literal/parameter values (no function call).
+        rows = engine.backend.execute(
+            "MATCH (t:ReasoningTopologyVersion) WHERE t.id = $tid "
+            "RETURN t.reward AS reward, t.task_count AS task_count",
+            {"tid": topology_id},
+        )
+        prior = rows[0] if rows else {}
+        prior_reward = prior.get("reward")
+        prior_reward = 0.5 if prior_reward is None else float(prior_reward)
+        prior_task_count = prior.get("task_count")
+        prior_task_count = 0 if prior_task_count is None else int(prior_task_count)
+        new_reward = prior_reward * (1 - alpha) + alpha * score
+        new_task_count = prior_task_count + 1
         engine.backend.execute(
             "MATCH (t:ReasoningTopologyVersion) WHERE t.id = $tid "
-            "SET t.reward = coalesce(t.reward, 0.5) * (1 - $alpha) + $alpha * $score, "
-            "t.task_count = coalesce(t.task_count, 0) + 1",
-            {"tid": topology_id, "alpha": alpha, "score": score},
+            "SET t.reward = $reward, t.task_count = $task_count",
+            {"tid": topology_id, "reward": new_reward, "task_count": new_task_count},
         )
         logger.info(
             "[CONCEPT:AU-ORCH.planning.reasoning-graph-topologies] Updated topology "

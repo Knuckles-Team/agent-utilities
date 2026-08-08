@@ -33,16 +33,120 @@ import time
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from fastmcp.server.extensions import (
-    MethodBinding,
-    ServerExtension,
-    read_client_extension_settings,
-)
-from mcp.shared.exceptions import MCPError
-from mcp_types import RequestParams, Result
-from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
-from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from pydantic import ConfigDict, Field
+
+from agent_utilities.mcp.protocol_compat import mcp_protocol_exception
+
+# MCP SDK v2 (which the `fastmcp>=4.0.0b1` floor pulls in) renamed
+# `McpError` -> `MCPError`. The fleet is EXPLICITLY mixed-version: child images
+# still ship fastmcp 3.x / SDK v1 while hostPath-mounting THIS working tree over
+# their own site-packages, so a hard `from mcp.shared.exceptions import MCPError`
+# raises ImportError at MODULE scope on every one of them (D-W2C2-3). That is the
+# same class of break as the `fastmcp.server.extensions` guard below, one SDK
+# down. `mcp_protocol_error()` binds whichever spelling the installed SDK
+# exposes and raises loudly if neither does — it never degrades to a benign
+# default, because a silently-unbound error type made `is_session_dead` return
+# False for every exception once already. Errors this extension emits are built
+# through the same resolver, preserving the installed SDK's wire exception.
+
+# CONCEPT:AU-ECO.mcp.tasks-workitem-bridge -- the fleet is EXPLICITLY mixed
+# fastmcp-version (D-SH-3: child images still ship fastmcp 3.4.4 while the
+# canonical working tree, hostPath-mounted directly over each pod's
+# site-packages, targets fastmcp>=4.0.0b1 -- see docs/architecture/
+# fastmcp4-default.md). `fastmcp.server.extensions` (ServerExtension,
+# MethodBinding, read_client_extension_settings) is a fastmcp-4-only module;
+# importing it unguarded at module scope takes the WHOLE server down before
+# anything else runs (D-W2C2-2: 58 fleet pods in CrashLoopBackOff on exactly
+# this `ModuleNotFoundError`). Mirrors the same style already used for the
+# MCP-SDK v1/v2 `McpError`/`MCPError` rename in `protocol_compat.py` and for
+# optional middlewares in `server_factory._configure_middleware`: guard the
+# import, degrade to a no-op capability, and log loudly so an operator can
+# tell "Tasks extension unavailable on this image" from "server broken".
+#
+# ★ The guard covers `mcp_types` too. `mcp_types` is a fastmcp-4/SDK-v2-only
+# distribution, so on a fastmcp-3 image `from mcp_types import ...` fails at
+# module scope for exactly the same reason and with exactly the same blast
+# radius. Guarding only `fastmcp.server.extensions` moved the crash three lines
+# up rather than fixing it (observed live: 58 pods cleared the extensions
+# import and then died on `mcp_types`). ONE guard, ONE failure mode, ONE flag —
+# every fastmcp-4-only symbol this module needs is bound here or not at all.
+if TYPE_CHECKING:
+    from fastmcp.server.extensions import (
+        MethodBinding,
+        ServerExtension,
+        read_client_extension_settings,
+    )
+    from mcp_types import RequestParams, Result
+    from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
+    from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+
+    TASKS_EXTENSION_AVAILABLE = True
+    _TASKS_EXTENSION_IMPORT_ERROR: ImportError | None = None
+else:
+    try:
+        from fastmcp.server.extensions import (
+            MethodBinding,
+            ServerExtension,
+            read_client_extension_settings,
+        )
+        from mcp_types import RequestParams, Result
+        from mcp_types.jsonrpc import MISSING_REQUIRED_CLIENT_CAPABILITY
+        from mcp_types.version import MODERN_PROTOCOL_VERSIONS
+    except ImportError as _fastmcp_extensions_import_error:
+        TASKS_EXTENSION_AVAILABLE = False
+        _TASKS_EXTENSION_IMPORT_ERROR: ImportError | None = (
+            _fastmcp_extensions_import_error
+        )
+
+        # Stand-ins for the `mcp_types` symbols. `RequestParams`/`Result` are only
+        # ever used as pydantic base classes for the private `_GetTaskParams` /
+        # `_GetTaskResult` shapes below, so a BaseModel keeps those class
+        # definitions valid; the constants only need a value that never matches.
+        from pydantic import BaseModel as _CompatBaseModel
+
+        class RequestParams(_CompatBaseModel):
+            """Stand-in for ``mcp_types.RequestParams`` (fastmcp<4)."""
+
+        class Result(_CompatBaseModel):
+            """Stand-in for ``mcp_types.Result`` (fastmcp<4)."""
+
+        # -32002 is the SDK's own code for this condition; the value is inert here
+        # because every path that reads it is gated behind TASKS_EXTENSION_AVAILABLE.
+        MISSING_REQUIRED_CLIENT_CAPABILITY = -32002
+        # Empty, so `_TASK_METHOD_VERSIONS` matches no protocol version at all —
+        # the Tasks methods are correctly invisible on an image that cannot serve them.
+        MODERN_PROTOCOL_VERSIONS: tuple[str, ...] = ()
+
+        # Fallback stand-ins so `class WorkItemTasksExtension(ServerExtension)`
+        # below still defines cleanly (it overrides `methods()` itself, so the
+        # real base class's behavior is never needed on this path). Neither is
+        # ever exercised for real: `server_factory.create_mcp_server` checks
+        # `TASKS_EXTENSION_AVAILABLE` before calling `mcp.add_extension(...)`, so
+        # `methods()` -- the only place `MethodBinding`/
+        # `read_client_extension_settings` are used -- is never invoked. If some
+        # other caller ever does instantiate the extension directly on a
+        # fastmcp-3 image and reach that path, this raises the ORIGINAL
+        # ModuleNotFoundError (chained, not swallowed) instead of a confusing
+        # `NameError`.
+        class ServerExtension:
+            """Stand-in for ``fastmcp.server.extensions.ServerExtension`` (fastmcp<4)."""
+
+            __slots__ = ()
+
+        class MethodBinding:
+            def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+                raise ModuleNotFoundError(
+                    "fastmcp.server.extensions.MethodBinding requires fastmcp>=4.0.0b1"
+                ) from _TASKS_EXTENSION_IMPORT_ERROR
+
+        def read_client_extension_settings(*_args: Any, **_kwargs: Any) -> Any:
+            raise ModuleNotFoundError(
+                "fastmcp.server.extensions.read_client_extension_settings requires "
+                "fastmcp>=4.0.0b1"
+            ) from _TASKS_EXTENSION_IMPORT_ERROR
+    else:
+        TASKS_EXTENSION_AVAILABLE = True
+        _TASKS_EXTENSION_IMPORT_ERROR = None
 
 if TYPE_CHECKING:
     from mcp.server.context import ServerRequestContext
@@ -51,6 +155,36 @@ logger = logging.getLogger(__name__)
 
 TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"
 _TASK_METHOD_VERSIONS = frozenset(MODERN_PROTOCOL_VERSIONS)
+
+
+def _installed_fastmcp_version() -> str:
+    """Best-effort ``fastmcp`` version string for the degrade-mode warning."""
+    try:
+        import importlib.metadata
+
+        return f"fastmcp=={importlib.metadata.version('fastmcp')}"
+    except Exception:  # noqa: BLE001 — purely cosmetic, never block the warning itself
+        return "an unknown fastmcp version"
+
+
+if not TASKS_EXTENSION_AVAILABLE:
+    # Preserve and surface the cause (never a bare/silent fallback -- swallowed
+    # ImportErrors have twice destroyed the diagnosis path on this program
+    # today). `from None` is deliberately NOT used below: the original
+    # ModuleNotFoundError is chained via `raise ... from` at the one call site
+    # that actually needs to fail (`WorkItemTasksExtension()` is never
+    # constructed on this path), and is logged here so it shows up even when
+    # nothing ever tries to instantiate the extension.
+    logger.warning(
+        "tasks_extension: WorkItem Tasks extension (%s) unavailable on this "
+        "image -- requires fastmcp>=4.0.0b1 (fastmcp.server.extensions), this "
+        "server has %s. The server will start WITHOUT tasks/get, "
+        "tasks/update, tasks/cancel; every other capability is unaffected. "
+        "Root cause: %s",
+        TASKS_EXTENSION_ID,
+        _installed_fastmcp_version(),
+        _TASKS_EXTENSION_IMPORT_ERROR,
+    )
 
 # WorkItem raw statuses that project onto the extension's "working" (or, with
 # a live pending_input_request, "input_required") wire status. Mirrors
@@ -162,14 +296,14 @@ class WorkItemTasksExtension(ServerExtension):
     def _require_tasks_capability(self, ctx: ServerRequestContext[Any, Any]) -> None:
         """SEP-2663: reject a task method the client did not opt into this request."""
         if read_client_extension_settings(ctx, TASKS_EXTENSION_ID) is None:
-            raise MCPError(
-                code=MISSING_REQUIRED_CLIENT_CAPABILITY,
-                message=(
+            raise mcp_protocol_exception(
+                MISSING_REQUIRED_CLIENT_CAPABILITY,
+                (
                     f"This request targets the tasks extension "
                     f"({TASKS_EXTENSION_ID}); the client did not declare it "
                     "for this request."
                 ),
-                data={"requiredCapabilities": {"extensions": {TASKS_EXTENSION_ID: {}}}},
+                {"requiredCapabilities": {"extensions": {TASKS_EXTENSION_ID: {}}}},
             )
 
     @staticmethod
@@ -178,8 +312,41 @@ class WorkItemTasksExtension(ServerExtension):
 
         engine = kg_server._get_engine()
         if engine is None:
-            raise MCPError(code=-32603, message="IntelligenceGraphEngine not active.")
+            raise mcp_protocol_exception(-32603, "IntelligenceGraphEngine not active.")
         return getattr(engine, "_work_item_engine", engine)
+
+    @staticmethod
+    def _run_trace(task_id: str) -> dict[str, Any] | None:
+        """Best-effort ``:RunTrace`` lookup for ``task_id`` (D-25-4).
+
+        ``None`` on ANY failure (no active engine, no correlated trace) --
+        this is a best-effort enrichment layered on top of the WorkItem
+        outcome that already answers a completed task authoritatively; a
+        RunTrace lookup hiccup must never turn an otherwise-successful
+        ``tasks/get`` read into an error.
+        """
+        try:
+            from agent_utilities.mcp import kg_server
+            from agent_utilities.orchestration.manager import Orchestrator
+
+            engine = kg_server._get_engine()
+            if engine is None:
+                return None
+            trace = Orchestrator(engine).get_run_trace(task_id)
+        except Exception as exc:  # noqa: BLE001 — best-effort enrichment, see docstring
+            logger.warning(
+                "tasks_extension: RunTrace lookup for task %s failed: %s",
+                task_id,
+                exc,
+            )
+            return None
+        # `get_run_trace`'s found-path always stamps `trace_id` -- the
+        # unambiguous "this really is a RunTrace row" signal (its `status`
+        # field is otherwise indistinguishable from a legitimate run outcome
+        # value like "succeeded"/"failed").
+        if "trace_id" not in trace:
+            return None
+        return trace
 
     async def _handle_get(
         self, ctx: ServerRequestContext[Any, Any], params: _GetTaskParams
@@ -195,7 +362,7 @@ class WorkItemTasksExtension(ServerExtension):
 
         item_id = _wi.orchestrator_work_item_id(params.task_id)
         if not _wi.cancel_work_item(self._engine(), item_id):
-            raise MCPError(code=-32602, message="Failed to cancel task")
+            raise mcp_protocol_exception(-32602, "Failed to cancel task")
         return _AckResult()
 
     async def _handle_update(
@@ -213,7 +380,7 @@ class WorkItemTasksExtension(ServerExtension):
             tenant=session.tenant,
             response=params.input_responses,
         ):
-            raise MCPError(code=-32602, message="Failed to submit task input")
+            raise mcp_protocol_exception(-32602, "Failed to submit task input")
         return _AckResult()
 
     def _project(self, task_id: str) -> _GetTaskResult:
@@ -222,7 +389,7 @@ class WorkItemTasksExtension(ServerExtension):
         item_id = _wi.orchestrator_work_item_id(task_id)
         item = _wi.get_work_item(self._engine(), item_id)
         if item is None:
-            raise MCPError(code=-32602, message="Unknown task")
+            raise mcp_protocol_exception(-32602, "Unknown task")
         raw_status = str(item.get("status") or "").lower()
         metadata = item.get("metadata")
         pending = (
@@ -241,7 +408,7 @@ class WorkItemTasksExtension(ServerExtension):
         elif raw_status == "cancelled":
             status = "cancelled"
         else:
-            raise MCPError(code=-32603, message="Unknown WorkItem status")
+            raise mcp_protocol_exception(-32603, "Unknown WorkItem status")
         result = _GetTaskResult(
             task_id=task_id,
             status=status,
@@ -256,10 +423,31 @@ class WorkItemTasksExtension(ServerExtension):
         if status == "input_required":
             result.input_requests = {"request": pending}
         elif status == "completed":
+            # D-25-4: `result_ref` is only ever an opaque completion marker
+            # (e.g. "orchestrator:<job>:completed") -- never the real agent
+            # output. `_execute_orchestrator_turn` pins the run's :RunTrace to
+            # THIS SAME task_id (`run_id=envelope.job_id`), so the real output
+            # is one more read away via the SAME `Orchestrator.get_run_trace`
+            # `graph_jobs(action="status", job_id="trace:...")` already uses --
+            # this module has direct engine access (unlike the isolated
+            # gateway sidecar), so it calls it in-process rather than proxying
+            # through another tool call.
+            trace = self._run_trace(task_id)
             ref = item.get("result_ref")
-            result.result = (
-                {"resultRef": ref} if ref is not None else {"status": "completed"}
-            )
+            if trace is not None and trace.get("result_preview"):
+                result.result = {
+                    "resultPreview": trace["result_preview"],
+                    "runId": trace.get("run_id") or task_id,
+                }
+            elif trace is not None and trace.get("error"):
+                result.result = {
+                    "error": trace["error"],
+                    "runId": trace.get("run_id") or task_id,
+                }
+            elif ref is not None:
+                result.result = {"resultRef": ref}
+            else:
+                result.result = {"status": "completed"}
         elif status == "failed":
             result.error = {"code": -32603, "message": "GraphOS WorkItem failed"}
         return result

@@ -50,6 +50,47 @@ logger = logging.getLogger(__name__)
 # Default: enabled (opt-out pattern matching OWL reasoning)
 _GATE_ENABLED = setting("KG_RETRIEVAL_QUALITY_GATE", True)
 
+# Below this embedded/total ratio, a failing retrieval is tagged SPARSE_INDEX
+# (an ingestion problem) rather than left looking like a pure query/coverage
+# miss. 5% is deliberately generous — the measured production ratio (D-PERF-5)
+# was 0.5% (136/26,680); a healthy, fully-backfilled graph should read ~100%.
+_SPARSE_INDEX_RATIO_THRESHOLD = 0.05
+
+# How long a sampled population ratio is trusted before re-querying the engine.
+# The ratio changes slowly (it moves only as fast as ingestion + the backfill
+# daemon embed nodes), so a 5-minute cache turns "one extra query per failing
+# retrieval" into "one extra query per 5 minutes of failing retrievals" — the
+# engine is already contended (D-PERF-2) and this check must never add to that.
+_POPULATION_CACHE_TTL_S = 300.0
+
+
+def _sample_index_population_ratio(engine: Any) -> float | None:
+    """Best-effort, uncached ``embedded_nodes / total_nodes`` for ``engine``'s
+    backend. Returns ``None`` (never raises) when the backend can't answer the
+    two count queries — a missing signal must never make retrieval louder OR
+    quieter than it already is. Caching (TTL'd) is the caller's responsibility
+    — see ``RetrievalQualityGate._sample_index_population``, which keys the
+    cache on the gate INSTANCE rather than ``id(engine)``: engines are
+    frequently short-lived in tests, and CPython can reuse a garbage-collected
+    object's ``id()`` for an unrelated later object, which would silently leak
+    one engine's ratio into another's report under an id()-keyed cache.
+    """
+    backend = getattr(engine, "backend", None)
+    execute = getattr(backend, "execute", None)
+    if not callable(execute):
+        return None
+    try:
+        total_rows = execute("MATCH (n) RETURN count(n) AS c")
+        embedded_rows = execute(
+            "MATCH (n) WHERE n.embedding IS NOT NULL RETURN count(n) AS c"
+        )
+        total = int((total_rows or [{}])[0].get("c", 0) or 0)
+        embedded = int((embedded_rows or [{}])[0].get("c", 0) or 0)
+    except Exception as exc:  # noqa: BLE001 — this is a best-effort diagnostic sample on an already-failing retrieval path; it must never raise into the caller's gate decision
+        logger.debug("index population sample failed: %s", exc)
+        return None
+    return (embedded / total) if total > 0 else 0.0
+
 
 class RetrievalFailureMode(StrEnum):
     """Taxonomy of retrieval failure modes (Ambekar, 2026).
@@ -77,6 +118,18 @@ class RetrievalFailureMode(StrEnum):
     INTER_AGENT_PROPAGATION = "inter_agent_propagation"
     """Upstream agent passed degraded context that was used as retrieval
     input by the downstream agent, propagating retrieval failure."""
+
+    SPARSE_INDEX = "sparse_index"
+    """The underlying vector index itself is (near-)empty — this query could
+    not possibly have scored well because almost nothing in the graph carries
+    an embedding yet. Distinct from :attr:`LOW_RELEVANCE_TOPK`: that mode means
+    "the index has content but none of it matched this query" (a query/coverage
+    problem); this one means "the index barely has content to match against"
+    (an ingestion/backfill problem). D-EGD-5/D-PERF-5: a low composite score was
+    read as a retrieval-quality bug for days before the 0.5%-populated index
+    (136/26,680 embedded nodes) was found — this mode exists so the SAME
+    fail-closed refusal that a caller already sees names the actual cause
+    instead of forcing another investigation each time."""
 
 
 class ContextProvenanceRecord(BaseModel):
@@ -148,6 +201,20 @@ class RetrievalQualityReport(BaseModel):
     freshness_penalty_applied: bool = False
     latency_ms: float = 0.0
     gate_passed: bool = True
+    index_population_ratio: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description=(
+            "Fraction of graph nodes carrying an embedding, sampled when this "
+            "report's quality looked poor enough to be worth explaining "
+            "(None when not sampled this call — see RetrievalQualityGate."
+            "_index_population_ratio's cache/sampling policy). Lets a caller "
+            "tell 'the index is sparse' apart from 'this query scored low "
+            "against a populated index' instead of reading both as the same "
+            "composite=0.05 number."
+        ),
+    )
 
 
 class RetrievalQualityGate:
@@ -178,6 +245,11 @@ class RetrievalQualityGate:
         self.engine = engine
         self._enable_freshness = enable_freshness
         self._min_composite_quality = min_composite_quality
+        # TTL cache for the sampled index-population ratio (D-EGD-5). Instance-
+        # scoped (not a module-level dict keyed by id(engine)) so a gate's cache
+        # can never leak across unrelated engines — see
+        # `_sample_index_population_ratio`'s docstring for why that matters.
+        self._population_ratio_cache: tuple[float, float] | None = None
 
         # Resolve threshold: env var > explicit arg > schema pack > default
         env_threshold = setting("KG_MIN_RELEVANCE_THRESHOLD")
@@ -193,10 +265,68 @@ class RetrievalQualityGate:
         else:
             self._threshold = 0.6
 
+        # CONCEPT:AU-KG.retrieval.triviality-gate — HybridRetriever._lexical_fallback
+        # (tier 3/4 of the retrieval cascade) tags every result it produces with
+        # ``_fallback == "lexical"`` and a flat ``_score = 0.2`` sentinel (see its own
+        # "low confidence — it's a lexical fallback" comment) — that constant is NOT a
+        # cosine similarity and was never meant to be comparable to ``self._threshold``
+        # (calibrated for genuine embedding scores, default 0.6). Gating lexical hits
+        # against the vector threshold made the gate reject 100% of lexical-only
+        # retrievals regardless of actual keyword relevance — the query embedder being
+        # hermetically blocked/unavailable (tests, offline mode, cold-start before an
+        # index exists) always failed LOW_RELEVANCE_TOPK even when the returned nodes
+        # visibly contained the query term. A keyword/substring match already IS the
+        # relevance signal for a lexical hit, so it is graded against its own, lower,
+        # separately-calibrated threshold instead of the vector one. Set just below the
+        # 0.2 sentinel so genuine lexical fallback hits pass while a caller that
+        # constructs a degenerate near-zero fallback score still correctly fails closed.
+        # (landed on main via lane/engine-tests-0801@550354cf, D-GS4-3/D-GS27-6/D-49-2)
+        env_lexical_threshold = setting("KG_MIN_LEXICAL_RELEVANCE_THRESHOLD")
+        self._lexical_threshold = (
+            float(env_lexical_threshold) if env_lexical_threshold is not None else 0.15
+        )
+
+    def _result_threshold(self, result: dict[str, Any]) -> float:
+        """The relevance threshold that applies to one retrieved result.
+
+        Lexical-fallback results (``_fallback == "lexical"``) are graded against
+        ``self._lexical_threshold``; every other result (genuine vector/cross-encoder
+        scores) against ``self._threshold``.
+        """
+        if result.get("_fallback") == "lexical":
+            return self._lexical_threshold
+        return self._threshold
+
     @property
     def enabled(self) -> bool:
         """Whether the quality gate is active."""
         return _GATE_ENABLED
+
+    def _sample_index_population(self, report: RetrievalQualityReport) -> None:
+        """Best-effort: when a report is about to fail the gate, sample whether
+        the underlying index is actually populated and, if it's sparse, tag
+        :attr:`RetrievalFailureMode.SPARSE_INDEX` so the failure names its own
+        cause (D-EGD-5/D-PERF-5 — see the mode's docstring).
+
+        Only called on the already-failing path (never on a passing retrieval),
+        and the ratio itself is cached with a TTL (:data:`_POPULATION_CACHE_TTL_S`)
+        so a burst of failing queries costs at most one extra engine round-trip
+        per TTL window, not one per query — the engine is already contended
+        (D-PERF-2) and this must never add to that.
+        """
+        now = time.monotonic()
+        cached = self._population_ratio_cache
+        ratio: float | None
+        if cached is not None and (now - cached[0]) < _POPULATION_CACHE_TTL_S:
+            ratio = cached[1]
+        else:
+            ratio = _sample_index_population_ratio(self.engine)
+            if ratio is None:
+                return
+            self._population_ratio_cache = (now, ratio)
+        report.index_population_ratio = ratio
+        if ratio < _SPARSE_INDEX_RATIO_THRESHOLD:
+            report.failure_modes_detected.append(RetrievalFailureMode.SPARSE_INDEX)
 
     def assess_quality(
         self,
@@ -224,12 +354,17 @@ class RetrievalQualityGate:
                 RetrievalFailureMode.LOW_RELEVANCE_TOPK
             )
             report.gate_passed = False
+            self._sample_index_population(report)
             report.latency_ms = (time.monotonic() - start) * 1000
             return report
 
-        # Extract scores
+        # Extract scores. Each result is graded against its OWN threshold — a
+        # lexical-fallback hit's flat 0.2 sentinel against the lower
+        # ``_lexical_threshold``, every other (genuine vector/rerank) score against
+        # ``self._threshold`` — see ``_result_threshold``.
         scores = [r.get("_score", 0.0) for r in results]
-        above = [s for s in scores if s >= self._threshold]
+        thresholds = [self._result_threshold(r) for r in results]
+        above = [s for s, t in zip(scores, thresholds, strict=False) if s >= t]
 
         report.above_threshold = len(above)
         report.mean_relevance_score = sum(scores) / len(scores) if scores else 0.0
@@ -243,8 +378,8 @@ class RetrievalQualityGate:
         report.context_recall = min(1.0, len(above) / max(5.0, len(above) * 1.5))
 
         # Mean Reciprocal Rank: 1/rank of first above-threshold result
-        for i, s in enumerate(scores):
-            if s >= self._threshold:
+        for i, (s, t) in enumerate(zip(scores, thresholds, strict=False)):
+            if s >= t:
                 report.mean_reciprocal_rank = 1.0 / (i + 1)
                 break
 
@@ -257,7 +392,7 @@ class RetrievalQualityGate:
 
         # Failure mode detection
         report.failure_modes_detected = self._detect_failure_modes(
-            results, scores, query, upstream_provenance
+            results, scores, thresholds, query, upstream_provenance
         )
 
         # Gate decision
@@ -265,6 +400,8 @@ class RetrievalQualityGate:
             report.composite_quality >= self._min_composite_quality
             and report.above_threshold > 0
         )
+        if not report.gate_passed:
+            self._sample_index_population(report)
 
         report.latency_ms = (time.monotonic() - start) * 1000
         return report
@@ -273,28 +410,37 @@ class RetrievalQualityGate:
         self,
         results: list[dict[str, Any]],
         scores: list[float],
+        thresholds: list[float],
         query: str,
         upstream_provenance: list[ContextProvenanceRecord] | None,
     ) -> list[RetrievalFailureMode]:
-        """Classify retrieval failures into the Ambekar taxonomy."""
+        """Classify retrieval failures into the Ambekar taxonomy.
+
+        ``thresholds`` is the per-result effective threshold from
+        :meth:`_result_threshold` (lexical-fallback hits use the lower
+        ``_lexical_threshold``, everything else ``self._threshold``) — kept
+        parallel to ``scores`` so a lexical-only result set is not misclassified
+        as low-relevance purely because its flat fallback sentinel sits below the
+        vector-similarity threshold it was never calibrated against.
+        """
         modes: list[RetrievalFailureMode] = []
 
-        # LOW_RELEVANCE_TOPK: no results above threshold
-        if all(s < self._threshold for s in scores):
+        # LOW_RELEVANCE_TOPK: no results above their own threshold
+        if all(s < t for s, t in zip(scores, thresholds, strict=False)):
             modes.append(RetrievalFailureMode.LOW_RELEVANCE_TOPK)
 
         # DRIFT: top result is above threshold but mean is very low
         # (indicates topical scatter — some relevant, mostly noise)
-        if scores and scores[0] >= self._threshold:
+        if scores and scores[0] >= thresholds[0]:
             mean_rest = (
                 sum(scores[1:]) / max(1, len(scores) - 1) if len(scores) > 1 else 0
             )
-            if mean_rest < self._threshold * 0.5:
+            if mean_rest < thresholds[0] * 0.5:
                 modes.append(RetrievalFailureMode.DRIFT)
 
         # CONTEXT_TRUNCATION: many results above threshold suggests
         # important context may be cut (>80% above threshold, >10 results)
-        above_count = sum(1 for s in scores if s >= self._threshold)
+        above_count = sum(1 for s, t in zip(scores, thresholds, strict=False) if s >= t)
         if above_count > 10 and above_count / len(scores) > 0.8:
             modes.append(RetrievalFailureMode.CONTEXT_TRUNCATION)
 
@@ -427,12 +573,24 @@ class RetrievalQualityGate:
         report = self.assess_quality(results, query, upstream_provenance)
 
         if not report.gate_passed:
-            logger.warning(
-                "Retrieval quality gate FAILED for query %r (composite=%.2f, modes=%s)",
-                query[:80],
-                report.composite_quality,
-                [m.value for m in report.failure_modes_detected],
-            )
+            if RetrievalFailureMode.SPARSE_INDEX in report.failure_modes_detected:
+                logger.warning(
+                    "Retrieval quality gate FAILED for query %r (composite=%.2f, "
+                    "modes=%s) — index is only %.1f%% populated (embedded/total "
+                    "nodes); this is an INGESTION/BACKFILL gap, not a query-"
+                    "relevance problem",
+                    query[:80],
+                    report.composite_quality,
+                    [m.value for m in report.failure_modes_detected],
+                    (report.index_population_ratio or 0.0) * 100,
+                )
+            else:
+                logger.warning(
+                    "Retrieval quality gate FAILED for query %r (composite=%.2f, modes=%s)",
+                    query[:80],
+                    report.composite_quality,
+                    [m.value for m in report.failure_modes_detected],
+                )
             return [], report
 
         # Apply freshness scoring if enabled
@@ -446,7 +604,9 @@ class RetrievalQualityGate:
                     report.freshness_penalty_applied = True
 
         # Filter to above-threshold only
-        filtered = [r for r in results if r.get("_score", 0.0) >= self._threshold]
+        filtered = [
+            r for r in results if r.get("_score", 0.0) >= self._result_threshold(r)
+        ]
 
         # Re-sort after freshness adjustment
         filtered.sort(key=lambda x: x.get("_score", 0.0), reverse=True)

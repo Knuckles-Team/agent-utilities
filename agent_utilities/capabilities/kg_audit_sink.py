@@ -178,7 +178,7 @@ def tool_call_rows_by_trace_node_id(
     while building a visibility set) can reuse the exact same query without re-deriving
     it from a raw ``run_id`` a second time — ``trace_ontology.trace_id`` is not
     idempotent on an already-canonical value, so re-hashing it would look up the wrong
-    node (CONCEPT:AU-KG.trace.canonical-id-non-idempotence).
+    node (CONCEPT:AU-KG.identity.canonical-id-non-idempotence).
     """
     from agent_utilities.knowledge_graph.retrieval.context_plane import read_rows
     from agent_utilities.observability.trace_ontology import TRACE_USED_TOOL_EDGE

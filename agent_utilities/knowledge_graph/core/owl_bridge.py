@@ -54,6 +54,31 @@ def _safe_rel_type(rtype: str) -> str:
     return cleaned or "INFERRED_RELATION"
 
 
+def _node_type_to_snake(node_type: str) -> str:
+    """Normalise a stored ``node_type`` value to lowercase snake_case.
+
+    D-GS7-1 case-folded the edge-type lookup (``link_nodes()`` upper-cases
+    ``relationship``, but the promotable-edge set is lowercase snake_case) —
+    this module's own header comment documents the analogous convention on
+    the node side: the engine's LPG->RDF projection (and, empirically, the
+    native compute engine's own node reads) CamelCase ``node_type`` (e.g.
+    ``RegistryNodeType.HOST`` == ``"host"`` is written, but read back as
+    ``"Host"``; ``"gpu_accelerator"`` round-trips as ``"GPUAccelerator"``), while
+    ``PROMOTABLE_NODE_TYPES``/``_NODE_TYPE_TO_OWL_CLASS`` are keyed in lowercase
+    snake_case. A bare-string membership/dict-lookup against either therefore
+    always misses for a node read back from the native engine, so promotion
+    silently never fires for ANY node type there (D-TC-5's matchmaking follow-on:
+    the AttributeError D-GS7-1 fixed is gone, but every host still shows as
+    lacking its GPU/storage sub-asset because node promotion is a no-op).
+    Idempotent on an already-snake_case input.
+    """
+    import re
+
+    s = re.sub(r"(.)([A-Z][a-z]+)", r"\1_\2", str(node_type))
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", s)
+    return s.lower()
+
+
 # Node types registered at runtime from an external metamodel (e.g. the live
 # LeanIX data model compiled by ``ontology.leanix_metamodel``). Unioned into
 # every bridge's effective promotable set so generated types reach the reasoner
@@ -986,7 +1011,13 @@ class OWLBridge:
     def _is_eligible_node(self, node_id: str, attrs: dict[str, Any]) -> bool:
         """Check if a node meets promotion criteria."""
         node_type = attrs.get("node_type", "")
-        if node_type not in self._effective_node_types:
+        # See ``_node_type_to_snake`` — a node read back from the native
+        # compute engine has its ``node_type`` CamelCased; fold it back to
+        # the lowercase snake_case ``PROMOTABLE_NODE_TYPES``/
+        # ``DYNAMIC_PROMOTABLE_NODE_TYPES`` are keyed in, mirroring the
+        # edge-type case-fold already applied in ``_promote_stable_edges``
+        # (D-GS7-1).
+        if _node_type_to_snake(node_type) not in self._effective_node_types:
             return False
 
         # Always promote permanent nodes
@@ -1035,7 +1066,14 @@ class OWLBridge:
 
         for src, tgt, attrs in self.graph.edges(data=True):
             edge_type = attrs.get("relationship", "")
-            if edge_type in self._effective_edge_types:
+            # ``link_nodes()`` writes the edge's ``relationship`` property
+            # upper-cased (the converged relationship-type convention used by
+            # every call site), but ``PROMOTABLE_EDGE_TYPES``/schema-pack
+            # active-edge sets are lowercase snake_case, so a bare membership
+            # check here always misses for any edge written through
+            # link_nodes -- promotion silently never fires (D-GS7-1). Fold
+            # case on the lookup rather than weakening link_nodes' casing.
+            if edge_type.lower() in self._effective_edge_types:
                 stable_edges.append(
                     {
                         "source": src,

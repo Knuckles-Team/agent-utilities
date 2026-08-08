@@ -145,6 +145,13 @@ class CapabilityCandidate:
     doc: str
     score: float = 0.0
     matched_terms: list[str] = field(default_factory=list)
+    #: Structural signature of a capability-DELEGATION façade (CONCEPT:AU-ECO.mcp.
+    #: intent-surface-delegation-shape): its CPD declares a ``skill_name`` input
+    #: parameter. Derived from the packaged CPD's ``typed_io.input_params``, not
+    #: from the tool's literal name — any future delegation façade that accepts
+    #: an exact ingested-skill name qualifies automatically, with zero new
+    #: per-tool special-casing.
+    accepts_skill_name: bool = False
 
     @property
     def capability_id(self) -> str:
@@ -397,12 +404,17 @@ def _build_candidates(*, force: bool = False) -> list[CapabilityCandidate]:
             f"{tool} {' '.join(actions_by_tool.get(tool, []))} "
             f"{cpd.get('one_line', '')} {examples_text} {does_text}"
         )
+        input_params = (cpd.get("typed_io") or {}).get("input_params") or ()
+        accepts_skill_name = any(
+            isinstance(p, dict) and p.get("name") == "skill_name" for p in input_params
+        )
         out.append(
             CapabilityCandidate(
                 tool=tool,
                 action=None,
                 verbs=authority_verbs,
                 doc=doc,
+                accepts_skill_name=accepts_skill_name,
             )
         )
     _CANDIDATES_CACHE = out
@@ -444,6 +456,42 @@ def _score(
     base = score / total_weight
     coverage_bonus = (name_hits / len(name_tokens)) * 0.01 if name_tokens else 0.0
     return base + coverage_bonus, matched
+
+
+#: One hyphenated slug (the KG's own ingested-skill naming convention, e.g.
+#: ``servicenow-incident-management``) immediately adjacent to the literal
+#: word "skill" — in either order, optionally introduced by "named"/"called"
+#: or a colon. This is a STRUCTURAL fingerprint of "the caller is naming a
+#: specific skill to delegate to", independent of what words make up the
+#: slug (CONCEPT:AU-ECO.mcp.intent-surface-delegation-shape / D-INT-4). It
+#: deliberately does NOT special-case any domain vocabulary ("incident",
+#: "servicenow", ...) — a slug about ANY domain matches the same way, which
+#: is exactly why naming the skill you want must stop working against you.
+_SKILL_SLUG = r"[a-z][a-z0-9]*(?:-[a-z0-9]+){1,6}"
+_SKILL_DELEGATION_RE = re.compile(
+    rf"\b{_SKILL_SLUG}\s+skill\b"
+    rf"|\bskill(?:\s+(?:named|called))?\s*[:\-]?\s+{_SKILL_SLUG}\b",
+    re.IGNORECASE,
+)
+
+#: Flat score bonus applied to a delegation-façade candidate (one whose CPD
+#: declares ``skill_name``, see :data:`CapabilityCandidate.accepts_skill_name`)
+#: when :data:`_SKILL_DELEGATION_RE` matches the intent. Large enough to
+#: dominate any lexical overlap the named skill's own words happen to create
+#: with an unrelated tool (measured worst case pre-fix: 0.3383 for an
+#: incident-analysis tool against a ServiceNow-incident SKILL delegation), a
+#: score no ordinary multi-term lexical match realistically reaches.
+_SKILL_DELEGATION_BONUS = 0.5
+
+
+def _skill_delegation_bonus(intent: str, candidate: CapabilityCandidate) -> float:
+    """Structural delegation-shape bonus — see :data:`_SKILL_DELEGATION_RE`."""
+
+    if not candidate.accepts_skill_name:
+        return 0.0
+    if not _SKILL_DELEGATION_RE.search(str(intent or "")):
+        return 0.0
+    return _SKILL_DELEGATION_BONUS
 
 
 def _declared_action_phrase_bonus(intent: str, tool: str) -> float:
@@ -537,6 +585,7 @@ def resolve_intent(
         score, matched = _score(intent_tokens, scoring_candidate)
         if explicit_action is None:
             score += _declared_action_phrase_bonus(intent, c.tool)
+        score += _skill_delegation_bonus(intent, c)
         task_verb = verb if verb is not None else c.verbs[0]
         reward = (
             router.reward_of(
@@ -557,6 +606,7 @@ def resolve_intent(
                 doc=c.doc,
                 score=score,
                 matched_terms=matched,
+                accepts_skill_name=c.accepts_skill_name,
             )
         )
     ranked.sort(key=lambda c: (c.score, c.tool), reverse=True)

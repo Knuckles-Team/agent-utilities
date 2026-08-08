@@ -1,6 +1,7 @@
 """Concept lineage — a concept may declare that a *parent* concept documents it.
 
 CONCEPT:AU-OS.governance.concept-lineage-parent-doc — parent-satisfied documentation.
+CONCEPT:AU-OS.governance.concept-lineage-rename — first-class RENAME disposition.
 
 Why this exists
 ---------------
@@ -33,6 +34,32 @@ exposes the native..."). Recording them is what makes retirement a ratchet
 rather than a deletion — re-introducing a deliberately retired id is a gate
 failure, not a silent regression.
 
+A third disposition, **rename**, covers the case neither of the above fits: the
+marker names a real decision, kept whole, that simply needs a different id —
+most often because its domain word is not (or is no longer) in the closed
+vocabulary (``agent_utilities/governance/domain_vocab.yaml``,
+``scripts/check_domain_vocab.py``). ``AU-KG.trace.canonical-id-non-idempotence``
+was moved to ``AU-KG.identity.canonical-id-non-idempotence`` this way — before
+this registry supported it as a first-class disposition, a sibling lane did it
+by hand (source-edit + full ``docs/concepts.yaml`` regen) because ``trace`` was
+never a registered ``KG`` domain. Unlike ``retire``, a rename is not "this named
+nothing" — the decision survives under the new id, and ``renamed`` records the
+old-to-new mapping so:
+
+* re-introducing the OLD id is caught by
+  ``scripts/check_concept_governance.py``'s ``reintroduced_renames`` (mirrors
+  ``reintroduced_retirements``), the same ratchet property retirement has,
+  rather than silently reviving a name that was deliberately moved away from;
+  and
+* :func:`Lineage.resolve` lets any caller that still holds the old id (a stale
+  baseline entry, an old report) find where the decision lives now, without
+  treating the old id as if it were still live.
+
+``scripts/concept_domain_triage.py apply`` is the only writer: it renames every
+marker site (source, tests, and any design doc that quotes the id literally) in
+one step and records the provenance — never a hand-edit of this file plus a
+manual find-and-replace.
+
 Rules the loader enforces
 -------------------------
 Every rule below exists because breaking it would let the mechanism *hide* a
@@ -48,7 +75,16 @@ real decision, which is the only way this feature can do harm:
   *which* decision covers the marker and *why*, in words that are not simply
   the concept's own slug re-spelled. A pointer that restates its id is the
   same filler the design-doc rule already forbids.
-* **Disjoint dispositions.** A concept is retired *or* linked, never both.
+* **Disjoint dispositions.** A concept is retired *or* linked *or* renamed
+  (as the OLD id of a rename), never more than one.
+* **A rename target must be a different, valid id, and a reason is required.**
+  Self-rename is rejected the same way self-parent is.
+* **No rename chains.** A rename's ``to`` may not itself be the OLD id of
+  another rename entry — the same one-hop reasoning as parent chains. Renaming
+  an id again means rewriting the *existing* entry's ``to`` (and every site) to
+  point at the final name directly, which is exactly what
+  ``concept_domain_triage.py apply`` does when it detects the target is itself
+  mid-chain — it flattens rather than appending a second hop.
 
 The gate (``check_concept_governance.py``) consumes :func:`load_lineage` and
 treats ``has_design_doc(child) or has_design_doc(parent_of(child))`` as
@@ -59,7 +95,7 @@ name, not a silent pass.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 
@@ -99,11 +135,28 @@ class Retirement:
 
 
 @dataclass(frozen=True)
+class Renamed:
+    """``old`` was renamed to ``to``; re-introducing ``old`` is a failure.
+
+    Unlike :class:`Retirement`, the decision the marker named is not gone — it
+    lives on under ``to``. This is the record that lets a caller still holding
+    the old id (a stale baseline entry, an old report, a hand-written note)
+    find where the decision moved rather than conclude it vanished.
+    """
+
+    old: str
+    to: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class Lineage:
-    """The validated registry: parent links keyed by child, plus retirements."""
+    """The validated registry: parent links keyed by child, plus retirements
+    and renames."""
 
     parents: dict[str, ParentLink]
     retired: dict[str, Retirement]
+    renamed: dict[str, Renamed] = field(default_factory=dict)
 
     def parent_of(self, concept: str) -> str | None:
         """The concept whose design document covers *concept*, if declared."""
@@ -120,6 +173,15 @@ class Lineage:
         return tuple(
             sorted(c for c, link in self.parents.items() if link.parent == concept)
         )
+
+    def resolve(self, concept: str) -> str:
+        """The current id for *concept* — itself, unless it was renamed away.
+
+        A single hop by construction (:func:`parse_lineage` rejects rename
+        chains), so this never needs to loop.
+        """
+        entry = self.renamed.get(concept)
+        return entry.to if entry else concept
 
 
 def _id_words(*concept_ids: str) -> set[str]:
@@ -170,12 +232,15 @@ def parse_lineage(data: dict) -> Lineage:
     """
     raw_parents = data.get("parents") or {}
     raw_retired = data.get("retired") or {}
+    raw_renamed = data.get("renamed") or {}
     if not isinstance(raw_parents, dict):
         raise LineageError(
             "'parents' must be a mapping of child-id -> {parent, rationale}"
         )
     if not isinstance(raw_retired, dict):
         raise LineageError("'retired' must be a mapping of concept-id -> {reason}")
+    if not isinstance(raw_renamed, dict):
+        raise LineageError("'renamed' must be a mapping of old-id -> {to, reason}")
 
     parents: dict[str, ParentLink] = {}
     for child, entry in raw_parents.items():
@@ -215,6 +280,33 @@ def parse_lineage(data: dict) -> Lineage:
             raise LineageError(f"{concept!r}: a retirement requires a reason")
         retired[concept] = Retirement(concept=concept, reason=reason)
 
+    renamed: dict[str, Renamed] = {}
+    for old, entry in raw_renamed.items():
+        _check_id(old, field="rename old id")
+        if not isinstance(entry, dict):
+            raise LineageError(
+                f"{old!r}: rename entry must be a mapping with 'to' and 'reason'"
+            )
+        to = str(entry.get("to") or "").strip()
+        _check_id(to, field=f"rename target of {old!r}")
+        if to == old:
+            raise LineageError(f"{old!r}: a concept cannot be renamed to itself")
+        reason = str(entry.get("reason") or "").strip()
+        if not reason:
+            raise LineageError(f"{old!r}: a rename requires a reason")
+        renamed[old] = Renamed(old=old, to=to, reason=reason)
+
+    # No rename chains: a rename target must not itself be an old id waiting to
+    # move again. Same one-hop reasoning as parent chains — otherwise "where
+    # does this id live now?" is a graph traversal instead of one lookup.
+    for old, entry in renamed.items():
+        if entry.to in renamed:
+            raise LineageError(
+                f"{old!r} -> {entry.to!r} -> {renamed[entry.to].to!r}: rename "
+                "chains are not allowed. Point the existing entry at the final "
+                "id directly instead of adding a second hop."
+            )
+
     overlap = sorted(
         set(retired) & (set(parents) | {lk.parent for lk in parents.values()})
     )
@@ -226,7 +318,18 @@ def parse_lineage(data: dict) -> Lineage:
             "nor cover anything."
         )
 
-    return Lineage(parents=parents, retired=retired)
+    rename_overlap = sorted(
+        set(renamed)
+        & (set(retired) | set(parents) | {lk.parent for lk in parents.values()})
+    )
+    if rename_overlap:
+        raise LineageError(
+            "concept(s) are both renamed (as the old id) and retired/used in a "
+            "parent link: " + ", ".join(rename_overlap) + " — pick exactly one "
+            "disposition."
+        )
+
+    return Lineage(parents=parents, retired=retired, renamed=renamed)
 
 
 @lru_cache(maxsize=8)

@@ -8,12 +8,12 @@ against the same gateway — ~800 lines of duplicated transport, with hardcoded
 URLs, no auth, no retry, and no rate-limit handling.
 
 This is the single shared client the Python surfaces strangle their bespoke
-clients onto. It is built on :class:`agent_utilities.http.AsyncBaseApiClient`
+clients onto. It is built on :class:`agent_utilities.httpsupport.AsyncBaseApiClient`
 (ECO-4.35) — so it inherits auth injection, 429 backoff, error mapping, and log
 redaction for free — and adds typed methods for the gateway's REST surface plus a
 Server-Sent-Events streaming helper for the agent ``/stream`` channel.
 
-Sibling of the *fleet*-side library: :mod:`agent_utilities.http` consolidated the
+Sibling of the *fleet*-side library: :mod:`agent_utilities.httpsupport` consolidated the
 ~58 connector agents' API clients; this consolidates the surfaces' gateway clients.
 
 Example::

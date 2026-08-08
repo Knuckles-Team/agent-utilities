@@ -87,7 +87,26 @@ def test_infrastructure_pydantic_models():
 
 def _create_engine():
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
-    return IntelligenceGraphEngine(db_path=":memory:")
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        EpistemicGraphBackend,
+    )
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+
+    # A bare EpistemicGraphBackend()/IntelligenceGraphEngine(db_path=...)
+    # independently resolves its OWN tenant-routed default graph
+    # (resolve_routing_graph(None) -> the shared "tenant__<tenant>____commons__"
+    # graph), NOT the per-test isolated graph tests/conftest.py's
+    # isolate_graph_compute_engine fixture provisions. Every test in a
+    # multi-test run that took this bare path collided on that ONE shared
+    # durable tenant graph -- durable lifecycle registrations against it raced
+    # across tests and failed STALE_FENCE ("lifecycle batch ... is no longer
+    # current"). Constructing the isolated GraphComputeEngine first and
+    # rebinding the backend to it keeps this test on its own graph, matching
+    # the idiom already established in test_kg_native_orchestration.py.
+    compute = GraphComputeEngine(backend_type="rust")
+    backend = EpistemicGraphBackend()
+    backend._graph = compute
+    return IntelligenceGraphEngine(backend=backend)
 
 
 def test_host_ingestion_and_sparql_matchmaking(mock_inventory_file):
@@ -100,11 +119,15 @@ def test_host_ingestion_and_sparql_matchmaking(mock_inventory_file):
     assert len(ingested) == 4
     assert any(node_id.startswith("host:pref_host_") for node_id in ingested)
 
-    # Verify LPG relationships were correctly created. link_nodes() (the typed
-    # engine API these edges now route through — see engine_infra.py's
-    # ingest_hosts_from_inventory) canonicalizes the relationship type
-    # (uppercased) on write, so read edge data via get_edge_data rather than
-    # networkx adjacency subscripting.
+    # Verify LPG relationships were correctly created. Both edges are written
+    # twice onto the SAME underlying graph (``self.graph is self.graph_compute``):
+    # once directly via ``self.graph.add_edge(..., relationship="attached_storage")``
+    # (lowercase, unconditional), then again via ``link_nodes(...)`` when a
+    # backend is configured -- ``link_nodes`` upper-cases ``rel_type`` before
+    # storing it under the same "relationship" key, and since this is a plain
+    # DiGraph (not a MultiDiGraph) the second write overwrites the first, so the
+    # upper-cased value from ``link_nodes`` is what's actually stored. Read via
+    # get_edge_data rather than networkx adjacency subscripting.
     def _host_role(node_id: str) -> str:
         # dict-valued properties (like HostNode.labels) are JSON-encoded for
         # storage (IntelligenceGraphEngine._serialize_node) and come back as a

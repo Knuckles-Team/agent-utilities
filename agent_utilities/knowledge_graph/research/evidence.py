@@ -250,7 +250,7 @@ def from_outcome_evaluation(props: dict[str, Any]) -> Evidence:
         channel=EvidenceChannel.EXECUTION_TRACE,
         subject_id=trace_id or "unknown-trace",
         outcome=outcome,
-        signal=props.get("reward"),
+        signal=_clamp01(props.get("reward")),
         confidence=_OBSERVED_CONFIDENCE,
         source_node_id=str(props.get("id") or "") or None,
         source_node_type="OutcomeEvaluation",
@@ -469,7 +469,7 @@ def record_evidence(engine: Any, evidence: Evidence) -> str | None:
         engine.add_node(
             node.id,
             "EvolutionEvidence",
-            properties=node.model_dump(mode="json", exclude={"type"}),
+            properties=node.to_graph_properties(),
         )
     except Exception as e:  # noqa: BLE001 — best-effort writeback
         logger.debug("evidence: record failed for %s: %s", node.id, e)

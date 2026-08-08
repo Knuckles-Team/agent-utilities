@@ -327,7 +327,9 @@ class FakeScaleEngine:
             outcome = request["outcome"]
             if outcome == "failed" and request["retryable"]:
                 if int(node["attempt"]) >= int(node["max_attempts"]):
-                    node.update(status="dead_letter", error_ref=request.get("error_ref"))
+                    node.update(
+                        status="dead_letter", error_ref=request.get("error_ref")
+                    )
                     return {"status": "dead_letter"}
                 node.update(
                     status="ready",
@@ -535,6 +537,17 @@ class FakeScaleEngine:
                 {"m": {"properties": n}}
                 for n in self.nodes.values()
                 if n.get("label") == "BusMessage" and n.get("msg_group") == params["g"]
+            ]
+
+        if q.startswith("MATCH (i:BusInbox {recipient_ref: $aid}) RETURN i"):
+            # messaging.bus.AgentBus._read_committed_inbox (D-OTD-1: this
+            # query became reachable once AgentBus.receive()/_send_via_log()
+            # stopped crashing on a None log backend).
+            return [
+                {"i": {"properties": n}}
+                for n in self.nodes.values()
+                if n.get("label") == "BusInbox"
+                and n.get("recipient_ref") == params["aid"]
             ]
 
         raise AssertionError(f"FakeScaleEngine: unrecognized query: {q[:200]!r}")

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1144
+total_concepts: 1151
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -491,7 +491,7 @@ concepts:
   - agent_utilities/graph/team_evolution.py
   doc: Graph-Native Team Evolution
 - id: AU-AHE.harness.hardening-transparency-surface
-  name: /3.72/3.73/3.74 — a MemoryData-contract agent method over the graph-os
+  name: a MemoryData-contract agent method over the graph-os
   pillar: AU-AHE
   status: live
   code_paths:
@@ -501,7 +501,7 @@ concepts:
   - agent_utilities/harness/memorydata/adapter.py
   - agent_utilities/harness/memorydata/client.py
   - agent_utilities/harness/memorydata/tests/test_adapter_offline.py
-  doc: /3.72/3.73/3.74 — a MemoryData-contract agent method over the graph-os
+  doc: a MemoryData-contract agent method over the graph-os
 - id: AU-AHE.harness.harness-evolution
   name: Agentic Harness Engineering / Evolution
   pillar: AU-AHE
@@ -535,14 +535,14 @@ concepts:
   - agent_utilities/harness/tool_judge.py
   doc: instead of context-stuffing; small traces use
 - id: AU-AHE.harness.kg-held-out-certification
-  name: /KG-2.108 — held-out certification + ARA-Seal of a
+  name: held-out certification + ARA-Seal of a
   pillar: AU-AHE
   status: live
   code_paths:
   - agent_utilities/harness/co_evolution.py
   - agent_utilities/harness/harness_grounding.py
   - agent_utilities/mcp/tools/analysis_tools.py
-  doc: /KG-2.108 — held-out certification + ARA-Seal of a
+  doc: held-out certification + ARA-Seal of a
 - id: AU-AHE.harness.loop-exit-conditions
   name: TURN CAP threading
   pillar: AU-AHE
@@ -1197,7 +1197,7 @@ concepts:
   - agent_utilities/tools/tool_registry.py
   doc: universal AgentBus tools
 - id: AU-ECO.connector.agent-source-ingestion
-  name: / ECO-4.42
+  name: AU-ECO.connector.agent-source-ingestion
   pillar: AU-ECO
   status: live
   code_paths:
@@ -1211,7 +1211,7 @@ concepts:
   - agent_utilities/ingestion/agent_sources/parsers/generic_jsonl.py
   - agent_utilities/ingestion/agent_sources/registry.py
   - agent_utilities/ingestion/collector.py
-  doc: / ECO-4.42
+  doc: AU-ECO.connector.agent-source-ingestion
 - id: AU-ECO.connector.apply-any-query-analysis
   name: apply any query-analysis source-type restriction to
   pillar: AU-ECO
@@ -1425,25 +1425,37 @@ concepts:
   - agent_utilities/ingestion/collector.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: client-side chat/session ingestion for Claude + Antigravity
+- id: AU-ECO.mcp.cross-process-prompt-harvest
+  name: promotes prompts
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/agent/registry_builder.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ingestion/fleet_prompt_harvest.py
+  - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/mcp/server_factory.py
+  doc: promotes prompts
 - id: AU-ECO.mcp.cross-process-skill-harvest
   name: Cross-Process Skill Harvest
   pillar: AU-ECO
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ingestion/fleet_prompt_harvest.py
   - agent_utilities/knowledge_graph/ingestion/fleet_skill_harvest.py
   - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py
   - agent_utilities/mcp/multiplexer.py
   doc: Cross-Process Skill Harvest
 - id: AU-ECO.mcp.eco-serves-two-ard
-  name: / ECO-4.97. Serves the two ARD artifacts at the bare domain root so
+  name: Assembles fleet MCP servers + KG skills into ARD resources, signs
   pillar: AU-ECO
   status: live
   code_paths:
   - agent_utilities/ecosystem/ard_registry.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/server/routers/ard.py
-  doc: / ECO-4.97. Serves the two ARD artifacts at the bare domain root so
+  doc: Assembles fleet MCP servers + KG skills into ARD resources, signs
 - id: AU-ECO.mcp.fastmcp-middleware
   name: Assimilated from FastMCP
   pillar: AU-ECO
@@ -1512,6 +1524,13 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/intent_tools.py
   doc: The packaged CPD set is
+- id: AU-ECO.mcp.intent-surface-delegation-shape
+  name: It
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/tools/intent_tools.py
+  doc: It
 - id: AU-ECO.mcp.intent-surface-outcome-learning
   name: ONE learner, reused — the same
   pillar: AU-ECO
@@ -1822,7 +1841,7 @@ concepts:
   - agent_utilities/orchestration/action_policy.py
   doc: Messaging reach service for governed outbound and channel routing
 - id: AU-ECO.messaging.messaging-renderer-core-reaction
-  name: /4.81 — the messaging renderer of a core reaction
+  name: the messaging renderer of a core reaction
   pillar: AU-ECO
   status: live
   code_paths:
@@ -1831,7 +1850,7 @@ concepts:
   - agent_utilities/messaging/backends/telegram.py
   - agent_utilities/messaging/router.py
   - agent_utilities/orchestration/reactions.py
-  doc: /4.81 — the messaging renderer of a core reaction
+  doc: the messaging renderer of a core reaction
 - id: AU-ECO.messaging.model-routed-inbound-responder
   name: Model-routed inbound responder with local LLM default and Claude address
   pillar: AU-ECO
@@ -1840,7 +1859,7 @@ concepts:
   - agent_utilities/messaging/router.py
   doc: Model-routed inbound responder with local LLM default and Claude address
 - id: AU-ECO.messaging.native-backend-abstraction
-  name: / Universal-capability — the orchestrator emits ONE Markdown answer; each
+  name: Universal-capability — the orchestrator emits ONE Markdown answer; each
   pillar: AU-ECO
   status: live
   code_paths:
@@ -1903,7 +1922,7 @@ concepts:
   - agent_utilities/tools/sandbox_executor.py
   - agent_utilities/tools/tool_filtering.py
   - agent_utilities/tools/tool_registry.py
-  doc: / Universal-capability — the orchestrator emits ONE Markdown answer; each
+  doc: Universal-capability — the orchestrator emits ONE Markdown answer; each
 - id: AU-ECO.messaging.post-conversation-enrichment
   name: Post-conversation concept extraction + KG linking for chat
   pillar: AU-ECO
@@ -2018,6 +2037,7 @@ concepts:
   - agent_utilities/capabilities/fleet_tool_search.py
   - agent_utilities/core/config.py
   - agent_utilities/mcp/multiplexer.py
+  - agent_utilities/mcp/tools/config_tools.py
   doc: catalog-aware, collision-free prefix assignment
 - id: AU-ECO.reactions.emitted-alongside-reply
   name: first-class reaction output any agent turn can emit, shared by every
@@ -2072,7 +2092,7 @@ concepts:
   - agent_utilities/tools/tool_registry.py
   doc: native database traversal tools
 - id: AU-ECO.toolkit.media-gateway-failure-path
-  name: /4.31 — media generation + transcription tools. Default OFF
+  name: transcribed text can then flow into the KG through the
   pillar: AU-ECO
   status: live
   code_paths:
@@ -2080,7 +2100,7 @@ concepts:
   - agent_utilities/ecosystem/media/gateway.py
   - agent_utilities/ecosystem/media/transcription.py
   - agent_utilities/tools/tool_registry.py
-  doc: /4.31 — media generation + transcription tools. Default OFF
+  doc: transcribed text can then flow into the KG through the
 - id: AU-ECO.toolkit.media-transcription-bridge
   name: Media Transcription Bridge
   pillar: AU-ECO
@@ -2179,12 +2199,12 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
-  - agent_utilities/http/__init__.py
-  - agent_utilities/http/auth.py
-  - agent_utilities/http/client.py
-  - agent_utilities/http/pagination.py
-  - agent_utilities/http/rate_limit.py
-  - agent_utilities/http/redaction.py
+  - agent_utilities/httpsupport/__init__.py
+  - agent_utilities/httpsupport/auth.py
+  - agent_utilities/httpsupport/client.py
+  - agent_utilities/httpsupport/pagination.py
+  - agent_utilities/httpsupport/rate_limit.py
+  - agent_utilities/httpsupport/redaction.py
   doc: Fleet HTTP Client Library
 - id: AU-ECO.ui.mcp-apps-host
   name: the MCP Apps entry-point tool + its
@@ -2325,9 +2345,11 @@ concepts:
   - agent_utilities/knowledge_graph/core/cypher_scoping.py
   - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/materialization.py
   - agent_utilities/knowledge_graph/core/secured_reads.py
   - agent_utilities/knowledge_graph/core/tenant_sharing.py
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/server/routers/enhanced.py
   doc: wrap with the Company Brain write-path guard
 - id: AU-KG.backend.concept-2
   name: ──
@@ -2759,14 +2781,14 @@ concepts:
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: reserves a worker floor that non-interactive lanes can never
 - id: AU-KG.compute.jira-first-class-delta
-  name: Jira first-class delta connector
+  name: this generic capability is now only
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/core/hydration.py
   - agent_utilities/knowledge_graph/core/source_sync.py
-  doc: Jira first-class delta connector
+  doc: this generic capability is now only
 - id: AU-KG.compute.kg-3
   name: AU-KG.compute.kg-3
   pillar: AU-KG
@@ -2936,7 +2958,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_breaker.py
   doc: A single dropped connection
 - id: AU-KG.compute.spectral-cluster-navigator
-  name: /2.15/2.34/2.35 — Topological Analysis Engine
+  name: Financial regime detection extension
   pillar: AU-KG
   status: live
   code_paths:
@@ -2947,7 +2969,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/single_shot_sira.py
   - agent_utilities/models/knowledge_graph.py
   - agent_utilities/models/schema_definition.py
-  doc: /2.15/2.34/2.35 — Topological Analysis Engine
+  doc: Financial regime detection extension
 - id: AU-KG.compute.structural-fingerprint
   name: Structural Fingerprint Engine
   pillar: AU-KG
@@ -3246,12 +3268,13 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: document → atomic-triple fact extraction
 - id: AU-KG.enrichment.candidate-claim-extraction
-  name: AU-KG.enrichment.candidate-claim-extraction
+  name: and Track 5
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/extraction/candidate_claims.py
-  doc: AU-KG.enrichment.candidate-claim-extraction
+  - agent_utilities/mcp/tools/candidate_claim_tools.py
+  doc: and Track 5
 - id: AU-KG.enrichment.card-attempt-status
   name: keeps a down card LLM from being retry-stormed
   pillar: AU-KG
@@ -3264,19 +3287,19 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/query.py
   doc: keeps a down card LLM from being retry-stormed
 - id: AU-KG.enrichment.ciso-2
-  name: / CISO-003
+  name: AU-KG.enrichment.ciso-2
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/enrichment/writeback/sinks/ciso_assistant.py
-  doc: / CISO-003
+  doc: AU-KG.enrichment.ciso-2
 - id: AU-KG.enrichment.ciso-assistant-extraction
-  name: / CISO-002
+  name: AU-KG.enrichment.ciso-assistant-extraction
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/enrichment/extractors/ciso_assistant.py
-  doc: / CISO-002
+  doc: AU-KG.enrichment.ciso-assistant-extraction
 - id: AU-KG.enrichment.community-reports
   name: AU-KG.enrichment.community-reports
   pillar: AU-KG
@@ -3563,14 +3586,22 @@ concepts:
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/messaging/router.py
   doc: migrate_legacy_assets_bulk progress callback failed
+- id: AU-KG.identity.canonical-id-non-idempotence
+  name: AU-KG.identity.canonical-id-non-idempotence
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/kg_audit_sink.py
+  doc: AU-KG.identity.canonical-id-non-idempotence
 - id: AU-KG.identity.entity-resolution-candidates
-  name: AU-KG.identity.entity-resolution-candidates
+  name: exposed as a standalone
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/assimilation/identity_candidates.py
+  - agent_utilities/mcp/tools/candidate_claim_tools.py
   - agent_utilities/models/knowledge_graph.py
-  doc: AU-KG.identity.entity-resolution-candidates
+  doc: exposed as a standalone
 - id: AU-KG.identity.evidence-spine-convergence
   name: Evidence write failed for occurrence
   pillar: AU-KG
@@ -3780,16 +3811,19 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   doc: the extractor
 - id: AU-KG.ingest.domain-pack-framework
-  name: one of
+  name: a pack author states its
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/core/config.py
   - agent_utilities/knowledge_graph/domain_packs/__init__.py
   - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
   - agent_utilities/knowledge_graph/domain_packs/envelope_bridge.py
   - agent_utilities/knowledge_graph/domain_packs/pack_loader.py
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
-  doc: one of
+  - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
+  - agent_utilities/knowledge_graph/ingestion/promotion.py
+  doc: a pack author states its
 - id: AU-KG.ingest.drain-session-bundle
   name: drain a remote session-bundle upload that the
   pillar: AU-KG
@@ -3911,6 +3945,13 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/tools/db_tools.py
   doc: which speaks **PostgreSQL, MySQL/MariaDB, MS SQL Server, Oracle
+- id: AU-KG.ingest.entity-embedding-at-write
+  name: every typed-entity
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/semantic.py
+  doc: every typed-entity
 - id: AU-KG.ingest.envelope-atomic
   name: AU-KG.ingest.envelope-atomic
   pillar: AU-KG
@@ -3932,6 +3973,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
@@ -4026,6 +4068,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
   - agent_utilities/knowledge_graph/ingestion/promotion.py
   - agent_utilities/mcp/tools/claim_tools.py
@@ -4080,16 +4123,15 @@ concepts:
   - agent_utilities/messaging/router.py
   doc: the durable-media path needs the engine BLOB substrate, reached
 - id: AU-KG.ingest.mapping-dsl
-  name: a refinement of the evidence-spine
+  name: the
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/domain_packs/__init__.py
   - agent_utilities/knowledge_graph/domain_packs/domain_pack.py
   - agent_utilities/knowledge_graph/domain_packs/dsl.py
-  - agent_utilities/knowledge_graph/domain_packs/fragment_contract.py
   - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
-  doc: a refinement of the evidence-spine
+  doc: the
 - id: AU-KG.ingest.mcp-tool-connector
   name: ────────────────────────────
   pillar: AU-KG
@@ -4195,13 +4237,13 @@ concepts:
   - agent_utilities/knowledge_graph/pipeline/phases/owl_reasoning.py
   doc: the self-bootstrapping ontology agent applied to ingest
 - id: AU-KG.ingest.over-same-tree-fan
-  name: over the same tree and fan the
+  name: over this tree AFTER the structural
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/repo_classifier.py
-  doc: over the same tree and fan the
+  doc: over this tree AFTER the structural
 - id: AU-KG.ingest.package-install-autoingest
   name: auto-extend
   pillar: AU-KG
@@ -4311,6 +4353,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
   - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/mcp/tools/query_tools.py
@@ -4483,14 +4526,14 @@ concepts:
   - agent_utilities/graph/verification.py
   doc: Post-execution feedback loop
 - id: AU-KG.memory.ahe-record-this-base
-  name: / AHE-3.33 — record this base
+  name: Decentralized Memory
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/agentic_evolution_engine.py
   - agent_utilities/harness/decentralized_memory.py
-  doc: / AHE-3.33 — record this base
+  doc: Decentralized Memory
 - id: AU-KG.memory.anti-collapse
   name: Anti-collapse now lives in
   pillar: AU-KG
@@ -4839,6 +4882,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/object_centric_derivation.py
+  - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: object-centric
 - id: AU-KG.mining.ocel-lossless-roundtrip
   name: the inverse of
@@ -4951,7 +4995,7 @@ concepts:
   - agent_utilities/mcp/tools/state_tools.py
   doc: the function the A3 functions runtime / object queries call
 - id: AU-KG.ontology.connector-agnostic-proposal
-  name: / KG-2.91 — a KG-native, propose-only background distiller that
+  name: connector-agnostic over the ontology; propose-only. Reuses
   pillar: AU-KG
   status: live
   code_paths:
@@ -4961,7 +5005,7 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/ops_causal_crosswalk.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/models/knowledge_graph.py
-  doc: / KG-2.91 — a KG-native, propose-only background distiller that
+  doc: connector-agnostic over the ontology; propose-only. Reuses
 - id: AU-KG.ontology.connector-manifest-compiler
   name: without touching the existing
   pillar: AU-KG
@@ -5206,14 +5250,16 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/finance_objects.py
   doc: Kyle insider/stealth surveillance signal ontology
 - id: AU-KG.ontology.link-type-pivot
-  name: pivot across a link type. Computes the 1-hop related set
+  name: search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object
+    sets. action=
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/knowledge_graph/ontology/object_set.py
   - agent_utilities/mcp/tools/ontology_tools.py
-  doc: pivot across a link type. Computes the 1-hop related set
+  doc: search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object
+    sets. action=
 - id: AU-KG.ontology.manage-arbitrary
   name: manage arbitrary
   pillar: AU-KG
@@ -5240,6 +5286,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ontology/evolution.py
   doc: AU-KG.ontology.negative-results-queryable
+- id: AU-KG.ontology.node-type-casing-convergence
+  name: normalizes a node
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
+  doc: normalizes a node
 - id: AU-KG.ontology.object-path-finder
   name: finds the shortest path between two specific object ids and returns the hop-by-hop relationship
     chain — the object-agnostic generalization of the existing
@@ -5345,13 +5398,13 @@ concepts:
   - agent_utilities/knowledge_graph/core/owl_bridge.py
   doc: AU-KG.ontology.owl-rdf-bridge
 - id: AU-KG.ontology.owl-screen-bridge
-  name: / 2.186 / ORCH-1.84
+  name: AU-KG.ontology.owl-screen-bridge
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/core/owl_bridge.py
-  doc: / 2.186 / ORCH-1.84
+  doc: AU-KG.ontology.owl-screen-bridge
 - id: AU-KG.ontology.pack-identity-rules
   name: and threaded in here as plain
   pillar: AU-KG
@@ -5528,14 +5581,14 @@ concepts:
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: AU-KG.ontology.stardog-catalog-import
 - id: AU-KG.ontology.stardog-catalog-overwrite
-  name: / stardog-catalog-import — Stardog catalog twins
+  name: stardog-catalog-import — Stardog catalog twins
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/ontology_publisher.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py
-  doc: / stardog-catalog-import — Stardog catalog twins
+  doc: stardog-catalog-import — Stardog catalog twins
 - id: AU-KG.ontology.style-lint
   name: flags interface/property naming-convention
   pillar: AU-KG
@@ -5692,7 +5745,7 @@ concepts:
   - agent_utilities/mcp/tools/compliance_tools.py
   doc: additive; a build/transport without the
 - id: AU-KG.query.object-graph-mapper
-  name: / KG-2.106 — code AST parsing delegated to the epistemic-graph engine
+  name: code AST parsing delegated to the epistemic-graph engine
   pillar: AU-KG
   status: live
   code_paths:
@@ -5738,7 +5791,7 @@ concepts:
   - agent_utilities/models/schema_definition.py
   - agent_utilities/tools/kg_share_tools.py
   - agent_utilities/tools/knowledge_tools.py
-  doc: / KG-2.106 — code AST parsing delegated to the epistemic-graph engine
+  doc: code AST parsing delegated to the epistemic-graph engine
 - id: AU-KG.query.query-aggregation
   name: Cypher aggregate functions. A query that
   pillar: AU-KG
@@ -5811,7 +5864,7 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/code_metrics.py
   doc: the top nodes by degree + edges
 - id: AU-KG.query.vendor-agnostic-traversal
-  name: / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis
+  name: standardized so an atomic skill gets the SAME enrichment level
   pillar: AU-KG
   status: live
   code_paths:
@@ -5854,9 +5907,9 @@ concepts:
   - agent_utilities/knowledge_graph/pipeline/phases/embedding.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/models/schema_packs/finance.py
-  doc: / KG-2.10 / KG-2.78 — research assimilation + orchestration synthesis
+  doc: standardized so an atomic skill gets the SAME enrichment level
 - id: AU-KG.research.best-effort-lightweight-never
-  name: Best-effort + lightweight; never blocks
+  name: dispatches through the same research_artifact MCP tool
   pillar: AU-KG
   status: live
   code_paths:
@@ -5865,7 +5918,7 @@ concepts:
   - agent_utilities/knowledge_graph/research/ara/reasoning_driver.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/mcp/tools/state_tools.py
-  doc: Best-effort + lightweight; never blocks
+  doc: dispatches through the same research_artifact MCP tool
 - id: AU-KG.research.close-distill-develop-seam
   name: close the distill→develop seam. Persist each draft as a
   pillar: AU-KG
@@ -6263,7 +6316,7 @@ concepts:
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: every usage of a published symbol across the
 - id: AU-KG.retrieval.evidence-graph-workspace
-  name: /2.71/2.72, AHE-3.30; distills arXiv
+  name: keeps only tasks whose shortcut report is
   pillar: AU-KG
   status: live
   code_paths:
@@ -6271,7 +6324,7 @@ concepts:
   - agent_utilities/knowledge_graph/search_synthesis/__init__.py
   - agent_utilities/knowledge_graph/search_synthesis/models.py
   - agent_utilities/mcp/tools/query_tools.py
-  doc: /2.71/2.72, AHE-3.30; distills arXiv
+  doc: keeps only tasks whose shortcut report is
 - id: AU-KG.retrieval.evidence-subgraph-construction
   name: evidence-subgraph construction
   pillar: AU-KG
@@ -6575,13 +6628,14 @@ concepts:
   - agent_utilities/mcp/tools/query_tools.py
   doc: a retriever that *walks* a document
 - id: AU-KG.retrieval.triviality-gate
-  name: social-closer / triviality gate
+  name: HybridRetriever._lexical_fallback
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/knowledge_graph/retrieval/hyde_planner.py
-  doc: social-closer / triviality gate
+  - agent_utilities/knowledge_graph/retrieval/retrieval_quality.py
+  doc: HybridRetriever._lexical_fallback
 - id: AU-KG.retrieval.unified-capability-contract
   name: a resolved
   pillar: AU-KG
@@ -6705,13 +6759,6 @@ concepts:
   code_paths:
   - agent_utilities/runtime/provenance.py
   doc: Workspace-Action Provenance Graph
-- id: AU-KG.trace.canonical-id-non-idempotence
-  name: AU-KG.trace.canonical-id-non-idempotence
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/capabilities/kg_audit_sink.py
-  doc: AU-KG.trace.canonical-id-non-idempotence
 - id: AU-KG.txn.git-like-versioning
   name: Provides git-like transactional mutation for KG evolution
   pillar: AU-KG
@@ -7091,13 +7138,13 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   doc: Selected coordination protocol metadata
 - id: AU-ORCH.execution.degraded-no-data-outcome
-  name: / AU-AHE.evaluation.action-outcome-feedback
+  name: AU-AHE.evaluation.action-outcome-feedback
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/graph/verification.py
   - agent_utilities/orchestration/agent_runner.py
-  doc: / AU-AHE.evaluation.action-outcome-feedback
+  doc: AU-AHE.evaluation.action-outcome-feedback
 - id: AU-ORCH.execution.delegation-hot-path-authority
   name: keep a long delegation authorized for its whole run, on every entrypoint, not just MCP dispatch
   pillar: AU-ORCH
@@ -7221,6 +7268,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/capabilities/checkpointing.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: persist_facts
 - id: AU-ORCH.execution.execution-budget-caps
@@ -7428,12 +7476,12 @@ concepts:
   - agent_utilities/orchestration/execution_profile.py
   doc: prompt-only universal entrypoints that must flow through the full
 - id: AU-ORCH.execution.per-job-shape-construction
-  name: /1.68 — carry the constructed shape to the graph deps so each node
+  name: construct the execution shape for THIS job ONCE, up front. The
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/orchestration/agent_runner.py
-  doc: /1.68 — carry the constructed shape to the graph deps so each node
+  doc: construct the execution shape for THIS job ONCE, up front. The
 - id: AU-ORCH.execution.planner-failure-feedback
   name: ─────────────────────────────────────────────────
   pillar: AU-ORCH
@@ -7676,7 +7724,7 @@ concepts:
   - agent_utilities/workflows/runner.py
   doc: wires the EXISTING
 - id: AU-ORCH.execution.workflow-lifecycle-management
-  name: / ORCH-1.95 — Named Workflow Execution. Loads the stored
+  name: Named Workflow Execution. Loads the stored
   pillar: AU-ORCH
   status: live
   code_paths:
@@ -7687,7 +7735,7 @@ concepts:
   - agent_utilities/workflows/__init__.py
   - agent_utilities/workflows/localized_repair.py
   - agent_utilities/workflows/runner.py
-  doc: / ORCH-1.95 — Named Workflow Execution. Loads the stored
+  doc: Named Workflow Execution. Loads the stored
 - id: AU-ORCH.execution.workflow-parallel-bridge
   name: Workflow → ParallelEngine Bridge
   pillar: AU-ORCH
@@ -8042,6 +8090,13 @@ concepts:
   - agent_utilities/graph/_router_impl.py
   - agent_utilities/orchestration/agent_runner.py
   doc: when a remote MCP child fails, anyio wraps the real cause
+- id: AU-ORCH.routing.model-fallback-chain
+  name: AU-ORCH.routing.model-fallback-chain
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/capabilities/model_fallback.py
+  doc: AU-ORCH.routing.model-fallback-chain
 - id: AU-ORCH.routing.offload-sync-roundtrip
   name: the pre-LLM discovery below is several SYNCHRONOUS engine
   pillar: AU-ORCH
@@ -8073,6 +8128,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/capabilities/model_fallback.py
   - agent_utilities/core/model_factory.py
   - agent_utilities/core/model_router.py
   - agent_utilities/harness/trace_backend.py
@@ -8238,12 +8294,12 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   doc: Compiled Orchestration Kernel
 - id: AU-ORCH.sandbox.computer-use-tier
-  name: / ORCH-1.84 — Computer-use driver tier for the workspace runtime
+  name: Computer-use driver tier for the workspace runtime
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/runtime/computer_use_tier.py
-  doc: / ORCH-1.84 — Computer-use driver tier for the workspace runtime
+  doc: Computer-use driver tier for the workspace runtime
 - id: AU-ORCH.sandbox.container-fork-sandbox
   name: container_fork sandbox
   pillar: AU-ORCH
@@ -8356,13 +8412,13 @@ concepts:
   - agent_utilities/runtime/warm_registry.py
   doc: a HARD wall-clock lifetime cap. A warm parent older than this is reaped even
 - id: AU-ORCH.sandbox.warmforkfanoutcapability
-  name: WarmForkFanoutCapability
+  name: A rung pays warm-up once for a
   pillar: AU-ORCH
   status: live
   code_paths:
   - agent_utilities/rlm/sandboxes/base.py
   - agent_utilities/runtime/warm_registry.py
-  doc: WarmForkFanoutCapability
+  doc: A rung pays warm-up once for a
 - id: AU-ORCH.sandbox.wasm-backend
   name: AU-ORCH.sandbox.wasm-backend
   pillar: AU-ORCH
@@ -8377,7 +8433,9 @@ concepts:
   code_paths:
   - agent_utilities/core/resource_priority.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
+  - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
+  - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/mcp/kg_server.py
   doc: reserve a small floor of
 - id: AU-ORCH.scheduling.also-fold-vllm-scheduler
@@ -8416,6 +8474,7 @@ concepts:
   pillar: AU-ORCH
   status: live
   code_paths:
+  - agent_utilities/core/schedule_engine.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_package.py
   doc: the fleet MCP tool-schema probe
@@ -8736,13 +8795,18 @@ concepts:
   - agent_utilities/security/source_credentials.py
   doc: Typed Source-Credential Registry
 - id: AU-OS.config.two-surfaces-by-default
-  name: ──
+  name: A tool that can change
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/core/config_admin.py
+  - agent_utilities/mcp/tool_specs.py
   - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/config_tools.py
   - agent_utilities/observability/runtime_health.py
-  doc: ──
+  - agent_utilities/orchestration/action_policy.py
+  - agent_utilities/security/config_sensitivity.py
+  doc: A tool that can change
 - id: AU-OS.config.xai-social-credentials
   name: X/Grok social search needs xAI credentials
   pillar: AU-OS
@@ -8914,12 +8978,12 @@ concepts:
   - agent_utilities/deployment/doctor.py
   doc: report the RESOLVED mode
 - id: AU-OS.deployment.standard-repo-templates
-  name: / CONCEPT
+  name: CONCEPT
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/deployment/repo_templates.py
-  doc: / CONCEPT
+  doc: CONCEPT
 - id: AU-OS.deployment.unified-install-tree
   name: exact materialized
   pillar: AU-OS
@@ -9081,6 +9145,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/concept_lineage.py
   doc: parent-satisfied documentation
+- id: AU-OS.governance.concept-lineage-rename
+  name: first-class RENAME disposition
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/concept_lineage.py
+  doc: first-class RENAME disposition
 - id: AU-OS.governance.cross-branch-duplicate-symbol
   name: AU-OS.governance.cross-branch-duplicate-symbol
   pillar: AU-OS
@@ -9139,6 +9210,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/merge_queue.py
   doc: see
+- id: AU-OS.governance.merge-queue-regenerate-on-land
+  name: AU-OS.governance.merge-queue-regenerate-on-land
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/merge_queue.py
+  doc: AU-OS.governance.merge-queue-regenerate-on-land
 - id: AU-OS.governance.merged-tree-verification
   name: the whole merge is computed as
   pillar: AU-OS
@@ -9197,12 +9275,12 @@ concepts:
   - agent_utilities/governance/lanes.py
   doc: AU-OS.governance.shared-scope-lease
 - id: AU-OS.governance.test-regression-baseline
-  name: Keyed by
+  name: D-MW-10
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/governance/merge_queue.py
-  doc: Keyed by
+  doc: D-MW-10
 - id: AU-OS.governance.tiered-merge-gate
   name: AU-OS.governance.tiered-merge-gate
   pillar: AU-OS
@@ -9323,13 +9401,13 @@ concepts:
   - agent_utilities/security/secrets_client.py
   doc: Engine-backed encrypted secret store
 - id: AU-OS.identity.identity-policy-check
-  name: / AU-KG.audit.kg-native-audit-sink
+  name: AU-KG.audit.kg-native-audit-sink
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/mcp/tools/governance_tools.py
   - agent_utilities/security/tool_guard.py
-  doc: / AU-KG.audit.kg-native-audit-sink
+  doc: AU-KG.audit.kg-native-audit-sink
 - id: AU-OS.identity.identity-scoped-resource-autoload
   name: AU-OS.identity.identity-scoped-resource-autoload
   pillar: AU-OS
@@ -9501,12 +9579,12 @@ concepts:
   - agent_utilities/knowledge_graph/core/ingest_profile.py
   doc: AU-OS.observability.ingest-stage-breakdown
 - id: AU-OS.observability.ingestion-profile-report
-  name: /70/71
+  name: AU-OS.observability.ingestion-profile-report
   pillar: AU-OS
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/core/ingest_profile.py
-  doc: /70/71
+  doc: AU-OS.observability.ingestion-profile-report
 - id: AU-OS.observability.langfuse-exporter
   name: Langfuse exporter for spans, token usage and traces
   pillar: AU-OS
@@ -10026,12 +10104,12 @@ concepts:
   - agent_utilities/models/knowledge_graph.py
   doc: and generates summary text via the shared
 - id: EG-KG.compute.concept-5
-  name: / KG-2.324
+  name: EG-KG.compute.concept-5
   pillar: EG-KG
   status: live
   code_paths:
   - agent_utilities/numeric/__init__.py
-  doc: / KG-2.324
+  doc: EG-KG.compute.concept-5
 - id: EG-KG.compute.graph-compute-engine
   name: through the facade so orchestration code
   pillar: EG-KG
@@ -10188,12 +10266,12 @@ concepts:
   - epistemic-graph/src/server/redis_wire/mod.rs
   doc: Redis RESP2/RESP3 wire protocol + core structures over the KV surface
 - id: EG-KG.query.wire-protocol
-  name: / KG-2.49
+  name: EG-KG.query.wire-protocol
   pillar: EG-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
-  doc: / KG-2.49
+  doc: EG-KG.query.wire-protocol
 - id: EG-KG.sharding.row-level-security
   name: EG-KG.sharding.row-level-security
   pillar: EG-KG
@@ -10225,7 +10303,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/graph_compute.py
   doc: which commits the K sub-batches in
 - id: EG-KG.storage.nonblocking-checkpoint
-  name: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
+  name: the KG runs exactly ONE consolidated background daemon
   pillar: EG-KG
   status: live
   code_paths:
@@ -10276,7 +10354,7 @@ concepts:
   - agent_utilities/protocols/source_connectors/checkpoint.py
   - agent_utilities/sdd/watcher.py
   - agent_utilities/server/routers/commands.py
-  doc: / OS-5.9 — the KG runs exactly ONE consolidated background daemon
+  doc: the KG runs exactly ONE consolidated background daemon
 - id: EG-KG.txn.per-graph-write-isolation
   name: never an unscoped whole-graph
   pillar: EG-KG

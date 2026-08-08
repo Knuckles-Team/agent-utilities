@@ -1453,7 +1453,7 @@ class LoopController:
                     claim.id,
                     "Claim",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": "proposal",
                         "evidence_bundle_json": bundle.model_dump_json(),
                     },
@@ -1672,7 +1672,7 @@ class LoopController:
                     claim.id,
                     "Claim",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": "active",
                         "is_verified": True,
                         "evidence_bundle_json": bundle.model_dump_json(),
@@ -1818,7 +1818,7 @@ class LoopController:
                     claim.id,
                     "Claim",
                     properties={
-                        **claim.model_dump(mode="json", exclude={"type"}),
+                        **claim.to_graph_properties(),
                         "status": "proposal",
                         "evidence_bundle_json": bundle.model_dump_json(),
                     },
@@ -2468,7 +2468,7 @@ class LoopController:
                 }
         runner = self._develop_runner or _default_develop_runner
         ok, output = runner(cmd, self.codebase_root)
-        from agent_utilities.http.redaction import redact_text
+        from agent_utilities.httpsupport.redaction import redact_text
         from agent_utilities.security.persistence_privacy import (
             PersistencePrivacyGuard,
         )

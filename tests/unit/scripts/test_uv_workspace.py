@@ -475,6 +475,384 @@ def test_concurrent_shadow_refresh_never_collides(
 
 
 # ---------------------------------------------------------------------------
+# D-ORC-33. The venv is already partitioned per worktree+selection (above), but
+# every worktree's `uv sync` still contends for the SAME shared `~/.cache/uv`
+# and the same /home spindle. At the peak of a 13-20 lane wave, load average
+# hit ~26 on 24 cores and swap was 100% exhausted; one lane's `uv sync` stalled
+# at 0% CPU for 17+ minutes. An exclusive lease would defeat the partitioning
+# above (20 lanes can each legitimately need a sync at once); a small capped
+# pool bounds the disk/cache contention without serialising to one lane.
+# ---------------------------------------------------------------------------
+def test_dependency_sync_slot_caps_concurrent_holders_at_capacity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Never more than `_DEPENDENCY_SYNC_POOL_CAPACITY` slots held at once, and
+    every waiter eventually gets in (no deadlock, no lost wakeups)."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+    capacity = uv_workspace._DEPENDENCY_SYNC_POOL_CAPACITY
+    contenders = capacity * 3
+    lock = threading.Lock()
+    current = 0
+    peak = 0
+    entries = 0
+    start = threading.Barrier(contenders)
+
+    def contend() -> None:
+        nonlocal current, peak, entries
+        start.wait()
+        with uv_workspace._dependency_sync_slot():
+            with lock:
+                current += 1
+                peak = max(peak, current)
+                entries += 1
+            threading.Event().wait(0.02)
+            with lock:
+                current -= 1
+
+    threads = [threading.Thread(target=contend) for _ in range(contenders)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert not any(thread.is_alive() for thread in threads), (
+        "a waiter never got a slot -- the pool deadlocked"
+    )
+    assert entries == contenders, "every contender must eventually acquire a slot"
+    assert peak <= capacity, f"observed {peak} concurrent holders, cap is {capacity}"
+    assert peak == capacity, (
+        "the test is vacuous unless contention actually saturated the pool"
+    )
+
+
+def test_uv_plan_marks_bare_sync_and_lock_as_heavy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`sync`/`lock` have no separate `prepare` step -- `execute` IS the sync,
+    so it must be pool-gated directly or D-ORC-33's contention is unguarded."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    for arguments in (["sync"], ["lock"]):
+        plan = uv_workspace.uv_plan(
+            arguments, worktree=tmp_path / "worktree", shadow=tmp_path / "shadow"
+        )
+        assert plan.prepare == ()
+        assert plan.execute_is_heavy_sync is True, arguments
+
+
+def test_uv_plan_marks_recognized_run_not_heavy_at_execute(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A recognised `run` pool-gates its `prepare` sync step (see run_uv()), but
+    its `execute` is `run --no-sync` -- not itself heavy, so gating it too would
+    cap ordinary test/build execution, not just disk/cache contention."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    plan = uv_workspace.uv_plan(
+        ["run", "--all-extras", "pytest"],
+        worktree=tmp_path / "worktree",
+        shadow=tmp_path / "shadow",
+    )
+    assert len(plan.prepare) == 1
+    assert plan.execute_is_heavy_sync is False
+
+
+def test_uv_plan_marks_unrecognized_run_as_heavy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An unrecognised `run` has no `prepare` step and falls through to a plain
+    `uv run` with no `--no-sync` -- uv performs its own implicit sync as a side
+    effect, so `execute` must be pool-gated here too."""
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    plan = uv_workspace.uv_plan(
+        ["run", "--some-future-uv-flag", "pytest"],
+        worktree=tmp_path / "worktree",
+        shadow=tmp_path / "shadow",
+    )
+    assert plan.prepare == ()
+    assert plan.execute_is_heavy_sync is True
+
+
+def test_run_uv_pool_gates_the_prepare_sync_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Pins the D-ORC-33 wiring itself: `run_uv()` must acquire a pool slot for
+    every `prepare` step. Proven against the restored bug: reverting the
+    `with _dependency_sync_slot():` wrap around the `prepare` loop in
+    `run_uv()` drops the recorded call count to 0 and this assertion fails."""
+    calls: list[str] = []
+    from contextlib import contextmanager
+
+    @contextmanager
+    def spy():
+        calls.append("acquired")
+        yield
+
+    monkeypatch.setattr(uv_workspace, "_dependency_sync_slot", spy)
+    workspace = tmp_path / "workspace"
+    shadow = tmp_path / "shadow"
+    worktree = tmp_path / "worktree"
+    for directory in (workspace, shadow, worktree):
+        directory.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    returncode = uv_workspace.run_uv(
+        [sys.executable, "-c", "pass"],
+        worktree=worktree,
+        environment=dict(os.environ),
+        workspace=workspace,
+        shadow=shadow,
+        prepare=[[sys.executable, "-c", "pass"]],
+    )
+
+    assert returncode == 0
+    assert calls == ["acquired"], "the prepare (sync) step must be pool-gated"
+
+
+def test_run_uv_pool_gates_a_heavy_execute_with_no_prepare_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Pins the OTHER half: a bare `sync`/`lock`-shaped invocation has no
+    `prepare` step, so `execute_is_heavy_sync=True` must gate `execute`
+    directly. Proven against the restored bug the same way as above."""
+    calls: list[str] = []
+    from contextlib import contextmanager
+
+    @contextmanager
+    def spy():
+        calls.append("acquired")
+        yield
+
+    monkeypatch.setattr(uv_workspace, "_dependency_sync_slot", spy)
+    workspace = tmp_path / "workspace"
+    shadow = tmp_path / "shadow"
+    worktree = tmp_path / "worktree"
+    for directory in (workspace, shadow, worktree):
+        directory.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    returncode = uv_workspace.run_uv(
+        [sys.executable, "-c", "pass"],
+        worktree=worktree,
+        environment=dict(os.environ),
+        workspace=workspace,
+        shadow=shadow,
+        prepare=(),
+        execute_is_heavy_sync=True,
+    )
+
+    assert returncode == 0
+    assert calls == ["acquired"], "a heavy execute with no prepare must be pool-gated"
+
+
+def test_run_uv_does_not_pool_gate_an_ordinary_test_execution(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The actual test/build run (`run --no-sync ...`) must stay OUTSIDE the
+    pool -- gating it too would cap general lane parallelism, not just the
+    disk/cache contention D-ORC-33 measured."""
+    calls: list[str] = []
+    from contextlib import contextmanager
+
+    @contextmanager
+    def spy():
+        calls.append("acquired")
+        yield
+
+    monkeypatch.setattr(uv_workspace, "_dependency_sync_slot", spy)
+    workspace = tmp_path / "workspace"
+    shadow = tmp_path / "shadow"
+    worktree = tmp_path / "worktree"
+    for directory in (workspace, shadow, worktree):
+        directory.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    returncode = uv_workspace.run_uv(
+        [sys.executable, "-c", "pass"],
+        worktree=worktree,
+        environment=dict(os.environ),
+        workspace=workspace,
+        shadow=shadow,
+        prepare=(),
+        execute_is_heavy_sync=False,
+    )
+
+    assert returncode == 0
+    assert calls == [], "a non-heavy execute must not wait on the sync pool"
+
+
+# ---------------------------------------------------------------------------
+# D-W2T-3: a second `uv_workspace.py run` invocation against the SAME
+# environment, launched while a first invocation's long-running child was
+# still executing, used to trigger a second concurrent `uv sync` that
+# corrupted the environment out from under the running child (measured:
+# `.venv/bin/pytest` briefly missing mid-run). `_acquire_environment_activity`
+# is the readers-writer flock that closes this specific race.
+# ---------------------------------------------------------------------------
+def test_environment_activity_lets_only_one_sync_win_while_a_reader_is_active(
+    tmp_path: Path,
+) -> None:
+    """A live reader (an exec'd child) must make a concurrent writer lose."""
+    environment_path = tmp_path / ".venv"
+    environment_path.mkdir()
+
+    handle_a, won_a = uv_workspace._acquire_environment_activity(
+        environment_path, want_sync=True
+    )
+    assert won_a is True, "the first, uncontended caller must win the sync"
+    uv_workspace._downgrade_environment_activity(handle_a)  # A is now a reader
+
+    results: dict[str, bool] = {}
+
+    def contend() -> None:
+        handle_b, won_b = uv_workspace._acquire_environment_activity(
+            environment_path, want_sync=True
+        )
+        results["b_won"] = won_b
+        uv_workspace._release_environment_activity(handle_b)
+
+    thread = threading.Thread(target=contend)
+    thread.start()
+    thread.join(timeout=10)
+    assert not thread.is_alive()
+    assert results["b_won"] is False, (
+        "B must lose the sync race while A is still reading -- winning here is "
+        "exactly the D-W2T-3 corruption window (a second `uv sync` against an "
+        "environment a sibling's child is actively running in)"
+    )
+
+    uv_workspace._release_environment_activity(handle_a)
+
+    # Once A releases, the environment is free again and a fresh sync can win.
+    handle_c, won_c = uv_workspace._acquire_environment_activity(
+        environment_path, want_sync=True
+    )
+    assert won_c is True
+    uv_workspace._release_environment_activity(handle_c)
+
+
+def test_environment_activity_readers_never_block_each_other(tmp_path: Path) -> None:
+    """Two invocations that both skip syncing (or already synced) may read
+    the SAME environment concurrently -- this is not an exclusive lock for
+    ordinary concurrent test runs, only for a sync racing a reader."""
+    environment_path = tmp_path / ".venv"
+    environment_path.mkdir()
+
+    handle_a, _ = uv_workspace._acquire_environment_activity(
+        environment_path, want_sync=False
+    )
+    results: dict[str, bool] = {}
+
+    def contend() -> None:
+        handle_b, won_b = uv_workspace._acquire_environment_activity(
+            environment_path, want_sync=False
+        )
+        results["b_acquired"] = True
+        uv_workspace._release_environment_activity(handle_b)
+
+    thread = threading.Thread(target=contend)
+    thread.start()
+    thread.join(timeout=5)
+    assert not thread.is_alive(), "a second reader must not block behind the first"
+    assert results.get("b_acquired") is True
+    uv_workspace._release_environment_activity(handle_a)
+
+
+def test_run_uv_never_overlaps_two_syncs_against_the_same_environment(
+    tmp_path: Path,
+) -> None:
+    """End-to-end proof at the `run_uv()` level, using real subprocesses.
+
+    Invocation A's `prepare` step is a real (slow) command that stamps
+    SYNC-START/SYNC-END around a sleep; invocation B starts mid-way through
+    A's prepare/exec and shares the SAME `environment_path`. Proven against
+    the restored bug: with `_acquire_environment_activity` replaced by a
+    no-op that always reports a win (the pre-fix shape -- no coordination at
+    all), the same test observes an OVERLAPPING SYNC-START before the first
+    SYNC-END, reproducing the corruption window this fix closes.
+    """
+    workspace = tmp_path / "workspace"
+    shadow = tmp_path / "shadow"
+    worktree = tmp_path / "worktree"
+    for directory in (workspace, shadow, worktree):
+        directory.mkdir(parents=True)
+    for directory in (workspace, shadow):
+        (directory / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (directory / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+
+    environment_path = worktree / ".venv"
+    environment_path.mkdir()
+    sync_log = tmp_path / "sync_log.txt"
+
+    prepare_cmd = [
+        sys.executable,
+        "-c",
+        "import time, pathlib, sys; p = pathlib.Path(sys.argv[1]); "
+        "f = p.open('a'); f.write('SYNC-START\\n'); f.close(); "
+        "time.sleep(0.4); "
+        "f = p.open('a'); f.write('SYNC-END\\n'); f.close()",
+        str(sync_log),
+    ]
+    long_child_cmd = [sys.executable, "-c", "import time; time.sleep(1.0)"]
+
+    results: dict[str, int] = {}
+
+    def invocation_a() -> None:
+        results["a_rc"] = uv_workspace.run_uv(
+            long_child_cmd,
+            worktree=worktree,
+            environment=dict(os.environ),
+            workspace=workspace,
+            shadow=shadow,
+            prepare=[prepare_cmd],
+            environment_path=environment_path,
+        )
+
+    def invocation_b() -> None:
+        threading.Event().wait(0.15)  # start while A is still mid-sync/reading
+        results["b_rc"] = uv_workspace.run_uv(
+            [sys.executable, "-c", "pass"],
+            worktree=worktree,
+            environment=dict(os.environ),
+            workspace=workspace,
+            shadow=shadow,
+            prepare=[prepare_cmd],
+            environment_path=environment_path,
+        )
+
+    thread_a = threading.Thread(target=invocation_a)
+    thread_b = threading.Thread(target=invocation_b)
+    thread_a.start()
+    thread_b.start()
+    thread_a.join(timeout=15)
+    thread_b.join(timeout=15)
+    assert not thread_a.is_alive() and not thread_b.is_alive()
+    assert results.get("a_rc") == 0
+    assert results.get("b_rc") == 0
+
+    lines = sync_log.read_text().splitlines()
+    depth = 0
+    overlapping = False
+    for line in lines:
+        if line == "SYNC-START":
+            if depth > 0:
+                overlapping = True
+            depth += 1
+        elif line == "SYNC-END":
+            depth -= 1
+    assert not overlapping, (
+        "two `uv sync`-shaped prepare steps overlapped against the SAME "
+        "environment -- this is the D-W2T-3 corruption window"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Interpreter guard (D-SP-4). `uv run pytest` does not fail when the environment
 # lacks pytest — it falls through to the system one and runs the project's tests
 # under /usr/bin/python against system site-packages.

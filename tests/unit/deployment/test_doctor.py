@@ -8,6 +8,8 @@ monkeypatched, plus a live-path through the graph_configure MCP action.
 from __future__ import annotations
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -19,6 +21,94 @@ from agent_utilities.deployment import doctor as D
 
 def _ok(name):
     return lambda **kw: D._result(name, "ok", "fine")
+
+
+def test_module_entrypoint_is_warning_free_and_emits_exact_json() -> None:
+    """``python -m`` must not pre-import doctor through the package facade."""
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-W",
+            "error::RuntimeWarning",
+            "-m",
+            "agent_utilities.deployment.doctor",
+            "--only",
+            "mcp_sdk_floor",
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == ""
+    expected = D.run_doctor(["mcp_sdk_floor"])
+    assert completed.stdout == json.dumps(expected, indent=2, default=str) + "\n"
+    assert json.loads(completed.stdout) == expected
+
+
+def test_deployment_package_preserves_lazy_doctor_exports() -> None:
+    """The public facade remains source-compatible after entrypoint hardening."""
+    from agent_utilities.deployment import CHECKS, run_doctor, run_preflight
+
+    assert CHECKS is D.CHECKS
+    assert run_doctor is D.run_doctor
+    assert callable(run_preflight)
+
+
+def test_deployment_package_lazily_exposes_modules_and_introspection() -> None:
+    """Fresh imports preserve facade discovery and direct submodule access."""
+    script = """
+from concurrent.futures import ThreadPoolExecutor
+import json
+import sys
+
+import agent_utilities.deployment as deployment
+
+lazy_modules = (
+    "agent_utilities.deployment.doctor",
+    "agent_utilities.deployment.preflight",
+)
+assert not any(name in sys.modules for name in lazy_modules)
+assert {"CHECKS", "run_doctor", "run_preflight", "doctor", "preflight"} <= set(dir(deployment))
+
+with ThreadPoolExecutor(max_workers=8) as pool:
+    doctors = list(pool.map(lambda _: deployment.doctor, range(16)))
+assert all(module is doctors[0] for module in doctors)
+assert doctors[0].__name__ == "agent_utilities.deployment.doctor"
+assert "agent_utilities.deployment.preflight" not in sys.modules
+
+with ThreadPoolExecutor(max_workers=8) as pool:
+    preflights = list(pool.map(lambda _: deployment.preflight, range(16)))
+assert all(module is preflights[0] for module in preflights)
+assert preflights[0].__name__ == "agent_utilities.deployment.preflight"
+assert deployment.CHECKS is doctors[0].CHECKS
+assert deployment.run_doctor is doctors[0].run_doctor
+assert deployment.run_preflight is preflights[0].run_preflight
+
+print(json.dumps({
+    "direct_modules": True,
+    "introspection": True,
+    "lazy_imports": True,
+    "thread_safe": True,
+}, sort_keys=True))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-W", "error::RuntimeWarning", "-c", script],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == ""
+    assert json.loads(completed.stdout) == {
+        "direct_modules": True,
+        "introspection": True,
+        "lazy_imports": True,
+        "thread_safe": True,
+    }
 
 
 def test_run_doctor_all_ok(monkeypatch):
@@ -96,7 +186,9 @@ def test_graph_authority_doctor_accepts_fixed_fanout_authority(monkeypatch):
     )
     fanout = object.__new__(FanOutBackend)
     fanout._authority = authority
-    fanout._mirrors = {"projection": object()}
+    fanout._mirrors = {
+        "projection": object.__new__(EpistemicGraphBackend),
+    }
     monkeypatch.setattr(backends, "get_active_backend", lambda: fanout)
 
     result = D._check_graph_authority()
@@ -827,7 +919,7 @@ def test_transport_doctor_rejects_missing_or_unknown_graphql_runtime_formats(
         graph_service_endpoints=[],
         external_graph_connectors=[connector],
     )
-    documents = {
+    documents: dict[str, dict[str, object]] = {
         "connection": {
             "profile_format": "graphql-connection/v1",
             "endpoint": "https://source.example.test/graphql",
@@ -1035,10 +1127,15 @@ def test_engine_doctor_skips_discovery_probe_when_static_map_configured(
         "agent_utilities.knowledge_graph.core.engine_resolver.resolve_engine",
         lambda *_args, **_kwargs: resolved,
     )
-    probed = []
+    probed: list[bool] = []
+
+    def record_discovery_probe(*_args: object, **_kwargs: object) -> bool:
+        probed.append(True)
+        return True
+
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.core.placement_catalog.discovery_reachable",
-        lambda *args, **kwargs: probed.append(True) or True,
+        record_discovery_probe,
     )
 
     result = D._check_engine()
@@ -2278,6 +2375,7 @@ def test_langfuse_mcp_live_probe_attests_runtime_materialized_child(monkeypatch)
 
     class Runtime:
         async def call_tool(self, name, arguments):
+            payload: dict[str, object]
             if arguments["action"] == "runtime_posture":
                 payload = {
                     "content_capture_enabled": False,

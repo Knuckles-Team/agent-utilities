@@ -33,7 +33,6 @@ import yaml
 # Import the ONE grammar/vocab source (never re-declare the regexes here).
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agent_utilities.governance import concept_hierarchy as ch  # noqa: E402
-from agent_utilities.governance.concept_allocator import MARKER_RE  # noqa: E402
 
 # --------------------------------------------------------------------------- #
 # The 8-row anti-leak reassignment table: legacy id-prefix -> global PILLAR.
@@ -61,8 +60,26 @@ PILLAR_REASSIGN: dict[str, str] = {
 _SCAN_EXT = {".py", ".rs", ".md"}
 _SKIP_DIRS = {"__pycache__", ".git", ".venv", "node_modules", "target", "build", "dist"}
 _STOPWORDS = {
-    "the", "a", "an", "and", "or", "of", "for", "to", "in", "on", "with", "via",
-    "engine", "layer", "system", "support", "based", "driven", "aware", "new",
+    "the",
+    "a",
+    "an",
+    "and",
+    "or",
+    "of",
+    "for",
+    "to",
+    "in",
+    "on",
+    "with",
+    "via",
+    "engine",
+    "layer",
+    "system",
+    "support",
+    "based",
+    "driven",
+    "aware",
+    "new",
 }
 
 
@@ -166,13 +183,15 @@ def scan_occurrences(repo: str, root: Path, slug: str) -> list[Occurrence]:
         # (concept_map/docs) reference concepts, they don't define their meaning.
         is_source = path.suffix in {".py", ".rs"} and "test" not in rel.lower()
         for ln, line in enumerate(text.splitlines(), 1):
-            for m in MARKER_RE.finditer(line):
-                old_id = m.group("id")
+            for marker in ch.iter_okf_markers(line):
+                old_id = marker.id
                 if ch.is_okf_id(old_id):
                     continue  # already migrated — planner is idempotent
-                tail = line[m.end():]
+                tail = line[marker.end :]
                 is_def = is_source and bool(_DEF_SEP_RE.match(tail))
-                occs.append(Occurrence(old_id, repo, slug, rel, ln, _clean_doc(tail), is_def))
+                occs.append(
+                    Occurrence(old_id, repo, slug, rel, ln, _clean_doc(tail), is_def)
+                )
     return occs
 
 
@@ -238,7 +257,9 @@ def _cluster_meanings(group: list[Occurrence]) -> list[list[Occurrence]]:
         for rep, members in clusters:
             shared = toks & rep
             union = toks | rep
-            if shared and (len(shared) >= 2 or len(shared) / max(1, len(union)) >= 0.34):
+            if shared and (
+                len(shared) >= 2 or len(shared) / max(1, len(union)) >= 0.34
+            ):
                 members.append(o)
                 rep |= toks
                 placed = True
@@ -297,11 +318,21 @@ def build_plan(
             if is_collision:
                 notes.append(f"collision-split of {old_id} ({len(clusters)} meanings)")
             if pillar is None:
-                entries.append(PlanEntry(
-                    old_id, slug, "?", None, _kebab(doc or old_id), None,
-                    "low", True, files, doc,
-                    notes + [f"unknown legacy prefix {prefix!r} — assign a pillar"],
-                ))
+                entries.append(
+                    PlanEntry(
+                        old_id,
+                        slug,
+                        "?",
+                        None,
+                        _kebab(doc or old_id),
+                        None,
+                        "low",
+                        True,
+                        files,
+                        doc,
+                        notes + [f"unknown legacy prefix {prefix!r} — assign a pillar"],
+                    )
+                )
                 continue
             # Clean (non-collision) ids take the curated concepts.yaml name;
             # collision splits must use their own per-cluster doc to stay distinct.
@@ -327,10 +358,21 @@ def build_plan(
                 if not (ch.is_okf_id(new_id) and ch.is_valid_domain(pillar, domain)):
                     notes.append("INVALID generated id — needs curation")
                     needs = True
-            entries.append(PlanEntry(
-                old_id, slug, pillar, domain, concept, new_id,
-                conf, needs, files, doc, notes,
-            ))
+            entries.append(
+                PlanEntry(
+                    old_id,
+                    slug,
+                    pillar,
+                    domain,
+                    concept,
+                    new_id,
+                    conf,
+                    needs,
+                    files,
+                    doc,
+                    notes,
+                )
+            )
     return entries
 
 
@@ -355,10 +397,15 @@ def _entry_dict(e: PlanEntry) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument(
-        "--repo", action="append", default=[],
-        metavar="NAME=PATH", help="repo to scan (repeatable); default: this checkout",
+        "--repo",
+        action="append",
+        default=[],
+        metavar="NAME=PATH",
+        help="repo to scan (repeatable); default: this checkout",
     )
-    ap.add_argument("--out", default="docs", help="output dir for the plan (default docs/)")
+    ap.add_argument(
+        "--out", default="docs", help="output dir for the plan (default docs/)"
+    )
     args = ap.parse_args()
 
     repo_root = Path(__file__).resolve().parents[1]

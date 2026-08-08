@@ -9,6 +9,52 @@ from typing import Any
 # the absence of a ``tests/__init__.py``.
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# The test suite's ``tmp_path`` fixture is a bounded-fanout plugin.  It keeps
+# pytest's existing per-lane/per-xdist-worker basetemp ownership while avoiding
+# a full directory enumeration for every test allocation (D-CDX-27).
+pytest_plugins = ("_tmp_path_allocator",)
+
+
+_DANGEROUS_GIT_ENV_VARS = (
+    "GIT_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_WORK_TREE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_COMMON_DIR",
+    "GIT_NAMESPACE",
+)
+
+
+def _strip_inherited_git_repository_env() -> None:
+    """D-LGI-1: a real ``git commit`` exports ``GIT_DIR``/``GIT_INDEX_FILE`` into
+    the hooks it runs, and ``git -C <other-dir>`` does **not** override them --
+    ``-C`` only changes the working directory; the repository these env vars
+    name still wins over path-based discovery. ``guardrail-gate-meta-tests``
+    runs ``pytest tests/gates`` as a real hook, so every test in this session
+    that shells out to ``git -C <tmp_path> ...`` (or ``cwd=tmp_path``) without
+    its own explicit ``env=`` silently mutated the REAL repository's index
+    instead of its own isolated fixture repo: confirmed live with
+    ``tests/gates/test_docs_contract_gate.py::
+    test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff``,
+    whose ``git -C tmp_path add -A`` replaced this repo's entire tracked-file
+    index with its own single fixture file (``docker/build-job.yaml``) --
+    thousands of files showed as staged-deleted, recoverable only by a plain
+    ``git reset`` (never ``--hard``, which would have discarded the working
+    tree too).
+
+    This is the session-wide chokepoint: every ``subprocess.run(["git", ...])``
+    call in every test that does not pass its own conflicting ``env=`` inherits
+    ``os.environ`` at call time, so clearing these here, once, before any test
+    collects, protects every current AND future test that shells out to git --
+    not just the one instance this was caught from. Does nothing when these
+    vars were never set (the common case run outside a real ``git commit``).
+    """
+    for name in _DANGEROUS_GIT_ENV_VARS:
+        os.environ.pop(name, None)
+
+
+_strip_inherited_git_repository_env()
+
 
 def _fail_fast_on_wrong_interpreter() -> None:
     """D-CC-6: a bare ``pytest``/``uv run pytest`` silently runs a stray
@@ -541,6 +587,46 @@ _TEST_ENGINE_AVAILABLE = False
 #: ``tiny_engine`` fixture returns this; ``engine_graph`` re-asserts it per test.
 _SESSION_ENGINE_SOCKET: "str | None" = None
 
+#: Generous headroom above the longest full-suite run observed (~37 minutes) —
+#: see :func:`_acquire_engine_daemon_lease`. The default ``hold_lease`` TTL
+#: (30 minutes) would let the lease be reclaimed as "dead" out from under a
+#: still-running holder, which would defeat the whole point of taking it.
+_ENGINE_DAEMON_LEASE_TTL_SECONDS = 3 * 60 * 60
+
+
+def _acquire_engine_daemon_lease(*, operation: str) -> Any:
+    """Take the workspace `epistemic-graph-daemon` LEASE, or defer the whole session.
+
+    CONCEPT:AU-OS.governance.shared-scope-lease
+    (docs/architecture/lane-concurrency.md). An externally-provided
+    ``GRAPH_SERVICE_ENDPOINTS`` is, by construction, ``engine_resolver``'s
+    share-running-local/autostart-shared-supervised daemon: ONE process every
+    entrypoint on the host deliberately shares (it is not PARTITIONed per lane
+    — that would defeat the sharing it exists for). A lane's 37-minute
+    full-suite run once logged 1,234 ``ConnectionRefusedError: Cannot connect
+    to epistemic-graph service`` occurrences while two sibling lanes'
+    full-suite runs and an ``--all-files`` pre-commit drove the same daemon at
+    once; this lease is what makes the next lane defer instead of piling on.
+
+    Returns the entered lease context manager — the caller is responsible for
+    ``lease_cm.__exit__(None, None, None)`` at teardown. Mirrors the
+    ``agent-utilities lane lease`` CLI convention exactly: unavailable ⇒ defer
+    rather than proceed, surfaced here as ``pytest.exit(..., returncode=75)``,
+    pytest's own equivalent of the CLI's exit code 75.
+    """
+    from agent_utilities.governance import lanes
+
+    lease_cm = lanes.hold_lease(
+        "epistemic-graph-daemon",
+        operation=operation,
+        ttl_seconds=_ENGINE_DAEMON_LEASE_TTL_SECONDS,
+    )
+    try:
+        lease_cm.__enter__()
+    except lanes.LeaseUnavailable as exc:
+        pytest.exit(f"[lane-guard] deferring — {exc}", returncode=75)
+    return lease_cm
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _session_engine():
@@ -579,13 +665,26 @@ def _session_engine():
     )
 
     # An externally-managed engine (its own socket) is reused verbatim — don't
-    # start (or stop) one of our own.
+    # start (or stop) one of our own. This is exactly the shared singleton
+    # LEASE-class ``epistemic-graph-daemon`` guards (CONCEPT:AU-OS.governance.shared-scope-lease):
+    # every lane resolving to the SAME external endpoint is about to drive the
+    # SAME daemon for the whole session, so take the lease before doing that,
+    # not after — see ``_acquire_engine_daemon_lease``.
     external = os.environ.get("GRAPH_SERVICE_ENDPOINTS")
     if external and external.startswith("unix://") and "," not in external:
         external_socket = external.removeprefix("unix://")
+        lease_cm = _acquire_engine_daemon_lease(
+            operation="pytest full-suite session against the shared external "
+            "epistemic-graph engine"
+        )
         _TEST_ENGINE_AVAILABLE = True
         _SESSION_ENGINE_SOCKET = external_socket
-        yield external_socket
+        try:
+            yield external_socket
+        finally:
+            lease_cm.__exit__(None, None, None)
+            _TEST_ENGINE_AVAILABLE = False
+            _SESSION_ENGINE_SOCKET = None
         return
 
     try:

@@ -53,6 +53,7 @@ from typing import Any
 from agent_utilities.governance.concept_hierarchy import (
     OKF_MARKER_RE,
     is_valid_domain,
+    iter_okf_markers,
     parse_okf_id,
 )
 from agent_utilities.governance.lanes import (
@@ -148,8 +149,8 @@ def scan_code_markers(roots: list[Path]) -> dict[str, list[str]]:
             except (UnicodeDecodeError, OSError):
                 continue
             rel = path.as_posix()
-            for m in MARKER_RE.finditer(content):
-                found.setdefault(m.group("id"), []).append(rel)
+            for marker in iter_okf_markers(content):
+                found.setdefault(marker.id, []).append(rel)
     return found
 
 

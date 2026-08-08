@@ -9,6 +9,7 @@ from typing import Any, TypedDict, cast
 from agent_utilities.core.capability_contract import (
     DEFAULT_TOOL_DELEGATE as _DEFAULT_DELEGATE,
 )
+from agent_utilities.core.contextual_model import GroundingPolicy
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 from agent_utilities.knowledge_graph.workflow_compiler import WorkflowCompiler
 from agent_utilities.observability.trace_ontology import (
@@ -479,7 +480,7 @@ class Orchestrator:
         skill_name: str | None = None,
         tool_server: str | None = None,
         execution_mode: ExecutionMode = "auto",
-        grounding: str = "required",
+        grounding: GroundingPolicy = "required",
     ) -> str:
         """Execute a single agent against a task.
 
@@ -777,7 +778,7 @@ class Orchestrator:
         reasoning_effort: str | None = None,
         model_class: str = "standard",
         response_format: ResponseFormat = "text",
-        grounding: str = "required",
+        grounding: GroundingPolicy = "required",
     ) -> dict[str, Any]:
         """Resolve and execute one task through the bounded GraphOS skill gateway.
 
@@ -966,7 +967,7 @@ class Orchestrator:
         workflow_id: str,
         task: str = "",
         max_steps: int = 30,
-        grounding: str = "required",
+        grounding: GroundingPolicy = "required",
     ) -> dict[str, Any]:
         """Execute a compiled workflow by running its STORED step-DAG.
 
@@ -978,18 +979,48 @@ class Orchestrator:
 
         It now routes to the real :class:`WorkflowRunner` (ORCH-1.24), which
         ``load_workflow(name)`` → builds dependency waves → runs each step on the
-        local LLM. The SHACL+ACL ontology gate (ORCH-1.42) still runs upstream in
-        the ``graph_workflows`` handler before this is called, so governance stays
-        in the path. Returns the ``WorkflowResult`` as a dict carrying the ``run_id``
-        handle (the session id) so a delegated workflow run is trackable (ORCH-1.97).
+        local LLM. The SHACL+ACL ontology gate (ORCH-1.42) now runs HERE, at this
+        chokepoint, rather than only in the ``graph_workflows`` MCP handler
+        (D-WS-8): four production callers —
+        ``knowledge_graph.adaptation.ticket_playbooks._dispatch_workflow``,
+        ``knowledge_graph.research.loop_controller._default_skill_runner`` (the
+        autonomous Loop engine), ``knowledge_graph.memory.weights_distillation.
+        _dispatch_train_workflow``, and ``core.schedule_engine``'s
+        ``kind in (workflow, agent)`` dispatch — call
+        :meth:`execute_workflow` directly and previously skipped SHACL shape
+        validation and the ACL permission check entirely. Gating at the single
+        function every caller converges on (the same pattern used for the ACL
+        registration convergence, ``e34a1039``, and the delegation authority
+        keepalive, ``0551a806``) means every caller now inherits it instead of
+        each needing its own call to ``gate_workflow_execution``. The
+        ``graph_workflows`` handler's own gate call becomes a harmless,
+        redundant pre-check (cheap: it is the same SHACL+ACL work done twice,
+        not a second kind of check) rather than the only enforcement point.
+        Returns the ``WorkflowResult`` as a dict carrying the ``run_id`` handle
+        (the session id) so a delegated workflow run is trackable (ORCH-1.97).
 
         ``grounding`` (CONCEPT:AU-KG.retrieval.fail-closed-grounding-contract) gives
         every step in the run the same opt-in ``execute_agent``/``execute_capability``
         already has — each step still defaults to the process-wide fail-closed
         ``"required"`` policy when unset.
+
+        Raises:
+            WorkflowGateDeniedError: the stored definition fails SHACL shape
+                validation, or no definition is stored under ``workflow_id``.
+            PermissionError: the ontology permission gate denies the current
+                actor (raised by :func:`gate_workflow_execution` itself).
         """
         if task:
             self._scan_task(task)
+
+        from agent_utilities.knowledge_graph.core.workflow_gate import (
+            WorkflowGateDeniedError,
+            gate_workflow_execution,
+        )
+
+        gate = gate_workflow_execution(self.engine, workflow_id)
+        if gate.get("allowed") is not True:
+            raise WorkflowGateDeniedError(workflow_id, gate)
 
         logger.info(f"Executing workflow {workflow_id} via WorkflowRunner...")
         from agent_utilities.observability.gateway_metrics import delegation_span
@@ -1054,6 +1085,25 @@ class Orchestrator:
         if model_class not in {"economy", "standard"}:
             raise ValueError("model_class must be economy or standard")
 
+        # D-CDX-41: resolve (and fail on) an UNAVAILABLE model class HERE —
+        # a syntactically valid class name is not the same question as "is a
+        # model actually configured for it". Checking that only deep inside,
+        # right before ``create_model``, meant an exact preview could accept
+        # ``model_class="economy"`` and the run would still pay for workflow
+        # load, graph-plan construction, and upstream-capability setup
+        # before failing ~17s later with "configured economy model class is
+        # unavailable" — a cost-routing/configuration gap masquerading as an
+        # orchestration failure. Skipped only when the caller supplied its
+        # own ``orchestrator_model`` (model_class is never consulted
+        # downstream in that case either).
+        preresolved_model_id: str | None = None
+        if orchestrator_model is None:
+            from agent_utilities.orchestration.agent_runner import (
+                _configured_model_for_class,
+            )
+
+            preresolved_model_id = _configured_model_for_class(model_class).id
+
         from agent_utilities.capabilities.governed_dynamic_workflow import (
             DynamicWorkflowUnavailableError,
             GovernedDynamicWorkflow,
@@ -1081,12 +1131,8 @@ class Orchestrator:
 
             if orchestrator_model is None:
                 from agent_utilities.core.model_factory import create_model
-                from agent_utilities.orchestration.agent_runner import (
-                    _configured_model_for_class,
-                )
 
-                selected = _configured_model_for_class(model_class)
-                orchestrator_model = create_model(model_id=selected.id)
+                orchestrator_model = create_model(model_id=preresolved_model_id)
             result = await workflow.execute(
                 self,
                 orchestrator_model=orchestrator_model,

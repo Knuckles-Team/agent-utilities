@@ -1629,16 +1629,20 @@ def ingest_registered_graphql(
         if key in details
     }
     guard = PersistencePrivacyGuard()
-    safe_details, _report = guard.sanitize(safe_details)
-    return {
+    sanitized_details, _report = guard.sanitize(safe_details)
+    public_details: dict[str, Any] = (
+        dict(sanitized_details) if isinstance(sanitized_details, dict) else {}
+    )
+    response: dict[str, Any] = {
         "status": "dry_run" if dry_run else result.status,
         "connection": connection,
         "source_alias": source.source_alias,
         "schema_digest": schema.schema_digest,
         "nodes_created": int(result.nodes_created or 0),
         "edges_created": int(result.edges_created or 0),
-        **(safe_details if isinstance(safe_details, dict) else {}),
     }
+    response.update(public_details)
+    return response
 
 
 __all__ = [

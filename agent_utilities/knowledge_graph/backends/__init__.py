@@ -471,7 +471,7 @@ def _build_mirror_set(skip_names: tuple[str, ...] = ()) -> dict[str, Any]:
                 # as every other error log in this codebase (e.g. kg_server.py's
                 # `_ingest_skill_capabilities`). Pre-stringifying here would still
                 # render fine but bypasses that shared sanitizer for this value.
-                # (The ``# noqa: BLE001`` above is for scripts/check_swallowed_errors.py:
+                # (The ``noqa: BLE001`` marker above is for scripts/check_swallowed_errors.py:
                 # its heuristic flags any call whose args contain
                 # ``type(exc).__name__`` unless it ALSO contains a wrapped
                 # ``str(exc)``/``repr(exc)`` — a separate bare ``exc`` arg in the

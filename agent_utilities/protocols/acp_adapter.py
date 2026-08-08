@@ -122,7 +122,7 @@ class FileAcpSessionStore:
         except BaseException:
             try:
                 os.close(fd)
-            except OSError as close_exc:
+            except OSError as close_exc:  # noqa: BLE001 — fd-close during cleanup; original exception is re-raised regardless
                 logger.debug(
                     "Could not close failed ACP session-store descriptor: %s",
                     close_exc,

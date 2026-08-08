@@ -33,6 +33,12 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
     from .session import GraphSession
 
 from ...core.registry.kg_adapter import FocusedSubgraph, RegistryMixin
+from ...models.knowledge_graph import (
+    RETIRED_EDGE_RELATIONSHIP_PROPERTIES,
+    RegistryNode,
+    retired_edge_relationship_property_error,
+    retired_node_type_property_error,
+)
 from ...security.identifiers import validate_identifier
 from ..backends import create_backend, get_active_backend
 from ..backends.base import GraphBackend
@@ -336,6 +342,25 @@ class IntelligenceGraphEngine(
         launchers. It executes at most once under the process lock. Public
         routes and background services use this method instead of constructing
         overlapping clients ad hoc.
+
+        D-03 observability: the MCP server's own boot path
+        (``kg_server.py``'s ``_start_engine_bootstrap``) always supplies
+        ``factory=`` with ``defer_background_start=True``, closing the
+        materialization-wait race for that entrypoint. Every OTHER
+        ``get_or_create()`` caller across the package (~25 sites cataloged as
+        of this writing — CLI tools, background workers, standalone
+        processes) omits ``factory=`` entirely, which constructs the engine
+        with ``defer_background_start`` defaulting to ``False``. That is
+        correct for those callers today (they have no bootstrap step to later
+        un-defer background work), but if one of them ever raced the MCP
+        server's own bootstrap for the SAME process-wide singleton, it would
+        silently win the construction without the deferred-start invariant
+        and no one would know. Rather than changing the default (a
+        higher-blast-radius call this item's own investigation deliberately
+        deferred pending a full reachability trace), this logs — once, at the
+        one call site that actually wins the singleton race — exactly which
+        caller constructed without it, so a real violation is now VISIBLE
+        instead of requiring another manual sweep to even suspect it.
         """
         active = cls._ACTIVE_ENGINE
         if active is not None:
@@ -344,6 +369,21 @@ class IntelligenceGraphEngine(
             active = cls._ACTIVE_ENGINE
             if active is not None:
                 return active
+            if factory is None and not kwargs.get("defer_background_start"):
+                import inspect
+
+                caller = inspect.stack()[1]
+                logger.warning(
+                    "IntelligenceGraphEngine.get_or_create() constructing the "
+                    "process-wide engine WITHOUT defer_background_start=True "
+                    "(caller=%s:%s in %s) -- correct for a standalone "
+                    "CLI/worker entrypoint with no later bootstrap step, but "
+                    "a bug if this raced the MCP server's own deferred boot "
+                    "(D-03).",
+                    caller.filename,
+                    caller.lineno,
+                    caller.function,
+                )
             created = factory() if factory is not None else cls(**kwargs)
             registered = cls._ACTIVE_ENGINE
             if registered is None:
@@ -450,21 +490,16 @@ class IntelligenceGraphEngine(
 
     def _serialize_node(self, node: Any, label: str | None = None) -> dict[str, Any]:
         """Serialize a Pydantic node for backend storage, handling Enums and JSON fields."""
-        data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
+        # Every RegistryNode subclass carries the node class as a Pydantic `type`
+        # field, but the engine's sole canonical node-class PROPERTY is
+        # `node_type` — both EpistemicGraphBackend.add_node and
+        # GraphComputeEngine.add_node raise on a stray 'type' key. The rename is
+        # owned by the one named projection on the model.
+        if isinstance(node, RegistryNode):
+            data = node.to_graph_properties()
+        else:
+            data = node.model_dump() if hasattr(node, "model_dump") else dict(node)
         clean_data = {}
-
-        # Every RegistryNode subclass still carries a Pydantic `type` field, but the
-        # engine retired the 'type' node PROPERTY in favor of 'node_type' (add_node's
-        # own explicit argument) — EpistemicGraphBackend.add_node/GraphComputeEngine.add_node
-        # both raise on a stray 'type' key. Fold it into 'node_type' here, mirroring
-        # the same rename ``core/ogm.py``'s ``KGMapper._serialize`` already performs, so
-        # every caller of this helper (``_upsert_node``/``add_node``-bound) emits the
-        # current property name instead of the retired one.
-        if "type" in data:
-            node_type_value = data.pop("type")
-            data.setdefault(
-                "node_type", getattr(node_type_value, "value", node_type_value)
-            )
 
         # Define fields that Ladybug supports as native arrays
         ARRAY_FIELDS = [
@@ -474,6 +509,13 @@ class IntelligenceGraphEngine(
             "success_criteria_met",
             "embedding",
             "issues",
+            # D-CDX-68: RunTrace.privacy_types (trace_ontology._privacy_safe)
+            # is a Python list and the schema declares it STRING[] (see
+            # models/schema_definition.py); without this entry it fell into
+            # the JSON-encode branch below and Ladybug rejected the insert
+            # (STRING param against a STRING[] column), silently losing the
+            # RunTrace node on read-back.
+            "privacy_types",
         ]
 
         # Filter by schema if label is provided
@@ -498,7 +540,17 @@ class IntelligenceGraphEngine(
             if isinstance(v, Enum):
                 clean_data[k] = v.value
             elif isinstance(v, dict | list) and k not in ARRAY_FIELDS:
-                clean_data[k] = json.dumps(v)
+                # Every caller of this helper follows the same convention: a
+                # `label`-less call feeds `self.graph.add_node(...)` (the
+                # native compute layer, which stores nested maps/lists
+                # natively), while a `label=...` call feeds the schema-aware
+                # backend/mirror leg (`_upsert_node`, whose own encoding
+                # policy this mirrors). JSON-encoding here unconditionally
+                # was correct for the backend leg but silently lossy for the
+                # compute leg -- a caller reading `engine.graph.nodes[id][k]`
+                # back got a JSON string instead of the dict/list it wrote
+                # (same masking-bug class as D-OTR-5's KGMapper._serialize).
+                clean_data[k] = json.dumps(v) if label is not None else v
             else:
                 clean_data[k] = v
         return clean_data
@@ -528,6 +580,14 @@ class IntelligenceGraphEngine(
             # kept native (not JSON-encoded) so it round-trips as a list on every
             # backend, including the nested-unsafe ones (neo4j/falkordb).
             "synonyms",
+            # D-CDX-68: RunTrace.privacy_types (trace_ontology._privacy_safe)
+            # is a Python list; the schema declares it STRING[] on every
+            # schema-backed backend (Ladybug/PostgreSQL). Without this entry
+            # `_enc` JSON-stringified it into a bare STRING param, which
+            # Ladybug rejects against the STRING[] column -- the write
+            # failed deterministically and a canonical RunTrace query
+            # returned no row.
+            "privacy_types",
         }
     )
 
@@ -675,7 +735,20 @@ class IntelligenceGraphEngine(
                 **{
                     **prepared,
                     "id": node_id,
-                    "node_type": label,
+                    # D-GS7-2: PRESERVE the caller's own `node_type` when
+                    # `prepared` already carries one (e.g. every
+                    # `_serialize_node(node, label=...)` caller, which folds
+                    # `RegistryNodeType.value` — lowercase snake_case, e.g.
+                    # 'host' — into `data['node_type']` before calling this
+                    # method). Only fall back to `label` (the schema-cased
+                    # table name, e.g. 'Host') when the caller supplied no
+                    # `node_type` at all. The previous unconditional
+                    # `"node_type": label` silently overwrote the correct
+                    # lowercase value with the PascalCase schema label on
+                    # every native typed-add upsert, breaking every
+                    # lowercase-keyed `node_type` consumer downstream (e.g.
+                    # owl_bridge.PROMOTABLE_NODE_TYPES membership checks).
+                    "node_type": prepared.get("node_type", label),
                 },
             )
             return None
@@ -875,6 +948,22 @@ class IntelligenceGraphEngine(
         Attempts to resolve source and target names to existing node IDs using
         string matching before linking them. If backend is present, this is pushed
         down to Cypher to avoid O(N) memory scans on large enterprise graphs.
+
+        D-W2C-2: the original single-statement rewrite —
+        ``MATCH (s) ... MATCH (t) ... WITH s, t LIMIT 1 MERGE (s)-[r:TYPE]->(t)``
+        — combined two ``MATCH`` clauses, a ``WITH``, and an edge ``MERGE`` in
+        one write statement, exceeding the native engine's write subset
+        (``epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184``: at most
+        one leading ``MATCH``, ``MERGE`` on a single bare node only) — it never
+        executed successfully against the native engine. Split into a bounded
+        **read** (the identical two-``MATCH``/``WITH``/``LIMIT 1`` shape, minus
+        the ``MERGE`` — reads tolerate multiple ``MATCH`` stages, so this keeps
+        the SAME backend-side CONTAINS push-down the docstring above promises,
+        no full-graph pull into Python) that resolves ``sid``/``tid``, followed
+        by a typed :meth:`link_nodes` call for the actual edge write — the same
+        bounded-read + Python-resolution + typed-write pattern
+        ``maintainer.py``'s ``link_topics_to_policies_and_processes`` already
+        established for this exact defect class.
         """
 
         from agent_utilities.security.brain_context import use_actor
@@ -883,25 +972,34 @@ class IntelligenceGraphEngine(
 
         session = resolve_session(session, required_scope="kg:write")
         if self.backend and not ephemeral:
-            # Push-down resolution to backend via CONTAINS to avoid O(N) memory scan
             rel_type = validate_identifier(rel_type, kind="relationship type")
-            props = properties or {}
-            set_clause = self._get_set_clause(props, alias="r")
-            q = f"""
+            q = """
             MATCH (s) WHERE toLower(s.name) CONTAINS toLower($source) OR toLower($source) CONTAINS toLower(s.name)
             MATCH (t) WHERE toLower(t.name) CONTAINS toLower($target) OR toLower($target) CONTAINS toLower(t.name)
             WITH s, t LIMIT 1
-            MERGE (s)-[r:{rel_type}]->(t){set_clause}
             RETURN s.id AS sid, t.id AS tid
             """
             params = {
                 "source": source_name,
                 "target": target_name,
             }
-            params.update(props)
             with use_actor(session.actor):
                 res = self.backend.execute(q, params)
-            return len(res) > 0
+                if not res:
+                    return False
+                sid = res[0].get("sid")
+                tid = res[0].get("tid")
+                if not sid or not tid:
+                    return False
+                self.link_nodes(
+                    sid,
+                    tid,
+                    rel_type,
+                    properties,
+                    ephemeral=ephemeral,
+                    session=session,
+                )
+            return True
 
         return False
 
@@ -987,9 +1085,7 @@ class IntelligenceGraphEngine(
         node_type = self._normalize_label(node_type)
         props = dict(properties or {})
         if "type" in props:
-            raise ValueError(
-                "node property 'type' is retired; use the node_type argument"
-            )
+            raise retired_node_type_property_error()
         props["node_type"] = node_type
         # Flag types outside an EXCLUSIVE pack, observe-only (CONCEPT:AU-KG.ontology.schema-pack-lifecycle-audit).
         self._audit_candidate_type("node", node_type)
@@ -1007,6 +1103,126 @@ class IntelligenceGraphEngine(
             if ephemeral or not self._compute_is_authority:
                 self.graph_compute.add_node(node_id, props)
             return result if result is not None else {"id": node_id, **props}
+
+    def batch_typed_mutations(
+        self,
+        mutations: list[dict[str, Any]],
+        *,
+        session: GraphSession | None = None,
+    ) -> bool:
+        """Apply prepared typed node/edge mutations through one native batch.
+
+        ``GraphComputeEngine.batch_update`` is an atomic, ordered native
+        transaction.  This high-level seam preserves the public ``add_node`` and
+        ``link_nodes`` governance contract before reaching it: verified write
+        authority, label normalization, ownership/classification stamping, and
+        edge defaults/bitemporal fields all remain identical.  It returns
+        ``False`` only when the configured backend has no native typed-batch
+        capability; a supported backend's failed batch raises so callers never
+        reinterpret an all-or-nothing failure as a partial success.
+
+        Each mutation is either ``{"kind": "node", "id", "node_type",
+        "properties"}`` or ``{"kind": "edge", "source", "target",
+        "rel_type", "properties"}``.  The list order is preserved exactly.
+        """
+        if not mutations:
+            return True
+        if not self.backend:
+            return False
+        # A separate compute scratchpad must still receive each public write
+        # after the backend commit.  It has no atomic companion batch contract,
+        # so preserve that established behavior through the portable path rather
+        # than silently making the scratchpad stale.
+        if not self._compute_is_authority:
+            return False
+        apply = getattr(self.backend, "apply_typed_batch", None)
+        if not callable(apply):
+            return False
+
+        from agent_utilities.security.brain_context import use_actor
+
+        from .bitemporal import stamp_bitemporal
+        from .session import resolve_session
+        from .tenant_sharing import stamp_classification, stamp_ownership
+
+        session = resolve_session(session, required_scope="kg:write")
+        operations: list[dict[str, Any]] = []
+        with use_actor(session.actor):
+            for mutation in mutations:
+                if not isinstance(mutation, dict):
+                    raise ValueError("typed batch mutations must be mappings")
+                kind = str(mutation.get("kind") or "")
+                raw_properties = mutation.get("properties") or {}
+                if not isinstance(raw_properties, dict):
+                    raise ValueError(
+                        "typed batch mutation properties must be a mapping"
+                    )
+                if kind == "node":
+                    node_id = str(mutation.get("id") or "").strip()
+                    node_type = str(mutation.get("node_type") or "").strip()
+                    if not node_id or not node_type:
+                        raise ValueError("typed node batch requires id and node_type")
+                    props = dict(raw_properties)
+                    if "type" in props:
+                        raise retired_node_type_property_error()
+                    node_type = self._normalize_label(node_type)
+                    props["node_type"] = node_type
+                    self._audit_candidate_type("node", node_type)
+                    prepared = self._prepare_node_props(
+                        node_type, {"id": node_id, **props}
+                    )
+                    prepared.setdefault("id", node_id)
+                    try:
+                        stamp_ownership(prepared)
+                        stamp_classification(prepared, node_type)
+                    except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
+                        pass
+                    operations.append(
+                        {
+                            "op": "upsert_node",
+                            "id": node_id,
+                            "properties": {
+                                **prepared,
+                                "id": node_id,
+                                "node_type": prepared.get("node_type", node_type),
+                            },
+                        }
+                    )
+                    continue
+
+                if kind == "edge":
+                    source_id = str(mutation.get("source") or "").strip()
+                    target_id = str(mutation.get("target") or "").strip()
+                    rel_type = str(mutation.get("rel_type") or "").strip()
+                    if not source_id or not target_id or not rel_type:
+                        raise ValueError(
+                            "typed edge batch requires source, target, and rel_type"
+                        )
+                    props = dict(raw_properties)
+                    aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(props)
+                    if aliases:
+                        raise retired_edge_relationship_property_error(aliases)
+                    self._audit_candidate_type("edge", rel_type)
+                    rel_type = validate_identifier(
+                        rel_type.upper(), kind="relationship type"
+                    )
+                    props.setdefault("confidence", 1.0)
+                    props.setdefault("source", "system")
+                    stamp_bitemporal(props, event_time=props.get("event_time"))
+                    operations.append(
+                        {
+                            "op": "upsert_edge",
+                            "source": source_id,
+                            "target": target_id,
+                            "properties": {**props, "relationship": rel_type},
+                        }
+                    )
+                    continue
+
+                raise ValueError(f"unsupported typed batch mutation kind: {kind!r}")
+
+            apply(operations)
+        return True
 
     def add_edge(
         self,
@@ -1038,15 +1254,9 @@ class IntelligenceGraphEngine(
         if not str(rel_type).strip():
             raise ValueError("rel_type is required")
 
-        aliases = {"type", "rel_type", "relationship_type", "relation"}.intersection(
-            properties
-        )
+        aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(properties)
         if aliases:
-            names = ", ".join(sorted(aliases))
-            raise ValueError(
-                f"edge relationship aliases are retired ({names}); "
-                "use the rel_type argument"
-            )
+            raise retired_edge_relationship_property_error(aliases)
 
         with use_actor(session.actor):
             if self.backend and not ephemeral:

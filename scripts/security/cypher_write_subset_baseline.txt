@@ -1,27 +1,26 @@
 # Frozen baseline of pre-existing Cypher write-subset violations
 # OUTSIDE this lane's assigned 14 files (a ratchet — burn down
 # toward zero, same convention as scripts/swallowed_error_baseline.txt).
-# TAB-separated: path\tline\tshape\t# snippet (snippet is a comment,
-# not parsed, and will drift as the codebase changes -- expected).
+# TAB-separated: path\tsymbol\tshape\tcontent_hash\t# comment
+# (D-F6-2: keyed on the enclosing symbol + a hash of the query text,
+# NOT line number -- a line-anchored key drifted on every unrelated
+# commit landing above a baselined site. The trailing '# line N at
+# freeze time: ...' comment is display-only, not parsed, and WILL
+# drift -- that is expected and does not affect matching.)
 # A NEW entry (not here) fails check_cypher_write_subset.py. Fixing a
 # baselined site (see the module docstring's fix pattern) shrinks this
 # file on the next --update-baseline; never hand-add an entry to make
 # a real violation disappear.
-agent_utilities/graph/reasoning/topology.py	158	set_function_call_value	# MATCH (t:ReasoningTopologyVersion) WHERE t.id = $tid SET t.reward = coalesce(t.reward, 0.5) * (1 - $alpha) + $alpha * $score, t.task_count = coalesce(t.task_cou
-agent_utilities/knowledge_graph/core/engine.py	903	multiple_match_clauses	# MATCH (s) WHERE toLower(s.name) CONTAINS toLower($source) OR toLower($source) CONTAINS toLower(s.name) MATCH (t) WHERE toLower(t.name) CONTAINS toLower($target)
-agent_utilities/knowledge_graph/core/graph_compute.py	3317	comma_pattern_match	# MATCH (a {id: $src}), (b {id: $tgt}) MERGE (a)-[r:X]->(b) SET r.metadata = $meta
-agent_utilities/knowledge_graph/core/inference_engine.py	76	merge_on_edge_pattern	# MATCH (a)-[:DEPENDS_ON]->(b)-[:DEPENDS_ON]->(c) WHERE NOT (a)-[:DEPENDS_ON_INDIRECT]->(c) AND a.id <> c.id MERGE (a)-[r:DEPENDS_ON_INDIRECT]->(c) SET r.inferred
-agent_utilities/knowledge_graph/core/inference_engine.py	80	merge_on_edge_pattern	# MATCH (sub)-[:INHERITS_FROM]->(sup)-[:HAS_METHOD]->(m) WHERE NOT (sub)-[:INHERITS_METHOD]->(m) MERGE (sub)-[r:INHERITS_METHOD]->(m) SET r.inferred = true, r.inf
-agent_utilities/knowledge_graph/core/inference_engine.py	84	merge_on_edge_pattern	# MATCH (a1:Agent)-[:USES]->(t:CallableResource)<-[:USES]-(a2:Agent) WHERE a1.id <> a2.id AND NOT (a1)-[:POTENTIAL_COLLABORATOR]->(a2) MERGE (a1)-[r:POTENTIAL_COL
-agent_utilities/knowledge_graph/core/materialization.py	314	multiple_match_clauses	# MATCH (s {id: $source}) MATCH (t {id: $target}) MERGE (s)-[r:X]->(t)X
-agent_utilities/knowledge_graph/core/ogm.py	315	comma_pattern_match	# MATCH (a {id: $src}), (b {id: $tgt}) MERGE (a)-[r:X]->(b) X
-agent_utilities/knowledge_graph/core/owl_bridge.py	1176	comma_pattern_match	# MATCH (s {id: $sid}), (t {id: $tid}) MERGE (s)-[r:X]->(t) SET r.inferred = true, r.inferred_from = 'owl_reasoner'
-agent_utilities/knowledge_graph/core/subgraph_checkout.py	249	comma_pattern_match	# MATCH (a {id: $source_id}), (b {id: $target_id}) MERGE (a)-[r:X]->(b)
-agent_utilities/knowledge_graph/enrichment/writeback/spec_link.py	94	set_function_call_value	# MERGE (n {id: $id}) SET n.trackedBy = $tb, n.domain = coalesce(n.domain,'sdd')
-agent_utilities/knowledge_graph/memory/agent_context.py	1752	multiple_match_clauses	# MATCH (a:Agent {id: $agent_id}) MATCH (s:SemanticSummary {id: $summary_id}) MERGE (a)-[:HAS_COMPACTED_HISTORY]->(s)
-agent_utilities/knowledge_graph/ontology/edits/ledger.py	494	merge_on_edge_pattern	# MATCH (n {id: $id}) MERGE (a {id: $actor}) MERGE (n)-[:EDITED_BY]->(a)
-agent_utilities/knowledge_graph/ontology/edits/ledger.py	499	merge_on_edge_pattern	# MATCH (n {id: $id}) MERGE (t {id: $object_id}) MERGE (n)-[:EDITS]->(t)
-agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py	70	comma_pattern_match	# MATCH (a:RLMActor {id: $aid}), (g:OptimizationGoal {id: $gid}) MERGE (a)-[:HAS_METRIC]->(g)
-agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py	99	comma_pattern_match	# MATCH (p1:ParetoFrontierEntry {id: $pid1}), (p2:ParetoFrontierEntry {id: $pid2}) MERGE (p1)-[:PARETO_DOMINATES]->(p2) SET p2.is_dominated = true
-agent_utilities/knowledge_graph/pipeline/phases/sync.py	268	with_in_write_statement	# MATCH (n:Code) WHERE n.file_path STARTS WITH $workspace_path AND (n.last_seen_timestamp < $ts OR n.last_seen_timestamp IS NULL) DETACH DELETE n
-agent_utilities/knowledge_graph/workflow_store.py	621	set_function_call_value	# MATCH (w:WorkflowDefinition {id: $wid}) SET w.use_count = COALESCE(w.use_count, 0) + 1, w.last_used = $ts
+agent_utilities/knowledge_graph/core/inference_engine.py	InferenceEngine.run_inference	merge_on_edge_pattern	38e9d5eae10f43f0	# line 76 at freeze time: MATCH (a)-[:DEPENDS_ON]->(b)-[:DEPENDS_ON]->(c) WHERE NOT (a)-[:DEPENDS_ON_INDIRECT]->(c) AND a.id <> c.id MERGE (a)-[r:DEPENDS_ON_INDIRECT]->(c) SET r.inferred
+agent_utilities/knowledge_graph/core/inference_engine.py	InferenceEngine.run_inference	merge_on_edge_pattern	e378ef5493552426	# line 80 at freeze time: MATCH (sub)-[:INHERITS_FROM]->(sup)-[:HAS_METHOD]->(m) WHERE NOT (sub)-[:INHERITS_METHOD]->(m) MERGE (sub)-[r:INHERITS_METHOD]->(m) SET r.inferred = true, r.inf
+agent_utilities/knowledge_graph/core/inference_engine.py	InferenceEngine.run_inference	merge_on_edge_pattern	db5a46acac1d91e4	# line 84 at freeze time: MATCH (a1:Agent)-[:USES]->(t:CallableResource)<-[:USES]-(a2:Agent) WHERE a1.id <> a2.id AND NOT (a1)-[:POTENTIAL_COLLABORATOR]->(a2) MERGE (a1)-[r:POTENTIAL_COL
+agent_utilities/knowledge_graph/core/materialization.py	write_entities	multiple_match_clauses	52288e033a391675	# line 314 at freeze time: MATCH (s {id: $source}) MATCH (t {id: $target}) MERGE (s)-[r:X]->(t)X
+agent_utilities/knowledge_graph/core/ogm.py	KGMapper.upsert_edge	comma_pattern_match	2a27dd95b36478e4	# line 309 at freeze time: MATCH (a {id: $src}), (b {id: $tgt}) MERGE (a)-[r:X]->(b) X
+agent_utilities/knowledge_graph/core/owl_bridge.py	OWLBridge._sync_inferred_to_backend	comma_pattern_match	eecfa72471d5c5ab	# line 1183 at freeze time: MATCH (s {id: $sid}), (t {id: $tid}) MERGE (s)-[r:X]->(t) SET r.inferred = true, r.inferred_from = 'owl_reasoner'
+agent_utilities/knowledge_graph/core/subgraph_checkout.py	CheckedOutSubgraph.flush_deltas_to_durable	comma_pattern_match	d2a2d149c7aa2d23	# line 249 at freeze time: MATCH (a {id: $source_id}), (b {id: $target_id}) MERGE (a)-[r:X]->(b)
+agent_utilities/knowledge_graph/memory/agent_context.py	SemanticCompactor.compact_traces	multiple_match_clauses	872becce9971651a	# line 1752 at freeze time: MATCH (a:Agent {id: $agent_id}) MATCH (s:SemanticSummary {id: $summary_id}) MERGE (a)-[:HAS_COMPACTED_HISTORY]->(s)
+agent_utilities/knowledge_graph/ontology/edits/ledger.py	EditLedger._persist	merge_on_edge_pattern	e21f24be363d795d	# line 494 at freeze time: MATCH (n {id: $id}) MERGE (a {id: $actor}) MERGE (n)-[:EDITED_BY]->(a)
+agent_utilities/knowledge_graph/ontology/edits/ledger.py	EditLedger._persist	merge_on_edge_pattern	0cf28e43a5bcb0c3	# line 499 at freeze time: MATCH (n {id: $id}) MERGE (t {id: $object_id}) MERGE (n)-[:EDITS]->(t)
+agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py	MachineLearningEngineMixin.record_pareto_entry	comma_pattern_match	91fada2f50248713	# line 99 at freeze time: MATCH (p1:ParetoFrontierEntry {id: $pid1}), (p2:ParetoFrontierEntry {id: $pid2}) MERGE (p1)-[:PARETO_DOMINATES]->(p2) SET p2.is_dominated = true
+agent_utilities/knowledge_graph/orchestration/engine_ml_rlm.py	MachineLearningEngineMixin.set_optimization_goal	comma_pattern_match	63edc44ee794690c	# line 70 at freeze time: MATCH (a:RLMActor {id: $aid}), (g:OptimizationGoal {id: $gid}) MERGE (a)-[:HAS_METRIC]->(g)
+agent_utilities/knowledge_graph/pipeline/phases/sync.py	execute_sync	with_in_write_statement	949b45c98b145f62	# line 268 at freeze time: MATCH (n:Code) WHERE n.file_path STARTS WITH $workspace_path AND (n.last_seen_timestamp < $ts OR n.last_seen_timestamp IS NULL) DETACH DELETE n

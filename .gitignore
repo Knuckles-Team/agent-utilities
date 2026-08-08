@@ -157,9 +157,24 @@ celerybeat.pid
 .env
 .envrc
 .venv
+# D-PCC-1: real per-node values for the kaniko-job.yaml envsubst templates (never the
+# .example, which is tracked and placeholder-only).
+docker/kaniko-build.env
 # scripts/uv_workspace.py partitions the environment by dependency selection, so
 # a worktree owns one `.venv-<label>` per selection alongside `.venv`.
 .venv-*
+# D-W2T-3: the readers-writer activity lock guarding one partitioned
+# environment against a concurrent uv_workspace.py invocation's `uv sync`
+# (scripts/uv_workspace.py::_acquire_environment_activity). Persists as an
+# empty flock target file, one per environment directory.
+.venv*.activity.lock
+# D-75-1/D-CIP-19/D-W3BP-4: scripts/uv_workspace.py symlinks the sibling
+# packages this repo's OWN uv.lock pins as editable workspace members here
+# (materialize_own_siblings) so the repo can resolve/lock standalone against
+# its own tracked lock. Dev/lane-machine-only, never tracked -- CI's own
+# `.github/workflows/security.yml` materializes the identical paths with
+# `actions/checkout` instead.
+.uv-workspace-siblings/
 env/
 venv/
 ENV/

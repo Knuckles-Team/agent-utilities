@@ -32,13 +32,16 @@ REAL spans and metric instruments, never a placeholder/no-op facade.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
 
 from agent_utilities.core.config import setting
 from agent_utilities.security.persistence_privacy import (
     PersistencePrivacyGuard,
     persistence_reference,
 )
+
+if TYPE_CHECKING:
+    from opentelemetry.sdk.trace.export import SpanExporter
 
 logger = logging.getLogger(__name__)
 
@@ -289,7 +292,24 @@ class TelemetryEngine:
         self._otel_configured = False
         self._otel_transport_security: Any = None
         self._active_spans: dict[str, Any] = {}
+        # ``opentelemetry.context.attach()``'s return ``Token`` for this run's
+        # span (see :meth:`on_graph_start`) — a bare, finalizer-free object,
+        # deliberately NOT ``start_as_current_span``'s generator-based context
+        # manager (whose eventual garbage collection re-triggers its own
+        # ``context.detach()`` if left un-exited — the exact D-CDX-21 hazard,
+        # just deferred to an unpredictable later point instead of avoided).
         self._span_tokens: dict[str, Any] = {}
+        # D-CDX-21: the OTel ``Context`` object that was ambient immediately
+        # after ``on_graph_start``'s ``context.attach()`` call attached this
+        # run's span. ``context.attach()``/``context.detach()`` must run in
+        # the SAME Context (the same asyncio Task/thread's contextvars
+        # lineage) — a multi-stage delegation run routinely crosses task
+        # boundaries between ``on_graph_start`` and ``on_graph_end`` (e.g. MCP
+        # child calls run in their own shielded task, ``mcp/child_resilience.
+        # py::_call_once``), so equality cannot be assumed. See
+        # :meth:`on_graph_end` for how this is used to avoid a cross-context
+        # detach instead of merely swallowing the ``ValueError`` it raises.
+        self._span_attach_context: dict[str, Any] = {}
 
     def _lazy_init(self) -> None:
         """Lazily initialize sub-engines to avoid import-time overhead."""
@@ -468,17 +488,20 @@ class TelemetryEngine:
             tracer_provider = TracerProvider(resource=resource)
             tracer_provider.add_span_processor(
                 BatchSpanProcessor(
-                    _LoudFailureSpanExporter(
-                        _MetadataOnlySpanExporter(
-                            OTLPSpanExporter(
-                                endpoint=traces_endpoint,
-                                headers=trace_headers,
-                                session=trace_session,
+                    cast(
+                        "SpanExporter",
+                        _LoudFailureSpanExporter(
+                            _MetadataOnlySpanExporter(
+                                OTLPSpanExporter(
+                                    endpoint=traces_endpoint,
+                                    headers=trace_headers,
+                                    session=trace_session,
+                                ),
+                                service_ref=service_ref,
                             ),
-                            service_ref=service_ref,
+                            endpoint=traces_endpoint,
                         ),
-                        endpoint=traces_endpoint,
-                    )
+                    ),
                 )
             )
 
@@ -584,7 +607,22 @@ class TelemetryEngine:
             )
         if self._tracer is not None:
             try:
-                span_cm = self._tracer.start_as_current_span(
+                # D-CDX-21: build the span via ``start_span`` + an explicit
+                # ``context.attach`` we hold as a bare ``Token``, NOT via
+                # ``start_as_current_span``'s generator-based context manager
+                # (``span_cm.__enter__()``/``__exit__()`` manually split
+                # across this method and ``on_graph_end``). A live, suspended
+                # generator CM left un-exited (the natural result of
+                # detecting a cross-context mismatch in ``on_graph_end`` and
+                # skipping ``__exit__()``) still gets ``GeneratorExit``-closed
+                # by the garbage collector at some LATER, unpredictable point
+                # -- reproduced while building this fix: skipping the exit
+                # call did not prevent the corrupting cross-context
+                # ``context.detach()``, it only delayed it to GC time. A bare
+                # ``contextvars.Token`` has no such finalizer, so simply
+                # dropping the reference on a mismatch (see on_graph_end) is
+                # inert and safe.
+                span = self._tracer.start_span(
                     "agent.run",
                     attributes={
                         "run_ref": run_ref,
@@ -599,9 +637,16 @@ class TelemetryEngine:
                         "gen_ai.system": "pydantic_ai",
                     },
                 )
-                span = span_cm.__enter__()
+                from opentelemetry import context as otel_context
+                from opentelemetry import trace as otel_trace
+
+                token = otel_context.attach(otel_trace.set_span_in_context(span))
                 self._active_spans[run_id] = span
-                self._span_tokens[run_id] = span_cm
+                self._span_tokens[run_id] = token
+                # Snapshot the Context this attach landed in, so on_graph_end
+                # can detect a cross-task/cross-context detach BEFORE
+                # attempting it (see there).
+                self._span_attach_context[run_id] = otel_context.get_current()
             except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
                 logger.debug(
                     "TelemetryEngine: span start failed (exception_type=%s)",
@@ -727,7 +772,8 @@ class TelemetryEngine:
                     type(exc).__name__,
                 )
         span = self._active_spans.pop(run_id, None)
-        span_cm = self._span_tokens.pop(run_id, None)
+        attach_token = self._span_tokens.pop(run_id, None)
+        attach_ctx = self._span_attach_context.pop(run_id, None)
         if span is not None:
             try:
                 span.set_attribute("status", status_label)
@@ -802,14 +848,69 @@ class TelemetryEngine:
                     "TelemetryEngine: span attribute set failed (exception_type=%s)",
                     type(exc).__name__,
                 )
-        if span_cm is not None:
+        if span is not None:
             try:
-                span_cm.__exit__(None, None, None)
+                # D-CDX-21: opentelemetry.context.attach()/detach() must run
+                # in the SAME Context or detach() corrupts the ambient
+                # "current span" state for whatever runs next in that
+                # context, instead of restoring it — the "ServiceNow MCP
+                # teardown detaches...token in the wrong context" defect.
+                # OTel's own context.detach() already swallows the resulting
+                # ValueError internally (logger.exception), so nothing
+                # crashes; the damage — a corrupted span tree — is silent.
+                # Verify same-context BEFORE calling detach(); on a mismatch
+                # (this run's lifecycle crossed a task boundary between
+                # on_graph_start's attach and here — e.g. an MCP child
+                # call's own shielded task,
+                # mcp/child_resilience.py::_call_once), skip the detach
+                # entirely and just drop the ``Token`` — a bare Token has no
+                # finalizer/GC side effect (unlike the generator-based
+                # ``start_as_current_span`` context manager this replaced,
+                # whose eventual garbage-collection re-triggered the exact
+                # same cross-context detach at an unpredictable later point —
+                # reproduced while building this fix). ``span.end()`` always
+                # runs regardless, so the span itself still finalizes/
+                # exports correctly either way.
+                from opentelemetry import context as otel_context
+
+                if attach_token is not None:
+                    same_context = (
+                        attach_ctx is None or otel_context.get_current() is attach_ctx
+                    )
+                    if same_context:
+                        try:
+                            otel_context.detach(attach_token)
+                        except Exception as exc:  # noqa: BLE001 — the ambient-context restore is best-effort; the span itself still finalizes below regardless
+                            logger.debug(
+                                "TelemetryEngine: context detach failed for run "
+                                "%r (exception_type=%s)",
+                                run_id,
+                                type(exc).__name__,
+                            )
+                    else:
+                        logger.debug(
+                            "TelemetryEngine: on_graph_end for run %r is running "
+                            "in a different OTel Context than on_graph_start "
+                            "attached (the run crossed a task/thread boundary) "
+                            "-- skipping the ambient-context detach instead of "
+                            "risking a cross-context Token.reset() (D-CDX-21).",
+                            run_id,
+                        )
             except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
                 logger.debug(
-                    "TelemetryEngine: span close failed (exception_type=%s)",
+                    "TelemetryEngine: context handling failed for run %r "
+                    "(exception_type=%s)",
+                    run_id,
                     type(exc).__name__,
                 )
+            finally:
+                try:
+                    span.end()
+                except Exception as exc:  # noqa: BLE001 — tracing must never break the caller
+                    logger.debug(
+                        "TelemetryEngine: span close failed (exception_type=%s)",
+                        type(exc).__name__,
+                    )
 
     def annotate_epistemic(
         self,

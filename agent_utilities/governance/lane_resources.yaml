@@ -28,6 +28,17 @@ resources:
     evidence: >-
       ~28 concurrent pytest processes shared a basetemp and made a baseline
       measurement read materially worse, nearly causing a false regression call.
+      D-ORC-16: the per-lane instance originally lived at
+      <git-common-dir>/agent-lanes/lanes/<lane>/pytest, ~99 chars deep, which
+      left AF_UNIX's 108-byte sun_path under 10 bytes of headroom for
+      anything a fixture appended (its own subdir + a socket filename) --
+      every Unix-socket fixture under a lane basetemp failed deterministically
+      on path length alone -- and being nested inside .git let a supposedly
+      hermetic `git -C <tmp_path> remote get-url origin` resolve to the
+      CANONICAL repo's own origin. Fixed by moving the per-lane instance to
+      `~/.al/<hash(common_dir, lane)>/pytest` (see `_lane_temp_root()`) --
+      short, outside any .git, still per-lane. The class stays PARTITION;
+      only the location changed.
 
   - name: git-stash
     class: partition
@@ -66,7 +77,31 @@ resources:
     mechanism: partitioned_paths().scratch_dir
     evidence: >-
       Lanes writing scratch into the repo tree or a shared temp dir overwrite
-      each other's intermediate state.
+      each other's intermediate state. D-ORC-16: this is also the `TMPDIR`
+      `lane env` exports, and it shared the pytest-tmp row's AF_UNIX
+      sun_path/git-identity-leak defect (same `_lane_temp_root()` fix, same
+      relocation to `~/.al/<hash(common_dir, lane)>/scratch`).
+
+  - name: precommit-home
+    class: partition
+    mechanism: partitioned_paths().precommit_home
+    evidence: >-
+      pre-commit's own store (`store.directory`, store.py:32 -> PRE_COMMIT_HOME or
+      XDG_CACHE_HOME/pre-commit) doubles as BOTH the patch_dir
+      `staged_files_only._unstaged_changes_cleared()` writes unstaged changes to
+      (commands/run.py:421 passes `store.directory` as patch_dir) and the directory
+      holding the SQLite `db.db` (store.py:64). PRE_COMMIT_HOME is exported
+      NOWHERE in agent-utilities, so every lane shared ONE `~/.cache/pre-commit`.
+      Two distinct hazards from that one shared dir: (1) a killed/OOMed/power-lost
+      pre-commit leaves the unstaged work ONLY as an orphaned patch file that
+      nobody ever replays back -- pre-commit never deletes a patch file even on
+      success, so a patch file existing is not itself proof of a crash (D-OB-12);
+      (2) the same dir's shared `db.db` produced
+      `OperationalError: database is locked` for lane-concept-docs-0801 under
+      concurrent lanes. Distinct from the `precommit-all-files` LEASE row below:
+      that one serializes `--all-files` runs; this row partitions the STORE
+      itself so no lane's patch files or SQLite state are ever visible to another
+      lane's pre-commit process. See D-ORC-37.
 
   - name: concept-reservations
     class: append-only
@@ -146,3 +181,76 @@ resources:
       pull_project. The verb was `git checkout`, not `git reset` — so the guard
       must cover every tree-mutating verb, held under one lease across the whole
       check-then-mutate so the tree cannot go dirty in between.
+
+  # NOTE on `heavy-lane-pool` (D-ORC-33): the capped-concurrency pool for `uv
+  # sync` lives in scripts/uv_workspace.py's own `_dependency_sync_slot()`, a
+  # self-contained flock-based counting semaphore -- NOT a row here, and
+  # deliberately not `hold_lease()`. This file's own header rule is "each
+  # class has exactly one mechanism"; `uv_workspace.py` is a bootstrap-time
+  # launcher that runs BEFORE the environment it prepares exists, so it
+  # cannot safely import `agent_utilities.governance.lanes` (circular, and
+  # it would risk resolving against whichever `agent_utilities` happens to be
+  # on the ambient interpreter's path -- the "poisoned interpreter" trap `uv
+  # run pytest` fell into). Classifying it `lease` here anyway would invite
+  # `agent-utilities lane lease --resource heavy-lane-pool` to silently guard
+  # nothing: that CLI path writes to a *different* lock file than
+  # `_dependency_sync_slot()` reads, so the two would never contend with each
+  # other. See `_dependency_sync_slot()`'s docstring for the real mechanism
+  # and evidence.
+
+  - name: workspace-scripts
+    class: lease
+    scope: workspace   # the workspace-root scripts/ directory is not a git worktree of any
+                        # repo, so it cannot be PARTITIONed the way cargo/pytest/
+                        # scratch are -- it is one directory every lane on the host
+                        # invokes (deferred_registry.py, merge_queue_runner.sh,
+                        # delegation_probe.py, converge_worktrees.py,
+                        # snapshot_workspace_state.sh).
+    mechanism: hold_lease("workspace-scripts") — `agent-utilities lane lease --resource workspace-scripts -- <edit command>`
+    evidence: >-
+      D-ORC-28: two lanes raced on editing deferred_registry.py to add
+      `--detail-file`/`--evidence-file`. One lane had landed the CONSUMPTION
+      code (`a.detail_file`) but not yet the argparse declarations; in that
+      window EVERY `close` call across all 13 concurrently-running lanes
+      failed with `AttributeError: Namespace object has no attribute
+      evidence_file`. A second actor then tried to unblock by adding the
+      missing `add_argument` lines directly -- and the original lane's own
+      edit landed in the same window, producing
+      `argparse.ArgumentError: conflicting option string: --detail-file` and
+      breaking the CLI a second time, for every lane, including `selftest`.
+      Unlike every other row here, this resource cannot be made PARTITION —
+      it is deliberately ONE shared script tree, not per-lane state — so the
+      fix is LEASE: announce an edit with
+      `agent-utilities lane lease --resource workspace-scripts --operation
+      "editing scripts/deferred_registry.py" -- <your edit/test command>`
+      before mutating a file under `scripts/`, so a concurrent editor defers
+      (exit 75) instead of racing. Read-only invocation (running
+      `deferred_registry.py open/close/show`) does not need the lease — only
+      an in-place edit does, since a mid-edit *read* of a Python file at
+      process-start either sees the whole old file or the whole new one, but
+      a mid-edit *edit* is the state that produced both incidents above.
+
+  - name: epistemic-graph-daemon
+    class: lease
+    scope: workspace   # engine_resolver's share-running-local/autostart-shared-supervised
+                        # precedence deliberately hands ONE local daemon to every
+                        # entrypoint on the host, across every repo's worktrees —
+                        # not just this repo's lanes.
+    mechanism: hold_lease("epistemic-graph-daemon")
+    evidence: >-
+      A lane's 37-minute full-suite run logged 731 failed / 14197 passed / 353
+      errors, with 1,234 occurrences of `ConnectionRefusedError: Cannot connect
+      to epistemic-graph service` in its log — while two OTHER lanes' full-suite
+      runs and an `--all-files` pre-commit ran concurrently, all four driving the
+      SAME single shared local engine daemon (the `GRAPH_SERVICE_ENDPOINTS`
+      externally-provided branch of the session engine fixture, which reuses a
+      running daemon verbatim rather than spinning an ephemeral one). Ten of the
+      eighteen files that lane had edited showed as failures despite passing
+      individually minutes earlier; two other lanes independently reported
+      phantom failure counts (167, 503) that reproduced identically against
+      unmodified base code under the same contention. Not PARTITION: this
+      daemon's own auto-provisioning is explicitly built to be SHARED across
+      every entrypoint on the host (that is the point of "shared" in
+      share-running-local/autostart-shared-supervised) — splitting it per lane
+      would defeat the sharing it exists for, unlike the cargo target dir, which
+      should never have been shared at all.

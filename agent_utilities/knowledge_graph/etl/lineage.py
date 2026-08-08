@@ -275,7 +275,7 @@ def record_connector_sync_claim(
         extracted_from=activity_id,
         domain=connector,
     )
-    props = claim.model_dump(mode="json", exclude={"id", "type"})
+    props = claim.to_graph_properties(exclude={"id"})
     try:
         add_node(claim_id, "Claim", props)
     except Exception:  # noqa: BLE001 - provenance is best-effort
@@ -408,7 +408,7 @@ def record_media_sidecar_claim(
             "artifact_id": artifact_id,
         },
     )
-    props = claim.model_dump(mode="json", exclude={"id", "type"})
+    props = claim.to_graph_properties(exclude={"id"})
     try:
         add_node(claim_id, "Claim", props)
     except Exception:  # noqa: BLE001 - provenance is best-effort

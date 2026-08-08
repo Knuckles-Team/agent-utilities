@@ -367,13 +367,36 @@ class InfrastructureEngineMixin(_Base):
         # is au:Host, never au:BladeServer (that class belongs to an unrelated
         # vendor ontology under a completely different namespace/prefix in
         # ontology_infrastructure.ttl, not this engine-native projection).
+        #
+        # Edge predicates are NOT case-transformed on the engine-native path
+        # (D-CYP-1): ``bridge.query_sparql`` tries the LIVE engine projection
+        # FIRST (``OWLBridge.query_sparql`` strategy 1,
+        # ``self.graph.sparql(...)``) and only falls back to the owlready2
+        # backend's own SPARQL (strategy 2) when strategy 1 returns ZERO rows
+        # -- and a `?host rdf:type au:Host` row always exists once hosts are
+        # ingested, so strategy 1 always wins here. The engine's edge
+        # projection (`eg-rdf`'s ``match_triple_pattern`` -> ``proj.pred_iri``)
+        # emits an edge predicate from the LPG edge's raw ``relationship``
+        # property value VERBATIM, with no case transform -- and that value is
+        # the upper-snake-case ``link_nodes`` writes ("HAS_ACCELERATOR",
+        # "ATTACHED_STORAGE" — see below). Only the owlready2 backend's
+        # ``_promote_stable_edges()`` (strategy 2, effectively unreachable
+        # here) resolves it through ``_EDGE_TYPE_TO_OWL_PROP`` into camelCase
+        # ("hasAccelerator", "attachedStorage"). Querying camelCase-only
+        # predicates silently starved every host of a GPU/storage match on
+        # strategy 1 -- ``has_gpu`` was False for every host, so every
+        # GPU-requiring service scored an identical tie and the "best" host
+        # was whichever the sort's stability happened to keep first, NOT the
+        # one actually carrying the accelerator. Matching BOTH spellings via
+        # a property-path alternation keeps this correct under either
+        # strategy.
         host_query = """
         PREFIX au: <http://agent-utilities.dev/ontology#>
         PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>
         SELECT ?host ?gpu ?storage WHERE {
             ?host rdf:type au:Host .
-            OPTIONAL { ?host au:has_accelerator ?gpu . }
-            OPTIONAL { ?host au:attached_storage ?storage . }
+            OPTIONAL { ?host au:HAS_ACCELERATOR|au:hasAccelerator ?gpu . }
+            OPTIONAL { ?host au:ATTACHED_STORAGE|au:attachedStorage ?storage . }
         }
         """
 

@@ -1,0 +1,17 @@
+# Frozen baseline of pre-existing raw-exception log violations this
+# lane (D-W2-5, log-redaction sweep) found in
+# agent_utilities/mcp/multiplexer.py (logger "mcp_multiplexer", OUTSIDE
+# the agent_utilities.* privacy boundary installed by
+# agent_utilities/core/log_privacy.py — see this script's module
+# docstring) but could not fix without colliding with the concurrent
+# MCP-session-isolation lane that owns that file. Registered as D-LR-1
+# in the deferred registry — a ratchet, not a permanent exemption:
+# burn down toward zero once that lane lands. TAB-separated:
+# path\tsymbol\tlogger_name\tcontent_hash\t# line N: snippet (D-MT-2:
+# keyed on the enclosing symbol + logger + a hash of the flagged
+# snippet text, NOT line -- the trailing 'line N' in the comment is
+# informational only, not parsed, and WILL drift as the codebase
+# changes -- expected and harmless). A NEW entry (not here) fails
+# check_log_exception_redaction.py. Fixing a baselined site shrinks
+# this file on the next --update-baseline; never hand-add an entry
+# to make a real violation disappear.

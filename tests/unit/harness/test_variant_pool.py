@@ -3,8 +3,6 @@ from __future__ import annotations
 
 """Tests for CONCEPT:AU-AHE.harness.evolutionary-aggregation — Evolutionary Variant Selection."""
 
-import json
-
 from agent_utilities.harness.variant_pool import VariantPool
 from agent_utilities.models.knowledge_graph import (
     RegistryEdgeType,
@@ -87,11 +85,13 @@ class TestVariantRegistration:
             "prompt:base", variant, generation=2, strategy="parametric"
         )
 
-        # KGMapper._serialize JSON-encodes dict-valued properties for KG storage
-        # (CONCEPT:AU-KG.query.object-graph-mapper) — a raw graph-compute read sees
-        # that encoded string, not the original dict.
+        # KGMapper._serialize keeps dict-valued properties NATIVE for the
+        # graph-compute leg (CONCEPT:AU-KG.query.object-graph-mapper) — the
+        # compute layer stores nested maps/lists natively, so a raw
+        # graph-compute read sees the original dict, not a JSON-encoded
+        # string (D-OTR-5).
         node_data = engine.graph.nodes["prompt:var2"]
-        meta = json.loads(node_data.get("metadata", "{}"))
+        meta = node_data.get("metadata", {})
         assert meta.get("generation") == 2
         assert meta.get("strategy") == "parametric"
 
@@ -181,7 +181,9 @@ class TestSelection:
         for i in range(5):
             vid = f"var:{i}"
             engine.graph.add_node(vid, name=f"Variant {i}", metadata={})
-            engine.graph.add_edge(vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF)
+            engine.graph.add_edge(
+                vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF
+            )
 
         # Tournament select should return at most top_k
         winners = pool.tournament_select("base:1", top_k=3)
@@ -195,7 +197,9 @@ class TestSelection:
         for i in range(5):
             vid = f"var:{i}"
             engine.graph.add_node(vid, name=f"Variant {i}", metadata={})
-            engine.graph.add_edge(vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF)
+            engine.graph.add_edge(
+                vid, "base:1", relationship=RegistryEdgeType.VARIANT_OF
+            )
 
         pruned = pool.prune_losers("base:1", keep=3)
         assert pruned >= 0  # May be 0 if all have same fitness

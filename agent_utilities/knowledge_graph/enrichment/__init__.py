@@ -70,6 +70,7 @@ from .registry import (
     write_batch,
 )
 from .semantic import (
+    derive_entity_text,
     embed_and_store,
     find_related,
     link_concepts_to_code,
@@ -137,6 +138,7 @@ __all__ = [
     "classify_test",
     "cluster_features",
     "code_by_pattern",
+    "derive_entity_text",
     "detect_patterns",
     "distill_specs",
     "embed_and_store",

@@ -601,7 +601,7 @@ def _write_work_item_provenance(
             confidence=confidence,
             source="agent-dispatch",
         )
-        obs_props = observation.model_dump(exclude={"id", "type"})
+        obs_props = observation.to_graph_properties(exclude={"id"})
         obs_props["work_item_id"] = work_item_id
         obs_props["lease_id"] = lease_id
         engine.add_node(obs_id, "Observation", properties=obs_props)
@@ -616,7 +616,7 @@ def _write_work_item_provenance(
             claim_type="decision",
             is_verified=policy_decision_node.allowed,
         )
-        claim_props = policy_claim.model_dump(exclude={"id", "type"})
+        claim_props = policy_claim.to_graph_properties(exclude={"id"})
         claim_props["work_item_id"] = work_item_id
         claim_props["policy_decision_id"] = policy_decision_node.id
         engine.add_node(claim_node_id, "Claim", properties=claim_props)
@@ -628,7 +628,7 @@ def _write_work_item_provenance(
             status=status,
             result=clean_result[:4000],
         )
-        action_props = action.model_dump(exclude={"id", "type"})
+        action_props = action.to_graph_properties(exclude={"id"})
         action_props["work_item_id"] = work_item_id
         action_props["lease_id"] = lease_id
         action_props["policy_decision_id"] = policy_decision_node.id
@@ -644,7 +644,7 @@ def _write_work_item_provenance(
             status="ok" if status == "completed" else "error",
             outcome=status,
         )
-        trace_props = trace.model_dump(exclude={"id", "type"})
+        trace_props = trace.to_graph_properties(exclude={"id"})
         trace_props["lease_id"] = lease_id
         engine.add_node(trace_id, "Trace", properties=trace_props)
     except Exception as e:  # noqa: BLE001 — provenance is audit, never blocks the outcome
@@ -696,7 +696,7 @@ def _finalize_work_item(
         engine.add_node(
             outcome_id,
             "OutcomeEvaluation",
-            properties=outcome.model_dump(exclude={"id", "type"}),
+            properties=outcome.to_graph_properties(exclude={"id"}),
         )
     except Exception as e:  # noqa: BLE001 — writeback is durable-best-effort
         logger.warning("work-item outcome append failed (%s)", type(e).__name__)
@@ -1133,10 +1133,19 @@ def _execute_orchestrator_turn(
     orch = Orchestrator(engine)
 
     async def _invoke() -> Any:
+        # D-25-4: pin run_id to the orchestrator job_id (never leave it to
+        # execute_agent's own new_run_id() default) so the :RunTrace this run
+        # writes is deterministically findable by the SAME id a caller already
+        # holds (the WorkItem/job_id) -- see manager.get_run_trace's own
+        # id derivation (observability.trace_ontology.trace_id). Without this,
+        # the real output execute_agent returns was computed and then
+        # discarded: only an opaque result_ref marker survived past this
+        # function, and no caller had any id to look the real output up by.
         return await orch.execute_agent(
             agent_name=envelope.agent_name,
             task=claim["description"],
             session_id=envelope.session_id,
+            run_id=envelope.job_id,
         )
 
     from agent_utilities.orchestration import work_item as _wi

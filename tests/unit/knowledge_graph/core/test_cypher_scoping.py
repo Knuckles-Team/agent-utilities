@@ -99,30 +99,37 @@ def test_first_bound_node_variable_fails_closed_when_unresolvable(query):
 def test_scope_cypher_query_scopes_find_relevant_policies_by_its_own_variable():
     """find_relevant_policies: MATCH (p:Policy) ... -- must scope by `p`."""
     tm = TenancyManager()
-    scoped = tm.scope_cypher_query(
+    scoped, extra_params = tm.scope_cypher_query(
         "MATCH (p:Policy) WHERE p.name CONTAINS $q OR p.description CONTAINS $q RETURN p",
         tenant_id="tenant-a",
     )
-    assert "p.tenant_id = 'tenant-a'" in scoped
+    assert "p.tenant_id = $_tenant_scope_id" in scoped
     assert "n.tenant_id" not in scoped  # the historical hardcoded-n bug
+    # D-W2T-2: the tenant id is a bound parameter, never spliced into the text.
+    assert extra_params == {"_tenant_scope_id": "tenant-a"}
+    assert "tenant-a" not in scoped
 
 
 def test_scope_cypher_query_scopes_find_relevant_processes_by_its_own_variable():
     """find_relevant_processes: MATCH (f:ProcessFlow) ... -- must scope by `f`."""
     tm = TenancyManager()
-    scoped = tm.scope_cypher_query(
+    scoped, extra_params = tm.scope_cypher_query(
         "MATCH (f:ProcessFlow) WHERE f.goal CONTAINS $q OR f.name CONTAINS $q RETURN f",
         tenant_id="tenant-a",
     )
-    assert "f.tenant_id = 'tenant-a'" in scoped
+    assert "f.tenant_id = $_tenant_scope_id" in scoped
     assert "n.tenant_id" not in scoped
+    assert extra_params == {"_tenant_scope_id": "tenant-a"}
 
 
 def test_scope_cypher_query_conventional_n_variable_unchanged():
     """Backward-compatible: the common `MATCH (n:...)` shape keeps working."""
     tm = TenancyManager()
-    scoped = tm.scope_cypher_query("MATCH (n:Entity) RETURN n", tenant_id="tenant-a")
-    assert scoped == "MATCH (n:Entity) WHERE n.tenant_id = 'tenant-a' RETURN n"
+    scoped, extra_params = tm.scope_cypher_query(
+        "MATCH (n:Entity) RETURN n", tenant_id="tenant-a"
+    )
+    assert scoped == "MATCH (n:Entity) WHERE (n.tenant_id = $_tenant_scope_id OR n.tenant_id IS NULL OR n.tenant_id = '') RETURN n"
+    assert extra_params == {"_tenant_scope_id": "tenant-a"}
 
 
 def test_scope_cypher_query_fails_closed_for_an_unscopable_query():
@@ -132,6 +139,22 @@ def test_scope_cypher_query_fails_closed_for_an_unscopable_query():
         tm.scope_cypher_query(
             "MATCH ()-[r]->() RETURN count(r) AS c", tenant_id="tenant-a"
         )
+
+
+def test_scope_cypher_query_scopes_the_bound_edge_count_shape():
+    """D-W2T-1: routers/enhanced.py + routers/commands.py's global-edge-count
+    query used to be the exact anonymous `MATCH ()-[r]->()` shape the previous
+    test proves is unscopable -- so /graph/stats and 'kg stats' always failed
+    with UnscopableQueryError. Both call sites now bind the source node as `a`
+    (``MATCH (a)-[r]->() RETURN count(r) AS c``), which this proves IS scopable.
+    """
+    tm = TenancyManager()
+    scoped, extra_params = tm.scope_cypher_query(
+        "MATCH (a)-[r]->() RETURN count(r) AS c", tenant_id="tenant-a"
+    )
+    assert "a.tenant_id = $_tenant_scope_id" in scoped
+    assert "n.tenant_id" not in scoped
+    assert extra_params == {"_tenant_scope_id": "tenant-a"}
 
 
 # ---------------------------------------------------------------------------
@@ -155,15 +178,20 @@ def test_inject_and_predicate_parenthesizes_existing_or_body():
 
 def test_scope_cypher_query_closes_the_or_bypass_for_find_relevant_policies():
     tm = TenancyManager()
-    scoped = tm.scope_cypher_query(
+    scoped, extra_params = tm.scope_cypher_query(
         "MATCH (p:Policy) WHERE p.name CONTAINS $q OR p.description CONTAINS $q RETURN p",
         tenant_id="tenant-a",
     )
     # The injected tenant predicate and the pre-existing OR body must each be
-    # their own parenthesized unit -- NOT `p.tenant_id = 'tenant-a' AND
+    # their own parenthesized unit -- NOT `p.tenant_id = $_tenant_scope_id AND
     # p.name CONTAINS $q OR p.description CONTAINS $q`, which would let any
     # row matching the description clause alone bypass tenant scoping.
-    assert "(p.tenant_id = 'tenant-a') AND (p.name CONTAINS $q OR p.description CONTAINS $q)" in scoped
+    assert (
+        "(p.tenant_id = $_tenant_scope_id OR p.tenant_id IS NULL OR p.tenant_id = '') "
+        "AND (p.name CONTAINS $q OR p.description CONTAINS $q)"
+        in scoped
+    )
+    assert extra_params == {"_tenant_scope_id": "tenant-a"}
 
 
 # ---------------------------------------------------------------------------
@@ -171,13 +199,23 @@ def test_scope_cypher_query_closes_the_or_bypass_for_find_relevant_policies():
 # ---------------------------------------------------------------------------
 
 
-def _eval_predicate(predicate: str, row: dict) -> bool:
+def _eval_predicate(predicate: str, row: dict, params: dict | None = None) -> bool:
     """Closed-form evaluator for the tiny WHERE-predicate subset this module
     emits (`var.prop = 'val'`, `var.prop CONTAINS 'val'`, composed with
     AND/OR/parens) -- proves whether a GIVEN ROW is actually matched by the
     predicate text this module generated, not just that the text looks right.
     """
+    params = params or {}
     expr = predicate
+    # `IS NULL` must be translated BEFORE the `=` rule, and bound parameters
+    # ($_tenant_scope_id) resolved from `params`, or the D-ACL-3 commons
+    # fallback predicate reaches eval() as raw Cypher and SyntaxErrors.
+    expr = re.sub(r"\w+\.(\w+)\s+IS\s+NULL", r"(row.get('\1') is None)", expr)
+    expr = re.sub(
+        r"\w+\.(\w+)\s*=\s*\$(\w+)",
+        lambda m: f"(row.get({m.group(1)!r}) == {params.get(m.group(2))!r})",
+        expr,
+    )
     expr = re.sub(r"\w+\.(\w+)\s*=\s*'([^']*)'", r"(row.get('\1') == '\2')", expr)
     expr = re.sub(
         r"\w+\.(\w+)\s+CONTAINS\s+'([^']*)'",
@@ -197,14 +235,18 @@ def test_tenant_a_read_does_not_match_tenant_bs_row_via_the_or_clause():
     bypass that survives even a correct variable fix without parenthesization.
     """
     tm = TenancyManager()
-    scoped = tm.scope_cypher_query(
+    scoped, extra_params = tm.scope_cypher_query(
         "MATCH (p:Policy) WHERE p.name CONTAINS $q OR p.description CONTAINS $q RETURN p",
         tenant_id="tenant-a",
     )
     # Extract the WHERE...RETURN predicate text and bind the search term the
-    # way the real (parameterized) $q placeholder would be at execution time.
+    # way the real (parameterized) $q/$_tenant_scope_id placeholders would be
+    # at execution time.
     predicate = re.search(r"WHERE (.*) RETURN", scoped).group(1)
     predicate = predicate.replace("$q", "'refund'")
+    predicate = predicate.replace(
+        "$_tenant_scope_id", f"'{extra_params['_tenant_scope_id']}'"
+    )
 
     tenant_a_row = {"tenant_id": "tenant-a", "name": "refund policy", "description": ""}
     tenant_b_row = {"tenant_id": "tenant-b", "name": "refund policy", "description": ""}
@@ -219,12 +261,15 @@ def test_tenant_bs_row_does_not_leak_through_the_second_disjunct():
     from a tenant-A-scoped read, not silently admitted because the injected
     tenant predicate only bound to the first disjunct."""
     tm = TenancyManager()
-    scoped = tm.scope_cypher_query(
+    scoped, extra_params = tm.scope_cypher_query(
         "MATCH (p:Policy) WHERE p.name CONTAINS $q OR p.description CONTAINS $q RETURN p",
         tenant_id="tenant-a",
     )
     predicate = re.search(r"WHERE (.*) RETURN", scoped).group(1)
     predicate = predicate.replace("$q", "'refund'")
+    predicate = predicate.replace(
+        "$_tenant_scope_id", f"'{extra_params['_tenant_scope_id']}'"
+    )
 
     tenant_b_row_matching_only_description = {
         "tenant_id": "tenant-b",

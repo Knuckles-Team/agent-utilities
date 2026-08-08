@@ -1,5 +1,5 @@
 domain: AU-KG.ontology
-generated_at: '2026-08-01T15:06:30+00:00'
+generated_at: '2026-08-01T18:04:24+00:00'
 generator: scripts/concept_domain_triage.py
 how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
   `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
@@ -713,14 +713,14 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine.py:478
+      - agent_utilities/knowledge_graph/core/engine.py:538
       - agent_utilities/knowledge_graph/core/source_sync.py:218
       - agent_utilities/knowledge_graph/core/source_sync.py:323
-      - agent_utilities/knowledge_graph/core/source_sync.py:687
-      - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:92
+      - agent_utilities/knowledge_graph/core/source_sync.py:771
+      - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:93
       - docs/architecture/ontology-native-classification.md:3
       - tests/unit/knowledge_graph/core/test_fleet_capabilities.py:1
-      - tests/unit/knowledge_graph/core/test_fleet_capabilities.py:267
+      - tests/unit/knowledge_graph/core/test_fleet_capabilities.py:276
   AU-KG.ontology.catalogue-browse:
     decision: PENDING
     parent: ''
@@ -1059,10 +1059,10 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/source_sync.py:1258
-      - agent_utilities/knowledge_graph/core/source_sync.py:4476
+      - agent_utilities/knowledge_graph/core/source_sync.py:1342
+      - agent_utilities/knowledge_graph/core/source_sync.py:4560
       - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:11
-      - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:715
+      - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:716
       - scripts/check_connector_manifests.py:2
       - scripts/inject_ontology_integrity_hook.py:5
       - tests/unit/knowledge_graph/ontology/test_connector_manifest_gate.py:475
@@ -2193,7 +2193,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:339
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:342
       - agent_utilities/knowledge_graph/core/ontology_federation.py:2
       - agent_utilities/knowledge_graph/core/ontology_federation.py:141
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:468
@@ -2357,8 +2357,8 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:17844
-      - agent_utilities/mcp/kg_server.py:1287
-      - agent_utilities/mcp/kg_server.py:4093
+      - agent_utilities/mcp/kg_server.py:1288
+      - agent_utilities/mcp/kg_server.py:4116
       - agent_utilities/mcp/tools/ontology_tools.py:55
       - agent_utilities/mcp/tools/ontology_tools.py:591
       - docs/capabilities-power.json:17844
@@ -3255,8 +3255,8 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24829
       - agent_utilities/mcp/tools/ontology_tools.py:478
       - agent_utilities/models/knowledge_graph.py:80
-      - agent_utilities/models/knowledge_graph.py:1705
-      - agent_utilities/models/knowledge_graph.py:1784
+      - agent_utilities/models/knowledge_graph.py:1780
+      - agent_utilities/models/knowledge_graph.py:1859
       - agent_utilities/models/model_profile.py:3
       - agent_utilities/models/model_registry.py:786
       - docs/architecture/model_registry_graph_resources.md:2
@@ -3510,7 +3510,7 @@ concepts:
       - agent_utilities/knowledge_graph/actions/registry.py:4
       - agent_utilities/knowledge_graph/actions/registry.py:26
       - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:38
-      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:190
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:193
       - agent_utilities/knowledge_graph/core/owl_bridge.py:160
       - agent_utilities/knowledge_graph/core/owl_bridge.py:586
       - agent_utilities/knowledge_graph/core/shacl_validator.py:97
@@ -3881,10 +3881,10 @@ concepts:
       artifact_id: reads as a slugified prose fragment (optional-populated-from)
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/retrieval/capability_index.py:368
-      - agent_utilities/knowledge_graph/retrieval/capability_index.py:465
-      - agent_utilities/knowledge_graph/retrieval/capability_index.py:741
-      - agent_utilities/knowledge_graph/retrieval/capability_index.py:862
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:370
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:488
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:803
+      - agent_utilities/knowledge_graph/retrieval/capability_index.py:949
       - tests/retrieval/test_kg_2_44b_ontology_prior.py:1
   AU-KG.ontology.owl-bridge:
     decision: PENDING
@@ -4115,8 +4115,8 @@ concepts:
       - agent_utilities/knowledge_graph/core/owl_bridge.py:324
       - agent_utilities/knowledge_graph/core/owl_bridge.py:592
       - agent_utilities/knowledge_graph/core/owl_bridge.py:601
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1149
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1279
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1156
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1286
   AU-KG.ontology.owl-rdf-bridge:
     decision: PENDING
     parent: ''
@@ -4194,7 +4194,7 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:151
-      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:272
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:275
       - agent_utilities/knowledge_graph/core/owl_bridge.py:306
       - agent_utilities/knowledge_graph/core/owl_bridge.py:570
   AU-KG.ontology.owl-screen-bridge:
@@ -4273,7 +4273,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/graph_compute.py:3114
+      - agent_utilities/knowledge_graph/core/graph_compute.py:3150
       - agent_utilities/knowledge_graph/core/owl_bridge.py:145
   AU-KG.ontology.pack-identity-rules:
     decision: PENDING
@@ -4767,8 +4767,8 @@ concepts:
       - agent_utilities/knowledge_graph/core/owl_bridge.py:559
       - agent_utilities/knowledge_graph/core/owl_bridge.py:561
       - agent_utilities/knowledge_graph/core/owl_bridge.py:565
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1099
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1262
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1106
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1269
   AU-KG.ontology.rdf-materialization-iri-safe:
     decision: PENDING
     parent: ''
@@ -4792,7 +4792,7 @@ concepts:
       truncated_marker: ''
       sites:
       - .specify/design/ontology-governed-evolution/design.md:17
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1298
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1305
   AU-KG.ontology.redact-object-materialize-restricted:
     decision: PENDING
     parent: ''
@@ -4982,7 +4982,7 @@ concepts:
       - agent_utilities/security/secrets_client.py:68
       - agent_utilities/security/secrets_client.py:586
       - agent_utilities/security/secrets_client.py:746
-      - docs/architecture/drift_proof_release.md:124
+      - docs/architecture/drift_proof_release.md:147
       - pyproject.toml:428
       - scripts/update_ontology_lock.py:132
       - tests/unit/knowledge_graph/ontology/test_release_key_custody.py:3
@@ -5180,10 +5180,10 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine.py:199
-      - agent_utilities/knowledge_graph/core/engine.py:673
-      - agent_utilities/knowledge_graph/core/engine.py:860
-      - agent_utilities/knowledge_graph/core/engine.py:945
+      - agent_utilities/knowledge_graph/core/engine.py:205
+      - agent_utilities/knowledge_graph/core/engine.py:733
+      - agent_utilities/knowledge_graph/core/engine.py:920
+      - agent_utilities/knowledge_graph/core/engine.py:1003
       - agent_utilities/models/schema_pack_audit.py:4
       - agent_utilities/models/schema_pack_loader.py:6
       - tests/knowledge_graph/test_schema_pack_audit.py:5
@@ -5363,7 +5363,7 @@ concepts:
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files:
-      - tests/test_chunked_drain.py
+      - tests/unit/knowledge_graph/test_chunked_drain.py
       doc_files:
       - docs/architecture/chunked-async-drain.md
       - docs/architecture/north-star-architecture.md
@@ -5432,7 +5432,7 @@ concepts:
       - agent_utilities/knowledge_graph/core/chunked_drain.py:236
       - agent_utilities/knowledge_graph/core/chunked_drain.py:445
       - agent_utilities/knowledge_graph/core/engine_tasks.py:4885
-      - agent_utilities/knowledge_graph/core/source_sync.py:4555
+      - agent_utilities/knowledge_graph/core/source_sync.py:4639
       - agent_utilities/knowledge_graph/core/task_lanes.py:59
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26121
       - agent_utilities/mcp/tools/ontology_tools.py:1304
@@ -5441,7 +5441,7 @@ concepts:
       - docs/architecture/north-star-architecture.md:72
       - docs/capabilities-power.json:26121
       - docs/capabilities-power.md:4668
-      - tests/test_chunked_drain.py:3
+      - tests/unit/knowledge_graph/test_chunked_drain.py:3
   AU-KG.ontology.standalone-generation:
     decision: PENDING
     parent: ''
@@ -5496,7 +5496,7 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:377
-      - agent_utilities/mcp/kg_server.py:1324
+      - agent_utilities/mcp/kg_server.py:1325
       - agent_utilities/mcp/tools/ontology_tools.py:826
   AU-KG.ontology.stardog-catalog-overwrite:
     decision: PENDING
@@ -5527,8 +5527,8 @@ concepts:
       sites:
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:187
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:234
-      - agent_utilities/mcp/kg_server.py:1302
-      - agent_utilities/mcp/kg_server.py:4099
+      - agent_utilities/mcp/kg_server.py:1303
+      - agent_utilities/mcp/kg_server.py:4122
       - agent_utilities/mcp/tools/ontology_tools.py:809
       - tests/unit/knowledge_graph/core/test_ontology_stardog_overwrite_import.py:3
       - tests/unit/mcp/test_ontology_stardog_surface.py:3

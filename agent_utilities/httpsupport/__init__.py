@@ -1,0 +1,92 @@
+"""``agent_utilities.httpsupport`` — the shared fleet HTTP client library.
+
+CONCEPT:AU-ECO.ui.fleet-http-client-library — Fleet HTTP Client Library
+
+The consolidation audit's highest-leverage item: 10+ connector repos each
+carried a ~95%-identical ``api_client_base.py`` with no retry, no rate-limit
+capture, and no log redaction. This package is the single shared base —
+built on the canonical :mod:`agent_utilities.core.http_client` factory —
+that fleet connectors strangle their local copies onto.
+
+Components:
+
+* :class:`BaseApiClient` / :class:`AsyncBaseApiClient` — envelope-returning
+  httpx clients with auth injection, 429 backoff, error mapping, redaction,
+  destructive gating and pagination (:mod:`agent_utilities.httpsupport.client`).
+* Auth strategies — :class:`TokenAuth` (``Bearer``/``SSWS``/bare; static or
+  ``token_provider`` callable), :class:`BasicAuth`,
+  :class:`QueryApiKeyAuth` (:mod:`agent_utilities.httpsupport.auth`).
+* Rate-limit telemetry — :class:`RateLimitSnapshot` /
+  :class:`RateLimitCapture` / :func:`backoff_seconds`
+  (:mod:`agent_utilities.httpsupport.rate_limit`).
+* Pagination — :class:`PaginationIterator` / :class:`AsyncPaginationIterator`
+  over cursor / page / offset / Link-header / since-id dialects
+  (:mod:`agent_utilities.httpsupport.pagination`).
+* Log redaction — :class:`LogRedactor` / :func:`redact_text`
+  (:mod:`agent_utilities.httpsupport.redaction`).
+
+HTTP transport failures are retried by
+:class:`~agent_utilities.orchestration.resilience.ResiliencePolicy` through
+the clients' ``retry=`` parameter. HTTP 429 backoff remains rate-limit aware
+and is handled by the client itself.
+"""
+
+from __future__ import annotations
+
+from agent_utilities.core.http_client import (
+    DEFAULT_HTTP_TIMEOUT_S,
+    create_async_http_client,
+    create_http_client,
+    http_retry_policy,
+)
+from agent_utilities.httpsupport.auth import (
+    AuthHeaderInjector,
+    BasicAuth,
+    QueryApiKeyAuth,
+    TokenAuth,
+)
+from agent_utilities.httpsupport.client import (
+    DEFAULT_ERROR_MAP,
+    DEFAULT_MAX_RETRIES_429,
+    AsyncBaseApiClient,
+    BaseApiClient,
+    DestructiveOperationError,
+)
+from agent_utilities.httpsupport.pagination import (
+    AsyncPaginationIterator,
+    PaginationIterator,
+)
+from agent_utilities.httpsupport.rate_limit import (
+    DEFAULT_RETRY_AFTER_CAP_S,
+    RateLimitCapture,
+    RateLimitSnapshot,
+    backoff_seconds,
+    parse_rate_limit,
+)
+from agent_utilities.httpsupport.redaction import REDACTED, LogRedactor, redact_text
+
+__all__ = [
+    "DEFAULT_ERROR_MAP",
+    "DEFAULT_HTTP_TIMEOUT_S",
+    "DEFAULT_MAX_RETRIES_429",
+    "DEFAULT_RETRY_AFTER_CAP_S",
+    "REDACTED",
+    "AsyncBaseApiClient",
+    "AsyncPaginationIterator",
+    "AuthHeaderInjector",
+    "BaseApiClient",
+    "BasicAuth",
+    "DestructiveOperationError",
+    "LogRedactor",
+    "PaginationIterator",
+    "QueryApiKeyAuth",
+    "RateLimitCapture",
+    "RateLimitSnapshot",
+    "TokenAuth",
+    "backoff_seconds",
+    "create_async_http_client",
+    "create_http_client",
+    "http_retry_policy",
+    "parse_rate_limit",
+    "redact_text",
+]

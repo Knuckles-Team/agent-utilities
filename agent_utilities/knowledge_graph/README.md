@@ -19,7 +19,8 @@ The UIG is built on **one database — the epistemic-graph engine authority** (t
 
 The engine supports four orthogonal retrieval views:
 - **Semantic**: Conceptual similarity via vector embeddings.
-- **Temporal**: Chronological episodic memory with Ebbinghaus decay.
+- **Temporal**: Canonical `RunTrace` execution provenance, ordered by numeric
+  `event_sequence` under the normal tenant/read-policy boundary.
 - **Causal**: Reasoning traces and "Why" links between decisions.
 - **Entity**: Structural knowledge of People, Organizations, and Code Symbols.
 

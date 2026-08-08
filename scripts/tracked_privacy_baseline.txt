@@ -1,0 +1,40 @@
+# Frozen baseline of pre-existing privacy leaks that D-CIP-10's scope
+# fix made VISIBLE for the first time (a ratchet — burn down toward
+# zero, same convention as scripts/security/cypher_write_subset_baseline.txt).
+#
+# Until D-CIP-10, check_tracked_privacy had two passes with a hole
+# between them: the whole-tree pass was location-filtered to docs/,
+# .github/, top-level and *.toml, and the unrestricted pass was scoped
+# to `git diff`. Anything committed earlier under docker/ or
+# agent_utilities/ was scanned by neither, so these leaks were public
+# and invisible. They are NOT new — only newly seen.
+#
+# These entries are tracked debt, not exemptions. Two are the personal
+# account name in live kaniko Job manifests (D-PCC-1, owned by
+# lane-release-0801); the rest are internal endpoints and shared-account
+# paths. GitHub is public-facing and gets STRICT standards, so this file
+# must reach zero before the repository is pushed.
+#
+# TAB-separated: path\tline\tcategory\tcontent_hash\tordinal. The KEY is
+# (path, category, content_hash, ordinal) -- content_hash is an
+# irreversible fingerprint of the offending line, so an entry is stable
+# under pure line motion elsewhere in the file (D-W2P: this file used to
+# key on (path, line, category) alone and reported moved-not-new leaks as
+# phantom NEW findings). `line` is informational only, for a human to
+# locate the site; it is never compared. A NEW leak (not listed here)
+# FAILS the gate. Fixing a listed site shrinks this file on the next
+# --update-baseline; never hand-add an entry to make a real leak
+# disappear.
+#
+# Currently EMPTY (0 known leaks): the 17 entries this file carried were
+# all resolved by lane-push-0802 -- the 9 deploy/k8s/graphos-homelab-*
+# leaks were removed by relocating those two runbooks out of the public
+# repo, the remaining 8 hard-coded-endpoint/credential-URI sites in
+# base_utilities.py / nl_planner.py / server_factory.py / deploy_wizard.py
+# were fixed at the source, and deploy_wizard.py's remaining CHANGEME
+# template placeholders are now recognized as non-credentials by
+# _is_credential_placeholder() rather than flagged. Re-scanned after
+# merging both fixes: check_tracked_privacy.py reports 0 violations.
+# An empty file is still keyed on the scheme above -- the NEXT entry
+# written here (via --update-baseline) must follow it, not the old
+# (path, line, category) shape.

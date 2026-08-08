@@ -13,7 +13,18 @@ if typing.TYPE_CHECKING:
     from .._engine_protocol import _EngineProtocol
     from ..core.session import GraphSession
 
-    _Base = _EngineProtocol
+    # D-CDX-71: a plain `_Base = _EngineProtocol` variable assignment is not
+    # valid as a mypy base-class expression once the defining module is
+    # outside the checked import graph (e.g. an isolated
+    # `--follow-imports=skip` run on this file alone) -- mypy cannot resolve
+    # what the variable's *value* names as a class in that mode, even though
+    # a real class statement referencing the same name resolves fine either
+    # way. Declaring an actual TYPE_CHECKING-only class named `_Base` (rather
+    # than assigning a variable) gives mypy a structural definition it can
+    # always see, so both the isolated and the fully-configured (import
+    # following) runs agree. This branch never executes at runtime.
+    class _Base(_EngineProtocol):
+        pass
 else:
     _Base = object
 
@@ -193,7 +204,12 @@ class QueryMixin(_Base):
         try:
             from agent_utilities.knowledge_graph.core.secured_reads import scope
 
-            scoped_query = scope(query, session.actor)
+            # D-W2T-2: `scope()` now returns (query, extra_params) — the tenant
+            # id is injected as a bound `$_tenant_scope_id` parameter, not a
+            # string-literal splice. Merge it into this call's own params dict
+            # (same convention as the `_clearance_level` system param above).
+            scoped_query, tenant_params = scope(query, session.actor)
+            params.update(tenant_params)
             if aggregate_query:
                 # CONCEPT:AU-KG.compute.data-is-private-its — an aggregate has no row
                 # to post-filter by owner/scope (below), so that boundary is pushed
@@ -223,9 +239,13 @@ class QueryMixin(_Base):
 
                 agg_var = primary_bound_variable(query)
                 if agg_var is not None:
-                    scoped_query = apply_visibility(
+                    # D-W2T-2: same (query, extra_params) contract as scope()
+                    # above — the visibility owner id is a bound
+                    # `$_visibility_owner_id` parameter now.
+                    scoped_query, vis_params = apply_visibility(
                         scoped_query, session.actor, var=agg_var
                     )
+                    params.update(vis_params)
         except Exception as exc:
             raise PermissionError("Graph query scoping failed") from exc
 
@@ -573,6 +593,19 @@ class QueryMixin(_Base):
                     # as an un-scored 0.0 and always fail LOW_RELEVANCE_TOPK.
                     if "_score" not in data and "score" in item:
                         data["_score"] = item["score"]
+                        # D-GS27-6/D-EMB: this is the engine-native `discover`
+                        # keyword-overlap score, NOT a cosine similarity — the
+                        # same category error _lexical_fallback's flat 0.2
+                        # sentinel had (RetrievalQualityGate grading it against
+                        # the vector-calibrated threshold always fails it,
+                        # e.g. composite=0.02 regardless of actual keyword
+                        # relevance). Tagged (not yet separately thresholded —
+                        # left OPEN, see retrieval_quality.py's
+                        # _result_threshold) so it is at least IDENTIFIABLE as
+                        # its own untagged-score class instead of silently
+                        # blending into "low_relevance_topk" with no way to
+                        # tell it apart from a genuine vector-score miss.
+                        data.setdefault("_fallback", "keyword_discover")
                     req_class = data.get("requiresClassification", 0)
                     if isinstance(req_class, int) and req_class > clearance_level:
                         continue
@@ -1129,9 +1162,9 @@ class QueryMixin(_Base):
         # which folds it into 'node_type' before every write) -- reading
         # 'type' here silently matched nothing, so search_memories() always
         # returned empty regardless of what was actually found.
-        return [
-            r for r in results if r.get("node_type") == RegistryNodeType.MEMORY
-        ][:top_k]
+        return [r for r in results if r.get("node_type") == RegistryNodeType.MEMORY][
+            :top_k
+        ]
 
     def query_impact(self, symbol_or_file: str) -> list[dict[str, Any]]:
         """Calculate the topological impact set for a code entity."""
@@ -1378,7 +1411,14 @@ class QueryMixin(_Base):
         query: str,
         views: list[str] | None = None,
     ) -> dict[str, Any]:
-        """Perform policy-guided retrieval across all orthogonal MAGMA views."""
+        """Perform policy-guided retrieval across all orthogonal MAGMA views.
+
+        The temporal view is the canonical execution-provenance stream: it
+        returns ``RunTrace`` rows in descending numeric ``event_sequence``
+        order through :meth:`query_cypher`, retaining the normal tenant and
+        read-policy boundary.  Conversational ``Episode`` nodes are not
+        execution provenance and are intentionally excluded here.
+        """
         if views is None:
             views = [
                 "semantic",
