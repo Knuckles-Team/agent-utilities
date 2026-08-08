@@ -294,7 +294,84 @@ def _request_authority(config: Any) -> tuple[str, dict[str, Any]]:
     return resolve_engine_auth(config), session.engine_verified_context()
 
 
-def _query_catalog(
+#: Substring of the engine's own ``require_admin_capability`` denial
+#: (``epistemic-graph/src/server/access.rs::require_admin_capability_with_policy``:
+#: ``"ACCESS_DENIED: verified principal lacks admin capability required for
+#: '{action}'"``). Matched, never guessed at, against the exact raised text so
+#: the admin-capability broker fallback below only ever fires for THIS specific
+#: denial — a bad auth secret, an unreachable engine, or a genuine scope denial
+#: (``"lacks required scope"``, a DIFFERENT message from a DIFFERENT check —
+#: see ``request_identity.py``'s module docstring) must never trigger it.
+_ADMIN_CAPABILITY_DENIAL = "lacks admin capability"
+
+
+def _admin_capability_denied(exc: BaseException | None) -> bool:
+    """True when ``exc`` (or its chained cause) is the engine's admin-capability
+    denial specifically, not a scope failure, network error, or anything else."""
+    seen: set[int] = set()
+    current = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if _ADMIN_CAPABILITY_DENIAL in str(current):
+            return True
+        current = current.__cause__
+    return False
+
+
+def _broker_authority(config: Any) -> tuple[str, dict[str, Any]] | None:
+    """Resolve the admin-capability broker's own verified engine authority.
+
+    CONCEPT:AU-OS.identity.idp-role-to-engine-capability-bridge (register
+    D-W6-ISO-1) — see ``AgentConfig.kg_admin_broker_oauth2``'s docstring for
+    the full "why". Returns ``None`` (never raises) when the broker is not
+    configured, so every caller's fallback is a plain "nothing to try", not an
+    exception to catch. When configured, mints a REAL, independently
+    OIDC-verified :class:`~agent_utilities.security.brain_context.ActorContext`
+    for the broker's own OAuth2 client-credentials identity — the exact same
+    ``acquire_process_identity_token`` → ``actor_from_bearer_token`` path every
+    other external process identity in this codebase already goes through, no
+    parallel trust mechanism — and mints its ``GraphSession`` the ordinary way
+    (:func:`~agent_utilities.security.request_identity.mint_graph_session`), so
+    the returned ``verified_context`` is byte-for-byte the same shape a real
+    request's would be, just for the broker's own principal rather than the
+    original caller's.
+    """
+    oauth2 = getattr(config, "kg_admin_broker_oauth2", None)
+    if not oauth2:
+        return None
+    try:
+        from agent_utilities.security.request_identity import (
+            acquire_process_identity_token,
+            mint_actor_from_token_sync,
+            mint_graph_session,
+        )
+
+        class _BrokerConfigView:
+            """Minimal ``.kg_auth_token_ref``/``.kg_identity_oauth2`` shim so the
+            broker's distinct OAuth2 block can ride the SAME
+            ``acquire_process_identity_token`` resolver every other external
+            process identity uses, without that resolver needing to know a
+            second config field name exists."""
+
+            kg_auth_token_ref = None
+            kg_identity_oauth2 = oauth2
+
+        token = acquire_process_identity_token(_BrokerConfigView())
+        broker_actor = mint_actor_from_token_sync(token)
+        broker_session = mint_graph_session(broker_actor)
+    except Exception as exc:  # noqa: BLE001 - broker unavailable is a fallback miss, not a hard failure
+        logger.warning(
+            "admin-capability broker identity unavailable (%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
+        return None
+    from .graph_compute import resolve_engine_auth
+
+    return resolve_engine_auth(config), broker_session.engine_verified_context()
+
+
+def _attempt_route(
     tenant: str,
     sub_key: str,
     contacts: tuple[str, ...],
@@ -302,27 +379,15 @@ def _query_catalog(
     *,
     client_factory: Callable[[str], Any] | None,
     client_epoch: int,
+    auth_secret: str | None,
+    verified_context: dict[str, Any] | None,
 ) -> PlacementResult:
-    """Ask every configured contact for an authoritative route; never guess.
+    """Try every configured contact once, under ONE resolved identity.
 
-    Tries each of ``contacts`` in order and returns the first validated,
-    authoritative answer (any reachable member of a raft-replicated cluster
-    can answer; the catalog is cluster-wide, not per-shard). Under the
-    hermetic unit-testing guard (:func:`_hermetic_testing_guard`) with no
-    injected ``client_factory``, this fails closed immediately instead of
-    dialing a real socket.
+    Split out of :func:`_query_catalog` so that function can retry the exact
+    same contact list under a DIFFERENT (broker) identity on a specific
+    denial, without duplicating the try-every-contact loop.
     """
-    if _hermetic_testing_guard(client_factory):
-        raise PlacementAuthorityError(
-            "placement catalog lookup skipped under the hermetic testing guard "
-            "(AGENT_UTILITIES_TESTING); inject client_factory to exercise it"
-        )
-
-    auth_secret: str | None = None
-    verified_context: dict[str, Any] | None = None
-    if client_factory is None:
-        auth_secret, verified_context = _request_authority(config)
-
     failures = 0
     last_error: Exception | None = None
     for contact in contacts:
@@ -372,6 +437,92 @@ def _query_catalog(
     raise PlacementAuthorityError(
         f"no configured engine returned an authoritative route ({failures} failed)"
     ) from last_error
+
+
+def _query_catalog(
+    tenant: str,
+    sub_key: str,
+    contacts: tuple[str, ...],
+    config: Any,
+    *,
+    client_factory: Callable[[str], Any] | None,
+    client_epoch: int,
+) -> PlacementResult:
+    """Ask every configured contact for an authoritative route; never guess.
+
+    Tries each of ``contacts`` in order and returns the first validated,
+    authoritative answer (any reachable member of a raft-replicated cluster
+    can answer; the catalog is cluster-wide, not per-shard). Under the
+    hermetic unit-testing guard (:func:`_hermetic_testing_guard`) with no
+    injected ``client_factory``, this fails closed immediately instead of
+    dialing a real socket.
+
+    Admin-capability broker fallback (register D-W6-ISO-1): when the caller's
+    own identity is denied specifically because the engine has no admin
+    capability registered for it (:func:`_admin_capability_denied` — NOT a
+    scope failure, NOT a network/transport failure), and
+    ``AgentConfig.kg_admin_broker_oauth2`` is configured, retry the identical
+    contact list ONE more time under the broker's own verified identity
+    (:func:`_broker_authority`). This resolves ROUTING METADATA ONLY — the
+    caller's own session (unchanged) still performs the actual data read that
+    follows, so per-graph ACL/RLS is enforced exactly as it always was. A
+    caller whose own JWT was never verified with ``kg:admin`` never reaches
+    this: the scope check (``verified_context.allows_method`` engine-side)
+    denies them long before an admin-capability denial could occur, and the
+    broker is only ever consulted in response to that specific engine denial.
+    """
+    if _hermetic_testing_guard(client_factory):
+        raise PlacementAuthorityError(
+            "placement catalog lookup skipped under the hermetic testing guard "
+            "(AGENT_UTILITIES_TESTING); inject client_factory to exercise it"
+        )
+
+    auth_secret: str | None = None
+    verified_context: dict[str, Any] | None = None
+    if client_factory is None:
+        auth_secret, verified_context = _request_authority(config)
+
+    try:
+        return _attempt_route(
+            tenant,
+            sub_key,
+            contacts,
+            config,
+            client_factory=client_factory,
+            client_epoch=client_epoch,
+            auth_secret=auth_secret,
+            verified_context=verified_context,
+        )
+    except PlacementAuthorityError as exc:
+        if client_factory is not None or not _admin_capability_denied(exc):
+            raise
+        broker = _broker_authority(config)
+        if broker is None:
+            raise
+        broker_secret, broker_context = broker
+        try:
+            result = _attempt_route(
+                tenant,
+                sub_key,
+                contacts,
+                config,
+                client_factory=None,
+                client_epoch=client_epoch,
+                auth_secret=broker_secret,
+                verified_context=broker_context,
+            )
+        except Exception:
+            # The broker fallback failed too (e.g. the broker identity ALSO
+            # lacks admin capability, or the engine is genuinely unreachable) —
+            # surface the ORIGINAL caller-identity denial, not the broker's,
+            # so the error a real user sees still describes their own request.
+            raise exc from None
+        logger.info(
+            "placement route for tenant=%s resolved via the admin-capability "
+            "broker (caller identity lacked engine-registered admin capability)",
+            tenant,
+        )
+        return result
 
 
 def discovery_reachable(

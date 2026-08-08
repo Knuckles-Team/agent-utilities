@@ -396,6 +396,47 @@ class RegistryMixin(_Base):
             return {"id": prompt_id, **self.graph._get_node_properties(prompt_id)}
         return None
 
+    def get_all_mcp_servers(self) -> list[dict[str, Any]]:
+        """Return all MCPServer nodes from the KG, with their served tool count.
+
+        CONCEPT:AU-KG.query.object-graph-mapper — MCP Server Catalog. Mirrors
+        :meth:`get_all_prompts`'s KG-authority pattern: the discovered fleet
+        catalog (which servers exist, and how many tools each currently
+        SERVES) lives in the graph, not in a static ``mcp_config.json`` —
+        that file only ever holds process-launch config (command/args) for a
+        *local* server list, never the fleet-wide discovered set. Consumers
+        needing an is-this-server-enabled/disabled toggle should merge this
+        with :meth:`get_toggle_state`, mirroring how prompts/skills already do.
+        """
+        results: list[dict[str, Any]] = []
+        if self.backend:
+            rows = self.backend.execute(
+                "MATCH (s:MCPServer) "
+                "OPTIONAL MATCH (s)-[:SERVES]->(t:Tool) "
+                "RETURN s.id, s.name, s.synonyms, s.disabled, count(t) AS tool_count "
+                "ORDER BY s.name",
+                {},
+            )
+            for row in rows:
+                results.append(
+                    {
+                        "id": row.get("s.id", ""),
+                        "name": row.get("s.name", ""),
+                        "synonyms": row.get("s.synonyms", []),
+                        "disabled": bool(row.get("s.disabled", False)),
+                        "tool_count": row.get("tool_count", 0),
+                        "type": "mcp_server",
+                    }
+                )
+            return results
+
+        # In-memory
+        for nid in self.graph.node_ids():
+            data = self.graph._get_node_properties(nid)
+            if str(data.get("node_type", "")).lower() == "mcpserver":
+                results.append({"id": nid, "tool_count": 0, **data})
+        return results
+
     def add_prompt(
         self, content: str, name: str, author: str = "user", description: str = ""
     ) -> dict[str, Any]:

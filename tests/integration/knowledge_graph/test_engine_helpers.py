@@ -324,6 +324,72 @@ class TestGranularResourceQueries:
 
 
 # ─────────────────────────────────────────────────────────────────────
+#  CONCEPT:AU-KG.query.object-graph-mapper — MCP Server Catalog
+# ─────────────────────────────────────────────────────────────────────
+
+
+class TestMCPServerCatalog:
+    """Tests for get_all_mcp_servers (CONCEPT:AU-KG.query.object-graph-mapper).
+
+    Root cause this covers: agent-webui's Prompts Registry/Skills views
+    already read Prompt/Skill nodes straight from the KG, but the MCP
+    Servers surface fell back to a static ``mcp_config.json`` file that was
+    never populated with the discovered fleet catalog (D-W5WR-4/D-WD-7
+    follow-up) -- it always returned zero servers regardless of how many
+    real ``:MCPServer`` nodes the KG held. This proves the KG-authority
+    path a webui route can now call instead.
+    """
+
+    def test_get_all_mcp_servers_empty(self, engine: IntelligenceGraphEngine):
+        """Returns empty list when no MCPServer nodes are in the graph."""
+        assert engine.get_all_mcp_servers() == []
+
+    def test_get_all_mcp_servers_from_backend(self, engine: IntelligenceGraphEngine):
+        """Finds MCPServer nodes written through the real backend."""
+        engine._upsert_node(
+            "MCPServer",
+            "mcp_server_servicenow-api",
+            {
+                "name": "servicenow-api",
+                "synonyms": ["servicenow"],
+                "disabled": False,
+            },
+        )
+        servers = engine.get_all_mcp_servers()
+        assert len(servers) == 1
+        assert servers[0]["name"] == "servicenow-api"
+        assert servers[0]["disabled"] is False
+        assert servers[0]["type"] == "mcp_server"
+        assert servers[0]["tool_count"] == 0
+
+    def test_get_all_mcp_servers_counts_served_tools(
+        self, engine: IntelligenceGraphEngine
+    ):
+        """A server's tool_count reflects its outgoing SERVES edges."""
+        engine._upsert_node(
+            "MCPServer", "mcp_server_gitlab-mcp", {"name": "gitlab-mcp", "disabled": False}
+        )
+        engine._upsert_node(
+            "Tool",
+            "tool_gitlab-mcp_gitlab_issues",
+            {"name": "gitlab_issues"},
+        )
+        engine.link_nodes(
+            "mcp_server_gitlab-mcp", "tool_gitlab-mcp_gitlab_issues", "SERVES"
+        )
+        servers = engine.get_all_mcp_servers()
+        assert len(servers) == 1
+        assert servers[0]["tool_count"] == 1
+
+    def test_get_all_mcp_servers_sorted(self, engine: IntelligenceGraphEngine):
+        """Servers are returned sorted alphabetically by name."""
+        engine._upsert_node("MCPServer", "mcp_server_zeta", {"name": "zeta"})
+        engine._upsert_node("MCPServer", "mcp_server_alpha", {"name": "alpha"})
+        servers = engine.get_all_mcp_servers()
+        assert [s["name"] for s in servers] == ["alpha", "zeta"]
+
+
+# ─────────────────────────────────────────────────────────────────────
 #  CONCEPT:AU-KG.query.object-graph-mapper — Workspace Reload
 # ─────────────────────────────────────────────────────────────────────
 
