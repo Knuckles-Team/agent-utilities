@@ -41,3 +41,30 @@ concepts:
     source_repo: epistemic-graph
     code_paths:
       - epistemic-graph/epistemic_graph/skills/epistemic-graph-migrations/SKILL.md
+  - id: EG-KG.compute.quantum-circuit-ir
+    doc: "Quantum-native contracts (lane Q0, D-QN-1): the QuantumProgram IR, the vendor-neutral QuantumBackend trait + capability flags, the deterministic planner (R0-R5), and the exactness-typed QuantumResult"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/crates/eg-quantum-core/src/lib.rs
+      - epistemic-graph/crates/eg-quantum-core/src/ir.rs
+      - epistemic-graph/crates/eg-quantum-core/src/backend.rs
+      - epistemic-graph/crates/eg-quantum-core/src/planner.rs
+      - epistemic-graph/crates/eg-quantum-core/src/estimate.rs
+      - epistemic-graph/crates/eg-quantum-core/src/result.rs
+  - id: EG-KG.compute.quantum-qasm-interop
+    doc: "OpenQASM 2.0 import/export for QuantumProgram (lane Q2, D-QN-6): hand-rolled lexer/parser over the IR's bounded gate vocabulary, typed rejection of anything outside it"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/crates/eg-quantum-core/src/qasm.rs
+  - id: EG-KG.compute.quantum-gate-library
+    doc: "Dense unitary matrix literals for eg_quantum_core::ir::GateKind (lane Q1, D-QN-1), Apache-2.0 attributed and ported from QuantRS2, expressed over eg-numeric's Complex64"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/crates/eg-quantum-gates/src/lib.rs
+  - id: EG-KG.compute.quantum-backends
+    doc: "Pure-Rust QuantumBackend implementations (statevector + stabilizer, lane Q1/Q4, D-QN-1) the planner routes QuantumProgram circuits to"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/crates/eg-quantum-sim/src/lib.rs
+      - epistemic-graph/crates/eg-quantum-sim/src/statevector.rs
+      - epistemic-graph/crates/eg-quantum-sim/src/stabilizer.rs

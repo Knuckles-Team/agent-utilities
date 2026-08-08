@@ -294,7 +294,7 @@ Shipped but lightly documented (real code, importable today):
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **1151 canonical concepts** across **9 pillars**.
+Synthesized from concept markers in the codebase into **1155 canonical concepts** across **9 pillars**.
 
 > This count and the table below are generated from `docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand.
 
@@ -306,7 +306,7 @@ Synthesized from concept markers in the codebase into **1151 canonical concepts*
 | **AU-ORCH** AU-ORCH | AU-ORCH.adapter.adapter-registry-path-detection – AU-ORCH.twin.agent-digital-twin | 215 | Adapter registry + non-blocking PATH detection, Built-in adapter definitions, BYOK custom endpoint. The provider proxy emits OpenAI-compatible, Composable Skills + Generic Environment Adapter, Invalidate hot cache so routing reflects new self-knowledge, inject mounted composable-Skill instructions, Session ID of the parent graph if this state was forked, additive multi-CLI adapter dispatch. When a manifest requests an external runtime |
 | **AU-OS** AU-OS | AU-OS.audit.config-staleness-auditor – AU-OS.deployment.os-4 | 161 | Configuration Staleness Auditor, recursive-improvement velocity tracker that surfaces whether the loop is still improving and flags a non-positive derivative as a research-gets-harder signal, Agent OS Infrastructure, Agent Registry, autonomous spec→develop. OFF by default = review-first, Data Type Conversion, Desired-state fleet reconciler, Env-var drift guard |
 | **EG-AHE** EG-AHE | EG-AHE.harness.online-exploit-explore-reference | 1 | one online exploit/explore bandit router per agent |
-| **EG-KG** EG-KG | EG-KG.backend.is-configured-so-co – EG-KG.compute.concept-5 | 29 | is configured with, so a co-located deploy shares one source of, and generates summary text via the shared, through the facade so orchestration code, handled outside the single-anchor, model-free similar-code lookup. Returns the, Empty => no recency weighting, to turn each project, the type/scope-resolved call/inheritance graph |
+| **EG-KG** EG-KG | EG-KG.backend.is-configured-so-co – EG-KG.compute.concept-5 | 33 | is configured with, so a co-located deploy shares one source of, and generates summary text via the shared, through the facade so orchestration code, handled outside the single-anchor, model-free similar-code lookup. Returns the, Pure-Rust QuantumBackend implementations (statevector + stabilizer, lane Q1/Q4, D-QN-1) the planner routes QuantumProgram circuits to, Quantum-native contracts (lane Q0, D-QN-1): the QuantumProgram IR, the vendor-neutral QuantumBackend trait + capability flags, the deterministic planner (R0-R5), and the exactness-typed QuantumResult, Dense unitary matrix literals for eg_quantum_core::ir::GateKind (lane Q1, D-QN-1), Apache-2.0 attributed and ported from QuantRS2, expressed over eg-numeric's Complex64 |
 | **EG-ORCH** EG-ORCH | EG-ORCH.routing.lexical-capability-escalation | 1 | CONCEPT |
 | **EG-OS** EG-OS | EG-OS.deployment.binary-promotion | 1 | First authoritative boot: one-time .mp/WAL snapshot to redb migration on binary promotion |
 
