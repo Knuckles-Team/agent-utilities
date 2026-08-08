@@ -139,11 +139,19 @@ jobs:
         run: uv publish --check-url https://pypi.org/simple dist/agent_utilities-*.whl
   publish-docker:
     needs: publish-pypi
-    # D-ORC-10: same tag + environment gate as publish-pypi above -- this job
-    # `needs: publish-pypi`, so it cannot run unless that gate already passed,
-    # but the environment protection rule is declared here too since a
-    # reusable-workflow call is still a distinct deployment target.
-    environment: docker-publish
+    # D-ORC-10: this job `needs: publish-pypi`, so it cannot run unless that
+    # job's tag + environment gate already passed. It deliberately declares NO
+    # `environment:` of its own: a job that calls a reusable workflow (`uses:`)
+    # accepts only name/uses/with/secrets/needs/if/permissions/strategy/
+    # concurrency, and adding `environment:` makes the parser treat it as a
+    # normal job -- which then fails validation with "Unexpected value 'uses'"
+    # / "Required property is missing: runs-on" and takes the WHOLE workflow
+    # file down, so nothing in this pipeline runs at all. (Confirmed on
+    # agent-webui, whose identical `environment:`-on-a-`uses:`-job invalidated
+    # its pipeline.yml.) An environment protection rule for the container
+    # publish has to be declared on the publishing job INSIDE
+    # container_pipeline.yml instead; the `needs:` chain above is what gates
+    # this one.
     # SC-GHA-001 (this repo's own supply-chain-source-contract gate) requires every
     # external reusable workflow pinned to a full commit SHA, never a floating branch
     # ref -- so unlike epistemic-graph/agent-webui (no such gate), this cannot be
