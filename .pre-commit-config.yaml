@@ -441,6 +441,12 @@ repos:
     pass_filenames: false
     always_run: true
     verbose: true
+  - id: guardrail-entrypoint-engine-authority
+    name: Guardrail — every entrypoint reaches the graph through ONE engine authority (D-WD-7)
+    entry: python3 scripts/check_entrypoint_engine_construction.py
+    language: system
+    pass_filenames: false
+    always_run: true
   # The four gates below mirror the CI "Guardrails" workflow (guardrails.yml) so
   # a push can't fail a gate that pre-commit didn't already catch locally.
   - id: guardrail-eval-corpus
