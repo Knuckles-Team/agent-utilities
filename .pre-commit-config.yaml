@@ -581,6 +581,61 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual, pre-push]
+  # w5-ci-gates-local (D-W5CG-1): mirrors `.mergequeue.yaml`'s `contract-checks`
+  # gate (same glob, same bare-invocation shape) so a local `pre-commit run
+  # --hook-stage pre-push` reproduces the queue verdict instead of only
+  # discovering a contract regression after landing. Two exclusions from the
+  # queue's literal glob, both verified live in this worktree, neither this
+  # lane's to fix:
+  #   * check_current_only_contract_gate.py — see the dedicated hook below.
+  #   * check_sbom_licenses.py — needs `uv sync --group guardrails --extra
+  #     agent-runtime` PLUS the epistemic-graph/langfuse-agent sibling repos
+  #     checked out to audit their real installed license metadata; exits 1 in
+  #     ANY bare checkout (confirmed here) for lack of that setup, not because
+  #     of a license violation. The queue's `compare: lines` differential
+  #     already absorbs this (main fails it identically), but pre-commit has no
+  #     differential comparator, so including it here would make this hook
+  #     permanently red for an environment reason, in every worktree, forever.
+  # Like the queue's own gate, degrades honestly rather than masking: any
+  # OTHER forwarder that cannot even launch its target still counts as a
+  # failure. Measured cold on this worktree: ~80s for the full glob (dominated
+  # by check_context_compiler_boundary_gate.py ~14s,
+  # check_swallowed_errors_gate.py ~13s) — too slow for the default commit
+  # stage next to this file's sub-second hygiene hooks, so pre-push, same
+  # bucket as check-secret-history immediately above.
+  - id: contract-checks
+    name: CI/queue parity — scripts/security/check_*.py fast-tier forwarders (D-ML-1)
+    entry: python3 -c "import glob,subprocess,sys; skip={'scripts/security/check_current_only_contract_gate.py','scripts/security/check_sbom_licenses.py'}; fails=[s for s in sorted(glob.glob('scripts/security/check_*.py')) if s not in skip and subprocess.run([sys.executable,s],capture_output=True,text=True).returncode]; print(chr(10).join(fails)); sys.exit(1 if fails else 0)"
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
+  # NOT bundled into the hook above, and deliberately not on any commit-time
+  # stage at all: scripts/check_current_only_contract.py is real, currently-RED
+  # debt (403 pre-existing "retired surface" references, re-measured live -- .mergequeue.yaml's own older comment estimated ~490 — legacy `KG_*`/
+  # `kg_coordinator`/etc. tokens the codebase hasn't finished migrating off of,
+  # confirmed live in this worktree). `.mergequeue.yaml`'s `contract-checks`
+  # gate already anticipated exactly this count in its own `compare: lines`
+  # rationale comment; the forwarder that wires it into that glob
+  # (`check_current_only_contract_gate.py`) was the one gap — added this lane
+  # (D-W5CG-1) — so the QUEUE now catches a NEW retired-surface reference
+  # differentially (main's existing debt is not newly refused, only growth is).
+  # pre-commit has no differential comparator (unlike the queue's
+  # `compare: lines`), so wiring this hard-fail hook into ANY commit-blocking
+  # stage today would brick local `git commit`/`git push` repo-wide over
+  # pre-existing debt this lane does not own paying down — the same
+  # false-green-vs-blocks-everyone tradeoff D-CIP-11 already named once for
+  # this repo. `manual` only (not even pre-push) is the honest answer: run it
+  # on purpose (`pre-commit run check-current-only-contract-debt --hook-stage
+  # manual --all-files`) when you want the current backlog count, same as
+  # `pre-commit run --all-files` already surfaces via the queue/CI path.
+  - id: check-current-only-contract-debt
+    name: Current-only contract debt (retired-surface references) — informational, manual-only
+    entry: python3 scripts/security/check_current_only_contract_gate.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual]
   # D-CIP-6: 9 test files that guardrails.yml/security.yml run directly (not
   # via tests/gates or tests/scale, which ARE already covered by
   # guardrail-gate-meta-tests/guardrail-prod-profile above) had no always-run
