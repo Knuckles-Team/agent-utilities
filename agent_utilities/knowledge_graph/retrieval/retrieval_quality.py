@@ -286,15 +286,45 @@ class RetrievalQualityGate:
             float(env_lexical_threshold) if env_lexical_threshold is not None else 0.15
         )
 
+        # D-EMB-6/D-GS27-6: the engine-native ``discover()`` RPC's own keyword-overlap
+        # score (tagged ``_fallback == "keyword_discover"`` by ``engine_query.py``) is a
+        # THIRD scoring domain distinct from both the vector-calibrated ``self._threshold``
+        # and ``_lexical_fallback``'s flat 0.2 sentinel. Its scale is fixed by the engine
+        # source (epistemic-graph src/server/handlers/graph_ops.rs `discover`/
+        # `keyword_overlap`): a pure-keyword hit scores `matched_keywords / len(keywords)`
+        # (0 excluded — the keyword-only fallback path only inserts a candidate when
+        # `kw > 0.0`, so ANY returned discover() hit already matched at least one query
+        # keyword); a combined embedding+keyword hit scores
+        # `DISCOVER_SEM_WEIGHT(0.6)*sim + DISCOVER_KW_WEIGHT(0.4)*kw`, so even a single
+        # keyword match combined with near-zero semantic similarity lands well under the
+        # 0.6 vector threshold and was always failing LOW_RELEVANCE_TOPK regardless of
+        # relevance (observed composite=0.02 in D-GS27-6's
+        # test_mcp_server_ingestion_and_discovery). Set low enough that a minimal-but-real
+        # single-keyword-out-of-many match still passes (mirrors `_lexical_threshold`'s
+        # "just below a plausible minimum genuine signal" calibration), well above 0.0 so a
+        # caller that somehow constructs a degenerate zero score still fails closed.
+        env_keyword_discover_threshold = setting(
+            "KG_MIN_KEYWORD_DISCOVER_RELEVANCE_THRESHOLD"
+        )
+        self._keyword_discover_threshold = (
+            float(env_keyword_discover_threshold)
+            if env_keyword_discover_threshold is not None
+            else 0.1
+        )
+
     def _result_threshold(self, result: dict[str, Any]) -> float:
         """The relevance threshold that applies to one retrieved result.
 
         Lexical-fallback results (``_fallback == "lexical"``) are graded against
-        ``self._lexical_threshold``; every other result (genuine vector/cross-encoder
-        scores) against ``self._threshold``.
+        ``self._lexical_threshold``; engine-native keyword-discover results
+        (``_fallback == "keyword_discover"``) against ``self._keyword_discover_threshold``;
+        every other result (genuine vector/cross-encoder scores) against
+        ``self._threshold``.
         """
         if result.get("_fallback") == "lexical":
             return self._lexical_threshold
+        if result.get("_fallback") == "keyword_discover":
+            return self._keyword_discover_threshold
         return self._threshold
 
     @property
@@ -360,8 +390,9 @@ class RetrievalQualityGate:
 
         # Extract scores. Each result is graded against its OWN threshold — a
         # lexical-fallback hit's flat 0.2 sentinel against the lower
-        # ``_lexical_threshold``, every other (genuine vector/rerank) score against
-        # ``self._threshold`` — see ``_result_threshold``.
+        # ``_lexical_threshold``, an engine-native keyword-discover hit against
+        # ``_keyword_discover_threshold``, every other (genuine vector/rerank) score
+        # against ``self._threshold`` — see ``_result_threshold``.
         scores = [r.get("_score", 0.0) for r in results]
         thresholds = [self._result_threshold(r) for r in results]
         above = [s for s, t in zip(scores, thresholds, strict=False) if s >= t]
@@ -418,7 +449,8 @@ class RetrievalQualityGate:
 
         ``thresholds`` is the per-result effective threshold from
         :meth:`_result_threshold` (lexical-fallback hits use the lower
-        ``_lexical_threshold``, everything else ``self._threshold``) — kept
+        ``_lexical_threshold``, engine-native keyword-discover hits use
+        ``_keyword_discover_threshold``, everything else ``self._threshold``) — kept
         parallel to ``scores`` so a lexical-only result set is not misclassified
         as low-relevance purely because its flat fallback sentinel sits below the
         vector-similarity threshold it was never calibrated against.

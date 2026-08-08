@@ -81,7 +81,15 @@ def test_hydration_reserved_worker_claims_capability_hydration_over_saturating_l
 
     claimed = harness._claim_next_task(hydration_reserved=True)
 
-    assert claimed == ("boot-fleet", {"type": "capability_hydration"})
+    assert claimed == (
+        "boot-fleet",
+        {
+            "type": "capability_hydration",
+            "claimed_by": None,
+            "work_item_epoch": None,
+            "work_item_id": "workitem:ingest_task:boot-fleet",
+        },
+    )
     # It tried a hydration-scoped claim (never the unfiltered fallback that
     # would have handed it the legacy job) to land the boot job.
     assert all(kw.get("fairness_group") for kw in attempts)
@@ -108,7 +116,15 @@ def test_non_reserved_worker_is_unaffected_and_gets_the_unfiltered_claim(monkeyp
     harness = _ClaimHarness({"legacy-connector": "connector_sync"})
     claimed = harness._claim_next_task(hydration_reserved=False)
 
-    assert claimed == ("legacy-connector", {"type": "connector_sync"})
+    assert claimed == (
+        "legacy-connector",
+        {
+            "type": "connector_sync",
+            "claimed_by": None,
+            "work_item_epoch": None,
+            "work_item_id": "workitem:ingest_task:legacy-connector",
+        },
+    )
     # Exactly one attempt, unfiltered — no hydration probing for a plain worker.
     assert len(attempts) == 1
     assert attempts[0]["queue"] == "ingest_task"
@@ -138,7 +154,15 @@ def test_hydration_reserved_worker_falls_back_to_ordinary_work_when_idle(monkeyp
     harness = _ClaimHarness({"legacy-connector": "connector_sync"})
     claimed = harness._claim_next_task(hydration_reserved=True)
 
-    assert claimed == ("legacy-connector", {"type": "connector_sync"})
+    assert claimed == (
+        "legacy-connector",
+        {
+            "type": "connector_sync",
+            "claimed_by": None,
+            "work_item_epoch": None,
+            "work_item_id": "workitem:ingest_task:legacy-connector",
+        },
+    )
 
 
 class _StopLoop(BaseException):

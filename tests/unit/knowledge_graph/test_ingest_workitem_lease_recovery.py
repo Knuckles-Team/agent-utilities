@@ -100,7 +100,12 @@ def test_ingestion_claim_uses_short_crash_recovery_lease(monkeypatch):
 
     assert _ClaimLeaseHarness()._claim_next_task() == (
         "job-1",
-        {"type": "skill_workflows"},
+        {
+            "type": "skill_workflows",
+            "claimed_by": None,
+            "work_item_epoch": None,
+            "work_item_id": "workitem:ingest_task:job-1",
+        },
     )
     assert observed["lease_ttl_s"] == engine_tasks._TASK_WORK_ITEM_LEASE_SEC == 60.0
 

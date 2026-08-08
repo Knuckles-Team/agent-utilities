@@ -705,6 +705,67 @@ async def test_act_routes_plain_intent_to_graphos_skill_gateway(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_act_replays_unpinned_skill_delegation_with_hints_plus_plan_ref(monkeypatch):
+    """D-GIS-1: the DOCUMENTED replay flow (resubmit the same hints + plan_ref)
+    must work, not just the plan_ref-alone shortcut.
+
+    An UNPINNED skill-delegation intent (no ``tool`` hint — routed to
+    ``graph_orchestrate`` purely via D-INT-4's skill-delegation ranking bonus)
+    previously stored a preview whose stashed hints included a resolver-injected
+    ``tool`` key the caller never supplied and had no way to predict. Resubmitting
+    the caller's own original hints (plus the returned ``plan_ref``, exactly as
+    the tool's docstring instructs) then always failed with "Supplied hints do
+    not match the reviewed preview plan" — the equality check compared against
+    an artifact of routing, not of caller input.
+    """
+    seen: dict = {}
+
+    async def fake_graph_orchestrate(
+        task: str = "", skill_name: str = "", tool_server: str = ""
+    ) -> str:
+        seen.update(task=task, skill_name=skill_name, tool_server=tool_server)
+        return json.dumps(
+            {
+                "output": "delegated",
+                "resolution": {"kind": "skill", "name": skill_name},
+                "provenance": {"trace_ref": "trace:opaque"},
+            }
+        )
+
+    monkeypatch.setitem(
+        kg_server.REGISTERED_TOOLS, "graph_orchestrate", fake_graph_orchestrate
+    )
+    hints = {
+        "skill_name": "servicenow-incident-management",
+        "tool_server": "servicenow-mcp",
+        "task": "List the 3 most recent incidents. Read-only.",
+    }
+    intent = "Delegate to the servicenow-incident-management skill: retrieve and summarise incidents"
+    preview = await intent_tools.dispatch_intent(
+        "act", intent, hints=hints, execute=False
+    )
+    assert preview["routing"]["chosen_tool"] == "graph_orchestrate", (
+        "fixture assumption: the skill-delegation ranking bonus (D-INT-4) must "
+        "route this unpinned intent to graph_orchestrate for the scenario to apply"
+    )
+    plan_ref = preview["routing"]["plan"]["plan_ref"]
+
+    result = await intent_tools.dispatch_intent(
+        "act",
+        intent,
+        hints={**hints, "plan_ref": plan_ref},
+        execute=True,
+    )
+
+    assert result["executed"] is True, result.get("error")
+    assert seen == {
+        "task": hints["task"],
+        "skill_name": hints["skill_name"],
+        "tool_server": hints["tool_server"],
+    }
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("alias", ("agent", "server"))
 async def test_orchestration_target_alias_replays_as_agent_name(monkeypatch, alias):
     """Documented target aliases bind the same reviewed orchestration plan."""

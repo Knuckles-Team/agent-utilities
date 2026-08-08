@@ -74,7 +74,13 @@ def test_claim_next_uses_native_claim_and_keeps_fence_only_in_memory() -> None:
 
     assert result == (
         "job-1",
-        {"target": "workspace:repo", "type": "codebase"},
+        {
+            "target": "workspace:repo",
+            "type": "codebase",
+            "claimed_by": "worker-opaque",
+            "work_item_epoch": 4,
+            "work_item_id": "workitem:ingest_task:job-1",
+        },
     )
     assert harness._active_work_item_claim("job-1") == _claim()
     native_claim.assert_called_once_with(
