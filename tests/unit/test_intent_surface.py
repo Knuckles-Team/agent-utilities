@@ -705,6 +705,66 @@ async def test_act_routes_plain_intent_to_graphos_skill_gateway(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_documented_replay_of_unpinned_skill_delegation_hints_executes(
+    monkeypatch,
+):
+    """D-GIS-1: resubmitting the SAME hints plus the returned plan_ref, exactly
+    as the tool's own docstring instructs, must execute -- not be rejected
+    with "Supplied hints do not match the reviewed preview plan."
+
+    This reproduces the real defect shape: the caller never pins ``tool`` --
+    the skill-delegation phrase in the intent text implicitly routes to
+    ``graph_orchestrate`` (CONCEPT:AU-ECO.mcp.intent-surface-delegation-shape),
+    which is one of the tools in ``_DOCUMENTED_HINT_ALIASES``. That implicit
+    routing mutates the in-flight hints (injecting a synthetic ``tool`` key)
+    AFTER the preview snapshot is taken but BEFORE the execute-time equality
+    check runs against a resubmission of the caller's ORIGINAL hints -- so a
+    byte-identical replay of what the caller was told to resubmit was, until
+    fixed, spuriously rejected.
+    """
+    seen: dict = {}
+
+    async def fake_graph_orchestrate(
+        task: str = "", skill_name: str = "", tool_server: str = ""
+    ) -> str:
+        seen.update(task=task, skill_name=skill_name, tool_server=tool_server)
+        return "delegated"
+
+    monkeypatch.setitem(
+        kg_server.REGISTERED_TOOLS, "graph_orchestrate", fake_graph_orchestrate
+    )
+    intent = "Run the servicenow-incident-management skill to list recent incidents"
+    hints = {
+        "skill_name": "servicenow-incident-management",
+        "tool_server": "servicenow-mcp",
+        "task": "List the 3 most recent incidents. Read-only.",
+    }
+
+    preview = await intent_tools.dispatch_intent(
+        "act", intent, hints=hints, execute=False
+    )
+    assert preview["executed"] is False
+    assert preview["routing"]["chosen_tool"] == "graph_orchestrate"
+    plan_ref = preview["routing"]["plan"]["plan_ref"]
+
+    # The documented replay: the SAME hints the caller reviewed, PLUS the
+    # plan_ref -- exactly what the tool's docstring says to resubmit.
+    result = await intent_tools.dispatch_intent(
+        "act",
+        intent,
+        hints={**hints, "plan_ref": plan_ref},
+        execute=True,
+    )
+
+    assert result["executed"] is True, result.get("error")
+    assert seen == {
+        "task": hints["task"],
+        "skill_name": hints["skill_name"],
+        "tool_server": hints["tool_server"],
+    }
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("alias", ("agent", "server"))
 async def test_orchestration_target_alias_replays_as_agent_name(monkeypatch, alias):
     """Documented target aliases bind the same reviewed orchestration plan."""

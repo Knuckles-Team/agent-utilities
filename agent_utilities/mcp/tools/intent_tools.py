@@ -1162,6 +1162,15 @@ async def dispatch_intent(
                 "routing": {"verb": verb, "intent_ref": intent_ref},
             }
         replayed_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
+        logger.warning(
+            "D-GIS-1 INSTRUMENT replayed_hints=%r (types=%r) restored_hints=%r "
+            "(types=%r) equal=%r",
+            replayed_hints,
+            {k: type(v).__name__ for k, v in replayed_hints.items()},
+            restored_hints,
+            {k: type(v).__name__ for k, v in restored_hints.items()},
+            replayed_hints == restored_hints,
+        )
         if replayed_hints and replayed_hints != restored_hints:
             return {
                 "error": "Supplied hints do not match the reviewed preview plan.",
