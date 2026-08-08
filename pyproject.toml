@@ -273,7 +273,10 @@ documents = [
     # graph-wide, so these raise the floor for the whole all-extras lock.
     "banks>=2.4.5",     # CVE-2026-44209 — CRITICAL Jinja2 SSTI RCE
     "nltk>=3.10.0",     # CVE-2026-54293 — path traversal in nltk.data.load (already latest)
-    "pypdf>=6.14.2",    # CVE-2026-57204 — stream-length limit bypass
+    "pypdf>=6.15.0",    # CVE-2026-57204 — stream-length limit bypass;
+                        # GHSA-fp3f-mc75-235c + GHSA-fwg2-594c-jp42 — both
+                        # first fixed in 6.15.0, so the previous >=6.14.2
+                        # floor is itself vulnerable (OSV audit gate).
     # CONCEPT:PHASE2-RECONCILE — relaxed off the modernize-bump's 3.14.2 floor:
     # 3.14.1 already carries the CVE-2026-50269/54274/54275 fix (the original
     # floor before the Phase-1 bump), and it's the exact version ccxt==4.5.67
