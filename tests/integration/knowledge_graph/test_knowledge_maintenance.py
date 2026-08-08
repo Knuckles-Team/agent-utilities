@@ -90,9 +90,16 @@ def test_summarize_old_chats():
     maintainer = GraphMaintainer(engine)
     maintainer.summarize_old_chats(keep_days=30)
 
-    # 1 query for threads, 1 for messages, 1 to create summary, 1 to link summary, 1 to delete old msgs
-    assert len(backend.queries) == 5
+    # 1 query for threads, 1 for messages, 1 to create summary, 1 to delete old msgs.
+    # Linking the summary to its thread goes through engine.link_nodes(), not a raw
+    # backend.execute() Cypher query (a comma-pattern MATCH + edge MERGE exceeds the
+    # engine's native Cypher write subset — see maintainer.py's summarize_old_chats),
+    # so it is asserted separately below rather than counted in backend.queries.
+    assert len(backend.queries) == 4
     assert "ChatSummary" in backend.queries[2]["query"]
+    engine.link_nodes.assert_called_once()
+    assert engine.link_nodes.call_args.args[1] == "thread_1"
+    assert engine.link_nodes.call_args.args[2] == "PART_OF"
 
 
 @patch(

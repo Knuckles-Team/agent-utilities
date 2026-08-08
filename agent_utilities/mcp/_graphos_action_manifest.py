@@ -803,6 +803,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "engine_nodes", "action": "neighbors", "name": "engine_nodes_neighbors"},
     {
         "tool": "engine_nodes",
+        "action": "neighbors_batch",
+        "name": "engine_nodes_neighbors_batch",
+    },
+    {
+        "tool": "engine_nodes",
         "action": "neighbors_union",
         "name": "engine_nodes_neighbors_union",
     },

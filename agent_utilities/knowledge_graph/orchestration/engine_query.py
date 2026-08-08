@@ -593,18 +593,15 @@ class QueryMixin(_Base):
                     # as an un-scored 0.0 and always fail LOW_RELEVANCE_TOPK.
                     if "_score" not in data and "score" in item:
                         data["_score"] = item["score"]
-                        # D-GS27-6/D-EMB: this is the engine-native `discover`
+                        # D-GS27-6/D-EMB-6: this is the engine-native `discover`
                         # keyword-overlap score, NOT a cosine similarity — the
                         # same category error _lexical_fallback's flat 0.2
-                        # sentinel had (RetrievalQualityGate grading it against
-                        # the vector-calibrated threshold always fails it,
-                        # e.g. composite=0.02 regardless of actual keyword
-                        # relevance). Tagged (not yet separately thresholded —
-                        # left OPEN, see retrieval_quality.py's
-                        # _result_threshold) so it is at least IDENTIFIABLE as
-                        # its own untagged-score class instead of silently
-                        # blending into "low_relevance_topk" with no way to
-                        # tell it apart from a genuine vector-score miss.
+                        # sentinel had. Tagged so RetrievalQualityGate grades it
+                        # against its own separately-calibrated
+                        # _keyword_discover_threshold (retrieval_quality.py's
+                        # _result_threshold) instead of the vector-calibrated
+                        # default, which previously always failed it (e.g.
+                        # composite=0.02) regardless of actual keyword relevance.
                         data.setdefault("_fallback", "keyword_discover")
                     req_class = data.get("requiresClassification", 0)
                     if isinstance(req_class, int) and req_class > clearance_level:

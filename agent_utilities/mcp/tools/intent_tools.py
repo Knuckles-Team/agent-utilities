@@ -1161,8 +1161,34 @@ async def dispatch_intent(
                 "executed": False,
                 "routing": {"verb": verb, "intent_ref": intent_ref},
             }
-        replayed_hints = {k: v for k, v in raw_hints.items() if k != "plan_ref"}
-        if replayed_hints and replayed_hints != restored_hints:
+        # D-GIS-1: the equality check below exists so a caller resubmitting the
+        # SAME hints they previewed (plus plan_ref) is provably replaying what was
+        # reviewed. But `_remember_preview_plan` stores `raw_hints` from AFTER the
+        # resolver's own `chosen_tool` merge (below, "if chosen_tool in
+        # _DOCUMENTED_HINT_ALIASES"), which injects a "tool"/"_tool" key the
+        # caller never supplied and has no way to know in advance (it is the
+        # resolver's inferred routing target, e.g. an unpinned skill-delegation
+        # intent auto-resolving to `graph_orchestrate`). Comparing against that
+        # resolver-injected key made every unpinned non-read `act` reject its own
+        # documented "resubmit the same hints plus plan_ref" flow unconditionally
+        # -- the caller's hints could never contain a key they were never told to
+        # supply. Excluding it here does not weaken the check: everything the
+        # CALLER actually controls must still match exactly, and the resolver
+        # will independently re-derive the identical `tool` value from the
+        # (matched) remaining hints during dispatch below, so nothing forged by
+        # a caller can smuggle a different tool through this path.
+        _RESOLVER_INJECTED_HINT_FIELDS = ("tool", "_tool")
+        replayed_hints = {
+            k: v
+            for k, v in raw_hints.items()
+            if k != "plan_ref" and k not in _RESOLVER_INJECTED_HINT_FIELDS
+        }
+        comparable_restored_hints = {
+            k: v
+            for k, v in restored_hints.items()
+            if k not in _RESOLVER_INJECTED_HINT_FIELDS
+        }
+        if replayed_hints and replayed_hints != comparable_restored_hints:
             return {
                 "error": "Supplied hints do not match the reviewed preview plan.",
                 "executed": False,

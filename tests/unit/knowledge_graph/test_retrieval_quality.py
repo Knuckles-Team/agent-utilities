@@ -154,6 +154,26 @@ class TestGateFiltering:
         assert filtered == []
         assert not report.gate_passed
 
+    def test_keyword_discover_result_graded_against_its_own_threshold(self, gate):
+        """D-EMB-6/D-GS27-6: the engine-native ``discover()`` keyword-overlap
+        score is NOT a cosine similarity and must not be graded against the
+        vector-calibrated 0.6 default — a real single-keyword-out-of-many match
+        (e.g. composite ~0.02-0.1) previously always failed LOW_RELEVANCE_TOPK.
+        """
+        results = [
+            {"id": "n1", "_score": 0.15, "_fallback": "keyword_discover"},
+            {"id": "n2", "_score": 0.05, "_fallback": "keyword_discover"},
+        ]
+        filtered, report = gate.gate_results(results)
+        assert [r["id"] for r in filtered] == ["n1"]
+        assert report.gate_passed
+
+    def test_keyword_discover_threshold_is_below_the_vector_default(self, gate):
+        assert gate._keyword_discover_threshold < gate._threshold
+        assert gate._result_threshold({"_fallback": "keyword_discover"}) == (
+            gate._keyword_discover_threshold
+        )
+
     def test_gate_disabled_passes_everything(self, mock_engine, monkeypatch):
         """When gate is disabled, all results pass through."""
         import agent_utilities.knowledge_graph.retrieval.retrieval_quality as rq_module

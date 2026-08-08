@@ -31,6 +31,7 @@ from _test_engine import (
     TEST_AGENT_ID,
     TEST_AUDIENCE,
     TEST_AUTH_SECRET,
+    TEST_ENGINE_ENCRYPTION_KEY,
     TEST_POLICY_VERSION,
     TEST_SIGNER_KEY,
     TEST_TENANT,
@@ -93,6 +94,11 @@ class _RestartableNativeEngine:
                 auth_secret=TEST_AUTH_SECRET,
             ),
             "GRAPH_SERVICE_PERSIST_DIR": str(self.persist_dir),
+            # D-FSC-5: this engine persists real durable state (a restartable
+            # store, ACID cross-modal writes across a crash/restart) exactly
+            # like EphemeralEngine.start()'s subprocess env — same requirement,
+            # same test-only key.
+            "EPISTEMIC_GRAPH_ENCRYPTION_KEY": TEST_ENGINE_ENCRYPTION_KEY,
         }
         self.process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             [
