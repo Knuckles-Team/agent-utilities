@@ -713,7 +713,7 @@ requires-dist = [
     { name = "rdflib", marker = "extra == 'owl'", specifier = ">=7.6.0" },
     { name = "rdflib", marker = "extra == 'rdf'", specifier = ">=7.6.0" },
     { name = "requests", specifier = ">=2.34.2" },
-    { name = "ruff", marker = "extra == 'test'", specifier = ">=0.15.22" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.16.0" },
     { name = "safetensors", marker = "extra == 'finance-kronos'", specifier = ">=0.8.0" },
     { name = "skill-graphs", marker = "extra == 'agent-headless'", specifier = ">=1.1.0" },
     { name = "skill-graphs", marker = "extra == 'agent-runtime'", specifier = ">=1.1.0" },
