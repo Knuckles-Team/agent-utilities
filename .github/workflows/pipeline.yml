@@ -144,7 +144,13 @@ jobs:
     # but the environment protection rule is declared here too since a
     # reusable-workflow call is still a distinct deployment target.
     environment: docker-publish
-    uses: Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@dc60f5ca0cfd00bf2e66f912a33d6d0f8ee62874 # v2.0.1
+    # SC-GHA-001 (this repo's own supply-chain-source-contract gate) requires every
+    # external reusable workflow pinned to a full commit SHA, never a floating branch
+    # ref -- so unlike epistemic-graph/agent-webui (no such gate), this cannot be
+    # `@main`. Pinned to `main`'s tip as of 2026-08-06 to replace the stale/propagated
+    # dc60f5c pin with current content while staying SHA-pinned; bump this SHA the
+    # next time Knuckles-Team/pipelines' container_pipeline.yml changes.
+    uses: Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml@f304e620912e7b1e1bc1f590fa6c297faba274fb # main as of 2026-07-28
     permissions:
       contents: read
     secrets:
