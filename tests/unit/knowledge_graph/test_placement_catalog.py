@@ -353,3 +353,240 @@ def test_malformed_engine_endpoints_fail_closed(endpoints: Any) -> None:
             config=_Config(),
             client_factory=lambda _endpoint: _Client(answer, []),
         )
+
+
+# ── Admin-capability broker fallback (register D-W6-ISO-1) ────────────────
+#
+# These exercise the ``client_factory is None`` real-identity path, so
+# ``_request_authority``/``_default_connect``/``_broker_authority`` are
+# monkeypatched directly rather than dialing anything real.
+
+from agent_utilities.knowledge_graph.core import (  # noqa: E402
+    placement_catalog as _pc,
+)
+
+
+def _admin_denied_error() -> RuntimeError:
+    return RuntimeError(
+        "ACCESS_DENIED: verified principal lacks admin capability required "
+        "for 'admin:cluster-read'"
+    )
+
+
+def _scope_denied_error() -> RuntimeError:
+    return RuntimeError(
+        "ACCESS_DENIED: verified request context lacks required scope "
+        "'admin:cluster-read'"
+    )
+
+
+def test_admin_capability_denied_matches_the_exact_engine_denial() -> None:
+    assert _pc._admin_capability_denied(_admin_denied_error()) is True
+    assert _pc._admin_capability_denied(_scope_denied_error()) is False
+    assert _pc._admin_capability_denied(ConnectionError("unreachable")) is False
+    assert _pc._admin_capability_denied(None) is False
+
+
+def test_admin_capability_denied_walks_the_cause_chain() -> None:
+    wrapped = RuntimeError("no configured engine returned an authoritative route")
+    wrapped.__cause__ = _admin_denied_error()
+    assert _pc._admin_capability_denied(wrapped) is True
+
+
+def test_query_catalog_falls_back_to_broker_on_admin_capability_denial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A caller identity denied ONLY for missing engine admin capability is
+    retried once under the broker identity; the broker's route is returned and
+    the caller's own identity was tried first (never skipped)."""
+    attempts: list[str] = []
+
+    def fake_request_authority(config: Any) -> tuple[str, dict[str, Any]]:
+        return "caller-secret", {"principal": "caller"}
+
+    def fake_broker_authority(config: Any) -> tuple[str, dict[str, Any]] | None:
+        return "broker-secret", {"principal": "broker"}
+
+    def fake_default_connect(
+        endpoint: str,
+        auth_secret: str,
+        config: Any,
+        *,
+        verified_context: dict[str, Any],
+    ) -> Any:
+        attempts.append(verified_context["principal"])
+        if verified_context["principal"] == "caller":
+            raise _admin_denied_error()
+        return _Client({**_answer(), "endpoints": [endpoint]}, [])
+
+    monkeypatch.setattr(_pc, "_request_authority", fake_request_authority)
+    # The hermetic testing guard fails closed for the real client_factory=None
+    # path under AGENT_UTILITIES_TESTING -- these tests exercise that exact
+    # path with fully injected fakes, so opt back out for them specifically
+    # (mirrors _hermetic_testing_guard's own documented client_factory escape
+    # hatch, just applied via monkeypatch since client_factory itself must
+    # stay None to reach the real _request_authority/_broker_authority code).
+    monkeypatch.setattr(_pc, "_hermetic_testing_guard", lambda client_factory: False)
+    monkeypatch.setattr(_pc, "_broker_authority", fake_broker_authority)
+    monkeypatch.setattr(_pc, "_default_connect", fake_default_connect)
+
+    result = _pc._query_catalog(
+        "tenant",
+        "workspace",
+        ("tls://coordinator.invalid:9443",),
+        _Config(),
+        client_factory=None,
+        client_epoch=0,
+    )
+    assert attempts == ["caller", "broker"]
+    assert result.endpoint == "tls://coordinator.invalid:9443"
+
+
+def test_query_catalog_never_brokers_a_plain_scope_denial(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A scope denial (the caller's JWT never carried kg:admin at all) must
+    never be retried under the broker -- only the specific admin-CAPABILITY
+    denial (a verified kg:admin caller with no engine-side registration) may."""
+    broker_calls: list[None] = []
+
+    def fake_request_authority(config: Any) -> tuple[str, dict[str, Any]]:
+        return "caller-secret", {"principal": "caller"}
+
+    def fake_broker_authority(config: Any) -> tuple[str, dict[str, Any]] | None:
+        broker_calls.append(None)
+        return "broker-secret", {"principal": "broker"}
+
+    def fake_default_connect(
+        endpoint: str,
+        auth_secret: str,
+        config: Any,
+        *,
+        verified_context: dict[str, Any],
+    ) -> Any:
+        raise _scope_denied_error()
+
+    monkeypatch.setattr(_pc, "_request_authority", fake_request_authority)
+    # The hermetic testing guard fails closed for the real client_factory=None
+    # path under AGENT_UTILITIES_TESTING -- these tests exercise that exact
+    # path with fully injected fakes, so opt back out for them specifically
+    # (mirrors _hermetic_testing_guard's own documented client_factory escape
+    # hatch, just applied via monkeypatch since client_factory itself must
+    # stay None to reach the real _request_authority/_broker_authority code).
+    monkeypatch.setattr(_pc, "_hermetic_testing_guard", lambda client_factory: False)
+    monkeypatch.setattr(_pc, "_broker_authority", fake_broker_authority)
+    monkeypatch.setattr(_pc, "_default_connect", fake_default_connect)
+
+    with pytest.raises(PlacementAuthorityError):
+        _pc._query_catalog(
+            "tenant",
+            "workspace",
+            ("tls://coordinator.invalid:9443",),
+            _Config(),
+            client_factory=None,
+            client_epoch=0,
+        )
+    assert broker_calls == []
+
+
+def test_query_catalog_reraises_original_denial_when_broker_unconfigured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_request_authority(config: Any) -> tuple[str, dict[str, Any]]:
+        return "caller-secret", {"principal": "caller"}
+
+    def fake_default_connect(
+        endpoint: str,
+        auth_secret: str,
+        config: Any,
+        *,
+        verified_context: dict[str, Any],
+    ) -> Any:
+        raise _admin_denied_error()
+
+    monkeypatch.setattr(_pc, "_request_authority", fake_request_authority)
+    # The hermetic testing guard fails closed for the real client_factory=None
+    # path under AGENT_UTILITIES_TESTING -- these tests exercise that exact
+    # path with fully injected fakes, so opt back out for them specifically
+    # (mirrors _hermetic_testing_guard's own documented client_factory escape
+    # hatch, just applied via monkeypatch since client_factory itself must
+    # stay None to reach the real _request_authority/_broker_authority code).
+    monkeypatch.setattr(_pc, "_hermetic_testing_guard", lambda client_factory: False)
+    monkeypatch.setattr(_pc, "_broker_authority", lambda config: None)
+    monkeypatch.setattr(_pc, "_default_connect", fake_default_connect)
+
+    with pytest.raises(PlacementAuthorityError):
+        _pc._query_catalog(
+            "tenant",
+            "workspace",
+            ("tls://coordinator.invalid:9443",),
+            _Config(),
+            client_factory=None,
+            client_epoch=0,
+        )
+
+
+def test_query_catalog_reraises_original_denial_when_broker_also_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fake_request_authority(config: Any) -> tuple[str, dict[str, Any]]:
+        return "caller-secret", {"principal": "caller"}
+
+    def fake_broker_authority(config: Any) -> tuple[str, dict[str, Any]] | None:
+        return "broker-secret", {"principal": "broker"}
+
+    def fake_default_connect(
+        endpoint: str,
+        auth_secret: str,
+        config: Any,
+        *,
+        verified_context: dict[str, Any],
+    ) -> Any:
+        raise _admin_denied_error()
+
+    monkeypatch.setattr(_pc, "_request_authority", fake_request_authority)
+    # The hermetic testing guard fails closed for the real client_factory=None
+    # path under AGENT_UTILITIES_TESTING -- these tests exercise that exact
+    # path with fully injected fakes, so opt back out for them specifically
+    # (mirrors _hermetic_testing_guard's own documented client_factory escape
+    # hatch, just applied via monkeypatch since client_factory itself must
+    # stay None to reach the real _request_authority/_broker_authority code).
+    monkeypatch.setattr(_pc, "_hermetic_testing_guard", lambda client_factory: False)
+    monkeypatch.setattr(_pc, "_broker_authority", fake_broker_authority)
+    monkeypatch.setattr(_pc, "_default_connect", fake_default_connect)
+
+    with pytest.raises(PlacementAuthorityError):
+        _pc._query_catalog(
+            "tenant",
+            "workspace",
+            ("tls://coordinator.invalid:9443",),
+            _Config(),
+            client_factory=None,
+            client_epoch=0,
+        )
+
+
+def test_query_catalog_client_factory_path_never_consults_broker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The injected-``client_factory`` seam (every OTHER test in this file)
+    must stay byte-for-byte unaffected: it never resolves real identity and
+    must never consult the broker, even on an admin-capability-shaped error."""
+    broker_calls: list[None] = []
+    monkeypatch.setattr(
+        _pc,
+        "_broker_authority",
+        lambda config: broker_calls.append(None) or None,
+    )
+
+    def factory(_endpoint: str) -> _Client:
+        return _Client(_admin_denied_error(), [])
+
+    with pytest.raises(PlacementAuthorityError):
+        resolve_placement(
+            "tenant:workspace",
+            ["tls://coordinator.invalid:9443"],
+            config=_Config(),
+            client_factory=factory,
+        )
+    assert broker_calls == []

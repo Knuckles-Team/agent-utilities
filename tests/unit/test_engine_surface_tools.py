@@ -70,6 +70,7 @@ _EXPECTED_ROUTES = {
     "graph_federated_search": "/graph/federated-search",
     "graph_promql": "/graph/promql",
     "graph_traces": "/graph/traces",
+    "graph_logs": "/graph/logs",
     "graph_gis": "/graph/gis",
     "graph_memory": "/graph/memory",
 }
@@ -730,6 +731,77 @@ def test_kg_2_310_traces_degrades(monkeypatch, tools):
         )
     )
     assert out["degraded"] is True
+
+
+# ── graph_logs (D-W6-ISO-2) ────────────────────────────────────────────────
+def test_kg_2_310_logs_query_dispatches(monkeypatch, tools):
+    """graph_logs routes a query to the log-query surface when one is present."""
+    calls: list = []
+    obs = SimpleNamespace(query_logs=_recording_method(calls, "query_logs"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(observability=obs)
+    )
+    out = json.loads(
+        tools["graph_logs"](
+            action="query",
+            stream="agent-webui",
+            query="error",
+            start="0",
+            end="10",
+            limit=200,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["action"] == "query"
+    assert calls == [
+        (
+            "query_logs",
+            {
+                "stream": "agent-webui",
+                "query": "error",
+                "start": "0",
+                "end": "10",
+                "limit": 200,
+            },
+        )
+    ]
+
+
+def test_kg_2_310_logs_degrades_without_raising(monkeypatch, tools):
+    """graph_logs degrades cleanly (never raises) when the engine build has no
+    log-query surface -- this is the fix for POST /graph/logs' HTTP 405: the
+    route now exists and always answers, it just may answer 'degraded'."""
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
+    out = json.loads(
+        tools["graph_logs"](
+            action="query",
+            stream="",
+            query="",
+            start="",
+            end="",
+            limit=200,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["degraded"] is True
+
+
+def test_kg_2_310_logs_unknown_action_is_a_clean_error(tools):
+    out = json.loads(
+        tools["graph_logs"](
+            action="bogus",
+            stream="",
+            query="",
+            start="",
+            end="",
+            limit=200,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert "error" in out
 
 
 # ── graph_gis ────────────────────────────────────────────────────────────────

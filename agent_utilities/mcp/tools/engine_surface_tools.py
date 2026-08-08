@@ -105,6 +105,12 @@ _TRACES_GET_CANDIDATES: tuple[tuple[str, str], ...] = (
     ("traces", "get"),
     ("observability", "trace"),
 )
+_LOGS_QUERY_CANDIDATES: tuple[tuple[str, str], ...] = (
+    ("observability", "query_logs"),
+    ("observability", "search_logs"),
+    ("logs", "query"),
+    ("logs", "search"),
+)
 
 # graph_memory — EG-318 memory / scene / trajectory ops. Each logical action maps
 # to a small probe list of ``(sub_client_attr, method_attr)`` paths the engine
@@ -1940,6 +1946,72 @@ def register_engine_surface_tools(mcp) -> None:
 
     kg_server.REGISTERED_TOOLS["graph_traces"] = graph_traces
     kg_server.ACTION_TOOL_ROUTES["graph_traces"] = "/graph/traces"
+
+    # ══════════════════════════════════════════════════════════════════
+    # graph_logs — observability: log stream query (D-W6-ISO-2)
+    # ══════════════════════════════════════════════════════════════════
+    # Register-visible history: the webui Live Dashboards' Logs panel POSTed
+    # to ``/graph/logs`` and got a hard HTTP 405 -- no ``graph_logs`` tool (and
+    # therefore no ``/graph/logs`` route) had ever been registered at all, so
+    # the path was genuinely unregistered, not merely misconfigured. Adding it
+    # here, mirroring graph_promql/graph_traces exactly, makes ``/graph/logs``
+    # a REAL POST route (the 405 -> a normal 200 that degrades to
+    # ``{"surface": "logs", ...}`` when the engine build has no log-query
+    # surface yet -- see ``_LOGS_QUERY_CANDIDATES`` above). The engine's own
+    # log surface (``EPISTEMIC_GRAPH_OBS_ADDR``) today only ever INGESTS
+    # (``POST /v1/logs``); no query RPC exists on the wire client yet, so this
+    # degrades cleanly like graph_promql/graph_traces already do for a build
+    # without their surface -- never fabricates a log line.
+    @mcp.tool(
+        name="graph_logs",
+        description=(
+            "CONCEPT:AU-KG.coordination.engine-message-broker — query the engine's log stream. "
+            "action='query' (default): filter by 'stream'/free-form 'query' over "
+            "start..end, capped by 'limit'. Extra engine kwargs via params_json. "
+            "Degrades cleanly when the engine build has no log-query surface."
+        ),
+        tags=["graph-os", "engine", "observability", "logs"],
+    )
+    def graph_logs(
+        action: str = Field(default="query", description="query"),
+        stream: str = Field(default="", description="Log stream/source filter."),
+        query: str = Field(default="", description="Free-form filter expression."),
+        start: str = Field(default="", description="Range start, RFC3339/unix."),
+        end: str = Field(default="", description="Range end, RFC3339/unix."),
+        limit: int = Field(default=200, description="Max log lines to return."),
+        params_json: str = Field(
+            default="{}", description="JSON object of extra engine kwargs."
+        ),
+        graph: str = Field(
+            default="", description="Target graph (empty ⇒ deployment default)."
+        ),
+    ) -> str:
+        """Thin wrapper over the engine log-query surface (CONCEPT:AU-KG.coordination.engine-message-broker)."""
+        try:
+            extra = json.loads(params_json) if params_json else {}
+        except (TypeError, ValueError) as exc:
+            return _surface_error(exc, surface="logs", code="invalid_request")
+        if not isinstance(extra, dict):
+            return json.dumps(
+                {"surface": "logs", "error": "params_json must decode to an object"}
+            )
+        if action != "query":
+            return json.dumps(
+                {"surface": "logs", "error": f"unknown action {action!r}"}
+            )
+        params = _drop_empty(stream=stream, query=query, start=start, end=end)
+        params["limit"] = int(limit)
+        params.update(extra)
+        return _invoke(
+            surface="logs",
+            action=action,
+            graph=graph,
+            candidates=_LOGS_QUERY_CANDIDATES,
+            params=params,
+        )
+
+    kg_server.REGISTERED_TOOLS["graph_logs"] = graph_logs
+    kg_server.ACTION_TOOL_ROUTES["graph_logs"] = "/graph/logs"
 
     # ══════════════════════════════════════════════════════════════════
     # graph_gis — geospatial route / tile / geo-task ops
