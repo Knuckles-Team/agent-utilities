@@ -168,6 +168,22 @@ def record_offqueue_span(engine: Any, kind: str, profile: IngestProfile) -> None
     envelope (``type='offqueue:<kind>'`` + ``profile`` + ``duration_ms``) so the
     report aggregates it through the SAME path. Best-effort: it logs the profile
     regardless, and never raises into the pass it is measuring.
+
+    BUG-059 disposition — JUSTIFIED BYPASS. This writes straight to a fresh
+    ``EpistemicGraphBackend().for_graph("__control__")``, never through
+    ``IntelligenceGraphEngine._upsert_node``/``GraphComputeEngine.add_node``,
+    so it never reaches ``stamp_ownership``. Deliberate: every caller is an
+    OFF-QUEUE background maintenance pass (embed-backfill, concept-registry
+    embedding, assimilation) with no request/actor context, the payload is
+    pure system telemetry (a duration/profile envelope, not owned content),
+    and the whole write is already wrapped in a blanket
+    ``except Exception: pass`` — "never raises into the pass it is
+    measuring." Routing this through ``stamp_ownership`` would make it raise
+    ``IdentityRequiredError`` on every single call (no actor is ever bound
+    here) and, per this function's own contract, that failure would be
+    silently swallowed anyway — so it would only turn a working best-effort
+    span into a permanently-silently-failing one, not close a real gap. See
+    ``tests/unit/knowledge_graph/test_ingest_profile.py``.
     """
     import logging
 

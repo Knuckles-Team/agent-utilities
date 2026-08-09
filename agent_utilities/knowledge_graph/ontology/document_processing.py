@@ -1340,10 +1340,47 @@ class DocumentProcessor:
         CONCEPT:AU-KG.retrieval.section-tree. Reuses the same per-item write path
         as the chunk slice; nodes are flushed before their HAS_SUBSECTION edges so
         endpoints exist. Returns True if the write path was exercised.
+
+        BUG-059: sibling of :meth:`_persist` (the chunk-slice path), which
+        tries the governed ``_BatchedBackend`` wrapper first (stamps
+        ``stamp_ownership``/``stamp_classification`` on every node) and only
+        falls back to the raw ``writer``/``_write_node`` seam when the
+        backend has no bulk RPC path. This method used the raw fallback
+        UNCONDITIONALLY, so a section-tree write reaching this method (today
+        dormant — nothing populates ``result.section_nodes`` on any live
+        ingestion path yet, per BUG-LEDGER's disposition for this site) would
+        skip governance entirely, unlike its sibling. Made symmetric so
+        neither disagrees when the section-tree feature is wired to a live
+        producer.
         """
         writer = self._resolve_writer()
         if writer is None:
             return False
+
+        from agent_utilities.knowledge_graph.enrichment.pipeline import _BatchedBackend
+
+        batched = _BatchedBackend(writer)
+        if batched.bulk_available:
+            for sn in section_nodes:
+                props = {k: v for k, v in sn.items() if k not in ("id", "node_type")}
+                batched.add_node(sn["id"], label=sn["node_type"], **props)
+            for e in section_edges:
+                props = {
+                    k: v
+                    for k, v in e.items()
+                    if k not in ("source", "target", "relationship")
+                }
+                batched.add_edge(
+                    e["source"], e["target"], rel_type=e["relationship"], **props
+                )
+            try:
+                batched.flush()
+                return True
+            except Exception as exc:  # noqa: BLE001 — degrade to per-item below
+                logger.debug(
+                    "[section-tree] batched persist failed (%s); per-item", exc
+                )
+
         ok = False
         for sn in section_nodes:
             ok |= self._write_node(writer, sn)

@@ -647,6 +647,16 @@ class EnrichmentPipeline:
 
         Requires ``llm_fn`` (concept extraction). Returns the concepts + edges so
         the caller can cross-link and distil. Hash-incremental by content_hash.
+
+        BUG-059: this sibling of :meth:`enrich_files` used to write straight
+        through ``self.backend`` (the real backend), never through the
+        governed ``_BatchedBackend`` wrapper — so every Document/Concept/
+        Insight/Fact/Framework/Playbook node from this path skipped
+        ``stamp_ownership``/``stamp_classification`` entirely, unlike
+        ``enrich_files``, which already swaps ``self.backend`` for a
+        ``_BatchedBackend`` around its whole write section. There was no
+        reason for the two paths to disagree, and ``enrich_files`` was the
+        one that was right — apply the SAME swap here.
         """
         summary = EnrichmentSummary()
         all_concepts: dict[str, Concept] = {}
@@ -655,68 +665,74 @@ class EnrichmentPipeline:
             logger.warning("enrich_documents needs llm_fn; skipping concept extraction")
             return [], [], summary
 
-        for p in paths:
-            p = str(p)
-            summary.files_seen += 1
-            text = read_document_text(p)
-            if not text.strip():
-                continue
-            doc, concepts, edges = extract_document(p, text, self.llm_fn)
-            if self._hash_seen.get(p) == doc.content_hash:
-                summary.files_skipped_unchanged += 1
-                continue
-            self._hash_seen[p] = doc.content_hash
-            summary.files_parsed += 1
-            self.backend.add_node(
-                doc.id,
-                label="Document",
-                name=doc.title,
-                doc_type=doc.doc_type,
-                file_path=doc.file_path,
-                ast_hash=doc.content_hash,
-                metadata=json.dumps(doc.metadata)[:4000],
-            )
-            summary.documents += 1
-            # Distil reusable operating intelligence (CONCEPT:EG-KG.storage.nonblocking-checkpoint): turn the
-            # document/call into Insight/Fact/Framework/Playbook nodes.
-            try:
-                intel_nodes, intel_edges = extract_intelligence(
-                    text,
+        real_backend = self.backend
+        self.backend = _BatchedBackend(real_backend, source_system=self.source_system)
+        try:
+            for p in paths:
+                p = str(p)
+                summary.files_seen += 1
+                text = read_document_text(p)
+                if not text.strip():
+                    continue
+                doc, concepts, edges = extract_document(p, text, self.llm_fn)
+                if self._hash_seen.get(p) == doc.content_hash:
+                    summary.files_skipped_unchanged += 1
+                    continue
+                self._hash_seen[p] = doc.content_hash
+                summary.files_parsed += 1
+                self.backend.add_node(
                     doc.id,
-                    self.llm_fn,
-                    source_type=doc.doc_type,
-                    title=doc.title,
+                    label="Document",
+                    name=doc.title,
+                    doc_type=doc.doc_type,
+                    file_path=doc.file_path,
+                    ast_hash=doc.content_hash,
+                    metadata=json.dumps(doc.metadata)[:4000],
                 )
-                for node in intel_nodes:
-                    self._write_intelligence(node)
-                    summary.intelligence_nodes += 1
-                all_edges.extend(intel_edges)
-            except Exception as exc:  # pragma: no cover - enrichment best-effort  # noqa: BLE001 — the Document node itself was already committed via self.backend.add_node above; a failed intelligence-extraction pass just means fewer Insight/Fact/Framework/Playbook nodes for this document, not a lost or falsely-marked-processed document
-                logger.debug("intelligence extraction skipped for %s: %s", p, exc)
-            for c in concepts:
-                # Concepts are canonical by id; merge source_ids across docs.
-                existing = all_concepts.get(c.id)
-                if existing:
-                    existing.source_ids = sorted(
-                        set(existing.source_ids) | set(c.source_ids)
+                summary.documents += 1
+                # Distil reusable operating intelligence (CONCEPT:EG-KG.storage.nonblocking-checkpoint): turn the
+                # document/call into Insight/Fact/Framework/Playbook nodes.
+                try:
+                    intel_nodes, intel_edges = extract_intelligence(
+                        text,
+                        doc.id,
+                        self.llm_fn,
+                        source_type=doc.doc_type,
+                        title=doc.title,
                     )
-                else:
-                    all_concepts[c.id] = c
-            all_edges.extend(edges)
+                    for node in intel_nodes:
+                        self._write_intelligence(node)
+                        summary.intelligence_nodes += 1
+                    all_edges.extend(intel_edges)
+                except Exception as exc:  # pragma: no cover - enrichment best-effort  # noqa: BLE001 — the Document node itself was already committed via self.backend.add_node above; a failed intelligence-extraction pass just means fewer Insight/Fact/Framework/Playbook nodes for this document, not a lost or falsely-marked-processed document
+                    logger.debug("intelligence extraction skipped for %s: %s", p, exc)
+                for c in concepts:
+                    # Concepts are canonical by id; merge source_ids across docs.
+                    existing = all_concepts.get(c.id)
+                    if existing:
+                        existing.source_ids = sorted(
+                            set(existing.source_ids) | set(c.source_ids)
+                        )
+                    else:
+                        all_concepts[c.id] = c
+                all_edges.extend(edges)
 
-        for c in all_concepts.values():
-            self.backend.add_node(
-                c.id,
-                label="Concept",
-                name=c.name,
-                kind=c.kind,
-                summary=c.summary,
-                source_ids=json.dumps(c.source_ids),
-            )
-            summary.concepts += 1
-        for e in all_edges:
-            self._write_edge(e.source, e.target, e.rel_type)
-            summary.mentions_edges += 1
+            for c in all_concepts.values():
+                self.backend.add_node(
+                    c.id,
+                    label="Concept",
+                    name=c.name,
+                    kind=c.kind,
+                    summary=c.summary,
+                    source_ids=json.dumps(c.source_ids),
+                )
+                summary.concepts += 1
+            for e in all_edges:
+                self._write_edge(e.source, e.target, e.rel_type)
+                summary.mentions_edges += 1
+        finally:
+            self.backend.flush()
+            self.backend = real_backend
 
         return list(all_concepts.values()), all_edges, summary
 

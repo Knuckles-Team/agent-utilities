@@ -559,16 +559,32 @@ class ActionExecutor:
             # otherwise.
             typed_support = getattr(store, "typed_mutation_support", "")
             if typed_support == "native":
-                store.add_node(
-                    inv.id,
-                    "action_invocation",
-                    action_name=inv.action_name,
-                    actor_id=inv.actor_id,
-                    status=str(inv.status),
-                    result_summary=inv.result_summary,
-                    audit_ref=inv.audit_ref,
-                    timestamp=inv.timestamp,
-                )
+                # BUG-059: ``store`` is ``kg.store`` == ``engine.backend`` — the
+                # RAW backend. Calling ``store.add_node`` here (as this used to)
+                # never reaches ``IntelligenceGraphEngine._upsert_node`` /
+                # ``GraphComputeEngine.add_node``, so this write skipped the
+                # ``stamp_ownership``/``stamp_classification`` chokepoint
+                # entirely, regardless of actor state (a distinct defect class
+                # from BUG-055 "no actor bound" and BUG-056 "caller not
+                # audited" — the gate was never even entered). Stamp explicitly
+                # at this seam, same shape as
+                # ``enrichment.pipeline._BatchedBackend.add_node`` (a backend
+                # wrapper that also writes straight to the engine's bulk RPC,
+                # bypassing the same two chokepoints, and stamps locally for
+                # exactly this reason).
+                from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+                invocation_props: dict[str, Any] = {
+                    "action_name": inv.action_name,
+                    "actor_id": inv.actor_id,
+                    "status": str(inv.status),
+                    "result_summary": inv.result_summary,
+                    "audit_ref": inv.audit_ref,
+                    "timestamp": inv.timestamp,
+                }
+                stamp_ownership(invocation_props)
+                stamp_classification(invocation_props, "action_invocation")
+                store.add_node(inv.id, "action_invocation", **invocation_props)
 
                 # The actor/target may already exist as a real typed node
                 # (an Agent, a CallableResource, …) created by another code
@@ -581,10 +597,18 @@ class ActionExecutor:
                     with contextlib.suppress(Exception):
                         existing = store.get_node_properties(node_id)
                     if not existing:
-                        store.add_node(node_id, "Entity")
+                        ref_props: dict[str, Any] = {}
+                        stamp_ownership(ref_props)
+                        stamp_classification(ref_props, "Entity")
+                        store.add_node(node_id, "Entity", **ref_props)
 
                 # INVOKED_BY → actor
                 _ensure_ref(inv.actor_id)
+                # BUG-058 (owned separately): ``GraphComputeEngine.add_edge`` has
+                # NO ownership gate at all yet, and this ``store.add_edge`` is the
+                # same raw-backend seam as the node writes stamped above — there
+                # is currently nothing for an edge write to enter. Revisit once
+                # BUG-058 lands a real edge gate.
                 store.add_edge(inv.id, inv.actor_id, "INVOKED_BY")
 
                 # ACTS_ON → concrete target object (when supplied)

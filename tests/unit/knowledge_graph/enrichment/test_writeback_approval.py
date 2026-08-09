@@ -109,3 +109,105 @@ def test_high_stakes_dry_run_previews_without_queueing(sink):
     assert out["dry_run"] is True
     assert sink.live_calls == 0
     assert ProposalQueue().list(status="pending") == []
+
+
+# ---------------------------------------------------------------------------
+# BUG-059 — ProposalQueue writes are ROUTED through stamp_ownership/
+# stamp_classification, directly against a fake engine-authority backend (no
+# live engine needed — isolates the governance behaviour from the engine
+# resolution machinery the fixture above works around).
+# ---------------------------------------------------------------------------
+
+
+class _FakeApprovalBackend:
+    """Minimal engine-authority-shaped backend for ProposalQueue."""
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+
+    def execute(self, *_a, **_kw):  # pragma: no cover - only needs to exist
+        return []
+
+    def add_node(self, node_id, **props):
+        self.nodes[node_id] = props
+
+    def get_node_properties(self, node_id):
+        return self.nodes.get(node_id)
+
+    def nodes_by_label(self, _label):
+        return list(self.nodes.items())
+
+
+def test_proposal_queue_enqueue_requires_a_bound_actor():
+    """Known-bad input: no actor bound anywhere. BEFORE BUG-059's fix this
+    silently minted an unowned, unreadable-by-anyone-but-privileged
+    WritebackProposal node for the highest-stakes writes in the module
+    ("finance trades, legal filings, destructive infra"). AFTER, it raises."""
+    import contextvars
+
+    from agent_utilities.security.brain_context import IdentityRequiredError
+
+    backend = _FakeApprovalBackend()
+    queue = ProposalQueue(backend=backend)
+
+    def isolated():
+        with pytest.raises(IdentityRequiredError):
+            queue.enqueue("tesths", {"what": "trade"}, [{"op": "do_thing"}])
+
+    contextvars.Context().run(isolated)
+    assert backend.nodes == {}
+
+
+def test_proposal_queue_enqueue_stamps_ownership_when_actor_bound():
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext, use_actor
+
+    backend = _FakeApprovalBackend()
+    queue = ProposalQueue(backend=backend)
+    actor = ActorContext(
+        actor_id="user:approver",
+        actor_type=ActorType.HUMAN,
+        tenant_id="tenant-fin",
+        authenticated=True,
+    )
+    with use_actor(actor):
+        pid = queue.enqueue("tesths", {"what": "trade"}, [{"op": "do_thing"}])
+
+    props = backend.nodes[pid]
+    assert props["_owner_id"] == "user:approver"
+    assert props["tenant_id"] == "tenant-fin"
+    assert props["classification"] == "confidential"
+
+
+def test_proposal_queue_mark_preserves_original_owner_not_the_approver():
+    """BUG-059: mark() (approve/reject) must NOT reassign ownership to
+    whichever actor happens to approve the proposal — stamp_ownership's
+    setdefault semantics only fill in a missing stamp, and mark() explicitly
+    carries the original governance fields forward so a re-stamp under the
+    approver's identity can never overwrite them."""
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext, use_actor
+
+    backend = _FakeApprovalBackend()
+    queue = ProposalQueue(backend=backend)
+    proposer = ActorContext(
+        actor_id="user:proposer",
+        actor_type=ActorType.HUMAN,
+        tenant_id="tenant-fin",
+        authenticated=True,
+    )
+    with use_actor(proposer):
+        pid = queue.enqueue("tesths", {"what": "trade"}, [{"op": "do_thing"}])
+
+    approver = ActorContext(
+        actor_id="user:approver",
+        actor_type=ActorType.HUMAN,
+        tenant_id="tenant-fin",
+        authenticated=True,
+    )
+    with use_actor(approver):
+        queue.mark(pid, "approved")
+
+    props = backend.nodes[pid]
+    assert props["status"] == "approved"
+    assert props["_owner_id"] == "user:proposer"  # NOT the approver

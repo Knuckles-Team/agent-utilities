@@ -235,3 +235,100 @@ def test_eval_corpus_runs_cases():
     results = corpus.run_corpus(actual_output_fn=lambda case: "pong")
     assert len(results) == 1
     assert results[0].passed
+
+
+# ---------------------------------------------------------------------------
+# BUG-059 — FeedbackService.record_gotcha/_apply_rule write straight through
+# ``self.backend`` (== ``engine.backend`` per ``from_engine``), never through
+# IntelligenceGraphEngine._upsert_node/GraphComputeEngine.add_node, so these
+# HUMAN correction writes never reached stamp_ownership regardless of actor
+# state. Now routed: stamped locally at the seam this service actually
+# writes through.
+# ---------------------------------------------------------------------------
+
+
+def test_record_gotcha_requires_a_bound_actor():
+    """Known-bad input: no actor bound anywhere. BEFORE this fix, a Gotcha
+    node landed unowned unconditionally. AFTER, it raises."""
+    import contextvars
+
+    import pytest
+
+    from agent_utilities.security.brain_context import IdentityRequiredError
+
+    backend = FakeBackend()
+    svc = FeedbackService(backend=backend)
+
+    def isolated():
+        with pytest.raises(IdentityRequiredError):
+            svc.record_gotcha("core/foo.py", "always fails without X")
+
+    contextvars.Context().run(isolated)
+    assert backend.nodes == {}
+
+
+def test_record_gotcha_stamps_ownership_when_actor_bound():
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext, use_actor
+
+    backend = FakeBackend()
+    svc = FeedbackService(backend=backend)
+    actor = ActorContext(
+        actor_id="user:reporter",
+        actor_type=ActorType.HUMAN,
+        tenant_id="tenant-gotcha",
+        authenticated=True,
+    )
+    with use_actor(actor):
+        res = svc.record_gotcha("core/foo.py", "always fails without X")
+
+    assert res.applied is True
+    (gid,) = res.created_ids
+    props = backend.nodes[gid]
+    assert props["_owner_id"] == "user:reporter"
+    assert props["tenant_id"] == "tenant-gotcha"
+    assert props["classification"] == "confidential"
+
+
+def test_apply_rule_requires_a_bound_actor():
+    import contextvars
+
+    import pytest
+
+    from agent_utilities.security.brain_context import IdentityRequiredError
+
+    backend = FakeBackend()
+    svc = FeedbackService(backend=backend)
+
+    def isolated():
+        with pytest.raises(IdentityRequiredError):
+            svc.record_correction(
+                "rule", "tool:bad", corrected_value="never use this", reason="broke prod"
+            )
+
+    contextvars.Context().run(isolated)
+    assert backend.nodes == {}
+
+
+def test_apply_rule_stamps_ownership_when_actor_bound():
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext, use_actor
+
+    backend = FakeBackend()
+    svc = FeedbackService(backend=backend)
+    actor = ActorContext(
+        actor_id="user:reviewer",
+        actor_type=ActorType.HUMAN,
+        tenant_id="tenant-rules",
+        authenticated=True,
+    )
+    with use_actor(actor):
+        res = svc.record_correction(
+            "rule", "tool:bad", corrected_value="never use this", reason="broke prod"
+        )
+
+    assert res.applied is True
+    corr_id, rule_id = res.created_ids
+    assert backend.nodes[corr_id]["_owner_id"] == "user:reviewer"
+    assert backend.nodes[rule_id]["_owner_id"] == "user:reviewer"
+    assert backend.nodes[rule_id]["tenant_id"] == "tenant-rules"

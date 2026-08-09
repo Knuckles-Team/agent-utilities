@@ -1261,12 +1261,30 @@ class IngestionEngine:
         protocol ``persist_facts`` writes against onto the backend's own
         signatures, so canonical-entity facts land as ``Entity`` nodes + typed
         edges that interlink with the Concept/Code graph (KG-2.64 + KG-2.8).
+
+        BUG-059: ``backend`` (``writer`` or ``self.backend``, both raw
+        ``GraphBackend``s) is written to directly, never through
+        ``IntelligenceGraphEngine._upsert_node``/``GraphComputeEngine.
+        add_node`` — so every extracted-fact ``Entity`` node from this seam
+        skipped ``stamp_ownership``/``stamp_classification`` regardless of
+        actor state. ``IngestionEngine`` is the one seam "all content enters
+        the KG through" (its own class docstring), reached from live
+        request/ingest paths where an actor is expected to be bound — same
+        shape as the ~50+ other ingestion call sites that already route
+        through this gate (``kb/ingestion.py``, ``security/policy_ingestor.py``,
+        …). Stamp locally, same pattern as
+        ``enrichment.pipeline._BatchedBackend.add_node``.
         """
         backend: Any = writer if writer is not None else self.backend
 
         class _Store:
             def add_node(self, node_id: str, label: str = "", **props: Any) -> None:
-                backend.add_node(node_id, label="Entity", name=label, **props)
+                from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+                entity_props: dict[str, Any] = {"name": label, **props}
+                stamp_ownership(entity_props)
+                stamp_classification(entity_props, "Entity")
+                backend.add_node(node_id, label="Entity", **entity_props)
 
             def add_edge(
                 self, source: str, target: str, rel_type: str = "", **props: Any
@@ -1275,6 +1293,9 @@ class IngestionEngine:
                 tags = props.get("tags")
                 if isinstance(tags, list):
                     props["tags"] = ",".join(str(t) for t in tags)
+                # BUG-058 (owned separately): ``add_edge`` has no ownership
+                # gate at all yet — nothing for this write to enter until it
+                # lands.
                 backend.add_edge(source, target, rel_type=rel_type, **props)
 
         return _Store()

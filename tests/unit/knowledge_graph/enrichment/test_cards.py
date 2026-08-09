@@ -81,3 +81,59 @@ def test_card_parse_degrades_to_raw_text():
     cards = generate_symbol_cards([_fn("f", "h2")], noisy_llm, {})
     assert "prose about the function" in cards[0].summary
     assert cards[0].responsibilities == []
+
+
+# ---------------------------------------------------------------------------
+# BUG-059 — CardStore.put_many is a JUSTIFIED chokepoint bypass, pinned.
+# ---------------------------------------------------------------------------
+#
+# CardStore writes straight to the raw engine-authority backend, never
+# through IntelligenceGraphEngine._upsert_node/GraphComputeEngine.add_node,
+# so it never reaches stamp_ownership. That is deliberate: a card cache
+# entry is a pure function of its ast_hash (the SAME summary for the SAME
+# code, across repos/runs — this class's own docstring), and it is written
+# from BOTH an ingest-triggered call (enrich_files, actor plausibly bound)
+# AND core.engine_tasks.MaintenanceScheduler._tick_enrichment — a periodic
+# background daemon tick with NO actor bound at all. This test pins that
+# put_many keeps working with zero actor bound, so nobody "fixes" it into
+# calling stamp_ownership by accident and silently breaks the daemon tick.
+
+
+class _FakeEngineBackend:
+    """Minimal engine-authority-shaped backend: has ``execute`` (satisfies
+    ``is_engine_authority_backend``) and ``add_node``/``get_node_properties``."""
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+
+    def execute(self, *_a, **_kw):  # pragma: no cover - only needs to exist
+        return []
+
+    def add_node(self, node_id, **props):
+        self.nodes[node_id] = props
+
+    def get_node_properties(self, node_id):
+        return self.nodes.get(node_id)
+
+
+def test_card_store_put_many_works_with_no_actor_bound():
+    """BUG-059 pin: CardStore.put_many must NOT require a bound actor — it is
+    written from a background maintenance tick that never binds one."""
+    import contextvars
+
+    from agent_utilities.knowledge_graph.enrichment.cards import CardStore
+
+    backend = _FakeEngineBackend()
+    store = CardStore(backend=backend)
+
+    def isolated():
+        # No actor bound anywhere in this fresh context — must not raise.
+        store.put_many([("hash1", "does a thing", ["r1"])])
+
+    contextvars.Context().run(isolated)
+
+    (props,) = backend.nodes.values()
+    assert props["summary"] == "does a thing"
+    # No governance stamp was applied — this is the pinned, deliberate gap.
+    assert "_owner_id" not in props
+    assert "classification" not in props

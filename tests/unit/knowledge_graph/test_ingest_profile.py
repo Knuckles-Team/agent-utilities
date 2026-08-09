@@ -7,6 +7,7 @@ from agent_utilities.knowledge_graph.core.ingest_profile import (
     profile_ingest,
     record_embed_usage,
     record_llm_usage,
+    record_offqueue_span,
     stage,
 )
 
@@ -81,3 +82,55 @@ def test_cost_is_derived_and_jsonable():
     import json
 
     assert json.loads(json.dumps(d))["total_tokens"] == 3000
+
+
+# ---------------------------------------------------------------------------
+# BUG-059 — record_offqueue_span is a JUSTIFIED chokepoint bypass, pinned.
+# ---------------------------------------------------------------------------
+#
+# It writes a fresh EpistemicGraphBackend().for_graph("__control__").add_node(...)
+# directly, never through IntelligenceGraphEngine._upsert_node/
+# GraphComputeEngine.add_node, so it never reaches stamp_ownership. That is
+# deliberate: every caller is a background maintenance pass with no
+# request/actor context, the payload is pure system telemetry, and the
+# whole write is already wrapped in "except Exception: pass" (never raises
+# into the pass it is measuring). This test pins that the span write keeps
+# working with zero actor bound.
+
+
+def test_record_offqueue_span_works_with_no_actor_bound(monkeypatch):
+    import contextvars
+
+    from agent_utilities.knowledge_graph.core import ingest_profile
+
+    captured: dict[str, dict] = {}
+
+    class _FakeGraphView:
+        def add_node(self, node_id, **props):
+            captured[node_id] = props
+
+    class _FakeEpistemicGraphBackend:
+        def __init__(self, *a, **kw):
+            pass
+
+        def for_graph(self, graph_name):
+            assert graph_name == "__control__"
+            return _FakeGraphView()
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.backends.epistemic_graph_backend.EpistemicGraphBackend",
+        _FakeEpistemicGraphBackend,
+    )
+
+    p = IngestProfile(label="embed-backfill")
+
+    def isolated():
+        # No actor bound anywhere in this fresh context — must not raise.
+        record_offqueue_span(None, "embed_backfill", p)
+
+    contextvars.Context().run(isolated)
+
+    (props,) = captured.values()
+    assert props["kind"] == "embed_backfill"
+    # No governance stamp was applied — this is the pinned, deliberate gap.
+    assert "_owner_id" not in props

@@ -730,6 +730,24 @@ class _ControlPlaneWorkItemEngine:
     content-ingestion write-lock contention the control/commons split exists
     to avoid. This adapter is the ONLY thing that changes: every state-
     machine transition in ``work_item.py`` is reused unmodified.
+
+    BUG-059 disposition — JUSTIFIED BYPASS, evaluated and confirmed standing.
+    ``add_node``/``link_nodes`` below write directly through ``self._host._control``
+    (a raw backend), never reaching ``IntelligenceGraphEngine._upsert_node`` /
+    ``GraphComputeEngine.add_node``'s ``stamp_ownership`` gate — the same
+    chokepoint-bypass shape as the other 12 BUG-059 sites, but here the reason
+    is stronger than "nobody wired it": routing through the engine wrapper
+    is the one thing this class exists to avoid (see above — it would put
+    scheduling writes back on the commons-graph lock). WorkItems are
+    control-plane scheduling bookkeeping (a durable work queue entry), not
+    anyone's owned content — the same "system/platform data, not user data"
+    shape ``stamp_ownership`` already leaves intentionally unowned for a
+    privileged actor, and control-plane WorkItem creation runs from ingestion
+    scheduling code paths with no per-request human/agent actor to bind in
+    the first place. Pinned by
+    ``tests/unit/knowledge_graph/core/test_engine_tasks_bug059.py`` so this
+    stays a deliberate, documented exemption and is never "fixed" by
+    accident into routing through ``engine.add_node``.
     """
 
     def __init__(self, host: "TaskManagerMixin") -> None:

@@ -62,6 +62,25 @@ def push_to_stardog(
             otherwise the whole graph is pushed.
 
     Returns counts of nodes/edges written, broken down by named graph.
+
+    BUG-059 disposition — JUSTIFIED BYPASS. ``backend.add_node``/
+    ``backend.add_edge`` below write straight to the Stardog SPARQL backend,
+    never through ``IntelligenceGraphEngine._upsert_node``/
+    ``GraphComputeEngine.add_node``, so this never reaches
+    ``stamp_ownership``. Deliberate: ``backend`` here is a foreign, secondary
+    triplestore mirror, not the primary graph authority the chokepoint
+    guards — the same shape as :mod:`..migration`'s sanctioned
+    backend-only upserts ("constructed without services/hooks/retriever/
+    graph_compute"). The ``props`` being copied are read verbatim from
+    already-governed nodes on the primary authority via ``_iter_source_nodes``
+    (:mod:`..migration`), so they already carry whatever ``_owner_id``/
+    ``tenant_id``/``_shared_scope``/``classification`` stamps their original
+    write applied — re-deriving ownership here from a NEW actor (the operator
+    running this on-demand sync) would be wrong, not merely redundant, since
+    it would attribute someone else's data to the operator. See
+    ``pull_from_stardog`` below, which already writes back through
+    ``target_engine`` (the governed KG engine/facade), for the direction that
+    DOES need the gate.
     """
     from ..migration import _iter_source_edges, _iter_source_nodes
 

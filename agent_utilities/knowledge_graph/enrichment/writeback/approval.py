@@ -25,6 +25,25 @@ logger = logging.getLogger(__name__)
 _LABEL = "WritebackProposal"
 
 
+def _stamp(props: dict[str, Any]) -> dict[str, Any]:
+    """Stamp ownership/classification onto a proposal write (BUG-059).
+
+    ``ProposalQueue._backend`` is the raw engine-authority backend
+    (:meth:`ProposalQueue.__init__`), so ``self._backend.add_node`` never
+    reaches ``IntelligenceGraphEngine._upsert_node``/``GraphComputeEngine.
+    add_node``'s ``stamp_ownership`` gate. These are the highest-stakes
+    writes in the module ("finance trades, legal filings, destructive
+    infra ... must NEVER auto-execute") and are always reached through an
+    explicit ``run_writeback`` call, so an actor is expected to be bound;
+    stamp here, at the seam this queue actually writes through.
+    """
+    from ...core.tenant_sharing import stamp_classification, stamp_ownership
+
+    stamp_ownership(props)
+    stamp_classification(props, _LABEL)
+    return props
+
+
 class ProposalQueue:
     """Engine-backed pending/approved write-back proposals, keyed by a stable id.
 
@@ -62,17 +81,28 @@ class ProposalQueue:
         node = self._backend.get_node_properties(pid)
         if not node:
             return
+        from ...core.tenant_sharing import OWNER_KEY, SCOPE_KEY, TENANT_KEY
+
         # Re-upsert the node with the new status (the engine's add_node is an
-        # upsert keyed by node id).
-        self._backend.add_node(
-            pid,
-            label=_LABEL,
-            id=pid,
-            target=node.get("target"),
-            ops_json=node.get("ops_json") or "{}",
-            proposals_json=node.get("proposals_json") or "[]",
-            status=status,
-        )
+        # upsert keyed by node id). BUG-059: enter the same governance
+        # chokepoint _enqueue_graph uses below (``_stamp``) — but a status
+        # transition (e.g. "approved") must never reassign OWNERSHIP to
+        # whoever is doing the approving. ``stamp_ownership``/
+        # ``stamp_classification`` only ever ``setdefault``, so carrying the
+        # already-stamped governance fields forward verbatim makes them win;
+        # only a proposal that somehow never got stamped (pre-BUG-059 data)
+        # falls back to the actor marking it now.
+        props: dict[str, Any] = {
+            "id": pid,
+            "target": node.get("target"),
+            "ops_json": node.get("ops_json") or "{}",
+            "proposals_json": node.get("proposals_json") or "[]",
+            "status": status,
+        }
+        for key in (OWNER_KEY, TENANT_KEY, SCOPE_KEY, "classification"):
+            if key in node:
+                props[key] = node[key]
+        self._backend.add_node(pid, label=_LABEL, **_stamp(props))
 
     # -- engine-graph implementation (CONCEPT:AU-KG.enrichment.proposals-live-as) ------------------
     def _next_seq(self, target: str) -> int:
@@ -93,11 +123,15 @@ class ProposalQueue:
         self._backend.add_node(
             pid,
             label=_LABEL,
-            id=pid,
-            target=target,
-            ops_json=json.dumps(ops, default=str),
-            proposals_json=json.dumps(proposals, default=str),
-            status="pending",
+            **_stamp(
+                {
+                    "id": pid,
+                    "target": target,
+                    "ops_json": json.dumps(ops, default=str),
+                    "proposals_json": json.dumps(proposals, default=str),
+                    "status": "pending",
+                }
+            ),
         )
         return pid
 

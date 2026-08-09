@@ -339,3 +339,103 @@ def test_owl_reasoned_eligibility_may_be_invoked_by() -> None:
 
     # The reasoner infers eligibility without any hand-wired edge.
     assert (action, KG.mayBeInvokedBy, agent) in g
+
+
+# ---------------------------------------------------------------------------
+# BUG-059 — ActionExecutor._persist's native-typed branch is ROUTED through
+# stamp_ownership/stamp_classification. The legacy raw-Cypher fallback branch
+# above (``store.execute("MERGE ...")``) is untouched/out of scope.
+# ---------------------------------------------------------------------------
+
+
+class _FakeNativeStore:
+    """A ``typed_mutation_support == "native"`` store, tracking every
+    add_node/add_edge call so tests can assert on exactly what landed."""
+
+    typed_mutation_support = "native"
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+        self.edges: list[tuple] = []
+
+    def add_node(self, node_id, label, **props):
+        self.nodes[node_id] = {"label": label, **props}
+
+    def add_edge(self, source, target, rel_type, **props):
+        self.edges.append((source, target, rel_type))
+
+    def get_node_properties(self, node_id):
+        return self.nodes.get(node_id)
+
+
+def test_persist_native_requires_a_bound_actor(
+    monkeypatch, registry: ActionRegistry, kernel: PermissionsKernel
+) -> None:
+    """Known-bad input: no KG actor bound anywhere (the permission-kernel
+    identity issued to ``actor`` below authorizes the ACTION, but is a
+    distinct concept from the KG governance actor stamp_ownership reads).
+    BEFORE BUG-059's fix, the ActionInvocation node landed unowned
+    regardless. AFTER, ``stamp_ownership`` raises inside ``_persist``'s own
+    try/except -- persistence degrades to best-effort (unchanged contract:
+    "persistence is best-effort") but writes NOTHING rather than an unowned
+    node."""
+    import contextvars
+
+    store = _FakeNativeStore()
+
+    class _FakeKG:
+        store = None
+
+    fake = _FakeKG()
+    fake.store = store  # type: ignore[assignment]
+    monkeypatch.setattr(executor_mod, "_persistence_facade", lambda: fake)
+
+    ex = ActionExecutor(registry, kernel=kernel, persist=True)
+    actor = kernel.issue_identity("agent:reader", capabilities=["kg_read"])
+
+    def isolated():
+        return ex.execute("demo.read", actor, {"key": "k"}, target_id="concept:topic")
+
+    inv = contextvars.Context().run(isolated)
+
+    assert inv.status == ActionStatus.SUCCESS  # the action itself still ran
+    assert inv.persisted is False  # but persistence was refused, not silently unowned
+    assert store.nodes == {}
+    assert store.edges == []
+
+
+def test_persist_native_stamps_ownership_when_actor_bound(
+    monkeypatch, registry: ActionRegistry, kernel: PermissionsKernel
+) -> None:
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext, use_actor
+
+    store = _FakeNativeStore()
+
+    class _FakeKG:
+        store = None
+
+    fake = _FakeKG()
+    fake.store = store  # type: ignore[assignment]
+    monkeypatch.setattr(executor_mod, "_persistence_facade", lambda: fake)
+
+    ex = ActionExecutor(registry, kernel=kernel, persist=True)
+    actor = kernel.issue_identity("agent:reader", capabilities=["kg_read"])
+
+    kg_actor = ActorContext(
+        actor_id="user:invoker",
+        actor_type=ActorType.HUMAN,
+        tenant_id="tenant-actions",
+        authenticated=True,
+    )
+    with use_actor(kg_actor):
+        inv = ex.execute("demo.read", actor, {"key": "k"}, target_id="concept:topic")
+
+    assert inv.persisted is True
+    inv_props = store.nodes[inv.id]
+    assert inv_props["_owner_id"] == "user:invoker"
+    assert inv_props["tenant_id"] == "tenant-actions"
+    assert inv_props["classification"] == "confidential"
+    # actor/target Entity refs also carry the same stamp.
+    actor_ref = store.nodes[inv.actor_id]
+    assert actor_ref["_owner_id"] == "user:invoker"
