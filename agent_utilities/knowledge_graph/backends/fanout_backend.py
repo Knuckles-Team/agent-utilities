@@ -164,6 +164,23 @@ def _is_permanent_apply_error(exc: BaseException) -> bool:
     return any(marker in msg for marker in _PERMANENT_APPLY_ERROR_MARKERS)
 
 
+def _is_authorization_error(exc: BaseException) -> bool:
+    """True if an outbox-entry apply failed because no verified actor was bound.
+
+    BUG-055: distinct from :func:`_is_permanent_apply_error` (a malformed
+    query) and from a transient connection outage. This is the drainer's own
+    background-authority defect — ``current_actor()``/``stamp_ownership``
+    raising ``IdentityRequiredError``/``SessionRequiredError`` because the
+    thread applying this entry has no bound actor. Import is local to avoid
+    a module-level dependency from ``backends`` (mirror plumbing) onto
+    ``security`` (identity) outside the one call site that needs it.
+    """
+    from agent_utilities.knowledge_graph.core.session import SessionRequiredError
+    from agent_utilities.security.brain_context import IdentityRequiredError
+
+    return isinstance(exc, (IdentityRequiredError, SessionRequiredError))
+
+
 def _overrides_backend_method(backend: GraphBackend, method_name: str) -> bool:
     """Return whether ``backend`` implements an optional base capability.
 
@@ -191,6 +208,16 @@ class _MirrorState:
     poison_seq: int | None = None
     poison_count: int = 0
     dropped: int = 0  # poison entries skipped (surfaced by durability_stats)
+    # BUG-055: distinguishes a PERMANENT authorization failure (no verified
+    # actor / an unauthorized background session — a caller defect, never
+    # self-healing) from a transient mirror outage (connection refused,
+    # timeout — self-heals on retry). Both keep retrying (an authorization
+    # failure must never silently drop the mutation), but `durability_stats`
+    # must be able to tell them apart: a dashboard/alert that only reads
+    # `stalled` cannot distinguish "will recover on its own" from "requires
+    # an operator to fix identity wiring" -- exactly the class of defect this
+    # program's fail-closed changes exist to surface, not paper over.
+    auth_failed: bool = False
     wake: threading.Event = field(default_factory=threading.Event)
     thread: Any = None
 
@@ -272,12 +299,37 @@ class FanOutBackend(GraphBackend):
                 daemon=True,
             )
             self._persister.start()
+            # BUG-055: the ``kg-mirror-{name}`` drain threads call ``_apply`` ->
+            # ``_upsert_node``, which stamps ownership through the engine's
+            # single write chokepoint (``IntelligenceGraphEngine._upsert_node``
+            # -> ``tenant_sharing.stamp_ownership`` -> ``current_actor()``).
+            # ``ContextVar``s do not cross a ``threading.Thread`` boundary, so a
+            # raw ``threading.Thread`` here has no ambient actor and
+            # ``stamp_ownership`` now fails closed (the BUG-033 fix) with
+            # ``IdentityRequiredError`` on every apply. Mint/reuse this
+            # process's own verified system identity ONCE (same helper the
+            # BUG-033 fix introduced for the other unbound-actor write paths —
+            # ``messaging/enrichment.py``, ``conversation_ingestion.py`` — and
+            # the same convention ``messaging/daemon.py::mint_process_identity``
+            # / ``kg_server.py``'s own bootstrap already use for process
+            # authority), then thread it through each drainer via
+            # ``_authorized_background_thread`` — the SAME session-carrying
+            # thread builder ``knowledge_graph/ingest_worker.py`` uses for its
+            # own long-lived background consumer threads — so ``current_actor()``
+            # resolves correctly inside ``_apply`` on every mirror write.
+            from agent_utilities.security.request_identity import (
+                system_write_session,
+            )
+
+            from ..core.engine_tasks import _authorized_background_thread
+
+            mirror_session = system_write_session()
             for name in self._mirrors:
-                t = threading.Thread(
-                    target=self._drain,
-                    args=(name,),
+                t = _authorized_background_thread(
+                    mirror_session,
+                    self._drain,
                     name=f"kg-mirror-{name}",
-                    daemon=True,
+                    args=(name,),
                 )
                 self._state[name].thread = t
                 t.start()
@@ -1126,14 +1178,49 @@ class FanOutBackend(GraphBackend):
                     st.consecutive_failures = 0
                     st.last_error = None
                     st.stalled = False
+                    st.auth_failed = False
                     st.poison_seq = None
                     st.poison_count = 0
                     progressed = True
-                except Exception as exc:  # noqa: BLE001 — transient mirror outage
+                except Exception as exc:  # noqa: BLE001 — transient mirror outage OR a permanent authorization failure (classified below, never silently conflated)
                     st.failures += 1
                     st.consecutive_failures += 1
                     st.last_error = str(exc)
                     st.stalled = st.consecutive_failures >= _STALL_THRESHOLD
+                    # BUG-055: a permanent authorization failure (no verified
+                    # actor bound in this drainer thread) is NOT a "transient
+                    # mirror outage" — it will retry forever and never
+                    # self-heal until an operator fixes the identity wiring,
+                    # yet the pre-fix comment/log line here called it
+                    # transient, which let mirror replication silently stop
+                    # syncing while `stalled` stayed false for the first 5
+                    # failures. Flag it immediately (no threshold wait) and
+                    # log at CRITICAL so it cannot be mistaken for ordinary
+                    # backpressure or a dialect/network hiccup; still never
+                    # drop the entry -- an authorization failure must not
+                    # silently discard a mutation the way a poison query may.
+                    if _is_authorization_error(exc):
+                        st.auth_failed = True
+                        st.stalled = True
+                        logger.critical(
+                            "FanOutBackend: mirror %s PERMANENT AUTHORIZATION "
+                            "FAILURE applying seq %d op=%s -- no verified actor "
+                            "bound in the drainer thread; this is a caller/wiring "
+                            "defect (BUG-055 class), NOT a transient mirror "
+                            "outage, and will retry forever until fixed: %s",
+                            mirror,
+                            entry.seq,
+                            entry.op,
+                            exc,
+                        )
+                        # Do NOT advance the cursor and do NOT run the
+                        # poison-drop path below: a permanent authorization
+                        # failure keeps retrying (in case the process-level
+                        # session is later repaired) rather than being
+                        # dropped like a malformed query reconcile() can
+                        # repair structurally -- dropping an unauthorized
+                        # write would just as silently lose it.
+                        break
                     # PERMANENT malformed/dialect-incompatible graph mutations are
                     # skipped after repeated confirmation so one poison query cannot
                     # block the mirror forever; reconcile() repairs that graph state.
@@ -1248,7 +1335,14 @@ class FanOutBackend(GraphBackend):
     # Observability
     # ------------------------------------------------------------------
     def durability_stats(self) -> dict[str, Any]:
-        """Per-mirror replication health — alarm on ``lag`` / ``stalled``."""
+        """Per-mirror replication health — alarm on ``lag`` / ``stalled`` / ``auth_failed``.
+
+        ``auth_failed`` (BUG-055) is DISTINCT from ``stalled``: a mirror can be
+        ``stalled`` on an ordinary transient outage that self-heals once the
+        mirror comes back, but ``auth_failed`` means the drainer thread has no
+        verified actor and will retry forever without operator intervention —
+        do not treat the two as the same alert class.
+        """
         mirrors: dict[str, Any] = {}
         for name, st in self._state.items():
             lag = self._outbox.lag(name) if self._outbox is not None else 0
@@ -1258,6 +1352,7 @@ class FanOutBackend(GraphBackend):
                 "consecutive_failures": st.consecutive_failures,
                 "lag": lag,
                 "stalled": st.stalled,
+                "auth_failed": st.auth_failed,
                 "dropped": st.dropped,
                 "last_error": st.last_error,
             }
