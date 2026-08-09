@@ -214,14 +214,29 @@ def resolve_routing_graph(graph_name: str | None, config: Any = None) -> str:
 
     Resolution order:
 
-    1. An explicit, non-default ``graph_name`` — the operation targets a named
-       graph; use it verbatim.
-    2. The ambient :class:`ActorContext` tenant — the default graph is mapped
-       to the tenant's graph via :func:`tenant_graph_name`.
-    3. The configured default graph (``KG_DEFAULT_GRAPH``).
+    1. An explicit, non-empty ``graph_name`` — the operation targets a named
+       graph; use it verbatim. This includes the literal default/commons
+       name itself: an EXPLICIT request for ``__commons__`` is honored
+       exactly like an explicit request for any other name.
+    2. ``graph_name is None`` (the caller asked for nothing specific) and the
+       ambient :class:`ActorContext` carries a tenant — the default graph is
+       mapped to the tenant's graph via :func:`tenant_graph_name`.
+    3. ``graph_name is None`` and no tenant — the configured default graph
+       (``KG_DEFAULT_GRAPH``).
+
+    BUG-020 / GOC-61 phase 1 (fixed): the prior ``graph_name != default``
+    clause conflated two different intents — "the caller explicitly asked
+    for the graph literally named ``__commons__``" and "the caller passed
+    nothing and wants their ambient default" — because both produced
+    ``graph_name == default_graph_name()``. Only ``graph_name is None``
+    triggers tenant mapping now; any other explicit, non-empty name
+    (including ``"__commons__"`` itself) is honored verbatim. See
+    ``plans/graph-os-completion-program/decisions/GOC-61-native-graph-sharing.md``
+    §6 for the full root-cause analysis and the 5-site call-site audit that
+    cleared this change.
     """
     default = default_graph_name(config)
-    if graph_name and graph_name != default:
+    if graph_name:
         return graph_name
     from agent_utilities.security.brain_context import current_actor
 
