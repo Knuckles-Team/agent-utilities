@@ -38,7 +38,6 @@ from pathlib import Path
 
 from agent_utilities.security.conformance.surface_manifest import (
     Disposition,
-    QUERY_DIALECT_MANIFEST,
     lookup_query_dialect,
 )
 
