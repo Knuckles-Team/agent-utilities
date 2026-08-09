@@ -15,8 +15,8 @@ marking, no actor holds it by default) closes that gap: an unknown/unconfigured 
 document is denied until an operator reviews it and grants the marking. This is now the default
 the generic `mcp_package`/`mcp_tool` connectors report when a preset/instance has no `acl_*`
 fields configured, via `default_external_access()` — replacing the previous
-`ExternalAccess.public()` default. `CONNECTOR_DEFAULT_PUBLIC=true` opts a dev/local deployment
-back into the old public-by-default behavior (default `false`).
+`ExternalAccess.public()` default. There is no environment opt-in back to the old
+public-by-default behavior anymore — the quarantined default is unconditional.
 
 ## Implementation Details
 - **Source Code**: `agent_utilities/protocols/source_connectors/permission_sync.py`,

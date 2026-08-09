@@ -67,11 +67,13 @@ block differs (stdio can use the zero-config bootstrap; streamable-http cannot).
 > `graph_configure action=set` / hand-editing the file) to actually reach the
 > local-engine path.
 
-> ⛔ **Do not set `ENGINE_MODE`, `ENGINE_ENDPOINT`, or `EPISTEMIC_GRAPH_AUTOSTART`.**
-> These are **retired** durable configuration keys (`core/config.py`
-> `_RETIRED_CONFIGURATION_KEYS`) — if present in `config.json` or the environment
-> they raise `ValueError` and **hard-fail boot** before graph-os does anything
-> else. `GRAPH_SERVICE_ENDPOINTS` unset/set is the entire, current mechanism.
+> ⛔ **Do not carry over a topology-mode/endpoint/autostart key from an older
+> release's `.env` or `config.json`.** The three separate keys that decision used
+> to take are **retired** durable configuration keys — see `core/config.py`
+> `_RETIRED_CONFIGURATION_KEYS` for the exact names — and if any is still present
+> in `config.json` or the environment it raises `ValueError` and **hard-fails
+> boot** before graph-os does anything else. `GRAPH_SERVICE_ENDPOINTS` unset/set
+> is the entire, current mechanism.
 
 ### stdio — packaged-local, CLI-embedded
 

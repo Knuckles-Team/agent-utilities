@@ -60,9 +60,9 @@ their exact anchors:
 | `GraphSession` — one explicit actor/tenant/scope/graph/trace/policy-version currency | `knowledge_graph/core/session.py::GraphSession` (`from_ambient`, `use_session`, `require_scope`) | — (module docstring: AU-P0-1) | Always constructible; enforcement (`require_scope`) is opt-in per caller — a session with no scopes recorded denies nothing until a caller actually checks |
 | Native-Cypher authority, never silent `[]` | `knowledge_graph/backends/epistemic_graph_backend.py::CypherEngineError`; 11 `NotImplementedError` sites (grep `ABSTRACT-OK.*AU-P0-2`) | `AU-KG.query.vendor-agnostic-traversal`, `AU-KG.query.object-graph-mapper` | Always on — an unsupported Cypher shape raises, it never degrades to an empty result |
 | Engine-native `WorkItem`/claim, fencing that **fails closed** on the engine-native path | `orchestration/agent_dispatch_worker.py::_fence_still_valid` (branches on `claim["_claim_backend"]`) | (AU-P0-3, hardened this cycle: L15) | `AGENT_CLAIM_BACKEND` = `kg` (default, best-effort fail-open fencing) \| `engine` \| `workitem` |
-| Fail-closed connectors (quarantine unknown ACL, manifest gate, tombstone guard) | `protocols/source_connectors/base.py::ExternalAccess.quarantined`/`default_external_access`; `knowledge_graph/ontology/connector_manifest_gate.py`; `knowledge_graph/core/source_sync.py::_reconcile` | `AU-P0-4` | `CONNECTOR_DEFAULT_PUBLIC=false` (default), `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` (opt-in allowlist), `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` (opt-in allowlist) |
+| Fail-closed connectors (quarantine unknown ACL, manifest gate, tombstone guard) | `protocols/source_connectors/base.py::ExternalAccess.quarantined`/`default_external_access`; `knowledge_graph/ontology/connector_manifest_gate.py`; `knowledge_graph/core/source_sync.py::_reconcile` | `AU-P0-4` | Unconfigured-connector ACL is unconditionally quarantined (no opt-out); manifest enforcement (`manifest_required`) is universal — every non-empty external source is governed except the explicit `INTERNAL_MANIFEST_EXEMPT_SOURCES` carve-out; `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE` (opt-in allowlist) |
 | Tenant RLS end-to-end, fail-**closed** cross-tenant GUC fix | `knowledge_graph/backends/postgresql_backend.py::set_request_tenant` (raises on a failed `SET LOCAL` for a *non-empty* tenant rather than serving a stale GUC) | (AU-P0-5) | Always on for a non-empty tenant; fail-open only for the unscoped/system baseline (`tenant_id == ""`) |
-| Scoped low-level engine tools (`engine_<domain>`) + bounded client pool | `mcp/tools/engine_tools.py::ADMIN_DOMAINS`/`ENGINE_ADMIN_SCOPE`/`_enforce_admin_scope`/`_client_for` | `AU-P0-6` | `ENGINE_ADMIN_SCOPE = "kg:admin"` required for `tenants`/`resharding`/`consensus`/`rbac`/`admin` domains (fail-closed for any *unclassified future* domain too); pool bound `KG_ENGINE_TOOL_POOL_SIZE` (default `16`, LRU-evicted) |
+| Scoped low-level engine tools (`engine_<domain>`) + bounded client pool | `mcp/tools/engine_tools.py::ADMIN_DOMAINS`/`ENGINE_ADMIN_SCOPE`/`_enforce_action_scope`/`_client_for` | `AU-P0-6` | `ENGINE_ADMIN_SCOPE = "kg:admin"` required for `tenants`/`resharding`/`consensus`/`rbac`/`admin` domains (fail-closed for any *unclassified future* domain too); pool bound `KG_ENGINE_TOOL_POOL_SIZE` (default `16`, LRU-evicted) |
 
 **Two surfaces for the Phase-0 pieces that are directly operator-facing:** the
 `engine_<domain>` tools (one per engine sub-client — `engine_tenants`,
@@ -285,11 +285,15 @@ package), `gitlab`, `servicenow`, `leanix`, `langfuse`, `tunnel_manager`,
 `microsoft-agent`, `container-manager-mcp`, `documentdb-mcp`, `repository-manager`,
 `systems-manager`, `vector-mcp`.
 
-**Unconditional, not opt-in.** Unlike the pre-existing (1.20.0) opt-in
-`CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` allowlist env var, these 12 are baked in —
-`enterprise_required_sources()` returns
-`MANDATORY_NAMED_CONNECTOR_SOURCES | opted_in`, so an operator does **not** need to
-name them for the fail-closed policy to apply. Each of the 12 now has a live,
+**Unconditional, not opt-in — and since superseded by universal enforcement.** The
+pre-existing (1.20.0) opt-in allowlist env var that let an operator name
+*additional* enterprise sources into the fail-closed policy is gone entirely: it
+was superseded by `manifest_required()`, which governs **every** non-empty
+external source (except the explicit `INTERNAL_MANIFEST_EXEMPT_SOURCES`
+carve-out), so there is no allowlist left to opt into. `required_connector_sources()`
+returns `MANDATORY_NAMED_CONNECTOR_SOURCES | mandatory_connector_packages()` as the
+certified-inventory listing for reporting/bundle coverage — enforcement itself no
+longer depends on this set. Each of the 12 now has a live,
 dispatchable `source_sync` code path — the 5 that previously had none
 (`microsoft-agent`/`container-manager-mcp`/`documentdb-mcp`/`repository-manager`/
 `systems-manager`, plus `vector-mcp`) got one shared handler,

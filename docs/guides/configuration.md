@@ -11,16 +11,16 @@ Environment variables for `LLM_BASE_URL`, `LLM_MODEL_ID`, etc., are **deprecated
 
 ### Graph Database
 
-The **epistemic-graph engine is the one database — the authority**. It serves all
-reads and is where every write commits first. `GRAPH_BACKEND=fanout` additionally
-fans committed writes out asynchronously and losslessly to the **mirrors** named
-in `GRAPH_MIRROR_TARGETS` (Postgres/pg-age, Neo4j, FalkorDB, Ladybug) for
-interop/BI/DR — mirrors are never the authority and never on the read path.
+The **epistemic-graph engine is the one database — the authority, unconditionally**.
+There is no engine-mode selector: it serves all reads and is where every write
+commits first. Setting `GRAPH_MIRROR_TARGETS` additionally fans committed writes
+out asynchronously and losslessly to the **mirrors** it names (Postgres/pg-age,
+Neo4j, FalkorDB, Ladybug) for interop/BI/DR — mirrors are never the authority and
+never on the read path.
 
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `epistemic_graph` | `epistemic_graph` (the engine only — self-contained, zero-infra), `fanout` (engine + mirrors), or `memory` (ephemeral, tests/CI) |
-| `GRAPH_MIRROR_TARGETS` | *None* | Comma-separated mirrors to fan out to under `fanout`: `postgresql`, `neo4j`, `falkordb`, `ladybug` |
+| `GRAPH_MIRROR_TARGETS` | *None* | Comma-separated mirrors to fan out to (mirror names resolved via `KG_CONNECTIONS`): `postgresql`, `neo4j`, `falkordb`, `ladybug`. Unset = zero-infra, no mirrors |
 | `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for the engine store (or a LadybugDB mirror) |
 | `GRAPH_DB_HOST` | `localhost` | Host for a Neo4j/FalkorDB mirror |
 | `GRAPH_DB_PORT` | `7687` | Port for a Neo4j/FalkorDB mirror |
@@ -50,22 +50,22 @@ interop/BI/DR — mirrors are never the authority and never on the read path.
 ### Secrets & Auth (CONCEPT:AU-OS.config.secrets-authentication)
 | Variable | Default | Description |
 |---|---|---|
-| `SECRETS_BACKEND` | `inmemory` | Storage for secrets (`inmemory`, `sqlite`, `vault`). See [Secrets & Authentication](../pillars/5_agent_os_infrastructure.md#secrets-authentication) |
-| `SECRETS_SQLITE_PATH` | `~/.agent-utilities/secrets.db` | Path for SQLite secrets DB |
+| `SECRETS_BACKEND` | `engine` | Storage for secrets (`engine` = encrypted engine storage, or `vault`). The earlier `inmemory`/`sqlite` backends are gone. See [Secrets & Authentication](../pillars/5_agent_os_infrastructure.md#secrets-authentication) |
 | `SECRETS_VAULT_URL` | *None* | URL for HashiCorp Vault & OpenBao |
 | `SECRETS_VAULT_MOUNT` | `secret` | Vault/OpenBao KV v2 mount point |
-| `ENABLE_API_AUTH` | `False` | Enable JWT validation on server endpoints |
 | `AUTH_JWT_JWKS_URI` | *None* | URI to fetch JSON Web Key Sets |
 | `AUTH_JWT_ISSUER` | *None* | Expected JWT issuer |
 | `AUTH_JWT_AUDIENCE` | *None* | Expected JWT audience |
-| `AGENT_API_KEY` | *None* | Static API key for basic auth |
 | `ALLOWED_ORIGINS` | `*` | Comma-separated CORS origins |
 | `ALLOWED_HOSTS` | `*` | Comma-separated trusted hosts |
+
+Auth is JWT-only — there is no static-API-key gateway path and no separate bool
+toggle to require it; presence of the `AUTH_JWT_*` settings above is what enables
+JWT validation on server endpoints.
 
 ### Graph Execution
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_DIRECT_EXECUTION`| `True` | Direct graph dispatch in AG-UI/ACP (bypasses LLM tool-call hop) |
 | `VALIDATION_MODE` | `False` | Disables real LLM calls for unit testing and CI |
 | `WORKSPACE_TOOLS` | `True` | Enable workspace filesystem and grep tools |
 | `GIT_TOOLS` | `True` | Enable Git tools |
@@ -122,11 +122,12 @@ interop/BI/DR — mirrors are never the authority and never on the read path.
 | `A2A_REFRESH_INTERVAL` | `300` | Seconds between periodic `.well-known/agent-card.json` re-fetch |
 
 ### CLI Execution
-The preferred method for running `agent-utilities` servers is via the standardized `uv` scripts:
+The preferred method for running `agent-utilities` servers is the installed console
+scripts (or `uvx` to run without installing):
 
 | Script | Command | Description |
 |---|---|---|
-| **KG Server** | `uv run graph-os` | Launches the Knowledge Graph (graph-os) MCP server |
+| **KG Server** | `uvx --from agent-utilities graph-os` | Launches the Knowledge Graph (graph-os) MCP server |
 | **Main Server** | `python -m agent_utilities` | Launches the unified protocol server (ACP/A2A/AG-UI) |
 
 ## CLI Flags
@@ -183,8 +184,6 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "max_upload_size": 10485760,
 
   // ── Authentication & Security ───────────────────────────────────
-  "agent_api_key": null,
-  "enable_api_auth": false,
   "auth_jwt_jwks_uri": null,
   "auth_jwt_issuer": null,
   "auth_jwt_audience": null,
@@ -194,10 +193,9 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "sensitive_tool_patterns": [".*delete.*", ".*remove.*", "..."],
 
   // ── Secrets Backend ─────────────────────────────────────────────
-  "secrets_backend": "inmemory",
-  "secrets_sqlite_path": null,
-  "secrets_vault_url": null,
-  "secrets_vault_mount": "secret",
+  "secrets_backend": "engine",
+  "vault_url": null,
+  "vault_mount": "secret",
 
   // ── Graph Execution ─────────────────────────────────────────────
   "routing_strategy": "hybrid",
@@ -206,7 +204,6 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "enable_llm_validation": false,
   "graph_router_timeout": 300.0,
   "graph_verifier_timeout": 300.0,
-  "graph_direct_execution": true,
   "min_confidence": 0.4,
   "validation_mode": false,
   "approval_timeout": 0.0,
@@ -229,10 +226,8 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "langfuse_dataset_capture_threshold": 0.0,
 
   // ── A2A Agent Discovery ─────────────────────────────────────────
-  "a2a_broker": "in-memory",
-  "a2a_broker_url": null,
-  "a2a_storage": "in-memory",
-  "a2a_storage_url": null,
+  "a2a_broker": "epistemic_graph",
+  "a2a_storage": "epistemic_graph",
   "a2a_config": null,
   "a2a_refresh_interval": 300,
 
@@ -257,7 +252,7 @@ Environment variables are no longer part of the LLM configuration chain. API key
   "agent_token_quota": 100000,
   "preemption_threshold_pct": 0.85,
   "agent_policies_path": null,
-  "permissions_signing_key": null,
+  "permissions_signing_key_ref": null,
   "specialist_registry_path": null,
   "homeostatic_downgrade_enabled": true,
   "adversarial_verification": false,
@@ -347,6 +342,6 @@ This allows configuring multiple models from the same provider hitting different
 
 1. Move all `LLM_*`, `LITE_LLM_*`, `SUPER_LLM_*`, and `EMBEDDING_*` variables from `.env` into `chat_models`/`embedding_models` registry entries
 2. API keys go directly in per-model entries via the `api_key` field
-3. Non-LLM environment variables (e.g., `GRAPH_BACKEND`, `OTEL_ENABLE_OTEL`) are now also configurable via `config.json`
+3. Non-LLM environment variables (e.g., `GRAPH_MIRROR_TARGETS`, `OTEL_ENABLE_OTEL`) are now also configurable via `config.json`
 
 > **Full Documentation:** See [models.md](models.md) for advanced schema options, local model fallbacks, and routing logic.

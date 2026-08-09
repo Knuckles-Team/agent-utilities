@@ -303,9 +303,9 @@ connector reports **nothing**:
    now returns `ExternalAccess.quarantined()` instead — `is_public=False` plus
    the `connector-unconfigured-acl` marking, so `permission_sync.sync_access`
    actually restricts the document rather than registering no ACL at all and
-   falling through to default-allow. `CONNECTOR_DEFAULT_PUBLIC=true` is the
-   explicit dev/local opt-in back to the old public-by-default behavior
-   (default `false` — fail closed).
+   falling through to default-allow. There is no environment opt-in back to
+   the old public-by-default behavior anymore — the quarantined default is
+   unconditional.
 2. **Every external source is compile-before-sync governed.**
    `connector_manifest_gate.precheck_source` rejects a missing, unsigned,
    providerless, schema-drifted, or code-fingerprint-drifted

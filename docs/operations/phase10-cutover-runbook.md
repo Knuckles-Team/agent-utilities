@@ -145,20 +145,21 @@ and the shared `GRAPH_SERVICE_AUTH_SECRET` remoteRef → `apps/agent-utilities/d
 property `GRAPH_SERVICE_AUTH_SECRET`). The plain `graph-os-env` ConfigMap is **not**
 ExternalSecret-managed — `kubectl patch` is the correct, direct tool for it.
 
-### (a) Strip `GRAPH_BACKEND=fanout` from `platform/graph-os`
+### (a) Strip the retired engine-mode env var from `platform/graph-os`
 
 **Already resolved on the live object — re-verify, do not blindly re-apply.** Direct
 inspection of the live Deployment's `.spec.template.spec.containers[0].env` (not the
-`kubectl.kubernetes.io/last-applied-configuration` annotation) shows **no
-`GRAPH_BACKEND` key at all**. The retired key only survives inside that stale
-annotation (frozen at whatever full manifest was last `kubectl apply -f`'d, before
-someone imperatively `kubectl set env`/patched it away) — proof: the annotation still
-shows the *pre-migration* hostPaths too, while the live spec uses the migrated `-next`
-paths. **This is a real landmine for the cutover mechanics, not a closed issue**: if
-any future step does a full `kubectl apply -f` of a manifest matching that stale
-annotation (or of the rendered `deploy/k8s/production-cell/` assets /
-`deploy/swarm/graphos.stack.yml` without
-hand-verifying they don't carry `GRAPH_BACKEND`), it reintroduces the retired key and
+`kubectl.kubernetes.io/last-applied-configuration` annotation) shows **no retired
+engine-mode key at all** (see the exact name in `core/config.py`
+`_RETIRED_CONFIGURATION_KEYS`, first entry). The retired key only survives inside
+that stale annotation (frozen at whatever full manifest was last `kubectl apply
+-f`'d, before someone imperatively `kubectl set env`/patched it away) — proof: the
+annotation still shows the *pre-migration* hostPaths too, while the live spec uses
+the migrated `-next` paths. **This is a real landmine for the cutover mechanics,
+not a closed issue**: if any future step does a full `kubectl apply -f` of a
+manifest matching that stale annotation (or of the rendered
+`deploy/k8s/production-cell/` assets / `deploy/swarm/graphos.stack.yml` without
+hand-verifying they don't carry that key), it reintroduces the retired key and
 the migrated hostPaths regress in the same stroke. The cutover must use **targeted
 patches only** (as this whole runbook does), never a wholesale manifest apply against
 `platform/graph-os`.
@@ -173,8 +174,8 @@ patches only** (as this whole runbook does), never a wholesale manifest apply ag
   ```
 - **Workload:** `platform/graph-os` (Deployment env only; `graph-os-host` was never
   confirmed to carry this key in its live spec either).
-- **Rollback:** N/A — there is nothing to roll back to; reintroducing `GRAPH_BACKEND`
-  is the regression this step guards against, not a valid prior state.
+- **Rollback:** N/A — there is nothing to roll back to; reintroducing the retired
+  key is the regression this step guards against, not a valid prior state.
 - **Status: READY** (already correct live; the action here is a guard-rail check, not
   a change).
 

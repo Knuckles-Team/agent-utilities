@@ -72,7 +72,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | File | IRI | Role |
 |------|-----|------|
 | `ontology_a2a.ttl` | `…/kg/a2a` | Agent-to-Agent (A2A) protocol entities. |
-| `ontology_concepts.ttl` | `…/kg/concepts` | Generated OKF-CIS governed concepts (`:GovernedConcept`/`:partOf`/`:flatId` + SKOS taxonomy). Built by `scripts/build_concept_rdf.py`. |
+| `ontology_concepts.ttl` | `…/kg/concepts` | Generated OKF-CIS governed concepts (`:GovernedConcept`/`:partOf`/`:conceptId` + SKOS taxonomy). Built by `scripts/build_concept_rdf.py`. |
 | `ontology_action.ttl` | `…/kg/action` | Ontology action types (KG-2.42). |
 | `ontology_archimate.ttl` | `…/kg/archimate` | Vendor-neutral ArchiMate crosswalk keystone (KG-2.9): canonical `:ApplicationEvent`/`:BusinessProcess`/`:BusinessTask`/`:BusinessActor`/`:BusinessCapability` anchors + the ServiceNow/ERPNext/Camunda vendor-class crosswalk axioms. See `docs/architecture/vendor_neutral_enterprise_ontology.md` §1. |
 | `ontology_argumentation.ttl` | `…/kg/argumentation` | Argument Interchange Format (AIF): I-nodes/S-nodes (RA/CA/PA, AIF+ TA/YA) + Scheme templates, layered over the existing Claim/Evidence/BeliefState + Dung argumentation (`agent_utilities/knowledge_graph/argumentation/aif.py`). |

@@ -66,7 +66,7 @@ adjustable in one place:
 | Constant | Value | Meaning |
 |----------|-------|---------|
 | `RESIDENTS_PER_PG_SHARD` | 250,000 | residents per durable Postgres shard |
-| `RESIDENTS_PER_L0_SHARD` | 50,000 | residents per hot in-memory L0 shard (one `GRAPH_SERVICE_ENDPOINTS` entry; routed per named graph by HRW) |
+| `RESIDENTS_PER_ENGINE_SHARD` | 50,000 | residents per hot in-memory engine shard (one `GRAPH_SERVICE_ENDPOINTS` entry; routed per named graph by HRW) |
 | `ACTIVE_AGENTS_PER_WORKER` | 25 | concurrently active agents one worker multiplexes |
 | `WORKERS_PER_NODE` | 8 | workers per node (= `worker_pool_size` default) |
 | `OPS_PER_SEC_PER_KAFKA_PARTITION` | 5,000 | = the measured single-connection drain rate |

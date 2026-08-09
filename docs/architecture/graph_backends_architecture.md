@@ -10,13 +10,13 @@ Neo4j, FalkorDB, LadybugDB) each implement the same unified `GraphBackend`
 abstract interface (Cypher query execution, vector search, node/edge CRUD, and
 optional SPARQL support), so a mutation runs natively on every store.
 
-The **default** is the engine alone (`GRAPH_BACKEND=epistemic_graph`, also
-`memory`/`file` for snapshot modes) — zero external services. Turn on mirroring
-with `GRAPH_BACKEND=fanout` and name a mirror set; the engine stays the read
-authority and each durable mirror receives the replicated stream. PostgreSQL/
-pg-age, Neo4j, and FalkorDB are first-class mirror targets (drivers install as
-optional extras under `backends/contrib/`). There is **no tier vocabulary** —
-it is the engine authority plus mirrors.
+The **default** is the engine alone — zero external services; there is no
+engine-mode selector left to configure. Turn on mirroring by setting
+`GRAPH_MIRROR_TARGETS` to a mirror set; the engine stays the read authority and
+each durable mirror receives the replicated stream. PostgreSQL/pg-age, Neo4j, and
+FalkorDB are first-class mirror targets (drivers install as optional extras under
+`backends/contrib/`). There is **no tier vocabulary** — it is the engine authority
+plus mirrors.
 
 > **Verified parity (KG-2.7).** Node properties (declared / ad-hoc / nested),
 > edge existence, **edge properties**, and vector search round-trip on **every**
@@ -40,7 +40,7 @@ graph TB
         C["KG-2.0: add_node()"] --> B
         D["KG-2.0: link_nodes()"] --> B
         E["KG-2.3: search_hybrid()"] --> F["KG-2.3: engine.semantic_search()"]
-        G["KG-2.0: load_subgraph()"] --> H["Rust GraphComputeEngine\n(compute + cache)"]
+        G["KG-2.0: iter_nodes_by_types() / get_node_data()"] --> H["Rust GraphComputeEngine\n(compute + cache)"]
         QR["KG-2.7: QueryRouter"] --> B
         QR --> H
         QR --> F
@@ -54,7 +54,7 @@ graph TB
     F --> EG
     H --> EG
 
-    EG -->|"GRAPH_BACKEND=fanout\n(durable outbox · async · lossless)"| OUTBOX["per-mirror outbox\n(replay-on-reconnect)"]
+    EG -->|"GRAPH_MIRROR_TARGETS set\n(durable outbox · async · lossless)"| OUTBOX["per-mirror outbox\n(replay-on-reconnect)"]
 
     subgraph MIRRORS["GRAPH_MIRROR_TARGETS — optional mirrors (interop · BI · external query · DR)"]
         M_PG["PostgreSQL / pg-age (AGE)\nopenCypher + pgvector + ParadeDB BM25"]
@@ -106,7 +106,7 @@ set `EPISTEMIC_GRAPH_PERSIST_BACKEND=snapshot` on the engine; the local `.mp`
 snapshot + WAL then exist only for fast warm restart. (A build without the `redb`
 feature is non-authoritative and boots clean with no warning.) This is an
 **engine-side** setting (`epistemic-graph-server` env), independent of the
-agent-utilities-side `GRAPH_BACKEND` mirror selection below.
+agent-utilities-side `GRAPH_MIRROR_TARGETS` mirror selection below.
 
 ## Derived stores route to the engine, NOT a local DB (engine-only, CONCEPT:AU-KG.backend.cache-lives-as–2.248)
 
@@ -249,9 +249,7 @@ requires pgvector; BM25 requires pg_search.
 
 | Variable | Default | Description |
 |---|---|---|
-| `GRAPH_BACKEND` | `epistemic_graph` | Engine mode: `epistemic_graph` (default — the engine authority alone, also `memory`/`file` snapshot modes) or `fanout` (engine authority + mirrors). The `tiered`/`GRAPH_BACKEND_L1`/`GRAPH_BACKEND_L2` scheme is **removed**. |
-| `GRAPH_AUTHORITY` | `epistemic_graph` | Read source-of-truth under `fanout`; any named durable connection may be named instead, but the engine is the default |
-| `GRAPH_MIRROR_TARGETS` | unset | JSON/list of mirror connection names (declared in `KG_CONNECTIONS`) that receive the fanned-out write stream; supersedes the removed `GRAPH_BACKEND_L2` |
+| `GRAPH_MIRROR_TARGETS` | unset | JSON/list of mirror connection names (declared in `KG_CONNECTIONS`) that receive the fanned-out write stream. There is no engine-mode selector or read-authority selector to configure alongside it: the epistemic-graph engine is unconditionally the read authority, and setting this list is the only thing that turns mirroring on |
 | `GRAPH_DB_PATH` | `knowledge_graph.db` | File path for EpistemicGraph (`file` mode) / LadybugDB |
 | `GRAPH_DB_URI` | — | Connection URI for Neo4j or PostgreSQL |
 | `GRAPH_DB_HOST` | `localhost` | Host for FalkorDB |
@@ -269,7 +267,7 @@ requires pgvector; BM25 requires pg_search.
 
 These are the **agent-utilities-side** (mirror-selection) variables. Engine
 durability is configured on the **`epistemic-graph-server`** process itself
-(CONCEPT:AU-KG.backend.backend-modes) and is independent of `GRAPH_BACKEND`:
+(CONCEPT:AU-KG.backend.backend-modes) and is independent of `GRAPH_MIRROR_TARGETS`:
 
 | Variable (engine-side) | Default | Description |
 |---|---|---|
@@ -305,7 +303,6 @@ export KG_CONNECTIONS='[
 graph_configure(action="add_connection", config_key="pg-main",
                 config_value='{"backend":"age","uri":"postgresql://agent:agent@pg:5432/agent_kg"}')
 graph_configure(action="list_connections")          # per-connection health
-graph_configure(action="set_default_connection", config_key="pg-main")
 graph_configure(action="remove_connection", config_key="pg-main")
 ```
 
@@ -363,8 +360,8 @@ third-party graph as a data source — not just for mirroring:
 - **The mirror set is derived from `role=mirror`** connections (`GRAPH_MIRROR_TARGETS`
   stays an optional override) — one registry drives both query targets and mirrors.
 - **Durable + live:** `graph_configure add_connection/remove_connection` persists the
-  list to `config.json` (survives restart). `profile_connection` / `imprint_connection`
-  introspect a foreign graph's schema and write a self-describing
+  list to `config.json` (survives restart). `profile_connection`
+  introspects a foreign graph's schema and writes a self-describing
   `ExternalGraphReference` catalog node, mapping its labels onto our ontology.
 - **Generic live config:** `graph_configure get_config|set_config|list_config`
   read/update/list **any** config option (validated against `config_reference`),
@@ -376,17 +373,18 @@ third-party graph as a data source — not just for mirroring:
 ## Mirror every write to N stores at once (CONCEPT:AU-KG.backend.mirror-health-repair)
 
 Where KG-2.63 lets you *target* several connections per call, **fan-out** makes
-mirroring the **default** for every write: one configurable **authority** store
-serves reads and acks writes, and each mutation is replicated — losslessly and
-asynchronously — to any set of durable backends. Turn it on with
-`GRAPH_BACKEND=fanout`; the zero-infra default is unchanged (it is only built
-when you configure a mirror set).
+mirroring available for every write: the epistemic-graph engine is
+unconditionally the **authority** store that serves reads and acks writes, and
+each mutation is replicated — losslessly and asynchronously — to any set of
+durable backends named in `GRAPH_MIRROR_TARGETS`; the zero-infra default is
+unchanged (it is only built when you configure a mirror set). There is no
+separate fan-out mode switch and no authority selector — naming a mirror set is
+the only thing that turns fan-out on, and the read authority is always the
+engine.
 
 ```bash
 # Authority = epistemic-graph engine (fast in-mem reads + durable); mirror to Postgres-AGE,
 # Neo4j and FalkorDB. The mirror set names entries declared in KG_CONNECTIONS.
-export GRAPH_BACKEND=fanout
-export GRAPH_AUTHORITY=epistemic_graph
 export GRAPH_MIRROR_TARGETS='["pg-age","prod-neo4j","team-falkor"]'
 export KG_CONNECTIONS='[
   {"name":"pg-age","backend":"age","uri":"postgresql://u:p@pg.example.internal:5432/agent_kg"},
@@ -394,10 +392,6 @@ export KG_CONNECTIONS='[
   {"name":"team-falkor","backend":"falkordb","host":"falkordb.example.internal","port":6379}
 ]'
 ```
-
-You may also set the authority to any durable store (e.g. `GRAPH_AUTHORITY=pg-age`)
-— whichever connection you name becomes the read source-of-truth, and the rest
-are mirrors.
 
 ### Where a mirror writes — the mirror target graph (CONCEPT:AU-KG.backend.mirror-target-graph)
 
@@ -508,7 +502,7 @@ storage:
 * returns exact post-condition drift (`nodes_missing` / `edges_missing`).
 
 This is what **backfills a freshly-added mirror** (`graph_configure(action="reconcile")`
-and `reconcile_to_durable` both delegate to `copy_graph`) and what migrates
+delegates to `copy_graph`) and what migrates
 data between any two backends (e.g. Neo4j → FalkorDB). It replaced the old reconcile
 that reconstructed `CREATE (n:Label {`k`: $k})` cypher — fragile on native-cypher
 backends (double-escaped reserved keys) and edge-lossy. Parity is proven by
@@ -523,7 +517,6 @@ counts.
 docker compose -f docker/pg-age.compose.yml up -d
 
 # 2. Mirror the engine authority to Postgres-AGE
-export GRAPH_BACKEND=fanout
 export GRAPH_MIRROR_TARGETS='["pg-age"]'
 export KG_CONNECTIONS='[{"name":"pg-age","backend":"age","uri":"postgresql://agent:agent@localhost:5433/agent_kg"}]'
 

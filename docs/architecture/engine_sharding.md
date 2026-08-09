@@ -147,4 +147,4 @@ export GRAPH_SERVICE_ENDPOINTS="tcp://127.0.0.1:9101,tcp://127.0.0.1:9102,tcp://
 Multi-host is the same picture with one engine (or a few, on big hosts) per
 machine and hostnames in the endpoint list. Capacity planning for shard
 counts lives in [`docs/scaling/capacity_model.md`](../scaling/capacity_model.md)
-(`RESIDENTS_PER_L0_SHARD`).
+(`RESIDENTS_PER_ENGINE_SHARD`).

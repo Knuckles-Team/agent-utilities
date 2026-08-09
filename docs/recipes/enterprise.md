@@ -79,7 +79,7 @@ and toggle the integrations you want.
   // agent-dispatch-worker fleet (default "inline" = in-process)
   "agent_dispatch_backend": "queue",
 
-  "secrets_vault_url": "https://openbao.example.test",
+  "vault_url": "https://openbao.example.test",
   "vault_auth_method": "approle",
 
   "kg_auth_required": true,
