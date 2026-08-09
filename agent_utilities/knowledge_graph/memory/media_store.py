@@ -532,7 +532,28 @@ class MediaStore:
                 ``KG_MEDIA_TENANT_ISOLATED_BLOBS`` setting (off by default, matching
                 prior single-namespace behavior).
 
-        Returns a :class:`StoredMedia` (or ``None`` on failure — never raises).
+        Returns a :class:`StoredMedia` on success, or ``None`` on a store/commit
+        failure (blob-store errors, txn conflicts — see :meth:`_commit_atomic`).
+
+        BUG-059 governance note (CONCEPT:AU-KG.identity.asset-occurrence): this
+        module used to run its OWN ad-hoc ``owner``/``tenant`` occurrence fields
+        (still stamped below, unchanged, for existing domain-level provenance
+        readers) as a parallel, weaker stand-in for the KG's real governance
+        model — silently degrading to ``owner=""``/``tenant=""`` when no actor
+        was bound, instead of the fail-closed behaviour every other node-write
+        chokepoint (``stamp_ownership``) has had since BUG-033/BUG-039. That
+        is now resolved: :func:`~..core.tenant_sharing.stamp_ownership` /
+        :func:`~..core.tenant_sharing.stamp_classification` are THE
+        authoritative KG ownership/ACL mechanism, and are now also applied to
+        ``occurrence_props`` below (using ``session.actor``) before the
+        cross-modal ACID commit. A call with genuinely no actor bound anywhere
+        (neither an explicit ``session`` nor an ambient one) now raises
+        ``IdentityRequiredError``/``PermissionError`` instead of silently
+        minting an unowned, unreadable-by-anyone-but-a-privileged-actor
+        occurrence — this method is therefore no longer unconditionally
+        exception-free; it still returns ``None`` (never raises) for a
+        store/commit failure, but propagates an identity failure like every
+        other governed write path.
         """
         if not data:
             return None
@@ -595,6 +616,23 @@ class MediaStore:
         if extra:
             occurrence_props.update(extra)
 
+        # BUG-059: enter the SAME governance chokepoint every other node write
+        # in the KG does (``IntelligenceGraphEngine._upsert_node``/
+        # ``GraphComputeEngine.add_node`` cannot be reused here — see the
+        # module docstring's "native ``client.txn.add_node``" note — so stamp
+        # explicitly, upstream of the txn). ``occurrence_props`` already
+        # carries the module's own domain-level ``owner``/``tenant`` fields
+        # (unchanged, still authoritative for "who/what this media belongs to
+        # in the app domain"); this ADDS the KG's real ACL/ownership markers
+        # (``_owner_id``/``tenant_id``/``_shared_scope``/``classification``)
+        # so ``secured_reads.permit()`` can actually govern reads of this
+        # node, same as everywhere else. Fails closed (raises) if no actor is
+        # bound at all — see the ``store_media`` docstring.
+        from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+        stamp_ownership(occurrence_props, actor=session.actor)
+        stamp_classification(occurrence_props, "AssetOccurrence")
+
         effective_graph = session.graph or self._graph
         blob_props = {
             "node_type": "Blob",
@@ -602,6 +640,12 @@ class MediaStore:
             "file_size_bytes": len(data),
             "created_at": now,
         }
+        # ``:Blob`` nodes are content-addressed and deduped ACROSS
+        # occurrences/tenants/owners by design (module docstring) — they have
+        # no single "owner" to stamp, so only the ACL/classification half
+        # applies (never ``stamp_ownership``, which would wrongly attribute a
+        # shared blob to whichever occurrence happened to create it first).
+        stamp_classification(blob_props, "Blob")
 
         committed = self._commit_atomic(
             graph=effective_graph,
@@ -1493,6 +1537,24 @@ class MediaStore:
         if extra:
             props.update(extra)
 
+        # BUG-059: same chokepoint as ``store_media`` above. This is a
+        # read-modify-write on an EXISTING node, so ``props`` already carries
+        # whatever ``_owner_id``/``tenant_id``/``_shared_scope``/
+        # ``classification`` its creating write stamped — ``setdefault``
+        # semantics mean this never reassigns ownership to whichever actor
+        # happens to be running the extraction callback, only backfills a
+        # legacy node that predates this fix. Every live caller
+        # (``media.image_sidecar.ingest_jpeg_via_sidecar``) already threads
+        # the SAME ``session`` used to create the occurrence and already
+        # treats this call as best-effort (wrapped in its own
+        # ``except Exception``), so a genuinely unbound actor degrades the
+        # same way every other failure here already does — it does not
+        # newly crash a background pipeline.
+        from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+        stamp_ownership(props, actor=session.actor)
+        stamp_classification(props, str(props.get("node_type") or ""))
+
         effective_graph = session.graph or self._graph
         try:
             txn = client.txn.begin(graph=effective_graph)
@@ -1599,6 +1661,15 @@ class MediaStore:
         if legacy.get("message_id"):
             occurrence_props["message_id"] = legacy["message_id"]
 
+        # BUG-059: same chokepoint as ``store_media`` — see that method's
+        # docstring for the full governance-note rationale. This mints a
+        # brand-new ``:AssetOccurrence``, so (unlike ``record_extraction``)
+        # this is a real ownership assignment, not a backfill.
+        from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+        stamp_ownership(occurrence_props, actor=session.actor)
+        stamp_classification(occurrence_props, "AssetOccurrence")
+
         effective_graph = session.graph or self._graph
         blob_props = {
             "node_type": "Blob",
@@ -1606,6 +1677,7 @@ class MediaStore:
             "file_size_bytes": legacy.get("file_size_bytes", 0),
             "created_at": now,
         }
+        stamp_classification(blob_props, "Blob")
 
         committed = self._commit_atomic(
             graph=effective_graph,
