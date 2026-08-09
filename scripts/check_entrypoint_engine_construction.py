@@ -50,6 +50,7 @@ only, 1 = a divergent construction path was found.
 from __future__ import annotations
 
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
@@ -133,10 +134,33 @@ def _violations_in_source(source: str) -> list[str]:
     return violations
 
 
+def _tracked_or_walked_py_files(root: Path) -> list[Path]:
+    """``.py`` files under ``root``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale hand-rolled-construction violation no longer in real
+    source. Falls back to a filesystem walk only when ``root`` is not inside
+    a git working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [root / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(root.rglob("*.py"))
+
+
 def scan_tree(root: Path) -> dict[str, list[str]]:
     """Return {relpath: [violation, ...]} for every offending file under ``root``."""
     found: dict[str, list[str]] = {}
-    for path in sorted(root.rglob("*.py")):
+    for path in _tracked_or_walked_py_files(root):
         rel_parts = path.relative_to(root).parts
         if any(part in SKIP_DIRS for part in rel_parts):
             continue

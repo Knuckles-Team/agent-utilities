@@ -9,6 +9,7 @@ surface after its implementation is removed.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from collections.abc import Iterable
 from pathlib import Path
@@ -420,9 +421,42 @@ _README_RETIRED_KEY_LINE = (
 # ``check()`` runs ``PATH_REQUIRED_IDENTIFIERS`` (scoped to the real
 # repository root, exactly as the removed ripgrep path scoped it, so the
 # tmp_path-based unit tests are unaffected).
+#
+# BUG-043 follow-up: ``rg --files`` respected ``.gitignore`` by construction,
+# so the ``Path.rglob`` replacement above silently NARROWED what this gate is
+# safe against — a raw filesystem walk over ``_SKIP_DIR_NAMES`` alone (no
+# ``.venv``, ``node_modules``, ``build``, ``dist``, ``target``,
+# ``target-isolated``, ...) can pick up a retired identifier surviving in
+# gitignored, generated build output and flag it as if it were live source,
+# or — the opposite and equally real failure — miss a retired identifier
+# that DOES live in tracked source but happens to sit inside a name not on
+# the hand-maintained skip list. ``_iter_files`` now prefers the git-tracked
+# file set (matching what actually ships/reviews), falling back to the
+# ``_SKIP_DIR_NAMES``-filtered walk only when a scan root is not inside a
+# git working tree (e.g. the ``tmp_path``-based unit tests).
 _SKIP_DIR_NAMES = frozenset(
     {"__pycache__", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache"}
 )
+
+
+def _tracked_or_walked(scan_root: Path) -> list[Path]:
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(scan_root), "ls-files"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [scan_root / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return [
+        p
+        for p in scan_root.rglob("*")
+        if p.is_file() and not any(part in _SKIP_DIR_NAMES for part in p.parts)
+    ]
 
 
 def _iter_files() -> list[Path]:
@@ -430,7 +464,7 @@ def _iter_files() -> list[Path]:
     for scan_root in SCAN_ROOTS:
         if not scan_root.exists():
             continue
-        for path in scan_root.rglob("*"):
+        for path in _tracked_or_walked(scan_root):
             if any(part in _SKIP_DIR_NAMES for part in path.parts):
                 continue
             if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:

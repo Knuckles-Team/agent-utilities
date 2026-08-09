@@ -126,6 +126,7 @@ from __future__ import annotations
 import argparse
 import ast
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -133,6 +134,29 @@ ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "agent_utilities"
 BASELINE = ROOT / "scripts" / "swallowed_error_baseline.txt"
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "build", "dist"}
+
+
+def _tracked_or_walked_py_files(target: Path) -> list[Path]:
+    """``.py`` files under ``target``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale copy of an already-fixed source file and reintroduce a
+    cleared violation. Falls back to a filesystem walk only when ``target``
+    is not inside a git working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(target), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [target / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(target.rglob("*.py"))
 
 # The justified-convention marker: a "noqa: BLE001"-style comment followed by
 # a non-empty reason after a -/—/: separator. A bare marker with NO reason is
@@ -385,8 +409,10 @@ def scan(
     not a gate").
     """
     found: dict[HandlerKey, tuple[int, str, str]] = {}
-    for py in target.rglob("*.py"):
+    for py in _tracked_or_walked_py_files(target):
         if any(part in SKIP_DIRS for part in py.parts):
+            continue
+        if not py.is_file():
             continue
         rel = py.relative_to(display_root).as_posix()
         try:

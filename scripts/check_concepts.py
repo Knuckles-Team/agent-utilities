@@ -11,6 +11,7 @@ Run:  python scripts/check_concepts.py
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,10 +27,33 @@ sys.path.insert(0, str(ROOT))
 from agent_utilities.governance.concept_hierarchy import iter_okf_markers  # noqa: E402
 
 
+def _tracked_or_walked_files(src_dir: Path) -> list[Path]:
+    """Files under ``src_dir``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale ``CONCEPT:`` marker no longer in real source. Falls
+    back to a filesystem walk only when ``src_dir`` is not inside a git
+    working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(src_dir), "ls-files"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [src_dir / line for line in out.splitlines() if line]
+        if tracked:
+            return tracked
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(src_dir.rglob("*"))
+
+
 def markers_in_code() -> dict[str, list[str]]:
     """Map every concept id found in code to the files it appears in."""
     found: dict[str, list[str]] = {}
-    for path in sorted(SRC_DIR.rglob("*")):
+    for path in sorted(_tracked_or_walked_files(SRC_DIR)):
         if path.suffix not in (".py", ".rs") or not path.is_file():
             continue
         if "__pycache__" in path.parts:

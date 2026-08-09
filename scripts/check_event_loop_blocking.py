@@ -72,11 +72,35 @@ scan. Recorded as D-W15-6 in ``reports/deferred/waves1-5-gate.md``.
 from __future__ import annotations
 
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PKG = ROOT / "agent_utilities"
+
+
+def _tracked_or_walked_py_files(target: Path) -> list[Path]:
+    """``.py`` files under ``target``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale copy of an already-fixed source file and reintroduce a
+    cleared violation. Falls back to a filesystem walk only when ``target``
+    is not inside a git working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(target), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [target / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(target.rglob("*.py"))
 BASELINE = ROOT / "scripts" / "event_loop_blocking_baseline.txt"
 
 # Hop helpers: passing the blocking callable as a bare reference to one of these is
@@ -290,7 +314,7 @@ def main(argv: list[str]) -> int:
     targets = [Path(a) for a in args] or [PKG]
     all_findings: list[Finding] = []
     for target in targets:
-        files = [target] if target.is_file() else sorted(target.rglob("*.py"))
+        files = [target] if target.is_file() else _tracked_or_walked_py_files(target)
         for f in files:
             if "/tests/" in str(f) or f.name.startswith("test_"):
                 continue

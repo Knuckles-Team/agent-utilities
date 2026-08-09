@@ -87,6 +87,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 import sys
 from collections.abc import Sequence
 from collections.abc import Set as AbstractSet
@@ -442,6 +443,29 @@ def _find_violations(rel: Path, tree: ast.Module) -> list[str]:
     return violations
 
 
+def _tracked_or_walked_py_files(target: Path) -> list[Path]:
+    """``.py`` files under ``target``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale copy of an already-fixed source file and reintroduce a
+    cleared violation. Falls back to a filesystem walk only when ``target``
+    is not inside a git working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(target), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [target / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(target.rglob("*.py"))
+
+
 def _iter_py_files(target: Path, *, exclude_dirs: AbstractSet[str]) -> list[Path]:
     if target.is_file():
         return [target] if target.suffix == ".py" else []
@@ -449,7 +473,7 @@ def _iter_py_files(target: Path, *, exclude_dirs: AbstractSet[str]) -> list[Path
         return []
     return sorted(
         p
-        for p in target.rglob("*.py")
+        for p in _tracked_or_walked_py_files(target)
         if not any(part in SKIP_DIRS | exclude_dirs for part in p.parts)
     )
 

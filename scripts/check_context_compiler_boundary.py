@@ -4,12 +4,36 @@ from __future__ import annotations
 """Architecture gate for the mandatory ContextCompiler model boundary."""
 
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "agent_utilities"
 SCAN_ROOTS = (PACKAGE, ROOT / "scripts", ROOT / "tests", ROOT / "examples")
+
+
+def _tracked_or_walked_py_files(scan_root: Path) -> list[Path]:
+    """``.py`` files under ``scan_root``, preferring git-tracked (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale, already-fixed direct-Agent-construction violation.
+    Falls back to a filesystem walk only when ``scan_root`` is not inside a
+    git working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(scan_root), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [scan_root / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(scan_root.rglob("*.py"))
 CANONICAL_AGENT_BOUNDARY = "agent_utilities/core/contextual_model.py"
 RAW_PROVIDER_ALLOWLIST = {
     "agent_utilities/core/model_factory.py",
@@ -239,7 +263,7 @@ def _source_violations(relative: str, source: str) -> list[str]:
 def violations() -> list[str]:
     failures: list[str] = []
     for scan_root in SCAN_ROOTS:
-        for path in sorted(scan_root.rglob("*.py")):
+        for path in _tracked_or_walked_py_files(scan_root):
             if "__pycache__" in path.parts:
                 continue
             relative = path.relative_to(ROOT).as_posix()

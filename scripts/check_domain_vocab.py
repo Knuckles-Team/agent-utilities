@@ -11,6 +11,7 @@ Usage: python scripts/check_domain_vocab.py [ROOT ...]  (default: cwd)
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,11 +22,34 @@ _EXT = {".py", ".rs", ".md"}
 _SKIP = {"__pycache__", ".git", ".venv", "node_modules", "target", "build", "dist"}
 
 
+def _candidate_files(root: Path) -> list[Path]:
+    """Files under ``root``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale ``CONCEPT:`` marker no longer in real source. Falls
+    back to a filtered filesystem walk only when ``root`` is not inside a
+    git working tree.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "ls-files"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [root / line for line in out.splitlines() if line]
+        if tracked:
+            return tracked
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return [p for p in root.rglob("*") if not any(s in p.parts for s in _SKIP)]
+
+
 def scan(root: Path) -> list[str]:
     errs: list[str] = []
     known_slugs = set(ch.load_slug_registry().values())
-    for p in root.rglob("*"):
-        if p.suffix not in _EXT or any(s in p.parts for s in _SKIP):
+    for p in _candidate_files(root):
+        if p.suffix not in _EXT or any(s in p.parts for s in _SKIP) or not p.is_file():
             continue
         if p.name in {
             "check_domain_vocab.py",

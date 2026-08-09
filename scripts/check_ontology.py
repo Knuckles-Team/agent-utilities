@@ -40,6 +40,7 @@ import argparse
 import os
 import re
 import stat
+import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -309,9 +310,34 @@ def _domain_modules(provider_ttls: list[Path] | None = None) -> list[Path]:
     return sorted(set(bundled + federated))
 
 
+def _bundled_ttls(kg_dir: Path) -> list[Path]:
+    """Every ``*.ttl`` under the bundled canonical ontology dir (BUG-043).
+
+    Prefers the git-tracked set over a raw ``rglob`` — a filesystem walk also
+    picks up gitignored, generated build output (a stale packaging-build
+    copy, a local scratch ``.ttl``, ...), which could reintroduce a duplicate
+    IRI / broken-import violation this gate already cleared in real source.
+    Falls back to ``rglob`` only when ``kg_dir`` is not inside a git working
+    tree (e.g. an installed, non-editable copy with no ``.git``).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(kg_dir), "ls-files", "--", "*.ttl"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [kg_dir / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return list(kg_dir.rglob("*.ttl"))
+
+
 def _all_ttls(provider_ttls: list[Path] | None = None) -> list[Path]:
     providers = _provider_ttls() if provider_ttls is None else provider_ttls
-    return sorted(set(list(KG_DIR.rglob("*.ttl")) + providers))
+    return sorted(set(_bundled_ttls(KG_DIR) + providers))
 
 
 def _parse(path: Path):

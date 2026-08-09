@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 import sys
 from pathlib import Path
 
@@ -54,6 +55,29 @@ def violations(path: Path) -> list[str]:
     return findings
 
 
+def _tracked_or_walked_py_files(public_path: Path) -> list[Path]:
+    """``.py`` files under ``public_path``, preferring git-tracked (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale, already-fixed backend-boundary violation. Falls back
+    to a filesystem walk only when ``public_path`` is not inside a git
+    working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(public_path), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [public_path / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(public_path.rglob("*.py"))
+
+
 def check(root: Path) -> list[str]:
     findings: list[str] = []
     for relative in PUBLIC_ROOTS:
@@ -61,7 +85,7 @@ def check(root: Path) -> list[str]:
         if public_path.is_file():
             findings.extend(violations(public_path))
         elif public_path.is_dir():
-            for path in sorted(public_path.rglob("*.py")):
+            for path in _tracked_or_walked_py_files(public_path):
                 findings.extend(violations(path))
     return findings
 

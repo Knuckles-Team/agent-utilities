@@ -4,11 +4,35 @@
 from __future__ import annotations
 
 import ast
+import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE = ROOT / "agent_utilities"
 FACTORY = Path("agent_utilities/core/http_client.py")
+
+
+def _tracked_or_walked_py_files(package: Path) -> list[Path]:
+    """``.py`` files under ``package``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale, already-fixed direct-HTTP-construction violation.
+    Falls back to a filesystem walk only when ``package`` is not inside a
+    git working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(package), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [package / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(package.rglob("*.py"))
 
 # Files whose direct construction of a blocked HTTP client is intentional and
 # justified inline at the call site, not just here (mirrors
@@ -102,7 +126,7 @@ def validate(package: Path = PACKAGE) -> list[str]:
     """Return stable violations for direct outbound HTTP constructors/calls."""
 
     errors: list[str] = []
-    for path in sorted(package.rglob("*.py")):
+    for path in _tracked_or_walked_py_files(package):
         try:
             relative = path.relative_to(ROOT)
         except ValueError:
