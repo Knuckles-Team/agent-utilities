@@ -120,16 +120,31 @@ def _render_agent_result(
     channel_id: str | None = None,
     run_summary: dict[str, Any] | None = None,
     execution_evidence: dict[str, Any] | None = None,
+    provenance_recorded: bool | None = None,
 ) -> str:
     """Render one agent result through the sole public delegation envelope.
 
     CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — ``run_summary`` (when a
     caller opts in) rides the SAME envelope as ``mermaid``/``channel_id``: additive, opt-in,
     and never changes the bare-string contract for a caller that asks for none of the three.
+
+    BUG-015 (GOC-20) — ``provenance_recorded`` follows the same additive-opt-in rule:
+    ``None`` (the default, e.g. no ``engine`` was available to even attempt a trace write)
+    changes nothing; ``True``/``False`` is only surfaced on the rich envelope (never the
+    bare-string contract) and tells a caller who DID opt into the rich envelope whether the
+    durable RunTrace/Outcome/ToolCall write this result claims actually committed. This is
+    the interim, AU-side half of the atomic outcome/provenance contract this run cannot yet
+    enforce end-to-end (the EG-side atomic ``CommitOutcomeBundle`` is GOC-20-W03, blocked on
+    the arbitrated owner of ``mutation_batch.rs`` per BUG-029) — see
+    ``plans/graph-os-completion-program/decisions/GOC-20-atomic-outcome-provenance.md``.
     """
 
     output_text = str(output)
     if not return_mermaid and not channel_id and run_summary is None:
+        # BUG-015: ``provenance_recorded`` deliberately does NOT join this gate — it must
+        # never, on its own, flip a caller from the bare-string contract to the JSON
+        # envelope. It only rides along when the caller already opted into a rich
+        # envelope for another reason (see the docstring).
         return output_text
     payload: dict[str, Any] = {"output": output_text, "run_id": run_id}
     if return_mermaid:
@@ -140,6 +155,8 @@ def _render_agent_result(
         payload["run_summary"] = run_summary
     if execution_evidence is not None:
         payload["execution_evidence"] = execution_evidence
+    if provenance_recorded is not None:
+        payload["provenance_recorded"] = provenance_recorded
     return json.dumps(payload, default=str)
 
 
@@ -723,7 +740,12 @@ async def run_agent(
             try:
                 pe_result = await pe.execute(manifest)
                 duration_ms = (time.monotonic() - start_time) * 1000
-                await _record_execution_trace_ordered(
+                # BUG-015 (GOC-20): this return value used to be discarded — a run could
+                # report its enterprise result while the RunTrace/Outcome write silently
+                # failed, with no way for a rich-envelope caller to tell. Capture it and
+                # surface it (never touching the bare-string contract; see
+                # ``_render_agent_result``).
+                _enterprise_prov_recorded = await _record_execution_trace_ordered(
                     engine,
                     run_id,
                     "enterprise",
@@ -733,12 +755,22 @@ async def run_agent(
                     result_preview=str(pe_result)[:500],
                     execution_mode="parallel_engine",
                 )
+                if not _enterprise_prov_recorded:
+                    logger.error(
+                        "run_agent(enterprise): result produced but RunTrace/provenance "
+                        "write failed (run_id=%r) — reporting provenance_recorded=False "
+                        "per the BUG-015 atomic-outcome contract",
+                        run_id,
+                    )
                 return _render_agent_result(
-                    pe_result, run_id=run_id, return_mermaid=return_mermaid
+                    pe_result,
+                    run_id=run_id,
+                    return_mermaid=return_mermaid,
+                    provenance_recorded=_enterprise_prov_recorded,
                 )
             except Exception as e:
                 logger.error("[ORCH-1.9] Enterprise execution failed: %s", e)
-                await _record_execution_trace_ordered(
+                _enterprise_prov_recorded = await _record_execution_trace_ordered(
                     engine,
                     run_id,
                     "enterprise",
@@ -751,6 +783,7 @@ async def run_agent(
                     f"Enterprise execution failed: {e}",
                     run_id=run_id,
                     return_mermaid=return_mermaid,
+                    provenance_recorded=_enterprise_prov_recorded,
                 )
 
         # Step 1b: Check if agent_name maps to a native ServiceRegistry capability (e.g. trading_swarm)
@@ -801,7 +834,10 @@ async def run_agent(
                         handled = True
                         result = await _call_without_blocking(instance.execute, task)
                     if handled:
-                        await _record_execution_trace_ordered(
+                        # BUG-015 (GOC-20): same discarded-return defect as the enterprise
+                        # path above — capture and surface it rather than reporting this
+                        # ServiceRegistry result unconditionally as fully provenanced.
+                        _svc_prov_recorded = await _record_execution_trace_ordered(
                             engine,
                             run_id,
                             agent_name,
@@ -811,8 +847,20 @@ async def run_agent(
                             result_preview=str(result)[:500],
                             execution_mode="service_registry",
                         )
+                        if not _svc_prov_recorded:
+                            logger.error(
+                                "run_agent(service_registry): result produced but "
+                                "RunTrace/provenance write failed (run_id=%r, agent=%r) — "
+                                "reporting provenance_recorded=False per the BUG-015 "
+                                "atomic-outcome contract",
+                                run_id,
+                                agent_name,
+                            )
                         return _render_agent_result(
-                            result, run_id=run_id, return_mermaid=return_mermaid
+                            result,
+                            run_id=run_id,
+                            return_mermaid=return_mermaid,
+                            provenance_recorded=_svc_prov_recorded,
                         )
         except Exception as e:
             logger.warning(
@@ -1675,6 +1723,33 @@ async def run_agent(
         tool_calls=_tool_calls_for_trace,
         tool_call_server=agent_name,
     )
+    # BUG-015 (GOC-20) — atomic outcome/provenance contract: a successful run may not be
+    # REPORTED as such once its durable RunTrace/Outcome/ToolCall write is known to have
+    # failed. Before this, ``_trace_recorded``'s only consumer was the "checkpoint"
+    # progress-sink event a few lines below — the run_summary this function returns to
+    # every caller (streaming or not) and the "synthesis"/"done" progress events further
+    # down stayed unconditionally "ok", so a caller with no progress_sink (or one that
+    # doesn't stop reading after "checkpoint") had no way to learn the write failed.
+    # Fold it into both now. This does NOT touch `degraded` itself (the content-level
+    # signal that already feeds `_record_agent_outcome`, `_write_step_credit`, and
+    # `record_shape_outcome`/reward-EMA before this point in the function) — provenance
+    # loss is an infra-level fact, reported alongside content quality, not conflated with
+    # it. Both final `_render_agent_result` calls now pass
+    # `provenance_recorded=_trace_recorded`.
+    run_summary["provenance_recorded"] = _trace_recorded
+    if not _trace_recorded and run_summary.get("outcome") == "ok":
+        from agent_utilities.orchestration.failure_translation import (
+            build_failure_detail as _build_provenance_failure_detail,
+        )
+
+        run_summary["outcome"] = "degraded"
+        run_summary.setdefault(
+            "failure",
+            _build_provenance_failure_detail(
+                "the run completed but its RunTrace/provenance write failed; the "
+                "result is unaudited (BUG-015 atomic-outcome contract)"
+            ),
+        )
     # CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the paper's
     # "checkpointing / traces" surfaced: the durable RunTrace this run just wrote IS its
     # checkpoint. Stream it with the trace_ref so the caller can deep-link into the run's
@@ -1748,6 +1823,15 @@ async def run_agent(
     # result and is about to render the final answer. Stream a synthesis milestone, then the
     # terminal ``done`` (carrying the same outcome + trace_ref the run_summary holds). Both
     # precede — and so cover — BOTH return shapes below (the dict envelope and the bare string).
+    #
+    # BUG-015 (GOC-20): both stages used to report unconditionally on `degraded` alone —
+    # the SAME inconsistency the "checkpoint" stage above was already fixed for (D-DST-6):
+    # a run whose durable RunTrace/Outcome write failed (`not _trace_recorded`) could still
+    # stream `stage="done", status="ok", evidence={"outcome": "ok", ...}` a few lines after
+    # its own "checkpoint" event had just reported `status="degraded"` for the exact same
+    # run — an internally inconsistent stream. Fold `_trace_recorded` in here too so the
+    # terminal event a caller is most likely to act on tells the truth.
+    _reported_degraded = degraded or not _trace_recorded
     if progress_sink is not None:
         from agent_utilities.observability.trace_ontology import (
             trace_id as _trace_id_done,
@@ -1757,17 +1841,25 @@ async def run_agent(
             progress_sink,
             run_id=run_id,
             stage="synthesis",
-            status="degraded" if degraded else "ok",
+            status="degraded" if _reported_degraded else "ok",
             detail="composing the final answer",
         )
         await _emit(
             progress_sink,
             run_id=run_id,
             stage="done",
-            status="degraded" if degraded else "ok",
-            detail=((_raw_failure or "")[:200] if degraded else "completed"),
+            status="degraded" if _reported_degraded else "ok",
+            detail=(
+                (_raw_failure or "")[:200]
+                if degraded
+                else (
+                    "run trace write failed; result may be unaudited"
+                    if not _trace_recorded
+                    else "completed"
+                )
+            ),
             evidence={
-                "outcome": "degraded" if degraded else "ok",
+                "outcome": "degraded" if _reported_degraded else "ok",
                 "trace_ref": _trace_id_done(run_id),
             },
         )
@@ -1809,6 +1901,7 @@ async def run_agent(
             channel_id=channel_id,
             run_summary=run_summary if include_run_summary else None,
             execution_evidence=graph_execution_evidence,
+            provenance_recorded=_trace_recorded,
         )
 
     return _render_agent_result(
@@ -1817,6 +1910,7 @@ async def run_agent(
         return_mermaid=return_mermaid,
         channel_id=channel_id,
         run_summary=run_summary if include_run_summary else None,
+        provenance_recorded=_trace_recorded,
     )
 
 
