@@ -120,6 +120,7 @@ import ast
 import io
 import json
 import re
+import subprocess
 import sys
 import tokenize
 from collections import Counter, defaultdict, deque
@@ -133,6 +134,29 @@ PYTEST_INI = ROOT / "pytest.ini"
 PRECOMMIT_CONFIG = ROOT / ".pre-commit-config.yaml"
 WORKFLOWS_DIR = ROOT / ".github" / "workflows"
 WIRE_FIRST_BASELINE = ROOT / "scripts" / "wire_first_baseline.json"
+
+
+def _tracked_or_walked(root: Path, pattern: str) -> list[Path]:
+    """Files matching ``pattern`` under ``root``, preferring git-tracked (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can distort the import graph / wire-first sweep with a stale copy of an
+    already-fixed source file. Falls back to a filesystem walk only when
+    ``root`` is not inside a git working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--", pattern],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [root / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(root.rglob(pattern))
 
 # Method names common enough (as ordinary verbs on many unrelated classes)
 # that a global word-boundary usage count is too noisy to trust at the
@@ -266,7 +290,7 @@ def build_graph() -> tuple[dict[str, set[str]], set[str]]:
     modules: set[str] = set()
     file_imports: dict[str, set[str]] = {}
 
-    for py_file in sorted(SRC_DIR.rglob("*.py")):
+    for py_file in _tracked_or_walked(SRC_DIR, "*.py"):
         if "__pycache__" in py_file.parts:
             continue
         rel = py_file.relative_to(ROOT).as_posix()
@@ -410,7 +434,7 @@ def find_orphaned_test_files(
         precommit_config=precommit_config, workflows_dir=workflows_dir
     )
     orphans = []
-    for py in sorted(tests_dir.rglob("test_*.py")):
+    for py in _tracked_or_walked(tests_dir, "test_*.py"):
         rel = py.relative_to(display_root).as_posix()
         if not _under_any(rel, collected):
             orphans.append(rel)
@@ -459,7 +483,7 @@ def find_mock_hygiene_issues(
     if not tests_dir.exists():
         return []
     issues: list[tuple[str, int, str]] = []
-    for py in sorted(tests_dir.rglob("test_*.py")):
+    for py in _tracked_or_walked(tests_dir, "test_*.py"):
         rel = py.relative_to(display_root).as_posix()
         try:
             tree = ast.parse(
@@ -492,7 +516,7 @@ def find_silent_import_guards(
     if not tests_dir.exists():
         return []
     found: list[tuple[str, int]] = []
-    for py in sorted(tests_dir.rglob("test_*.py")):
+    for py in _tracked_or_walked(tests_dir, "test_*.py"):
         rel = py.relative_to(display_root).as_posix()
         try:
             source = py.read_text(encoding="utf-8", errors="ignore")
@@ -524,7 +548,7 @@ def find_silent_import_guards(
 
 
 def _iter_agent_utilities_files(src_dir: Path = SRC_DIR) -> list[Path]:
-    return [p for p in sorted(src_dir.rglob("*.py")) if "__pycache__" not in p.parts]
+    return [p for p in _tracked_or_walked(src_dir, "*.py") if "__pycache__" not in p.parts]
 
 
 def _public_top_level_defs(tree: ast.Module) -> list[tuple[str, str, int]]:
@@ -638,7 +662,7 @@ def find_test_only_symbols(
     total_test_idents: Counter[str] = Counter()
     total_test_calls: Counter[str] = Counter()
     if tests_dir.exists():
-        for py in tests_dir.rglob("*.py"):
+        for py in _tracked_or_walked(tests_dir, "*.py"):
             if "__pycache__" in py.parts:
                 continue
             try:

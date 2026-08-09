@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -56,10 +57,34 @@ ALLOW_FILES = {
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "build", "dist"}
 
 
+def _candidate_py_files(pkg: Path) -> list[Path]:
+    """``.py`` files under ``pkg``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output (e.g. a
+    packaging step's ``build/lib/...`` copy of a since-fixed source file),
+    which can reintroduce a violation this gate already cleared in real
+    source. Falls back to a filtered filesystem walk only when ``pkg`` is not
+    inside a git working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(pkg), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [pkg / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return [p for p in pkg.rglob("*.py") if not any(d in p.parts for d in SKIP_DIRS)]
+
+
 def scan() -> set[tuple[str, str]]:
     """Return the set of (relpath, KEY) bare env reads under the package."""
     found: set[tuple[str, str]] = set()
-    for py in PKG.rglob("*.py"):
+    for py in _candidate_py_files(PKG):
         if any(part in SKIP_DIRS for part in py.parts):
             continue
         rel = py.relative_to(ROOT).as_posix()

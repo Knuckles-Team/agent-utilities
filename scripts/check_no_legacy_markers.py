@@ -11,6 +11,7 @@ Usage: python scripts/check_no_legacy_markers.py [ROOT ...]  (default: cwd)
 from __future__ import annotations
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -21,10 +22,35 @@ _EXT = {".py", ".rs", ".md"}
 _SKIP = {"__pycache__", ".git", ".venv", "node_modules", "target", "build", "dist"}
 
 
+def _candidate_files(root: Path) -> list[Path]:
+    """Files under ``root``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also walks gitignored, generated build output (a stale
+    packaging-build copy, a `.venv`, ...) which can carry a legacy marker a
+    real source rewrite already cleared. Falls back to a filtered filesystem
+    walk only when ``root`` is not inside a git working tree.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "ls-files"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [root / line for line in out.splitlines() if line]
+        if tracked:
+            return tracked
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return [p for p in root.rglob("*") if not any(s in p.parts for s in _SKIP)]
+
+
 def scan(root: Path) -> list[str]:
     hits: list[str] = []
-    for p in root.rglob("*"):
+    for p in _candidate_files(root):
         if p.suffix not in _EXT or any(s in p.parts for s in _SKIP):
+            continue
+        if not p.is_file():
             continue
         # skip files that legitimately record legacy ids: this gate (documents the
         # pattern), CHANGELOG/concept_map (history), and the generated registries.

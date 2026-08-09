@@ -223,10 +223,38 @@ def new_concepts(base: str) -> list[str]:
     return sorted(c for c in added if not _exists_at_base(c, base))
 
 
+def _tracked_or_walked_files(root: Path, *patterns: str) -> list[Path]:
+    """Files under ``root``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale ``CONCEPT:`` marker/design-doc reference no longer in
+    real source. Falls back to a filesystem walk only when ``root`` is not
+    inside a git working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "ls-files", "--"] + (list(patterns) or ["."]),
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [root / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    if patterns:
+        results: list[Path] = []
+        for pattern in patterns:
+            results.extend(root.rglob(pattern))
+        return results
+    return list(root.rglob("*"))
+
+
 def has_design_doc(concept: str, design_dir: Path = DESIGN_DIR) -> bool:
     if not design_dir.is_dir():
         return False
-    for md in design_dir.rglob("*.md"):
+    for md in _tracked_or_walked_files(design_dir, "*.md"):
         try:
             if concept in md.read_text(encoding="utf-8", errors="ignore"):
                 return True
@@ -255,7 +283,7 @@ def all_registered_concepts(root: Path = ROOT) -> list[str]:
     ``mcp_v2_gateway/``, or prose docs.
     """
     found: set[str] = set()
-    for path in root.rglob("*"):
+    for path in _tracked_or_walked_files(root):
         if not path.is_file() or path.suffix not in _MARKER_SUFFIXES:
             continue
         if any(part in _SKIP_DIRS for part in path.parts):

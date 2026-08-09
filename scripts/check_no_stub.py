@@ -13,6 +13,7 @@ scripts themselves. Exit 0 = clean, 1 = stub found.
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from pathlib import Path
 
@@ -26,9 +27,32 @@ BANNED_SUBSTRINGS = (
 SKIP_DIRS = {"__pycache__", ".venv", "tests", "scripts"}
 
 
+def _tracked_or_walked_py_files(pkg_root: Path) -> list[Path]:
+    """``.py`` files under ``pkg_root``, preferring the git-tracked set (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale copy of an already-fixed source file and reintroduce a
+    cleared stub marker. Falls back to a filesystem walk only when
+    ``pkg_root`` is not inside a git working tree (e.g. a test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(pkg_root), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [pkg_root / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return list(pkg_root.rglob("*.py"))
+
+
 def scan(pkg_root: Path) -> list[str]:
     violations: list[str] = []
-    for path in pkg_root.rglob("*.py"):
+    for path in _tracked_or_walked_py_files(pkg_root):
         if any(part in SKIP_DIRS for part in path.parts):
             continue
         rel = path.relative_to(pkg_root.parent)

@@ -141,6 +141,7 @@ import argparse
 import ast
 import hashlib
 import json
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -475,8 +476,31 @@ def _candidate_files(root: Path, target_dirs: tuple[Path, ...]) -> list[Path]:
         d = root / rel_dir
         if not d.is_dir():
             continue
-        files.extend(sorted(d.rglob("*.py")))
+        files.extend(_tracked_or_walked_py_files(d))
     return sorted(set(files))
+
+
+def _tracked_or_walked_py_files(target_dir: Path) -> list[Path]:
+    """``.py`` files under ``target_dir``, preferring git-tracked (BUG-043).
+
+    A raw ``rglob`` also picks up gitignored, generated build output, which
+    can carry a stale, already-fixed raw-exception log-site violation. Falls
+    back to a filesystem walk only when ``target_dir`` is not inside a git
+    working tree (e.g. a synthetic test fixture).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(target_dir), "ls-files", "--", "*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [target_dir / line for line in out.splitlines() if line]
+        if tracked:
+            return sorted(p for p in tracked if p.is_file())
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return sorted(target_dir.rglob("*.py"))
 
 
 def scan(

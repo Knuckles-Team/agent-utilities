@@ -3,8 +3,10 @@ import ast
 import io
 import os
 import re
+import subprocess
 import sys
 import tokenize
+from pathlib import Path
 
 # List of keywords for comments and docstrings that signify deferred/todo work
 TODO_KEYWORDS = [
@@ -306,17 +308,42 @@ def main():
             if f.endswith(".py") and os.path.exists(f):
                 files_to_scan.append(f)
     else:
-        # Recursive scan of current directory
-        for root, dirs, files in os.walk("."):
-            # Exclude specified directories and all hidden directories starting with '.' in place
-            dirs[:] = [
-                d
-                for d in dirs
-                if d not in excludes and d != "workspace" and not d.startswith(".")
-            ]
-            for file in files:
-                if file.endswith(".py"):
-                    files_to_scan.append(os.path.join(root, file))
+        # Full scan: prefer the git-tracked file set (BUG-043) — a raw
+        # filesystem walk also picks up gitignored, generated build output
+        # (a stale packaging-build copy, a `.venv`, ...), which can carry a
+        # stub marker already cleared from real source. Falls back to the
+        # excludes-filtered walk only when cwd is not inside a git working
+        # tree.
+        tracked: list[str] | None = None
+        try:
+            result = subprocess.run(
+                ["git", "ls-files", "--", "*.py"],
+                capture_output=True,
+                text=True,
+                check=True,
+            )
+            tracked = [line for line in result.stdout.splitlines() if line]
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            tracked = None
+        if tracked:
+            for f in tracked:
+                if os.path.exists(f) and not any(
+                    part in excludes or part == "workspace" or part.startswith(".")
+                    for part in Path(f).parts[:-1]
+                ):
+                    files_to_scan.append(f)
+        else:
+            # Recursive scan of current directory
+            for root, dirs, files in os.walk("."):
+                # Exclude specified directories and all hidden directories starting with '.' in place
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if d not in excludes and d != "workspace" and not d.startswith(".")
+                ]
+                for file in files:
+                    if file.endswith(".py"):
+                        files_to_scan.append(os.path.join(root, file))
 
     total_violations = 0
     report = {}
