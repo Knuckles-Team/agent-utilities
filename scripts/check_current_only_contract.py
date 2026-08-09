@@ -239,11 +239,24 @@ RETIRED_PATHS: tuple[str, ...] = (
     "agent_utilities/exceptions" + ".py",
     "agent_utilities/graph/" + "steps.py",
     "agent_utilities/knowledge_graph/core/ingest_" + "engine.py",
+    # BUG-032 (GOC-59): accepted residual, NOT a gap in this gate's coverage.
+    # Deletion is blocked by live cross-repo importers -- 15+ files across
+    # 7+ repos under agents/, plus scaffold_package.py:1650,1978 (which
+    # emits `from agent_utilities.mcp_utilities import ...` into every
+    # newly scaffolded package). A fleet-wide migration off this module is
+    # a separate program, not a Phase-0 publication-unblock item. This
+    # finding is meant to keep reporting until that migration lands --
+    # do not delete the file or this entry to silence it.
     "agent_utilities/mcp_" + "utilities.py",
     "agent_utilities/mcp/kg_" + "coordinator.py",
     "scripts/apply_concept_" + "migration.py",
     "scripts/autocurate_" + "repo.py",
     "scripts/check_concept_" + "gaps.py",
+    # BUG-032 (GOC-59): accepted residual, same shape as mcp_utilities.py
+    # above. Referenced by the `.pre-commit-config.yaml` of all 61
+    # `agents/*` packages plus agent-webui, agent-terminal-ui, geniusbot,
+    # and the scaffolder -- deleting it would break the fleet's gates
+    # wholesale. Carried and owned, not silently cleared.
     "scripts/check_no_legacy_" + "markers.py",
     "scripts/consolidate_" + "concepts.py",
     "scripts/curate_" + "batches.py",
