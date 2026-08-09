@@ -3,14 +3,14 @@
 This originally guarded the `graph_context list` "garbage" over-match: an
 unparsed WHERE on the legacy client-side Cypher reader (``EpistemicGraphBackend
 ._legacy_execute``, a params-dict mini-DSL) fell through to a full-graph scan
-gated only by an ``KG_ALLOW_FULL_SCAN`` opt-in env var.
+gated only by a retired boolean opt-in environment variable.
 
 That reader is retired outright (CONCEPT:AU-P0-2, "kg: route general Cypher in
 EpistemicGraphBackend to the native engine", commit ``213fcdce``): ``execute()``
 now hands every query straight to the native engine's own Cypher parser
 (``GraphComputeEngine.query_cypher``) instead of a client-side regex
-scan-and-eval, and there is no more ``_legacy_execute``/``KG_ALLOW_FULL_SCAN``
-opt-in escape hatch at all —
+scan-and-eval, and there is no more ``_legacy_execute``/full-scan opt-in
+escape hatch at all —
 ``tests/unit/test_native_cypher_routing.py``'s ``retired`` tuple independently
 enforces that this and its sibling client-side interpreter helpers never
 reappear in ``execute``/``execute_read``/``execute_write``/``execute_batch``'s
@@ -98,7 +98,7 @@ def test_id_lookup_still_precise():
 
 @pytest.mark.concept("AU-ORCH.session.invoker-agent-handoff")
 def test_explicit_opt_in_allows_full_scan():
-    """The old ``KG_ALLOW_FULL_SCAN`` env-var opt-in is retired along with the
+    """The old boolean env-var opt-in is retired along with the
     legacy reader it gated — a full scan is opted into by WRITING one
     explicitly now, not by an environment flag."""
     b = _backend()

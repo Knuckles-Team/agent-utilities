@@ -141,10 +141,6 @@ def test_direct_engine_connect_is_limited_to_transport_bootstrap() -> None:
     allowed = {
         Path("knowledge_graph/core/graph_compute.py"),
         Path("knowledge_graph/core/placement_catalog.py"),
-        # NOTE: knowledge_graph/core/ingest_engine.py was allowlisted here for the
-        # Phase D dedicated ingest engine. That module was deleted in GOC-59-W06 with
-        # zero production importers, so the entry allowlisted a file that no longer
-        # exists — dead configuration, and a `check_current_only_contract` finding.
     }
     offenders: list[str] = []
     pattern = re.compile(r"(?:Sync|Async)EpistemicGraphClient\.connect\s*\(")

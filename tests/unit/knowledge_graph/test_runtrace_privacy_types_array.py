@@ -17,7 +17,7 @@ This test writes a real RunTrace node through the production
 ``trace_properties`` -> ``IntelligenceGraphEngine._upsert_node`` path against
 an embedded LadybugDB (Kuzu needs no container -- just an isolated file, same
 as ``tests/unit/knowledge_graph/test_ladybug_edge_binding.py``) and reads it
-back through ``backend.execute`` (never the in-memory compute mirror) to prove
+back through ``backend.execute`` (never the in-memory graph_compute cache) to prove
 the array survives the schema-backed write path end to end.
 """
 
