@@ -155,6 +155,44 @@ async def test_predicate_delete_reports_zero_rather_than_claiming_success(
 
 
 @pytest.mark.asyncio
+async def test_predicate_delete_uses_backend_nodes_by_label_when_engine_lacks_it(
+    graph_write_and_engine,
+) -> None:
+    """An IntelligenceGraphEngine exposes the label index on its BACKEND.
+
+    The first version of this fix called ``engine.get_nodes_by_label`` only, which
+    raised AttributeError against the engine ``_resolve_target_engines`` actually
+    returns. Deleted nothing, but at least failed loudly rather than claiming
+    success -- which is the whole point of BUG-049.
+    """
+    graph_write, engine = graph_write_and_engine
+    del engine.get_nodes_by_label  # this engine shape does not have it
+    engine.backend.nodes_by_label.return_value = [("m-1", {}), ("m-2", {})]
+
+    result = await graph_write(action="delete_node", node_id="", node_type="Memento")
+
+    engine.backend.nodes_by_label.assert_called_once_with("Memento", 0)
+    assert [c.args[0] for c in engine.delete_node.call_args_list] == ["m-1", "m-2"]
+    assert "2" in str(result)
+
+
+@pytest.mark.asyncio
+async def test_no_label_index_accessor_refuses_rather_than_scanning(
+    graph_write_and_engine,
+) -> None:
+    """No accessor anywhere => explicit error, never a Cypher fallback."""
+    graph_write, engine = graph_write_and_engine
+    del engine.get_nodes_by_label
+    del engine.backend.nodes_by_label
+    del engine.backend.get_nodes_by_label
+
+    result = await graph_write(action="delete_node", node_id="", node_type="Memento")
+
+    assert "Error" in str(result) and "label index" in str(result)
+    engine.delete_node.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_delete_edge_known_bad_input_refuses(graph_write_and_engine) -> None:
     """delete_edge carried the identical missing-validation defect."""
     graph_write, engine = graph_write_and_engine

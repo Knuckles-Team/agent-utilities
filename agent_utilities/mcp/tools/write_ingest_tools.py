@@ -183,9 +183,38 @@ def register_write_ingest_tools(mcp):
                         # than through Cypher: the query path applies RLS row
                         # filtering (unowned rows are invisible), so a Cypher
                         # enumeration would silently under-delete.
-                        matched = engine.get_nodes_by_label(node_type, 0) or []
+                        #
+                        # The label index is reached under different names
+                        # depending on which object `_resolve_target_engines`
+                        # handed us: an IntelligenceGraphEngine exposes it on its
+                        # backend as `nodes_by_label`, while a GraphComputeEngine
+                        # (what incident_tools holds) has `get_nodes_by_label`
+                        # directly. Try each, and if none exists FAIL LOUDLY naming
+                        # what was tried — never fall back to a Cypher scan, which
+                        # would under-delete, and never return a success string.
+                        _backend = getattr(engine, "backend", None)
+                        _lookup = (
+                            getattr(engine, "get_nodes_by_label", None)
+                            or getattr(_backend, "nodes_by_label", None)
+                            or getattr(_backend, "get_nodes_by_label", None)
+                        )
+                        if _lookup is None:
+                            return (
+                                "Error: no label index accessor on this engine "
+                                "(tried engine.get_nodes_by_label, "
+                                "engine.backend.nodes_by_label, "
+                                "engine.backend.get_nodes_by_label); refusing to "
+                                "fall back to a Cypher scan, which RLS row "
+                                "filtering would make under-delete"
+                            )
+                        matched = _lookup(node_type, 0) or []
                         deleted = 0
-                        for matched_id, _matched_props in matched:
+                        for matched_row in matched:
+                            matched_id = (
+                                matched_row[0]
+                                if isinstance(matched_row, (tuple, list))
+                                else matched_row
+                            )
                             engine.delete_node(matched_id)
                             deleted += 1
                         return f"Deleted {deleted} node(s) of type {node_type}."
