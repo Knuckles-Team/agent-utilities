@@ -3,7 +3,7 @@
 
 The packaged JSON Schema catalog is authoritative.  This gate proves:
 
-* exactly twelve current-only schemas exist and reject unknown fields;
+* exactly fifteen current-only schemas exist and reject unknown fields;
 * credentials, endpoints, personal fields, and local-path fields are absent;
 * every bound JSON object has identical ordered fields in Python and Rust;
 * the generated strict Python/Rust client DTOs and manifests match the catalog;
@@ -52,6 +52,9 @@ REQUIRED_SCHEMAS = (
     "claim_work_item",
     "evidence_bundle",
     "operation_result",
+    "resource_reservation",
+    "resource_reservation_status",
+    "resource_host_update",
 )
 REQUIRED_SCHEMA_VERSIONS = {
     "request_context": "2",
@@ -66,6 +69,9 @@ REQUIRED_SCHEMA_VERSIONS = {
     "claim_work_item": "1",
     "evidence_bundle": "1",
     "operation_result": "1",
+    "resource_reservation": "1",
+    "resource_reservation_status": "1",
+    "resource_host_update": "1",
 }
 FORBIDDEN_PROPERTY_NAMES = {
     "base_url",
@@ -507,7 +513,19 @@ def _python_type(
                 if isinstance(item, dict)
                 else "Any"
             )
+            list_constraints: list[str] = []
+            if "minItems" in concrete:
+                list_constraints.append(f"min_length={int(concrete['minItems'])}")
+            if "maxItems" in concrete:
+                list_constraints.append(f"max_length={int(concrete['maxItems'])}")
+            metadata: list[str] = []
+            if list_constraints:
+                metadata.append(f"Field({', '.join(list_constraints)})")
+            if concrete.get("uniqueItems") is True:
+                metadata.append("AfterValidator(_ensure_unique_items)")
             base = f"list[{item_type}]"
+            if metadata:
+                base = f"Annotated[{base}, {', '.join(metadata)}]"
         elif node_type == "object":
             additional = concrete.get("additionalProperties")
             value_type = (
@@ -716,7 +734,7 @@ def _render_python(manifest: dict[str, Any]) -> str:
         '"""\n\n'
         "from __future__ import annotations\n\n"
         "from typing import Annotated, Any, Literal\n\n"
-        "from pydantic import BaseModel, ConfigDict, Field\n\n"
+        "from pydantic import AfterValidator, BaseModel, ConfigDict, Field\n\n"
         f'PROTOCOL_NAME = "{manifest["protocol"]}"\n'
         f'PROTOCOL_VERSION = "{manifest["version"]}"\n'
         f'CATALOG_SHA256 = "{manifest["catalog_sha256"]}"\n'
@@ -726,7 +744,13 @@ def _render_python(manifest: dict[str, Any]) -> str:
         "SCHEMA_SHA256 = {\n"
         f"{schema_pairs}\n"
         "}\n\n"
-        "\nclass ProtocolModel(BaseModel):\n"
+        "\ndef _ensure_unique_items(value: list[Any]) -> list[Any]:\n"
+        '    """Enforce JSON Schema uniqueItems for generated list fields."""\n\n'
+        "    for index, item in enumerate(value):\n"
+        "        if any(item == previous for previous in value[:index]):\n"
+        '            raise ValueError("list items must be unique")\n'
+        "    return value\n\n\n"
+        "class ProtocolModel(BaseModel):\n"
         '    """Fail-closed base for every generated protocol DTO."""\n\n'
         '    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)\n\n\n'
         + "\n\n\n".join(models)

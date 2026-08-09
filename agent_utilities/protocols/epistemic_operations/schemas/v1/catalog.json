@@ -75,6 +75,21 @@
       "name": "operation_result",
       "version": "1",
       "file": "operation-result.schema.json"
+    },
+    {
+      "name": "resource_reservation",
+      "version": "1",
+      "file": "resource-reservation.schema.json"
+    },
+    {
+      "name": "resource_reservation_status",
+      "version": "1",
+      "file": "resource-reservation-status.schema.json"
+    },
+    {
+      "name": "resource_host_update",
+      "version": "1",
+      "file": "resource-host-update.schema.json"
     }
   ]
 }
