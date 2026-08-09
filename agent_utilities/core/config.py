@@ -3272,10 +3272,13 @@ class AgentConfig(BaseSettings):
 
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
 
-    mcp_client_auth: Literal["none", "oidc-client-credentials", "basic"] = Field(
-        default="none", alias="MCP_CLIENT_AUTH"
-    )
-    """Outbound MCP child-auth mode. Enabled modes fail closed when incomplete."""
+    mcp_client_auth: Literal[
+        "none", "oidc-client-credentials", "basic", "rotating-file-bearer"
+    ] = Field(default="none", alias="MCP_CLIENT_AUTH")
+    """Outbound MCP child-auth mode. Enabled modes fail closed when incomplete.
+    ``rotating-file-bearer`` (BUG-051) re-reads ``MCP_BEARER_TOKEN_FILE`` fresh
+    on every outbound request instead of caching a bearer at connect time —
+    for a token an out-of-process refresh daemon rotates on its own schedule."""
 
     oidc_config_url: str | None = Field(default=None, alias="OIDC_CONFIG_URL")
     """OIDC discovery URL (e.g. https://idp.example.com/.well-known/openid-configuration).
@@ -3310,6 +3313,13 @@ class AgentConfig(BaseSettings):
         default=None, alias="MCP_BASIC_AUTH_PASSWORD_REF"
     )
     """Runtime secret reference for outbound MCP HTTP Basic authentication."""
+
+    mcp_bearer_token_file: str | None = Field(
+        default=None, alias="MCP_BEARER_TOKEN_FILE"
+    )
+    """Local path to a mode-0600 file holding a bearer token an out-of-process
+    daemon rotates (BUG-051, ``MCP_CLIENT_AUTH=rotating-file-bearer``). Read
+    fresh on every outbound request; never cached across the file's lifetime."""
 
     oidc_tls_profile: str | None = Field(default=None, alias="OIDC_TLS_PROFILE")
     """Named runtime TLS profile used for discovery, JWKS, and token calls."""
@@ -4437,6 +4447,7 @@ class AgentConfig(BaseSettings):
         "oidc_audience",
         "oidc_scope",
         "mcp_basic_auth_username",
+        "mcp_bearer_token_file",
     )
     @classmethod
     def _validate_outbound_identity_metadata(cls, value: str | None) -> str | None:

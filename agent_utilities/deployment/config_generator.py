@@ -835,6 +835,14 @@ def config_doctor(
         ):
             if not value:
                 outbound_missing.append(env)
+    elif outbound_mode == "rotating-file-bearer":
+        # BUG-051: without this branch a deployment preflight would silently
+        # report ok=True/missing=[] for a mode that in fact has no token
+        # source configured — the exact "reports success it cannot verify"
+        # shape this fix exists to close, reproduced here by omission if left
+        # unhandled.
+        if not cfg.mcp_bearer_token_file:
+            outbound_missing.append("MCP_BEARER_TOKEN_FILE")
     checks.append(
         {
             "check": "outbound_mcp_auth",

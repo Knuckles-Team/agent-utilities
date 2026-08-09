@@ -201,6 +201,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   2.21.0) so a single oversized tool result cannot blow a run in one request.
 
 ### Fixed
+- **BUG-050: `load_tools`/`unload_tools` no longer claim a client-side
+  guarantee the server cannot make.** The `notified` field is renamed
+  `notification_sent` everywhere (the meta-tools, the `manage(action=load/
+  unload)` intent-surface path, `_notify_tools_changed`) because MCP's
+  `notifications/tools/list_changed` has no application-level ack — the
+  server can truthfully report only that it attempted the push, never that a
+  caller's own client refreshed its tool list. A subagent with no
+  `ToolSearch`-equivalent read the old `notified: true` as "callable now" and
+  stalled for hours on a permanently-uncallable tool; the tool description
+  now states the caveat explicitly and gives retry/reconnect guidance for a
+  caller with no refresh mechanism of its own.
+- **BUG-051: a new `MCP_CLIENT_AUTH=rotating-file-bearer` mode closes the
+  half of the graph-os token-expiry outage the refresh daemon alone could
+  not.** `refresh-graphos-token.sh` correctly rotates a token file every
+  cycle, but a long-lived MCP client session that cached its bearer at
+  connect time never re-reads it — "file refreshed + probe 200, session
+  still 401." `RotatingFileBearerAuth`
+  (`agent_utilities/mcp/client_credentials.py`) re-reads
+  `MCP_BEARER_TOKEN_FILE` fresh on every outbound request instead, so an
+  out-of-process daemon's rotation renews the credential in-band, inside the
+  same session, with no reconnect — generalizing the mechanism
+  `graphos-codex-bridge.py` already proved for Codex's stdio bridge into a
+  tested primitive every `child_auth()`/`child_auth_header()` caller gets for
+  free.
 - **Authenticating a request no longer requires engine cluster-admin authority.**
   `security/request_identity.py::_mint_graph_session` ended with a live
   `placement_catalog.resolve_placement` round-trip. Because *every* authenticated

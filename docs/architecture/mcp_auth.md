@@ -72,6 +72,20 @@ servers:
   `OIDC_TOKEN_URL`, `OIDC_AUDIENCE`, and optional `OIDC_SCOPE`.
 - `basic`: use `MCP_BASIC_AUTH_USERNAME` and
   `MCP_BASIC_AUTH_PASSWORD_REF`.
+- `rotating-file-bearer` (CONCEPT:AU-OS.identity.rotating-file-bearer, BUG-051):
+  re-read `Authorization: Bearer <token>` from the local file at
+  `MCP_BEARER_TOKEN_FILE` on **every** outbound request, instead of once at
+  connect time. Use this when the token's real refresh authority is an
+  out-of-process daemon this service does not control (e.g. a cron job that
+  mints against an external IdP and atomically rewrites a mode-0600 file —
+  `services/graphos-token-refresh/refresh-graphos-token.sh` is the reference
+  daemon). A static header baked in at construction time goes stale the
+  moment that daemon rotates the file, and nothing inside this process would
+  otherwise notice; reading fresh on every request renews the credential
+  in-band, inside the same long-lived child session, with no reconnect. The
+  file must hold exactly the bearer token (no surrounding whitespace beyond a
+  trailing newline) and be mode 0600 — anything else fails closed rather than
+  falling back to an unauthenticated request.
 - `none`: attach no service credential. Use only when the child does not require
   service authentication.
 
