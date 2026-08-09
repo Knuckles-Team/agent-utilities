@@ -81,6 +81,7 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "evidence_lineage",
         },
         "graph_governance": {
+            "claim_ownership",
             "grant_approval",
             "ownership_apply",
             "ownership_report",
@@ -108,18 +109,19 @@ def test_orchestration_capabilities_have_one_current_owner() -> None:
             "export",
         },
     }
-    # 39, computed from `expected_actions` above, not guessed. This total has now
-    # gone stale three times, each time the same way: a lane adds an action to a
+    # 40, computed from `expected_actions` above, not guessed. This total has now
+    # gone stale four times, each time the same way: a lane adds an action to a
     # tool, updates the action SET here, and does not touch this line -- so git
     # merges the set change cleanly and leaves the count behind.
     #   feat/wave7-followups-evolution -> graph_evolution "evidence_lineage" (D-71-4)
     #   feat/wave25-followups-mcpapps  -> graph_jobs      "input"
     #   83ee1066 governed-promotion    -> graph_jobs      "drain", "dead_letter"
+    #   goc/goc-61-admin-claim-ownership -> graph_governance "claim_ownership" (GOC-61)
     # The third did not update the set either, so this test was RED on main until
     # both were added above. The `harvest_actions(...) == actions` assertion below
     # is what actually pins the surface against the real tools; this total is the
     # redundant ratchet that catches a silently added action.
-    assert sum(map(len, expected_actions.values())) == 39
+    assert sum(map(len, expected_actions.values())) == 40
     for tool, actions in expected_actions.items():
         assert harvest_actions(mcp.tools[tool]) == actions
 

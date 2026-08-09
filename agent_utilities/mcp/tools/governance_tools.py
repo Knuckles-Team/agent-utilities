@@ -27,9 +27,17 @@ def register_governance_tools(mcp: Any) -> None:
             "'ownership_apply' previews the UNAMBIGUOUS grant plan + its rollback for that "
             "same report (always a dry-run preview here — the actual live mutating apply "
             "stays the HG-4 human-gated `scripts/apply_graph_ownership_grants.py "
-            "--apply-unambiguous` CLI, never this network surface); 'policy_status' reports "
-            "the live PermissionPolicy/context_policy + KG-native audit-sink configuration "
-            "(read-only, no engine required)."
+            "--apply-unambiguous` CLI, never this network surface); 'claim_ownership' "
+            "(GOC-61, per decisions/GOC-61-unowned-node-disposition.md) admin-only "
+            "assumption of ownership over currently-UNOWNED per-node '_owner_id' — never "
+            "an already-owned node — selectable by node_type/node_ids (never blind), "
+            "dry-run by DEFAULT (pass apply=true to mutate), grouped-by-node_type report "
+            "showing owner-to-be per group. owner_id is ALWAYS required and explicit — "
+            "never defaults to the calling admin. 'Concept' cannot be swept by node_type "
+            "(dual origin: ontology vs chat-extracted, indistinguishable by type alone) "
+            "but may be claimed via an explicit, individually reviewed node_ids entry; "
+            "'policy_status' reports the live PermissionPolicy/context_policy + KG-native "
+            "audit-sink configuration (read-only, no engine required)."
         ),
         tags=["graph-os", "governance", "approval", "policy"],
     )
@@ -38,7 +46,7 @@ def register_governance_tools(mcp: Any) -> None:
             default="verify_action",
             description=(
                 "grant_approval | submit_risk_veto | verify_action | ownership_report | "
-                "ownership_apply | policy_status"
+                "ownership_apply | claim_ownership | policy_status"
             ),
         ),
         approval_id: str = Field(
@@ -60,6 +68,47 @@ def register_governance_tools(mcp: Any) -> None:
         ),
         source: str = Field(default="manual", description="Policy request source."),
         actor_id: str = Field(default="", description="Optional policy actor id."),
+        node_types_json: str = Field(
+            default="[]",
+            description=(
+                "claim_ownership: JSON list of node_type labels to claim (or preview) "
+                'ownership over, e.g. \'["RuntimeSignal","WorkItem"]\'. At least one of '
+                "node_types_json / node_ids_json is required — there is no blind "
+                "full-graph mode."
+            ),
+        ),
+        node_ids_json: str = Field(
+            default="[]",
+            description=(
+                "claim_ownership: JSON list of explicit node ids to claim (or preview) "
+                "ownership over, as an alternative or addition to node_types_json."
+            ),
+        ),
+        owner_id: str = Field(
+            default="",
+            description=(
+                "claim_ownership: REQUIRED (both preview and apply) — the new owner id "
+                "to stamp. NEVER defaults to the calling admin actor; the caller must "
+                "state explicitly whose data this is (e.g. the real human user for "
+                "private conversational content, or a system/service identity for "
+                "operational data) — silent self-assignment is refused."
+            ),
+        ),
+        shared_scope: str = Field(
+            default="org",
+            description=(
+                "claim_ownership: '_shared_scope' to stamp alongside the new owner — "
+                "'private' | 'org' | 'commons'. Defaults to 'org'."
+            ),
+        ),
+        apply: bool = Field(
+            default=False,
+            description=(
+                "claim_ownership only: false (DEFAULT) = dry-run preview, grouped by "
+                "node_type, mutates nothing. true = actually claim — required explicitly, "
+                "never implied."
+            ),
+        ),
     ) -> str:
         if action == "policy_status":
             # No engine needed — this is static config + a live-wiring confirmation,
@@ -77,6 +126,19 @@ def register_governance_tools(mcp: Any) -> None:
 
                 if action == "ownership_apply":
                     return json.dumps(_ownership_apply(), default=str)
+
+                if action == "claim_ownership":
+                    return json.dumps(
+                        _claim_ownership(
+                            engine,
+                            node_types_json=node_types_json,
+                            node_ids_json=node_ids_json,
+                            owner_id=owner_id,
+                            shared_scope=shared_scope,
+                            apply=apply,
+                        ),
+                        default=str,
+                    )
 
                 if action == "grant_approval":
                     from agent_utilities.orchestration.approval import (
@@ -262,6 +324,99 @@ def _ownership_apply() -> dict[str, Any]:
             "scripts/apply_graph_ownership_grants.py --apply-unambiguous"
         ),
     }
+
+
+def _claim_ownership(
+    engine: Any,
+    *,
+    node_types_json: str,
+    node_ids_json: str,
+    owner_id: str,
+    shared_scope: str,
+    apply: bool,
+) -> dict[str, Any]:
+    """GOC-61 admin ownership-claim — dispatches into the ONE shared core
+    (:mod:`agent_utilities.knowledge_graph.core.ownership_claim`) that both this
+    MCP tool and its automatic REST twin (``/graph/governance``,
+    ``kg_server.ACTION_TOOL_ROUTES``) run through. ``apply=False`` (the
+    default) is a read-only dry-run preview grouped by node_type, showing the
+    owner-to-be per group; ``apply=True`` requires kg:admin and actually
+    mutates, claiming ONLY nodes verified unowned immediately before the
+    write. ``owner_id`` is required for BOTH modes — see that module's
+    docstring for the full invariant list (never reassigns an already-owned
+    node, owner_id always explicit and never a default, ``Concept`` cannot be
+    swept by node_type, never blind/unselective, real counts, idempotent) and
+    ``decisions/GOC-61-unowned-node-disposition.md`` for the authorized
+    disposition this implements.
+    """
+    from dataclasses import asdict
+
+    from agent_utilities.knowledge_graph.core.ownership_claim import (
+        OwnershipClaimError,
+        apply_claim,
+        preview_claim,
+    )
+    from agent_utilities.knowledge_graph.core.session import resolve_session
+    from agent_utilities.security.brain_context import use_actor
+
+    node_types = json.loads(node_types_json) if node_types_json else []
+    node_ids = json.loads(node_ids_json) if node_ids_json else []
+    if not isinstance(node_types, list) or not isinstance(node_ids, list):
+        return {
+            "surface": "governance",
+            "action": "claim_ownership",
+            "error": "node_types_json and node_ids_json must each decode to a JSON list",
+        }
+
+    # Fail-closed BEFORE touching the core: the session boundary requires
+    # kg:admin explicitly (this action is not gated by the tool's other
+    # actions, several of which need only kg:write or no scope at all).
+    try:
+        session = resolve_session(required_scope="kg:admin")
+    except Exception as exc:  # noqa: BLE001 — surfaced as a structured denial, never a bare 500
+        return {
+            "surface": "governance",
+            "action": "claim_ownership",
+            "error": f"kg:admin required: {exc}",
+        }
+
+    with use_actor(session.actor):
+        try:
+            if apply:
+                result = apply_claim(
+                    engine,
+                    owner_id=owner_id,
+                    node_types=node_types,
+                    node_ids=node_ids,
+                    shared_scope=shared_scope or "org",
+                    actor=session.actor,
+                )
+                return {
+                    "surface": "governance",
+                    "action": "claim_ownership",
+                    "mode": "apply",
+                    **asdict(result),
+                }
+            preview = preview_claim(
+                engine,
+                owner_id=owner_id,
+                node_types=node_types,
+                node_ids=node_ids,
+                actor=session.actor,
+            )
+            return {
+                "surface": "governance",
+                "action": "claim_ownership",
+                "mode": "dry_run",
+                **asdict(preview),
+                "hint": "preview only; pass apply=true to actually claim",
+            }
+        except OwnershipClaimError as exc:
+            return {
+                "surface": "governance",
+                "action": "claim_ownership",
+                "error": str(exc),
+            }
 
 
 def _policy_status() -> dict[str, Any]:
