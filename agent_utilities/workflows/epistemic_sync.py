@@ -65,15 +65,40 @@ class EpistemicSyncWorkflow:
 
 
 def start_epistemic_sync_daemon() -> None:
-    """Entrypoint for starting the sync worker safely in an asyncio event loop."""
-    import threading
+    """Entrypoint for starting the sync worker safely in an asyncio event loop.
 
-    def loop_in_thread():
+    BUG-061: this used to spawn a bare ``threading.Thread`` (the BUG-055
+    shape) -- ``contextvars.ContextVar``s do not cross a
+    ``threading.Thread`` boundary, so every write the daemon's recurring
+    ``run_sync_cycle()`` makes (ingested entities, flushed AST mutations)
+    would land with no bound actor. It has zero callers repo-wide today (the
+    live ``epistemic_sync`` MCP action calls ``EpistemicSyncWorkflow.
+    run_sync_cycle()`` directly on the request's own event loop instead, so
+    it never takes this path), so it cannot fail yet -- but it would the
+    moment anything calls it. Fixed rather than deleted: it is a plausible,
+    apparently-intentional recurring-sync daemon entrypoint, not legacy code,
+    and the fix is a direct application of the SAME builder
+    ``knowledge_graph/ingest_worker.py`` already uses for its own long-lived
+    background consumer threads -- capture the caller's already-verified
+    session BEFORE spawning (``ContextVar``s don't cross the thread
+    boundary), then bind it for the daemon thread's entire lifetime via
+    ``_authorized_background_thread``.
+    """
+    from agent_utilities.knowledge_graph.core.engine_tasks import (
+        _authorized_background_thread,
+        _capture_verified_background_session,
+    )
+
+    session = _capture_verified_background_session()
+
+    def loop_in_thread() -> None:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         workflow = EpistemicSyncWorkflow()
         loop.run_until_complete(workflow.run_forever())
 
-    t = threading.Thread(target=loop_in_thread, daemon=True, name="EpistemicSyncWorker")
+    t = _authorized_background_thread(
+        session, loop_in_thread, name="EpistemicSyncWorker"
+    )
     t.start()
     logger.info("Epistemic Sync background daemon initialized successfully.")

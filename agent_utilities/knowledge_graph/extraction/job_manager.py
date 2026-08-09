@@ -17,7 +17,7 @@ import hmac
 import json
 import logging
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from agent_utilities.security.identifiers import validate_identifier
@@ -35,6 +35,9 @@ from .fact_extractor import (
     facts_to_jsonl,
     persist_facts,
 )
+
+if TYPE_CHECKING:
+    from ..core.session import GraphSession
 
 logger = logging.getLogger(__name__)
 
@@ -168,7 +171,29 @@ class GraphCheckpointStore:
 
 
 class ExtractionJobManager:
-    """Owns the slot scheduler + per-job results for fact extraction."""
+    """Owns the slot scheduler + per-job results for fact extraction.
+
+    Identity note (BUG-060): the scheduler's worker loop is a single
+    long-lived ``asyncio`` task, created once on the first ``submit()``/
+    ``ensure_started()`` call (see ``GpuSlotScheduler.start`` ->
+    ``asyncio.create_task``). ``asyncio.create_task`` snapshots the *current*
+    ``contextvars.Context`` at creation time, so if a job's graph writes ever
+    resolved their actor from whatever ``GraphSession`` happened to be
+    ambient *inside that persistent task*, every job -- no matter which real
+    user submitted it, hours or days later -- would silently write under
+    whichever caller was ambient the first time the worker task was created.
+    That is a cross-user misattribution, not a missing attribution.
+
+    The fix resolves identity **per call**: :meth:`submit` captures the
+    submitting caller's own verified authority (``system_write_session()``,
+    the same ambient-first/system-fallback resolution every other
+    background/system write in this codebase already uses -- see
+    ``security/request_identity.py``) at the moment the job is submitted,
+    keyed by job id. :meth:`_run_job` then explicitly scopes that job's
+    entire execution to the *captured* session via ``use_session()``, so the
+    persistent worker task's own ambient context (whatever it happened to
+    snapshot at creation) is never consulted for a job's writes.
+    """
 
     def __init__(self, engine: Any, *, store: CheckpointStore | None = None) -> None:
         self._engine = engine
@@ -181,6 +206,12 @@ class ExtractionJobManager:
         # per-job event history (for SSE replay) + live subscribers
         self._events: dict[str, list[dict[str, Any]]] = {}
         self._subscribers: dict[str, list[asyncio.Queue]] = {}
+        # BUG-060: the actor/session that submitted each job, resolved once
+        # per call at submit() time -- never once at construction/worker-task
+        # start -- so the runner attributes THIS job's writes to whoever
+        # actually submitted it, not whoever was ambient when the persistent
+        # scheduler task first started.
+        self._job_sessions: dict[str, GraphSession] = {}
         self._started = False
 
     _EVENT_BUFFER_CAP = 5000
@@ -343,6 +374,20 @@ class ExtractionJobManager:
         else:
             params["text"] = text
         self._results.setdefault(jid, [])
+        # BUG-060: resolve identity HERE, per call, while the real submitting
+        # caller's own authority is genuinely ambient -- never once at
+        # manager construction or worker-task start. Prefers the caller's own
+        # verified ``GraphSession``; falls back to this process's own
+        # verified system identity only when nothing is ambient (never an
+        # unauthenticated/synthesized session -- see
+        # ``security.request_identity.system_write_session``). Stored keyed
+        # by job id so a job resumed later (possibly after this job's own
+        # submit-time context has long since exited) still runs under the
+        # identity that actually submitted it, not whatever the persistent
+        # scheduler task happens to have ambient at that later point.
+        from agent_utilities.security.request_identity import system_write_session
+
+        self._job_sessions[jid] = system_write_session()
         await self._scheduler.submit(jid, kind="extract", params=params)
         return jid
 
@@ -392,8 +437,26 @@ class ExtractionJobManager:
     # ------------------------------------------------------------------ #
 
     async def _run_job(self, job: Job, sched: GpuSlotScheduler) -> None:
+        # BUG-060: explicitly bind THIS job's own captured (or freshly
+        # resolved) identity for the duration of its run, rather than
+        # trusting whatever GraphSession happens to be ambient inside the
+        # scheduler's persistent worker task. ``self._job_sessions`` holds
+        # the session captured at this job's own submit() call; a job
+        # resumed from a prior process's checkpoint (no entry -- a fresh
+        # manager instance, never submitted in this process) resolves fresh,
+        # per call, right here -- never by falling through to whatever the
+        # long-lived worker task's own creation-time context happened to
+        # snapshot.
+        from agent_utilities.knowledge_graph.core.session import use_session
+        from agent_utilities.security.request_identity import system_write_session
+
+        session = self._job_sessions.get(job.job_id)
+        if session is None:
+            session = system_write_session()
+            self._job_sessions[job.job_id] = session
         try:
-            await self._run_job_inner(job, sched)
+            with use_session(session):
+                await self._run_job_inner(job, sched)
         except Exception:
             # ensure any SSE subscriber sees a terminal event on failure
             self._publish(job.job_id, {"type": "job_done", "state": "failed"})
