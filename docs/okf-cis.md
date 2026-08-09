@@ -22,7 +22,11 @@ generated from source markers, not edited by hand.
 ## Workflow
 
 1. Choose a registered repository slug, pillar, and domain.
-2. Reserve the complete ID with `agent-utilities concept reserve --id <ID>`.
+2. For linked worktrees on one host, reserve the complete ID with
+   `agent-utilities concept reserve --id <ID>`. For separate hosts, use the
+   graph-os native reservation service; the CLI/file ledger is not globally
+   atomic and must not be used as a fallback. Native callers must inject the
+   authority-owned, versioned namespace/range policy.
 3. Add the exact marker to source and its design evidence.
 4. Run `python scripts/build_concepts_yaml.py`.
 5. Run `python scripts/check_concepts.py` and
@@ -43,5 +47,6 @@ form.
 | `agent_utilities/governance/domain_vocab.yaml` | Closed domain vocabulary |
 | `agent_utilities/governance/slug_registry.yaml` | Unique repository slugs |
 | `docs/concepts.yaml` | Generated exact-ID registry |
-| `docs/concept_reservations.yaml` | Atomic exact-ID claims with opaque references |
+| `docs/concept_reservations.yaml` | Generated compatibility projection of exact-ID claims |
+| `agent_utilities/governance/concept_reservation.py` | Cross-host authority port, native adapter, lifecycle, and read-only reconciliation |
 | `agent_utilities/knowledge_graph/ontology_concepts.ttl` | Generated concept RDF |
