@@ -90,12 +90,16 @@ QUERY_DIALECT_MANIFEST: tuple[SurfaceEntry, ...] = (
     ),
     SurfaceEntry(
         surface_id="query_dialect:federated",
-        disposition=Disposition.KNOWN_FAIL_OPEN,
+        disposition=Disposition.AUTHENTICATED_REQUIRED,
         citation=(
-            "mcp/tools/query_tools.py:417-429 -> engine_federation.py "
-            "FederationMixin.execute_federated_query/_execute_federated_connection "
-            "-- ZERO references to resolve_session/current_session/require_scope "
-            "in the whole file (verified by direct reading)"
+            "FIXED (BUG-036): mcp/tools/query_tools.py:417-429 -> "
+            "engine_federation.py FederationMixin.execute_federated_query/"
+            "_execute_federated_connection now call "
+            "resolve_session(required_scope='kg:read') before touching any "
+            "backend -- matching the cypher/sql/sparql dialects above. "
+            "ActorContextMiddleware (au:actor-context-middleware, below) is "
+            "also now fail-closed for graph-os, so this holds even for a "
+            "caller that reaches the MCP-native dispatch path directly."
         ),
         owning_bug="BUG-036",
         proof="tests/unit/knowledge_graph/test_federation_carrier_authority.py::test_federated_query_denies_without_a_verified_session",
@@ -136,8 +140,8 @@ GOC15_SURFACE_MANIFEST: tuple[SurfaceEntry, ...] = (
     ),
     SurfaceEntry(
         surface_id="au:federation-reader",
-        disposition=Disposition.KNOWN_FAIL_OPEN,
-        citation="see query_dialect:federated above -- same surface, different name",
+        disposition=Disposition.AUTHENTICATED_REQUIRED,
+        citation="FIXED -- see query_dialect:federated above -- same surface, different name",
         owning_bug="BUG-036",
         proof="tests/unit/knowledge_graph/test_federation_carrier_authority.py",
     ),
@@ -151,7 +155,23 @@ GOC15_SURFACE_MANIFEST: tuple[SurfaceEntry, ...] = (
     SurfaceEntry(
         surface_id="au:actor-context-middleware",
         disposition=Disposition.AUTHENTICATED_REQUIRED,
-        citation="mcp/middlewares.py:110-171 -- documented no-op with no token; structural root cause of au:federation-reader",
+        citation=(
+            "FIXED (BUG-036): mcp/middlewares.py:110-171 -- was a documented "
+            "unconditional no-op with no token (the structural root cause of "
+            "au:federation-reader's fail-open); now takes a "
+            "require_verified_session flag, wired True ONLY for the graph-os "
+            "server (server_factory.py's _configure_middleware(args, "
+            "server_name=name)) since it is the one MCP server whose tools "
+            "reach privileged KG reads/writes. In that mode a claim-less call "
+            "is refused (SessionRequiredError) unless an ambient GraphSession "
+            "or the tiny-profile local process authority "
+            "(kg_server._PROCESS_SESSION) is already legitimately bound. The "
+            "other ~60 fleet MCP servers built via the same factory keep the "
+            "prior no-op (require_verified_session=False default) -- each "
+            "retains its own authorization contract; making this fail-closed "
+            "fleet-wide is a separate, larger change needing its own "
+            "per-package audit."
+        ),
     ),
     SurfaceEntry(
         surface_id="au:sparql-server-standalone",

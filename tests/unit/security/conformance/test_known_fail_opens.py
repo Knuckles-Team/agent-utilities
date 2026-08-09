@@ -1,4 +1,4 @@
-"""The two known fail-opens, wired into the GOC-62 conformance suite (D3(b)).
+"""The known fail-opens, wired into the GOC-62 conformance suite (D3(b)).
 
 CONCEPT:AU-OS.identity.stack-wide-auth-conformance
 
@@ -8,19 +8,28 @@ decision" pattern this standard's §5 (nav-vs-backend drift) warns against.
 Instead it asserts the conformance manifest and the real, executed proofs
 agree:
 
-1. **BUG-036 (AU federation reader)** — proof already exists and is committed
-   on `main`: `tests/unit/knowledge_graph/test_federation_carrier_authority.py`.
-   Confirmed RED as of this pass (`pytest` output: `DID NOT RAISE
-   SessionRequiredError`, 1 failed). This test only asserts the MANIFEST
-   correctly names that file as the proof — if someone "fixes" BUG-036 without
-   updating the manifest, or renames the proof file, this catches the drift.
+1. **BUG-036 (AU federation reader) — FIXED.** Proof:
+   `tests/unit/knowledge_graph/test_federation_carrier_authority.py`. Was RED
+   (`DID NOT RAISE SessionRequiredError`) until `engine_federation.py` gained
+   an explicit `resolve_session(required_scope="kg:read")` guard (matching the
+   cypher/sql/sparql dialects) AND `ActorContextMiddleware` (the structural
+   root cause -- an unconditional no-op with no token) gained a
+   `require_verified_session` mode wired on for graph-os specifically
+   (`mcp/middlewares.py`, `mcp/server_factory.py`). The manifest disposition
+   is now `AUTHENTICATED_REQUIRED`, not `KNOWN_FAIL_OPEN` -- this test asserts
+   that (not the reverse) so a REGRESSION (someone reverting the fix without
+   reverting the manifest) is caught the same way a stale-manifest drift
+   would have been caught before: a disposition that no longer matches the
+   real, executed proof's behavior.
 
 2. **BUG-037 (EG observability ingest)** — proof is new in this pass:
    `epistemic-graph/src/server/obs/mod.rs`'s
    `tests::bug_037_obs_ingest_post_bypasses_the_deny_gate`, committed on the
    `goc/goc-62-keycloak-auth-standard` branch in the `epistemic-graph`
    worktree (a Rust test — this Python suite cannot execute it directly, but
-   asserts its existence in source so an accidental deletion is caught).
+   asserts its existence in source so an accidental deletion is caught). Still
+   open (owned by `OWNER-EG-OBS`, a different repository); unaffected by the
+   BUG-036 fix above.
 """
 
 from __future__ import annotations
@@ -45,10 +54,18 @@ _EG_SIBLING_WORKTREE = (
 )
 
 
-def test_federation_reader_is_disposed_as_known_fail_open() -> None:
+def test_federation_reader_is_disposed_as_authenticated_required_post_fix() -> None:
+    """BUG-036 is fixed: the manifest must say so, not still claim fail-open.
+
+    A stale `KNOWN_FAIL_OPEN` disposition after the code is fixed is exactly
+    the drift D2 warns about ("a green run on a known_fail_open surface is
+    itself a signal something is wrong ... the surface was silently fixed and
+    the manifest is stale"). This asserts the manifest was updated alongside
+    the fix, not left behind.
+    """
     entry = lookup_query_dialect("query_dialect:federated")
     assert entry is not None
-    assert entry.disposition is Disposition.KNOWN_FAIL_OPEN
+    assert entry.disposition is Disposition.AUTHENTICATED_REQUIRED
     assert entry.owning_bug == "BUG-036"
     assert entry.proof is not None
 
@@ -56,7 +73,8 @@ def test_federation_reader_is_disposed_as_known_fail_open() -> None:
 def test_federation_reader_proof_file_exists_and_names_the_right_assertion() -> None:
     """The manifest's citation for BUG-036 must point at a REAL file+test that
     actually exists — a citation to a deleted/renamed file would be worse than
-    no citation (a false sense of coverage)."""
+    no citation (a false sense of coverage). This regression test must keep
+    proving SessionRequiredError is raised even now that the bug is fixed."""
 
     entry = lookup_query_dialect("query_dialect:federated")
     assert entry is not None and entry.proof is not None
@@ -70,7 +88,8 @@ def test_federation_reader_proof_file_exists_and_names_the_right_assertion() -> 
     )
     assert "SessionRequiredError" in source, (
         "the BUG-036 proof must assert SessionRequiredError is raised -- "
-        "the exact fail-open this manifest entry claims is proven"
+        "the exact fail-open this manifest entry claimed is now closed, and "
+        "must stay closed"
     )
 
 
