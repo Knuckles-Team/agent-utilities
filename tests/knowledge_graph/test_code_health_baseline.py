@@ -74,3 +74,42 @@ def test_missing_module_degrades_gracefully(baseline_backend):
         )
         == {}
     )
+
+
+# ---------------------------------------------------------------------------
+# BUG-059 — _save_baseline_snapshot is a JUSTIFIED chokepoint bypass, pinned.
+# ---------------------------------------------------------------------------
+#
+# ``_save_baseline_snapshot`` writes straight to the raw engine-authority
+# backend, never through IntelligenceGraphEngine._upsert_node/
+# GraphComputeEngine.add_node, so it never reaches stamp_ownership. That is
+# deliberate: the caller is the ``code_health`` maintenance daemon tick
+# (opt-in via KG_CODE_HEALTH) with NO request/actor context at all, and the
+# payload is a derived regression baseline, not owned content. This test
+# pins that the write keeps working with zero actor bound, so nobody
+# "fixes" it into calling stamp_ownership by accident and breaks the daemon.
+
+
+class _FakeBaselineBackend:
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+
+    def add_node(self, node_id, **props):
+        self.nodes[node_id] = props
+
+
+def test_save_baseline_snapshot_works_with_no_actor_bound():
+    import contextvars
+
+    backend = _FakeBaselineBackend()
+
+    def isolated():
+        # No actor bound anywhere in this fresh context — must not raise.
+        code_health._save_baseline_snapshot(backend, "repoX", {"fingerprints": {}})
+
+    contextvars.Context().run(isolated)
+
+    (props,) = backend.nodes.values()
+    assert props["repo"] == "repoX"
+    # No governance stamp was applied — this is the pinned, deliberate gap.
+    assert "_owner_id" not in props

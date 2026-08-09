@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import contextvars
+
+import pytest
+
 from agent_utilities.knowledge_graph.enrichment.pipeline import EnrichmentPipeline
 
 
@@ -489,3 +493,76 @@ def test_pipeline_falls_back_to_name_resolution_when_index_fn_errors(tmp_path):
 
     assert summary.code == 1 and summary.tests == 1
     assert summary.covers_edges == 1  # name-only COVERS still resolved
+
+
+# ---------------------------------------------------------------------------
+# BUG-059 — enrich_documents used to bypass governance; enrich_files did not.
+# ---------------------------------------------------------------------------
+#
+# ``enrich_documents`` wrote every Document/Concept node straight through
+# ``self.backend`` (the real backend), never through the governed
+# ``_BatchedBackend`` wrapper ``enrich_files`` already swaps in for its own
+# write section. So a Document/Concept node from ``enrich_documents`` never
+# reached ``stamp_ownership``/``stamp_classification``, regardless of actor
+# state — a distinct defect class from "no actor bound" (BUG-055) and
+# "caller not audited" (BUG-056): the governance chokepoint was never
+# entered at all. Fixed by making ``enrich_documents`` swap in
+# ``_BatchedBackend`` exactly like ``enrich_files`` already does.
+
+
+def _noop_llm_fn(_prompt: str) -> str:
+    """An llm_fn that yields no concepts (degrades cleanly, per extract_concepts)."""
+    return ""
+
+
+def test_enrich_documents_now_requires_a_bound_actor_like_enrich_files(tmp_path):
+    """Known-bad input: no actor bound anywhere (a fresh, isolated context —
+    the same technique BUG-033/BUG-056's regression tests use to simulate a
+    genuinely actor-free background caller). BEFORE this fix, this call
+    silently wrote an unowned Document node through the raw backend and
+    returned normally. AFTER, it raises — the same refusal enrich_files'
+    governed _BatchedBackend.add_node already produces."""
+    from agent_utilities.security.brain_context import IdentityRequiredError
+
+    (tmp_path / "doc.md").write_text("# Title\n\nSome document content.\n")
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), llm_fn=_noop_llm_fn)
+
+    def isolated():
+        with pytest.raises(IdentityRequiredError):
+            pipe.enrich_documents([tmp_path / "doc.md"])
+
+    contextvars.Context().run(isolated)
+    # And the write never landed — refused before any partial state persisted.
+    assert backend.nodes == {}
+
+
+def test_enrich_documents_stamps_ownership_when_actor_is_bound(tmp_path):
+    """With a real actor bound, the write succeeds and the Document node
+    carries the SAME governance stamp enrich_files' nodes carry — proving
+    enrich_documents now enters the identical chokepoint as its sibling."""
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext, use_actor
+
+    (tmp_path / "doc.md").write_text("# Title\n\nSome document content.\n")
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), llm_fn=_noop_llm_fn)
+
+    actor = ActorContext(
+        actor_id="user:doc-writer",
+        actor_type=ActorType.HUMAN,
+        tenant_id="tenant-docs",
+        authenticated=True,
+    )
+    with use_actor(actor):
+        concepts, edges, summary = pipe.enrich_documents([tmp_path / "doc.md"])
+
+    assert summary.documents == 1
+    (doc_props,) = [p for p in backend.nodes.values() if p.get("node_type") == "Document"]
+    assert doc_props["_owner_id"] == "user:doc-writer"
+    assert doc_props["tenant_id"] == "tenant-docs"
+    assert doc_props["_shared_scope"] == "private"
+    assert doc_props["classification"] == "confidential"
+    # self.backend is restored to the real backend after the call (no leaked
+    # _BatchedBackend swap across calls).
+    assert pipe.backend is backend

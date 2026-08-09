@@ -118,3 +118,43 @@ def test_pull_materialises_nodes_and_props():
     assert res["status"] == "ok"
     assert res["graph"] == "urn:source:leanix"
     assert eng.nodes == [("app:1", "Application", {"name": "Billing"})]
+
+
+# ---------------------------------------------------------------------------
+# BUG-059 — push_to_stardog is a JUSTIFIED chokepoint bypass, pinned.
+# ---------------------------------------------------------------------------
+#
+# ``backend.add_node``/``backend.add_edge`` write straight to the Stardog
+# SPARQL backend, never through IntelligenceGraphEngine._upsert_node/
+# GraphComputeEngine.add_node, so this never reaches stamp_ownership. That
+# is deliberate: ``backend`` is a foreign, secondary triplestore mirror, not
+# the primary graph authority the chokepoint guards, and the props are
+# copied verbatim from already-governed nodes on the primary authority
+# (re-deriving ownership under the operator's OWN identity would misattribute
+# someone else's data). This test pins that an on-demand sync keeps working
+# with zero actor bound, matching migration.py's own sanctioned
+# backend-only-upserts pattern.
+
+
+def test_push_to_stardog_works_with_no_actor_bound():
+    import contextvars
+
+    graph = _FakeGraph(
+        nodes={"app:1": {"type": "Application", "source_system": "leanix"}},
+        edges=[],
+    )
+    be = _FakeStardogBackend()
+
+    def isolated():
+        # No actor bound anywhere in this fresh context — must not raise.
+        return push_to_stardog(_FakeSource(graph), be)
+
+    res = contextvars.Context().run(isolated)
+
+    assert res["status"] == "ok"
+    assert res["nodes"] == 1
+    node_id, props = be.nodes[0]
+    assert node_id == "app:1"
+    # No governance stamp was applied — this is the pinned, deliberate gap;
+    # props are exactly what the primary authority already carried.
+    assert "_owner_id" not in props
