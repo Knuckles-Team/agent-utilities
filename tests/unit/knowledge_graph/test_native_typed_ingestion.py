@@ -102,6 +102,14 @@ def test_native_capability_ingestion_uses_outer_typed_policy_seam() -> None:
             "resource:skill:synthetic",
             {
                 "evidence": ["installed", "verified"],
+                # BUG-062: edges are now stamped at the same chokepoint nodes
+                # already were, so this assertion gains exactly the fields the
+                # node assertion above gained when BUG-033 landed. The edge
+                # half simply lagged, because edges were ungoverned until now.
+                "tenant_id": "tenant:test",
+                "_owner_id": "service:agent-utilities-test-suite",
+                "_shared_scope": "private",
+                "classification": "confidential",
                 "relationship": "BINDS_RUNNABLE",
             },
         )

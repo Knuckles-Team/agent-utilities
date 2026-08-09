@@ -88,9 +88,15 @@ def test_pipeline_persists_intelligence(tmp_path, monkeypatch):
     _concepts, _edges, summary = pipe.enrich_documents([tmp_path / "call.md"])
 
     assert summary.intelligence_nodes == 4
-    types = {p.get("label") for p in backend.nodes.values()}
+    # BUG-059 routed enrich_documents through the governed _BatchedBackend (its
+    # sibling enrich_files already was), which normalises the caller's ``label``
+    # kwarg onto the canonical ``node_type`` property -- the name this codebase
+    # standardised on, enforced by retired_node_type_property_error. The type is
+    # preserved, not lost: _BatchedBackend.add_node raises outright if node_type
+    # comes out empty. Only the property NAME moved, so this assertion follows it.
+    types = {p.get("node_type") for p in backend.nodes.values()}
     assert {"Insight", "Fact", "Framework", "Playbook"} <= types
     # playbook steps were JSON-serialized as a scalar property
-    pb = next(p for p in backend.nodes.values() if p.get("label") == "Playbook")
+    pb = next(p for p in backend.nodes.values() if p.get("node_type") == "Playbook")
     assert json.loads(pb["steps"]) == ["Acknowledge", "Show exit path"]
     assert any(rel == "DERIVED_FROM" for _, _, rel in backend.edges)
