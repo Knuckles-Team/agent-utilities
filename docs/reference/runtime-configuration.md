@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-553 typed fields · 364 runtime-only call-site inputs.
+553 typed fields · 357 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -985,8 +985,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `PROVIDER` | 2 |
 | `PYTEST_CURRENT_TEST` | 1 |
 | `PYTHONPATH` | 1 |
-| `QUERY_ROUTER_L1_THRESHOLD` | 1 |
-| `QUERY_ROUTER_STRATEGY` | 1 |
 | `QWEN_IMAGE_URL` | 1 |
 | `REDPANDA_BROKERS` | 1 |
 | `REDPANDA_CONSUMER_GROUP` | 1 |
@@ -1026,7 +1024,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `SYNOLOGY_CHAT_WEBHOOK_URL_REF` | 2 |
 | `TECHNITIUM_TOKEN` | 1 |
 | `TECHNITIUM_URL` | 1 |
-| `TMUX` | 1 |
 | `TRANSPORT` | 1 |
 | `TRM_WRITEBACK_BACKEND` | 1 |
 | `TUNNEL_MANAGER_URL` | 1 |
@@ -1051,10 +1048,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `VAULT_URL` | 1 |
 | `VERIFIER_REQUEST_LIMIT` | 1 |
 | `WAYLAND_DISPLAY` | 1 |
-| `WORKING_SET_EVICTION_RATIO` | 1 |
-| `WORKING_SET_MAX_EDGES` | 1 |
-| `WORKING_SET_MAX_NODES` | 1 |
-| `WORKING_SET_TTL_SECONDS` | 1 |
 | `WORKSPACE_TOOLS` | 1 |
 | `XDG_CONFIG_HOME` | 2 |
 | `XDG_RUNTIME_DIR` | 2 |
