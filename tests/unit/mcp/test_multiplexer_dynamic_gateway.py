@@ -2045,17 +2045,37 @@ async def test_load_tools_notification_sent_true_does_not_imply_universal_callab
     _register_meta_tools(mcp, mux)
     mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
 
+    # The in-memory transport gives no real per-connection identity (see
+    # ``_session_key``'s docstring), so two independent sessions must declare
+    # themselves via ``_LOCAL_SESSION_META_KEY`` on every request — exactly
+    # the convention ``test_per_session_disclosure_isolation`` already
+    # established — or both collapse onto the shared ``__local_stdio__``
+    # bucket and this test would wrongly "pass" the OLD, false way: not
+    # because session isolation held, but because there was only one session.
     async with Client(mcp) as session_a:
-        result = await session_a.call_tool("load_tools", {"servers": [CNT]})
+        result = await session_a.call_tool(
+            "load_tools",
+            {"servers": [CNT]},
+            meta={_LOCAL_SESSION_META_KEY: "session-A"},
+        )
         assert result.structured_content["notification_sent"] is True
         assert result.structured_content["newly_exposed"]
 
     # A second, independent session never loaded the tool. Truthful behavior:
     # the field being True for session A carries zero information about what
-    # session B can dispatch.
+    # session B can dispatch. Matched on the SessionVisibilityMiddleware's own
+    # gate message (not just "any ToolError"): this fixture's mocked child
+    # session ALSO raises ToolError("delegated_child_tool_failed") on any
+    # call, loaded or not, so an unmatched ``pytest.raises`` would pass even
+    # with the session gate wide open — the precise match is what proves the
+    # call never reached the child at all.
     async with Client(mcp) as session_b:
         with pytest.raises(ToolError, match="not loaded in this session"):
-            await session_b.call_tool(CNT_PREFIXED, {"action": "list"})
+            await session_b.call_tool(
+                CNT_PREFIXED,
+                {"action": "list"},
+                meta={_LOCAL_SESSION_META_KEY: "session-B"},
+            )
 
 
 def test_load_tools_field_contract_never_reintroduces_notified(tmp_path):
