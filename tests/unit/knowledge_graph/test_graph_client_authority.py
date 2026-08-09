@@ -281,14 +281,3 @@ def test_served_tool_dispatch_requires_minted_graph_session() -> None:
     assert "with verified_tool_session_scope()" in source
     assert "session.engine_verified_context()" in source
     assert "_actor_from_kwargs" not in source
-
-
-def test_dedicated_ingest_engine_is_opt_in_and_falls_back_to_the_query_engine() -> None:
-    """Phase D's dedicated ingest engine (``ingest_engine.py``) is a real,
-    intentional, separately-tested module (`tests/unit/knowledge_graph/test_ingest_engine.py`) —
-    a SECOND ephemeral engine process for the ingest hot path, not a forbidden
-    parallel seam. Guard its actual invariant instead: unset ``endpoint`` is a
-    no-op (today's single-engine behavior is unchanged when the feature is off)."""
-    from agent_utilities.knowledge_graph.core.ingest_engine import ensure_ingest_engine
-
-    assert ensure_ingest_engine(None, "secret") is None

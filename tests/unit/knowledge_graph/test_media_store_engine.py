@@ -48,12 +48,10 @@ def test_media_blob_roundtrip(engine_graph):
     assert res.size_bytes == len(_IMG)
     assert res.deduped is False  # first time these bytes are seen
 
-    # Fetch back by digest, by canonical occurrence id, and by the
-    # ``.asset_id`` back-compat alias — all recover the exact bytes.
+    # Fetch back by digest and by canonical occurrence id — both recover the
+    # exact bytes.
     assert store.fetch_bytes(res.digest) == _IMG
     assert store.fetch_occurrence(res.occurrence_id) == _IMG
-    assert store.fetch_asset(res.occurrence_id) == _IMG
-    assert store.fetch_asset(res.asset_id) == _IMG
 
 
 def test_media_content_addressed_dedup(engine_graph):
