@@ -56,7 +56,7 @@ from ..base_utilities import __version__, to_boolean
 from .concurrency import AsyncioConcurrencyManager
 from .dependencies import inject_reload_app, resolve_model_registry
 from .models import ReloadableApp
-from .routers import agent_ui, ard, commands, core, human, interop, proxy
+from .routers import agent_ui, ard, commands, core, human, interop, mcp_catalog, proxy
 
 logger = logging.getLogger(__name__)
 _MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
@@ -665,6 +665,11 @@ def build_agent_app(
         app.include_router(core.router)
         app.include_router(agent_ui.router)
         app.include_router(interop.router)
+        # REST twin of the MCP fleet catalog meta-tools (`list_catalog` /
+        # `multiplexer_status`) — GOC-60-W03, closing agent-utilities' own
+        # "Two surfaces by default" gap for the multiplexer's dispatchable
+        # truth (/api/mcp/catalog, /api/mcp/status).
+        app.include_router(mcp_catalog.router)
         # ARD registry surface (ECO-4.95): /.well-known/ai-catalog.json + /search.
         # Mounted before the optional SPA "/" mount so the well-known path resolves.
         app.include_router(ard.router)
