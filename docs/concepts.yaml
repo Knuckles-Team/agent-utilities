@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1149
+total_concepts: 1150
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -9144,6 +9144,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/merge_queue.py
   doc: AU-OS.governance.cross-branch-duplicate-symbol
+- id: AU-OS.governance.cross-host-concept-reservation-authority
+  name: AU-OS.governance.cross-host-concept-reservation-authority
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/concept_reservation.py
+  doc: AU-OS.governance.cross-host-concept-reservation-authority
 - id: AU-OS.governance.fail-closed-claim-check
   name: AU-OS.governance.fail-closed-claim-check
   pillar: AU-OS
