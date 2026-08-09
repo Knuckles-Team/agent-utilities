@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,6 +12,10 @@ import pytest
 
 from agent_utilities.orchestration import repository_work_item as rwi
 from agent_utilities.orchestration import work_item as wi
+from agent_utilities.orchestration.operation_payload import (
+    RepositoryBuildExecutionPayloadV1,
+    cache_key_digest_from_components,
+)
 from agent_utilities.orchestration.repository_work_item import (
     RepositoryConsentPolicy,
     RepositoryJobState,
@@ -23,6 +28,7 @@ from agent_utilities.orchestration.repository_work_item import (
     checkpoint_repository_work_item,
     claim_repository_work_item,
     commit_repository_work_item,
+    get_repository_operation_payload,
     get_repository_work_item,
     heartbeat_repository_work_item,
     list_repository_work_items,
@@ -432,6 +438,48 @@ def _request(
     )
 
 
+def _operation_payload(
+    *,
+    repository_id: str = "agent-utilities",
+    base_sha: str = "a" * 40,
+) -> RepositoryBuildExecutionPayloadV1:
+    components = {
+        "key_version": "v2",
+        "repo": repository_id,
+        "spec": "test-build",
+        "tree_sha": base_sha,
+        "feature_set": "cargo build",
+        "toolchain_fingerprint": "unpinned",
+        "target_triple": "x86_64-unknown-linux-gnu",
+        "config_digest": "b" * 64,
+        "spec_digest": "c" * 64,
+        "generation_id": "",
+        "generation_digest": "",
+    }
+    return RepositoryBuildExecutionPayloadV1(
+        repository_id=repository_id,
+        base_sha=base_sha,
+        tree_sha=base_sha,
+        build_spec_name="test-build",
+        spec_digest=components["spec_digest"],
+        config_digest=components["config_digest"],
+        toolchain_digest="d" * 64,
+        artifact_contract_digest="e" * 64,
+        feature_set=components["feature_set"],
+        target_triple=components["target_triple"],
+        cache_key_components=components,
+        cache_key_digest=cache_key_digest_from_components(components),
+        argv=("cargo", "build"),
+        workdir=".",
+        timeout_seconds=60,
+        artifact_patterns=("target/**",),
+        environment_refs=("CI",),
+        execution_policy_ref="repository.build-policy:v1",
+        profile_ref="repository_manager:resource_profile:light-check:v1",
+        cacheable=True,
+    )
+
+
 def test_registered_kinds_and_nested_contract_projection() -> None:
     request = RepositoryWorkItemRequest.from_contract(
         {
@@ -627,7 +675,9 @@ def test_nested_c03_resource_projection_survives_view_and_result_round_trip() ->
         )
 
 
-def _trusted_resolved_request(*, key: str = "resolved-profile") -> RepositoryWorkItemRequest:
+def _trusted_resolved_request(
+    *, key: str = "resolved-profile"
+) -> RepositoryWorkItemRequest:
     return _request(key=key).model_copy(
         update={
             "profile_version": "1",
@@ -680,9 +730,7 @@ def test_trusted_resolved_projection_rejects_partial_authority_marker() -> None:
         "repository_manager:resource_profile_registry:v1"
     )
     with pytest.raises(RepositoryWorkItemError, match="projection is incomplete"):
-        submit_repository_work_item(
-            engine, raw, resolved_profile_projection=True
-        )
+        submit_repository_work_item(engine, raw, resolved_profile_projection=True)
 
 
 def test_c01_consent_is_projected_without_broadening_branch_land_or_repair() -> None:
@@ -1560,3 +1608,243 @@ def test_checkpoint_retry_dead_letter_and_typed_terminal_result() -> None:
     assert result.failure_class == "validation_candidate_failure"
     assert result.target_kind == "local"
     assert result.retry_class is None
+
+
+def test_operation_payload_is_atomic_private_summary_and_exact_owner_read() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    request = _request(key="typed-payload").model_copy(
+        update={"operation_payload": payload}
+    )
+    submitted = submit_repository_work_item(engine, request)
+    row = engine.nodes[submitted.work_item_id]
+    record = row["metadata"]["repository_work_item"]
+    assert record["resource_reservation"]["schema_version"] == "1"
+    assert record["operation_payload"]["kind"] == "repository.build-execution/v1"
+    assert record["operation_payload_digest"] == payload.payload_digest
+    assert row["correlation_id"] == request.request_id
+    assert "argv" not in row["correlation_id"]
+
+    view = get_repository_work_item(engine, submitted.job_id, tenant="tenant-a")
+    assert view is not None
+    assert view.operation_payload_kind == "repository.build-execution/v1"
+    assert view.operation_payload_version == "1"
+    assert view.operation_payload_digest == payload.payload_digest
+    assert "operation_payload" not in view.model_dump(mode="json")
+    listed = list_repository_work_items(engine, tenant="tenant-a")
+    assert len(listed) == 1
+    assert "operation_payload" not in listed[0].model_dump(mode="json")
+
+    assert (
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+        == payload
+    )
+    restarted = RepositoryEngine()
+    restarted.nodes = deepcopy(engine.nodes)
+    assert (
+        get_repository_operation_payload(
+            restarted,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+        == payload
+    )
+    assert (
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-b",
+            owner_id="actor-a",
+        )
+        is None
+    )
+
+    claim = claim_repository_work_item(
+        engine, submitted.job_id, tenant="tenant-a", token="typed-worker", now=10.0
+    )
+    assert claim is not None
+    assert (
+        commit_repository_work_item(
+            engine,
+            submitted.job_id,
+            claim,
+            tenant="tenant-a",
+            outcome="succeeded",
+            result_ref="artifact:typed",
+            now=11.0,
+        )
+        == "committed"
+    )
+    terminal = get_repository_work_item(engine, submitted.job_id, tenant="tenant-a")
+    assert terminal is not None
+    result = repository_result_from_view(terminal)
+    assert result.operation_payload_kind == "repository.build-execution/v1"
+    assert result.operation_payload_version == "1"
+    assert result.operation_payload_digest == payload.payload_digest
+    assert "operation_payload" not in result.model_dump(mode="json")
+    assert (
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="another-owner",
+        )
+        is None
+    )
+
+
+def test_payload_digest_conflict_tamper_and_explicit_copy_preservation() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    request = _request(key="typed-conflict").model_copy(
+        update={"operation_payload": payload}
+    )
+    first = submit_repository_work_item(engine, request)
+    duplicate = submit_repository_work_item(engine, request)
+    assert duplicate.deduplicated is True
+    changed_payload = payload.model_copy(update={"argv": ("cargo", "test")})
+    changed = request.model_copy(update={"operation_payload": changed_payload})
+    with pytest.raises(RepositoryWorkItemConflict, match="input_conflict"):
+        submit_repository_work_item(engine, changed)
+    assert (
+        engine.nodes[first.work_item_id]["metadata"]["repository_work_item"][
+            "operation_payload_digest"
+        ]
+        == payload.payload_digest
+    )
+
+    tampered = engine.nodes[first.work_item_id]["metadata"]["repository_work_item"]
+    tampered["operation_payload"]["argv"] = ["cargo", "clean"]
+    with pytest.raises(RepositoryWorkItemConflict, match="input_conflict"):
+        get_repository_work_item(engine, first.job_id, tenant="tenant-a")
+
+    retry_request = request.model_copy(
+        update={
+            "request_id": "typed-conflict-retry:request",
+            "idempotency_key": "typed-conflict-retry",
+        }
+    )
+    # An explicit new WorkItem copies the exact typed input; correlation is
+    # still only the new request relationship.
+    second = submit_repository_work_item(engine, retry_request)
+    assert (
+        get_repository_operation_payload(
+            engine,
+            second.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+        == payload
+    )
+
+
+def test_payloadless_legacy_build_is_readable_but_exact_input_fails_closed() -> None:
+    engine = RepositoryEngine()
+    legacy = submit_repository_work_item(engine, _request(key="legacy-build"))
+    view = get_repository_work_item(engine, legacy.job_id, tenant="tenant-a")
+    assert view is not None
+    assert view.operation_payload_kind is None
+    assert view.operation_payload_digest is None
+    with pytest.raises(
+        RepositoryWorkItemError, match="typed_execution_payload_required"
+    ):
+        get_repository_operation_payload(
+            engine,
+            legacy.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+
+
+def test_unknown_variant_refuses_before_work_item_creation() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    raw = _request(key="unknown-payload").model_dump(mode="python")
+    raw["operation_payload"] = {
+        **payload.model_dump(mode="json"),
+        "kind": "repository.future/v1",
+    }
+    with pytest.raises(RepositoryWorkItemError, match="invalid"):
+        submit_repository_work_item(engine, raw)
+    job_id = repository_job_id("tenant-a", "unknown-payload")
+    assert repository_work_item_id(job_id) not in engine.nodes
+
+
+def test_existing_request_instances_revalidate_typed_payload_at_authority() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    request = _request(key="invalid-copy").model_copy(
+        update={
+            "operation_payload": {
+                **payload.model_dump(mode="python"),
+                "argv": ("sh", "-c", "echo secret"),
+            }
+        }
+    )
+    with pytest.raises(RepositoryWorkItemError, match="invalid"):
+        submit_repository_work_item(engine, request)
+    job_id = repository_job_id("tenant-a", "invalid-copy")
+    assert repository_work_item_id(job_id) not in engine.nodes
+
+
+def test_automatic_retry_keeps_exact_operation_payload_and_digest() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    request = _request(key="typed-auto-retry").model_copy(
+        update={"operation_payload": payload}
+    )
+    submitted = submit_repository_work_item(engine, request, max_attempts=2)
+    first = claim_repository_work_item(
+        engine,
+        submitted.job_id,
+        tenant="tenant-a",
+        token="typed-worker-a",
+        now=100.0,
+    )
+    assert first is not None
+    assert (
+        commit_repository_work_item(
+            engine,
+            submitted.job_id,
+            first,
+            tenant="tenant-a",
+            outcome="failed",
+            failure_class="worker_environment_failure",
+            retryable=True,
+            now=101.0,
+        )
+        == "retry_scheduled"
+    )
+    assert (
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+        == payload
+    )
+    second = claim_repository_work_item(
+        engine,
+        submitted.job_id,
+        tenant="tenant-a",
+        token="typed-worker-b",
+        now=102.0,
+    )
+    assert second is not None
+    assert second["work_item_id"] == submitted.work_item_id
+    assert (
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+        == payload
+    )
