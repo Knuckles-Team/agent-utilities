@@ -162,9 +162,37 @@ def register_write_ingest_tools(mcp):
                         engine.link_nodes(source_id, target_id, rel_type, _props())
                         return f"Edge {source_id} -> {target_id} added."
                     elif action == "delete_node":
-                        engine.delete_node(node_id)
-                        return f"Node {node_id} deleted."
+                        # BUG-049: this used to be `engine.delete_node(node_id)`
+                        # followed by an UNCONDITIONAL f"Node {node_id} deleted."
+                        # `node_id` defaults to "", was never validated, and
+                        # `node_type` was ignored entirely -- so a predicate delete
+                        # returned "Node  deleted." having removed nothing. A
+                        # destructive action must never report success it did not
+                        # perform. Note add_node/add_edge/register_external_graph
+                        # directly above and below all validated their required
+                        # args; only the two destructive branches did not.
+                        if not node_id and not node_type:
+                            return (
+                                "Error: delete_node requires node_id, or node_type "
+                                "for a predicate delete"
+                            )
+                        if node_id:
+                            engine.delete_node(node_id)
+                            return f"Node {node_id} deleted."
+                        # Predicate delete. Enumerate engine-side by label rather
+                        # than through Cypher: the query path applies RLS row
+                        # filtering (unowned rows are invisible), so a Cypher
+                        # enumeration would silently under-delete.
+                        matched = engine.get_nodes_by_label(node_type, 0) or []
+                        deleted = 0
+                        for matched_id, _matched_props in matched:
+                            engine.delete_node(matched_id)
+                            deleted += 1
+                        return f"Deleted {deleted} node(s) of type {node_type}."
                     elif action == "delete_edge":
+                        # BUG-049, same class: validate before mutating.
+                        if not source_id or not target_id or not rel_type:
+                            return "Error: source_id, target_id, and rel_type required"
                         engine.delete_edge(source_id, target_id, rel_type)
                         return f"Edge {source_id} -> {target_id} deleted."
                     elif action == "register_external_graph":
