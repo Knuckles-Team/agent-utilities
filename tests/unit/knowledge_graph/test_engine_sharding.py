@@ -133,67 +133,60 @@ def test_resolve_routing_graph_precedence():
         assert resolve_routing_graph("named", cfg) == "named"
         # 2. ambient tenant maps the default graph
         assert resolve_routing_graph(None, cfg) == "tenant__acme____commons__"
-        # BUG-020 (GOC-61 phase 1): this line pins the CURRENT (buggy) behavior
-        # — an explicit "__commons__" request is misrouted to the tenant graph
-        # because shard_topology.py:198 conflates "explicit request for the
-        # literal default name" with "no name given". When the phase-1 fix
-        # lands (dropping the `!= default` comparison), this assertion must
-        # change to `== "__commons__"` — see
+        # BUG-020 (GOC-61 phase 1) — FIXED: this line used to assert the
+        # DEFECT itself (an explicit "__commons__" request silently
+        # misrouted to the tenant graph, because shard_topology.py:198
+        # conflated "explicit request for the literal default name" with "no
+        # name given"). It now asserts the correct, post-fix value — an
+        # explicit request for `__commons__` is honored verbatim, exactly
+        # like any other explicit graph name. See
         # test_resolve_routing_graph_explicit_commons_should_be_honored_verbatim
-        # below, which already asserts the correct post-fix value and is
-        # intentionally red until then.
-        assert resolve_routing_graph("__commons__", cfg) == "tenant__acme____commons__"
+        # below for the dedicated regression test.
+        assert resolve_routing_graph("__commons__", cfg) == "__commons__"
     # 3. otherwise the configured default
     with use_actor(ActorContext(actor_id="u", authenticated=True)):
         assert resolve_routing_graph(None, cfg) == "__commons__"
         custom = _FakeConfig(kg_default_graph="knowledge")
         assert resolve_routing_graph(None, custom) == "knowledge"
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
-        assert resolve_routing_graph("knowledge", custom) == ("tenant__acme__knowledge")
+        # BUG-020 (GOC-61 phase 1) — FIXED: same defect pattern as the
+        # `__commons__` case above, generalized to a NON-default-named
+        # config: `custom.kg_default_graph == "knowledge"`, so an explicit
+        # request for the literal string "knowledge" here is ALSO "the
+        # caller explicitly asked for the graph literally equal to the
+        # configured default" — pre-fix this collapsed into tenant-mapping
+        # exactly like `__commons__` did; post-fix it is honored verbatim.
+        # This line is what proves the fix is general (any configured
+        # default), not hardcoded to the literal string "__commons__".
+        assert resolve_routing_graph("knowledge", custom) == "knowledge"
 
 
 # ---------------------------------------------------------------------------
-# BUG-020 / GOC-61 phase 1 — failing-first regression tests.
-#
-# shard_topology.py:198 collapses two different intents into one branch:
-# "the caller explicitly asked for the graph literally named `__commons__`"
-# and "the caller passed nothing and wants their ambient default" both
-# satisfy `graph_name == default`, so an EXPLICIT request for `__commons__`
-# is (incorrectly) tenant-mapped exactly like an implicit `None` request.
-# `__control__`/other explicit names never collide with the default sentinel,
-# so they were never affected — only the literal commons name is.
-#
-# The fix (GOC-61 design doc §6, NOT applied by this commit — see the phase-1
-# worker's final report for why): drop the `!= default` comparison so any
-# explicit, non-empty graph_name is honored verbatim; only `graph_name is
-# None` triggers tenant mapping.
-#
-# `test_resolve_routing_graph_explicit_commons_is_currently_misrouted` below
-# pins TODAY's (buggy) behavior so the regression is provable. The four tests
-# after it assert the CORRECT post-fix behavior and are INTENTIONALLY RED
-# against this commit — they are the failing-first proof of BUG-020, to be
-# turned green by the (separately-gated) one-line fix.
+# BUG-020 / GOC-61 phase 1 — regression tests. FIX APPLIED (shard_topology.py
+# resolve_routing_graph): the four tests below were originally written
+# failing-first (three already passed pre-fix as regression guards; the
+# fourth, explicit-commons-honored-verbatim, was intentionally red) and now
+# all pass post-fix. The bug-pinning test that asserted the defect itself
+# (`test_resolve_routing_graph_explicit_commons_is_currently_misrouted`) has
+# been DELETED in this same change, per its own docstring's instruction —
+# its assertion WAS the bug, so keeping it would assert broken behavior
+# forever. shard_topology.py:198's old `graph_name != default` collapsed two
+# different intents into one branch: "the caller explicitly asked for the
+# graph literally named `__commons__`" and "the caller passed nothing and
+# wants their ambient default" both satisfied `graph_name == default`, so an
+# EXPLICIT request for `__commons__` was (incorrectly) tenant-mapped exactly
+# like an implicit `None` request. `__control__`/other explicit names never
+# collided with the default sentinel, so they were never affected — only the
+# literal commons name was. The fix (GOC-61 design doc §6): drop the
+# `!= default` comparison so any explicit, non-empty graph_name is honored
+# verbatim; only `graph_name is None` triggers tenant mapping.
 # ---------------------------------------------------------------------------
-
-
-def test_resolve_routing_graph_explicit_commons_is_currently_misrouted():
-    """Pins the BUG-020 defect as it exists today (pre-fix).
-
-    An explicit, non-empty request for the literal default graph name
-    (``__commons__``) is silently redirected to the caller's tenant graph —
-    the exact defect this lane's design doc traces to shard_topology.py:198.
-    This test exists to prove the defect is real and stays red-to-green
-    across the fix; it is expected to be DELETED (not merely flipped) in the
-    same change that applies the fix, since its assertion is the bug itself.
-    """
-    cfg = _FakeConfig()
-    with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
-        assert resolve_routing_graph("__commons__", cfg) == "tenant__acme____commons__"
 
 
 def test_resolve_routing_graph_explicit_commons_should_be_honored_verbatim():
     """BUG-020 case (a): an explicit request for `__commons__` must resolve to
-    `__commons__` itself, not the caller's tenant graph. FAILS pre-fix."""
+    `__commons__` itself, not the caller's tenant graph. FIXED — was red
+    pre-fix, passes now."""
     cfg = _FakeConfig()
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
         assert resolve_routing_graph("__commons__", cfg) == "__commons__"
@@ -202,7 +195,7 @@ def test_resolve_routing_graph_explicit_commons_should_be_honored_verbatim():
 def test_resolve_routing_graph_none_still_tenant_maps():
     """BUG-020 case (b): `graph_name is None` must still tenant-map correctly
     — the fix narrows the tenant-mapping trigger to exactly this case, so it
-    must be unaffected. PASSES both pre- and post-fix (regression guard)."""
+    must be unaffected. PASSED both pre- and post-fix (regression guard)."""
     cfg = _FakeConfig()
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
         assert resolve_routing_graph(None, cfg) == "tenant__acme____commons__"
@@ -211,8 +204,8 @@ def test_resolve_routing_graph_none_still_tenant_maps():
 def test_resolve_routing_graph_explicit_non_default_name_honored_verbatim():
     """BUG-020 case (c): an explicit request for a non-default name (a
     content graph, e.g. ``code_agent_utilities``) is honored verbatim — this
-    already works pre-fix (it never collides with the default sentinel) and
-    must keep working post-fix. PASSES both pre- and post-fix."""
+    already worked pre-fix (it never collided with the default sentinel) and
+    keeps working post-fix. PASSED both pre- and post-fix."""
     cfg = _FakeConfig()
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
         assert resolve_routing_graph("code_agent_utilities", cfg) == "code_agent_utilities"
@@ -220,8 +213,8 @@ def test_resolve_routing_graph_explicit_non_default_name_honored_verbatim():
 
 def test_resolve_routing_graph_control_graph_behaviour_unchanged():
     """BUG-020 case (d): ``__control__`` was never affected by this defect
-    (its name never equals the default sentinel) — the fix must leave its
-    behaviour byte-for-byte identical. PASSES both pre- and post-fix."""
+    (its name never equals the default sentinel) — the fix leaves its
+    behaviour byte-for-byte identical. PASSED both pre- and post-fix."""
     cfg = _FakeConfig()
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
         assert resolve_routing_graph("__control__", cfg) == "__control__"
