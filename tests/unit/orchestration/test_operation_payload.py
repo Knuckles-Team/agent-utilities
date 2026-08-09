@@ -91,6 +91,23 @@ def test_golden_fixture_is_canonical_and_digest_stable() -> None:
     ]
 
 
+def test_cache_digest_does_not_authorize_a_mismatched_tree_component() -> None:
+    raw = _raw_fixture()
+    raw.pop("payload_digest", None)
+    components = {
+        str(item["name"]): str(item["value"])
+        for item in raw["cache_key_components"]
+        if isinstance(item, dict)
+    }
+    components["tree_sha"] = "f" * 40
+    raw["cache_key_components"] = [
+        {"name": name, "value": value} for name, value in components.items()
+    ]
+    raw["cache_key_digest"] = cache_key_digest_from_components(components)
+    with pytest.raises((ValidationError, ValueError), match="tree"):
+        RepositoryBuildExecutionPayloadV1.model_validate(raw)
+
+
 @pytest.mark.parametrize(
     "field, value",
     [

@@ -1744,6 +1744,63 @@ def test_payload_digest_conflict_tamper_and_explicit_copy_preservation() -> None
     )
 
 
+def test_typed_build_repair_preserves_exact_payload_and_replays_idempotently() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    source_request = _request(key="typed-repair-source").model_copy(
+        update={"operation_payload": payload}
+    )
+    source = submit_repository_work_item(engine, source_request)
+
+    repair_values = source_request.model_dump(mode="python", exclude_none=False)
+    repair_values.update(
+        {
+            "request_id": "repair:typed-repair:request",
+            "idempotency_key": "repair:typed-repair",
+            "correlation_id": source.job_id,
+            "retry_class": "reconciliation",
+            "input_digest": "f" * 64,
+        }
+    )
+    repaired = submit_repository_work_item(engine, repair_values)
+    view = get_repository_work_item(engine, repaired.job_id, tenant="tenant-a")
+    assert view is not None
+    assert view.operation == RepositoryOperation.BUILD.value
+    assert view.correlation_id == source.job_id
+    assert view.retry_class == "reconciliation"
+    assert (
+        get_repository_operation_payload(
+            engine,
+            repaired.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+        == payload
+    )
+
+    restarted = RepositoryEngine()
+    restarted.nodes = deepcopy(engine.nodes)
+    assert (
+        get_repository_operation_payload(
+            restarted,
+            repaired.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+        == payload
+    )
+    replay = submit_repository_work_item(engine, repair_values)
+    assert replay.deduplicated is True
+
+    changed_payload = payload.model_copy(update={"argv": ("cargo", "test")})
+    changed_values = dict(repair_values)
+    changed_values["operation_payload"] = changed_payload.model_dump(
+        mode="json", exclude_none=False
+    )
+    with pytest.raises(RepositoryWorkItemConflict, match="input_conflict"):
+        submit_repository_work_item(engine, changed_values)
+
+
 def test_payloadless_legacy_build_is_readable_but_exact_input_fails_closed() -> None:
     engine = RepositoryEngine()
     legacy = submit_repository_work_item(engine, _request(key="legacy-build"))
