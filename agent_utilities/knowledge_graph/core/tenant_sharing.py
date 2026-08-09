@@ -26,6 +26,19 @@ the existing tenant ``scope()`` predicate):
 Verified actors carrying the explicit ``kg:admin`` capability are unrestricted
 by owner/scope visibility; tenant and ACL boundaries still apply. A generic
 application role named ``admin`` is not graph authority.
+
+**BUG-052 / GOC-61 — this module's naming is the canonical one.** The
+``epistemic-graph`` engine's own native RLS (``crates/eg-core/src/isolation.rs``)
+independently reserves ``_owner``/``_visibility``/``_grants`` for the same
+concept — a different naming convention that BUG-052 identified as disagreeing
+with this module's ``_owner_id``/``_shared_scope``. That decision record
+(``plans/graph-os-completion-program/decisions/GOC-61-ownership-property-convention.md``)
+names **this** module's convention canonical (it is what actually decides a
+live access for all traffic that reaches the engine through this codebase — the
+engine's own RLS is bypassed for that traffic because this process's engine
+connection is provisioned as ``AgentRole::System``) and adds READ-side
+compatibility on the engine so a node tagged either way resolves consistently.
+No change was needed here: this module already writes only the canonical keys.
 """
 
 from __future__ import annotations
