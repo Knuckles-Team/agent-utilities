@@ -463,6 +463,27 @@ def test_check_system_graph_write_share_verb_bypasses_authority_not_content():
         ts._SHARE_VERB_ACTIVE.reset(token)
 
 
+def test_check_system_graph_write_content_gate_is_commons_only_not_every_system_graph():
+    """Regression guard: the CONTENT condition must be scoped to the commons
+    graph specifically, not every ``is_system_graph()`` name -- otherwise
+    this gate would break already-legitimate control-plane/secrets writes
+    that were never part of the owner's commons-sharing ruling (e.g.
+    ingest_profile.py's ``ProfileSpan`` nodes into ``__control__``,
+    secrets_client.py's ``Secret`` nodes into ``__secrets__``). AUTHORITY
+    still applies to those graphs (an unprivileged actor is still refused).
+    """
+    root = _user("root", "acme", roles=("kg:admin",))
+    # Non-catalog types are NOT on COMMONS_SHAREABLE_NODE_TYPES, but writing
+    # them into __control__/__secrets__ (not commons) must still succeed for
+    # a privileged actor -- the content allowlist does not apply there.
+    ts.check_system_graph_write("__control__", "ProfileSpan", root)  # must not raise
+    ts.check_system_graph_write("__secrets__", "Secret", root)  # must not raise
+    # AUTHORITY is still enforced for those graphs.
+    mallory = _user("mallory", "acme")
+    with pytest.raises(PermissionError):
+        ts.check_system_graph_write("__control__", "ProfileSpan", mallory)
+
+
 def test_check_system_graph_write_unauthenticated_system_path_exempted_from_authority_only():
     import contextvars
 

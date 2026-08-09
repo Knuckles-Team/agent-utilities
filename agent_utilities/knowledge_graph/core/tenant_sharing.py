@@ -755,51 +755,71 @@ def check_system_graph_write(
     A no-op unless ``graph_name`` is a system graph
     (:func:`~agent_utilities.knowledge_graph.core.shard_topology.is_system_graph`
     — ``__commons__``, ``__control__``, ``__secrets__``, ...). When it is, TWO
-    independent conditions are enforced, both must hold, and neither implies
-    the other:
+    independent conditions are enforced, neither implies the other, and they
+    are scoped DIFFERENTLY on purpose (see the note below):
 
-    1. **CONTENT — deny-by-default, unconditional.** ``node_type`` must be in
-       :data:`COMMONS_SHAREABLE_NODE_TYPES`. This is checked FIRST and is
-       **never** bypassed — not for a ``kg:admin`` caller, not for a write
-       already authorized through the ``graph_share`` verb
-       (:func:`promote_to_commons`). ``__commons__`` is readable by every
-       tenant; admin authority is authorization for WHO may write to a system
-       graph, never for WHAT may be published there. A privileged caller
-       writing a private-class node into commons is refused exactly like an
-       unprivileged one — this is the case a coarser, single-condition gate
-       would get wrong.
-    2. **AUTHORITY.** The caller holds ``kg:admin`` (reused per the GOC-61
-       design; superseded by the narrower ``kg:share``/``kg:share-admin``
-       scopes in phase 2), OR the write is happening inside an
-       already-authorized sharing verb (:data:`_SHARE_VERB_ACTIVE` —
-       currently only :func:`promote_to_commons`, which already checked
-       owner-or-admin on the source node). A write with no bound/authenticated
-       actor at all (a genuine system/background path) is exempted from this
-       condition ONLY — the same best-effort exemption
+    1. **CONTENT — deny-by-default, unconditional, COMMONS ONLY.**
+       ``node_type`` must be in :data:`COMMONS_SHAREABLE_NODE_TYPES`. Checked
+       first; **never** bypassed for the commons graph specifically — not for
+       a ``kg:admin`` caller, not for a write already authorized through the
+       ``graph_share`` verb (:func:`promote_to_commons`). ``__commons__`` is
+       readable by every tenant; admin authority is authorization for WHO may
+       write to a system graph, never for WHAT may be published there. A
+       privileged caller writing a private-class node into commons is
+       refused exactly like an unprivileged one — this is the case a
+       coarser, single-condition gate would get wrong.
+    2. **AUTHORITY — every system graph.** The caller holds ``kg:admin``
+       (reused per the GOC-61 design; superseded by the narrower
+       ``kg:share``/``kg:share-admin`` scopes in phase 2), OR the write is
+       happening inside an already-authorized sharing verb
+       (:data:`_SHARE_VERB_ACTIVE` — currently only
+       :func:`promote_to_commons`, which already checked owner-or-admin on
+       the source node). A write with no bound/authenticated actor at all (a
+       genuine system/background path) is exempted from this condition ONLY
+       — the same best-effort exemption
        :func:`stamp_ownership`/:func:`stamp_classification` already grant at
        this exact chokepoint (``GraphComputeEngine.add_node``) — never from
        condition 1.
+
+    **Why condition 1 is commons-only, not every system graph:** the
+    program owner's 2026-08-09 ruling is specifically about what may enter a
+    graph "readable by every tenant" — that is ``__commons__``'s defining
+    property, not ``__control__``'s or ``__secrets__``'s (control-plane and
+    encrypted-secret internal stores, privileged-access-only, never fanned
+    to every tenant). Applying the content allowlist to those too would
+    reject already-legitimate control-plane writes that were never part of
+    this ruling's concern (e.g. ``ingest_profile.py``'s ``ProfileSpan`` nodes
+    into ``__control__``, or ``secrets_client.py``'s ``Secret`` nodes into
+    ``__secrets__``) — a real regression this function must not introduce.
+    Condition 2 (authority) still applies to every system graph, matching
+    the original W04 scope (an arbitrary unprivileged actor still cannot
+    write directly into ``__control__``/``__secrets__`` either).
 
     Raises :class:`PermissionError` on denial; this must NOT be swallowed by
     a caller's best-effort ``except PermissionError: pass`` — unlike the
     ownership/classification stamps, a denial here must block the write.
     """
-    from .shard_topology import is_system_graph
+    from .shard_topology import default_graph_name, is_system_graph
 
     if not is_system_graph(graph_name):
         return
 
-    # Condition 1 (content) — checked first, never bypassed.
-    type_name = str(node_type or "").strip()
-    if type_name not in COMMONS_SHAREABLE_NODE_TYPES:
-        raise PermissionError(
-            f"{graph_name!r} is a shared system graph; node type "
-            f"{type_name or '<untyped>'!r} is not on the commons-shareable "
-            "allowlist (deny-by-default) and may not be written there"
-        )
+    # Condition 1 (content) — checked first, never bypassed, COMMONS ONLY.
+    # Mirrors graph_ownership.is_structurally_public's own commons identity
+    # check (configured default OR the literal "__commons__" name).
+    is_commons_graph = graph_name == default_graph_name() or graph_name == "__commons__"
+    if is_commons_graph:
+        type_name = str(node_type or "").strip()
+        if type_name not in COMMONS_SHAREABLE_NODE_TYPES:
+            raise PermissionError(
+                f"{graph_name!r} is the shared commons graph; node type "
+                f"{type_name or '<untyped>'!r} is not on the commons-shareable "
+                "allowlist (deny-by-default) and may not be written there"
+            )
 
-    # Condition 2 (authority) — bypassed only by an already-authorized share
-    # verb, or a genuinely unauthenticated/system write path.
+    # Condition 2 (authority) — every system graph; bypassed only by an
+    # already-authorized share verb, or a genuinely unauthenticated/system
+    # write path.
     if _SHARE_VERB_ACTIVE.get():
         return
     if actor is not None:
