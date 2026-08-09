@@ -10,6 +10,20 @@ identity, user identity, and logout/revocation behavior. Map tenants and roles
 explicitly. Never share conversation, retrieval, or semantic/prompt caches across
 tenants without a tenant-bound key.
 
+IdP wiring is not the whole identity job: the deployed applications still need
+their own role/scope contract provisioned on top of it, and a browser-facing
+client's identity must never be conflated with a backend service's own
+service-account identity — they are separate credentials with separate role
+assignments, even when both belong to the same application. A UI-level admin
+role and a data/graph-capability admin role are two different things; granting
+one is never a substitute for the other, and a deployment is not verified
+until both the human and the service identities hold the scopes their calls
+actually require. For agent-utilities specifically, this contract (which
+roles, which two OIDC clients, and how to diagnose it when wrong) is
+provisioned and diagnosed in `agent-utilities-deployment`'s *Identity &
+authorization* section, not duplicated here to keep this skill
+environment-neutral.
+
 ## Secrets and PKI
 
 Prefer workload identity to static credentials. Store secret values in a

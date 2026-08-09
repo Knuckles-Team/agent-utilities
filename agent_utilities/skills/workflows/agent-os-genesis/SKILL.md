@@ -89,6 +89,19 @@ Do not assume that “enterprise” means self-host every dependency. A namespac
 managed cluster using existing OIDC, Vault-compatible secrets, ingress, storage, and
 observability is a first-class production target.
 
+Genesis resolves *which* IdP is deployed or reused; it does not resolve the
+*application's* own role/scope contract on top of it. For agent-utilities
+(graph-os + agent-webui) that contract has a specific, easy-to-conflate
+shape — two distinct OIDC clients (a browser client and a separate backend
+service-account client), a hierarchical graph-capability scope set, a
+cluster-placement capability role, and a UI-level admin role that is
+deliberately **not** equivalent to graph administration. Provisioning and
+diagnosing it is `agent-utilities-deployment`'s job (its *Identity &
+authorization* section) — confirm it there before treating a Day-0 identity
+handoff as verified; a missing scope on the service account fails every
+downstream placement call closed, and looks like a data or wiring bug rather
+than an authz gap.
+
 ## Phase 1 — Discover and preflight
 
 Inspect without changing state:
