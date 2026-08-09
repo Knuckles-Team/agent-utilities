@@ -53,9 +53,13 @@ def graph_os(monkeypatch) -> Any:
     return server
 
 
-def test_helpers_expose_both_delegation_entry_points() -> None:
+def test_helpers_expose_all_three_delegation_entry_points() -> None:
     helpers = webui_mcp_delegation_helpers()
-    assert set(helpers) == {"call_mcp_tool", "read_mcp_resource"}
+    assert set(helpers) == {
+        "list_mcp_server_tools",
+        "call_mcp_tool",
+        "read_mcp_resource",
+    }
 
 
 @pytest.mark.asyncio
@@ -76,6 +80,69 @@ async def test_call_mcp_tool_reaches_the_server_with_verbatim_arguments(
     )
 
     assert result == {"action": "status", "jobId": "orch-1", "status": "working"}
+
+
+@pytest.mark.asyncio
+async def test_list_mcp_server_tools_reads_the_shared_multiplexer(
+    monkeypatch,
+) -> None:
+    """GOC-60-W04b: ``list_mcp_server_tools`` must read the SAME shared
+    standalone multiplexer as the REST catalog surface (W03), not a second,
+    independent inventory mechanism that could drift from it.
+    """
+    from agent_utilities.mcp import shared_multiplexer as shared_mux_mod
+
+    class _StubMux:
+        async def probe_server(self, server_name: str) -> dict:
+            assert server_name == "github-api"
+            return {
+                "tools": [
+                    {
+                        "name": "create_issue",
+                        "description": "Open an issue",
+                        "inputSchema": {"type": "object"},
+                    }
+                ],
+                "error": None,
+            }
+
+    async def _get_stub() -> Any:
+        return _StubMux()
+
+    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_stub)
+
+    list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
+    tools = await list_mcp_server_tools(server_name="github-api")
+
+    assert tools == [
+        {
+            "name": "create_issue",
+            "description": "Open an issue",
+            "input_schema": {"type": "object"},
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_list_mcp_server_tools_raises_on_a_probe_error_rather_than_returning_empty(
+    monkeypatch,
+) -> None:
+    """A failed probe must raise (surfaced by the caller as a typed 503), not
+    come back as an indistinguishable empty tool list (GOC-60 invariant 1)."""
+    from agent_utilities.mcp import shared_multiplexer as shared_mux_mod
+
+    class _StubMux:
+        async def probe_server(self, server_name: str) -> dict:
+            return {"tools": [], "error": "not in catalog"}
+
+    async def _get_stub() -> Any:
+        return _StubMux()
+
+    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_stub)
+
+    list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
+    with pytest.raises(RuntimeError, match="not in catalog"):
+        await list_mcp_server_tools(server_name="not-a-real-server")
 
 
 @pytest.mark.asyncio
