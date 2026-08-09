@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1157
+total_concepts: 1160
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3633,6 +3633,13 @@ concepts:
   - agent_utilities/messaging/voice.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
   doc: Evidence write failed for occurrence
+- id: AU-KG.identity.verified-carrier-required-federation
+  name: AU-KG.identity.verified-carrier-required-federation
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/orchestration/engine_federation.py
+  doc: AU-KG.identity.verified-carrier-required-federation
 - id: AU-KG.ingest.agent-utilities-checkout
   name: the agent-utilities checkout
   pillar: AU-KG
@@ -5778,7 +5785,6 @@ concepts:
   - agent_utilities/knowledge_graph/pipeline/phases/sync.py
   - agent_utilities/knowledge_graph/pipeline/phases/workspace_sync.py
   - agent_utilities/knowledge_graph/retrieval/memory_retriever.py
-  - agent_utilities/knowledge_graph/self_model.py
   - agent_utilities/models/codemap.py
   - agent_utilities/models/knowledge_base.py
   - agent_utilities/models/knowledge_graph.py
@@ -5889,7 +5895,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/event_backend.py
   - agent_utilities/knowledge_graph/core/kg_versioning.py
   - agent_utilities/knowledge_graph/core/source_sync.py
-  - agent_utilities/knowledge_graph/core/subgraph_checkout.py
   - agent_utilities/knowledge_graph/distillation/skill_graph_distiller.py
   - agent_utilities/knowledge_graph/enrichment/execute.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
@@ -8516,9 +8521,11 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/core/resource_priority.py
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/kb/extraction_run.py
   - agent_utilities/knowledge_graph/neural/embedding_store.py
+  - agent_utilities/knowledge_graph/ontology/permissioning.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py
   - agent_utilities/kvcache/policy.py
@@ -8660,7 +8667,6 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
-  - agent_utilities/core/discovery.py
   - agent_utilities/core/paths.py
   doc: Agent OS Infrastructure
 - id: AU-OS.config.agent-registry
@@ -9387,17 +9393,22 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/core/chat_persistence.py
   - agent_utilities/core/config.py
   - agent_utilities/core/sessions.py
   - agent_utilities/gateway/graph_api.py
+  - agent_utilities/knowledge_graph/__main__.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
   - agent_utilities/knowledge_graph/ingest_worker.py
+  - agent_utilities/knowledge_graph/ingestion/__main__.py
+  - agent_utilities/knowledge_graph/memory/cli.py
   - agent_utilities/knowledge_graph/ontology/permissioning.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/messaging/daemon.py
   - agent_utilities/observability/correlation.py
   - agent_utilities/orchestration/agent_dispatch_worker.py
   - agent_utilities/security/request_identity.py
+  - agent_utilities/server/app.py
   doc: Authenticated Identity Enforcement. The secret lives at
 - id: AU-OS.identity.encrypted-secret-store
   name: Engine-backed encrypted secret store
@@ -9409,6 +9420,13 @@ concepts:
   - agent_utilities/security/permissions_kernel.py
   - agent_utilities/security/secrets_client.py
   doc: Engine-backed encrypted secret store
+- id: AU-OS.identity.engine-rbac-admission
+  name: See
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/security/engine_rbac_admission.py
+  doc: See
 - id: AU-OS.identity.identity-policy-check
   name: AU-KG.audit.kg-native-audit-sink
   pillar: AU-OS
@@ -9525,6 +9543,15 @@ concepts:
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: authenticate jwt-protected children with the
+- id: AU-OS.identity.stack-wide-auth-conformance
+  name: see this package
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/security/conformance/__init__.py
+  - agent_utilities/security/conformance/surface_inventory.py
+  - agent_utilities/security/conformance/surface_manifest.py
+  doc: see this package
 - id: AU-OS.observability.co-service-visibility
   name: AU-OS.observability.co-service-visibility
   pillar: AU-OS
