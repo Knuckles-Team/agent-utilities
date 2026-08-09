@@ -264,7 +264,6 @@ RETIRED_PATHS: tuple[str, ...] = (
     "agent_utilities/mcp/kg_" + "coordinator.py",
     "scripts/apply_concept_" + "migration.py",
     "scripts/autocurate_" + "repo.py",
-    "scripts/check_concept_" + "gaps.py",
     # BUG-032 (GOC-59): accepted residual, same shape as mcp_utilities.py
     # above. Referenced by the `.pre-commit-config.yaml` of all 61
     # `agents/*` packages plus agent-webui, agent-terminal-ui, geniusbot,
