@@ -19,6 +19,14 @@
 # a human confirms each decision; `... apply` does the typing.
 
 parents:
+  AU-ECO.mcp.cross-process-prompt-harvest:
+    parent: AU-ECO.mcp.cross-process-skill-harvest
+    rationale: Named directly in its own module docstring (fleet_prompt_harvest.py) as "the prompt:// sibling of
+      fleet_skill_harvest's CONCEPT:AU-ECO.mcp.cross-process-skill-harvest" -- same D-2.2-2.3-1 rationale
+      (fleet packages are not co-installed into graph-os's venv, AGENTS.md "Dependency discipline") and the same
+      gap documented in .specify/design/cross-process-skill-harvest/design.md, realised as a second
+      prompt://-resource discovery path reusing the multiplexer's existing probe session onto the SAME
+      PromptNode writer, not an independent decision.
   AU-ECO.mcp.intent-surface-cpd-ranking:
     parent: AU-ECO.mcp.intent-surface-condensed-collapse
     rationale: Named directly in docs/architecture/intent-surface.md's own concept list as the CPD-backed

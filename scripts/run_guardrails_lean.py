@@ -168,6 +168,19 @@ def _gate_env(venv_dir: Path) -> dict[str, str]:
     # publication lane installs and exercises the declared [full] dependency. This
     # keeps the lean venv a faithful CI mirror without a second, redundant blocking
     # mechanism that could itself drift from the real extras name.
+    #
+    # GOC-59-W08/B3: this venv is deliberately NOT <repo>/.venv -- it is this
+    # run's own throwaway CI-parity lean venv (see the module docstring). But
+    # tests/conftest.py::_fail_fast_on_wrong_interpreter() rejects ANY
+    # sys.executable that isn't literally inside <repo>/.venv, including this
+    # intentionally-separate one, so every gate that shells into pytest under
+    # this venv (Prod-profile guard, Gate meta-tests, Exact local promoter
+    # behavioral contract, CI bootstrap and supply-chain policy behavioral
+    # contract) failed on the interpreter check alone -- before the gate's own
+    # assertions ever ran. Set conftest's own documented, deliberate escape
+    # hatch so those gates are actually exercised inside the lean venv instead
+    # of being rejected at the door.
+    env["AGENT_UTILITIES_ALLOW_ANY_INTERPRETER"] = "1"
     return env
 
 

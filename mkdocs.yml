@@ -1,6 +1,16 @@
 site_name: "agent-utilities"
 repo_name: "Knuckles-Team/agent-utilities"
 repo_url: "https://github.com/Knuckles-Team/agent-utilities"
+# GOC-59-W08/B6: docs/README.md is the folder's GitHub-browsing landing page
+# (a different, longer "complete technical documentation" index than
+# docs/index.md, mkdocs' own site homepage) — not referenced from `nav:` or
+# any other doc. MkDocs otherwise builds BOTH to the same site path
+# (`index.html`), which strict mode aborts on: "Excluding 'README.md' from
+# the site because it conflicts with 'index.md'." `exclude_docs` is MkDocs'
+# own documented mechanism for exactly this: keep a file in docs_dir for
+# GitHub's folder view, exclude it from the built site.
+exclude_docs: |
+  /README.md
 theme:
   name: material
   features:

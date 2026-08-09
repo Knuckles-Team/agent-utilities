@@ -51,6 +51,19 @@ Run it right before the eventual push (its own stated precondition — a clean
 result over an old range is not evidence about a new one) via::
 
     python3 scripts/security/check_secret_history.py --base origin/main
+    python3 scripts/security/check_secret_history.py --repository-root DIR
+    python3 scripts/security/check_secret_history.py --self-check
+
+``--repository-root`` (GOC-59-W08/B7 — same declared flag every other
+``scripts/security/check_*.py`` contract check carries, matching
+``check_cypher_write_subset.py``'s sibling convention): the merge queue's fast
+tier (``agent_utilities/governance/merge_queue.py``, ``_contract_check_argv``)
+discovers a script's declared repository root by grepping its own source for
+the literal string ``--repository-root`` and, only when present, appends
+``--repository-root <merged-tree>`` to the invocation. Both the scanned repo
+and the baseline file resolve from it, so a merge-queue run always reads the
+baseline that ships WITH the merged tree it is checking, not a stale one from
+wherever the interpreter happens to have been launched.
 
 ``--self-check`` proves the credential-pattern half actually catches a
 planted secret (AWS-shaped key, GitHub PAT, private-key block) in a throwaway
@@ -496,6 +509,13 @@ def _self_check() -> tuple[int, dict]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--repository-root",
+        type=Path,
+        default=Path("."),
+        help="tree to scan (default: the current directory; the merge queue's "
+        "fast tier passes the merged trial-commit tree here)",
+    )
     parser.add_argument("--base", default=None, help="base ref (default: origin/main)")
     parser.add_argument(
         "--self-check",
@@ -507,7 +527,9 @@ def main() -> int:
     if args.self_check:
         rc, result = _self_check()
     else:
-        rc, result = check(REPO_ROOT, args.base)
+        repo_root = args.repository_root.resolve()
+        baseline_path = repo_root / "scripts" / "security" / "secret_history_baseline.txt"
+        rc, result = check(repo_root, args.base, baseline_path=baseline_path)
 
     print(json.dumps(result, indent=2))
     return rc
