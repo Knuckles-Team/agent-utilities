@@ -459,58 +459,77 @@ def build_agent_app(
                 from agent_utilities.knowledge_graph.core.engine import (
                     IntelligenceGraphEngine,
                 )
+                from agent_utilities.knowledge_graph.core.session import use_session
                 from agent_utilities.knowledge_graph.memory import (
                     SynthesisEngine,
                 )
-
-                engine = IntelligenceGraphEngine.get_or_create()
-                synthesis = SynthesisEngine(engine=engine)
-
-                # CONCEPT:AU-KG.ontology.preload-tbox — preload the bundled ontology TBox into the local
-                # OWL store at startup so OWL reasoning + the local SPARQL endpoint
-                # have the schema immediately (best-effort; a no-op when owlready2
-                # /rdflib aren't installed, e.g. the most minimal tiny profile).
-                try:
-                    from pathlib import Path as _Path
-
-                    import agent_utilities.knowledge_graph as _kgpkg
-                    from agent_utilities.knowledge_graph.backends.owl import (
-                        create_owl_backend,
-                    )
-
-                    _owl = create_owl_backend()
-                    _core_ttl = _Path(_kgpkg.__file__).parent / "ontology.ttl"
-                    if _owl is not None and _core_ttl.exists():
-                        _owl.load_ontology(str(_core_ttl))
-                        logger.info(
-                            "Preloaded bundled ontology TBox into local OWL store"
-                        )
-                except Exception as _tbox_e:  # noqa: BLE001 — best-effort
-                    logger.debug(
-                        "TBox preload skipped (exception_type=%s)",
-                        type(_tbox_e).__name__,
-                    )
-
-                # Boot Phase 5 Daemon using the SAME engine
-                gov_agent = GraphGovernanceAgent(
-                    engine=engine, workspace=workspace or "."
+                from agent_utilities.security.brain_context import use_actor
+                from agent_utilities.security.request_identity import (
+                    system_write_session,
                 )
-                asyncio.create_task(gov_agent.start())
 
-                while True:
+                # BUG-056 (CONCEPT:AU-OS.identity.authenticated-identity-enforcement):
+                # this ASGI-lifespan daemon (spawned at process startup via
+                # asyncio.create_task, never a served request) reaches
+                # SynthesisEngine._persist_proposals's GraphComputeEngine.add_node
+                # chokepoint with no ambient actor bound -- BUG-033's fail-closed
+                # stamp_ownership raises IdentityRequiredError on every 10-minute
+                # tick, caught by the loop's own broad except below and logged as
+                # a generic "SynthesisEngine error" -- indistinguishable from any
+                # other transient failure, so the daemon has silently never
+                # succeeded once BUG-033 landed. Bind for the whole daemon body
+                # (asyncio.create_task(gov_agent.start()) below copies this same
+                # context, so GraphGovernanceAgent's own writes are covered too).
+                session = system_write_session()
+                with use_actor(session.actor), use_session(session):
+                    engine = IntelligenceGraphEngine.get_or_create()
+                    synthesis = SynthesisEngine(engine=engine)
+
+                    # CONCEPT:AU-KG.ontology.preload-tbox — preload the bundled ontology TBox into the local
+                    # OWL store at startup so OWL reasoning + the local SPARQL endpoint
+                    # have the schema immediately (best-effort; a no-op when owlready2
+                    # /rdflib aren't installed, e.g. the most minimal tiny profile).
                     try:
-                        # Wait 10 seconds before first run to let system boot
-                        await asyncio.sleep(10)
-                        synthesis.run(dry_run=False)
-                        await asyncio.sleep(600)  # Run every 10 minutes
-                    except asyncio.CancelledError:
-                        break
-                    except Exception as ce:
-                        logger.error(
-                            "SynthesisEngine error (exception_type=%s)",
-                            type(ce).__name__,
+                        from pathlib import Path as _Path
+
+                        import agent_utilities.knowledge_graph as _kgpkg
+                        from agent_utilities.knowledge_graph.backends.owl import (
+                            create_owl_backend,
                         )
-                        await asyncio.sleep(60)
+
+                        _owl = create_owl_backend()
+                        _core_ttl = _Path(_kgpkg.__file__).parent / "ontology.ttl"
+                        if _owl is not None and _core_ttl.exists():
+                            _owl.load_ontology(str(_core_ttl))
+                            logger.info(
+                                "Preloaded bundled ontology TBox into local OWL store"
+                            )
+                    except Exception as _tbox_e:  # noqa: BLE001 — best-effort
+                        logger.debug(
+                            "TBox preload skipped (exception_type=%s)",
+                            type(_tbox_e).__name__,
+                        )
+
+                    # Boot Phase 5 Daemon using the SAME engine
+                    gov_agent = GraphGovernanceAgent(
+                        engine=engine, workspace=workspace or "."
+                    )
+                    asyncio.create_task(gov_agent.start())
+
+                    while True:
+                        try:
+                            # Wait 10 seconds before first run to let system boot
+                            await asyncio.sleep(10)
+                            synthesis.run(dry_run=False)
+                            await asyncio.sleep(600)  # Run every 10 minutes
+                        except asyncio.CancelledError:
+                            break
+                        except Exception as ce:
+                            logger.error(
+                                "SynthesisEngine error (exception_type=%s)",
+                                type(ce).__name__,
+                            )
+                            await asyncio.sleep(60)
 
             synthesis_task = asyncio.create_task(run_synthesis_daemon())
 
