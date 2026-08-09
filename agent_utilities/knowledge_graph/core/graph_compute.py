@@ -2343,6 +2343,28 @@ class GraphComputeEngine:
             raise retired_edge_relationship_property_error(aliases)
         if not props.get("relationship"):
             raise ValueError("edge property 'relationship' is required")
+
+        # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard),
+        # mirroring this class's own ``add_node`` stamp immediately above
+        # (BUG-058): edges reach this SAME native graph authority through the
+        # SAME direct-bypass pattern documented there — every
+        # ``engine.graph.add_edge(...)``/``engine.graph_compute.add_edge(...)``
+        # call across the ingestion fleet lands here directly, and until now
+        # nothing on this seam ever stamped ownership/classification at all,
+        # unlike ``add_node``. That gap made every edge write in the system
+        # unconditionally ungoverned regardless of caller.
+        #
+        # BUG-058 (fail closed, same contract as ``add_node``/BUG-033/
+        # BUG-039): a write reaching this chokepoint with NO bound actor at
+        # all must raise, not silently land unowned. A genuinely privileged/
+        # system actor is unaffected — ``stamp_ownership`` already leaves ITS
+        # writes intentionally unowned (platform/commons data), which is
+        # unchanged policy, not this defect.
+        from .tenant_sharing import stamp_classification, stamp_ownership
+
+        stamp_ownership(props)
+        stamp_classification(props, props.get("relationship"))
+
         props = clean_props(props)
 
         if self.has_edge(source_id, target_id):

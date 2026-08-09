@@ -356,3 +356,126 @@ def test_write_batch_stamps_governance_end_to_end():
     assert props["tenant_id"] == "tenant-a"
     assert props["_owner_id"] == "writer:alice"
     assert props["classification"] == "confidential"
+
+
+# --- GraphComputeEngine.add_edge (BUG-058) ----------------------------------
+#
+# Unlike ``add_node`` above, ``add_edge`` had NO ``stamp_ownership``/
+# ``stamp_classification`` call at all -- every edge write reaching this
+# chokepoint was unconditionally ungoverned regardless of caller. These
+# mirror the ``add_node`` governance tests above exactly.
+
+
+def test_graph_compute_add_edge_stamps_governance():
+    client = Mock()
+    client.edges.has.return_value = False
+    gc = _bare_graph_compute(client)
+
+    with use_actor(_actor()):
+        gc.add_edge("a", "b", {"relationship": "DEPENDS_ON"})
+
+    client.edges.add.assert_called_once()
+    _source, _target, props = client.edges.add.call_args[0]
+    assert props["tenant_id"] == "tenant-a"
+    assert props["_owner_id"] == "writer:alice"
+    assert props["classification"] == "confidential"
+
+
+def test_graph_compute_add_edge_public_for_catalog_relationship():
+    """``stamp_classification`` treats the edge's ``relationship`` value the
+    same way ``add_node`` treats ``node_type`` -- a name inside
+    ``PUBLIC_CATALOG_LABELS`` stamps PUBLIC, everything else CONFIDENTIAL.
+    This edge uses an ordinary relationship name, so it stays CONFIDENTIAL
+    (there is no edge-shaped entry in that allowlist today); the assertion
+    pins that the classification stamp is actually driven by the
+    relationship value, not a hardcoded constant."""
+    client = Mock()
+    client.edges.has.return_value = False
+    gc = _bare_graph_compute(client)
+
+    with use_actor(_actor()):
+        gc.add_edge("srv:tool-1", "srv:tool-2", relationship="REQUIRES_TOOLSET")
+
+    _source, _target, props = client.edges.add.call_args[0]
+    assert props["classification"] == "confidential"
+
+
+def test_graph_compute_add_edge_fails_closed_with_no_bound_actor():
+    """BUG-058: a write reaching this chokepoint with NO verified ambient
+    actor at all must raise -- not silently proceed unstamped, exactly like
+    ``add_node``'s BUG-033/BUG-039 fix. No edge is created."""
+    import contextvars
+
+    import pytest
+
+    client = Mock()
+    gc = _bare_graph_compute(client)
+
+    def isolated():
+        gc.add_edge("a", "b", {"relationship": "DEPENDS_ON"})
+
+    with pytest.raises(PermissionError):
+        contextvars.Context().run(isolated)
+    client.edges.add.assert_not_called()
+
+
+def test_graph_compute_add_edge_never_overwrites_a_caller_supplied_scope():
+    """Existing ``_shared_scope``/``_owner_id`` markers are never overwritten
+    (mirrors ``stamp_ownership``'s own ``setdefault`` contract for nodes)."""
+    client = Mock()
+    client.edges.has.return_value = False
+    gc = _bare_graph_compute(client)
+
+    with use_actor(_actor()):
+        gc.add_edge(
+            "a",
+            "b",
+            relationship="DEPENDS_ON",
+            _owner_id="writer:bob",
+            _shared_scope="org",
+        )
+
+    _source, _target, props = client.edges.add.call_args[0]
+    assert props["_owner_id"] == "writer:bob"
+    assert props["_shared_scope"] == "org"
+
+
+# --- _BatchedBackend.add_edge (BUG-058) -------------------------------------
+
+
+def test_batched_backend_add_edge_stamps_governance():
+    from agent_utilities.knowledge_graph.enrichment.pipeline import _BatchedBackend
+
+    inner = Mock(spec=[])  # no ._graph attr -> bulk path disabled, fine for this test
+    batched = _BatchedBackend(inner, batch_size=1000)
+
+    with use_actor(_actor()):
+        batched.add_edge("sym-1", "sym-2", rel_type="CALLS")
+
+    assert len(batched._edges) == 1
+    props = batched._edges[0]["properties"]
+    assert props["tenant_id"] == "tenant-a"
+    assert props["_owner_id"] == "writer:alice"
+    assert props["classification"] == "confidential"
+
+
+def test_batched_backend_add_edge_fails_closed_with_no_bound_actor():
+    """BUG-058: mirrors ``test_batched_backend_add_node``'s (implicit, via
+    the shared ``add_node`` gate) fail-closed contract -- the bulk ingest
+    seam must refuse an actor-free edge write, not buffer it unstamped for a
+    later bulk RPC that bypasses ``GraphComputeEngine.add_edge`` entirely."""
+    import contextvars
+
+    import pytest
+
+    from agent_utilities.knowledge_graph.enrichment.pipeline import _BatchedBackend
+
+    inner = Mock(spec=[])
+    batched = _BatchedBackend(inner, batch_size=1000)
+
+    def isolated():
+        batched.add_edge("sym-1", "sym-2", rel_type="CALLS")
+
+    with pytest.raises(PermissionError):
+        contextvars.Context().run(isolated)
+    assert batched._edges == []
