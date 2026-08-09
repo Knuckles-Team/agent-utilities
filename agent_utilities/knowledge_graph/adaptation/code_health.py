@@ -92,7 +92,7 @@ def _save_baseline_snapshot(backend: Any, repo: str, snapshot: dict[str, Any]) -
       through the daemon tick — not something this call site can fix in
       isolation without also fixing the daemon's session bootstrap).
 
-    See ``tests/unit/knowledge_graph/adaptation/test_code_health_bug059.py``
+    See ``tests/knowledge_graph/test_code_health_baseline.py``
     for the pinning test that keeps this bypass intentional.
     """
     backend.add_node(

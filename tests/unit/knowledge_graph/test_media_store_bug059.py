@@ -31,7 +31,7 @@ import pytest
 from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.knowledge_graph.memory.media_store import MediaStore
 from agent_utilities.models.company_brain import ActorType
-from agent_utilities.security.brain_context import ActorContext, IdentityRequiredError
+from agent_utilities.security.brain_context import ActorContext
 from tests.unit.knowledge_graph.test_media_store_identity import (
     IMG,
     _digest,
@@ -68,11 +68,19 @@ def _unauth_session(tenant: str = "acme") -> GraphSession:
 def test_store_media_requires_a_bound_actor():
     """Known-bad input: an explicit, but unauthenticated, session. BEFORE
     BUG-059's fix this silently minted an occurrence with owner="" -- readable
-    by nobody in particular but also not refused. AFTER, it raises."""
+    by nobody in particular but also not refused. AFTER, it raises.
+
+    ``stamp_ownership`` is called here with the EXPLICIT ``session.actor``
+    (unlike most of the other 12 BUG-059 sites, which rely on the ambient
+    ``current_actor()`` and so raise the ``IdentityRequiredError`` subclass
+    for a missing actor) -- an explicit, present-but-unauthenticated actor
+    raises plain ``PermissionError`` instead (``tenant_sharing._require_actor``'s
+    "Tenant sharing requires verified tenant authority").
+    """
     client = _FakeClient()
     store = MediaStore(_FakeCompute(client))
 
-    with pytest.raises(IdentityRequiredError):
+    with pytest.raises(PermissionError):
         store.store_media(
             IMG,
             media_type="image",
@@ -180,7 +188,7 @@ def test_migrate_legacy_asset_requires_a_bound_actor():
     }
     store = MediaStore(_FakeCompute(client))
 
-    with pytest.raises(IdentityRequiredError):
+    with pytest.raises(PermissionError):
         store.migrate_legacy_asset(legacy_id, session=_unauth_session())
 
 
@@ -252,7 +260,7 @@ def test_record_extraction_requires_a_bound_actor():
     )
     assert created is not None
 
-    with pytest.raises(IdentityRequiredError):
+    with pytest.raises(PermissionError):
         store.record_extraction(
             created.occurrence_id,
             model="vision-sidecar",

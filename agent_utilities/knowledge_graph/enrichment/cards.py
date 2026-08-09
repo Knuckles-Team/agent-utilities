@@ -287,7 +287,7 @@ class CardStore:
         raise ``IdentityRequiredError`` unconditionally from the daemon tick
         (BUG-055's class of defect — no background-authorized session is
         threaded through that scheduler loop) while working from the other.
-        See ``tests/unit/knowledge_graph/enrichment/test_cards_bug059.py``.
+        See ``tests/unit/knowledge_graph/enrichment/test_cards.py``.
         """
         if not items:
             return

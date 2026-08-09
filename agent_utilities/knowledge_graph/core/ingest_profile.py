@@ -183,7 +183,7 @@ def record_offqueue_span(engine: Any, kind: str, profile: IngestProfile) -> None
     here) and, per this function's own contract, that failure would be
     silently swallowed anyway — so it would only turn a working best-effort
     span into a permanently-silently-failing one, not close a real gap. See
-    ``tests/unit/knowledge_graph/core/test_ingest_profile_bug059.py``.
+    ``tests/unit/knowledge_graph/test_ingest_profile.py``.
     """
     import logging
 
