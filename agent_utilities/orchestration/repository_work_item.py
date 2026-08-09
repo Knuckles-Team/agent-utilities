@@ -19,14 +19,13 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-import math
 import re
 import time
 import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, Protocol, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -56,7 +55,6 @@ from agent_utilities.orchestration.work_item import (
     claim_next,
     claim_specific,
     commit_result,
-    current_work_item_claim,
     get_work_item,
     heartbeat,
     mark_running,
@@ -76,6 +74,27 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _IDEMPOTENCY_NAMESPACE = uuid.UUID("f2e04c6d-71aa-4ae8-8a15-20a2b2fce94f")
 _MAX_LIST_LIMIT = 1000
+TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE = (
+    "typed_execution_payload_authority_unavailable"
+)
+_MAX_EXECUTION_CAPABILITY_BYTES = 4096
+
+
+class NativeExecutionInputAuthority(Protocol):
+    """Native authority boundary for private executable WorkItem input.
+
+    The capability is deliberately opaque here.  Agent Utilities does not
+    mint, parse, or validate it; the native authority authenticates the
+    principal and current claim before reading the private body.
+    """
+
+    def read_exact_execution_input(
+        self, identifier: str, *, tenant: str, capability: str
+    ) -> object: ...
+
+    def verify_current_execution_capability(
+        self, identifier: str, *, tenant: str, capability: str
+    ) -> bool: ...
 
 
 class RepositoryWorkItemError(ValueError):
@@ -1124,7 +1143,9 @@ def _native_admission_projection(
     }
 
 
-def _metadata_record(row: Mapping[str, Any]) -> dict[str, Any]:
+def _metadata_record(
+    row: Mapping[str, Any], *, include_payload: bool = True
+) -> dict[str, Any]:
     metadata = row.get("metadata")
     if not isinstance(metadata, Mapping):
         raise RepositoryWorkItemConflict("repository WorkItem metadata is missing")
@@ -1175,6 +1196,18 @@ def _metadata_record(row: Mapping[str, Any]) -> dict[str, Any]:
     raw_payload = result.get("operation_payload")
     stored_payload_digest = result.get("operation_payload_digest")
     if raw_payload is not None:
+        if not include_payload:
+            # Ordinary projections may carry only the closed discriminator
+            # summary.  Never parse or retain the executable body on this
+            # path; exact input requires the native capability seam below.
+            if isinstance(raw_payload, Mapping):
+                result["operation_payload"] = {
+                    "kind": raw_payload.get("kind"),
+                    "schema_version": raw_payload.get("schema_version"),
+                }
+            else:
+                result["operation_payload"] = None
+            return result
         try:
             typed_payload = operation_payload_from_mapping(raw_payload)
         except (TypeError, ValueError) as exc:
@@ -1449,7 +1482,7 @@ def _state_value(value: object) -> str:
 
 
 def _view_from_row(row: Mapping[str, Any]) -> RepositoryWorkItemView:
-    record = _metadata_record(row)
+    record = _metadata_record(row, include_payload=False)
     operation_payload = record.get("operation_payload")
     payload_kind = (
         str(operation_payload.get("kind"))
@@ -1603,7 +1636,7 @@ def get_repository_work_item(
     row = get_work_item(engine, repository_work_item_id(job_id))
     if row is None or row.get("tenant") != tenant:
         return None
-    record = _metadata_record(row)
+    record = _metadata_record(row, include_payload=False)
     if owner_id is not None and record.get("owner_id") != _nonblank(
         owner_id, "owner_id"
     ):
@@ -1617,46 +1650,117 @@ def get_repository_operation_payload(
     *,
     tenant: str,
     owner_id: str,
+    capability: str | None = None,
+    native_authority: NativeExecutionInputAuthority | None = None,
 ) -> RepositoryBuildExecutionPayloadV1 | None:
-    """Fetch exact executable input only for the visible tenant/owner.
+    """Compatibility wrapper for an authenticated native capability read.
 
-    Ordinary views and pages contain only payload kind/version/digest.  This
-    narrow read does not accept a claim or fence as an authorization token;
-    an old payload-less build is readable through normal status but fails
-    closed here with an explicit resubmission result.
+    ``owner_id`` remains in this legacy-shaped signature for source
+    compatibility, but it is never an authorization input.  A bare owner
+    string, public WorkItem row, or copied claim tuple must fail before the
+    engine is queried.  Native implementations may pass an opaque capability
+    minted for the authenticated owner principal through the injected port.
     """
 
-    tenant = _require_tenant_for_engine(engine, tenant)
-    owner_id = _nonblank(owner_id, "owner_id")
-    job_id = _job_id_from_identifier(identifier)
-    row = get_work_item(engine, repository_work_item_id(job_id))
-    if row is None or row.get("tenant") != tenant:
-        return None
-    metadata = row.get("metadata")
-    raw_record = metadata.get(_METADATA_KEY) if isinstance(metadata, Mapping) else None
-    if not isinstance(raw_record, Mapping):
-        return None
-    raw_owner = raw_record.get("owner_id")
-    try:
-        visible_owner = _decode_opaque(raw_owner, "owner_id")
-    except ValueError:
-        return None
-    if visible_owner != owner_id:
-        return None
-    return _operation_payload_from_row(row, job_id)
+    del owner_id
+    return get_repository_operation_payload_for_capability(
+        engine,
+        identifier,
+        tenant=tenant,
+        capability=capability,
+        native_authority=native_authority,
+    )
 
 
-def _operation_payload_from_row(
-    row: Mapping[str, Any], job_id: str
+def _require_execution_capability(capability: object) -> str:
+    """Bound an opaque token without interpreting or authenticating it."""
+
+    if not isinstance(capability, str) or not capability:
+        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
+    if capability.strip() != capability:
+        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
+    if len(capability.encode("utf-8")) > _MAX_EXECUTION_CAPABILITY_BYTES:
+        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in capability):
+        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
+    return capability
+
+
+def _require_execution_authority(
+    native_authority: NativeExecutionInputAuthority | None,
+) -> NativeExecutionInputAuthority:
+    if native_authority is None or not all(
+        callable(getattr(native_authority, method, None))
+        for method in (
+            "read_exact_execution_input",
+            "verify_current_execution_capability",
+        )
+    ):
+        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
+    return native_authority
+
+
+def _native_execution_error(error: Exception) -> RepositoryWorkItemError:
+    """Normalize an injected native failure without exposing body details."""
+
+    if isinstance(error, RepositoryWorkItemConflict):
+        return RepositoryWorkItemConflict(
+            "input_conflict: repository WorkItem operation payload is invalid"
+        )
+    if isinstance(error, RepositoryWorkItemError):
+        message = str(error)
+        if message in {
+            "typed_execution_payload_required",
+            "input_conflict",
+            TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
+        }:
+            return RepositoryWorkItemError(message)
+    return RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
+
+
+def get_repository_operation_payload_for_capability(
+    engine: Any,
+    identifier: str,
+    *,
+    tenant: str,
+    capability: str | None,
+    native_authority: NativeExecutionInputAuthority | None,
 ) -> RepositoryBuildExecutionPayloadV1 | None:
-    """Validate and return a body after a caller has proved row authority."""
+    """Read exact executable input through an injected native capability port.
 
-    record = _metadata_record(row)
-    raw_payload = record.get("operation_payload")
+    This function intentionally does not inspect ``engine`` or public WorkItem
+    metadata.  The native authority must authenticate the owner/worker
+    principal and current fence before returning the private body.  Python
+    only bounds and forwards the opaque token, then revalidates the returned
+    value through the closed AU model.
+    """
+
+    del engine
+    authority = _require_execution_authority(native_authority)
+    opaque_capability = _require_execution_capability(capability)
+    tenant = _require_tenant(tenant)
+    job_id = _job_id_from_identifier(identifier)
+    verifier = authority.verify_current_execution_capability
+    try:
+        if not verifier(
+            job_id,
+            tenant=tenant,
+            capability=opaque_capability,
+        ):
+            raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
+    except Exception as exc:  # noqa: BLE001 - native errors are privacy-sensitive
+        raise _native_execution_error(exc) from exc
+    reader = authority.read_exact_execution_input
+    try:
+        raw_payload = reader(
+            job_id,
+            tenant=tenant,
+            capability=opaque_capability,
+        )
+    except Exception as exc:  # noqa: BLE001 - native errors are privacy-sensitive
+        raise _native_execution_error(exc) from exc
     if raw_payload is None:
-        if record.get("operation") == RepositoryOperation.BUILD.value:
-            raise RepositoryWorkItemError("typed_execution_payload_required")
-        return None
+        raise RepositoryWorkItemError("typed_execution_payload_required")
     try:
         payload = operation_payload_from_mapping(raw_payload)
     except (TypeError, ValueError) as exc:
@@ -1673,28 +1777,33 @@ def _operation_payload_from_row(
     return payload
 
 
-def _claim_matches_row(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool:
-    """Check the persisted live lease tuple against a native claim.
+def verify_repository_operation_capability(
+    engine: Any,
+    identifier: str,
+    *,
+    tenant: str,
+    capability: str | None,
+    native_authority: NativeExecutionInputAuthority | None,
+) -> bool:
+    """Ask native authority whether an opaque execution capability is current."""
 
-    ``current_work_item_claim`` reads the engine authority, but the exact
-    payload must be taken from a row that is itself still owned by the same
-    fence.  Keeping this check on the second row read closes the release/
-    reclaim window between those two reads.
-    """
-
-    if row.get("status") not in {"leased", "running"}:
+    del engine
+    if native_authority is None or not callable(
+        getattr(native_authority, "verify_current_execution_capability", None)
+    ):
         return False
-    return all(
-        row.get(row_field) == claim.get(claim_field)
-        for row_field, claim_field in (
-            ("id", "work_item_id"),
-            ("lease_owner", "lease_owner"),
-            ("lease_epoch", "lease_epoch"),
-            ("lease_epoch", "fence_token"),
-            ("fencing_token", "fencing_token"),
-            ("attempt", "attempt"),
+    try:
+        opaque_capability = _require_execution_capability(capability)
+        job_id = _job_id_from_identifier(identifier)
+        return bool(
+            native_authority.verify_current_execution_capability(
+                job_id,
+                tenant=_require_tenant(tenant),
+                capability=opaque_capability,
+            )
         )
-    )
+    except Exception:
+        return False
 
 
 def get_repository_operation_payload_for_claim(
@@ -1704,81 +1813,15 @@ def get_repository_operation_payload_for_claim(
     tenant: str,
     claim: Mapping[str, Any],
 ) -> RepositoryBuildExecutionPayloadV1 | None:
-    """Fetch executable input only under the current native worker claim.
+    """Reject the retired public tuple claim path before any row read.
 
-    This is deliberately separate from the tenant/owner API.  A worker may
-    read the submitted body only after the native lease/fence authority proves
-    that the supplied claim is still current; copying the WorkItem owner into
-    a caller authorization object would impersonate the submitter.
+    Fencing tuples are mutation CAS evidence, not authentication.  Native
+    worker callers must obtain an opaque capability from the future EG-native
+    authority and use :func:`get_repository_operation_payload_for_capability`.
     """
 
-    tenant = _require_tenant_for_engine(engine, tenant)
-    job_id = _job_id_from_identifier(identifier)
-    if claim.get("_native") is not True:
-        raise RepositoryWorkItemError("native worker claim is required")
-    work_item_id = repository_work_item_id(job_id)
-    row = get_work_item(engine, work_item_id)
-    if row is None or row.get("tenant") != tenant:
-        raise RepositoryWorkItemError("repository WorkItem is outside tenant scope")
-    if claim.get("work_item_id") != work_item_id:
-        raise RepositoryWorkItemError(
-            "claim does not belong to the requested repository job"
-        )
-    claim_job_id = claim.get("job_id")
-    if claim_job_id is not None and claim_job_id != job_id:
-        raise RepositoryWorkItemError(
-            "claim does not belong to the requested repository job"
-        )
-    if claim.get("tenant") not in (None, tenant):
-        raise RepositoryWorkItemError(
-            "claim tenant does not match authenticated tenant"
-        )
-    lease_expires_raw = row.get("lease_expires_at")
-    if lease_expires_raw is None:
-        raise RepositoryWorkItemError("worker claim expiry is malformed")
-    try:
-        lease_expires_at = float(lease_expires_raw)
-    except (TypeError, ValueError) as exc:
-        raise RepositoryWorkItemError("worker claim expiry is malformed") from exc
-    if not math.isfinite(lease_expires_at):
-        raise RepositoryWorkItemError("worker claim expiry is malformed")
-    if lease_expires_at <= time.time():
-        raise RepositoryWorkItemError("worker claim is expired")
-    if not _claim_matches_row(row, claim):
-        raise RepositoryWorkItemError("worker claim is stale")
-
-    current = current_work_item_claim(engine, work_item_id)
-    if current is None:
-        raise RepositoryWorkItemError("worker claim is stale")
-    for field in (
-        "work_item_id",
-        "lease_owner",
-        "lease_epoch",
-        "fence_token",
-        "fencing_token",
-        "attempt",
-    ):
-        if claim.get(field) != current.get(field):
-            raise RepositoryWorkItemError("worker claim is stale")
-    if current.get("tenant") not in (None, tenant):
-        raise RepositoryWorkItemError("worker claim tenant is unauthorized")
-    latest_row = get_work_item(engine, work_item_id)
-    if latest_row is None or latest_row.get("tenant") != tenant:
-        raise RepositoryWorkItemError("repository WorkItem is outside tenant scope")
-    latest_lease_expires_raw = latest_row.get("lease_expires_at")
-    if latest_lease_expires_raw is None:
-        raise RepositoryWorkItemError("worker claim expiry is malformed")
-    try:
-        latest_lease_expires_at = float(latest_lease_expires_raw)
-    except (TypeError, ValueError) as exc:
-        raise RepositoryWorkItemError("worker claim expiry is malformed") from exc
-    if not math.isfinite(latest_lease_expires_at):
-        raise RepositoryWorkItemError("worker claim expiry is malformed")
-    if latest_lease_expires_at <= time.time():
-        raise RepositoryWorkItemError("worker claim is expired")
-    if not _claim_matches_row(latest_row, claim):
-        raise RepositoryWorkItemError("worker claim is stale")
-    return _operation_payload_from_row(latest_row, job_id)
+    del engine, identifier, tenant, claim
+    raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
 
 
 _T = TypeVar("_T", bound=str)
@@ -2279,6 +2322,7 @@ def repository_result_from_view(
 
 __all__ = [
     "CONTRACT_VERSION",
+    "NativeExecutionInputAuthority",
     "RepositoryJobState",
     "RepositoryLease",
     "RepositoryOperation",
@@ -2292,12 +2336,14 @@ __all__ = [
     "RepositoryWorkItemRequest",
     "RepositoryWorkItemResult",
     "RepositoryWorkItemView",
+    "TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE",
     "cancel_repository_work_item",
     "checkpoint_repository_work_item",
     "claim_next_repository_work_item",
     "claim_repository_work_item",
     "commit_repository_work_item",
     "get_repository_operation_payload",
+    "get_repository_operation_payload_for_capability",
     "get_repository_operation_payload_for_claim",
     "get_repository_work_item",
     "heartbeat_repository_work_item",
@@ -2308,4 +2354,5 @@ __all__ = [
     "repository_work_item_id",
     "repository_work_item_kind",
     "submit_repository_work_item",
+    "verify_repository_operation_capability",
 ]

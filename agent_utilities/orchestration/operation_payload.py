@@ -3,7 +3,7 @@
 The payload is deliberately a small value object.  It is not a command
 envelope, a shell script, an artifact reference, or a generic mapping.  The
 authority persists the canonical value and workers obtain it through the
-owner/tenant-scoped exact-input read in :mod:`repository_work_item`.
+native-capability exact-input read in :mod:`repository_work_item`.
 """
 
 from __future__ import annotations
@@ -560,6 +560,8 @@ def operation_payload_from_mapping(value: object) -> RepositoryBuildExecutionPay
         return RepositoryBuildExecutionPayloadV1.model_validate(
             value.model_dump(mode="python", exclude_none=False)
         )
+    if isinstance(value, BaseModel):
+        value = value.model_dump(mode="python", exclude_none=False)
     if not isinstance(value, Mapping):
         raise TypeError("operation_payload must be a typed mapping")
     return RepositoryBuildExecutionPayloadV1.model_validate(dict(value))
