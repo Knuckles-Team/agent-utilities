@@ -27,6 +27,11 @@ from agent_utilities.orchestration.operation_payload import (
 )
 
 _FIXTURE = Path(__file__).parents[2] / "fixtures" / "rmdd_29_operation_payload.json"
+_PATH_FIXTURE = (
+    Path(__file__).parents[2]
+    / "fixtures"
+    / "rmdd_29_operation_payload_path_scoped.json"
+)
 
 
 def _raw_fixture() -> dict[str, object]:
@@ -106,6 +111,39 @@ def test_cache_digest_does_not_authorize_a_mismatched_tree_component() -> None:
     raw["cache_key_digest"] = cache_key_digest_from_components(components)
     with pytest.raises((ValidationError, ValueError), match="tree"):
         RepositoryBuildExecutionPayloadV1.model_validate(raw)
+
+
+def test_path_scoped_tree_identity_preserves_the_existing_32_hex_cache_component() -> (
+    None
+):
+    raw = _raw_fixture()
+    raw.pop("payload_digest", None)
+    path_tree = "f" * 32
+    components = {
+        str(item["name"]): str(item["value"])
+        for item in raw["cache_key_components"]
+        if isinstance(item, dict)
+    }
+    components["tree_sha"] = path_tree
+    raw["tree_sha"] = path_tree
+    raw["cache_key_components"] = [
+        {"name": name, "value": value} for name, value in components.items()
+    ]
+    raw["cache_key_digest"] = cache_key_digest_from_components(components)
+    payload = RepositoryBuildExecutionPayloadV1.model_validate(raw)
+    assert payload.tree_sha == path_tree
+    assert payload.cache_key_components[-1].value == path_tree
+
+
+def test_path_scoped_golden_fixture_matches_rm_contract() -> None:
+    payload = RepositoryBuildExecutionPayloadV1.model_validate(
+        json.loads(_PATH_FIXTURE.read_text(encoding="utf-8"))
+    )
+    assert len(payload.tree_sha) == 32
+    assert payload.cache_key_digest == "v2:9c1ebe846484244a4b0afcadcac94dc4"
+    assert payload.payload_digest == (
+        "31566ae365e939ca01f9c8d248f71cf33967f83b1eabb0b132153694f8c727bd"
+    )
 
 
 @pytest.mark.parametrize(
@@ -243,6 +281,8 @@ def test_noncanonical_sha_digest_and_size_limits_fail_closed() -> None:
     for field, value in (
         ("base_sha", "A" * 40),
         ("tree_sha", "a" * 39),
+        ("tree_sha", "a" * 33),
+        ("base_sha", "a" * 32),
         ("config_digest", "g" * 64),
     ):
         with pytest.raises((ValidationError, ValueError)):

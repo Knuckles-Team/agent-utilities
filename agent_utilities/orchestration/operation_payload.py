@@ -45,6 +45,7 @@ MAX_FEATURE_COUNT = 128
 MAX_SEQUENCE_ITEM_BYTES = 256
 
 _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
+_TREE_ID_RE = re.compile(r"^(?:[0-9a-f]{32}|[0-9a-f]{40})$")
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _DRIVE_OR_UNC_RE = re.compile(r"^(?:[A-Za-z]:|//|\\\\)")
 _ENV_REFERENCE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:/-]{0,127}$")
@@ -351,10 +352,19 @@ class RepositoryBuildExecutionPayloadV1(BaseModel):
     def validate_generation(cls, value: str | None) -> str | None:
         return None if value is None else _bounded_text(value, "generation_id")
 
-    @field_validator("base_sha", "tree_sha")
+    @field_validator("base_sha")
     @classmethod
-    def validate_shas(cls, value: str, info: Any) -> str:
-        return _sha(value, info.field_name, 40)
+    def validate_base_sha(cls, value: str) -> str:
+        return _sha(value, "base_sha", 40)
+
+    @field_validator("tree_sha")
+    @classmethod
+    def validate_tree_identity(cls, value: str) -> str:
+        if not _TREE_ID_RE.fullmatch(value):
+            raise ValueError(
+                "tree_sha must be a lowercase 32-hex path digest or 40-hex Git tree SHA"
+            )
+        return value
 
     @field_validator(
         "spec_digest",

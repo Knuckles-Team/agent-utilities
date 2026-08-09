@@ -19,6 +19,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
 import re
 import time
 import uuid
@@ -55,6 +56,7 @@ from agent_utilities.orchestration.work_item import (
     claim_next,
     claim_specific,
     commit_result,
+    current_work_item_claim,
     get_work_item,
     heartbeat,
     mark_running,
@@ -1641,6 +1643,14 @@ def get_repository_operation_payload(
         return None
     if visible_owner != owner_id:
         return None
+    return _operation_payload_from_row(row, job_id)
+
+
+def _operation_payload_from_row(
+    row: Mapping[str, Any], job_id: str
+) -> RepositoryBuildExecutionPayloadV1 | None:
+    """Validate and return a body after a caller has proved row authority."""
+
     record = _metadata_record(row)
     raw_payload = record.get("operation_payload")
     if raw_payload is None:
@@ -1661,6 +1671,114 @@ def get_repository_operation_payload(
             "input_conflict: repository operation payload exceeds its durable bound"
         )
     return payload
+
+
+def _claim_matches_row(row: Mapping[str, Any], claim: Mapping[str, Any]) -> bool:
+    """Check the persisted live lease tuple against a native claim.
+
+    ``current_work_item_claim`` reads the engine authority, but the exact
+    payload must be taken from a row that is itself still owned by the same
+    fence.  Keeping this check on the second row read closes the release/
+    reclaim window between those two reads.
+    """
+
+    if row.get("status") not in {"leased", "running"}:
+        return False
+    return all(
+        row.get(row_field) == claim.get(claim_field)
+        for row_field, claim_field in (
+            ("id", "work_item_id"),
+            ("lease_owner", "lease_owner"),
+            ("lease_epoch", "lease_epoch"),
+            ("lease_epoch", "fence_token"),
+            ("fencing_token", "fencing_token"),
+            ("attempt", "attempt"),
+        )
+    )
+
+
+def get_repository_operation_payload_for_claim(
+    engine: Any,
+    identifier: str,
+    *,
+    tenant: str,
+    claim: Mapping[str, Any],
+) -> RepositoryBuildExecutionPayloadV1 | None:
+    """Fetch executable input only under the current native worker claim.
+
+    This is deliberately separate from the tenant/owner API.  A worker may
+    read the submitted body only after the native lease/fence authority proves
+    that the supplied claim is still current; copying the WorkItem owner into
+    a caller authorization object would impersonate the submitter.
+    """
+
+    tenant = _require_tenant_for_engine(engine, tenant)
+    job_id = _job_id_from_identifier(identifier)
+    if claim.get("_native") is not True:
+        raise RepositoryWorkItemError("native worker claim is required")
+    work_item_id = repository_work_item_id(job_id)
+    row = get_work_item(engine, work_item_id)
+    if row is None or row.get("tenant") != tenant:
+        raise RepositoryWorkItemError("repository WorkItem is outside tenant scope")
+    if claim.get("work_item_id") != work_item_id:
+        raise RepositoryWorkItemError(
+            "claim does not belong to the requested repository job"
+        )
+    claim_job_id = claim.get("job_id")
+    if claim_job_id is not None and claim_job_id != job_id:
+        raise RepositoryWorkItemError(
+            "claim does not belong to the requested repository job"
+        )
+    if claim.get("tenant") not in (None, tenant):
+        raise RepositoryWorkItemError(
+            "claim tenant does not match authenticated tenant"
+        )
+    lease_expires_raw = row.get("lease_expires_at")
+    if lease_expires_raw is None:
+        raise RepositoryWorkItemError("worker claim expiry is malformed")
+    try:
+        lease_expires_at = float(lease_expires_raw)
+    except (TypeError, ValueError) as exc:
+        raise RepositoryWorkItemError("worker claim expiry is malformed") from exc
+    if not math.isfinite(lease_expires_at):
+        raise RepositoryWorkItemError("worker claim expiry is malformed")
+    if lease_expires_at <= time.time():
+        raise RepositoryWorkItemError("worker claim is expired")
+    if not _claim_matches_row(row, claim):
+        raise RepositoryWorkItemError("worker claim is stale")
+
+    current = current_work_item_claim(engine, work_item_id)
+    if current is None:
+        raise RepositoryWorkItemError("worker claim is stale")
+    for field in (
+        "work_item_id",
+        "lease_owner",
+        "lease_epoch",
+        "fence_token",
+        "fencing_token",
+        "attempt",
+    ):
+        if claim.get(field) != current.get(field):
+            raise RepositoryWorkItemError("worker claim is stale")
+    if current.get("tenant") not in (None, tenant):
+        raise RepositoryWorkItemError("worker claim tenant is unauthorized")
+    latest_row = get_work_item(engine, work_item_id)
+    if latest_row is None or latest_row.get("tenant") != tenant:
+        raise RepositoryWorkItemError("repository WorkItem is outside tenant scope")
+    latest_lease_expires_raw = latest_row.get("lease_expires_at")
+    if latest_lease_expires_raw is None:
+        raise RepositoryWorkItemError("worker claim expiry is malformed")
+    try:
+        latest_lease_expires_at = float(latest_lease_expires_raw)
+    except (TypeError, ValueError) as exc:
+        raise RepositoryWorkItemError("worker claim expiry is malformed") from exc
+    if not math.isfinite(latest_lease_expires_at):
+        raise RepositoryWorkItemError("worker claim expiry is malformed")
+    if latest_lease_expires_at <= time.time():
+        raise RepositoryWorkItemError("worker claim is expired")
+    if not _claim_matches_row(latest_row, claim):
+        raise RepositoryWorkItemError("worker claim is stale")
+    return _operation_payload_from_row(latest_row, job_id)
 
 
 _T = TypeVar("_T", bound=str)
@@ -2180,6 +2298,7 @@ __all__ = [
     "claim_repository_work_item",
     "commit_repository_work_item",
     "get_repository_operation_payload",
+    "get_repository_operation_payload_for_claim",
     "get_repository_work_item",
     "heartbeat_repository_work_item",
     "list_repository_work_items",

@@ -29,6 +29,7 @@ from agent_utilities.orchestration.repository_work_item import (
     claim_repository_work_item,
     commit_repository_work_item,
     get_repository_operation_payload,
+    get_repository_operation_payload_for_claim,
     get_repository_work_item,
     heartbeat_repository_work_item,
     list_repository_work_items,
@@ -1664,7 +1665,6 @@ def test_operation_payload_is_atomic_private_summary_and_exact_owner_read() -> N
         )
         is None
     )
-
     claim = claim_repository_work_item(
         engine, submitted.job_id, tenant="tenant-a", token="typed-worker", now=10.0
     )
@@ -1697,6 +1697,184 @@ def test_operation_payload_is_atomic_private_summary_and_exact_owner_read() -> N
         )
         is None
     )
+
+
+def test_claim_bound_exact_read_rejects_public_and_stale_worker_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = RepositoryEngine()
+    clock = 100.0
+    monkeypatch.setattr(rwi.time, "time", lambda: clock)
+    payload = _operation_payload()
+    submitted = submit_repository_work_item(
+        engine,
+        _request(key="claim-bound-payload").model_copy(
+            update={"operation_payload": payload}
+        ),
+    )
+    with pytest.raises(RepositoryWorkItemError, match="native worker claim"):
+        get_repository_operation_payload_for_claim(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            claim={"work_item_id": submitted.work_item_id},
+        )
+
+    first = claim_repository_work_item(
+        engine,
+        submitted.job_id,
+        tenant="tenant-a",
+        token="typed-worker-a",
+        now=clock,
+    )
+    assert first is not None
+    assert (
+        get_repository_operation_payload_for_claim(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            claim=first,
+        )
+        == payload
+    )
+
+    first_epoch = int(first["lease_epoch"])
+    second = {
+        **first,
+        "lease_owner": "typed-worker-b",
+        "lease_epoch": first_epoch + 1,
+        "fence_token": first_epoch + 1,
+        "fencing_token": first_epoch + 1,
+        "attempt": int(first["attempt"]) + 1,
+    }
+    engine.nodes[submitted.work_item_id].update(
+        status="running",
+        lease_owner=second["lease_owner"],
+        lease_epoch=second["lease_epoch"],
+        fencing_token=second["fencing_token"],
+        attempt=second["attempt"],
+        lease_expires_at=clock + 300.0,
+    )
+    with pytest.raises(RepositoryWorkItemError, match="stale"):
+        get_repository_operation_payload_for_claim(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            claim=first,
+        )
+    assert (
+        get_repository_operation_payload_for_claim(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            claim=second,
+        )
+        == payload
+    )
+
+
+def test_claim_bound_exact_read_rejects_reclaim_between_authority_and_row_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = RepositoryEngine()
+    clock = 100.0
+    monkeypatch.setattr(rwi.time, "time", lambda: clock)
+    payload = _operation_payload()
+    submitted = submit_repository_work_item(
+        engine,
+        _request(key="claim-read-race").model_copy(
+            update={"operation_payload": payload}
+        ),
+    )
+    claim = claim_repository_work_item(
+        engine,
+        submitted.job_id,
+        tenant="tenant-a",
+        token="typed-worker-a",
+        now=clock,
+    )
+    assert claim is not None
+
+    original_get = rwi.get_work_item
+    reads = 0
+
+    def reclaim_before_latest_row(
+        engine_arg: Any, item_id: str
+    ) -> dict[str, Any] | None:
+        nonlocal reads
+        reads += 1
+        if reads == 2:
+            node = engine.nodes[item_id]
+            next_epoch = int(node["lease_epoch"]) + 1
+            node.update(
+                status="running",
+                lease_owner="typed-worker-b",
+                lease_epoch=next_epoch,
+                fencing_token=next_epoch,
+                attempt=int(node["attempt"]) + 1,
+            )
+        return original_get(engine_arg, item_id)
+
+    monkeypatch.setattr(rwi, "get_work_item", reclaim_before_latest_row)
+    with pytest.raises(RepositoryWorkItemError, match="stale"):
+        get_repository_operation_payload_for_claim(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            claim=claim,
+        )
+    assert reads == 2
+
+
+def test_claim_bound_exact_read_enforces_expiry_boundaries_and_malformed_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = RepositoryEngine()
+    clock = 100.0
+    monkeypatch.setattr(rwi.time, "time", lambda: clock)
+    payload = _operation_payload()
+    submitted = submit_repository_work_item(
+        engine,
+        _request(key="claim-expiry-payload").model_copy(
+            update={"operation_payload": payload}
+        ),
+    )
+    claim = claim_repository_work_item(
+        engine,
+        submitted.job_id,
+        tenant="tenant-a",
+        token="typed-worker",
+        now=clock,
+    )
+    assert claim is not None
+    lease_expires_at = float(engine.nodes[submitted.work_item_id]["lease_expires_at"])
+    monkeypatch.setattr(rwi.time, "time", lambda: lease_expires_at - 0.001)
+    assert (
+        get_repository_operation_payload_for_claim(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            claim=claim,
+        )
+        == payload
+    )
+    monkeypatch.setattr(rwi.time, "time", lambda: lease_expires_at)
+    with pytest.raises(RepositoryWorkItemError, match="expired"):
+        get_repository_operation_payload_for_claim(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            claim=claim,
+        )
+    for malformed in ("not-a-time", float("nan"), float("inf")):
+        engine.nodes[submitted.work_item_id]["lease_expires_at"] = malformed
+        with pytest.raises(RepositoryWorkItemError, match="(?:malformed|expired)"):
+            get_repository_operation_payload_for_claim(
+                engine,
+                submitted.job_id,
+                tenant="tenant-a",
+                claim=claim,
+            )
 
 
 def test_payload_digest_conflict_tamper_and_explicit_copy_preservation() -> None:
