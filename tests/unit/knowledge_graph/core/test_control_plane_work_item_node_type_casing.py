@@ -32,9 +32,17 @@ from agent_utilities.knowledge_graph.core.engine_tasks import (
 class _FakeControlBackend:
     def __init__(self) -> None:
         self.add_node_calls: list[tuple[str, dict[str, Any]]] = []
+        self.graph = self
+        self.create_node_calls: list[tuple[str, dict[str, Any]]] = []
 
     def add_node(self, node_id: str, **kwargs: Any) -> None:
         self.add_node_calls.append((node_id, kwargs))
+
+    def create_node_if_absent(
+        self, node_id: str, properties: dict[str, Any] | None = None
+    ) -> bool:
+        self.create_node_calls.append((node_id, dict(properties or {})))
+        return True
 
 
 class _FakeHost:
@@ -75,3 +83,19 @@ def test_properties_with_no_node_type_key_still_get_one():
     _node_id, kwargs = control.add_node_calls[0]
     assert kwargs["node_type"] == "WorkItem"
     assert kwargs["status"] == "ready"
+
+
+def test_atomic_create_delegates_to_the_control_native_graph_client():
+    control = _FakeControlBackend()
+    engine = _ControlPlaneWorkItemEngine(_FakeHost(control))
+
+    assert engine.create_node_if_absent(
+        "workitem:repository_manager:job-1",
+        properties={"node_type": "WorkItem", "status": "ready"},
+    )
+    assert control.create_node_calls == [
+        (
+            "workitem:repository_manager:job-1",
+            {"node_type": "WorkItem", "status": "ready"},
+        )
+    ]

@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-374 publishable pages · 186 direct nav targets · 121 public capabilities · 809 action rows · 552 typed configuration fields · 364 runtime-only call-site inputs.
+375 publishable pages · 187 direct nav targets · 121 public capabilities · 809 action rows · 552 typed configuration fields · 364 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -245,6 +245,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — direct nav
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — direct nav
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — direct nav
+- [Repository-development WorkItem authority](../architecture/repository-workitem-authority.md) — direct nav
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — direct nav
 - [Runtime-Reliability Loop — detect → signal → gap → heal](../architecture/runtime-reliability-loop.md) — direct nav
 - [Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)](../architecture/sampling_profiles.md) — direct nav
