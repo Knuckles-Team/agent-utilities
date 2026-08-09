@@ -1,0 +1,42 @@
+{
+  "argv": ["cargo", "build", "--locked"],
+  "artifact_contract_digest": "4444444444444444444444444444444444444444444444444444444444444444",
+  "artifact_patterns": [
+    "target/release/*.sha256",
+    "target/release/repository-manager"
+  ],
+  "base_sha": "0123456789abcdef0123456789abcdef01234567",
+  "build_spec_name": "rmdd-10-build",
+  "cache_key_components": [
+    {"name": "config_digest", "value": "2222222222222222222222222222222222222222222222222222222222222222"},
+    {"name": "feature_set", "value": "cargo build --locked"},
+    {"name": "generation_digest", "value": "56379c91f9e98e20d93507a497d418f343e82fbc7a5893ea99b1fed2526f31e6"},
+    {"name": "generation_id", "value": "generation-2026-08-09"},
+    {"name": "key_version", "value": "v2"},
+    {"name": "repo", "value": "repository-manager"},
+    {"name": "spec", "value": "rmdd-10-build"},
+    {"name": "spec_digest", "value": "1111111111111111111111111111111111111111111111111111111111111111"},
+    {"name": "target_triple", "value": "x86_64-unknown-linux-gnu"},
+    {"name": "toolchain_fingerprint", "value": "unpinned"},
+    {"name": "tree_sha", "value": "0123456789abcdef0123456789abcdef"}
+  ],
+  "cache_key_digest": "v2:9c1ebe846484244a4b0afcadcac94dc4",
+  "cacheable": true,
+  "config_digest": "2222222222222222222222222222222222222222222222222222222222222222",
+  "degraded_reason": "",
+  "environment_refs": ["CARGO_HOME", "RUSTFLAGS"],
+  "execution_policy_ref": "repository.build-policy:v1",
+  "feature_set": "cargo build --locked",
+  "generation_id": "generation-2026-08-09",
+  "kind": "repository.build-execution/v1",
+  "payload_digest": "31566ae365e939ca01f9c8d248f71cf33967f83b1eabb0b132153694f8c727bd",
+  "profile_ref": "repository_manager:resource_profile:pre-commit:v1",
+  "repository_id": "repository-manager",
+  "schema_version": "1",
+  "spec_digest": "1111111111111111111111111111111111111111111111111111111111111111",
+  "target_triple": "x86_64-unknown-linux-gnu",
+  "timeout_seconds": 900,
+  "toolchain_digest": "3333333333333333333333333333333333333333333333333333333333333333",
+  "tree_sha": "0123456789abcdef0123456789abcdef",
+  "workdir": "."
+}

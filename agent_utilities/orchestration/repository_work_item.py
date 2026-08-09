@@ -43,7 +43,6 @@ from agent_utilities.orchestration.operation_payload import (
     MAX_OPERATION_PAYLOAD_BYTES,
     RepositoryBuildExecutionPayloadV1,
     RepositoryOperationPayload,
-    canonical_payload_json,
     operation_payload_from_mapping,
     payload_digest,
 )
@@ -74,6 +73,9 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _IDEMPOTENCY_NAMESPACE = uuid.UUID("f2e04c6d-71aa-4ae8-8a15-20a2b2fce94f")
 _MAX_LIST_LIMIT = 1000
+TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE = (
+    "typed_execution_payload_authority_unavailable"
+)
 
 
 class RepositoryWorkItemError(ValueError):
@@ -1122,7 +1124,9 @@ def _native_admission_projection(
     }
 
 
-def _metadata_record(row: Mapping[str, Any]) -> dict[str, Any]:
+def _metadata_record(
+    row: Mapping[str, Any], *, include_payload: bool = True
+) -> dict[str, Any]:
     metadata = row.get("metadata")
     if not isinstance(metadata, Mapping):
         raise RepositoryWorkItemConflict("repository WorkItem metadata is missing")
@@ -1173,6 +1177,18 @@ def _metadata_record(row: Mapping[str, Any]) -> dict[str, Any]:
     raw_payload = result.get("operation_payload")
     stored_payload_digest = result.get("operation_payload_digest")
     if raw_payload is not None:
+        if not include_payload:
+            # Ordinary projections may carry only the closed discriminator
+            # summary.  Never parse or retain the executable body on this
+            # path; exact input requires the native capability seam below.
+            if isinstance(raw_payload, Mapping):
+                result["operation_payload"] = {
+                    "kind": raw_payload.get("kind"),
+                    "schema_version": raw_payload.get("schema_version"),
+                }
+            else:
+                result["operation_payload"] = None
+            return result
         try:
             typed_payload = operation_payload_from_mapping(raw_payload)
         except (TypeError, ValueError) as exc:
@@ -1447,7 +1463,7 @@ def _state_value(value: object) -> str:
 
 
 def _view_from_row(row: Mapping[str, Any]) -> RepositoryWorkItemView:
-    record = _metadata_record(row)
+    record = _metadata_record(row, include_payload=False)
     operation_payload = record.get("operation_payload")
     payload_kind = (
         str(operation_payload.get("kind"))
@@ -1601,7 +1617,7 @@ def get_repository_work_item(
     row = get_work_item(engine, repository_work_item_id(job_id))
     if row is None or row.get("tenant") != tenant:
         return None
-    record = _metadata_record(row)
+    record = _metadata_record(row, include_payload=False)
     if owner_id is not None and record.get("owner_id") != _nonblank(
         owner_id, "owner_id"
     ):
@@ -1616,51 +1632,33 @@ def get_repository_operation_payload(
     tenant: str,
     owner_id: str,
 ) -> RepositoryBuildExecutionPayloadV1 | None:
-    """Fetch exact executable input only for the visible tenant/owner.
+    """Fail closed until EG supplies one atomic native exact-input operation.
 
-    Ordinary views and pages contain only payload kind/version/digest.  This
-    narrow read does not accept a claim or fence as an authorization token;
-    an old payload-less build is readable through normal status but fails
-    closed here with an explicit resubmission result.
+    The legacy owner-shaped signature is retained only as a compatibility
+    boundary.  It never inspects the engine, owner string, or public metadata;
+    native authority integration will replace this path after the EG schema
+    freeze.
     """
 
-    tenant = _require_tenant_for_engine(engine, tenant)
-    owner_id = _nonblank(owner_id, "owner_id")
-    job_id = _job_id_from_identifier(identifier)
-    row = get_work_item(engine, repository_work_item_id(job_id))
-    if row is None or row.get("tenant") != tenant:
-        return None
-    metadata = row.get("metadata")
-    raw_record = metadata.get(_METADATA_KEY) if isinstance(metadata, Mapping) else None
-    if not isinstance(raw_record, Mapping):
-        return None
-    raw_owner = raw_record.get("owner_id")
-    try:
-        visible_owner = _decode_opaque(raw_owner, "owner_id")
-    except ValueError:
-        return None
-    if visible_owner != owner_id:
-        return None
-    record = _metadata_record(row)
-    raw_payload = record.get("operation_payload")
-    if raw_payload is None:
-        if record.get("operation") == RepositoryOperation.BUILD.value:
-            raise RepositoryWorkItemError("typed_execution_payload_required")
-        return None
-    try:
-        payload = operation_payload_from_mapping(raw_payload)
-    except (TypeError, ValueError) as exc:
-        raise RepositoryWorkItemConflict(
-            "input_conflict: repository WorkItem operation payload is invalid"
-        ) from exc
-    if (
-        len(canonical_payload_json(payload).encode("utf-8"))
-        > MAX_OPERATION_PAYLOAD_BYTES
-    ):
-        raise RepositoryWorkItemConflict(
-            "input_conflict: repository operation payload exceeds its durable bound"
-        )
-    return payload
+    del engine, identifier, tenant, owner_id
+    raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
+
+
+def get_repository_operation_payload_for_claim(
+    engine: Any,
+    identifier: str,
+    *,
+    tenant: str,
+    claim: Mapping[str, Any],
+) -> RepositoryBuildExecutionPayloadV1 | None:
+    """Reject the retired public tuple claim path before any row read.
+
+    Fencing tuples are mutation CAS evidence, not authentication.  Native
+    worker callers must use the future EG-native atomic exact-input operation.
+    """
+
+    del engine, identifier, tenant, claim
+    raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
 
 
 _T = TypeVar("_T", bound=str)
@@ -2174,12 +2172,14 @@ __all__ = [
     "RepositoryWorkItemRequest",
     "RepositoryWorkItemResult",
     "RepositoryWorkItemView",
+    "TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE",
     "cancel_repository_work_item",
     "checkpoint_repository_work_item",
     "claim_next_repository_work_item",
     "claim_repository_work_item",
     "commit_repository_work_item",
     "get_repository_operation_payload",
+    "get_repository_operation_payload_for_claim",
     "get_repository_work_item",
     "heartbeat_repository_work_item",
     "list_repository_work_items",
