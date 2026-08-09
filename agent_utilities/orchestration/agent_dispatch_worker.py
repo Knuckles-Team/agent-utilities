@@ -29,7 +29,20 @@ consumed by a stateless dispatch-worker fleet (sibling of the KG-2.57
   twice concurrently — the correctness contract for turn coherence.
 * **Engine clients.** Like the ingest workers, dispatch workers force
   ``KG_DAEMON_ROLE=client`` (CONCEPT:AU-OS.identity.authenticated-identity-enforcement auth applies) and never contend
-  for the KG host flock.
+  for the KG host flock. ``main()`` binds a verified process actor/
+  GraphSession (``acquire_process_identity_token`` -> ``mint_actor_from_token_sync``
+  -> ``mint_graph_session``) BEFORE the first protected engine call, mirrors
+  :func:`~agent_utilities.knowledge_graph.ingest_worker.main`'s identical
+  bootstrap, and re-binds that SAME authority inside every pool worker
+  thread (``_authorized_background_thread`` — a bare ``ContextVar`` does not
+  cross a thread boundary), so a process identity may lease/execute work but
+  never inherits or synthesizes a user's application permissions.
+* **Delivery safety.** Ack follows durable terminal WorkItem state, never
+  precedes it (:func:`_ack_after_durable_outcome` is the sole broker-ack
+  chokepoint). An unparseable envelope is dead-lettered
+  (:func:`_dead_letter_poison_envelope`, keyed by delivery digest for
+  idempotent redelivery) before it may be acked; a turn-execution exception
+  is durably committed as ``failed`` before its message may be acked.
 
 Run::
 
@@ -38,6 +51,7 @@ Run::
     agent-dispatch-worker
 """
 
+import hashlib
 import json
 import logging
 import os
@@ -1310,41 +1324,61 @@ def execute_agent_turn(
         try:
             lease.start()
             outcome = "failed"
-            if envelope.kind == KIND_GOAL_LOOP:
-                spec = load_goal_run(
-                    envelope.payload_ref,
-                    token=token,
-                    now=now,
-                )
-                if spec is not None:
-                    lease.require_current()
-                    outcome = _execute_goal_turn(spec)
-            elif envelope.kind == KIND_ORCHESTRATOR_TASK:
-                claim = lease.side_effect(
-                    claim_orchestrator_work_item,
-                    engine,
-                    envelope.payload_ref,
-                    token=token,
-                    now=now,
-                    claim_ttl_s=claim_ttl_s,
-                )
-                if claim is not None:
-                    outcome = _execute_orchestrator_turn(
+            error_detail = ""
+            try:
+                if envelope.kind == KIND_GOAL_LOOP:
+                    spec = load_goal_run(
+                        envelope.payload_ref,
+                        token=token,
+                        now=now,
+                    )
+                    if spec is not None:
+                        lease.require_current()
+                        outcome = _execute_goal_turn(spec)
+                elif envelope.kind == KIND_ORCHESTRATOR_TASK:
+                    claim = lease.side_effect(
+                        claim_orchestrator_work_item,
                         engine,
-                        envelope,
-                        claim,
+                        envelope.payload_ref,
+                        token=token,
+                        now=now,
                         claim_ttl_s=claim_ttl_s,
                     )
-            else:
-                from agent_utilities.messaging.bus_privacy import bus_reference
+                    if claim is not None:
+                        outcome = _execute_orchestrator_turn(
+                            engine,
+                            envelope,
+                            claim,
+                            claim_ttl_s=claim_ttl_s,
+                        )
+                else:
+                    from agent_utilities.messaging.bus_privacy import bus_reference
 
+                    logger.error(
+                        "Unknown dispatch kind %r (job_ref=%s)",
+                        envelope.kind,
+                        bus_reference(
+                            "dispatch_job", envelope.job_id, tenant=envelope.tenant
+                        ),
+                    )
+            except WorkItemLeaseLost:
+                raise
+            except Exception as e:  # noqa: BLE001 — BUG-003: a turn-execution
+                # exception must land on the SAME durable commit_result call
+                # below, never escape past this point. Before this guard, an
+                # exception from `_execute_goal_turn` (no inner try existed
+                # for the goal_loop branch) propagated straight out of
+                # `execute_agent_turn` with the dispatch WorkItem still
+                # non-terminal (`leased`/`running`) — the outer consumer
+                # loop's catch-all then logged it and acked the broker
+                # message anyway (CONCEPT:AU-OS.governance.verified-write-state-advance:
+                # the ack is the "advance", and it must never precede its
+                # write's confirmed result).
                 logger.error(
-                    "Unknown dispatch kind %r (job_ref=%s)",
-                    envelope.kind,
-                    bus_reference(
-                        "dispatch_job", envelope.job_id, tenant=envelope.tenant
-                    ),
+                    "agent-dispatch turn execution error (%s)", type(e).__name__
                 )
+                outcome = "failed"
+                error_detail = f"{type(e).__name__}: {e}"[:500]
             committed = lease.side_effect(
                 _wi.commit_result,
                 engine,
@@ -1354,7 +1388,7 @@ def execute_agent_turn(
                 result_ref=f"dispatch:{envelope.job_id}:completed"
                 if outcome == "completed"
                 else None,
-                error_ref=f"dispatch:{envelope.job_id}:{outcome}"
+                error_ref=f"dispatch:{envelope.job_id}:{error_detail or outcome}"
                 if outcome != "completed"
                 else None,
                 retryable=False,
@@ -1410,6 +1444,157 @@ def _heartbeat(queue: Any, worker_id: str, active_sessions: list[str]) -> None:
         logger.debug("dispatch metrics refresh failed: %s", e)
 
 
+def _poison_delivery_digest(payload: Any) -> str:
+    """Stable digest over one raw, unparseable queue payload.
+
+    The DLQ idempotency key for a poison envelope (BUG-003): an identical
+    redelivery of the same malformed message must resolve to the SAME
+    durable dead-letter record instead of accumulating duplicates.
+    """
+    try:
+        blob = json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+    except (TypeError, ValueError):
+        blob = repr(payload).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()[:32]
+
+
+def poison_work_item_id(payload: Any) -> str:
+    """Deterministic durable-DLQ WorkItem id for one poison payload.
+
+    Public so callers/tests can predict or look up the record without
+    re-deriving the digest algorithm.
+    """
+    return f"workitem:dispatch:poison:{_poison_delivery_digest(payload)}"
+
+
+def _dead_letter_poison_envelope(
+    engine: Any, payload: Any, *, error: BaseException
+) -> str | None:
+    """Durably record an unparseable dispatch envelope BEFORE it may be acked.
+
+    CONCEPT: BUG-003 remediation — reuses the SAME WorkItem dead-letter
+    machinery every other durable failure in this codebase drains through
+    (:mod:`agent_utilities.knowledge_graph.ingestion.dead_letter` lists any
+    WorkItem whose ``status == "dead_letter"``, regardless of ``kind`` — a
+    poison record submitted with ``kind="dispatch_poison"`` is visible there
+    for free). Keyed by :func:`poison_work_item_id` so a redelivered poison
+    payload resolves to the SAME durable record. ``max_attempts=1`` plus
+    ``retryable=True`` drives the FIRST commit straight through the engine's
+    existing retry-exhaustion path into ``dead_letter`` — no separate DLQ
+    write path, no second state authority.
+
+    Returns the dead-lettered WorkItem id, or ``None`` if durability could
+    not be confirmed. The caller MUST then withhold the ack: a poison record
+    that isn't confirmed durable is not a safe ack gate, and this function is
+    itself idempotent on retry (redelivery will call it again).
+    """
+    if engine is None:
+        return None
+    from agent_utilities.orchestration import work_item as _wi
+
+    work_item_id = poison_work_item_id(payload)
+    try:
+        existing = _wi.get_work_item(engine, work_item_id)
+        if existing is not None:
+            return (
+                work_item_id
+                if existing.get("status") in _wi.TERMINAL_WORK_ITEM_STATUSES
+                else None
+            )
+        token = worker_token()
+        _wi.submit_work_item(
+            engine,
+            kind="dispatch_poison",
+            payload_ref=f"poison:{_poison_delivery_digest(payload)}",
+            tenant="__system__",
+            resource_class="agent_dispatch",
+            work_item_id=work_item_id,
+            idempotency_key=work_item_id,
+            max_attempts=1,
+            description=f"poison agent-dispatch envelope ({type(error).__name__})",
+            metadata={"error_type": type(error).__name__},
+        )
+        claim = _wi.claim_specific(engine, work_item_id, token=token)
+        if claim is None:
+            # A racing redelivery already claimed/finished it — re-read: the
+            # record is durable either way, or genuinely isn't yet, in which
+            # case the caller withholds ack and this retries on redelivery.
+            current = _wi.get_work_item(engine, work_item_id)
+            return (
+                work_item_id
+                if current is not None
+                and current.get("status") in _wi.TERMINAL_WORK_ITEM_STATUSES
+                else None
+            )
+        _wi.mark_running(engine, work_item_id, claim)
+        committed = _wi.commit_result(
+            engine,
+            work_item_id,
+            claim,
+            outcome="failed",
+            error_ref=f"poison:{type(error).__name__}: {str(error)[:200]}",
+            # max_attempts=1 + retryable=True -> the engine's existing
+            # retry-exhaustion path lands this straight in "dead_letter".
+            retryable=True,
+        )
+        if committed not in {"committed", "dead_letter", "noop"}:
+            return None
+        return work_item_id
+    except Exception as exc:  # noqa: BLE001 — durability confirmation fails closed
+        logger.error(
+            "agent-dispatch poison DLQ write failed (%s)", type(exc).__name__
+        )
+        return None
+
+
+def _ack_after_durable_outcome(
+    queue: Any,
+    item_id: Any,
+    engine: Any,
+    work_item_id: str | None,
+) -> bool:
+    """The ONE broker-ack chokepoint (CONCEPT: BUG-003 remediation).
+
+    Re-reads the authoritative WorkItem status and acks the transport ONLY
+    when durable terminal state (``succeeded``/``failed``/``cancelled``/
+    ``dead_letter``) is confirmed present — never on a local ``outcome``
+    variable alone, which a crash/exception between execute and commit can
+    leave disagreeing with reality. Returns whether the ack fired.
+
+    A withheld ack is always safe: at-least-once redelivery retries the
+    message, and every durable write this worker makes (claim, commit,
+    poison-DLQ) is itself idempotent on redelivery — see
+    :func:`_dead_letter_poison_envelope` and ``work_item.commit_result``'s
+    idempotency-key docstring.
+    """
+    from agent_utilities.orchestration import work_item as _wi
+
+    if work_item_id is None:
+        logger.warning("agent-dispatch ack withheld: no durable WorkItem id")
+        return False
+    item = _wi.get_work_item(engine, work_item_id) if engine is not None else None
+    if item is None:
+        logger.warning(
+            "agent-dispatch ack withheld: no durable WorkItem for %s", work_item_id
+        )
+        return False
+    if item.get("status") not in _wi.TERMINAL_WORK_ITEM_STATUSES:
+        logger.warning(
+            "agent-dispatch ack withheld: WorkItem %s is %r, not terminal",
+            work_item_id,
+            item.get("status"),
+        )
+        return False
+    try:
+        queue.ack(item_id)
+    except Exception as e:  # noqa: BLE001 — redelivery is safe (idempotent)
+        logger.warning(
+            "agent-dispatch ack failed (%s); redelivery is safe.", type(e).__name__
+        )
+        return False
+    return True
+
+
 def run_dispatch_consumer_loop(
     queue: Any,
     stop_event: threading.Event,
@@ -1448,15 +1633,31 @@ def run_dispatch_consumer_loop(
             continue
 
         item_id, payload = item
-        outcome = "failed"
         try:
             envelope = AgentTurnEnvelope.from_item(payload)
+        except Exception as e:  # noqa: BLE001 — BUG-003: poison envelope. A
+            # durable dead-letter record MUST exist before this message may
+            # ever be acked — the prior behavior (log + unconditional ack)
+            # dropped the message and every trace of its failure together.
+            logger.error("agent-dispatch poison envelope (%s)", type(e).__name__)
+            poison_id = _dead_letter_poison_envelope(engine, payload, error=e)
+            _record_turn_outcome("poison" if poison_id else "poison_unrecorded")
+            if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
+                time.sleep(idle_sleep_s)
+            continue
+
+        dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
+        outcome = "failed"
+        try:
             active[:] = [envelope.session_id]
             _heartbeat(queue, token, active)
             next_heartbeat = time.monotonic() + heartbeat_interval_s
             outcome = execute_agent_turn(envelope, engine, token=token)
-        except Exception as e:  # noqa: BLE001 — record + keep consuming
+        except Exception as e:  # noqa: BLE001 — record + keep consuming; the
+            # ack gate below withholds ack unless a durable terminal state
+            # is confirmed, so this catch-all can no longer mask data loss.
             logger.error("agent-dispatch worker error (%s)", type(e).__name__)
+            outcome = "failed"
         finally:
             active.clear()
         _record_turn_outcome(outcome)
@@ -1466,13 +1667,24 @@ def run_dispatch_consumer_loop(
             # stale execution would turn lease loss into data loss.
             time.sleep(idle_sleep_s)
             continue
-        try:
-            queue.ack(item_id)
-        except Exception as e:  # noqa: BLE001 — redelivery is safe (idempotent)
-            logger.warning(
-                "agent-dispatch ack failed (%s); redelivery is safe.",
-                type(e).__name__,
-            )
+        if outcome == "skipped":
+            # No new durable state was produced by THIS delivery attempt (a
+            # duplicate of an already-terminal item, or a live claim held
+            # elsewhere) — nothing new to protect, so ack directly. Mirrors
+            # the ingest worker's identical idempotent-skip-then-ack pattern.
+            try:
+                queue.ack(item_id)
+            except Exception as e:  # noqa: BLE001 — redelivery is safe (idempotent)
+                logger.warning(
+                    "agent-dispatch ack failed (%s); redelivery is safe.",
+                    type(e).__name__,
+                )
+            continue
+        # The ONE ack chokepoint (CONCEPT: BUG-003): re-reads the durable
+        # WorkItem before acking, regardless of what the local `outcome`
+        # variable claims — see `_ack_after_durable_outcome`'s docstring.
+        if not _ack_after_durable_outcome(queue, item_id, engine, dispatch_item_id):
+            time.sleep(idle_sleep_s)
 
 
 def _record_turn_outcome(outcome: str) -> None:
@@ -1491,13 +1703,33 @@ def start_dispatch_worker_pool(
     worker_count: int = 1,
     stop_event: threading.Event | None = None,
     engine: Any = None,
+    background_session: Any = None,
 ) -> list[threading.Thread]:
     """Start ``worker_count`` dispatch consumer threads against ``queue``.
+
+    CONCEPT: BUG-002 remediation — mirrors
+    :func:`~agent_utilities.knowledge_graph.ingest_worker.start_ingest_consumer_pool`
+    exactly: a verified process actor/GraphSession is captured (or accepted
+    explicitly via ``background_session``) BEFORE any thread is spawned —
+    ``ContextVar``-scoped identity does not cross a bare
+    :class:`threading.Thread` boundary, so each worker thread is started
+    through :func:`~agent_utilities.knowledge_graph.core.engine_tasks
+    ._authorized_background_thread`, which re-binds that SAME captured
+    authority inside the new thread rather than running unauthenticated.
+    Absence of a verified actor/session is a hard failure here (fail
+    closed), never a reason to spawn an anonymous worker.
 
     A shared Kafka backend allocates one thread-local consumer per worker and
     binds each acknowledgement receipt to that owner (confluent consumers are
     not thread-safe). SQLite/Postgres backends remain safe to share.
     """
+    from agent_utilities.knowledge_graph.core.engine_tasks import (
+        _authorized_background_thread,
+        _capture_verified_background_session,
+    )
+
+    worker_session = background_session or _capture_verified_background_session()
+
     stop = stop_event or threading.Event()
     threads: list[threading.Thread] = []
     for i in range(max(1, worker_count)):
@@ -1508,8 +1740,8 @@ def start_dispatch_worker_pool(
                 q, stop, engine, worker_id=f"{worker_token()}:{idx}"
             )
 
-        t = threading.Thread(
-            target=_runner, name=f"AgentDispatchWorker-{i}", daemon=True
+        t = _authorized_background_thread(
+            worker_session, _runner, name=f"AgentDispatchWorker-{i}"
         )
         t.start()
         threads.append(t)
@@ -1550,48 +1782,74 @@ def main(argv: list[str] | None = None) -> int:
     # flock, never spawn the consolidated daemon — this process only consumes.
     os.environ.setdefault("KG_DAEMON_ROLE", "client")
 
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
-    engine = IntelligenceGraphEngine.get_or_create()
-
-    # Verify the client/auth path (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) BEFORE consuming: a worker
-    # that cannot reach the engine must fail loud, not claim turns and drop them.
-    try:
-        from agent_utilities.orchestration import work_item as _wi
-
-        if not callable(getattr(engine, "claim_work_item", None)):
-            raise _wi.NativeWorkItemRequired(
-                "engine does not expose native ClaimWorkItem"
-            )
-        engine.query_cypher("MATCH (w:WorkItem) RETURN count(w) AS c")
-    except Exception as e:  # noqa: BLE001
-        parser.exit(
-            2,
-            "Cannot reach the epistemic-graph engine as a client: "
-            f"error_type={type(e).__name__}\nCheck GRAPH_SERVICE_ENDPOINTS "
-            "(external) or the packaged-local "
-            "transport and shared HMAC secret "
-            "(GRAPH_SERVICE_AUTH_SECRET or the host's data_dir()/engine_secret "
-            "— CONCEPT:AU-OS.identity.authenticated-identity-enforcement).\n",
-        )
-
-    stop = threading.Event()
-
-    def _shutdown(signum: int, _frame: Any) -> None:
-        logger.info("Signal %s received — draining and stopping workers.", signum)
-        stop.set()
-
-    signal.signal(signal.SIGINT, _shutdown)
-    signal.signal(signal.SIGTERM, _shutdown)
-
-    threads = start_dispatch_worker_pool(
-        worker_count=args.workers, stop_event=stop, engine=engine
+    # CONCEPT: BUG-002 remediation — bind a verified process actor/GraphSession
+    # BEFORE the first protected engine call, exactly like
+    # knowledge_graph.ingest_worker.main() already does. Before this fix the
+    # dispatch worker went straight from KG_DAEMON_ROLE=client to
+    # IntelligenceGraphEngine.get_or_create() with no
+    # acquire_process_identity_token / mint_actor_from_token_sync /
+    # mint_graph_session call anywhere — it dispatched (and every claim/commit
+    # it made) without ever presenting an authenticated identity.
+    from agent_utilities.core.config import config
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.security.request_identity import (
+        acquire_process_identity_token,
+        mint_actor_from_token_sync,
+        mint_graph_session,
     )
-    while any(t.is_alive() for t in threads) and not stop.is_set():
-        time.sleep(1.0)
-    for t in threads:
-        t.join(timeout=10.0)
-    return 0
+
+    token = acquire_process_identity_token(config)
+    actor = mint_actor_from_token_sync(token)
+    session = mint_graph_session(actor)
+    session.engine_verified_context()
+
+    with use_actor(session.actor), use_session(session):
+        from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+        engine = IntelligenceGraphEngine.get_or_create()
+
+        # Verify the client/auth path (CONCEPT:AU-OS.identity.authenticated-identity-enforcement) BEFORE consuming: a worker
+        # that cannot reach the engine must fail loud, not claim turns and drop them.
+        try:
+            from agent_utilities.orchestration import work_item as _wi
+
+            if not callable(getattr(engine, "claim_work_item", None)):
+                raise _wi.NativeWorkItemRequired(
+                    "engine does not expose native ClaimWorkItem"
+                )
+            engine.query_cypher("MATCH (w:WorkItem) RETURN count(w) AS c")
+        except Exception as e:  # noqa: BLE001
+            parser.exit(
+                2,
+                "Cannot reach the epistemic-graph engine as a client: "
+                f"error_type={type(e).__name__}\nCheck GRAPH_SERVICE_ENDPOINTS "
+                "(external) or the packaged-local "
+                "transport and shared HMAC secret "
+                "(GRAPH_SERVICE_AUTH_SECRET or the host's data_dir()/engine_secret "
+                "— CONCEPT:AU-OS.identity.authenticated-identity-enforcement).\n",
+            )
+
+        stop = threading.Event()
+
+        def _shutdown(signum: int, _frame: Any) -> None:
+            logger.info("Signal %s received — draining and stopping workers.", signum)
+            stop.set()
+
+        signal.signal(signal.SIGINT, _shutdown)
+        signal.signal(signal.SIGTERM, _shutdown)
+
+        threads = start_dispatch_worker_pool(
+            worker_count=args.workers,
+            stop_event=stop,
+            engine=engine,
+            background_session=session,
+        )
+        while any(t.is_alive() for t in threads) and not stop.is_set():
+            time.sleep(1.0)
+        for t in threads:
+            t.join(timeout=10.0)
+        return 0
 
 
 if __name__ == "__main__":
