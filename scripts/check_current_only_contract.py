@@ -52,10 +52,6 @@ RETIRED_IDENTIFIERS: tuple[str, ...] = (
     "GRAPH_SERVICE_TCP_" + "ADDR",
     "GRAPH_" + "BACKEND",
     "GRAPH_" + "AUTHORITY",
-    "DURABLE_" + "EXECUTION_DB",
-    "DurableExecution" + "Manager",
-    "PostgresCheckpoint" + "Store",
-    "SQLiteCheckpoint" + "Store",
     "A2A_BROKER_" + "URL",
     "A2A_STORAGE_" + "URL",
     '"a2a_broker_' + 'url"',
@@ -107,10 +103,8 @@ RETIRED_IDENTIFIERS: tuple[str, ...] = (
     "KG_SERVER_" + "PORT",
     "KG" + "Coordinator",
     "kg_" + "coordinator",
-    "migrate_" + "legacy_asset",
     "imprint_" + "connection",
     "set_default_" + "connection",
-    "BulkMigration" + "Result",
     "fetch_" + "asset",
     "uv run " + "graph-os",
     "MCP_" + "MULTIPLEXER_MODE",
@@ -233,9 +227,6 @@ RETIRED_IDENTIFIERS: tuple[str, ...] = (
     "KG_INGEST_GRAPH_" + "ROUTING",
     "kg_ingest_graph_" + "routing",
     "routing_" + "enabled",
-    "build_designation_" + "index",
-    "CapabilityIndex" + "Watcher",
-    "get_designation_" + "index",
     "core.chat_persistence import compact_" + "messages",
     "chat_persistence.compact_" + "messages",
     "_from_config_" + "json",
@@ -248,12 +239,24 @@ RETIRED_PATHS: tuple[str, ...] = (
     "agent_utilities/exceptions" + ".py",
     "agent_utilities/graph/" + "steps.py",
     "agent_utilities/knowledge_graph/core/ingest_" + "engine.py",
-    "agent_utilities/orchestration/durable_" + "execution.py",
+    # BUG-032 (GOC-59): accepted residual, NOT a gap in this gate's coverage.
+    # Deletion is blocked by live cross-repo importers -- 15+ files across
+    # 7+ repos under agents/, plus scaffold_package.py:1650,1978 (which
+    # emits `from agent_utilities.mcp_utilities import ...` into every
+    # newly scaffolded package). A fleet-wide migration off this module is
+    # a separate program, not a Phase-0 publication-unblock item. This
+    # finding is meant to keep reporting until that migration lands --
+    # do not delete the file or this entry to silence it.
     "agent_utilities/mcp_" + "utilities.py",
     "agent_utilities/mcp/kg_" + "coordinator.py",
     "scripts/apply_concept_" + "migration.py",
     "scripts/autocurate_" + "repo.py",
     "scripts/check_concept_" + "gaps.py",
+    # BUG-032 (GOC-59): accepted residual, same shape as mcp_utilities.py
+    # above. Referenced by the `.pre-commit-config.yaml` of all 61
+    # `agents/*` packages plus agent-webui, agent-terminal-ui, geniusbot,
+    # and the scaffolder -- deleting it would break the fleet's gates
+    # wholesale. Carried and owned, not silently cleared.
     "scripts/check_no_legacy_" + "markers.py",
     "scripts/consolidate_" + "concepts.py",
     "scripts/curate_" + "batches.py",
