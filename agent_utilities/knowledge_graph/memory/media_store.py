@@ -1813,33 +1813,11 @@ class MediaStore:
             )
             return None
 
-    def fetch_asset(self, asset_id: str) -> bytes | None:
-        """Fetch the bytes for an ``:AssetOccurrence``/``:Rendition``/legacy
-        ``:MediaAsset`` node by its node id (resolves the digest). Kept under its
-        pre-AU-P1-4 name for back-compat; works unchanged for any node id carrying
-        a ``content_digest`` property."""
-        try:
-            props = self._client.nodes.properties(asset_id) or {}
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "[CONCEPT:AU-KG.ingest.list-durable-media] occurrence lookup failed (%s): %s",
-                asset_id,
-                e,
-            )
-            return None
-        node_type = props.get("node_type") or props.get("type")
-        if node_type != "AssetOccurrence":
-            return None
-        digest = props.get("content_digest")
-        if not digest:
-            return None
-        return self.fetch_bytes(str(digest))
-
     def fetch_occurrence(self, occurrence_id: str) -> bytes | None:
         """Fetch bytes for one canonical ``:AssetOccurrence`` node.
 
-        Stricter than :meth:`fetch_asset`: rejects an id that doesn't carry the
-        canonical ``occurrence:`` prefix before ever calling the client.
+        Rejects an id that doesn't carry the canonical ``occurrence:`` prefix
+        before ever calling the client.
         """
         if not str(occurrence_id).startswith(_OCCURRENCE_PREFIX):
             return None
