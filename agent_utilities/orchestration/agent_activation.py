@@ -43,14 +43,16 @@ CDC-from-ingest one — and rides both the WorkItem ``prio_bucket`` (claim order
 the :class:`PriorityClass` the worker binds while running (the W2.4 engine QoS lanes).
 """
 
+import asyncio
 import contextlib
 import json
 import logging
+import os
 import threading
 import time
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any
 
@@ -70,7 +72,9 @@ __all__ = [
     "EV_TERMINATE",
     "WORK_ITEM_KIND",
     "AgentActivationError",
+    "ActivationReadinessError",
     "ActivationSource",
+    "ActivationExecutorStatus",
     "ActivationContext",
     "ActivationResult",
     "activation_priority_class",
@@ -82,11 +86,19 @@ __all__ = [
     "deliver_activation",
     "drain_mailbox",
     "set_activation_executor",
+    "set_activation_diagnostic_mode",
+    "activation_diagnostic_mode_enabled",
+    "activation_worker_readiness",
+    "canonical_activation_executor",
     "process_one_activation",
     "run_activation_worker_loop",
     "start_activation_worker_pool",
     "main",
 ]
+
+#: Env override for :func:`activation_diagnostic_mode_enabled` (ops escape hatch for a
+#: non-production worker; NEVER set in a production deployment — BUG-001 design).
+_DIAGNOSTIC_MODE_ENV = "AU_ACTIVATION_DIAGNOSTIC_MODE"
 
 
 # ── the agent-lifecycle statechart def (byte-mirror of agent_lifecycle_statechart.rs) ──
@@ -112,10 +124,14 @@ _INSTANCE_LABEL = "AgentInstance"
 _MESSAGE_LABEL = "AgentMessage"
 _RUNTRACE_LABEL = "RunTrace"
 _TOOLCALL_LABEL = "ToolCall"
+#: BUG-001: a receipt-only/diagnostic acknowledgement. Distinct from :RunTrace/:ToolCall
+#: by construction — no consumer can mistake a receipt for real agent-turn provenance.
+_RECEIPT_LABEL = "ActivationReceipt"
 _HAS_MAILBOX_MESSAGE = "has_mailbox_message"
 _ACTIVATION_OF = "activation_of"
 _TRACE_OF = "run_trace_of"
 _TOOLCALL_OF = "tool_call_of"
+_RECEIPT_OF = "activation_receipt_of"
 
 
 def _always() -> dict[str, Any]:
@@ -180,6 +196,20 @@ class AgentActivationError(RuntimeError):
 
     Fails LOUD (AU-P0-3 discipline) rather than silently degrading — a registration or
     activation that could not reach its authoritative store must not report success.
+    """
+
+
+class ActivationReadinessError(AgentActivationError):
+    """Raised when the activation worker cannot truthfully claim readiness (BUG-001).
+
+    Two distinct triggers:
+
+    1. :func:`set_activation_executor` rejects a non-callable/malformed binding — the
+       known-bad-input guard: a caller that fat-fingers the binding call must get a
+       loud rejection, not a silently half-bound production worker.
+    2. Production startup (:func:`main`) refuses to start the worker pool when
+       :func:`activation_worker_readiness` reports not-ready — an absent/unbound
+       canonical executor must fail STARTUP, never degrade into receipt-only success.
     """
 
 
@@ -658,13 +688,34 @@ class ActivationContext:
     tool_ids: tuple[str, ...] = ()
 
 
+class ActivationExecutorStatus(StrEnum):
+    """What actually ran for one activation (BUG-001: the truthfulness signal).
+
+    A WorkItem outcome of ``succeeded`` alone is NOT sufficient evidence that a real
+    agent turn happened — this is the field a downstream consumer must check.
+    """
+
+    #: The canonical executor ran a real agent/tool turn and it succeeded.
+    EXECUTED = "executed"
+    #: The canonical executor ran a real agent/tool turn and it failed/errored.
+    FAILED = "failed"
+    #: No canonical executor was invoked — either nothing is bound (production
+    #: fail-closed, no result is produced at all) or the receipt-only diagnostic
+    #: default ran (dev/test only, explicitly opted in). Never conflated with EXECUTED.
+    UNAVAILABLE = "unavailable"
+
+
 @dataclass(slots=True)
 class ActivationResult:
     """The executor's outcome for one activation.
 
     ``outcome`` is a WorkItem outcome (``succeeded``/``failed``/``cancelled``);
     ``tool_calls`` is the provenance the worker stamps as ``:ToolCall`` nodes under the
-    delegation chain; ``result_ref``/``error_ref`` are opaque references.
+    delegation chain (ONLY when ``executor_status`` is :attr:`ActivationExecutorStatus.
+    EXECUTED` or ``FAILED`` — a real attempt was made); ``result_ref``/``error_ref`` are
+    opaque references. ``executor_status`` is stamped authoritatively by
+    :func:`process_one_activation` itself (not trusted from the executor's own return
+    value) — the chokepoint, not the plugin, asserts which path actually ran.
     """
 
     outcome: str = "succeeded"
@@ -672,12 +723,19 @@ class ActivationResult:
     result_ref: str | None = None
     error_ref: str | None = None
     retryable: bool = True
+    executor_status: ActivationExecutorStatus = ActivationExecutorStatus.UNAVAILABLE
 
 
-#: The pluggable full LLM/tool executor. Production wires a real agent runner (the
-#: ``execute_agent`` orchestration path); when unbound the worker uses
-#: :func:`_default_executor` (a genuine, wired provenance-ack — never a no-op placeholder).
+#: The pluggable full LLM/tool executor. Production binds :func:`canonical_activation_executor`
+#: (the ``execute_agent`` orchestration gateway) at worker startup; when unbound AND
+#: diagnostic mode is not explicitly enabled, :func:`process_one_activation` FAILS CLOSED
+#: (BUG-001) rather than falling back to a receipt-only default.
 _EXECUTOR: Callable[[ActivationContext], ActivationResult] | None = None
+
+#: BUG-001: explicit, in-process diagnostic-mode override (dev/test only). Defaults to
+#: ``False`` — fail-closed. Set via :func:`set_activation_diagnostic_mode`; a production
+#: deployment must never call this. See also ``AU_ACTIVATION_DIAGNOSTIC_MODE``.
+_DIAGNOSTIC_MODE = False
 
 
 def set_activation_executor(
@@ -687,21 +745,163 @@ def set_activation_executor(
 
     The executor is invoked INSIDE the active delegation + QoS scope (so every engine/LLM
     call it makes carries the caller chain and the QoS priority claim). Binding this is how
-    the production agent runner plugs in; the default drains the mailbox and records
-    provenance.
+    the production agent runner plugs in (:func:`canonical_activation_executor`).
+
+    BUG-001 guard: a non-``None``, non-callable ``executor`` is REJECTED here — the SAME
+    chokepoint that binds the canonical executor also rejects a malformed one, atomically
+    (the global is left unchanged on rejection, never partially bound).
     """
+    if executor is not None and not callable(executor):
+        raise ActivationReadinessError(
+            "activation executor must be callable or None, got "
+            f"{type(executor).__name__!r} — refusing to bind a malformed executor "
+            "(BUG-001 known-bad-input guard)"
+        )
     global _EXECUTOR
     _EXECUTOR = executor
 
 
-def _default_executor(ctx: ActivationContext) -> ActivationResult:
-    """The live default: acknowledge each mailbox message as one provenance ``:ToolCall``.
+def set_activation_diagnostic_mode(enabled: bool) -> None:
+    """Explicitly enable/disable the receipt-only diagnostic executor path (BUG-001).
 
-    This is a REAL wired path (not a stub): it processes every drained message and returns
-    a tool-call record per message so the worker writes provenance for the run. A
-    deployment that wants a full agent turn binds one via :func:`set_activation_executor`;
-    until then the activation loop still does real, observable work (mailbox drain +
-    provenance) end to end.
+    ``False`` (the default) means an unbound executor FAILS CLOSED — no WorkItem may
+    report success and no provenance is written. ``True`` is a dev/test-only escape
+    hatch: the receipt-only :func:`_default_executor` may then run, but its records are
+    ``:ActivationReceipt`` — never ``:ToolCall`` — and every result is tagged
+    ``executor_status=unavailable`` so it can never be read as a real execution.
+    A production deployment (``main()``) never calls this with ``True``.
+    """
+    global _DIAGNOSTIC_MODE
+    _DIAGNOSTIC_MODE = bool(enabled)
+
+
+def activation_diagnostic_mode_enabled() -> bool:
+    """Whether the receipt-only diagnostic path is explicitly permitted right now.
+
+    ``True`` iff :func:`set_activation_diagnostic_mode` was called with ``True`` in this
+    process, OR the ``AU_ACTIVATION_DIAGNOSTIC_MODE`` env var is truthy (an explicit,
+    grep-able ops override for a non-production worker — never set in production).
+    """
+    if _DIAGNOSTIC_MODE:
+        return True
+    return os.environ.get(_DIAGNOSTIC_MODE_ENV, "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+def activation_worker_readiness(
+    *, diagnostic_mode: bool | None = None
+) -> tuple[bool, str]:
+    """Return ``(ready, reason)`` — the fail-closed startup/readiness probe (BUG-001).
+
+    Ready iff a canonical executor is bound (:func:`set_activation_executor`) OR
+    diagnostic mode is explicitly enabled. This is the STARTUP-time twin of the
+    :func:`process_one_activation` chokepoint guard: readiness stops the worker pool
+    from ever claiming a WorkItem it cannot truthfully execute; the chokepoint guard
+    stops a claimed item from reporting false success even if a caller bypasses
+    readiness (e.g. calls :func:`process_one_activation` directly, as several tests and
+    any future caller may).
+    """
+    diag = (
+        activation_diagnostic_mode_enabled()
+        if diagnostic_mode is None
+        else diagnostic_mode
+    )
+    if _EXECUTOR is not None:
+        return True, "canonical executor bound"
+    if diag:
+        return (
+            True,
+            "diagnostic mode explicitly enabled (receipt-only, non-production only)",
+        )
+    return (
+        False,
+        "no canonical executor bound and diagnostic mode is not enabled "
+        "(BUG-001 fail-closed default)",
+    )
+
+
+def _activation_task_from_messages(messages: Sequence[dict[str, Any]]) -> str:
+    """Render the drained mailbox into a bounded task string for the canonical executor.
+
+    One line per message (``source: message_ref``), capped so a poison/overflow mailbox
+    cannot blow up the prompt (ADR-6 §5 bound; the mailbox itself is already capped at
+    ``drain_mailbox``'s 256-message read limit).
+    """
+    lines = [
+        f"- ({m.get('source', '')}) {m.get('message_ref', '')}" for m in messages[:128]
+    ]
+    return "Process the following agent-instance mailbox messages:\n" + "\n".join(lines)
+
+
+def canonical_activation_executor(ctx: ActivationContext) -> ActivationResult:
+    """The production executor: run a REAL agent turn via the governed gateway.
+
+    Binds to :meth:`~agent_utilities.orchestration.manager.Orchestrator.execute_agent`
+    — the ONE method every delegation entrypoint converges on (MCP dispatch, the REST
+    gateway, the messaging router, the dispatch worker, ``org_runtime``, workflows, the
+    parallel engine — see that method's own docstring). Activation joins that list: this
+    is the only executor :func:`main` binds by default, and the only one allowed to
+    report a WorkItem ``succeeded`` outcome in a production deployment. It runs INSIDE
+    the identity/QoS scope :func:`process_one_activation` already opened (delegation +
+    ``priority_scope``), so the agent turn carries the activation's ADR-4 chain and W2.4
+    QoS class end to end.
+
+    A failure of the agent turn itself (not an infra/import failure) is a real,
+    attempted execution — it is reported ``outcome="failed"`` here and
+    :func:`process_one_activation` tags it :attr:`ActivationExecutorStatus.FAILED`
+    (never ``UNAVAILABLE`` — an attempt was genuinely made).
+    """
+    from agent_utilities.orchestration.manager import Orchestrator
+
+    task = _activation_task_from_messages(ctx.messages)
+    orch = Orchestrator(ctx.engine)
+    try:
+        asyncio.run(
+            orch.execute_agent(
+                agent_name=ctx.agent_name,
+                task=task,
+                allowed_tools=list(ctx.tool_ids) or None,
+                run_id=ctx.run_id,
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 — a real agent-turn failure is FAILED, not a crash
+        logger.error(
+            "[agents-as-data] canonical executor failed for instance %s: %s",
+            ctx.instance_id,
+            exc,
+        )
+        return ActivationResult(
+            outcome="failed",
+            error_ref=f"agent_activation:{ctx.instance_id}:{type(exc).__name__}",
+            retryable=True,
+        )
+    return ActivationResult(
+        outcome="succeeded",
+        result_ref=f"activation-output:{ctx.run_id}",
+        tool_calls=(
+            {
+                "tool": "orchestration.execute_agent",
+                "args_ref": ctx.run_id,
+                "source": "canonical",
+            },
+        ),
+    )
+
+
+def _default_executor(ctx: ActivationContext) -> ActivationResult:
+    """The receipt-only DIAGNOSTIC default (BUG-001: dev/test only, never production).
+
+    Acknowledges each mailbox message but is reachable ONLY when
+    :func:`activation_diagnostic_mode_enabled` is ``True`` — :func:`process_one_activation`
+    is the chokepoint that enforces this; calling this function directly bypasses no
+    guard by itself, but nothing in this module ever calls it outside that gate. Its
+    records are ``:ActivationReceipt`` (:func:`_write_activation_receipt`), never
+    ``:ToolCall`` — the ``tool_calls`` this function returns are for bookkeeping only and
+    are intentionally NOT written as ``:ToolCall`` provenance by the caller.
     """
     tool_calls = tuple(
         {
@@ -753,6 +953,10 @@ def _write_provenance(
             "agent_instance_identity": agent_instance_id,
             "priority_class": ctx.priority_class.value,
             "outcome": result.outcome,
+            # BUG-001: the truthfulness signal — EXECUTED/FAILED here means the
+            # canonical executor genuinely ran; this function is never called for the
+            # UNAVAILABLE (receipt-only) path (see _write_activation_receipt).
+            "executor_status": result.executor_status.value,
             "created_at": time.time(),
         },
     )
@@ -777,6 +981,45 @@ def _write_provenance(
         )
         _link(engine, call_id, trace_id, _TOOLCALL_OF)
     return trace_id
+
+
+def _write_activation_receipt(
+    engine: Any,
+    ctx: ActivationContext,
+    result: ActivationResult,
+) -> str:
+    """Write an ``:ActivationReceipt`` for a receipt-only/diagnostic activation.
+
+    BUG-001 design: "an explicit receipt-only diagnostic mode whose records are
+    ActivationReceipt, never ToolCall or successful agent output." This is the ONLY
+    provenance a run with ``executor_status=unavailable`` may write — never a
+    ``:RunTrace``/``:ToolCall`` (see :func:`_write_provenance`), so no downstream
+    consumer scanning for real tool-call provenance ever encounters a receipt.
+    """
+    authority = _authority(engine)
+    receipt_id = f"activationreceipt:{ctx.run_id}"
+    chain = list(ctx.delegation.chain) if ctx.delegation is not None else []
+    principal = ctx.delegation.principal if ctx.delegation is not None else ""
+    authority.add_node(
+        receipt_id,
+        _RECEIPT_LABEL,
+        properties={
+            "name": f"ActivationReceipt: {ctx.agent_name}",
+            "run_id": ctx.run_id,
+            "work_item_id": ctx.work_item_id,
+            "agent_instance_id": ctx.instance_id,
+            "agent_name": ctx.agent_name,
+            "tenant": ctx.tenant,
+            "executor_status": result.executor_status.value,
+            "delegation_chain": chain,
+            "principal": principal,
+            "message_count": len(ctx.messages),
+            "message_refs": [str(m.get("message_ref") or "") for m in ctx.messages],
+            "created_at": time.time(),
+        },
+    )
+    _link(engine, receipt_id, ctx.instance_id, _RECEIPT_OF)
+    return receipt_id
 
 
 # ── the worker loop (claim → activate → identity → run → provenance → commit) ─────────
@@ -889,7 +1132,10 @@ def process_one_activation(
 
     # (2) authoritative activation: dormant → active. A no-op (already active) means a
     # concurrent activation of the SAME instance holds it — defer this one so it retries
-    # after the holder deactivates, rather than double-running the instance.
+    # after the holder deactivates, rather than double-running the instance. Concurrency
+    # control is orthogonal to executor truthfulness and takes precedence: a deferred
+    # item is retried later (possibly by a correctly-configured worker), so it must not
+    # be shortcut into a false "no executor" failure here.
     if sc_instance_id:
         activated = engine.statechart.send_event(sc_instance_id, EV_ACTIVATE, {})
         fired = (
@@ -913,6 +1159,49 @@ def process_one_activation(
                 now=now,
             )
             return "deferred" if deferred else "fenced"
+
+    # ── BUG-001 CHOKEPOINT GUARD ── resolve which executor will run BEFORE any FURTHER
+    # state mutation (mailbox drain, identity chain, provenance write). This is the
+    # single point every activation path converges on (run_activation_worker_loop AND
+    # any direct caller of process_one_activation), so it is where the fail-closed
+    # decision belongs — not only at main()'s/start_activation_worker_pool's startup
+    # readiness check, which a direct caller can bypass entirely. An absent/unbound
+    # executor with diagnostic mode off refuses the WorkItem outright: no mailbox drain,
+    # no provenance, no success — the messages remain intact in the mailbox for a
+    # correctly-configured worker to retry. The instance is released back to dormant
+    # immediately (it was only just marked active above) so a refused activation leaves
+    # NO lingering active-state side effect either.
+    if _EXECUTOR is not None:
+        executor = _EXECUTOR
+        provisional_status = ActivationExecutorStatus.EXECUTED
+    elif activation_diagnostic_mode_enabled():
+        executor = _default_executor
+        provisional_status = ActivationExecutorStatus.UNAVAILABLE
+    else:
+        executor = None
+        provisional_status = ActivationExecutorStatus.UNAVAILABLE
+
+    if executor is None:
+        logger.error(
+            "[agents-as-data] activation %s for instance %s REFUSED: no canonical "
+            "executor bound and diagnostic mode is not enabled (BUG-001 fail-closed) — "
+            "committing failed/UNAVAILABLE, never a silent success",
+            work_item_id,
+            instance_id,
+        )
+        if sc_instance_id:
+            engine.statechart.send_event(sc_instance_id, EV_DEACTIVATE, {})
+        _mirror_lifecycle_state(engine, instance_id, STATE_DORMANT)
+        return _wi.commit_result(
+            engine,
+            work_item_id,
+            claim,
+            outcome="failed",
+            error_ref=f"agent_activation:{instance_id}:executor_unavailable",
+            retryable=True,
+            now=now,
+        )
+
     _mirror_lifecycle_state(engine, instance_id, STATE_ACTIVE)
 
     # (3) the ADR-4 identity chain.
@@ -956,9 +1245,24 @@ def process_one_activation(
                 model_id=str(node.get("model_id") or ""),
                 tool_ids=tuple(node.get("tool_ids") or ()),
             )
-            executor = _EXECUTOR or _default_executor
             result = executor(ctx)
-            _write_provenance(engine, ctx, result)
+            # The chokepoint stamps executor_status authoritatively — it is NEVER
+            # trusted from the executor's own return value (BUG-001: a plugin cannot
+            # self-report EXECUTED). A bound executor that reports a non-succeeded
+            # outcome ran for real but failed; that's FAILED, not UNAVAILABLE.
+            final_status = provisional_status
+            if (
+                final_status is ActivationExecutorStatus.EXECUTED
+                and result.outcome != "succeeded"
+            ):
+                final_status = ActivationExecutorStatus.FAILED
+            result = replace(result, executor_status=final_status)
+            if final_status is ActivationExecutorStatus.UNAVAILABLE:
+                # Receipt-only diagnostic path: NEVER a :ToolCall, NEVER a :RunTrace —
+                # acceptance gate 6 (no receipt-only ToolCall on a path that succeeds).
+                _write_activation_receipt(engine, ctx, result)
+            else:
+                _write_provenance(engine, ctx, result)
         outcome = result.outcome
     except Exception as exc:  # noqa: BLE001 — record + commit failed so ADR-5 retry applies
         logger.error(
@@ -967,10 +1271,15 @@ def process_one_activation(
             instance_id,
             exc,
         )
+        # An exception escaping the executor call means a real attempt was made and
+        # blew up uncaught — FAILED (a genuine attempt), never UNAVAILABLE (no attempt).
+        # If the guard above already refused (executor is None) this branch is
+        # unreachable, since that path returns before entering the try block.
         result = ActivationResult(
             outcome="failed",
             error_ref=f"agent_activation:{instance_id}:{type(exc).__name__}",
             retryable=True,
+            executor_status=ActivationExecutorStatus.FAILED,
         )
         outcome = "failed"
     finally:
@@ -1170,13 +1479,29 @@ def start_activation_worker_pool(
     tenants: Sequence[str] | None = None,
     stop_event: threading.Event | None = None,
     lease_ttl_s: float = _wi.DEFAULT_LEASE_TTL_S,
+    require_ready: bool = True,
 ) -> tuple[list[threading.Thread], threading.Event]:
     """Start ``worker_count`` stateless activation-worker threads; return (threads, stop).
 
     Thread-per-worker is the in-process pool; the k8s Deployment shape (W5.1) runs one
     PROCESS per worker across the fleet — the loop is identical either way. ``tenants`` is
     the set of per-tenant graphs the pool serves (ADR-6 §4).
+
+    BUG-001: ``require_ready`` (default ``True``) checks :func:`activation_worker_readiness`
+    BEFORE starting any thread — "worker startup calls ready() before consuming; readiness
+    failure stops/does not ack." A pool that cannot truthfully execute an activation must
+    not even begin claiming WorkItems. This is defense-in-depth alongside the
+    :func:`process_one_activation` per-item chokepoint guard (belt-and-suspenders: this
+    stops the pool from claiming anything; that stops a claimed item from reporting false
+    success even if this check is bypassed with ``require_ready=False``, which only an
+    explicit dev/test caller that separately validates diagnostic mode should ever pass).
     """
+    if require_ready:
+        ready, reason = activation_worker_readiness()
+        if not ready:
+            raise ActivationReadinessError(
+                f"activation worker pool refused to start: {reason}"
+            )
     stop = stop_event or threading.Event()
     threads: list[threading.Thread] = []
     base = _wi._default_token()
@@ -1238,6 +1563,18 @@ def main(argv: list[str] | None = None) -> int:
             "is tenant-scoped; omit to use the worker's bound-session tenant."
         ),
     )
+    parser.add_argument(
+        "--diagnostic-receipt-only",
+        action="store_true",
+        help=(
+            "DEV/TEST ONLY (BUG-001): permit the worker to start WITHOUT a canonical "
+            "executor, using the receipt-only default (mailbox ack -> :ActivationReceipt, "
+            "NEVER a real agent turn, NEVER a :ToolCall, NEVER counted as EXECUTED). "
+            "Without this flag (or AU_ACTIVATION_DIAGNOSTIC_MODE=1), the worker REFUSES "
+            "to start if a canonical executor cannot be bound — fail-closed, not "
+            "receipt-only success."
+        ),
+    )
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -1262,6 +1599,33 @@ def main(argv: list[str] | None = None) -> int:
             "cannot reach the epistemic-graph engine as a client: "
             f"error_type={type(exc).__name__}\n",
         )
+
+    # ── BUG-001: bind the canonical executor (or explicitly opt into diagnostic mode)
+    # BEFORE the readiness check — production must never fall back to receipt-only
+    # success silently.
+    if args.diagnostic_receipt_only:
+        set_activation_diagnostic_mode(True)
+        logger.warning(
+            "[agents-as-data] DIAGNOSTIC MODE ENABLED (--diagnostic-receipt-only): this "
+            "worker will NEVER execute a real agent turn — every activation is "
+            "receipt-only (BUG-001 dev/test path; do not run this in production)"
+        )
+    elif _EXECUTOR is None:
+        set_activation_executor(canonical_activation_executor)
+        logger.info(
+            "[agents-as-data] bound canonical activation executor "
+            "(orchestration.manager.Orchestrator.execute_agent)"
+        )
+
+    ready, reason = activation_worker_readiness()
+    if not ready:
+        parser.exit(
+            2,
+            "activation worker readiness FAILED (BUG-001 fail-closed): "
+            f"{reason}. Bind a canonical executor or pass --diagnostic-receipt-only "
+            "for a non-production worker.\n",
+        )
+    logger.info("[agents-as-data] activation worker readiness OK: %s", reason)
 
     threads, stop = start_activation_worker_pool(
         engine, worker_count=args.workers, tenants=args.tenant

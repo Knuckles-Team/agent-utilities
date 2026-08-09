@@ -195,11 +195,16 @@ def run_scale_proof(
     """Register ``instances`` dormant agents, activate ``activations`` of them via a
     ``workers``-thread pool, and return ``(engine, metrics)``.
 
-    Asserts the core thesis: exactly ``activations`` instances are touched (get a
-    ``:RunTrace``); the other ``instances - activations`` remain purely dormant — so
-    activation is O(activations), NOT O(instances).
+    Asserts the core thesis: exactly ``activations`` instances are touched (get an
+    ``:ActivationReceipt``); the other ``instances - activations`` remain purely
+    dormant — so activation is O(activations), NOT O(instances). This proof is about
+    mailbox-drain/dormant-cost scaling, not executor truthfulness, so it explicitly
+    opts into the receipt-only diagnostic path (BUG-001: never the silent production
+    default) via ``set_activation_diagnostic_mode(True)``, which also satisfies the
+    pool's own startup readiness check.
     """
     log = log or (lambda *_a, **_k: None)
+    aa.set_activation_diagnostic_mode(True)
     engine = ScaleActivationEngine()
     m = ScaleMetrics(instances=instances, activations=activations, workers=workers)
     m.rss_start_mb = _rss_mb()

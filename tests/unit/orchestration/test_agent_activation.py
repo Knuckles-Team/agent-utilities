@@ -124,10 +124,17 @@ def engine() -> ActivationEngine:
 
 @pytest.fixture(autouse=True)
 def _clear_executor():
-    """Every test starts with the default executor (no leaked bindings)."""
+    """Every test starts unbound + non-diagnostic (no leaked bindings, BUG-001 default).
+
+    A test that wants the receipt-only ``_default_executor`` to run must opt in via
+    ``aa.set_activation_diagnostic_mode(True)`` — mirroring the fact that a production
+    worker never gets the receipt-only path without an explicit, loud opt-in.
+    """
     aa.set_activation_executor(None)
+    aa.set_activation_diagnostic_mode(False)
     yield
     aa.set_activation_executor(None)
+    aa.set_activation_diagnostic_mode(False)
 
 
 # ── registration: a dormant agent is TWO passive rows, no WorkItem ───────────────────
@@ -330,17 +337,28 @@ def test_e2e_message_to_activation_to_provenance_to_release(
 def test_default_executor_acknowledges_mailbox_and_writes_provenance(
     engine: ActivationEngine,
 ) -> None:
-    # No executor bound → the live default drains + writes one :ToolCall per message.
+    # No executor bound, diagnostic mode explicitly ON (BUG-001: never the silent
+    # production default) → the receipt-only default drains + writes one
+    # :ActivationReceipt per activation, NEVER a :ToolCall.
+    aa.set_activation_diagnostic_mode(True)
     instance_id = aa.register_agent_instance(engine, agent_name="ack", tenant="t")
     aa.deliver_activation(engine, instance_id, message_ref="m1", source="timer")
     aa.deliver_activation(engine, instance_id, message_ref="m2", source="timer")
     stop = threading.Event()
     aa.run_activation_worker_loop(engine, stop, tenants=["t"], max_activations=2)
     # Two activations queued but ONE drains the whole mailbox (coalescing): the second
-    # finds it empty. Across both runs every message is acknowledged exactly once.
-    tool_calls = engine.by_label(aa._TOOLCALL_LABEL)
-    acked = sorted(c["args_ref"] for c in tool_calls)
+    # finds it empty (and still writes its own, empty receipt — the worker ran, just had
+    # nothing to acknowledge). Across both runs every message is acknowledged exactly
+    # once — as an :ActivationReceipt, never a :ToolCall (BUG-001 acceptance gate 6).
+    assert engine.by_label(aa._TOOLCALL_LABEL) == []
+    receipts = engine.by_label(aa._RECEIPT_LABEL)
+    assert len(receipts) == 2
+    acked = sorted(ref for r in receipts for ref in r["message_refs"])
     assert acked == ["m1", "m2"]
+    assert all(
+        r["executor_status"] == aa.ActivationExecutorStatus.UNAVAILABLE.value
+        for r in receipts
+    )
     assert (
         aa.get_agent_instance(engine, instance_id)["lifecycle_state"]
         == aa.STATE_DORMANT
@@ -351,6 +369,9 @@ def test_default_executor_acknowledges_mailbox_and_writes_provenance(
 
 
 def test_dead_worker_lease_expiry_requeues_activation(engine: ActivationEngine) -> None:
+    # This test exercises lease reclaim, not executor truthfulness — opt into the
+    # receipt-only diagnostic path explicitly (BUG-001: never the silent default).
+    aa.set_activation_diagnostic_mode(True)
     instance_id = aa.register_agent_instance(engine, agent_name="w", tenant="t")
     wid = aa.deliver_activation(engine, instance_id, message_ref="m", source="direct")
 
@@ -427,7 +448,9 @@ def test_delegation_off_runs_legacy_identity_no_chain(
     engine: ActivationEngine, monkeypatch
 ) -> None:
     # With delegation OFF, no chain is built; provenance records an empty chain but the
-    # activation still runs + commits (legacy identity).
+    # activation still runs + commits (legacy identity). Diagnostic mode explicit
+    # opt-in (BUG-001: this test is about delegation, not executor truthfulness).
+    aa.set_activation_diagnostic_mode(True)
     monkeypatch.setattr(
         _delegation, "delegation_mode", lambda: _delegation.DelegationMode.OFF
     )
@@ -438,5 +461,7 @@ def test_delegation_off_runs_legacy_identity_no_chain(
     stop = threading.Event()
     aa.run_activation_worker_loop(engine, stop, tenants=["t"], max_activations=1)
     assert wi.get_work_item(engine, wid)["status"] == "succeeded"
-    trace = engine.by_label(aa._RUNTRACE_LABEL)[0]
-    assert trace["delegation_chain"] == []
+    # Receipt-only diagnostic path writes :ActivationReceipt, not :RunTrace.
+    assert engine.by_label(aa._RUNTRACE_LABEL) == []
+    receipt = engine.by_label(aa._RECEIPT_LABEL)[0]
+    assert receipt["delegation_chain"] == []
