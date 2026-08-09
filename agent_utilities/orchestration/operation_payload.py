@@ -49,9 +49,40 @@ _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _DRIVE_OR_UNC_RE = re.compile(r"^(?:[A-Za-z]:|//|\\\\)")
 _ENV_REFERENCE_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.:/-]{0,127}$")
 _COMPONENT_NAME_RE = re.compile(r"^[a-z][a-z0-9_.-]{0,127}$")
+_CACHE_KEY_DIGEST_RE = re.compile(r"^v2:[0-9a-f]{32}$")
 _SHELL_RE = re.compile(r"[;&|`$<>\n\r\x00]")
 _CONNECTION_RE = re.compile(
     r"(?i)(?:[a-z][a-z0-9+.-]{1,31}://|-----begin|(?:password|passwd|secret|token|api[_-]?key)\s*=|bearer\s+|[^\s:@]+:[^\s@]+@|[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})"
+)
+_CACHE_KEY_COMPONENT_NAMES = frozenset(
+    {
+        "key_version",
+        "repo",
+        "spec",
+        "tree_sha",
+        "feature_set",
+        "toolchain_fingerprint",
+        "target_triple",
+        "config_digest",
+        "spec_digest",
+        "generation_id",
+        "generation_digest",
+    }
+)
+_CACHE_KEY_DIGEST_COMPONENT_NAMES = (
+    "key_version",
+    "repo",
+    "spec",
+    "tree_sha",
+    "feature_set",
+    "toolchain_fingerprint",
+    "target_triple",
+    "config_digest",
+    "spec_digest",
+    "generation_digest",
+)
+_APPROVED_DEGRADED_REASONS = frozenset(
+    {"dirty-tree", "tree-sha-unresolvable", "toolchain-unfingerprintable"}
 )
 
 
@@ -88,6 +119,26 @@ def payload_digest(value: object) -> str:
     if isinstance(value, Mapping):
         value = {key: item for key, item in value.items() if key != "payload_digest"}
     return hashlib.sha256(canonical_payload_json(value).encode("utf-8")).hexdigest()
+
+
+def cache_key_digest_from_components(
+    components: Mapping[str, str],
+) -> str:
+    """Reproduce RMDD-10 ``CacheKey.digest`` exactly.
+
+    The build queue intentionally uses the v2 prefix plus the first 32 hex
+    characters of SHA-256 over its ten digest-participating components.  This
+    helper keeps the operation payload bound to that identity instead of
+    inventing a second cache address.
+    """
+
+    if set(components) != _CACHE_KEY_COMPONENT_NAMES:
+        raise ValueError("cache-key components do not match the C-05 contract")
+    if components["key_version"] != "v2":
+        raise ValueError("cache-key components must use C-05 key version v2")
+    payload = {name: components[name] for name in _CACHE_KEY_DIGEST_COMPONENT_NAMES}
+    encoded = json.dumps(payload, sort_keys=True).encode("utf-8")
+    return "v2:" + hashlib.sha256(encoded).hexdigest()[:32]
 
 
 def _bounded_text(
@@ -158,6 +209,8 @@ class RepositoryCacheKeyComponent(BaseModel):
     @field_validator("value")
     @classmethod
     def validate_value(cls, value: str) -> str:
+        if not value:
+            return ""
         return _bounded_text(value, "cache-key component value")
 
 
@@ -267,10 +320,10 @@ class RepositoryBuildExecutionPayloadV1(BaseModel):
     config_digest: StrictStr
     toolchain_digest: StrictStr
     artifact_contract_digest: StrictStr
-    feature_set: tuple[StrictStr, ...]
+    feature_set: StrictStr
     target_triple: StrictStr
     cache_key_components: tuple[RepositoryCacheKeyComponent, ...]
-    cache_key_digest: StrictStr
+    cache_key_digest: StrictStr | None = None
     argv: tuple[StrictStr, ...]
     workdir: StrictStr
     timeout_seconds: StrictInt = Field(ge=1, le=86_400)
@@ -313,18 +366,20 @@ class RepositoryBuildExecutionPayloadV1(BaseModel):
     )
     @classmethod
     def validate_digests(cls, value: str | None, info: Any) -> str | None:
+        if info.field_name == "cache_key_digest":
+            if value is None:
+                return None
+            if not _CACHE_KEY_DIGEST_RE.fullmatch(value):
+                raise ValueError(
+                    "cache_key_digest must be v2 followed by 32 lowercase hex characters"
+                )
+            return value
         return None if value is None else _sha(value, info.field_name, 64)
 
-    @field_validator("feature_set", mode="before")
+    @field_validator("feature_set")
     @classmethod
-    def validate_features(cls, value: object) -> tuple[str, ...]:
-        return _string_sequence(
-            value,
-            "feature_set",
-            limit=MAX_FEATURE_COUNT,
-            sort=True,
-            unique=True,
-        )
+    def validate_features(cls, value: str) -> str:
+        return _bounded_text(value, "feature_set")
 
     @field_validator("cache_key_components", mode="before")
     @classmethod
@@ -362,6 +417,52 @@ class RepositoryBuildExecutionPayloadV1(BaseModel):
 
     @model_validator(mode="after")
     def validate_digest_and_size(self) -> RepositoryBuildExecutionPayloadV1:
+        components = {item.name: item.value for item in self.cache_key_components}
+        if set(components) != _CACHE_KEY_COMPONENT_NAMES:
+            raise ValueError("cache-key components do not match the C-05 contract")
+        if components["key_version"] != "v2":
+            raise ValueError("cache-key components must use C-05 key version v2")
+        if components["repo"] != self.repository_id:
+            raise ValueError("cache-key repository component disagrees with payload")
+        if components["spec"] != self.build_spec_name:
+            raise ValueError("cache-key spec component disagrees with payload")
+        if self.cacheable:
+            if self.degraded_reason:
+                raise ValueError("cacheable payload must not carry degraded_reason")
+            expected = {
+                "feature_set": self.feature_set,
+                "target_triple": self.target_triple,
+                "config_digest": self.config_digest,
+                "spec_digest": self.spec_digest,
+                "generation_digest": (
+                    hashlib.sha256(self.generation_id.encode("utf-8")).hexdigest()
+                    if self.generation_id
+                    else ""
+                ),
+            }
+            if components["generation_id"] != (self.generation_id or ""):
+                raise ValueError(
+                    "cache-key generation component disagrees with payload"
+                )
+            for name, value in expected.items():
+                if components[name] != value:
+                    raise ValueError(
+                        f"cache-key {name} component disagrees with payload"
+                    )
+            if self.cache_key_digest != cache_key_digest_from_components(components):
+                raise ValueError("cache_key_digest does not match C-05 components")
+        else:
+            if self.degraded_reason not in _APPROVED_DEGRADED_REASONS:
+                raise ValueError("uncacheable payload has an unknown degraded reason")
+            if self.cache_key_digest is not None:
+                raise ValueError("uncacheable payload must not carry a cache key")
+            if any(
+                components[name]
+                for name in _CACHE_KEY_COMPONENT_NAMES - {"key_version", "repo", "spec"}
+            ):
+                raise ValueError(
+                    "uncacheable payload must not carry cache-key components"
+                )
         computed = payload_digest(self)
         if self.payload_digest not in (None, computed):
             raise ValueError("payload_digest does not match the canonical payload")
@@ -388,9 +489,13 @@ class RepositoryBuildExecutionPayloadV1(BaseModel):
     ) -> RepositoryBuildExecutionPayloadV1:
         """Copy only with a digest derived from the copied canonical body."""
 
-        copied = super().model_copy(update=update, deep=deep)
-        object.__setattr__(copied, "payload_digest", payload_digest(copied))
-        return copied
+        del deep
+        values = self.model_dump(mode="python", exclude_none=False)
+        if update:
+            values.update(update)
+            if "payload_digest" not in update:
+                values.pop("payload_digest", None)
+        return type(self).model_validate(values)
 
 
 RepositoryOperationPayload: TypeAlias = Annotated[
@@ -438,7 +543,9 @@ def operation_payload_from_mapping(value: object) -> RepositoryBuildExecutionPay
     """Validate one closed payload at an authority boundary."""
 
     if isinstance(value, RepositoryBuildExecutionPayloadV1):
-        return value
+        return RepositoryBuildExecutionPayloadV1.model_validate(
+            value.model_dump(mode="python", exclude_none=False)
+        )
     if not isinstance(value, Mapping):
         raise TypeError("operation_payload must be a typed mapping")
     return RepositoryBuildExecutionPayloadV1.model_validate(dict(value))
