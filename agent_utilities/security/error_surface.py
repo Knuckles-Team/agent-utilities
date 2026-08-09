@@ -85,6 +85,26 @@ def _is_engine_degraded(exc: BaseException) -> bool:
     return isinstance(error_type, str) and error_type in _ENGINE_DEGRADED_TYPE_NAMES
 
 
+def is_engine_degraded(exc: BaseException) -> bool:
+    """Public alias for :func:`_is_engine_degraded` (BUG-048).
+
+    ``public_error_payload`` is the canonical OperationResult-shaped boundary
+    for the ~200+ ``except Exception: return public_error_json(e)`` call
+    sites, but it is not the ONLY place a per-target/per-row failure gets
+    collapsed to a caller-facing label — ``agent_utilities.mcp.kg_server.
+    fanout_execute`` (and its direct-call "primary target" mirrors in
+    ``query_tools.py``) reduce a raised exception to a bare string, outside
+    the ``OperationResult``/``OperationError`` schema entirely. Those sites
+    need the SAME breaker-vs-rejection classification without duplicating
+    the vocabulary in :data:`_ENGINE_DEGRADED_TYPE_NAMES` a second time (the
+    duplication this module already avoided once, by reusing
+    ``error_type`` rather than reimporting ``engine_breaker``). Exported
+    under a public name specifically so a cross-module caller never has to
+    import the underscore-prefixed original.
+    """
+    return _is_engine_degraded(exc)
+
+
 def _engine_retry_after_hint() -> float:
     """Best-effort ``retry_after_s`` hint for an ``engine_degraded`` failure.
 

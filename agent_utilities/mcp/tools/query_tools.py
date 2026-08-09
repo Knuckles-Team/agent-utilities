@@ -571,12 +571,12 @@ def register_query_tools(mcp):
                 # machinery, not its error handling.
                 try:
                     results[name] = _fanout_query(name, engine)
-                except Exception as exc:  # noqa: BLE001 — mirrors fanout_execute's per-target catch below (same generic, non-leaking label): a denied/failed primary must surface as a labeled error, never propagate raw or silently vanish
+                except Exception as exc:  # noqa: BLE001 — mirrors fanout_execute's per-target catch below (same non-leaking, BUG-048-classified label): a denied/failed primary must surface as a labeled error, never propagate raw or silently vanish
                     logger.warning(
                         "Graph fan-out primary target failed (exception_type=%s)",
                         type(exc).__name__,
                     )
-                    fan_errors[name] = "target_operation_failed"
+                    fan_errors[name] = kg_server.fanout_error_label(exc)
             if supplementary:
                 sup_results, sup_errors = kg_server.fanout_execute(
                     supplementary,
