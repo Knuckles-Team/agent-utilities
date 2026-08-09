@@ -184,6 +184,10 @@ ConnectFn = Callable[
 GenerationCallback = Callable[[list[Any]], Awaitable[None]]
 
 
+class _GenerationChanged(RuntimeError):
+    """Internal fence: a request snapshot became stale before send."""
+
+
 # ---------------------------------------------------------------------------
 # Typed errors — callers (and the multiplexer's error envelope) can tell
 # *why* a child call failed without parsing prose.
@@ -382,6 +386,11 @@ class ChildRuntime:
             self.max_concurrency
         )
         self._sessions: list[Any] = []
+        # Monotonic per-runtime generation fencing for requests that must not
+        # be replayed after a reconnect. The task multiplexer also binds its
+        # catalog/runtime epoch around this marker.
+        self._generation = 0
+        self._task_generation_secret: str | None = None
         self._rr_index = 0
         self._in_flight = 0
         self._queued = 0
@@ -429,8 +438,20 @@ class ChildRuntime:
         Used when the connection lifecycle is owned elsewhere (no supervisor:
         no auto-restart, matching the pre-hardening behaviour)."""
         self._sessions = list(sessions)
+        self._generation += 1
         self.state = "up"
         self._ready.set()
+
+    @property
+    def generation(self) -> int:
+        """Return the active connection generation marker."""
+
+        return self._generation
+
+    def task_generation_snapshot(self) -> tuple[int, str | None]:
+        """Return one atomic generation/channel snapshot for a task request."""
+
+        return self._generation, self._task_generation_secret
 
     @property
     def primary_session(self) -> Any | None:
@@ -496,6 +517,7 @@ class ChildRuntime:
                         self._connect(stack), timeout=self.connect_timeout
                     )
                     self._sessions = list(sessions)
+                    self._generation += 1
                     self._generation_started_at = time.monotonic()
                     self._set_state("up")
                     backoff = self.restart_backoff_base
@@ -545,6 +567,7 @@ class ChildRuntime:
             finally:
                 self._ready.clear()
                 self._sessions = []
+                self._task_generation_secret = None
             if self._closed:
                 return
 
@@ -698,6 +721,7 @@ class ChildRuntime:
                 await self._supervisor
             self._supervisor = None
         self._sessions = []
+        self._task_generation_secret = None
         self._set_state("closed")
 
     # ------------------------------------------------------------------
@@ -841,6 +865,56 @@ class ChildRuntime:
                 raise
         raise AssertionError("unreachable")  # pragma: no cover
 
+    async def call_request(
+        self,
+        request: Any | None,
+        result_type: Any,
+        *,
+        retry_on_transient: bool = True,
+        generation_marker: int | None = None,
+        request_factory: Callable[[int, str | None], Any] | None = None,
+        before_send: Callable[[int, str | None], None] | None = None,
+    ) -> Any:
+        """Forward one typed non-tool request through the child runtime.
+
+        Native FastMCP Tasks methods are protocol requests rather than tools,
+        so they cannot use :meth:`call_tool`.  Keep the exact same bounded
+        semaphore, timeout, breaker, and restart/retry path instead of letting
+        task polling bypass child resource protection.
+        """
+
+        await self._recycle_if_stale()
+        for attempt in range(2):
+            try:
+                return await self._call_request_once(
+                    request,
+                    result_type,
+                    generation_marker=generation_marker,
+                    request_factory=request_factory,
+                    before_send=before_send,
+                )
+            except BaseException as exc:
+                if (
+                    request_factory is not None
+                    and attempt == 0
+                    and isinstance(exc, _GenerationChanged)
+                ):
+                    continue
+                if (
+                    retry_on_transient
+                    and attempt == 0
+                    and is_transient_child_death(exc)
+                ):
+                    self.request_restart(reason="transient_child_death")
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(
+                            self._ready.wait(),
+                            timeout=min(self.connect_timeout, _RECOVERY_WAIT),
+                        )
+                    continue
+                raise
+        raise AssertionError("unreachable")  # pragma: no cover
+
     async def _call_once(self, original_name: str, arguments: dict[str, Any]) -> Any:
         """One forwarding attempt (the body the retry loop wraps)."""
         try:
@@ -888,6 +962,74 @@ class ChildRuntime:
                 f"Tool '{original_name}' on child server '{self.name}' did "
                 f"not answer within {self.call_timeout}s; the call was "
                 f"detached and its slot is held until the child finishes.",
+            ) from None
+
+    async def _call_request_once(
+        self,
+        request: Any,
+        result_type: Any,
+        *,
+        generation_marker: int | None = None,
+        request_factory: Callable[[int, str | None], Any] | None = None,
+        before_send: Callable[[int, str | None], None] | None = None,
+    ) -> Any:
+        """One typed non-tool request attempt under runtime limits."""
+
+        try:
+            self.breaker.before_call()
+        except _BreakerOpenSignal:
+            self._record("short_circuited")
+            raise MCPChildCircuitOpenError(self.name, "circuit_open") from None
+        probe_claimed = self.breaker.state == "half_open"
+        try:
+            await self._await_ready()
+            snapshot_generation, snapshot_secret = self.task_generation_snapshot()
+            if request_factory is not None:
+                request = request_factory(snapshot_generation, snapshot_secret)
+            if request is None:
+                raise ValueError("a task request or request factory is required")
+            await self._acquire_slot()
+        except BaseException:
+            if probe_claimed:
+                self.breaker.record_failure()
+            raise
+        try:
+            expected_generation = (
+                generation_marker
+                if generation_marker is not None
+                else snapshot_generation
+            )
+            if self._generation != expected_generation:
+                raise _GenerationChanged(
+                    f"Child server '{self.name}' changed connection generation "
+                    "before a request was sent"
+                )
+            if before_send is not None:
+                before_send(snapshot_generation, snapshot_secret)
+            session = self._pick_session()
+        except BaseException:
+            self._release_slot()
+            if probe_claimed:
+                self.breaker.record_failure()
+            raise
+        self._in_flight += 1
+        inner = asyncio.ensure_future(session.send_request(request, result_type))
+        inner.add_done_callback(self._finish_call)
+        try:
+            if self.call_timeout > 0:
+                return await asyncio.wait_for(
+                    asyncio.shield(inner), timeout=self.call_timeout
+                )
+            return await asyncio.shield(inner)
+        except TimeoutError:
+            self.breaker.record_failure()
+            self._record("timeout")
+            self._abandoned.add(inner)
+            raise MCPChildCallTimeoutError(
+                self.name,
+                f"MCP request on child server '{self.name}' did not answer "
+                f"within {self.call_timeout}s; the request was detached and "
+                "its slot is held until the child finishes.",
             ) from None
 
     # ------------------------------------------------------------------
