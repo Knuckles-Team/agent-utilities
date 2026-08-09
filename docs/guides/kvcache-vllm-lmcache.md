@@ -9,6 +9,69 @@
 > `CONCEPT:EG-KG.memory.byte-bounded-tiers` (tiered hot/warm/cold cache) · `CONCEPT:EG-KG.enrichment.content-address-separation` (content-addressed
 > shared dedup) · `CONCEPT:EG-KG.ontology.resp2-resp3-codec-round`/`EG-KG.txn.pubsub-transactions` (Redis RESP wire).
 
+## Production status (D-W4KV-1) — LMCache attached to `apps/vllm-llm-gb10`
+
+★ **Closed 2026-08-07 (lane `w5-kv-wiring`).** Prior to this, the live production
+deployment ran plain vLLM with no LMCache connector at all — `KVCacheLayeringPolicy`'s
+per-request `lmcache.skip_save` hint (folded into every chat call's
+`extra_body.kv_transfer_params`) was a documented no-op against real inference.
+
+The current source of truth for the ATTACHED deployment is
+`services/vllm/k8s/manifests.yaml` (`vllm-llm-gb10`) + `services/vllm/k8s/lmcache-server.yaml`
+(the new standalone `lmcache server`) — **not** the Docker Compose files further down this
+page (`compose.lmcache.yml` etc.), which predate the RKE2 migration and remain historical
+reference only (see `services/vllm/AGENTS.md`).
+
+What actually shipped, and why it differs from the Compose-era plan those files describe:
+
+- **Connector: `LMCacheMPConnector`, not `LMCacheConnectorV1`.** `nvidia/Qwen3.6-27B-NVFP4`
+  (the live chat model) has GDN/Mamba recurrent layers; V1 crash-loops on
+  `unify_hybrid_kv_cache_specs` for any hybrid model. The MP connector is not a
+  preference here, it is the only connector that boots on this model at all.
+- **The `lmcache server` runs on a separate CPU-only cluster node, not co-located on
+  GB10.** LMCache MP mode is
+  plain ZMQ-over-TCP (confirmed against the current LMCache docs: "no need for shared IPC
+  namespaces or /dev/shm") — the historical Compose spike's `ipc: host` co-location was
+  either unnecessary or reflected an older LMCache release; it is not required by the
+  version deployed here (`lmcache==0.5.3`). This matters practically: GB10 has almost no
+  memory headroom to give a local L1 cache. `free -h` on GB10 shows ~119/121GB physically
+  used — vLLM's `--gpu-memory-utilization 0.80` on Grace-Blackwell's UNIFIED memory
+  consumes most of the node's real RAM in a way `kubectl top`/cgroup accounting cannot see
+  (it reports GB10 at ~20GB/16% used) — so the k8s scheduler would happily admit a new
+  cache pod there on the strength of a view of the node that is actively wrong, right up
+  until it collided with the same OOM-overload failure class already on record for this
+  host (memory `gb10-power-fault-and-vllm-topology.md`). Running the server on a
+  different, non-GPU node (real headroom on both metrics) instead sidesteps that risk
+  entirely rather than tuning around it.
+- **Remote (engine) L2 tier is NOT wired in this pass — local CPU tier only.** An
+  `epistemic-kvcache` engine pod already runs in the `platform` namespace on GB10, so the
+  remote durable/dedup tier this guide describes below is a natural next increment, but
+  wiring it (Path A / `EpistemicGraphL2Connector`) was left as a follow-up rather than
+  bundled into the same production change — see the register.
+- **Real, measured cost: `--max-num-batched-tokens` dropped `32768` → `1568`.**
+  `--mamba-cache-mode align` requires every prefill step advance exactly one Mamba block
+  for the hybrid object-group KV layering to capture block boundaries correctly; there is
+  no way to keep the old large throughput-tuned batch budget and attach KV layering to
+  this hybrid model. This is a real cost paid by EVERY long-prompt cold request, not a free
+  win layered on top of the existing vLLM-native prefix-cache gains this page already
+  documented (see "Measured KV reuse" below, which predates this change and needed no
+  LMCache at all).
+
+**Honest before/after** (live, `vllm.arpa`, same 2466-token synthetic cold/warm prompt
+pair, 3 repeats each side; script: `scripts/kv_bench.py`-style standalone harness, not
+committed — see the lane report):
+
+| | before (stock vLLM, `--max-num-batched-tokens 32768`, no LMCache) | after (LMCacheMPConnector, `--max-num-batched-tokens 1568`) |
+|---|---|---|
+| cold latency | ~2.7-2.8s | *(filled in after the windowed restart — see lane report)* |
+| warm latency (same-session, vLLM native prefix cache) | ~1.4s (≈2.0x speedup) | *(filled in after the windowed restart)* |
+| cross-restart latency (kill pod, resend same prefix) | not applicable (no connector) | *(filled in after the windowed restart — this is LMCache's actual differentiated capability over what vLLM's own prefix cache already provided)* |
+
+If the cross-restart number does not show a clear win over a cold re-send, or the
+cold-prefill regression from the batched-tokens drop outweighs it for this deployment's
+real traffic mix, that is reported here plainly rather than presented as a win — see the
+lane report's final verdict.
+
 ## Why
 
 vLLM already does in-process **prefix caching** (`--enable-prefix-caching`): a
@@ -115,6 +178,31 @@ All deployment artifacts live in `services/vllm/` (co-located on GB10):
 > `StorageBackendInterface` method *signatures* are stable, but the `MemoryObj`
 > byte accessor and allocator call are lmcache-internal and can shift between
 > releases — the one thing to confirm for Path A. Path B has no such coupling.
+>
+> **Build-time note (confirmed live, `lmcache==0.5.3`).** PyPI ships `lmcache` as
+> `cp3{10,11,12,13}-manylinux_x86_64` wheels **plus a source sdist — no `aarch64`
+> wheel at all.** Building the GB10 (`linux/arm64`) image therefore always compiles
+> from source (`pyproject.toml` pins `torch==2.11.0` as a **build** dependency and
+> uses `ninja`), which is impractically slow under `docker buildx --platform
+> linux/arm64` QEMU emulation on a non-arm64 host (observed: still installing build
+> dependencies after 5+ minutes, no further progress) — build natively instead
+> (`docker buildx build --platform linux/arm64` on an actual arm64 host, or a
+> Kubernetes-native builder like `kaniko` scheduled onto one). ⚠ **Never schedule
+> that native build onto GB10 itself**, even though it is the only arm64 node in
+> the cluster and building there is architecturally the "obvious" choice: GB10's
+> Grace-Blackwell unified memory means vLLM's own `--gpu-memory-utilization 0.80`
+> already leaves only ~1-2GB of real, OS-level free RAM (invisible to `kubectl
+> top`/cgroup accounting — see "Production status" above), and a native
+> `torch`+`ninja` compile is exactly memory-hungry enough to exhaust that margin.
+> Confirmed the hard way: doing this made `gb10` go `NotReady` (SSH/kubelet
+> unresponsive for 15+ minutes; ICMP kept responding, so not a hard crash — kernel
+> networking survived, userspace scheduling did not) and took the live
+> `apps/vllm-llm-gb10`/`apps/vllm-embed-gb10` pods down with it. **GB10 has no
+> BMC/IPMI** (`inventory/k8s-migration/automation/inventory.k8s.yml`), so recovery
+> from that state is wait-only — there is no remote power-cycle fallback. Build the
+> arm64 image on a **different** host (QEMU-emulated buildx, patient; or a
+> `kaniko`/native-arm64 builder on hardware that is not GB10) and only ever `docker
+> pull`/`kubectl apply` the finished, pre-built, digest-pinned image onto GB10.
 
 ## Universal model support (dense + Mamba/GDN hybrid) — use the MP connector
 
@@ -407,6 +495,42 @@ inspection (`action="stats"` shows both kinds of keys mixed into one
 `unique_blocks` count; a `ctxbundle:<sha256>` key prefix distinguishes an
 app-level bundle entry from a raw LMCache token-block hash at a glance). It is
 **not** a second cache implementation.
+
+### Which `kv_backend` the real entrypoint installs — an injectable, auto-detected choice
+
+`compile_model_context` (`agent_utilities/core/contextual_model.py` —
+`create_context_agent`'s single compilation seam, reached by every one of its
+~90+ callers on every model call) never leaves `kv_backend` unset: it always
+passes `_resolve_compiler_cache()`'s result. That resolution is a genuinely
+**injectable** three-tier chain, cheapest/most-specific first:
+
+1. **Explicit override** — `set_context_compiler_cache(backend)` installs ANY
+   object satisfying the duck-typed `get`/`put`(/`delete`) shape above and
+   always wins. This is the literal "inject a KV cache backend" seam — a test
+   double, a custom store, or a hand-picked `EpistemicGraphKVBackend` instance
+   all work the same way. `set_context_compiler_cache(None)` clears the
+   override and falls through to the next tier (it is not a hard disable).
+2. **Networked deployment default** — when no override is installed, bundle
+   caching is enabled (`MODEL_CONTEXT_COMPILER_CACHE_ENABLED=true`, opt-in —
+   see the docstring on `_default_compiler_cache_enabled` for why), AND the
+   engine's remote KV endpoint is configured (`EPISTEMIC_GRAPH_KVCACHE_URL` /
+   `_ADDR` — the SAME signal the LMCache connector itself reads, no separate
+   flag), `_resolve_compiler_cache` auto-installs a lazily-built
+   `EpistemicGraphKVBackend.from_env()` — the fleet-wide, cross-process
+   backend, so a compiled bundle one worker assembles is reusable by every
+   other worker pointed at the same engine.
+3. **In-process fallback** — when caching is enabled but no remote endpoint is
+   configured, `_InProcessBundleCache` (bounded, TTL-expiring, no network)
+   is used instead — single-process reuse only, but zero latency downside.
+
+Before this, tier 2 was plumbed end-to-end (`set_context_compiler_cache`
+existed, was fully unit-tested, and `EpistemicGraphKVBackend` satisfies the
+exact required shape) but had **no caller outside tests** — an operator who
+configured the engine's remote KV endpoint still silently got only the
+single-process cache for compiled bundles. `tests/unit/core/test_contextual_model_bundle_cache.py`
+now proves both the auto-detection logic and, with a wiring test against the
+real `compile_model_context` entrypoint (`tests/wiring.observe` on
+`ContextCompiler.compile`, never mocked), that the argument is actually passed.
 
 ## Serving-layer wire (Seam 6, deep half) — the compiled bundle reaches vLLM's OWN KV cache
 

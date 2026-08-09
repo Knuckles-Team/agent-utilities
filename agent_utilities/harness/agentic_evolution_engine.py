@@ -318,6 +318,7 @@ class AgenticEvolutionEngine:
         base_id: str,
         task_text: str = "",
         top_k: int = 3,
+        trace_id: str = "",
     ) -> dict[str, Any]:
         """Run a complete evolution cycle: evaluate → select → prune.
 
@@ -327,6 +328,13 @@ class AgenticEvolutionEngine:
             base_id: The base component to evolve.
             task_text: Optional task to check for skill gaps.
             top_k: Number of top variants to keep.
+            trace_id: Optional ``RunTrace`` id (``observability.trace_ontology.
+                trace_id``) this cycle's caller already recorded — when given,
+                completes DE1's ``:DurableRun -[:PRODUCED]-> RunTrace`` edge
+                (CONCEPT:AU-KG.storage.durable-execution-unit) via
+                :meth:`DurableRun.link_run_trace`, the same optional-passthrough
+                shape :meth:`create_skill_from_gap`/:meth:`record_task_outcome`
+                already use for ``trace_id`` in this class.
 
         Returns:
             Cycle report dict with winners, pruned count, and skill gap info.
@@ -346,7 +354,10 @@ class AgenticEvolutionEngine:
         # completed stage's recorded result and continues from the interrupted one.
         from agent_utilities.orchestration.durable_execution import DurableRun
 
-        run = DurableRun(f"evolution:{base_id}")
+        # DE1 (CONCEPT:AU-KG.storage.durable-execution-unit): mirror this run's
+        # checkpoint transitions into a queryable :DurableRun KG node -- optional,
+        # no-op when self._engine is unset, matching KgAuditSink(engine=None).
+        run = DurableRun(f"evolution:{base_id}", engine=self._engine)
 
         def _evolve_stage() -> dict[str, Any]:
             frag: dict[str, Any] = {}
@@ -477,6 +488,8 @@ class AgenticEvolutionEngine:
             report.update(run.step("skill_gap", _skill_gap_stage) or {})
 
         run.finish()
+        if trace_id:
+            run.link_run_trace(trace_id)
         return report
 
     def evolve_via_graph_search(

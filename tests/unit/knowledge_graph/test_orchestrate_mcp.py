@@ -314,7 +314,7 @@ class TestDebateConsensus:
             "veto_d1", "RiskVeto", properties={"reason": "Too volatile", "target": "d1"}
         )
         engine.graph.add_edge(
-            "veto_d1", "debate_d1", rel_type="CONTRADICTS_BELIEF_PROP"
+            "veto_d1", "debate_d1", relationship="CONTRADICTS_BELIEF_PROP"
         )
 
         # Verify edge exists

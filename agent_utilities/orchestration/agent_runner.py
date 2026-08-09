@@ -49,6 +49,7 @@ from agent_utilities.orchestration.response_format import (
     validate_response_format,
 )
 from agent_utilities.orchestration.run_identity import new_run_id
+from agent_utilities.security.identifiers import validate_identifier
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -884,6 +885,17 @@ async def run_agent(
                     skill_name,
                     allowed_tools,
                 )
+            elif agent_meta.get("binding_error"):
+                # D-DEL-1 ★ fail loud: an auto-resolved skill that declared a
+                # genuine external provider but could not bind to ANY known
+                # server (`_bind_skill_to_owning_server`) must not silently
+                # continue as a prompt-only run that still reports success —
+                # that is the exact "capability silently disappears" failure
+                # shape this defect exists to close. An explicit `tool_server=`
+                # (the `if` branch above) already re-resolves and fails loud
+                # on its own terms via `_catalog_toolset_binding`, so this
+                # only fires on the auto-resolve path.
+                raise LookupError(str(agent_meta["binding_error"]))
 
         # Step 2b: Prime the recent compressed mementos for this run OFF the event loop.
         # CONCEPT:AU-KG.memory.refresh-per-session-memento — read the per-session memento cache (zero I/O); only on a cold
@@ -2005,6 +2017,153 @@ def _hydrate_skill_runnable(
     meta["skill_source_ref"] = source_ref
 
 
+_LOCAL_SKILL_PROVIDERS = frozenset(
+    {"agent-utilities", "configured-overlay", "xdg-local"}
+)
+
+
+def _lookup_server_identity(
+    engine: IntelligenceGraphEngine, name: str
+) -> dict[str, Any] | None:
+    """Resolve one server's identity + tool catalog across every schema an
+    active writer in this KG uses.
+
+    D-DEL-1: two writers persist a fleet server under different node/edge
+    shapes — ``:Server``/``PROVIDES``/``CallableResource`` (the self-
+    registration heartbeat in ``mcp/server_factory.py`` + the on-demand
+    refresh in ``tools/dynamic_tool_orchestrator.py``) and
+    ``:MCPServer``/``SERVES``/``Tool``|``Skill`` (``knowledge_graph.core.
+    source_sync._sync_fleet``, the pipeline actually wired to run for the
+    whole fleet). This is the ONE place that knows both, so every caller in
+    this module resolves a server through here rather than picking one schema.
+
+    Always name-anchored, single-query pattern traversal — never a
+    synthesized/guessed id. Live inspection found duplicate ``:MCPServer``
+    nodes for the SAME server name (one plain id, one pseudonymized by the
+    persistence-privacy layer, e.g. ``mcp_server_ansible-tower-mcp`` next to
+    ``mcp_server:pref_mcp_server_<hash>``) — a name match lets Cypher walk
+    every node satisfying the pattern instead of only the first duplicate, so
+    it finds the real edges regardless of which physical node holds them.
+    Also never a ``WHERE ... OR ...`` clause: verified live that this
+    engine's native Cypher subset silently returns ZERO rows for an OR'd
+    WHERE predicate even when a row matches it, so a name/id disjunction is
+    issued as two separate single-predicate queries instead of being combined.
+
+    Returns ``None`` only when ``name`` is not known to any schema at all. A
+    server node that exists with zero populated tools (e.g. a fleet child the
+    probe could not reach) still returns a real, empty-tools identity — it is
+    a genuine bindable target for the live transport (``_toolset_for_id``
+    never reads tool data from the KG), not a miss.
+    """
+    if not name:
+        return None
+    for label, rel in (("Server", "PROVIDES"), ("MCPServer", "SERVES")):
+        # Hardcoded literals from the tuple above, never caller input, but they
+        # are still interpolated into query text -- validate at the interpolation
+        # site so the invariant is enforced here rather than inferred from how
+        # far away the values happen to be defined.
+        label = validate_identifier(label, "label")
+        rel = validate_identifier(rel, "relationship type")
+        try:
+            rows = engine.backend.execute(
+                f"MATCH (s:{label} {{name: $name}})-[:{rel}]->(t) "
+                "RETURN s.id AS sid, t.name AS name, t.description AS description",
+                {"name": name},
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort across schemas; a failed probe of one schema just falls through to the next
+            logger.debug(
+                "[ORCH-server-lookup] :%s/:%s lookup failed for %r: %s",
+                label,
+                rel,
+                name,
+                e,
+            )
+            rows = None
+        if rows:
+            return {
+                "server_id": str(rows[0].get("sid") or ""),
+                "tools": [
+                    {
+                        "name": r.get("name", ""),
+                        "description": r.get("description", ""),
+                    }
+                    for r in rows
+                    if r.get("name")
+                ],
+            }
+        try:
+            srows = engine.backend.execute(
+                f"MATCH (s:{label} {{name: $name}}) RETURN s.id AS sid",
+                {"name": name},
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort across schemas; a failed probe of one schema just falls through to the next
+            logger.debug(
+                "[ORCH-server-lookup] :%s identity lookup failed for %r: %s",
+                label,
+                name,
+                e,
+            )
+            srows = None
+        if srows:
+            return {"server_id": str(srows[0].get("sid") or ""), "tools": []}
+    return None
+
+
+def _known_kg_server_names(engine: IntelligenceGraphEngine) -> set[str]:
+    """Every server identity name the KG currently knows, across both catalog
+    schemas (D-DEL-1). Used only to invert a slugified ``provider_ref`` back
+    to a real server name (:func:`_fleet_server_candidates`) — never to
+    synthesize an id.
+    """
+    names: set[str] = set()
+    for label in ("MCPServer", "Server"):
+        label = validate_identifier(label, "label")
+        try:
+            rows = engine.backend.execute(
+                f"MATCH (s:{label}) RETURN s.name AS name", {}
+            )
+        except Exception as e:  # noqa: BLE001 — best-effort discovery; a failed schema probe just yields fewer candidate names
+            logger.debug("[ORCH-skill-bind] :%s name discovery failed: %s", label, e)
+            continue
+        names.update(
+            str(r.get("name") or "").strip() for r in (rows or []) if r.get("name")
+        )
+    return {n for n in names if n}
+
+
+def _fleet_server_candidates(
+    provider: str, engine: IntelligenceGraphEngine
+) -> list[str]:
+    """Recover the real MCP server name a runnable skill's ``provider_ref`` names.
+
+    D-DEL-1 follow-on, found live: ``knowledge_graph.ingestion.
+    fleet_skill_harvest`` persists ``provider=f"mcp:{server_name}"``, which
+    ``skill_workflow_ingest.ingest_runnable_skill`` slugs via its ``_slug()``
+    helper (lower-cases, then collapses every run of non-alnum characters —
+    including both ``:`` and ``-`` — to a single ``_``). ``servicenow-mcp`` is
+    therefore persisted as ``provider://mcp_servicenow_mcp``, never
+    ``servicenow-mcp-mcp``/``servicenow-mcp``. The previous heuristic (try
+    ``<provider>`` and ``<provider>-mcp``) could not match ANY real fleet
+    server: it assumed the literal server name survived slugging, but slugging
+    is lossy and not safely invertible (confirmed live against the actual
+    persisted ``provider_ref`` of an ingested fleet skill). Instead of
+    guessing a reverse transform, this re-derives the SAME slug the writer
+    computed for every server name the KG or the live fleet config actually
+    knows, and returns the ones that match — the only reliable way to invert
+    a many-to-one normalization.
+    """
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import _slug
+
+    known = _known_kg_server_names(engine) | set(_configured_fleet_server_names())
+    matched = sorted(name for name in known if _slug(f"mcp:{name}") == provider)
+    if matched:
+        return matched
+    # provider_ref was not written via the `mcp:<server>` convention (an older
+    # or non-fleet ingest) -- fall back to the previous best-effort guesses so
+    # a differently-shaped provider string is no worse off than before.
+    return [provider] if provider.endswith("-mcp") else [f"{provider}-mcp", provider]
+
+
 def _bind_skill_to_owning_server(
     engine: IntelligenceGraphEngine,
     meta: dict[str, Any],
@@ -2015,78 +2174,78 @@ def _bind_skill_to_owning_server(
 
     CONCEPT:AU-ORCH.execution.skill-bound-server-tools — a skill contributed by a fleet
     provider is authored to drive that provider's MCP server tools. Resolved as
-    a bare skill it runs prompt-only (no tools) and can only describe a task. This uses
-    the privacy-safe ``provider://`` identity persisted at ingestion (filesystem paths
-    are intentionally not retained), trying ``<provider>`` and ``<provider>-mcp``. It
-    then sets ``type="server"`` + the server's tools so the run routes single-server
-    while KEEPING the skill's instructions as the system prompt. Best-effort: a miss
-    leaves the skill prompt-only.
+    a bare skill it runs prompt-only (no tools) and can only describe a task.
+    Recovers the real server name from the skill's persisted ``provider://``
+    identity (:func:`_fleet_server_candidates` — filesystem paths are
+    intentionally not retained), then resolves it through EVERY schema an
+    active writer in this KG uses (:func:`_lookup_server_identity`, D-DEL-1),
+    falling back to a live fleet-config name pin (no KG tool data, but a real
+    transport still binds — ``_toolset_for_id`` never reads the KG for
+    transport, only identity/provenance, the same mechanism an explicit
+    ``tool_server=`` delegation already relies on) when neither KG schema
+    knows the server yet. Sets ``type="server"`` + the server's tools so the
+    run routes single-server while KEEPING the skill's instructions as the
+    system prompt.
+
+    D-DEL-1 ★ fail loud: when the skill declares a genuine external provider
+    and NONE of the above resolves it, that is not a benign miss — it is the
+    "capability silently disappears" failure this defect exists to close.
+    Sets ``meta["binding_error"]`` instead of returning silently; the caller
+    (``run_agent``) raises on that signal rather than continuing to a
+    prompt-only run that would still report success.
     """
     provider = str(provider_ref or "").removeprefix("provider://").strip()
     if (
         not provider
-        or provider in {"agent-utilities", "configured-overlay", "xdg-local"}
+        or provider in _LOCAL_SKILL_PROVIDERS
         or not getattr(engine, "backend", None)
     ):
         return
-    candidates = (
-        [provider] if provider.endswith("-mcp") else [f"{provider}-mcp", provider]
-    )
+
+    skill_prompt = meta.get("system_prompt", "")
+    candidates = _fleet_server_candidates(provider, engine)
+    tried: list[str] = []
     for name in candidates:
-        try:
-            rows = engine.backend.execute(
-                "MATCH (s:Server) WHERE s.name = $name OR s.id = $sid "
-                "RETURN s.id AS sid, s.name AS name, s.url AS url, s.env AS env",
-                {"name": name, "sid": f"srv:{name}"},
-            )
-        except Exception as e:  # noqa: BLE001 — no meta mutation has happened yet in this loop iteration; on failure it just tries the next candidate name, matching this function's documented "a miss leaves the skill prompt-only" fallback
-            logger.debug("[ORCH-skill-bind] server lookup failed for '%s': %s", name, e)
+        tried.append(name)
+        identity = _lookup_server_identity(engine, name)
+        if identity is None and name in _configured_fleet_server_names():
+            # Live fleet configuration pin: no KG tool data yet, but the real
+            # transport still binds through `_toolset_for_id` at execution
+            # time (KG server nodes are identity/provenance only) -- the same
+            # fallback `_resolve_agent_from_kg` Search 1 already relies on,
+            # and the mechanism an explicit `tool_server=` delegation proved
+            # end-to-end (D-EXIT-1).
+            identity = {"server_id": f"srv:{name}", "tools": []}
+        if identity is None:
             continue
-        if not rows or not rows[0].get("url"):
-            continue
-        srv = rows[0]
-        # D-DST-6: fetch the server's verified tool catalog BEFORE committing
-        # meta["type"]="server"/server_id/url/env. Committing those first (the
-        # prior order) meant a tool-fetch failure left meta believing it was
-        # bound to a real server while meta["tools"] still held the SKILL's
-        # own USES_TOOL names from _hydrate_skill_runnable -- a load-bearing
-        # state mismatch, not the benign prompt-only fallback this function's
-        # docstring promises. On failure, try the next candidate exactly like
-        # the server-lookup failure above already does.
-        try:
-            trows = engine.backend.execute(
-                "MATCH (s:Server {id: $sid})-[:PROVIDES]->(r:CallableResource) "
-                "RETURN r.name AS name, r.description AS description",
-                {"sid": srv.get("sid", "")},
-            )
-        except Exception as e:  # noqa: BLE001 — meta is not yet mutated at this point; failure just tries the next candidate name (or falls through to prompt-only), matching the documented fallback contract
-            logger.warning(
-                "[ORCH-skill-bind] tool fetch failed for server '%s', trying next candidate: %s",
-                name,
-                e,
-            )
-            continue
-        tools = [
-            {"name": r.get("name", ""), "description": r.get("description", "")}
-            for r in (trows or [])
-        ]
-        skill_prompt = meta.get("system_prompt", "")
         meta["type"] = "server"
-        meta["server_id"] = srv.get("sid", "")
-        meta["url"] = srv.get("url", "")
-        meta["env"] = srv.get("env", "")
-        meta["skill_of_server"] = srv.get("name", "")
-        meta["tools"] = tools
+        meta["server_id"] = identity["server_id"]
+        meta["skill_of_server"] = name
+        meta["toolset_id"] = name
+        meta["tools"] = identity["tools"]
         # The skill's SOP drives the run; the server's tools execute it.
         if skill_prompt:
             meta["system_prompt"] = skill_prompt
         logger.info(
             "[ORCH-skill-bind] skill '%s' bound to server '%s' (%d tools)",
             agent_name,
-            srv.get("name", ""),
-            len(meta.get("tools", [])),
+            name,
+            len(identity["tools"]),
         )
         return
+
+    meta["binding_error"] = (
+        f"skill '{agent_name}' declared provider {provider_ref!r} but it did "
+        f"not resolve to any known MCP server identity or live fleet "
+        f"configuration (tried {tried!r}); refusing to silently degrade to "
+        "prompt-only"
+    )
+    logger.warning(
+        "[ORCH-skill-bind] skill '%s' provider %r bound to nothing (tried %r)",
+        agent_name,
+        provider_ref,
+        tried,
+    )
 
 
 def _resolve_agent_from_kg(
@@ -2121,29 +2280,18 @@ def _resolve_agent_from_kg(
         return meta
 
     # --- Search 1: Server nodes (MCP servers) ---
+    # D-DEL-1: resolved across EVERY schema an active writer in this KG uses
+    # (:func:`_lookup_server_identity`) — a bare ``:Server`` lookup missed every
+    # fleet server, since ``source_sync._sync_fleet`` (the pipeline that actually
+    # runs for the whole fleet) writes ``:MCPServer``/``SERVES``/``Tool``, not
+    # ``:Server``/``PROVIDES``/``CallableResource``.
     try:
-        server_rows = engine.backend.execute(
-            "MATCH (s:Server) WHERE s.name = $name OR s.id = $sid "
-            "RETURN s.id AS sid, s.name AS name, s.server_ref AS server_ref, "
-            "s.tool_count AS tc",
-            {"name": agent_name, "sid": f"srv:{agent_name}"},
-        )
-        if server_rows:
-            row = server_rows[0]
+        identity = _lookup_server_identity(engine, agent_name)
+        if identity is not None:
             meta["type"] = "server"
-            meta["server_id"] = row.get("sid", "")
-            meta["toolset_id"] = row.get("name", "") or agent_name
-
-            # Fetch tools provided by this server
-            tool_rows = engine.backend.execute(
-                "MATCH (s:Server {id: $sid})-[:PROVIDES]->(r:CallableResource) "
-                "RETURN r.name AS name, r.description AS description",
-                {"sid": meta["server_id"]},
-            )
-            meta["tools"] = [
-                {"name": r.get("name", ""), "description": r.get("description", "")}
-                for r in tool_rows
-            ]
+            meta["server_id"] = identity["server_id"]
+            meta["toolset_id"] = agent_name
+            meta["tools"] = identity["tools"]
             logger.info(
                 "[ORCH-1.21] Resolved '%s' as MCP server with %d tools",
                 agent_name,

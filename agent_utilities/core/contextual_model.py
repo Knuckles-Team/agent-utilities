@@ -287,6 +287,12 @@ _DEFAULT_BUNDLE_CACHE_TTL_S = 300.0
 _default_bundle_cache: Any | None = None
 _default_bundle_cache_lock = threading.Lock()
 
+# CONCEPT:AU-KG.retrieval.context-compiler-kv-seam — deployment-default NETWORKED
+# bundle cache. Same lazy-once-under-lock shape as the in-process cache above;
+# see :func:`_remote_kvcache_configured`/:func:`_resolve_compiler_cache` for when
+# this is preferred over it.
+_default_remote_bundle_cache: Any | None = None
+
 
 class _InProcessBundleCache:
     """Bounded, TTL-expiring, thread-safe in-process cache for compiled
@@ -381,16 +387,78 @@ def _default_compiler_cache_enabled() -> bool:
     return bool(setting("MODEL_CONTEXT_COMPILER_CACHE_ENABLED", False))
 
 
+def _remote_kvcache_configured() -> bool:
+    """True when the engine's remote KV-cache HTTP endpoint has been explicitly
+    configured (CONCEPT:AU-KG.backend.kvcache-vllm-connector) — the auto-detection
+    signal :func:`_resolve_compiler_cache` uses to prefer the networked, injectable,
+    cross-process :class:`~agent_utilities.kvcache.EpistemicGraphKVBackend` over the
+    single-process :class:`_InProcessBundleCache`.
+
+    Reuses the SAME environment surface the engine connector itself reads
+    (``EPISTEMIC_GRAPH_KVCACHE_URL`` / ``EPISTEMIC_GRAPH_KVCACHE_ADDR``,
+    :meth:`~agent_utilities.kvcache.KvCacheConfig.from_env`) rather than adding a
+    second flag (Configuration discipline: auto-detect from existing config, don't
+    add a knob) — an operator/deployment that already pointed the fleet at a shared
+    engine KV endpoint gets the fleet-wide, injectable backend for compiled bundles
+    too, with no separate opt-in.
+    """
+
+    return bool(
+        setting("EPISTEMIC_GRAPH_KVCACHE_URL", "")
+        or setting("EPISTEMIC_GRAPH_KVCACHE_ADDR", "")
+    )
+
+
+def _resolve_default_remote_bundle_cache() -> Any | None:
+    """Lazily build (once, under the shared lock) the networked
+    :class:`~agent_utilities.kvcache.EpistemicGraphKVBackend` deployment default.
+
+    Local import: ``agent_utilities.kvcache.remote_backend`` pulls in ``httpx`` and
+    the transport-security/auth machinery, which this module (the single agent-
+    construction chokepoint, ~90+ importers) must not force onto every caller —
+    imported only once :func:`_remote_kvcache_configured` says a remote endpoint is
+    actually in play. Construction never talks to the network (the connector's
+    ``get``/``put`` degrade to a safe miss/no-op on any transport error), so this is
+    as cheap as the in-process cache's lazy build.
+    """
+
+    global _default_remote_bundle_cache
+    if _default_remote_bundle_cache is None:
+        with _default_bundle_cache_lock:
+            if _default_remote_bundle_cache is None:
+                try:
+                    from agent_utilities.kvcache.remote_backend import (
+                        EpistemicGraphKVBackend,
+                    )
+
+                    _default_remote_bundle_cache = EpistemicGraphKVBackend.from_env()
+                except Exception as exc:  # noqa: BLE001 - degrade to no networked cache, never break compilation
+                    logger.warning(
+                        "[CONCEPT:AU-KG.retrieval.context-compiler-kv-seam] failed to "
+                        "build the networked EpistemicGraphKVBackend bundle-cache "
+                        "default, falling back to the in-process cache: %s",
+                        exc,
+                    )
+    return _default_remote_bundle_cache
+
+
 def _resolve_compiler_cache() -> Any | None:
     """The ACTIVE kv_backend for :func:`compile_model_context`: an explicit
     override (:func:`set_context_compiler_cache`) if one is installed, else the
-    lazily-built deployment-default :class:`_InProcessBundleCache` (or ``None``
-    when :func:`_default_compiler_cache_enabled` is off)."""
+    lazily-built deployment default — the networked, cross-process
+    :class:`~agent_utilities.kvcache.EpistemicGraphKVBackend` when the engine's
+    remote KV endpoint is configured (:func:`_remote_kvcache_configured`), else the
+    single-process :class:`_InProcessBundleCache` — or ``None`` entirely when
+    :func:`_default_compiler_cache_enabled` is off."""
 
     if _compiler_cache is not None:
         return _compiler_cache
     if not _default_compiler_cache_enabled():
         return None
+    if _remote_kvcache_configured():
+        remote_cache = _resolve_default_remote_bundle_cache()
+        if remote_cache is not None:
+            return remote_cache
     global _default_bundle_cache
     if _default_bundle_cache is None:
         with _default_bundle_cache_lock:

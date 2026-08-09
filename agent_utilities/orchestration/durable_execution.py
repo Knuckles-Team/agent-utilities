@@ -22,6 +22,7 @@ Durability guarantees:
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -43,6 +44,22 @@ from agent_utilities.orchestration.resilience import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class DurableRunVersionMismatch(RuntimeError):
+    """Raised on resume when the caller's ``definition_version`` disagrees with
+    the version this run was PINNED to when it started (DE5,
+    CONCEPT:AU-KG.storage.durable-execution-unit's ``:definitionVersion``).
+
+    Restate hard-pins an in-flight invocation to its starting deployment and
+    fails loud on a protocol-incompatible upgrade (`durable-execution-native.md`
+    Part 1 row 9, one of only two capabilities restate is genuinely ahead on).
+    This is the ``DurableRun`` analog: a code upgrade that changes a step's
+    semantics mid-flight must never silently resume under the new code as if
+    nothing changed — it fails here instead, with the two versions named, so
+    the operator can choose to migrate or discard the stale run explicitly.
+    """
+
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS durable_checkpoints (
@@ -479,6 +496,21 @@ class DurableRun:
     selection is inherited from :class:`DurableExecutionManager` (embedded SQLite
     by default; shared Postgres when ``STATE_DB_URI`` is set), so the same run
     can be resumed on another host in the fleet.
+
+    Two DE1/DE5 additions over the base checkpoint substrate, both opt-in via
+    constructor args so every existing call site keeps its exact prior
+    behavior unchanged:
+
+    * ``engine`` (DE1, CONCEPT:AU-KG.storage.durable-execution-unit) — when
+      supplied, every ``step()``/``finish()`` transition mirrors a
+      ``:DurableRun`` node via
+      :mod:`agent_utilities.knowledge_graph.durable_execution_kg`, the same
+      fail-soft, no-op-when-absent posture ``KgAuditSink(engine=None)`` uses.
+    * ``definition_version`` (DE5) — when supplied on both the run that
+      started and the run that resumes, a mismatch raises
+      :class:`DurableRunVersionMismatch` instead of silently resuming under
+      different semantics. Omitting it (either side) skips enforcement
+      entirely — this is a caller-declared pin, not a default requirement.
     """
 
     _POINTER = "__run__"
@@ -489,9 +521,14 @@ class DurableRun:
         *,
         db_path: str | os.PathLike[str] | None = None,
         store: CheckpointStore | None = None,
+        engine: Any | None = None,
+        definition_version: str | None = None,
     ) -> None:
         self.session_id = session_id
+        self.engine = engine
+        self.definition_version = definition_version
         self._mgr = DurableExecutionManager(session_id, db_path=db_path, store=store)
+        self._auto_seq: dict[str, int] = {}
         pointer = self._mgr.get_checkpoint(self._POINTER)
         if (
             pointer is not None
@@ -501,17 +538,68 @@ class DurableRun:
             # An earlier run for this session was interrupted — resume it.
             self.run_id = str(pointer["state"]["run_id"])
             self.resumed = True
+            pinned_version = pointer["state"].get("definition_version")
+            if (
+                pinned_version
+                and definition_version
+                and pinned_version != definition_version
+            ):
+                raise DurableRunVersionMismatch(
+                    f"DurableRun {self.run_id!r} (session {session_id!r}) was "
+                    f"pinned to definition_version={pinned_version!r}; resume "
+                    f"requested definition_version={definition_version!r}. "
+                    "Migrate the run's stored state or discard it explicitly "
+                    "before resuming under a different definition version."
+                )
         else:
             self.run_id = (
                 f"run_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}_{uuid4().hex}"
             )
             self.resumed = False
             self._mgr.save_checkpoint(
-                self._POINTER, {"run_id": self.run_id}, status="PENDING"
+                self._POINTER,
+                {"run_id": self.run_id, "definition_version": definition_version},
+                status="PENDING",
             )
+        self._mirror(durable_status="PENDING" if not self.resumed else "RESUMED")
 
     def _key(self, name: str) -> str:
         return f"{self.run_id}:{name}"
+
+    def _mirror(
+        self, *, durable_status: str, checkpoint_ref: str | None = None
+    ) -> None:
+        """DE1 mirror-on-write — see the class doc's ``engine`` paragraph."""
+        from agent_utilities.knowledge_graph.durable_execution_kg import (
+            mirror_durable_run,
+        )
+
+        mirror_durable_run(
+            self.engine,
+            session_id=self.session_id,
+            run_id=self.run_id,
+            durable_status=durable_status,
+            checkpoint_ref=checkpoint_ref,
+            definition_version=self.definition_version,
+        )
+
+    def link_run_trace(self, run_trace_id: str) -> None:
+        """Complete DE0's ``:produced``/``:producedBy`` edge to a ``RunTrace``.
+
+        Callers that write a ``RunTrace`` for this run (``observability.
+        trace_ontology.trace_id``) can call this once they have its id; a
+        no-op when ``engine`` was not supplied to this run.
+        """
+        from agent_utilities.knowledge_graph.durable_execution_kg import (
+            link_durable_run_produced,
+        )
+
+        link_durable_run_produced(
+            self.engine,
+            session_id=self.session_id,
+            run_id=self.run_id,
+            run_trace_id=run_trace_id,
+        )
 
     def is_done(self, name: str) -> bool:
         """True if ``name`` already completed in this (possibly resumed) run."""
@@ -539,10 +627,96 @@ class DurableRun:
         self._mgr.save_checkpoint(
             key, state or {}, status="PENDING", idempotency_key=key
         )
+        self._mirror(durable_status="PENDING", checkpoint_ref=key)
         result = action()
         self._mgr.mark_completed(key, result=result)
+        self._mirror(durable_status="COMPLETED", checkpoint_ref=key)
         return result
+
+    def _next_auto_seq(self, label: str) -> int:
+        seq = self._auto_seq.get(label, 0) + 1
+        self._auto_seq[label] = seq
+        return seq
+
+    def auto_step(
+        self, name: str | None = None
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Decorator (DE3): checkpoint the wrapped call with NO hand-named step.
+
+        Narrows restate's genuine ergonomics lead (Part 1 rows 1/5 — automatic
+        any-await-point replay vs. our named-step design) for the shape of
+        workload this run actually has: agent-loop boundaries (one tool call,
+        one LLM turn) called repeatedly inside a loop. The step name is
+        derived from the wrapped function's own ``__qualname__`` (or ``name``
+        if given) plus a per-run auto-incrementing call sequence, so calling
+        the same decorated function N times in one run produces N distinct,
+        independently resumable steps without the caller designing a step
+        schema. This does not replicate restate's general-purpose
+        bytecode/coroutine replay of ARBITRARY imperative code — it only
+        removes the naming burden from :meth:`step`'s existing named-step
+        model.
+
+        Caveat: the default (unset ``name``) label is only stable across a
+        crash-and-resume if the SAME function object's ``__qualname__``
+        resolves identically on restart — true for an ordinary module- or
+        class-level function (the common case: the process re-imports the
+        same source), but NOT for a locally-defined closure created fresh
+        with a different name each attempt. Pass an explicit ``name=`` when
+        that stability is not guaranteed.
+        """
+
+        def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
+            label = name or fn.__qualname__
+
+            @functools.wraps(fn)
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                step_name = f"{label}#{self._next_auto_seq(label)}"
+                return self.step(step_name, lambda: fn(*args, **kwargs))
+
+            return wrapper
+
+        return decorator
+
+    def sleep_until(self, name: str, wake_at_ms: int) -> bool:
+        """Durable timer bound to THIS run's named step (DE6).
+
+        Returns ``True`` once ``wake_at_ms`` has passed (and durably records
+        the step as completed, so a later call is a free idempotent replay);
+        returns ``False`` — durably checkpointed ``WAITING`` with the deadline
+        itself as the checkpoint payload — otherwise. This is the closest
+        ``DurableRun``-backend analog to restate's
+        ``sleep(ms)``-and-wake-THIS-exact-suspended-continuation
+        (`durable-execution-native.md` Part 1 row 7): unlike ``eg-jobs``'s
+        cron/interval triggers (dedup'd per tick window, not bound to one
+        in-flight execution), this deadline is scoped to exactly one run's
+        exactly one named step. It is POLL-based, not push-based — there is
+        no wake callback here, only a durably-remembered deadline a caller's
+        own retry loop (e.g. the next ``KG_LOOP`` daemon tick) re-checks
+        without ever losing WHICH deadline it was waiting on. Narrows, but
+        does not fully close, restate's push-based wake semantics.
+        """
+        key = self._key(name)
+        applied, _prior = self._mgr._completed_result_for(key)
+        if applied:
+            return True
+        now_ms = int(datetime.now(UTC).timestamp() * 1000)
+        if now_ms < int(wake_at_ms):
+            self._mgr.save_checkpoint(
+                key,
+                {"wake_at_ms": int(wake_at_ms)},
+                status="PENDING",
+                idempotency_key=key,
+            )
+            self._mirror(durable_status="WAITING", checkpoint_ref=key)
+            return False
+        self._mgr.save_checkpoint(
+            key, {"wake_at_ms": int(wake_at_ms)}, status="PENDING", idempotency_key=key
+        )
+        self._mgr.mark_completed(key, result=True)
+        self._mirror(durable_status="COMPLETED", checkpoint_ref=key)
+        return True
 
     def finish(self) -> None:
         """Mark the run complete so the next run under this session starts fresh."""
         self._mgr.mark_completed(self._POINTER)
+        self._mirror(durable_status="COMPLETED")

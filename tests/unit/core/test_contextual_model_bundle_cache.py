@@ -58,6 +58,11 @@ def _clean_state(monkeypatch):
     # a lazily-built process-wide default leak between tests.
     monkeypatch.setattr(cm, "_compiler_cache", None)
     monkeypatch.setattr(cm, "_default_bundle_cache", None)
+    monkeypatch.setattr(cm, "_default_remote_bundle_cache", None)
+    # The remote-backend auto-detection signal must start unconfigured in every
+    # test regardless of what the host/ambient environment happens to carry.
+    monkeypatch.delenv("EPISTEMIC_GRAPH_KVCACHE_URL", raising=False)
+    monkeypatch.delenv("EPISTEMIC_GRAPH_KVCACHE_ADDR", raising=False)
     with use_marking_authority(_FakeMarkingStore()):
         yield
     reset_company_brain()
@@ -146,6 +151,67 @@ def test_explicit_none_reverts_to_default_not_a_hard_disable(monkeypatch):
     cm.set_context_compiler_cache(object())
     cm.set_context_compiler_cache(None)
     assert isinstance(cm._resolve_compiler_cache(), cm._InProcessBundleCache)
+
+
+# ---------------------------------------------------------------------------
+# 2b. Networked backend auto-detection — the injectable KV cache library
+# ---------------------------------------------------------------------------
+#
+# Evaluating arXiv:2607.28069 (SemPIC) surfaced that :func:`set_context_compiler_cache`
+# already lets an operator install ``EpistemicGraphKVBackend`` — the networked,
+# fleet-wide, injectable backend — as the compiled-bundle cache, but NOTHING in
+# the process ever called it outside a test: the deployment default silently
+# fell straight to the single-process ``_InProcessBundleCache`` even when the
+# engine's remote KV endpoint was configured. These tests prove the fix: when
+# ``EPISTEMIC_GRAPH_KVCACHE_URL``/``_ADDR`` (the SAME signal the engine
+# connector itself reads — no new flag) is set, the deployment default upgrades
+# to the networked backend automatically.
+
+
+def test_remote_backend_not_preferred_when_engine_kv_endpoint_unconfigured(
+    monkeypatch,
+):
+    monkeypatch.setenv("MODEL_CONTEXT_COMPILER_CACHE_ENABLED", "true")
+    assert cm._remote_kvcache_configured() is False
+    assert isinstance(cm._resolve_compiler_cache(), cm._InProcessBundleCache)
+
+
+def test_remote_backend_preferred_when_engine_kv_endpoint_configured(monkeypatch):
+    from agent_utilities.kvcache.remote_backend import EpistemicGraphKVBackend
+
+    monkeypatch.setenv("MODEL_CONTEXT_COMPILER_CACHE_ENABLED", "true")
+    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_URL", "http://127.0.0.1:9130")
+    assert cm._remote_kvcache_configured() is True
+
+    cache = cm._resolve_compiler_cache()
+    assert isinstance(cache, EpistemicGraphKVBackend)
+    # Lazily built ONCE, same as the in-process default.
+    assert cm._resolve_compiler_cache() is cache
+
+
+def test_remote_backend_addr_signal_also_triggers_auto_detection(monkeypatch):
+    """``EPISTEMIC_GRAPH_KVCACHE_ADDR`` (the engine's own bind-value env var) is
+    an equally valid signal — a co-located deploy sets the engine's bind addr,
+    not necessarily a separate client URL."""
+    from agent_utilities.kvcache.remote_backend import EpistemicGraphKVBackend
+
+    monkeypatch.setenv("MODEL_CONTEXT_COMPILER_CACHE_ENABLED", "true")
+    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_ADDR", "9130")
+    assert isinstance(cm._resolve_compiler_cache(), EpistemicGraphKVBackend)
+
+
+def test_explicit_override_wins_over_remote_auto_detection(monkeypatch):
+    """An explicit :func:`set_context_compiler_cache` install still wins over
+    the new auto-detection — an operator/test that installed a SPECIFIC backend
+    meant it, exactly as it already wins over the in-process default."""
+    monkeypatch.setenv("MODEL_CONTEXT_COMPILER_CACHE_ENABLED", "true")
+    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_URL", "http://127.0.0.1:9130")
+    sentinel = object()
+    cm.set_context_compiler_cache(sentinel)
+    try:
+        assert cm._resolve_compiler_cache() is sentinel
+    finally:
+        cm.set_context_compiler_cache(None)
 
 
 # ---------------------------------------------------------------------------
@@ -259,3 +325,53 @@ def test_shared_cache_instance_never_leaks_a_bundle_across_tenants():
     assert cache.get(bundle_a1.cache_key) is not None
     assert cache.get(bundle_b1.cache_key) is not None
     assert cache.get(bundle_a1.cache_key) != cache.get(bundle_b1.cache_key)
+
+
+# ---------------------------------------------------------------------------
+# 4. Wiring test — the REAL entrypoint (compile_model_context) threads the
+#    auto-detected networked backend into ContextCompiler.compile(kv_backend=)
+# ---------------------------------------------------------------------------
+
+
+def test_compile_model_context_wires_the_networked_backend_when_configured(
+    monkeypatch,
+):
+    """Drives the actual production entrypoint —
+    :func:`agent_utilities.core.contextual_model.compile_model_context`, the
+    function every one of ``create_context_agent``'s ~90 call sites reaches on
+    every model call — and observes the REAL :meth:`ContextCompiler.compile`
+    (never mocked; see AGENTS.md "Wire-First") to prove it actually receives an
+    ``EpistemicGraphKVBackend`` instance as ``kv_backend`` once the engine's
+    remote KV endpoint is configured, exactly as rule 4 of the Wire-First
+    section requires ("assert the argument that switches integration on") — the
+    KV-forking incident that rule cites was complete plumbing plus a caller that
+    never passed the parameter; this proves the parameter IS passed here.
+    """
+    from agent_utilities.knowledge_graph.retrieval.context_compiler import (
+        ContextCompiler,
+    )
+    from agent_utilities.kvcache.remote_backend import EpistemicGraphKVBackend
+    from tests.wiring import observe
+
+    monkeypatch.setenv("MODEL_CONTEXT_COMPILER_CACHE_ENABLED", "true")
+    monkeypatch.setenv("EPISTEMIC_GRAPH_KVCACHE_URL", "http://127.0.0.1:9130")
+
+    session = _session("tenant-wiring", "principal:wiring")
+    with use_session(session), observe(ContextCompiler, "compile") as compiled:
+        cm.compile_model_context(
+            "what is the policy?",
+            session=session,
+            engine=cm._EmptyEvidenceSource(),
+        )
+
+    compiled.assert_called(
+        why="compile_model_context always compiles through ContextCompiler.compile"
+    )
+    kv_backend = compiled.last.arg("kv_backend")
+    assert isinstance(kv_backend, EpistemicGraphKVBackend), (
+        "the real entrypoint must pass the auto-detected networked backend, not "
+        "leave kv_backend unset/None once the engine's remote KV endpoint is "
+        "configured — this is the exact 'plumbed end-to-end, no caller passed "
+        "the parameter' failure shape AGENTS.md's Wire-First section names KV "
+        "forking after."
+    )

@@ -292,6 +292,12 @@ parents:
     rationale: analysis_tools.py:2655 is a caller of the SAME read-existing-then-seed vault_sync routine
       (secrets_client.py:776) that vault-first-routine-genesis documents; the comment literally restates
       vault_sync's own 'read-existing + seed' contract at a second call site.
+  AU-OS.identity.idp-role-to-engine-capability-bridge:
+    parent: AU-OS.identity.idp-agnostic-role-inheritance
+    rationale: the engine-capability half of the SAME idp-agnostic role-inheritance decision — it maps
+      an already-inherited IdP role onto the engine's capability set rather than deciding how roles are
+      inherited; the parent's design doc (.specify/design/au-kv-persistence-authority/design.md) owns
+      that choice, and this marker only names where it lands on the engine boundary
 renamed:
   AU-KG.history.scoped-conversation-search:
     reason: history was never registered in the KG pillar closed vocabulary (agent_utilities/governance/domain_vocab.yaml)

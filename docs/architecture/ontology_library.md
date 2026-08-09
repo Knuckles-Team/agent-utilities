@@ -136,6 +136,8 @@ the import is a tolerated superset no-op (registered in
 | `feed.ttl` (`freshrss_agent/ontology/`) | `…/kg/feed` | `freshrss-agent` | Unified RSS/Atom feed sources + items (`:FeedSource`/`:RssFeed`/`:FeedItem`). |
 | `wellness.ttl` (`wger_agent/ontology/`) | `…/kg/wellness` | `wger-agent` | Wellness domain. |
 | `database.ttl` (`sql_mcp/ontology/`) | `…/kg/database` | `sql-mcp` | Database/schema domain (imports `…/kg/enterprise`). |
+| `container.ttl` (`container_manager_mcp/ontology/`) | `…/kg/container` | `container-manager-mcp` | Container runtime domain: images, volumes, networks, and the workloads that mount them. |
+| `tunnel.ttl` (`tunnel_manager/ontology/`) | `…/kg/tunnel` | `tunnel-manager` | SSH tunnel/host inventory: managed hosts, inventory groups, and fleet-wide operations. |
 
 ### SHACL shapes
 

@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1151
+total_concepts: 1157
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2417,6 +2417,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/core/contextual_model.py
   - agent_utilities/knowledge_graph/retrieval/context_compiler.py
   - agent_utilities/kvcache/__init__.py
   - agent_utilities/kvcache/config.py
@@ -2929,6 +2930,13 @@ concepts:
   - agent_utilities/core/gpu_group_budget.py
   - agent_utilities/core/model_capacity_autoscale.py
   doc: Pure config enumeration; fail-safe
+- id: AU-KG.compute.quantum-budget-ledger
+  name: Q8
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/quantum/budget.py
+  doc: Q8
 - id: AU-KG.compute.reactive-push
   name: instead of re-querying the ENTIRE
   pillar: AU-KG
@@ -4703,13 +4711,6 @@ concepts:
   code_paths:
   - agent_utilities/core/paths.py
   doc: Observational Memory Bridge
-- id: AU-KG.memory.parammem
-  name: ParamMem §6.2
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/engine_memory.py
-  doc: ParamMem §6.2
 - id: AU-KG.memory.persistent-self-model-owl
   name: Persistent Self-Model with OWL Integration
   pillar: AU-KG
@@ -6692,6 +6693,16 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   doc: the write-back companion to the read-only XDG loader, so a
+- id: AU-KG.storage.durable-execution-unit
+  name: mirror this run
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/harness/agentic_evolution_engine.py
+  - agent_utilities/knowledge_graph/durable_execution_kg.py
+  - agent_utilities/knowledge_graph/research/loop_controller.py
+  - agent_utilities/orchestration/durable_execution.py
+  doc: mirror this run
 - id: AU-KG.temporal.ambient-connector-valid-time
   name: the ambient-epistemics
   pillar: AU-KG
@@ -6745,6 +6756,13 @@ concepts:
   code_paths:
   - agent_utilities/sdd/watcher.py
   doc: Implementation Plan & Tasks versioning and KG lineage
+- id: AU-KG.temporal.quantum-run-provenance
+  name: Q9
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/observability/quantum_trace.py
+  doc: Q9
 - id: AU-KG.temporal.token-event-tsdb
   name: ALSO append this event to the engine tsdb as a per-agent
   pillar: AU-KG
@@ -7209,6 +7227,13 @@ concepts:
   code_paths:
   - agent_utilities/agent/discovery.py
   doc: Two execution models — remote A2A vs. unified specialist
+- id: AU-ORCH.execution.durable-routing-trait
+  name: AU-ORCH.execution.durable-routing-trait
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/durable_tool_surface.py
+  doc: AU-ORCH.execution.durable-routing-trait
 - id: AU-ORCH.execution.dynamic-execution-profile
   name: the profile is no longer a fixed per-entrypoint *preset*; it is the
   pillar: AU-ORCH
@@ -8955,21 +8980,6 @@ concepts:
   code_paths:
   - agent_utilities/deployment/venv_autosync.py
   doc: AU-OS.deployment.merge-triggered-venv-flip
-- id: AU-OS.deployment.os-2
-  name: AU-OS.deployment.os-2
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/deployment/self_deploy.py
-  - agent_utilities/knowledge_graph/retrieval/deploy_context.py
-  doc: AU-OS.deployment.os-2
-- id: AU-OS.deployment.os-4
-  name: AU-OS.deployment.os-4
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/deployment/doctor.py
-  doc: AU-OS.deployment.os-4
 - id: AU-OS.deployment.report-resolved-mode
   name: report the RESOLVED mode
   pillar: AU-OS
@@ -9426,6 +9436,14 @@ concepts:
   - agent_utilities/security/identity.py
   - agent_utilities/security/request_identity.py
   doc: No-op when the
+- id: AU-OS.identity.idp-role-to-engine-capability-bridge
+  name: register D-W6-ISO-1
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/knowledge_graph/core/placement_catalog.py
+  doc: register D-W6-ISO-1
 - id: AU-OS.identity.multisig-cryptographic-mutation
   name: Multi-sig Cryptographic Mutation
   pillar: AU-OS
@@ -10138,6 +10156,49 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: model-free similar-code lookup. Returns the
+- id: EG-KG.compute.quantum-backends
+  name: Pure-Rust QuantumBackend implementations (statevector + stabilizer, lane Q1/Q4, D-QN-1) the planner
+    routes QuantumProgram circuits to
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/crates/eg-quantum-sim/src/lib.rs
+  - epistemic-graph/crates/eg-quantum-sim/src/stabilizer.rs
+  - epistemic-graph/crates/eg-quantum-sim/src/statevector.rs
+  doc: Pure-Rust QuantumBackend implementations (statevector + stabilizer, lane Q1/Q4, D-QN-1) the planner
+    routes QuantumProgram circuits to
+- id: EG-KG.compute.quantum-circuit-ir
+  name: 'Quantum-native contracts (lane Q0, D-QN-1): the QuantumProgram IR, the vendor-neutral QuantumBackend
+    trait + capability flags, the deterministic planner (R0-R5), and the exactness-typed QuantumResult'
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/crates/eg-quantum-core/src/backend.rs
+  - epistemic-graph/crates/eg-quantum-core/src/estimate.rs
+  - epistemic-graph/crates/eg-quantum-core/src/ir.rs
+  - epistemic-graph/crates/eg-quantum-core/src/lib.rs
+  - epistemic-graph/crates/eg-quantum-core/src/planner.rs
+  - epistemic-graph/crates/eg-quantum-core/src/result.rs
+  doc: 'Quantum-native contracts (lane Q0, D-QN-1): the QuantumProgram IR, the vendor-neutral QuantumBackend
+    trait + capability flags, the deterministic planner (R0-R5), and the exactness-typed QuantumResult'
+- id: EG-KG.compute.quantum-gate-library
+  name: Dense unitary matrix literals for eg_quantum_core::ir::GateKind (lane Q1, D-QN-1), Apache-2.0
+    attributed and ported from QuantRS2, expressed over eg-numeric's Complex64
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/crates/eg-quantum-gates/src/lib.rs
+  doc: Dense unitary matrix literals for eg_quantum_core::ir::GateKind (lane Q1, D-QN-1), Apache-2.0 attributed
+    and ported from QuantRS2, expressed over eg-numeric's Complex64
+- id: EG-KG.compute.quantum-qasm-interop
+  name: 'OpenQASM 2.0 import/export for QuantumProgram (lane Q2, D-QN-6): hand-rolled lexer/parser over
+    the IR''s bounded gate vocabulary, typed rejection of anything outside it'
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - epistemic-graph/crates/eg-quantum-core/src/qasm.rs
+  doc: 'OpenQASM 2.0 import/export for QuantumProgram (lane Q2, D-QN-6): hand-rolled lexer/parser over
+    the IR''s bounded gate vocabulary, typed rejection of anything outside it'
 - id: EG-KG.compute.rust-native-training-loss
   name: Empty => no recency weighting
   pillar: EG-KG

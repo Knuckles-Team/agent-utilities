@@ -459,3 +459,65 @@ def test_generated_agent_tree_contains_only_tracked_top_level_paths():
 
     assert rendered_top
     assert rendered_top <= tracked_top
+
+
+def test_privacy_gate_identifiers_vary_with_ambient_identity_when_unpinned(
+    monkeypatch,
+):
+    """D-ORC-57 (reproduction): with NO declared override, two different
+    ambient identities (simulating two different lanes' sandboxes running
+    the same scan against the same tree) derive DIFFERENT identifier sets --
+    this is the non-determinism the item reports, and it must still
+    reproduce when nothing has opted in to the fix.
+    """
+    privacy = _load_script("check_tracked_privacy.py")
+    monkeypatch.delenv("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", raising=False)
+
+    monkeypatch.setattr(privacy.getpass, "getuser", lambda: "sandbox-one")
+    monkeypatch.setattr(
+        privacy.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="", stderr=""),
+    )
+    monkeypatch.setattr(
+        privacy.pwd, "getpwuid", lambda _uid: type("_Pw", (), {"pw_name": "sandbox-one"})()
+    )
+    first = privacy.derive_local_identifiers()
+
+    monkeypatch.setattr(privacy.getpass, "getuser", lambda: "sandbox-two")
+    monkeypatch.setattr(
+        privacy.pwd, "getpwuid", lambda _uid: type("_Pw", (), {"pw_name": "sandbox-two"})()
+    )
+    second = privacy.derive_local_identifiers()
+
+    assert first != second
+    assert "sandbox-one" in first
+    assert "sandbox-two" in second
+
+
+def test_privacy_gate_identifiers_are_deterministic_with_declared_override(
+    monkeypatch,
+):
+    """D-ORC-57 (fix): with a DECLARED override set, the same two ambient
+    identities from the test above collapse to the identical identifier set
+    -- the gate's verdict no longer depends on who/where it runs. Revert the
+    ``AGENT_UTILITIES_PRIVACY_IDENTIFIERS`` short-circuit in
+    ``derive_local_identifiers`` and this goes red (falls back to the
+    ambient, sandbox-dependent set proven to differ above).
+    """
+    privacy = _load_script("check_tracked_privacy.py")
+
+    monkeypatch.setenv("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", "declared-identity")
+    monkeypatch.setattr(privacy.getpass, "getuser", lambda: "sandbox-one")
+    monkeypatch.setattr(
+        privacy.pwd, "getpwuid", lambda _uid: type("_Pw", (), {"pw_name": "sandbox-one"})()
+    )
+    first = privacy.derive_local_identifiers()
+
+    monkeypatch.setattr(privacy.getpass, "getuser", lambda: "sandbox-two")
+    monkeypatch.setattr(
+        privacy.pwd, "getpwuid", lambda _uid: type("_Pw", (), {"pw_name": "sandbox-two"})()
+    )
+    second = privacy.derive_local_identifiers()
+
+    assert first == second == frozenset({"declared-identity"})
