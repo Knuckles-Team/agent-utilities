@@ -255,12 +255,31 @@ class _BatchedBackend:
         relationship = str(properties.get("relationship") or rel_type).strip()
         if not relationship:
             raise ValueError("relationship is required")
+        props: dict[str, Any] = {**properties, "relationship": relationship}
+        # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard):
+        # this buffered batch path flushes straight through the engine's bulk
+        # RPC (``graph.bulk_mutate``/``batch_update``), bypassing
+        # ``GraphComputeEngine.add_edge``/``IntelligenceGraphEngine`` entirely —
+        # the same reason ``add_node`` above stamps directly instead of relying
+        # on the wrapped backend's own gate. Without this, every edge ingested
+        # through this batching seam (the dominant KG-2.9g repo-ingest path)
+        # shared BUG-058's "unconditionally ungoverned" gap.
+        #
+        # BUG-058 (fail closed, same contract as ``add_node`` above): a write
+        # reaching this seam with NO bound actor at all must raise, not
+        # silently land unowned. A genuinely privileged/system actor still
+        # lands intentionally unowned (``stamp_ownership``'s own, unchanged
+        # policy for platform/code-symbol data).
+        from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+        stamp_ownership(props)
+        stamp_classification(props, props.get("relationship"))
         self._edges.append(
             {
                 "op": "add_edge",
                 "source": source,
                 "target": target,
-                "properties": {**properties, "relationship": relationship},
+                "properties": props,
             }
         )
 
