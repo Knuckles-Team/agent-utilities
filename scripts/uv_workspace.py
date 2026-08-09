@@ -68,9 +68,10 @@ _ENVIRONMENT_MARKER = ".uv-workspace-selection.json"
 # ``epistemic-graph`` workspace member -- a worker whose worktree has never
 # synced before pays a from-scratch ``cargo rustc --profile release --features
 # full --features ast-extended -C lto=thin -C codegen-units=1`` PEP 517 build
-# (measured 40m49s) to reproduce a wheel byte-identical to one 14 siblings
-# already built. A worker who is not touching epistemic-graph's Rust source has
-# no reason to build it from source at all -- see ``_eg_fast_vendor_dir`` below.
+# (measured 40m49s) to reproduce a wheel byte-identical to what 14 sibling
+# worktrees already built. A worker who is not touching epistemic-graph's Rust
+# source has no reason to build it from source at all -- see
+# ``_eg_fastpath_vendor_dir`` below.
 _EG_MEMBER_NAME = "epistemic-graph"
 _EG_WHEELHOUSE_ENV = "EPISTEMIC_GRAPH_WHEELHOUSE"
 _EG_DEFAULT_WHEELHOUSE = Path("/home/apps/worktrees/SHARED-WHEELS")
