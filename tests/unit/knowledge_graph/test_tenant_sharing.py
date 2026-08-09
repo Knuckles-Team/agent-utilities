@@ -399,3 +399,240 @@ def test_stamp_classification_does_not_require_an_actor():
         assert props["classification"] == "confidential"
 
     contextvars.Context().run(isolated)
+
+
+# --- GOC-61 phase-1 system-graph WRITE gate (W04 + 2026-08-09 owner ruling,
+# write/read split) --------------------------------------------------------
+#
+# CONTENT is now a DENYLIST (COMMONS_PRIVATE_NODE_TYPES, six confirmed
+# private-class types) instead of the original allowlist -- an evidence-
+# backed audit found WorkItem/RuntimeSignal writers are actor-agnostic and
+# reached from live MCP tool entrypoints under real tenant-bound sessions
+# (mcp/tasks_extension.py:377, mcp/tools/job_tools.py:147,
+# orchestration/agent_runner.py:467, messaging/router.py:334) -- an
+# allowlist-on-write would have refused those already-working writes.
+# COMMONS_SHAREABLE_NODE_TYPES (the old allowlist) now governs READ
+# visibility instead -- see the "commons READ catalog restriction" section
+# below.
+
+
+def test_check_system_graph_write_noop_for_non_system_graph():
+    # Not a system graph at all -> no-op regardless of actor/type.
+    ts.check_system_graph_write("tenant__acme____commons__", "Message", _user("mallory", "acme"))
+    ts.check_system_graph_write("code:agent-utilities", "Message", _user("mallory", "acme"))
+
+
+def test_check_system_graph_write_denies_privileged_caller_of_private_type():
+    """Known-bad input (a), re-verified against the narrowed denylist gate:
+    a FULLY PRIVILEGED (kg:admin) caller writing a confirmed PRIVATE-class
+    type is refused. This is the one a coarser, allowlist-shaped gate got
+    wrong in the other direction -- admin authority authorizes WHO may write
+    to a system graph, never WHAT may be published there (2026-08-09 owner
+    ruling).
+    """
+    root = _user("root", "acme", roles=("kg:admin",))
+    for private_type in sorted(ts.COMMONS_PRIVATE_NODE_TYPES):
+        with pytest.raises(PermissionError):
+            ts.check_system_graph_write("__commons__", private_type, root)
+
+
+def test_check_system_graph_write_private_denylist_is_exactly_the_owner_six():
+    assert ts.COMMONS_PRIVATE_NODE_TYPES == frozenset(
+        {"Message", "Thread", "Memento", "ChatSummary", "InboundMessage", "EvictedBlock"}
+    )
+
+
+def test_check_system_graph_write_privileged_operational_type_now_allowed():
+    """Operational/provenance/ontology types (not on the private denylist)
+    are no longer refused by CONTENT for a privileged writer -- they were
+    never the leak; the six confirmed private types are."""
+    root = _user("root", "acme", roles=("kg:admin",))
+    for operational_type in ("WorkItem", "RuntimeSignal", "Concept", "Evidence", "Tool", "Skill"):
+        ts.check_system_graph_write("__commons__", operational_type, root)  # must not raise
+
+
+def test_check_system_graph_write_tenant_bound_nonadmin_writes_workitem_permitted():
+    """Regression proof (2026-08-09 owner ruling, second correction): a
+    tenant-bound, non-admin caller writing WorkItem/RuntimeSignal into
+    commons must be PERMITTED -- this is exactly the traffic the evidence
+    audit found already working (mcp/tasks_extension.py:377,
+    mcp/tools/job_tools.py:147, orchestration/agent_runner.py:467,
+    messaging/router.py:334). AUTHORITY no longer requires kg:admin for
+    commons specifically (see check_system_graph_write's docstring for why
+    this is safe only in combination with the read-side catalog
+    restriction -- filter_commons_catalog/apply_commons_catalog_restriction
+    below are what makes this permissiveness non-leaking).
+    """
+    mallory = _user("mallory", "acme")  # tenant-bound, no kg:admin
+    ts.check_system_graph_write("__commons__", "WorkItem", mallory)  # must not raise
+    ts.check_system_graph_write("__commons__", "RuntimeSignal", mallory)  # must not raise
+
+
+def test_check_system_graph_write_commons_authority_exempt_but_control_graph_is_not():
+    """AUTHORITY's new commons exemption must be commons-specific -- an
+    unprivileged actor is still refused for __control__/__secrets__ (see
+    also test_check_system_graph_write_content_gate_is_commons_only_not_every_system_graph,
+    which proves the converse: CONTENT does not apply to those graphs)."""
+    mallory = _user("mallory", "acme")
+    ts.check_system_graph_write("__commons__", "WorkItem", mallory)  # commons: no authority check
+    with pytest.raises(PermissionError):
+        ts.check_system_graph_write("__control__", "ProfileSpan", mallory)  # control: authority still applies
+
+
+def test_check_system_graph_write_denies_unprivileged_caller_even_for_control_graph():
+    mallory = _user("mallory", "acme")
+    with pytest.raises(PermissionError):
+        ts.check_system_graph_write("__control__", "Tool", mallory)
+
+
+def test_check_system_graph_write_share_verb_bypasses_authority_not_content():
+    """The ambient _SHARE_VERB_ACTIVE context (promote_to_commons) waives the
+    AUTHORITY condition but must never waive the CONTENT condition.
+    """
+    mallory = _user("mallory", "acme")  # no kg:admin
+    token = ts._SHARE_VERB_ACTIVE.set(True)
+    try:
+        # Authority waived: an unprivileged actor may write a non-private
+        # type from inside an already-authorized share verb.
+        ts.check_system_graph_write("__commons__", "Skill", mallory)
+        # Content NOT waived: the same context still refuses a private type.
+        with pytest.raises(PermissionError):
+            ts.check_system_graph_write("__commons__", "Message", mallory)
+    finally:
+        ts._SHARE_VERB_ACTIVE.reset(token)
+
+
+def test_check_system_graph_write_content_gate_is_commons_only_not_every_system_graph():
+    """Regression guard: the CONTENT condition must be scoped to the commons
+    graph specifically, not every ``is_system_graph()`` name -- otherwise
+    this gate would break already-legitimate control-plane/secrets writes
+    that were never part of the owner's commons-sharing ruling (e.g.
+    ingest_profile.py's ``ProfileSpan`` nodes into ``__control__``,
+    secrets_client.py's ``Secret`` nodes into ``__secrets__``). AUTHORITY
+    still applies to those graphs (an unprivileged actor is still refused).
+    """
+    root = _user("root", "acme", roles=("kg:admin",))
+    # ProfileSpan/Secret are not on the private denylist either, but writing
+    # them into __control__/__secrets__ (not commons) must succeed for a
+    # privileged actor regardless -- the content denylist only ever applies
+    # to commons.
+    ts.check_system_graph_write("__control__", "ProfileSpan", root)  # must not raise
+    ts.check_system_graph_write("__secrets__", "Secret", root)  # must not raise
+    # AUTHORITY is still enforced for those graphs.
+    mallory = _user("mallory", "acme")
+    with pytest.raises(PermissionError):
+        ts.check_system_graph_write("__control__", "ProfileSpan", mallory)
+
+
+def test_check_system_graph_write_unauthenticated_system_path_exempted_from_authority_only():
+    import contextvars
+
+    def isolated():
+        # No bound actor at all (genuine background/system write) -- exempt
+        # from the AUTHORITY condition (matches stamp_ownership's existing
+        # best-effort exemption), but the CONTENT gate still applies.
+        ts.check_system_graph_write("__commons__", "MCPServer", None)  # must not raise
+        with pytest.raises(PermissionError):
+            ts.check_system_graph_write("__commons__", "Message", None)
+
+    contextvars.Context().run(isolated)
+
+
+# --- GOC-61 phase-1 commons READ catalog restriction (2026-08-09 owner
+# ruling, write/read split) -------------------------------------------------
+
+
+def _row(node_id, node_type=None, tenant=None, **extra):
+    row = {"id": node_id}
+    if node_type is not None:
+        row["node_type"] = node_type
+    if tenant is not None:
+        row[ts.TENANT_KEY] = tenant
+    row.update(extra)
+    return row
+
+
+_CATALOG_READ_ROWS = [
+    _row("s1", "Skill"),
+    _row("t1", "Tool"),
+    _row("cr1", "CallableResource", resource_type="AGENT_SKILL"),
+    _row("cr2", "CallableResource", resource_type="WORKFLOW"),  # NOT shareable
+    _row("w1", "WorkItem", tenant="acme"),
+    _row("rs1", "RuntimeSignal", tenant="acme"),
+    _row("c1", "Concept", tenant="acme"),
+    _row("m1", "Message", tenant="acme"),  # confirmed private
+    _row("u1"),  # unclassifiable: no node_type at all
+]
+
+
+def test_filter_commons_catalog_cross_tenant_sees_only_catalog_types():
+    """Read proof (new): a cross-tenant reader sees the catalog and nothing else."""
+    bob = _user("bob", "globex")  # different tenant, no admin
+    seen = {r["id"] for r in ts.filter_commons_catalog(_CATALOG_READ_ROWS, bob, "__commons__")}
+    assert seen == {"s1", "t1", "cr1"}  # catalog types + AGENT_SKILL CallableResource only
+    assert "cr2" not in seen  # CallableResource without resource_type=AGENT_SKILL
+    assert not ({"w1", "rs1", "c1", "m1"} & seen)  # no operational or private data
+    assert "u1" not in seen  # unclassifiable -> fails CLOSED
+
+
+def test_filter_commons_catalog_same_tenant_still_sees_own_operational_data():
+    alice = _user("alice", "acme")  # SAME tenant as the operational rows
+    seen = {r["id"] for r in ts.filter_commons_catalog(_CATALOG_READ_ROWS, alice, "__commons__")}
+    assert {"w1", "rs1", "c1", "m1"} <= seen  # own tenant's data, including Message here
+
+
+def test_filter_commons_catalog_novel_type_not_visible_cross_tenant():
+    """Read proof (new): deny-by-default survived the write/read split -- an
+    unclassified/novel node type is invisible cross-tenant."""
+    bob = _user("bob", "globex")
+    alice = _user("alice", "acme")
+    novel = [_row("n1", "SomeBrandNewNodeType2077", tenant="acme")]
+    assert ts.filter_commons_catalog(novel, bob, "__commons__") == []
+    assert len(ts.filter_commons_catalog(novel, alice, "__commons__")) == 1  # own tenant, not destroyed
+
+
+def test_filter_commons_catalog_noop_for_privileged_actor():
+    root = _user("root", "acme", roles=("kg:admin",))
+    assert len(ts.filter_commons_catalog(_CATALOG_READ_ROWS, root, "__commons__")) == len(
+        _CATALOG_READ_ROWS
+    )
+
+
+def test_filter_commons_catalog_noop_for_non_commons_graph():
+    bob = _user("bob", "globex")
+    assert len(
+        ts.filter_commons_catalog(_CATALOG_READ_ROWS, bob, "tenant__acme____commons__")
+    ) == len(_CATALOG_READ_ROWS)
+
+
+def test_commons_catalog_predicate_noop_cases():
+    bob = _user("bob", "globex")
+    root = _user("root", "acme", roles=("kg:admin",))
+    assert ts.commons_catalog_predicate(root, graph_name="__commons__") is None  # privileged
+    assert ts.commons_catalog_predicate(bob, graph_name="__control__") is None  # not commons
+
+
+def test_commons_catalog_predicate_carries_reader_tenant_and_types():
+    bob = _user("bob", "globex")
+    pred = ts.commons_catalog_predicate(bob, var="n", graph_name="__commons__")
+    assert pred is not None
+    cond, extra = pred
+    assert "node_type" in cond
+    assert ts.TENANT_KEY in cond
+    assert extra == {"_commons_catalog_tenant_id": "globex"}
+
+
+def test_apply_commons_catalog_restriction_injects_into_aggregate_query():
+    bob = _user("bob", "globex")
+    cyp, params = ts.apply_commons_catalog_restriction(
+        "MATCH (n:WorkItem) RETURN count(n) AS c", bob, "__commons__", var="n"
+    )
+    assert "node_type" in cyp
+    assert "count(n)" in cyp
+    assert params == {"_commons_catalog_tenant_id": "globex"}
+
+
+def test_apply_commons_catalog_restriction_noop_for_non_commons_graph():
+    bob = _user("bob", "globex")
+    q = "MATCH (n:ProfileSpan) RETURN count(n) AS c"
+    assert ts.apply_commons_catalog_restriction(q, bob, "__control__", var="n") == (q, {})

@@ -246,6 +246,27 @@ class QueryMixin(_Base):
                         scoped_query, session.actor, var=agg_var
                     )
                     params.update(vis_params)
+
+                    # GOC-61 phase 1 (2026-08-09 owner ruling, read/write
+                    # split): the commons catalog READ restriction, injected
+                    # the same way and for the same reason — this is the
+                    # ONLY place the restriction can reach an aggregate
+                    # projection (count(n), etc.), since it has no per-row
+                    # properties for filter_commons_catalog to post-filter.
+                    # A no-op unless this engine is bound to the commons
+                    # graph and the actor is unprivileged (see
+                    # apply_commons_catalog_restriction's own docstring).
+                    from agent_utilities.knowledge_graph.core.tenant_sharing import (
+                        apply_commons_catalog_restriction,
+                    )
+
+                    graph_name = getattr(
+                        getattr(self, "graph_compute", None), "graph_name", None
+                    )
+                    scoped_query, catalog_params = apply_commons_catalog_restriction(
+                        scoped_query, session.actor, graph_name, var=agg_var
+                    )
+                    params.update(catalog_params)
         except Exception as exc:
             raise PermissionError("Graph query scoping failed") from exc
 
@@ -295,6 +316,26 @@ class QueryMixin(_Base):
                 )
             else:
                 rows = visible(filter_rows(rows, session.actor), session.actor)
+
+                # GOC-61 phase 1 (2026-08-09 owner ruling, read/write split):
+                # the commons catalog READ restriction, Python-side. Runs
+                # AFTER visible()/filter_rows() (owner/scope) — this is an
+                # ADDITIONAL restriction, not a replacement: owner/scope
+                # already hides another tenant's OWNED-private rows; this
+                # closes the remaining gap for UNOWNED/commons-scoped
+                # operational rows (WorkItem, RuntimeSignal, Concept, ...)
+                # that owner/scope alone treats as visible to everyone. A
+                # no-op unless this engine is bound to the commons graph and
+                # the actor is unprivileged.
+                from agent_utilities.knowledge_graph.core.tenant_sharing import (
+                    filter_commons_catalog,
+                )
+
+                graph_name = getattr(
+                    getattr(self, "graph_compute", None), "graph_name", None
+                )
+                rows = filter_commons_catalog(rows, session.actor, graph_name)
+
                 # The engine also emits its protocol audit. This service-level
                 # record proves the guarded GraphSession/query boundary ran without
                 # persisting raw query text or parameters.

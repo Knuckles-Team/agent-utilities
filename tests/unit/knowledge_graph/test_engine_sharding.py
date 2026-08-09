@@ -133,6 +133,15 @@ def test_resolve_routing_graph_precedence():
         assert resolve_routing_graph("named", cfg) == "named"
         # 2. ambient tenant maps the default graph
         assert resolve_routing_graph(None, cfg) == "tenant__acme____commons__"
+        # BUG-020 (GOC-61 phase 1): this line pins the CURRENT (buggy) behavior
+        # — an explicit "__commons__" request is misrouted to the tenant graph
+        # because shard_topology.py:198 conflates "explicit request for the
+        # literal default name" with "no name given". When the phase-1 fix
+        # lands (dropping the `!= default` comparison), this assertion must
+        # change to `== "__commons__"` — see
+        # test_resolve_routing_graph_explicit_commons_should_be_honored_verbatim
+        # below, which already asserts the correct post-fix value and is
+        # intentionally red until then.
         assert resolve_routing_graph("__commons__", cfg) == "tenant__acme____commons__"
     # 3. otherwise the configured default
     with use_actor(ActorContext(actor_id="u", authenticated=True)):
@@ -141,6 +150,115 @@ def test_resolve_routing_graph_precedence():
         assert resolve_routing_graph(None, custom) == "knowledge"
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
         assert resolve_routing_graph("knowledge", custom) == ("tenant__acme__knowledge")
+
+
+# ---------------------------------------------------------------------------
+# BUG-020 / GOC-61 phase 1 — failing-first regression tests.
+#
+# shard_topology.py:198 collapses two different intents into one branch:
+# "the caller explicitly asked for the graph literally named `__commons__`"
+# and "the caller passed nothing and wants their ambient default" both
+# satisfy `graph_name == default`, so an EXPLICIT request for `__commons__`
+# is (incorrectly) tenant-mapped exactly like an implicit `None` request.
+# `__control__`/other explicit names never collide with the default sentinel,
+# so they were never affected — only the literal commons name is.
+#
+# The fix (GOC-61 design doc §6, NOT applied by this commit — see the phase-1
+# worker's final report for why): drop the `!= default` comparison so any
+# explicit, non-empty graph_name is honored verbatim; only `graph_name is
+# None` triggers tenant mapping.
+#
+# `test_resolve_routing_graph_explicit_commons_is_currently_misrouted` below
+# pins TODAY's (buggy) behavior so the regression is provable. The four tests
+# after it assert the CORRECT post-fix behavior and are INTENTIONALLY RED
+# against this commit — they are the failing-first proof of BUG-020, to be
+# turned green by the (separately-gated) one-line fix.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_routing_graph_explicit_commons_is_currently_misrouted():
+    """Pins the BUG-020 defect as it exists today (pre-fix).
+
+    An explicit, non-empty request for the literal default graph name
+    (``__commons__``) is silently redirected to the caller's tenant graph —
+    the exact defect this lane's design doc traces to shard_topology.py:198.
+    This test exists to prove the defect is real and stays red-to-green
+    across the fix; it is expected to be DELETED (not merely flipped) in the
+    same change that applies the fix, since its assertion is the bug itself.
+    """
+    cfg = _FakeConfig()
+    with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
+        assert resolve_routing_graph("__commons__", cfg) == "tenant__acme____commons__"
+
+
+def test_resolve_routing_graph_explicit_commons_should_be_honored_verbatim():
+    """BUG-020 case (a): an explicit request for `__commons__` must resolve to
+    `__commons__` itself, not the caller's tenant graph. FAILS pre-fix."""
+    cfg = _FakeConfig()
+    with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
+        assert resolve_routing_graph("__commons__", cfg) == "__commons__"
+
+
+def test_resolve_routing_graph_none_still_tenant_maps():
+    """BUG-020 case (b): `graph_name is None` must still tenant-map correctly
+    — the fix narrows the tenant-mapping trigger to exactly this case, so it
+    must be unaffected. PASSES both pre- and post-fix (regression guard)."""
+    cfg = _FakeConfig()
+    with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
+        assert resolve_routing_graph(None, cfg) == "tenant__acme____commons__"
+
+
+def test_resolve_routing_graph_explicit_non_default_name_honored_verbatim():
+    """BUG-020 case (c): an explicit request for a non-default name (a
+    content graph, e.g. ``code_agent_utilities``) is honored verbatim — this
+    already works pre-fix (it never collides with the default sentinel) and
+    must keep working post-fix. PASSES both pre- and post-fix."""
+    cfg = _FakeConfig()
+    with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
+        assert resolve_routing_graph("code_agent_utilities", cfg) == "code_agent_utilities"
+
+
+def test_resolve_routing_graph_control_graph_behaviour_unchanged():
+    """BUG-020 case (d): ``__control__`` was never affected by this defect
+    (its name never equals the default sentinel) — the fix must leave its
+    behaviour byte-for-byte identical. PASSES both pre- and post-fix."""
+    cfg = _FakeConfig()
+    with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
+        assert resolve_routing_graph("__control__", cfg) == "__control__"
+    with use_actor(ActorContext(actor_id="u", authenticated=True)):
+        assert resolve_routing_graph("__control__", cfg) == "__control__"
+
+
+# ---------------------------------------------------------------------------
+# is_system_graph — PHASE-1 STOPGAP predicate (GOC-61 §2.5/§6, W03)
+# ---------------------------------------------------------------------------
+
+
+def test_is_system_graph_matches_the_known_dunder_family():
+    from agent_utilities.knowledge_graph.core.shard_topology import is_system_graph
+
+    for name in ("__commons__", "__control__", "__secrets__"):
+        assert is_system_graph(name) is True
+
+
+def test_is_system_graph_rejects_tenant_and_content_graphs():
+    from agent_utilities.knowledge_graph.core.shard_topology import is_system_graph
+
+    for name in (
+        "tenant__homelab____commons__",
+        "tenant__acme__knowledge",
+        "code:agent-utilities",
+        "code_agent_utilities",
+        "src:servicenow",
+        "chat:planner",
+        "research:arxiv",
+        "knowledge",
+        "",
+        None,
+        "__",
+        "____",
+    ):
+        assert is_system_graph(name) is False
 
 
 # ---------------------------------------------------------------------------
