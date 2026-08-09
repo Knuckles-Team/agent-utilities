@@ -429,6 +429,8 @@ class RepositoryBuildExecutionPayloadV1(BaseModel):
         if self.cacheable:
             if self.degraded_reason:
                 raise ValueError("cacheable payload must not carry degraded_reason")
+            if components["tree_sha"] != self.tree_sha:
+                raise ValueError("cache-key tree component disagrees with payload")
             expected = {
                 "feature_set": self.feature_set,
                 "target_triple": self.target_triple,
@@ -452,6 +454,8 @@ class RepositoryBuildExecutionPayloadV1(BaseModel):
             if self.cache_key_digest != cache_key_digest_from_components(components):
                 raise ValueError("cache_key_digest does not match C-05 components")
         else:
+            # A degraded CacheKey has no address; its optional components stay
+            # empty rather than pretending to identify a reusable result.
             if self.degraded_reason not in _APPROVED_DEGRADED_REASONS:
                 raise ValueError("uncacheable payload has an unknown degraded reason")
             if self.cache_key_digest is not None:
