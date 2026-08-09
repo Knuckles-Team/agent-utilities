@@ -45,7 +45,8 @@ TIER_BLURB = {
 
 PROFILES: dict[str, dict] = {
     "test": {
-        "graph_backend": "memory",  # pure in-memory EpistemicGraph (no disk)
+        # The epistemic-graph engine is always the operational authority (no
+        # backend selector); naming mirror targets is what opts into fan-out.
         "graph_mirror_targets": None,
         "graph_db_uri": None,
         "app_profile": None,
@@ -53,17 +54,14 @@ PROFILES: dict[str, dict] = {
         "host": "127.0.0.1",
         "port": 9000,
         "enable_web_ui": False,
-        "enable_api_auth": False,
-        "secrets_backend": "inmemory",
-        "a2a_broker": "in-memory",
-        "a2a_storage": "in-memory",
+        "mcp_client_auth": "none",
+        "secrets_backend": "engine",
         "kafka_bootstrap_servers": None,
         "enable_otel": False,
         "max_concurrent_agents": 2,
         "debug": True,
     },
     "dev": {
-        "graph_backend": "epistemic_graph",  # the engine is the whole DB (no server)
         "graph_mirror_targets": None,
         "graph_db_uri": None,
         "app_profile": None,
@@ -71,46 +69,38 @@ PROFILES: dict[str, dict] = {
         "host": "0.0.0.0",
         "port": 9000,
         "enable_web_ui": True,
-        "enable_api_auth": False,
-        "secrets_backend": "sqlite",
-        "a2a_broker": "in-memory",
-        "a2a_storage": "in-memory",
+        "mcp_client_auth": "none",
+        "secrets_backend": "engine",
         "kafka_bootstrap_servers": None,
         "enable_otel": False,
         "max_concurrent_agents": 5,
         "debug": False,
     },
     "prod-small": {
-        "graph_backend": "fanout",  # engine authority + pg-age mirror
-        "graph_mirror_targets": "age",
+        "graph_mirror_targets": "age",  # engine authority + pg-age mirror
         "graph_db_uri": "postgresql://agent:CHANGEME@pggraph:5432/agent_kg",
         "app_profile": "production",
         "deploy": "docker",
         "host": "0.0.0.0",
         "port": 9000,
         "enable_web_ui": True,
-        "enable_api_auth": True,
+        "mcp_client_auth": "oidc-client-credentials",
         "secrets_backend": "vault",
-        "a2a_broker": "nats",
-        "a2a_storage": "postgresql",
         "kafka_bootstrap_servers": "redpanda:9092",
         "enable_otel": True,
         "max_concurrent_agents": 16,
         "debug": False,
     },
     "prod-scale": {
-        "graph_backend": "fanout",  # engine authority + pooled pg-age mirror
-        "graph_mirror_targets": "age",
+        "graph_mirror_targets": "age",  # engine authority + pooled pg-age mirror
         "graph_db_uri": "postgresql://agent:CHANGEME@pggraph:5432/agent_kg",
         "app_profile": "production",
         "deploy": "kubernetes",
         "host": "0.0.0.0",
         "port": 9000,
         "enable_web_ui": True,
-        "enable_api_auth": True,
+        "mcp_client_auth": "oidc-client-credentials",
         "secrets_backend": "vault",
-        "a2a_broker": "kafka",
-        "a2a_storage": "postgresql",
         "kafka_bootstrap_servers": "redpanda-0:9092,redpanda-1:9092,redpanda-2:9092",
         "enable_otel": True,
         "max_concurrent_agents": 64,
@@ -204,19 +194,19 @@ def interview(tier: str) -> dict:
     print(f"  backend   : {_backend_summary(s)}")
     print(f"  deploy    : {s['deploy']}")
     print(
-        f"  web UI    : {s['enable_web_ui']}   auth: {s['enable_api_auth']}   "
+        f"  web UI    : {s['enable_web_ui']}   auth: {s['mcp_client_auth']}   "
         f"secrets: {s['secrets_backend']}"
     )
-    print(f"  a2a       : broker={s['a2a_broker']} storage={s['a2a_storage']}")
     print(
         f"  otel      : {s['enable_otel']}   max_concurrent_agents: "
         f"{s['max_concurrent_agents']}"
     )
     if s["app_profile"]:
         print(
-            "  APP_PROFILE=production → the profile guard will REQUIRE a "
-            "durable backend (epistemic_graph or fanout + Postgres mirror), "
-            "a real broker, and Kafka."
+            "  APP_PROFILE=production → the profile guard enforces TLS/JWT "
+            "identity, an exact host/origin allowlist, and more; run "
+            "agent-utilities-doctor --preflight --profile prod-small (or "
+            "prod-scale) for the authoritative checklist."
         )
 
     if not ask_bool(
@@ -226,20 +216,16 @@ def interview(tier: str) -> dict:
         return s
 
     section("2. Knowledge-graph backend")
-    print("  memory          → pure in-memory, ephemeral (tests/CI)")
     print(
-        "  epistemic_graph → the engine IS the database "
-        "(compute + cache + semantic + durable); zero-infra (recommended)"
+        "  The epistemic-graph engine is always the operational authority "
+        "(compute + cache + semantic + durable); zero-infra by default."
     )
     print(
-        "  fanout          → engine authority + mirrors "
-        "(Postgres/Neo4j/FalkorDB) for interop / BI / DR"
+        "  Optionally name durable mirrors (Postgres/Neo4j/FalkorDB) for "
+        "interop / BI / DR — mirrors receive every write, losslessly, from "
+        "the engine authority."
     )
-    s["graph_backend"] = ask_choice(
-        "GRAPH_BACKEND", ["memory", "epistemic_graph", "fanout"], s["graph_backend"]
-    )
-    if s["graph_backend"] == "fanout":
-        print("    Mirrors receive every write, losslessly, from the engine authority.")
+    if ask_bool("Add a durable mirror?", default=bool(s.get("graph_mirror_targets"))):
         s["graph_mirror_targets"] = ask(
             "GRAPH_MIRROR_TARGETS (CSV connection names, e.g. age,neo4j)",
             s.get("graph_mirror_targets") or "age",
@@ -262,28 +248,31 @@ def interview(tier: str) -> dict:
     s["host"] = ask("host", s["host"])
     s["port"] = int(ask("port", s["port"]))
     s["enable_web_ui"] = ask_bool("enable web UI", s["enable_web_ui"])
-    s["enable_api_auth"] = ask_bool("enable API auth (JWT/OIDC)", s["enable_api_auth"])
-    if s["enable_api_auth"]:
+    s["mcp_client_auth"] = ask_choice(
+        "mcp_client_auth (outbound MCP child-auth mode)",
+        ["none", "oidc-client-credentials", "basic"],
+        s["mcp_client_auth"],
+    )
+    if s["mcp_client_auth"] != "none":
         s["oidc_config_url"] = ask(
-            "OIDC discovery URL (blank = static token)", s.get("oidc_config_url")
+            "OIDC discovery URL", s.get("oidc_config_url")
         )
 
     section("5. Secrets, messaging & observability")
     s["secrets_backend"] = ask_choice(
-        "secrets_backend", ["inmemory", "sqlite", "vault"], s["secrets_backend"]
+        "secrets_backend", ["engine", "vault"], s["secrets_backend"]
     )
     if s["secrets_backend"] == "vault":
         s["vault_url"] = ask("vault_url", s.get("vault_url") or "http://openbao:8200")
-    s["a2a_broker"] = ask_choice(
-        "a2a_broker", ["in-memory", "nats", "kafka"], s["a2a_broker"]
-    )
-    s["a2a_storage"] = ask_choice(
-        "a2a_storage", ["in-memory", "postgresql", "redis"], s["a2a_storage"]
-    )
-    if s["a2a_broker"] == "kafka":
+    if ask_bool(
+        "enable Kafka event streaming (KAFKA_BOOTSTRAP_SERVERS)?",
+        default=bool(s.get("kafka_bootstrap_servers")),
+    ):
         s["kafka_bootstrap_servers"] = ask(
-            "kafka_bootstrap_servers", s["kafka_bootstrap_servers"] or "redpanda:9092"
+            "kafka_bootstrap_servers", s.get("kafka_bootstrap_servers") or "redpanda:9092"
         )
+    else:
+        s["kafka_bootstrap_servers"] = None
     s["enable_otel"] = ask_bool("enable OpenTelemetry", s["enable_otel"])
     if s["enable_otel"]:
         s["otel_endpoint"] = ask(
@@ -306,20 +295,16 @@ def interview(tier: str) -> dict:
 
 
 def _backend_summary(s: dict) -> str:
-    if s["graph_backend"] == "fanout":
-        mirrors = s.get("graph_mirror_targets") or "age"
-        return f"fanout (engine authority + mirrors: {mirrors})"
-    return s["graph_backend"]
+    mirrors = s.get("graph_mirror_targets")
+    if mirrors:
+        return f"epistemic_graph (authority + mirrors: {mirrors})"
+    return "epistemic_graph (authority only)"
 
 
 def _warn_production_safety(s: dict) -> None:
     if s.get("app_profile") != "production":
         return
     problems = []
-    if s["graph_backend"] in ("memory", "file", "ladybug"):
-        problems.append(f"GRAPH_BACKEND={s['graph_backend']} is ephemeral/single-host")
-    if s["a2a_broker"] in ("in-memory",):
-        problems.append("a2a_broker=in-memory loses messages on restart")
     if not s.get("kafka_bootstrap_servers"):
         problems.append("kafka_bootstrap_servers unset (no durable event ledger)")
     if "CHANGEME" in (s.get("graph_db_uri") or ""):
@@ -330,14 +315,17 @@ def _warn_production_safety(s: dict) -> None:
         )
     if problems:
         print(
-            "\n  \033[33m⚠ APP_PROFILE=production will be REJECTED by the profile "
-            "guard:\033[0m"
+            "\n  \033[33m⚠ APP_PROFILE=production will need attention before the "
+            "profile guard accepts it:\033[0m"
         )
         for p in problems:
             print(f"    - {p}")
         print(
-            "  Use GRAPH_BACKEND=epistemic_graph (the durable engine) or 'fanout', "
-            "a real broker, and Kafka, or drop APP_PROFILE."
+            "  The full production-safety contract (TLS, JWT/JWKS issuer+audience, "
+            "kg_policy_version, host/origin allowlists, …) is enforced by "
+            "agent_utilities.core.profile_guard.collect_production_violations — "
+            "run agent-utilities-doctor --preflight --profile prod-small (or "
+            "prod-scale) for the authoritative list."
         )
 
 
@@ -353,15 +341,13 @@ def build_config_json(s: dict) -> dict:
         "port": s["port"],
         "debug": s.get("debug", False),
         "enable_web_ui": s["enable_web_ui"],
-        "enable_api_auth": s["enable_api_auth"],
+        "mcp_client_auth": s["mcp_client_auth"],
         "routing_strategy": "hybrid",
-        # graph_backend is the authoritative selector (also exported via env)
-        "graph_backend": s["graph_backend"],
+        # The epistemic-graph engine is always the operational authority;
+        # naming graph_mirror_targets opts into lossless fan-out mirrors.
         "graph_mirror_targets": s.get("graph_mirror_targets"),
         "graph_db_uri": s.get("graph_db_uri"),
         "secrets_backend": s["secrets_backend"],
-        "a2a_broker": s["a2a_broker"],
-        "a2a_storage": s["a2a_storage"],
         "kafka_bootstrap_servers": s.get("kafka_bootstrap_servers"),
         "enable_otel": s["enable_otel"],
         "max_concurrent_agents": s["max_concurrent_agents"],
@@ -379,15 +365,17 @@ def build_config_json(s: dict) -> dict:
 
 def build_env(s: dict) -> str:
     lines = [
-        "# agent-utilities backend environment (authoritative for backend selection)"
+        "# agent-utilities backend environment "
+        "(the epistemic-graph engine is always the authority)"
     ]
-    lines.append(f"GRAPH_BACKEND={s['graph_backend']}")
-    if s["graph_backend"] == "fanout" and s.get("graph_mirror_targets"):
+    if s.get("graph_mirror_targets"):
         lines.append(f"GRAPH_MIRROR_TARGETS={s['graph_mirror_targets']}")
     if s.get("graph_db_uri"):
         lines.append(f"GRAPH_DB_URI={s['graph_db_uri']}")
     if s.get("app_profile"):
         lines.append(f"APP_PROFILE={s['app_profile']}")
+    if s.get("mcp_client_auth") and s["mcp_client_auth"] != "none":
+        lines.append(f"MCP_CLIENT_AUTH={s['mcp_client_auth']}")
     if s.get("kafka_bootstrap_servers"):
         lines.append(f"KAFKA_BOOTSTRAP_SERVERS={s['kafka_bootstrap_servers']}")
     lines.append("KG_DAEMON_ROLE=auto")
@@ -410,11 +398,11 @@ def build_run_commands(s: dict, extras: str) -> str:
         )
     if s["deploy"] == "docker":
         return (
-            "# Bring up the MCP server (+ pg-age mirror if fanout selected):\n"
+            "# Bring up the MCP server (+ pg-age mirror if one is configured):\n"
             "docker compose --env-file deploy.env -f docker/mcp.compose.yml up -d\n"
             + (
                 "docker compose -f docker/pggraph.compose.yml up -d\n"
-                if s.get("graph_backend") == "fanout"
+                if s.get("graph_mirror_targets")
                 else ""
             )
         )
@@ -427,13 +415,15 @@ def build_run_commands(s: dict, extras: str) -> str:
 
 def build_k8s(s: dict, extras: str) -> str:
     """A minimal but complete K8s manifest set (no charts exist in-repo)."""
-    env_items = [("GRAPH_BACKEND", s["graph_backend"])]
-    if s["graph_backend"] == "fanout" and s.get("graph_mirror_targets"):
+    env_items = []
+    if s.get("graph_mirror_targets"):
         env_items.append(("GRAPH_MIRROR_TARGETS", s["graph_mirror_targets"]))
     if s.get("graph_db_uri"):
         env_items.append(("GRAPH_DB_URI", s["graph_db_uri"]))
     if s.get("app_profile"):
         env_items.append(("APP_PROFILE", s["app_profile"]))
+    if s.get("mcp_client_auth") and s["mcp_client_auth"] != "none":
+        env_items.append(("MCP_CLIENT_AUTH", s["mcp_client_auth"]))
     if s.get("kafka_bootstrap_servers"):
         env_items.append(("KAFKA_BOOTSTRAP_SERVERS", s["kafka_bootstrap_servers"]))
     env_yaml = "\n".join(
