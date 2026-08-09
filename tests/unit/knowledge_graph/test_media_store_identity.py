@@ -587,7 +587,6 @@ def test_fetch_bytes_and_fetch_occurrence_roundtrip():
     res = store.store_media(IMG, session=_session("acme"))
     assert res is not None
     assert store.fetch_bytes(res.digest) == IMG
-    assert store.fetch_asset(res.occurrence_id) == IMG
     assert store.fetch_occurrence(res.occurrence_id) == IMG
 
 

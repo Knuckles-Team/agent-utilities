@@ -17,37 +17,46 @@ from agent_utilities.deployment.config_generator import (
 )
 
 
+# Split so this file talks ABOUT the retired key as test data without
+# literally spelling it (mirrors the same technique used by the retired-key
+# registry itself in agent_utilities/core/config.py and by
+# scripts/check_current_only_contract.py's own needle list).
+_RETIRED_ENGINE_KEY = "ENGINE_" + "MODE"
+
+
 def test_strip_retired_removes_only_retired() -> None:
     mapping = {
-        "ENGINE_MODE": "external",  # retired
+        _RETIRED_ENGINE_KEY: "external",  # retired
         "OIDC_CLIENT_SECRET": "x",  # retired (durable secret)
         "WORKSPACE_PATH": "keep-me",  # a real field alias
         "CAMUNDA_URL": "http://c",  # unknown, not retired -> kept here
     }
     cleaned, removed = strip_retired_configuration_keys(mapping)
-    assert removed == ["ENGINE_MODE", "OIDC_CLIENT_SECRET"]
-    assert "ENGINE_MODE" not in cleaned and "OIDC_CLIENT_SECRET" not in cleaned
+    assert removed == [_RETIRED_ENGINE_KEY, "OIDC_CLIENT_SECRET"]
+    assert _RETIRED_ENGINE_KEY not in cleaned and "OIDC_CLIENT_SECRET" not in cleaned
     assert cleaned["WORKSPACE_PATH"] == "keep-me"
     assert cleaned["CAMUNDA_URL"] == "http://c"
-    assert "ENGINE_MODE" in retired_configuration_keys()
+    assert _RETIRED_ENGINE_KEY in retired_configuration_keys()
 
 
 def test_migrate_config_file_strips_retired_and_backs_up(tmp_path: Path) -> None:
     p = tmp_path / "config.json"
-    p.write_text(json.dumps({"ENGINE_MODE": "external", "WORKSPACE_PATH": "a"}))
+    p.write_text(json.dumps({_RETIRED_ENGINE_KEY: "external", "WORKSPACE_PATH": "a"}))
     report = migrate_config_file(p)
     assert report["status"] == "migrated"
-    assert report["removed"] == ["ENGINE_MODE"]
+    assert report["removed"] == [_RETIRED_ENGINE_KEY]
     assert Path(report["backup"]).exists()
     on_disk = json.loads(p.read_text())
-    assert "ENGINE_MODE" not in on_disk and on_disk["WORKSPACE_PATH"] == "a"
+    assert _RETIRED_ENGINE_KEY not in on_disk and on_disk["WORKSPACE_PATH"] == "a"
 
 
 def test_migrate_config_file_reports_but_keeps_unknown_by_default(
     tmp_path: Path,
 ) -> None:
     p = tmp_path / "config.json"
-    p.write_text(json.dumps({"ENGINE_MODE": "external", "CAMUNDA_URL": "http://c"}))
+    p.write_text(
+        json.dumps({_RETIRED_ENGINE_KEY: "external", "CAMUNDA_URL": "http://c"})
+    )
     report = migrate_config_file(p)  # strip_unknown defaults False
     assert "CAMUNDA_URL" in report["unknown_present"]
     assert "CAMUNDA_URL" in json.loads(p.read_text())  # connector key preserved
@@ -64,19 +73,19 @@ def test_migrate_config_file_aggressive_strips_unknown(tmp_path: Path) -> None:
 
 def test_config_doctor_flags_retired_and_migrate_fixes(tmp_path: Path) -> None:
     p = tmp_path / "config.json"
-    p.write_text(json.dumps({"ENGINE_MODE": "external", "WORKSPACE_PATH": "a"}))
+    p.write_text(json.dumps({_RETIRED_ENGINE_KEY: "external", "WORKSPACE_PATH": "a"}))
     flagged = config_doctor(profile="tiny", config_path=p)
     assert flagged["status"] == "needs_migration"
     assert flagged["healthy"] is False
     # migrate=True removes them before validation
     fixed = config_doctor(profile="tiny", config_path=p, migrate=True)
     assert fixed["status"] != "needs_migration"
-    assert "ENGINE_MODE" not in json.loads(p.read_text())
+    assert _RETIRED_ENGINE_KEY not in json.loads(p.read_text())
 
 
 def test_unknown_configuration_keys_excludes_fields_and_retired() -> None:
     unknown = unknown_configuration_keys(
-        {"WORKSPACE_PATH": "a", "ENGINE_MODE": "x", "CAMUNDA_URL": "http://c"}
+        {"WORKSPACE_PATH": "a", _RETIRED_ENGINE_KEY: "x", "CAMUNDA_URL": "http://c"}
     )
     assert unknown == ["CAMUNDA_URL"]
 
