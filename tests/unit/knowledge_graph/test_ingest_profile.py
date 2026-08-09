@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from agent_utilities.knowledge_graph.core.ingest_profile import (
     IngestProfile,
     profile_ingest,
@@ -131,6 +133,14 @@ def test_record_offqueue_span_works_with_no_actor_bound(monkeypatch):
     contextvars.Context().run(isolated)
 
     (props,) = captured.values()
-    assert props["kind"] == "embed_backfill"
+    # ``record_offqueue_span`` writes a work-shaped envelope: the span carries
+    # ``node_type='ProfileSpan'`` plus a JSON ``metadata`` blob, and ``kind``
+    # lives INSIDE that blob — it is never a top-level property. Asserting
+    # ``props["kind"]`` therefore raised ``KeyError`` against a shape the code
+    # has never produced. Caught by the wave-2 checkpoint run; the test was
+    # written but never executed (BUG-063 blocked its author's suite), so the
+    # mismatch was invisible at authoring time.
+    assert props["node_type"] == "ProfileSpan"
+    assert json.loads(props["metadata"])["kind"] == "embed_backfill"
     # No governance stamp was applied — this is the pinned, deliberate gap.
     assert "_owner_id" not in props

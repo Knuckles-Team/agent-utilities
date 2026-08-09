@@ -136,6 +136,15 @@ def test_upsert_node_never_overwrites_a_caller_supplied_classification():
 def _bare_graph_compute(client):
     gc = object.__new__(GraphComputeEngine)
     gc._client = client
+    # ``object.__new__`` deliberately skips ``__init__``, so every attribute the
+    # method under test reads must be set here explicitly. ``graph_name`` is set
+    # by the real ``__init__`` (graph_compute.py:1461) and is read by
+    # ``add_node``'s GOC-61 ``check_system_graph_write`` gate — without it these
+    # tests raise ``AttributeError`` at that gate and never reach their
+    # assertions, so they silently stop verifying the stamp they exist to
+    # verify. Found by the wave-2 checkpoint run on the merged tree; the two
+    # changes are individually fine and only collide once merged.
+    gc.graph_name = "default"
     return gc
 
 
