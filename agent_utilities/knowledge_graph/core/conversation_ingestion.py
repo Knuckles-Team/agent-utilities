@@ -385,11 +385,44 @@ def ingest_conversations_to_kg(
         Summary dict with counts per IDE.
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.security.request_identity import system_write_session
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
         return {"error": "KG engine not available"}
 
+    # BUG-033/BUG-039: this ingests local IDE chat logs (Claude/Codex/
+    # Windsurf/Antigravity) -- private conversation content -- and used to
+    # write through the raw engine with whatever ambient actor happened to be
+    # bound, which is genuinely absent for some callers (e.g. a bare CLI/
+    # script invocation). Bind a REAL verified actor for the whole ingest run
+    # so every Thread/Message/Concept node this writes is correctly
+    # attributed rather than silently landing unowned. Prefers the caller's
+    # own already-authenticated session (e.g. this ran inside a
+    # `_authorized_background_thread`-started task worker) and only mints
+    # this process's own system identity when nothing is ambient.
+    session = system_write_session()
+    with use_actor(session.actor), use_session(session):
+        return _ingest_conversations_to_kg(
+            engine,
+            conversations=conversations,
+            ides=ides,
+            limit=limit,
+            extract_concepts=extract_concepts,
+        )
+
+
+def _ingest_conversations_to_kg(
+    engine: Any,
+    *,
+    conversations: list[dict[str, Any]] | None,
+    ides: list[str] | None,
+    limit: int | None,
+    extract_concepts: bool,
+) -> dict[str, Any]:
+    """Body of :func:`ingest_conversations_to_kg`, run under a bound actor."""
     if conversations is None:
         conversations = discover_all_conversations(ides)
     if limit:

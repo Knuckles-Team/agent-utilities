@@ -26,56 +26,97 @@ logger = logging.getLogger(__name__)
 
 
 def save_chat_to_disk(chat_id: str, messages: list[dict[str, Any]]):
-    """Save a chat conversation to the Knowledge Graph."""
+    """Save a chat conversation to the Knowledge Graph.
+
+    BUG-033/BUG-039: this write path is a legitimate background writer (the
+    cron scheduler persists a task's transcript with no request-bound actor
+    in scope) as well as a request-triggered one (the WebUI's ``save_chat``
+    helper). Either way it must run under a REAL, verified actor -- never
+    silently proceed with none -- so the resulting ``Thread``/``Message``
+    nodes are never left unowned by accident.
+    :func:`~agent_utilities.security.request_identity.system_write_session`
+    resolves the caller's own ambient session when one is already bound, and
+    otherwise mints this process's own verified system identity through the
+    existing process-authority convention (CONCEPT:AU-OS.identity.authenticated-identity-enforcement).
+    """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.security.request_identity import system_write_session
 
     engine = IntelligenceGraphEngine.get_active()
     if not engine or not engine.backend:
         logger.warning("Graph backend not available for chat persistence.")
         return
 
-    ts = datetime.now().isoformat()
-    # Create or update ThreadNode
-    query_thread = """
-    MERGE (t:Thread {id: $id})
-    SET t.title = $title,
-        t.created_at = $ts
-    """
-    first_msg = ""
-    if messages:
-        first_msg = str(messages[0].get("content", ""))[:100]
+    session = system_write_session()
 
-    engine.backend.execute(
-        query_thread,
-        {"id": chat_id, "title": first_msg or "Untitled Chat", "ts": ts},
-    )
-
-    # Clean up orphan messages (for rollback strategy)
-    engine.backend.execute(
-        "MATCH (t:Thread {id: $id})-[:CONTAINS]->(m:Message) "
-        "WHERE toInteger(split(m.id, ':')[2]) >= $max_len "
-        "DETACH DELETE m",
-        {"id": chat_id, "max_len": len(messages)},
-    )
-
-    # Create MessageNodes and link to Thread. The engine's native Cypher
-    # write subset supports only one leading MATCH and no WITH between write
-    # clauses (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184), so
-    # this can't be one "MERGE ... WITH ... MATCH ... MERGE" statement; the
-    # typed engine API (CONCEPT:AU-KG.query.register-each-user-table) does the
-    # node upsert + edge merge as two dispatched, backend-appropriate writes.
-    for i, msg in enumerate(messages):
-        msg_id = f"msg:{chat_id}:{i}"
-        engine.add_node(
-            msg_id,
-            "Message",
-            {
-                "role": msg.get("role", "user"),
-                "content": str(msg.get("content", "")),
-                "timestamp": ts,
-            },
+    with use_actor(session.actor), use_session(session):
+        from agent_utilities.knowledge_graph.core.tenant_sharing import (
+            stamp_classification,
+            stamp_ownership,
         )
-        engine.link_nodes(chat_id, msg_id, "CONTAINS")
+
+        ts = datetime.now().isoformat()
+        first_msg = ""
+        if messages:
+            first_msg = str(messages[0].get("content", ""))[:100]
+
+        # This MERGE is raw Cypher (the engine's typed ``add_node`` seam
+        # doesn't fit its "keep the id stable, overwrite title/created_at"
+        # upsert shape), so it bypasses the generic ``_upsert_node``
+        # ownership-stamping seam entirely. Stamp explicitly here so the
+        # Thread node carries the same governance properties every other
+        # write path gets for free. A failed stamp under a just-bound,
+        # verified actor is a real defect, not a best-effort skip -- let it
+        # raise.
+        governance_props: dict[str, Any] = {}
+        stamp_ownership(governance_props)
+        stamp_classification(governance_props, "Thread")
+
+        thread_params: dict[str, Any] = {
+            "id": chat_id,
+            "title": first_msg or "Untitled Chat",
+            "ts": ts,
+            **governance_props,
+        }
+        # ``created_at`` is the stored property name; ``ts`` is only the bound
+        # parameter name (kept from the original query so no behavior changes).
+        set_clause = ", ".join(
+            ["t.title = $title", "t.created_at = $ts"]
+            + [f"t.{key} = ${key}" for key in governance_props]
+        )
+        engine.backend.execute(
+            f"MERGE (t:Thread {{id: $id}}) SET {set_clause}",
+            thread_params,
+        )
+
+        # Clean up orphan messages (for rollback strategy)
+        engine.backend.execute(
+            "MATCH (t:Thread {id: $id})-[:CONTAINS]->(m:Message) "
+            "WHERE toInteger(split(m.id, ':')[2]) >= $max_len "
+            "DETACH DELETE m",
+            {"id": chat_id, "max_len": len(messages)},
+        )
+
+        # Create MessageNodes and link to Thread. The engine's native Cypher
+        # write subset supports only one leading MATCH and no WITH between write
+        # clauses (epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184), so
+        # this can't be one "MERGE ... WITH ... MATCH ... MERGE" statement; the
+        # typed engine API (CONCEPT:AU-KG.query.register-each-user-table) does the
+        # node upsert + edge merge as two dispatched, backend-appropriate writes.
+        for i, msg in enumerate(messages):
+            msg_id = f"msg:{chat_id}:{i}"
+            engine.add_node(
+                msg_id,
+                "Message",
+                {
+                    "role": msg.get("role", "user"),
+                    "content": str(msg.get("content", "")),
+                    "timestamp": ts,
+                },
+            )
+            engine.link_nodes(chat_id, msg_id, "CONTAINS")
 
     logger.debug(f"Saved chat {chat_id} to Knowledge Graph")
 

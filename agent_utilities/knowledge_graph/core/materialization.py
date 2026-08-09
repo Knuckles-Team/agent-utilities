@@ -252,9 +252,13 @@ def write_entities(
     # with no connector-supplied ``external_access`` landed with no owner and
     # no classification: written but permanently unreadable under
     # ``secured_reads.permit()``'s default-deny (identical gap to the one the
-    # four chokepoints already closed elsewhere). Best-effort, same as those
-    # four: writes with no bound actor (system/background/control-plane
-    # materialization) proceed unstamped exactly as before this seam existed.
+    # four chokepoints already closed elsewhere).
+    #
+    # BUG-033/BUG-039: fail closed, same as the other four chokepoints — a
+    # write reaching this seam with NO bound actor at all must raise, not
+    # silently land unowned. A genuinely privileged/system actor still lands
+    # intentionally unowned (``stamp_ownership``'s own, unchanged policy for
+    # platform/connector data).
     from .tenant_sharing import stamp_classification, stamp_ownership
 
     rels = relationships or []
@@ -264,11 +268,8 @@ def write_entities(
         if not row.get("id") or not row.get("node_type"):
             raise ValueError(f"entity[{index}] requires id and node_type")
         stamp_source(row, domain)
-        try:
-            stamp_ownership(row)
-            stamp_classification(row, row.get("node_type"))
-        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
-            pass
+        stamp_ownership(row)
+        stamp_classification(row, row.get("node_type"))
     for index, row in enumerate(rels):
         aliases = RETIRED_EDGE_RELATIONSHIP_PROPERTIES.intersection(row)
         if aliases:
