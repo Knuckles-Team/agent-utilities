@@ -23,7 +23,7 @@ import re
 import time
 import uuid
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Literal, TypeVar
 
@@ -33,6 +33,7 @@ from pydantic import (
     Field,
     StrictBool,
     StrictInt,
+    ValidationError,
     field_validator,
     model_validator,
 )
@@ -402,6 +403,13 @@ def _consent_from_metadata(value: object) -> RepositoryConsentPolicy:
     return RepositoryConsentPolicy.model_validate(raw)
 
 
+def _canonical_json_datetime(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.astimezone(UTC).isoformat()
+    return normalized[:-6] + "Z" if normalized.endswith("+00:00") else normalized
+
+
 class RepositoryWorkItemRequest(BaseModel):
     """AU-side typed projection of a repository-development request.
 
@@ -419,6 +427,11 @@ class RepositoryWorkItemRequest(BaseModel):
     operation: RepositoryOperation
     repository_id: str
     base_ref: str
+    # RMDD-27 native reservation identity.  ``branch`` is distinct from
+    # ``base_ref`` when a contract supplies it; a missing branch is represented
+    # as ``base_ref`` only for non-exclusive jobs and is rejected by the native
+    # authority for branch-exclusive admission.
+    branch: str | None = None
     base_sha: str
     owner_id: str
     session_id: str
@@ -428,6 +441,15 @@ class RepositoryWorkItemRequest(BaseModel):
     priority: StrictInt = Field(default=0, ge=0, le=10_000)
     resource_class: str = "light-check"
     concurrency_key: str = "light-check"
+    profile_version: str | None = None
+    resolved_profile_authority: Literal[
+        "repository_manager:resource_profile_registry:v1"
+    ] | None = None
+    concurrency_limit: StrictInt | None = Field(default=None, ge=1)
+    repository_exclusive: StrictBool = False
+    branch_exclusive: StrictBool = False
+    disk_policy_key: str | None = None
+    fairness_cost: StrictInt | None = Field(default=None, ge=1)
     cpu_weight: StrictInt = Field(default=1, ge=1, le=1000)
     memory_mib: StrictInt = Field(default=256, ge=1, le=1_048_576)
     disk_mib: StrictInt = Field(default=256, ge=1, le=10_485_760)
@@ -468,6 +490,13 @@ class RepositoryWorkItemRequest(BaseModel):
     @classmethod
     def validate_strings(cls, value: str, info: Any) -> str:
         return _nonblank(value, info.field_name)
+
+    @field_validator("branch", "profile_version", "disk_policy_key")
+    @classmethod
+    def validate_optional_admission_strings(
+        cls, value: str | None, info: Any
+    ) -> str | None:
+        return None if value is None else _nonblank(value, info.field_name)
 
     @field_validator(
         "dependencies",
@@ -524,10 +553,20 @@ class RepositoryWorkItemRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_target(self) -> RepositoryWorkItemRequest:
+        if self.resolved_profile_authority is not None and (
+            self.profile_version is None
+            or self.disk_policy_key is None
+            or self.fairness_cost is None
+        ):
+            raise ValueError(
+                "resolved profile authority requires the complete resolved profile projection"
+            )
         if self.target_kind == "local" and self.target_alias is not None:
             raise ValueError("local target must not carry target_alias")
         if self.target_kind == "inventory_alias" and self.target_alias is None:
             raise ValueError("inventory_alias target requires target_alias")
+        if self.branch_exclusive and self.branch is None:
+            raise ValueError("branch_exclusive requires an explicit branch")
         if (
             self.operation
             in {
@@ -595,6 +634,7 @@ class RepositoryWorkItemRequest(BaseModel):
             operation=operation,
             repository_id=repository.get("repository_id") or raw.get("repository_id"),
             base_ref=raw.get("base_ref"),
+            branch=raw.get("branch"),
             base_sha=raw.get("base_sha"),
             owner_id=raw.get("owner_id"),
             session_id=raw.get("session_id"),
@@ -610,6 +650,20 @@ class RepositoryWorkItemRequest(BaseModel):
             concurrency_key=resources.get("concurrency_key")
             or raw.get("concurrency_key")
             or "light-check",
+            profile_version=resources.get("profile_version")
+            or raw.get("profile_version"),
+            resolved_profile_authority=resources.get("resolved_profile_authority")
+            or raw.get("resolved_profile_authority"),
+            concurrency_limit=resources.get("concurrency_limit")
+            if resources.get("concurrency_limit") is not None
+            else raw.get("concurrency_limit"),
+            repository_exclusive=resources.get("repository_exclusive", raw.get("repository_exclusive", False)),
+            branch_exclusive=resources.get("branch_exclusive", raw.get("branch_exclusive", False)),
+            disk_policy_key=resources.get("disk_policy_key")
+            or raw.get("disk_policy_key"),
+            fairness_cost=resources.get("fairness_cost")
+            if resources.get("fairness_cost") is not None
+            else raw.get("fairness_cost"),
             cpu_weight=resources.get("cpu_weight", 1),
             memory_mib=resources.get("memory_mib", 256),
             disk_mib=resources.get("disk_mib", 256),
@@ -860,6 +914,7 @@ def _request_metadata(
     job_id: str,
     input_digest: str,
     dependencies: Sequence[str],
+    resolved_profile_projection: bool = False,
 ) -> dict[str, Any]:
     """Build the bounded, privacy-safe WorkItem extension record."""
 
@@ -868,17 +923,65 @@ def _request_metadata(
             "contract_version": CONTRACT_VERSION,
             "job_id": _encode_opaque(job_id),
             "request_id": _encode_opaque(request.request_id),
+            "tenant_id": _encode_opaque(request.tenant_id),
             "idempotency_scope_digest": _digest(request.tenant_id),
             "immutable_input_digest": input_digest,
             "source_input_digest": request.input_digest,
             "operation": _operation_value(request.operation),
             "repository_id": _encode_opaque(request.repository_id),
             "base_ref": _encode_opaque(request.base_ref),
+            "branch": _encode_opaque(request.branch),
             "base_sha": request.base_sha,
             "owner_id": _encode_opaque(request.owner_id),
             "session_id": _encode_opaque(request.session_id),
             "resource_class": _encode_opaque(request.resource_class),
             "concurrency_key": _encode_opaque(request.concurrency_key),
+            # RMDD-27's native transaction treats this complete nested record as
+            # an immutable WorkItem admission extension.  Empty policy fields are
+            # intentional fail-closed markers for old callers; the engine must
+            # reject them rather than infer profile/exclusivity authority.
+            "resource_reservation": {
+                "schema_version": "1",
+                "profile_name": _encode_opaque(request.resource_class),
+                "profile_version": _encode_opaque(request.profile_version),
+                "cpu_weight": request.cpu_weight,
+                "memory_mib": request.memory_mib,
+                "disk_mib": request.disk_mib,
+                "process_slots": request.process_slots,
+                "host_labels": _encode_opaque_sequence(request.host_labels),
+                "anti_affinity": _encode_opaque_sequence(request.anti_affinity),
+                "preferred_target": _target_policy_metadata(request.preferred_target),
+                "required_target": (
+                    _target_policy_metadata(request.required_target)
+                    if request.required_target is not None
+                    else None
+                ),
+                "repository_id": _encode_opaque(request.repository_id),
+                "concurrency_key": _encode_opaque(request.concurrency_key),
+                "fairness_group": _encode_opaque(request.fairness_group),
+                "disk_low_watermark_mib": request.disk_low_watermark_mib,
+                "disk_high_watermark_mib": request.disk_high_watermark_mib,
+                # WorkItem admission identity and the later reservation input
+                # fingerprint are deliberately separate.  The former is known
+                # at submission; native reservation recomputes the latter from
+                # the fenced attempt/host/TTL request.
+                "work_item_input_fingerprint": "v1:" + request.immutable_digest(),
+                **(
+                    {"resolved_profile_authority": request.resolved_profile_authority}
+                    if resolved_profile_projection
+                    else {}
+                ),
+                "concurrency_limit": request.concurrency_limit,
+                "repository_exclusive": request.repository_exclusive,
+                "branch_exclusive": request.branch_exclusive,
+                "disk_policy_key": _encode_opaque(request.disk_policy_key),
+                "fairness_cost": request.fairness_cost,
+                "branch": _encode_opaque(request.branch or request.base_ref),
+                "branch_explicit": request.branch is not None,
+                "base_ref": _encode_opaque(request.base_ref),
+                "target_kind": request.target_kind,
+                "target_alias": _encode_opaque(request.target_alias),
+            },
             "fairness_group": _encode_opaque(request.fairness_group),
             "priority": request.priority,
             "cpu_weight": request.cpu_weight,
@@ -894,9 +997,7 @@ def _request_metadata(
             ),
             "anti_affinity": _encode_opaque_sequence(request.anti_affinity),
             "queue_deadline": (
-                request.queue_deadline.isoformat()
-                if request.queue_deadline is not None
-                else None
+                _canonical_json_datetime(request.queue_deadline)
             ),
             "disk_low_watermark_mib": request.disk_low_watermark_mib,
             "disk_high_watermark_mib": request.disk_high_watermark_mib,
@@ -1043,6 +1144,7 @@ def submit_repository_work_item(
     job_id: str | None = None,
     now: float | None = None,
     max_attempts: int = 3,
+    resolved_profile_projection: bool = False,
 ) -> RepositoryWorkItemHandle:
     """Atomically submit or deduplicate one repository-development WorkItem.
 
@@ -1052,11 +1154,89 @@ def submit_repository_work_item(
     request digest is rejected rather than overwritten.
     """
 
-    typed_request = (
-        request
-        if isinstance(request, RepositoryWorkItemRequest)
-        else RepositoryWorkItemRequest.from_contract(request)
+    raw_request = _as_mapping(request)
+    raw_resources = _nested_mapping(raw_request.get("resources"))
+    supplied_authority = raw_resources.get("resolved_profile_authority") or raw_request.get(
+        "resolved_profile_authority"
     )
+    if resolved_profile_projection:
+        if supplied_authority != "repository_manager:resource_profile_registry:v1":
+            raise RepositoryWorkItemError(
+                "resolved_profile_projection requires the trusted profile authority marker"
+            )
+        authority_source = {**raw_request, **raw_resources}
+        required_authority_fields = (
+            "resource_class",
+            "concurrency_key",
+            "profile_version",
+            "concurrency_limit",
+            "repository_exclusive",
+            "branch_exclusive",
+            "disk_policy_key",
+            "fairness_cost",
+            "cpu_weight",
+            "memory_mib",
+            "disk_mib",
+            "process_slots",
+            "host_labels",
+            "anti_affinity",
+            "preferred_target",
+            "required_target",
+            "disk_low_watermark_mib",
+            "disk_high_watermark_mib",
+            "fairness_group",
+        )
+        # Nullable policy values (concurrency_limit and disk watermarks) are
+        # deliberately checked for presence only: a trusted profile may
+        # explicitly resolve them to None.  Identity, profile, dimensions,
+        # and cost fields must carry a concrete value before the Pydantic model
+        # validator runs, otherwise the boundary would leak ValidationError
+        # instead of the stable repository-authority error vocabulary.
+        required_non_null_fields = {
+            "resource_class",
+            "concurrency_key",
+            "profile_version",
+            "disk_policy_key",
+            "fairness_cost",
+            "cpu_weight",
+            "memory_mib",
+            "disk_mib",
+            "process_slots",
+            "preferred_target",
+            "fairness_group",
+        }
+        missing_authority_fields = [
+            field
+            for field in required_authority_fields
+            if field not in authority_source
+            or (
+                field in required_non_null_fields
+                and authority_source[field] is None
+            )
+        ]
+        if missing_authority_fields:
+            raise RepositoryWorkItemError(
+                "trusted resolved profile projection is incomplete: "
+                + ", ".join(missing_authority_fields)
+            )
+    elif supplied_authority is not None:
+        raise RepositoryWorkItemError(
+            "resolved profile authority is reserved for the trusted RM projection path"
+        )
+    try:
+        typed_request = (
+            request
+            if isinstance(request, RepositoryWorkItemRequest)
+            else RepositoryWorkItemRequest.from_contract(request)
+        )
+    except ValidationError as exc:
+        raise RepositoryWorkItemError(
+            "repository request is invalid at the WorkItem authority boundary"
+        ) from exc
+    if resolved_profile_projection and typed_request.resolved_profile_authority is None:
+        raise RepositoryWorkItemError(
+            "trusted resolved profile projection was not preserved by contract adaptation"
+        )
     _require_tenant_for_engine(engine, typed_request.tenant_id)
     derived_job_id = repository_job_id(
         typed_request.tenant_id, typed_request.idempotency_key
@@ -1117,6 +1297,7 @@ def submit_repository_work_item(
             job_id=job_id,
             input_digest=input_digest,
             dependencies=dependencies,
+            resolved_profile_projection=resolved_profile_projection,
         ),
         work_item_id=item_id,
         now=now,

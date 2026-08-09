@@ -538,7 +538,7 @@ def test_nested_c03_resource_projection_survives_view_and_result_round_trip() ->
     assert metadata["preferred_target"]["alias"].startswith("opaque:v1:")
     assert metadata["required_target"]["alias"].startswith("opaque:v1:")
     assert all(value.startswith("opaque:v1:") for value in metadata["anti_affinity"])
-    assert metadata["queue_deadline"] == deadline.isoformat()
+    assert metadata["queue_deadline"] == "2030-01-02T03:04:05Z"
     assert metadata["disk_low_watermark_mib"] == 100
     assert metadata["disk_high_watermark_mib"] == 1000
 
@@ -624,6 +624,64 @@ def test_nested_c03_resource_projection_survives_view_and_result_round_trip() ->
     with pytest.raises(ValueError):
         RepositoryWorkItemRequest.model_validate(
             {**request.model_dump(), "priority": True}
+        )
+
+
+def _trusted_resolved_request(*, key: str = "resolved-profile") -> RepositoryWorkItemRequest:
+    return _request(key=key).model_copy(
+        update={
+            "profile_version": "1",
+            "resolved_profile_authority": (
+                "repository_manager:resource_profile_registry:v1"
+            ),
+            "disk_policy_key": "light-check-v1",
+            "fairness_cost": 1,
+            # These profiles intentionally have no concurrency or disk
+            # hysteresis limits; explicit nulls are still part of the trusted
+            # resolved projection and must not be confused with missing data.
+            "concurrency_limit": None,
+            "disk_low_watermark_mib": None,
+            "disk_high_watermark_mib": None,
+        }
+    )
+
+
+def test_public_submission_cannot_self_stamp_resolved_profile_authority() -> None:
+    engine = RepositoryEngine()
+    request = _trusted_resolved_request()
+    with pytest.raises(
+        RepositoryWorkItemError, match="reserved for the trusted RM projection"
+    ):
+        submit_repository_work_item(engine, request)
+
+
+def test_trusted_resolved_projection_preserves_explicit_null_policy_fields() -> None:
+    engine = RepositoryEngine()
+    request = _trusted_resolved_request(key="resolved-null-policy")
+    handle = submit_repository_work_item(
+        engine, request, resolved_profile_projection=True
+    )
+    extension = engine.nodes[handle.work_item_id]["metadata"]["repository_work_item"][
+        "resource_reservation"
+    ]
+    assert extension["resolved_profile_authority"] == (
+        "repository_manager:resource_profile_registry:v1"
+    )
+    assert extension["profile_version"].startswith("opaque:v1:")
+    assert extension["concurrency_limit"] is None
+    assert extension["disk_low_watermark_mib"] is None
+    assert extension["disk_high_watermark_mib"] is None
+
+
+def test_trusted_resolved_projection_rejects_partial_authority_marker() -> None:
+    engine = RepositoryEngine()
+    raw = _request(key="partial-resolved-profile").model_dump(mode="python")
+    raw["resolved_profile_authority"] = (
+        "repository_manager:resource_profile_registry:v1"
+    )
+    with pytest.raises(RepositoryWorkItemError, match="projection is incomplete"):
+        submit_repository_work_item(
+            engine, raw, resolved_profile_projection=True
         )
 
 
