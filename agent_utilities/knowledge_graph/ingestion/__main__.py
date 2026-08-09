@@ -42,6 +42,23 @@ def _build_engine():
 
 
 async def _amain(args: argparse.Namespace) -> int:
+    # BUG-056 (CONCEPT:AU-OS.identity.authenticated-identity-enforcement): this
+    # bare CLI entrypoint reaches IngestionEngine's adaptors, which fail closed
+    # (IdentityRequiredError) on the GraphComputeEngine/IntelligenceGraphEngine
+    # chokepoints with no ambient actor bound. Mint/reuse this process's own
+    # verified system identity ONCE, same convention as
+    # core/chat_persistence.py::save_chat_to_disk.
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.security.request_identity import system_write_session
+
+    session = system_write_session()
+    with use_actor(session.actor), use_session(session):
+        return await _run_ingest(args)
+
+
+async def _run_ingest(args: argparse.Namespace) -> int:
+    """Body of :func:`_amain`, run under a bound system actor (BUG-056)."""
     engine = _build_engine()
     ie = IngestionEngine(kg_engine=engine)
 

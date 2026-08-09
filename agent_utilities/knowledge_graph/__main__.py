@@ -63,6 +63,25 @@ async def main():
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
+    # BUG-056 (CONCEPT:AU-OS.identity.authenticated-identity-enforcement): this
+    # bare CLI entrypoint reaches the KG write chokepoint (IntelligencePipeline.run()
+    # -> GraphComputeEngine.add_node, plus engine.add_memory/delete_memory/
+    # update_memory) with no ambient actor bound -- BUG-033's fail-closed
+    # stamp_ownership would raise IdentityRequiredError on every write this CLI
+    # makes. Mint/reuse this process's own verified system identity ONCE, same
+    # convention as core/chat_persistence.py::save_chat_to_disk and
+    # knowledge_graph/core/conversation_ingestion.py.
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.security.request_identity import system_write_session
+
+    session = system_write_session()
+    with use_actor(session.actor), use_session(session):
+        await _run(args)
+
+
+async def _run(args: argparse.Namespace) -> None:
+    """Body of :func:`main`, run under a bound system actor (BUG-056)."""
     config = PipelineConfig(
         workspace_path=str(Path.cwd()),
         ladybug_path=str(kg_db_path()),
