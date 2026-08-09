@@ -258,17 +258,26 @@ repos:
     - --ignore=DL3009
     - --ignore=DL4006
     - --ignore=SC2102
-- repo: https://github.com/IamTheFij/docker-pre-commit
-  rev: f626253b23de45412865c07fd076ff95d4cd77a7 # v3.0.1
+- repo: local
   hooks:
-  # `docker compose config` interpolates every compose file's env vars to
-  # validate them, which needs real deployment-time values (image digests,
-  # DB users, GRAPH_SERVICE_AUTH_SECRET, ...) that only exist in the actual
-  # deploy environment/secret store, never a bare dev/CI checkout. Same
-  # heavy/env-infra class as docs-build/wheel-build/backend-parity/
-  # guardrails-lean-parity above — staged manual/pre-push. Run it via:
-  #   pre-commit run docker-compose-check --hook-stage manual --all-files
+  # `docker compose config` interpolates a compose file's env vars before it
+  # can schema-validate it, and 18 vars across docker/ are deliberately marked
+  # REQUIRED via `${VAR:?...}` so a real deploy fails loudly on a missing image
+  # digest or empty password. In a bare checkout those values do not exist, so
+  # the upstream docker-pre-commit hook could NEVER pass here -- and because it
+  # was staged on pre-push, it blocked every push rather than catching anything.
+  #
+  # Interpolation is a precondition for validation, not the thing being
+  # validated: what the hook actually catches is schema (typos, bad keys,
+  # malformed service definitions), and that needs no real secrets. So we run
+  # the same `docker compose config` with an explicit --env-file of inert
+  # placeholders. The `${VAR:?...}` guards are untouched and still protect
+  # every real deploy -- docker/.env.validation is read only here.
   - id: docker-compose-check
+    name: Validate docker compose files
+    entry: scripts/check_compose_files.sh
+    language: script
+    files: ^docker/.*compose.*\.ya?ml$
     stages: [manual, pre-push]
 - repo: local
   hooks:
