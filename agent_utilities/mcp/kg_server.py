@@ -2334,6 +2334,27 @@ DEFAULT_FANOUT_TIMEOUT_S = 30.0
 DEFAULT_CONTENT_FANOUT_TIMEOUT_S = 3.0
 
 
+def fanout_error_label(exc: BaseException) -> str:
+    """Classify a per-target fan-out failure as retryable-degraded or rejected.
+
+    BUG-048: ``fanout_execute`` (below) and the "primary target" call sites
+    that deliberately bypass its concurrency machinery but must mirror its
+    error handling (e.g. ``graph_query``'s ``default``-connection fast path
+    in ``query_tools.py``) reduce a raised exception to a bare string outside
+    the ``OperationResult``/``OperationError`` schema ``public_error_payload``
+    covers. Without this, a breaker-open on one fan-out target collapsed to
+    the SAME ``"target_operation_failed"`` label as a genuinely rejected
+    query — indistinguishable to a caller deciding whether to retry, exactly
+    the defect BUG-048 fixed at the single-target boundary. Reuses
+    :func:`agent_utilities.security.error_surface.is_engine_degraded` — the
+    one place this breaker-vs-rejection vocabulary is defined — rather than
+    reimplementing it a third time.
+    """
+    from agent_utilities.security.error_surface import is_engine_degraded
+
+    return "target_degraded" if is_engine_degraded(exc) else "target_operation_failed"
+
+
 def fanout_execute(entries, fn, *, timeout=None):
     """Run ``fn(name, engine)`` for every fan-out target CONCURRENTLY under a shared
     per-target wall-clock timeout, so one slow/unreachable backend can't stall the
@@ -2342,6 +2363,9 @@ def fanout_execute(entries, fn, *, timeout=None):
     Returns ``(results, errors)`` keyed by connection name. A target that exceeds the
     budget (or raises) lands in ``errors`` while the rest still return — the
     partial-success contract the sequential loop violated by blocking on the slowest.
+    A raised target is labeled via :func:`fanout_error_label` — ``"target_degraded"``
+    for a breaker-open/transport-down failure (retryable), ``"target_operation_failed"``
+    for everything else (BUG-048) — never the exception text itself.
     """
     import concurrent.futures
 
@@ -2363,7 +2387,7 @@ def fanout_execute(entries, fn, *, timeout=None):
                 "Graph fan-out target failed (exception_type=%s)",
                 type(exc).__name__,
             )
-            errors[name] = "target_operation_failed"
+            errors[name] = fanout_error_label(exc)
     for fut in not_done:
         errors[futures[fut]] = "target_timeout"
     # Never block on a hung backend's thread; let it finish in the background.
