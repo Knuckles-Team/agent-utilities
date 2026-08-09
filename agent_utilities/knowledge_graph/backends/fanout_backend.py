@@ -181,6 +181,39 @@ def _is_authorization_error(exc: BaseException) -> bool:
     return isinstance(exc, (IdentityRequiredError, SessionRequiredError))
 
 
+def _resolve_governance_actor() -> Any:
+    """Resolve the actor that governs a DIRECT typed-producer authority write.
+
+    BUG-057: ``add_node``/``compare_and_set_node_fields`` are governed write
+    seams in their own right — a caller holding a direct ``FanOutBackend``
+    reference reaches them WITHOUT ever passing through the engine's
+    ``_upsert_node`` chokepoint (``core/engine.py``) that normally stamps
+    ownership/classification first. This is not hypothetical: ``self.backend.
+    add_node(...)`` call sites already exist in production (BUG-059 — e.g.
+    ``enrichment/pipeline.py``, ``adaptation/feedback.py``). Left unstamped,
+    the authority write lands ungoverned while the mirror-replay writer (which
+    reuses the same ``_upsert_node`` stamping seam) invents ownership fields
+    the authority never received — mirror ends up MORE governed than the
+    authority it is supposed to faithfully replicate.
+
+    A bare ``current_actor()``/``stamp_ownership(properties)`` call would fail
+    closed with ``IdentityRequiredError`` the moment a caller reaches this
+    method from a thread with no ambient ``ActorContext`` bound —
+    ``contextvars`` never cross a ``threading.Thread`` boundary — turning a
+    legitimate concurrent caller into a hard failure instead of a governed
+    write. ``system_write_session()`` already encodes the right preference
+    (the caller's own verified session when one is ambient, else the
+    process's cached system identity) — the SAME helper the ``kg-mirror-
+    {name}`` drain threads use (BUG-055) — so reuse it instead of inventing a
+    second identity-resolution policy. Import is local for the same reason as
+    :func:`_is_authorization_error`: no module-level dependency from
+    ``backends`` onto ``security``.
+    """
+    from agent_utilities.security.request_identity import system_write_session
+
+    return system_write_session().actor
+
+
 def _overrides_backend_method(backend: GraphBackend, method_name: str) -> bool:
     """Return whether ``backend`` implements an optional base capability.
 
@@ -765,6 +798,15 @@ class FanOutBackend(GraphBackend):
         The native authority accepts the full MessagePack property domain.  Keeping
         this operation structured avoids lossy Cypher literal rendering while the
         mirror drainer still uses its backend-aware portable writer.
+
+        BUG-057: this typed producer is a governed write seam in its own
+        right (see :func:`_resolve_governance_actor`), not merely an internal
+        detail of the engine's ``_upsert_node`` chokepoint. Stamping ownership/
+        classification onto ``payload`` HERE, before the authority commit,
+        means both the authority AND the mirror-replay writer (which reuses
+        the same stamping seam and finds the fields already present) land on
+        an identical node — a mirror must faithfully replicate the authority,
+        never invent ownership the authority itself lacks.
         """
         node_type = str(properties.get("node_type") or label).strip()
         if not node_type:
@@ -774,6 +816,10 @@ class FanOutBackend(GraphBackend):
             "id": node_id,
             "node_type": node_type,
         }
+        from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+        stamp_ownership(payload, actor=_resolve_governance_actor())
+        stamp_classification(payload, node_type)
         typed_add = getattr(self._authority, "add_node", None)
         if not callable(typed_add):
             raise RuntimeError(
@@ -838,6 +884,17 @@ class FanOutBackend(GraphBackend):
         authoritative node and reuses the existing structured-node outbox path,
         preserving ACL/classification and converging mirrors without a second
         backend-specific partial-update dialect.
+
+        BUG-057: like :meth:`add_node`, this is a governed write seam in its
+        own right. Any ownership/classification field a governed write would
+        add but this node's CURRENT authority state (``before``) does not
+        already carry — and the caller's own ``updates`` does not already
+        specify — is folded into ``updates`` before the CAS commits, so the
+        field lands on the authority itself (never overwriting one the node
+        already has: ``stamp_ownership``/``stamp_classification`` are both
+        add-if-missing). The post-CAS snapshot mirrors replay is then already
+        complete, so the mirror can never end up holding a field the
+        authority does not.
         """
         compare_and_set = getattr(self._authority, "compare_and_set_node_fields", None)
         get_properties = getattr(self._authority, "get_node_properties", None)
@@ -855,6 +912,18 @@ class FanOutBackend(GraphBackend):
                 raise RuntimeError(
                     "fan-out compare-and-set requires a typed authority node"
                 )
+            from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+            governed = {**before, **updates}
+            stamp_ownership(governed, actor=_resolve_governance_actor())
+            stamp_classification(governed, label)
+            missing = {
+                field: value
+                for field, value in governed.items()
+                if field not in before and field not in updates
+            }
+            if missing:
+                updates = {**updates, **missing}
             if not bool(compare_and_set(node_id, conditions, updates)):
                 return False
             self._authority_writes += 1
