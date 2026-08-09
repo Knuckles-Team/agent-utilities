@@ -288,11 +288,10 @@ case itself next time. The goal is orchestrating completely off the harness.
   `protocols/source_connectors/base.py`), never `.public()`. Every non-test connector
   activation must resolve a signed capability manifest and pass its schema/tool/ontology
   contract before records can be applied; no profile or source allowlist can bypass that
-  gate. Legacy fallback: flip a deployment back to public-by-default with
-  `CONNECTOR_DEFAULT_PUBLIC=true` (default `false`), though this is not recommended. The
+  gate, and there is no environment escape hatch back to public-by-default anymore. The
   `connector_manifest_gate.precheck_source` enforces manifest validation fail-closed
-  (opt-in allowlist `CONNECTOR_MANIFEST_REQUIRE_ENTERPRISE` can name required enterprise
-  connectors, empty by default). `source_sync._reconcile` never
+  against the baked-in mandatory 12-connector baseline (no operator-extensible allowlist
+  layered on top). `source_sync._reconcile` never
   tombstones on a failed/skipped live-id fetch, and only tombstones a genuinely
   empty snapshot for a source named in `SOURCE_SYNC_ALLOW_EMPTY_TOMBSTONE`
   (empty by default) — see [`configuration.md`](docs/architecture/configuration.md)

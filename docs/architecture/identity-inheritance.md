@@ -275,7 +275,7 @@ Designed and recorded, **not yet implemented**:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AUTH_JWT_JWKS_URI` | unset | JWKS endpoint used to validate inbound Bearer JWTs (gateway `ActorIdentityMiddleware` and each server's own `JWTVerifier`). Required for `KG_SERVED_PROFILE` to allow serving over `streamable-http`/`sse`. |
+| `AUTH_JWT_JWKS_URI` | unset | JWKS endpoint used to validate inbound Bearer JWTs (gateway `ActorIdentityMiddleware` and each server's own `JWTVerifier`). Required to serve over `streamable-http`/`sse` with JWT auth enforced. |
 | `AUTH_JWT_ISSUER` | unset | Expected `iss` claim; recommended alongside the JWKS URI. |
 | `AUTH_JWT_AUDIENCE` | unset | Expected `aud` claim; recommended alongside the JWKS URI. |
 | `IDENTITY_GROUP_CAPABILITY_MAP` | unset (`None`) | Optional `dict[str, list[str]]` mapping opaque/raw group values (typically Okta group IDs) to one or more capability strings. Unmapped groups fall back to their own name. Read by `actor_from_claims()` via `config.identity_group_capability_map`. |

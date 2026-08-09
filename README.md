@@ -35,7 +35,7 @@
 > operator one question — *homelab or enterprise?* — and take it from there.
 
 > 🧰 **Install the skills first — they unlock how to use everything else.** Once
-> `agent-utilities` is installed, run **`agent-utilities install-skills`** to drop the
+> `agent-utilities` is installed, run **`agent-utilities install`** to drop the
 > skill toolkit — including the **`agent-utilities` skill-graph** (the platform's own
 > reference manual) plus the deployment/evolution/KG skills — into the calling agent
 > tool (Claude Code, etc.) and the agent-utilities XDG skills dir, where agents
@@ -138,7 +138,7 @@ Claude set itself up — all in the **[Quick Start](docs/guides/quick-start.md)*
 ### Use the knowledge graph natively — for free, no database
 
 ```python
-from agent_utilities.mcp import kg_server   # GRAPH_BACKEND=epistemic_graph is the default
+from agent_utilities.mcp import kg_server   # the epistemic-graph engine is the default — zero-infra, no mode to set
 
 # Add knowledge...
 await kg_server._execute_tool("graph_write", action="add_node",
@@ -521,7 +521,6 @@ fan-out and name the mirror — the engine stays the read authority and Postgres
 receives the replicated write stream:
 
 ```bash
-export GRAPH_BACKEND=fanout
 export GRAPH_MIRROR_TARGETS='["pg-age"]'
 export KG_CONNECTIONS='[{"name":"pg-age","backend":"age","uri":"postgresql://agent:agent@localhost:5432/agent_kg"}]'
 ```
