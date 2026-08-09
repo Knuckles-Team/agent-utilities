@@ -11,6 +11,7 @@ claims:
     - graph_incident
     - graph_kv_checkpoint
     - graph_kvcache
+    - graph_logs
     - graph_observe
     - graph_secret
     - graph_sessions

@@ -47,8 +47,13 @@ _MAX_WHEEL_BYTES = 4 * 1024 * 1024 * 1024
 _MAX_CONTRACT_MEMBER_BYTES = 1024 * 1024
 _MAX_MEMBERS = 400_000
 _RELEASE_RESOURCE_CATALOG = "deploy/release/release-contract-resources.catalog.json"
+# Reviewed pin — bump only when deploy/release/release-contract-resources.catalog.json
+# legitimately changes (e.g. one of its cataloged resources, such as
+# prebundled-skills.catalog.json, is regenerated via check_release_catalogs.py
+# --write for a real source change). Verify with `sha256sum` before bumping;
+# never regenerate this blindly, it is the wheel contract's trusted anchor.
 _RELEASE_RESOURCE_CATALOG_SHA256 = (
-    "35efd2aeff0ad6c50e5bb11581b5ece77960feac4d8f8a6c82a25010a5d23111"
+    "f0173c0f8b196f2d4434fa985a1f8be16fc99e058d8144b06cd7789b43e41dd4"
 )
 _RELEASE_RESOURCE_PATHS = (
     "deploy/release/certification-campaign.schema.json",

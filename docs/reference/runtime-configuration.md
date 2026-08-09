@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-552 typed fields · 364 runtime-only call-site inputs.
+552 typed fields · 365 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -955,6 +955,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `NEXTCLOUD_URL` | 2 |
 | `NEXTCLOUD_USER` | 1 |
 | `OAUTH_UPSTREAM_CLIENT_SECRET_REF` | 1 |
+| `OBSERVABILITY_PROMETHEUS_URL` | 1 |
 | `OIDC_BASE_URL` | 1 |
 | `OPENAPI_CLIENT_ID` | 1 |
 | `OPENAPI_CLIENT_SECRET_REF` | 1 |

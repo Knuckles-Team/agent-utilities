@@ -1921,6 +1921,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_kvcache", "action": "put", "name": "graph_kvcache_put"},
     {"tool": "graph_kvcache", "action": "stats", "name": "graph_kvcache_stats"},
     {"tool": "graph_learn", "action": None, "name": "graph_learn"},
+    {"tool": "graph_logs", "action": "query", "name": "graph_logs_query"},
     {"tool": "graph_loops", "action": "cancel", "name": "graph_loops_cancel"},
     {"tool": "graph_loops", "action": "drive", "name": "graph_loops_drive"},
     {"tool": "graph_loops", "action": "gap", "name": "graph_loops_gap"},
