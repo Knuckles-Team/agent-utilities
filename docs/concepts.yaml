@@ -1415,6 +1415,13 @@ concepts:
   code_paths:
   - agent_utilities/server/routers/__init__.py
   doc: Standardized API Surface
+- id: AU-ECO.mcp.catalog-rest-surface
+  name: AU-ECO.mcp.catalog-rest-surface
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/server/routers/mcp_catalog.py
+  doc: AU-ECO.mcp.catalog-rest-surface
 - id: AU-ECO.mcp.client-side-chat-session
   name: client-side chat/session ingestion for Claude + Antigravity
   pillar: AU-ECO
@@ -1603,6 +1610,13 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/protocol_compat.py
   doc: closes D-OB-18
+- id: AU-ECO.mcp.shared-multiplexer-singleton
+  name: GOC-60-W03/W04b
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/shared_multiplexer.py
+  doc: GOC-60-W03/W04b
 - id: AU-ECO.mcp.skills-over-mcp-provider
   name: absent/empty for
   pillar: AU-ECO
@@ -2677,13 +2691,6 @@ concepts:
   code_paths:
   - agent_utilities/protocols/epistemic_operations/__init__.py
   doc: one current-only operations
-- id: AU-KG.compute.event-driven-sync
-  name: Event-Driven Graph Synchronization
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/kafka_graph_sync.py
-  doc: Event-Driven Graph Synchronization
 - id: AU-KG.compute.firefly-iii-accounts-transactions
   name: Firefly III accounts/transactions/budgets →
   pillar: AU-KG
@@ -4832,13 +4839,6 @@ concepts:
   - agent_utilities/knowledge_graph/kb/knowledge_classifier.py
   - agent_utilities/knowledge_graph/kb/x_workflows.py
   doc: Universal Knowledge Assimilation
-- id: AU-KG.memory.working-set-eviction
-  name: Working Set Eviction & Memory Management
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/working_set_manager.py
-  doc: Working Set Eviction & Memory Management
 - id: AU-KG.mining.dsm-forecast-delegation
   name: the deep-learning / heavy-Python family the
   pillar: AU-KG
@@ -5726,13 +5726,6 @@ concepts:
   - agent_utilities/knowledge_graph/orchestration/data_analyst.py
   - agent_utilities/mcp/tools/query_tools.py
   doc: answer a DATA question over the Knowledge Graph with a
-- id: AU-KG.query.intelligent-routing
-  name: Intelligent Query Routing
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/graph/routing/strategies/query_tier.py
-  doc: Intelligent Query Routing
 - id: AU-KG.query.knowledge-stream-consumer
   name: additive; a build/transport without the
   pillar: AU-KG
@@ -6677,7 +6670,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
-  - agent_utilities/knowledge_graph/core/ingest_engine.py
   - agent_utilities/knowledge_graph/core/ingest_routing.py
   - agent_utilities/knowledge_graph/core/placement_catalog.py
   - agent_utilities/knowledge_graph/core/session.py
@@ -9298,6 +9290,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/merge_queue.py
   doc: AU-OS.governance.tiered-merge-gate
+- id: AU-OS.governance.verified-write-state-advance
+  name: AU-OS.governance.verified-write-state-advance
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_dispatch_worker.py
+  doc: AU-OS.governance.verified-write-state-advance
 - id: AU-OS.governance.wasm-micro-agent-sandbox
   name: WASM Micro-Agent Sandbox & Runner
   pillar: AU-OS
