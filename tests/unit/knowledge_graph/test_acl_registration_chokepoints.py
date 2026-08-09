@@ -488,3 +488,145 @@ def test_batched_backend_add_edge_fails_closed_with_no_bound_actor():
     with pytest.raises(PermissionError):
         contextvars.Context().run(isolated)
     assert batched._edges == []
+
+
+# --- IntelligenceGraphEngine._upsert_edge (BUG-062) --------------------------
+#
+# Merged alongside BUG-058's GraphComputeEngine.add_edge tests above: the two
+# fixes gate DIFFERENT edge chokepoints (146 sites via link_nodes here, 117 via
+# engine.graph.add_edge there), so both test sets are kept in full. The merge
+# conflict was purely positional -- both appended at end of file.
+
+def test_upsert_edge_stamps_governance_on_the_typed_native_path():
+    backend = Mock()
+    backend.typed_mutation_support = "native"
+    backend.__class__.__name__ = "GenericTestBackend"
+    engine = _bare_engine(backend)
+
+    with use_actor(_actor()):
+        engine._upsert_edge("a", "b", "DEPENDS_ON", {})
+
+    backend.add_edge.assert_called_once()
+    _source_id, _target_id = backend.add_edge.call_args[0]
+    kwargs = backend.add_edge.call_args[1]
+    assert kwargs["tenant_id"] == "tenant-a"
+    assert kwargs["_owner_id"] == "writer:alice"
+    assert kwargs["classification"] == "confidential"
+    assert kwargs["relationship"] == "DEPENDS_ON"
+
+
+def test_upsert_edge_fails_closed_with_no_bound_actor():
+    """BUG-062: a write reaching this chokepoint with NO verified ambient
+    actor at all must raise -- not silently proceed unstamped, exactly like
+    ``_upsert_node``'s BUG-033/BUG-039 fix. No edge is created."""
+    import contextvars
+
+    import pytest
+
+    backend = Mock()
+    backend.typed_mutation_support = "native"
+    backend.__class__.__name__ = "GenericTestBackend"
+    engine = _bare_engine(backend)
+
+    def isolated():
+        engine._upsert_edge("a", "b", "DEPENDS_ON", {})
+
+    with pytest.raises(PermissionError):
+        contextvars.Context().run(isolated)
+    backend.add_edge.assert_not_called()
+
+
+def test_upsert_edge_never_overwrites_a_caller_supplied_scope():
+    """Existing ``_shared_scope``/``_owner_id`` markers are never overwritten
+    (mirrors ``stamp_ownership``'s own ``setdefault`` contract for nodes)."""
+    backend = Mock()
+    backend.typed_mutation_support = "native"
+    backend.__class__.__name__ = "GenericTestBackend"
+    engine = _bare_engine(backend)
+
+    with use_actor(_actor()):
+        engine._upsert_edge(
+            "a",
+            "b",
+            "DEPENDS_ON",
+            {"_owner_id": "writer:bob", "_shared_scope": "org"},
+        )
+
+    kwargs = backend.add_edge.call_args[1]
+    assert kwargs["_owner_id"] == "writer:bob"
+    assert kwargs["_shared_scope"] == "org"
+
+
+# --- IntelligenceGraphEngine.batch_typed_mutations, kind == "edge" (BUG-062) -
+#
+# The typed-batch seam bypasses ``_upsert_edge`` entirely (it flushes straight
+# to ``apply_typed_batch``), so it needs its own stamp -- mirrors the
+# ``kind == "node"`` branch's existing BUG-033/BUG-039 stamp in the same
+# method.
+
+
+def test_batch_typed_mutations_edge_branch_stamps_governance():
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+
+    backend = Mock()
+    engine = _bare_engine(backend)
+    engine._compute_is_authority = True
+    actor = _actor()
+    session = GraphSession(
+        actor=actor, tenant=actor.tenant_id, scopes=frozenset({"kg:write"})
+    )
+
+    with use_session(session):
+        ok = engine.batch_typed_mutations(
+            [
+                {
+                    "kind": "edge",
+                    "source": "a",
+                    "target": "b",
+                    "rel_type": "DEPENDS_ON",
+                    "properties": {},
+                }
+            ]
+        )
+
+    assert ok is True
+    backend.apply_typed_batch.assert_called_once()
+    (operations,), _kwargs = backend.apply_typed_batch.call_args
+    assert len(operations) == 1
+    op = operations[0]
+    assert op["op"] == "upsert_edge"
+    props = op["properties"]
+    assert props["tenant_id"] == "tenant-a"
+    assert props["_owner_id"] == "writer:alice"
+    assert props["classification"] == "confidential"
+
+
+def test_batch_typed_mutations_edge_branch_fails_closed_with_no_bound_session():
+    """No ambient ``GraphSession`` at all (this method's own ``resolve_session``
+    gate, independent of the stamp added here) must still raise, and the
+    batch must never reach ``apply_typed_batch`` unstamped."""
+    import contextvars
+
+    import pytest
+
+    backend = Mock()
+    engine = _bare_engine(backend)
+    engine._compute_is_authority = True
+
+    def isolated():
+        engine.batch_typed_mutations(
+            [
+                {
+                    "kind": "edge",
+                    "source": "a",
+                    "target": "b",
+                    "rel_type": "DEPENDS_ON",
+                    "properties": {},
+                }
+            ]
+        )
+
+    with pytest.raises(PermissionError):
+        contextvars.Context().run(isolated)
+    backend.apply_typed_batch.assert_not_called()
+

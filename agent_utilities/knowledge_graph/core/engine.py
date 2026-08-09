@@ -860,6 +860,29 @@ class IntelligenceGraphEngine(
         # backend ultimately consumes it.
         rel_type = validate_identifier(rel_type, kind="relationship type")
 
+        # Defence-in-depth ACL registration (CONCEPT:AU-KG.backend.company-brain-write-guard),
+        # mirroring ``_upsert_node``'s own stamp above (BUG-033/BUG-039): this
+        # is the single generic edge-upsert seam ``link_nodes`` — and through
+        # it ~150 call sites across ~65 production files, including
+        # ``messaging/enrichment.py``, ``core/chat_persistence.py`` and
+        # ``core/conversation_ingestion.py`` (the exact three files BUG-033
+        # was filed against) — all funnel through. Until now nothing on this
+        # seam ever stamped ownership/classification at all, unlike
+        # ``_upsert_node``: private conversational EDGES were exactly as
+        # ungoverned as those files' NODES were before BUG-033. Same privacy
+        # exposure, second door (BUG-062).
+        #
+        # Fail-closed, same contract as ``_upsert_node``: a write reaching
+        # this chokepoint with NO bound actor at all must raise, not
+        # silently land unowned. A genuinely privileged/system actor is
+        # unaffected — ``stamp_ownership`` already leaves ITS writes
+        # intentionally unowned (platform/commons data), which is unchanged
+        # policy, not this defect.
+        from .tenant_sharing import stamp_classification, stamp_ownership
+
+        stamp_ownership(props)
+        stamp_classification(props, rel_type)
+
         # Epistemic Graph's typed mutation carries the complete property value
         # domain (including arrays/nested values) and avoids two label-lookup
         # queries plus a scalar-only Cypher ``SET``.  Native proxy backends retain
@@ -1215,6 +1238,14 @@ class IntelligenceGraphEngine(
                     props.setdefault("confidence", 1.0)
                     props.setdefault("source", "system")
                     stamp_bitemporal(props, event_time=props.get("event_time"))
+                    # BUG-062: fail closed, same as the node branch above and
+                    # ``_upsert_edge`` — no bound actor must never silently
+                    # produce an unowned/unclassified edge (see that seam's
+                    # comment for the full rationale). This batch path bypasses
+                    # ``_upsert_edge`` entirely (it goes straight to
+                    # ``apply_typed_batch``), so it needs its own stamp.
+                    stamp_ownership(props)
+                    stamp_classification(props, rel_type)
                     operations.append(
                         {
                             "op": "upsert_edge",
