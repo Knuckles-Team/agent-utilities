@@ -32,8 +32,75 @@ PUBLIC_ERROR_MESSAGES = MappingProxyType(
         "invalid_request": "The request could not be processed.",
         "dependency_unavailable": "A required service is unavailable.",
         "permission_denied": "The operation is not authorized.",
+        # BUG-048: a breaker-open / transport-down failure is transient and
+        # retryable — distinct from "operation_failed" (which reads as a
+        # rejected/malformed request) and from "dependency_unavailable"
+        # (which today means "could not even obtain an engine handle").
+        "engine_degraded": (
+            "The knowledge graph engine is temporarily overloaded; retry shortly."
+        ),
     }
 )
+
+#: Exception CLASS NAMES (never instances or messages) that mean "the engine
+#: circuit breaker tripped or the transport is down" — a transient condition,
+#: not a rejected/malformed request (BUG-048). Mirrors
+#: ``agent_utilities.knowledge_graph.core.engine_breaker``'s own trip/retry
+#: vocabulary (``_TRIP_EXCEPTIONS`` / ``_RETRY_EXCEPTIONS`` plus its typed
+#: ``EngineCircuitOpenError``, itself a ``ConnectionError`` subclass),
+#: duplicated here BY NAME rather than imported, so this module (the public
+#: sanitization boundary) does not take on a security -> knowledge_graph
+#: layering dependency.
+_ENGINE_DEGRADED_TYPE_NAMES = frozenset(
+    {"EngineCircuitOpenError", "ConnectionError", "TimeoutError", "OSError", "EOFError"}
+)
+
+
+def _is_engine_degraded(exc: BaseException) -> bool:
+    """True when ``exc`` is a breaker-open / transport-down condition.
+
+    Two shapes reach this boundary:
+
+    1. The breaker's own :class:`EngineCircuitOpenError` (or a bare
+       transport ``OSError``/``EOFError`` — ``ConnectionError`` and
+       ``TimeoutError`` are both ``OSError`` SIBLINGS, not one a subclass of
+       the other, so both must be checked explicitly) raised directly. This
+       is exactly the breaker's own ``_TRIP_EXCEPTIONS = (OSError, EOFError)``
+       vocabulary (:mod:`agent_utilities.knowledge_graph.core.engine_breaker`)
+       — anything that trips the breaker is, by definition, this condition.
+    2. The native-Cypher sanitization boundary's ``CypherEngineError``
+       (:mod:`agent_utilities.knowledge_graph.backends.epistemic_graph_backend`),
+       which wraps ``from None`` — deliberately discarding
+       ``__cause__``/``__context__`` so the original query/connection detail
+       never crosses the boundary — but preserves the ORIGINAL exception's
+       class NAME on its own ``error_type`` attribute for exactly this
+       purpose: telling a transient breaker/connection failure apart from a
+       genuine query rejection without resurrecting the sanitized detail.
+       Checked by class name only (never message text), so this stays a
+       class-level distinction — sanitizing the detail, not the class.
+    """
+    if isinstance(exc, (OSError, EOFError)):
+        return True
+    error_type = getattr(exc, "error_type", None)
+    return isinstance(error_type, str) and error_type in _ENGINE_DEGRADED_TYPE_NAMES
+
+
+def _engine_retry_after_hint() -> float:
+    """Best-effort ``retry_after_s`` hint for an ``engine_degraded`` failure.
+
+    Sourced from the SAME breaker cooldown configuration
+    :class:`~agent_utilities.knowledge_graph.core.engine_breaker.CircuitBreaker`
+    itself uses, so the hint is never fabricated — falls back to the
+    breaker's own default cooldown only when the config isn't reachable
+    here, and never raises (a hint must not break the error path it decorates).
+    """
+    try:
+        from agent_utilities.core.config import config
+
+        return float(config.engine_breaker_cooldown)
+    except Exception:  # noqa: BLE001 — a retry hint must never break error reporting
+        return 15.0  # CircuitBreaker's own default cooldown
+
 
 #: Coarse, deterministic module-prefix -> layer-label mapping used to derive
 #: ``failing_layer`` from the exception's own innermost traceback frame — never
@@ -341,6 +408,17 @@ def public_error_payload(
     """
 
     safe_code = code if code in PUBLIC_ERROR_MESSAGES else "operation_failed"
+    # BUG-048: a caller that didn't explicitly classify its failure (the
+    # ubiquitous bare ``except Exception: return public_error_json(e)`` at
+    # ~200+ call sites) previously collapsed a breaker-open/transport-down
+    # condition into the SAME "operation_failed"/``retryable=False`` shape as
+    # a rejected or malformed query — indistinguishable to the caller, who
+    # then chases a query-correctness hypothesis instead of retrying. Only
+    # the ambiguous DEFAULT is upgraded here; an explicit
+    # ``permission_denied``/``invalid_request``/``dependency_unavailable``
+    # the caller deliberately chose is never overridden.
+    if safe_code == "operation_failed" and _is_engine_degraded(exc):
+        safe_code = "engine_degraded"
     correlation_id = f"correlation:{uuid.uuid4().hex}"
     error_class = type(exc).__name__
     failing_layer = _infer_failing_layer(exc)
@@ -366,7 +444,10 @@ def public_error_payload(
         result_ref=None,
         error=OperationError(
             code=safe_code,
-            retryable=safe_code == "dependency_unavailable",
+            # BUG-048: a breaker trip IS the definition of retryable — the
+            # breaker exists to fail fast now and recover on its own after
+            # ``cooldown``, not to reject the request outright.
+            retryable=safe_code in ("dependency_unavailable", "engine_degraded"),
             correlation_id=correlation_id,
             detail_ref=correlation_id,
         ),
@@ -374,6 +455,8 @@ def public_error_payload(
     ).model_dump(mode="json")
     payload["error_class"] = error_class
     payload["failing_layer"] = failing_layer
+    if safe_code == "engine_degraded":
+        payload["retry_after_s"] = _engine_retry_after_hint()
     return payload
 
 

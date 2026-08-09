@@ -282,13 +282,36 @@ def apply_marking(
 
     ``tenant`` (AU-P0-5) scopes the marking to one tenant's node namespace;
     omitted, it defaults to the verified ambient :class:`GraphSession` tenant.
+
+    PERF (BUG-047 — CONCEPT:AU-ORCH.scheduling.resource-priority-edict): this was
+    idempotent in *outcome* only — every call re-ran the durable ``MERGE ... SET``
+    in :func:`_persist_markings` even when ``name`` was already recorded for
+    ``key``, because ``_hydrate_markings()`` populates :data:`MARKING_REGISTRY`
+    from the store but the write was never gated on the membership check it
+    makes possible. Markings are strictly additive (this module exposes no
+    removal path), so once a name is present for a key it is durably present
+    for good — a repeat ``apply_marking`` call is by construction a no-op. The
+    fleet's per-tool `connector-unconfigured-acl` backfill
+    (:mod:`...protocols.source_connectors.connectors.mcp_tool` ->
+    :func:`...protocols.source_connectors.permission_sync.sync_access`) calls
+    this once per tool on every source-sync pass regardless of whether that
+    tool's markings already matched, which was re-issuing the SAME MERGE for
+    the SAME tenant/node/marking on every cycle — measured as one of the two
+    dominant sustained-slow-query sources behind the engine circuit breaker
+    tripping (BUG-047). Skipping the durable write when the marking is already
+    cached removes that repeated work at its single chokepoint, for every
+    caller (fleet markings, ``tenant_sharing``, ``ontology_tools``), not just
+    the fleet-tool path.
     """
     name = marking.name if isinstance(marking, Marking) else str(marking)
     if not name:
         raise ValueError("Marking name must be non-empty")
     _hydrate_markings()
     key = _mkey(node_id, tenant)
-    MARKING_REGISTRY.setdefault(key, set()).add(name)
+    existing = MARKING_REGISTRY.setdefault(key, set())
+    if name in existing:
+        return
+    existing.add(name)
     _persist_markings(key)
 
 
