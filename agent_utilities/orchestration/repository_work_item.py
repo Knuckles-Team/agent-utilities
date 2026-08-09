@@ -25,7 +25,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal, Protocol, TypeVar
+from typing import Any, Literal, TypeVar
 
 from pydantic import (
     BaseModel,
@@ -43,7 +43,6 @@ from agent_utilities.orchestration.operation_payload import (
     MAX_OPERATION_PAYLOAD_BYTES,
     RepositoryBuildExecutionPayloadV1,
     RepositoryOperationPayload,
-    canonical_payload_json,
     operation_payload_from_mapping,
     payload_digest,
 )
@@ -77,24 +76,6 @@ _MAX_LIST_LIMIT = 1000
 TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE = (
     "typed_execution_payload_authority_unavailable"
 )
-_MAX_EXECUTION_CAPABILITY_BYTES = 4096
-
-
-class NativeExecutionInputAuthority(Protocol):
-    """Native authority boundary for private executable WorkItem input.
-
-    The capability is deliberately opaque here.  Agent Utilities does not
-    mint, parse, or validate it; the native authority authenticates the
-    principal and current claim before reading the private body.
-    """
-
-    def read_exact_execution_input(
-        self, identifier: str, *, tenant: str, capability: str
-    ) -> object: ...
-
-    def verify_current_execution_capability(
-        self, identifier: str, *, tenant: str, capability: str
-    ) -> bool: ...
 
 
 class RepositoryWorkItemError(ValueError):
@@ -1650,160 +1631,17 @@ def get_repository_operation_payload(
     *,
     tenant: str,
     owner_id: str,
-    capability: str | None = None,
-    native_authority: NativeExecutionInputAuthority | None = None,
 ) -> RepositoryBuildExecutionPayloadV1 | None:
-    """Compatibility wrapper for an authenticated native capability read.
+    """Fail closed until EG supplies one atomic native exact-input operation.
 
-    ``owner_id`` remains in this legacy-shaped signature for source
-    compatibility, but it is never an authorization input.  A bare owner
-    string, public WorkItem row, or copied claim tuple must fail before the
-    engine is queried.  Native implementations may pass an opaque capability
-    minted for the authenticated owner principal through the injected port.
+    The legacy owner-shaped signature is retained only as a compatibility
+    boundary.  It never inspects the engine, owner string, or public metadata;
+    native authority integration will replace this path after the EG schema
+    freeze.
     """
 
-    del owner_id
-    return get_repository_operation_payload_for_capability(
-        engine,
-        identifier,
-        tenant=tenant,
-        capability=capability,
-        native_authority=native_authority,
-    )
-
-
-def _require_execution_capability(capability: object) -> str:
-    """Bound an opaque token without interpreting or authenticating it."""
-
-    if not isinstance(capability, str) or not capability:
-        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
-    if capability.strip() != capability:
-        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
-    if len(capability.encode("utf-8")) > _MAX_EXECUTION_CAPABILITY_BYTES:
-        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
-    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in capability):
-        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
-    return capability
-
-
-def _require_execution_authority(
-    native_authority: NativeExecutionInputAuthority | None,
-) -> NativeExecutionInputAuthority:
-    if native_authority is None or not all(
-        callable(getattr(native_authority, method, None))
-        for method in (
-            "read_exact_execution_input",
-            "verify_current_execution_capability",
-        )
-    ):
-        raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
-    return native_authority
-
-
-def _native_execution_error(error: Exception) -> RepositoryWorkItemError:
-    """Normalize an injected native failure without exposing body details."""
-
-    if isinstance(error, RepositoryWorkItemConflict):
-        return RepositoryWorkItemConflict(
-            "input_conflict: repository WorkItem operation payload is invalid"
-        )
-    if isinstance(error, RepositoryWorkItemError):
-        message = str(error)
-        if message in {
-            "typed_execution_payload_required",
-            "input_conflict",
-            TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
-        }:
-            return RepositoryWorkItemError(message)
-    return RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
-
-
-def get_repository_operation_payload_for_capability(
-    engine: Any,
-    identifier: str,
-    *,
-    tenant: str,
-    capability: str | None,
-    native_authority: NativeExecutionInputAuthority | None,
-) -> RepositoryBuildExecutionPayloadV1 | None:
-    """Read exact executable input through an injected native capability port.
-
-    This function intentionally does not inspect ``engine`` or public WorkItem
-    metadata.  The native authority must authenticate the owner/worker
-    principal and current fence before returning the private body.  Python
-    only bounds and forwards the opaque token, then revalidates the returned
-    value through the closed AU model.
-    """
-
-    del engine
-    authority = _require_execution_authority(native_authority)
-    opaque_capability = _require_execution_capability(capability)
-    tenant = _require_tenant(tenant)
-    job_id = _job_id_from_identifier(identifier)
-    verifier = authority.verify_current_execution_capability
-    try:
-        if not verifier(
-            job_id,
-            tenant=tenant,
-            capability=opaque_capability,
-        ):
-            raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
-    except Exception as exc:  # noqa: BLE001 - native errors are privacy-sensitive
-        raise _native_execution_error(exc) from exc
-    reader = authority.read_exact_execution_input
-    try:
-        raw_payload = reader(
-            job_id,
-            tenant=tenant,
-            capability=opaque_capability,
-        )
-    except Exception as exc:  # noqa: BLE001 - native errors are privacy-sensitive
-        raise _native_execution_error(exc) from exc
-    if raw_payload is None:
-        raise RepositoryWorkItemError("typed_execution_payload_required")
-    try:
-        payload = operation_payload_from_mapping(raw_payload)
-    except (TypeError, ValueError) as exc:
-        raise RepositoryWorkItemConflict(
-            "input_conflict: repository WorkItem operation payload is invalid"
-        ) from exc
-    if (
-        len(canonical_payload_json(payload).encode("utf-8"))
-        > MAX_OPERATION_PAYLOAD_BYTES
-    ):
-        raise RepositoryWorkItemConflict(
-            "input_conflict: repository operation payload exceeds its durable bound"
-        )
-    return payload
-
-
-def verify_repository_operation_capability(
-    engine: Any,
-    identifier: str,
-    *,
-    tenant: str,
-    capability: str | None,
-    native_authority: NativeExecutionInputAuthority | None,
-) -> bool:
-    """Ask native authority whether an opaque execution capability is current."""
-
-    del engine
-    if native_authority is None or not callable(
-        getattr(native_authority, "verify_current_execution_capability", None)
-    ):
-        return False
-    try:
-        opaque_capability = _require_execution_capability(capability)
-        job_id = _job_id_from_identifier(identifier)
-        return bool(
-            native_authority.verify_current_execution_capability(
-                job_id,
-                tenant=_require_tenant(tenant),
-                capability=opaque_capability,
-            )
-        )
-    except Exception:
-        return False
+    del engine, identifier, tenant, owner_id
+    raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
 
 
 def get_repository_operation_payload_for_claim(
@@ -1816,8 +1654,7 @@ def get_repository_operation_payload_for_claim(
     """Reject the retired public tuple claim path before any row read.
 
     Fencing tuples are mutation CAS evidence, not authentication.  Native
-    worker callers must obtain an opaque capability from the future EG-native
-    authority and use :func:`get_repository_operation_payload_for_capability`.
+    worker callers must use the future EG-native atomic exact-input operation.
     """
 
     del engine, identifier, tenant, claim
@@ -2322,7 +2159,6 @@ def repository_result_from_view(
 
 __all__ = [
     "CONTRACT_VERSION",
-    "NativeExecutionInputAuthority",
     "RepositoryJobState",
     "RepositoryLease",
     "RepositoryOperation",
@@ -2343,7 +2179,6 @@ __all__ = [
     "claim_repository_work_item",
     "commit_repository_work_item",
     "get_repository_operation_payload",
-    "get_repository_operation_payload_for_capability",
     "get_repository_operation_payload_for_claim",
     "get_repository_work_item",
     "heartbeat_repository_work_item",
@@ -2354,5 +2189,4 @@ __all__ = [
     "repository_work_item_id",
     "repository_work_item_kind",
     "submit_repository_work_item",
-    "verify_repository_operation_capability",
 ]

@@ -30,7 +30,6 @@ from agent_utilities.orchestration.repository_work_item import (
     claim_repository_work_item,
     commit_repository_work_item,
     get_repository_operation_payload,
-    get_repository_operation_payload_for_capability,
     get_repository_operation_payload_for_claim,
     get_repository_work_item,
     heartbeat_repository_work_item,
@@ -481,32 +480,6 @@ def _operation_payload(
         profile_ref="repository_manager:resource_profile:light-check:v1",
         cacheable=True,
     )
-
-
-class _OpaqueExecutionAuthority:
-    """Injected test authority; the production adapter never implements this."""
-
-    def __init__(self, payloads: dict[str, object], *, tenant: str = "tenant-a"):
-        self.payloads = payloads
-        self.tenant = tenant
-        self.capability = "opaque-test-capability"
-        self.reads = 0
-        self.verifications = 0
-
-    def read_exact_execution_input(
-        self, identifier: str, *, tenant: str, capability: str
-    ) -> object:
-        self.reads += 1
-        if tenant != self.tenant or capability != self.capability:
-            raise RepositoryWorkItemError("worker capability is unauthorized")
-        return self.payloads.get(identifier)
-
-    def verify_current_execution_capability(
-        self, identifier: str, *, tenant: str, capability: str
-    ) -> bool:
-        del identifier
-        self.verifications += 1
-        return tenant == self.tenant and capability == self.capability
 
 
 def test_registered_kinds_and_nested_contract_projection() -> None:
@@ -1639,7 +1612,9 @@ def test_checkpoint_retry_dead_letter_and_typed_terminal_result() -> None:
     assert result.retry_class is None
 
 
-def test_operation_payload_is_atomic_private_summary_and_exact_owner_read() -> None:
+def test_operation_payload_is_atomic_private_summary_and_exact_owner_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     engine = RepositoryEngine()
     payload = _operation_payload()
     request = _request(key="typed-payload").model_copy(
@@ -1664,7 +1639,15 @@ def test_operation_payload_is_atomic_private_summary_and_exact_owner_read() -> N
     assert len(listed) == 1
     assert "operation_payload" not in listed[0].model_dump(mode="json")
 
-    native = _OpaqueExecutionAuthority({submitted.job_id: payload})
+    reads = 0
+    original_get = rwi.get_work_item
+
+    def observe_get(engine_arg: Any, item_id: str) -> dict[str, Any] | None:
+        nonlocal reads
+        reads += 1
+        return original_get(engine_arg, item_id)
+
+    monkeypatch.setattr(rwi, "get_work_item", observe_get)
     with pytest.raises(
         RepositoryWorkItemError,
         match=TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
@@ -1675,40 +1658,21 @@ def test_operation_payload_is_atomic_private_summary_and_exact_owner_read() -> N
             tenant="tenant-a",
             owner_id="actor-a",
         )
-    assert native.reads == 0
-    assert (
-        get_repository_operation_payload(
-            engine,
-            submitted.job_id,
-            tenant="tenant-a",
-            owner_id="copied-owner-is-ignored",
-            capability=native.capability,
-            native_authority=native,
-        )
-        == payload
-    )
-    restarted = RepositoryEngine()
-    restarted.nodes = deepcopy(engine.nodes)
-    assert (
-        get_repository_operation_payload(
-            restarted,
-            submitted.job_id,
-            tenant="tenant-a",
-            owner_id="copied-owner-is-ignored",
-            capability=native.capability,
-            native_authority=native,
-        )
-        == payload
-    )
     with pytest.raises(RepositoryWorkItemError):
         get_repository_operation_payload(
             engine,
             submitted.job_id,
             tenant="tenant-b",
             owner_id="actor-a",
-            capability=native.capability,
-            native_authority=native,
         )
+    with pytest.raises(RepositoryWorkItemError):
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="copied-owner-is-ignored",
+        )
+    assert reads == 0
     claim = claim_repository_work_item(
         engine, submitted.job_id, tenant="tenant-a", token="typed-worker", now=10.0
     )
@@ -1782,18 +1746,6 @@ def test_claim_bound_exact_read_rejects_public_and_stale_worker_scopes(
         )
     assert reads == 0
 
-    native = _OpaqueExecutionAuthority({submitted.job_id: payload})
-    assert (
-        get_repository_operation_payload_for_capability(
-            engine,
-            submitted.job_id,
-            tenant="tenant-a",
-            capability=native.capability,
-            native_authority=native,
-        )
-        == payload
-    )
-
 
 def test_claim_bound_exact_read_rejects_reclaim_between_authority_and_row_reads(
     monkeypatch: pytest.MonkeyPatch,
@@ -1864,45 +1816,19 @@ def test_claim_bound_exact_read_enforces_expiry_boundaries_and_malformed_values(
     assert reads == 0
 
 
-def test_native_capability_verification_precedes_private_body_read() -> None:
+def test_exact_input_has_no_python_capability_mint_or_split_read_api() -> None:
     engine = RepositoryEngine()
-    payload = _operation_payload()
-    submitted = submit_repository_work_item(
-        engine,
-        _request(key="capability-expired").model_copy(
-            update={"operation_payload": payload}
-        ),
-    )
-
-    class ExpiredAuthority:
-        reads = 0
-
-        def verify_current_execution_capability(
-            self, identifier: str, *, tenant: str, capability: str
-        ) -> bool:
-            del identifier, tenant, capability
-            return False
-
-        def read_exact_execution_input(
-            self, identifier: str, *, tenant: str, capability: str
-        ) -> object:
-            del identifier, tenant, capability
-            self.reads += 1
-            raise AssertionError("expired capability must not read the body")
-
-    authority = ExpiredAuthority()
-    with pytest.raises(
-        RepositoryWorkItemError,
-        match=TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
-    ):
-        get_repository_operation_payload_for_capability(
+    submitted = submit_repository_work_item(engine, _request(key="no-capability-api"))
+    with pytest.raises(TypeError):
+        get_repository_operation_payload(  # type: ignore[call-arg]
             engine,
             submitted.job_id,
             tenant="tenant-a",
-            capability="opaque-expired",
-            native_authority=authority,
+            owner_id="actor-a",
+            capability="copied-public-fence",
         )
-    assert authority.reads == 0
+    assert not hasattr(rwi, "get_repository_operation_payload_for_capability")
+    assert not hasattr(rwi, "verify_repository_operation_capability")
 
 
 def test_payload_digest_conflict_tamper_and_explicit_copy_preservation() -> None:
