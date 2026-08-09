@@ -91,10 +91,14 @@ def test_upsert_node_stamps_governance_on_the_typed_native_path():
     assert kwargs["classification"] == "confidential"
 
 
-def test_upsert_node_is_best_effort_with_no_bound_actor():
-    """System/background writes with no verified ambient actor proceed
-    unstamped exactly as before this seam existed -- not a hidden failure."""
+def test_upsert_node_fails_closed_with_no_bound_actor():
+    """BUG-033/BUG-039: a write reaching this chokepoint with NO verified
+    ambient actor at all must raise -- not silently proceed unstamped. The
+    prior "best-effort" swallow here is exactly how 29 private conversation
+    nodes landed unowned and world-visible. No node is created."""
     import contextvars
+
+    import pytest
 
     backend = Mock()
     backend.typed_mutation_support = ""
@@ -105,11 +109,9 @@ def test_upsert_node_is_best_effort_with_no_bound_actor():
     def isolated():
         engine._upsert_node("Memory", "mem-3", {"content": "hello"})
 
-    contextvars.Context().run(isolated)
-    _query, params = backend.execute.call_args[0]
-    assert "tenant_id" not in params
-    assert "_owner_id" not in params
-    assert "classification" not in params
+    with pytest.raises(PermissionError):
+        contextvars.Context().run(isolated)
+    backend.execute.assert_not_called()
 
 
 def test_upsert_node_never_overwrites_a_caller_supplied_classification():
@@ -301,14 +303,16 @@ def test_write_entities_stamps_governance_on_the_generic_unwind_path():
     assert props["classification"] == "confidential"
 
 
-def test_write_entities_is_best_effort_with_no_bound_actor():
-    """No bound actor (system/background materialization) -- proceeds
-    unstamped exactly as before this fix, not a hidden failure. Mirrors
-    ``test_upsert_node_is_best_effort_with_no_bound_actor``'s isolated
+def test_write_entities_fails_closed_with_no_bound_actor():
+    """BUG-033/BUG-039: no bound actor (system/background materialization)
+    must fail the write, not silently proceed unstamped. Mirrors
+    ``test_upsert_node_fails_closed_with_no_bound_actor``'s isolated
     ``contextvars.Context()`` (the test session otherwise binds a default
     actor -- see ``current_actor()`` -- so a bare call in-process is not
-    actually actor-free)."""
+    actually actor-free). No node is created."""
     import contextvars
+
+    import pytest
 
     from agent_utilities.knowledge_graph.core.materialization import write_entities
     from tests.kg_recording_backend import RecordingGraphBackend
@@ -322,12 +326,10 @@ def test_write_entities_is_best_effort_with_no_bound_actor():
             [{"id": "fact:2", "node_type": "MarketFact", "value": 7}],
         )
 
-    contextvars.Context().run(isolated)
+    with pytest.raises(PermissionError):
+        contextvars.Context().run(isolated)
 
-    props = backend.nodes["fact:2"]
-    assert "tenant_id" not in props
-    assert "_owner_id" not in props
-    assert "classification" not in props
+    assert "fact:2" not in backend.nodes
 
 
 def test_write_batch_stamps_governance_end_to_end():

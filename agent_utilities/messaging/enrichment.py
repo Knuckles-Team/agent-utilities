@@ -41,6 +41,16 @@ def enrich_conversation(
 
     CONCEPT:AU-ECO.messaging.post-conversation-enrichment — synchronous + best-effort; call via ``asyncio.to_thread`` so it never
     blocks the reply. Mirrors ``conversation_ingestion``'s per-thread concept write.
+
+    BUG-033/BUG-039: runs per chat turn on every messaging platform (incl.
+    Telegram) over real conversation content. Bind a REAL verified actor for
+    the whole enrichment pass so the ``Thread``/``Concept``/``Goal``/``Spec``
+    nodes it writes are never left unowned because nothing happened to be
+    ambient in this particular thread/task. ``asyncio.to_thread`` (the
+    caller, ``messaging/router.py``) copies the calling task's context, so
+    when that context already carries a verified session (the messaging
+    daemon/co-service bound one at startup) it is reused as-is; otherwise
+    this mints the process's own system identity once.
     """
     if not _enabled() or engine is None or not (text and text.strip()):
         return 0
@@ -48,6 +58,35 @@ def enrich_conversation(
     link_nodes = getattr(engine, "link_nodes", None)
     if not callable(add_node) or not callable(link_nodes):
         return 0
+
+    from agent_utilities.knowledge_graph.core.session import use_session
+    from agent_utilities.security.brain_context import use_actor
+    from agent_utilities.security.request_identity import system_write_session
+
+    session = system_write_session()
+    with use_actor(session.actor), use_session(session):
+        return _enrich_conversation_body(
+            engine,
+            text,
+            add_node=add_node,
+            link_nodes=link_nodes,
+            platform=platform,
+            channel_id=channel_id,
+            title=title,
+        )
+
+
+def _enrich_conversation_body(
+    engine: Any,
+    text: str,
+    *,
+    add_node: Any,
+    link_nodes: Any,
+    platform: str,
+    channel_id: str,
+    title: str,
+) -> int:
+    """Body of :func:`enrich_conversation`, run under a bound actor."""
     try:
         from agent_utilities.knowledge_graph.enrichment.cards import make_lite_llm_fn
         from agent_utilities.knowledge_graph.enrichment.extractors.text import (

@@ -2270,24 +2270,27 @@ class GraphComputeEngine:
         # fleet (kb/ingestion.py, pipeline/document_*.py, security/*_ingestor.py,
         # …) that bypasses IntelligenceGraphEngine._upsert_node lands here
         # directly and needs the same governance stamp to avoid the identical
-        # "written but permanently unreadable" gap. Best-effort: writes with no
-        # bound actor (system/background/control-plane paths) proceed unstamped
-        # exactly as before this seam existed.
-        try:
-            from .tenant_sharing import stamp_classification, stamp_ownership
+        # "written but permanently unreadable" gap.
+        #
+        # BUG-033/BUG-039: fail closed, same as ``IntelligenceGraphEngine.
+        # _upsert_node`` — a write reaching this chokepoint with NO bound
+        # actor at all must raise, not silently land unowned. A genuinely
+        # privileged/system actor is unaffected: ``stamp_ownership`` already
+        # leaves ITS writes intentionally unowned (platform/commons data),
+        # which is unchanged policy, not this defect.
+        from .tenant_sharing import stamp_classification, stamp_ownership
 
-            stamp_ownership(props)
-            stamp_classification(props, props.get("node_type"))
-        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
-            pass
+        stamp_ownership(props)
+        stamp_classification(props, props.get("node_type"))
 
         # GOC-61 phase-1 system-graph write gate (W04 + 2026-08-09 owner
-        # ruling, CONCEPT:AU-KG.compute.data-is-private-its): unlike the
-        # best-effort stamps above, a denial here is NOT swallowed — this is
-        # the single chokepoint every ``add_node`` call reaches (see the
-        # comment above), so it is where an unauthorized or disallowed-type
-        # write into ``__commons__``/``__control__``/... is actually stopped,
-        # not merely logged.
+        # ruling, CONCEPT:AU-KG.compute.data-is-private-its): a distinct
+        # AUTHORITY/CONTENT gate from the stamps above (its own, unchanged
+        # no-bound-actor exemption -- see ``check_system_graph_write``'s own
+        # docstring) — this is the single chokepoint every ``add_node`` call
+        # reaches (see the comment above), so it is where an unauthorized or
+        # disallowed-type write into ``__commons__``/``__control__``/... is
+        # actually stopped, not merely logged.
         from .tenant_sharing import check_system_graph_write
 
         check_system_graph_write(self.graph_name, props.get("node_type"))

@@ -712,16 +712,21 @@ class IntelligenceGraphEngine(
         # even by its own creator. secured_reads._hydrate_missing_acls reads
         # these exact durable properties back at query time to reconstruct
         # the ACL lazily (the read-time fallback layer of this same defence).
-        # Best-effort: writes with no bound actor (system/background/
-        # control-plane paths) proceed unstamped exactly as before this seam
-        # existed, not a hidden failure.
-        try:
-            from .tenant_sharing import stamp_classification, stamp_ownership
+        #
+        # BUG-033/BUG-039: this used to be best-effort ("no bound actor means
+        # nothing to stamp") — a write with NO verified actor at all silently
+        # proceeded unstamped, which is indistinguishable on read from a
+        # deliberately-shared platform node and is exactly how 29 private
+        # conversation nodes became visible to every caller. A failed
+        # ownership stamp now fails the write: a genuinely privileged/system
+        # actor still lands intentionally unowned (``stamp_ownership``'s own,
+        # unchanged policy for platform data), but the absence of ANY bound
+        # actor is a caller defect that must be fixed at the caller, not
+        # papered over here.
+        from .tenant_sharing import stamp_classification, stamp_ownership
 
-            stamp_ownership(prepared)
-            stamp_classification(prepared, label)
-        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
-            pass
+        stamp_ownership(prepared)
+        stamp_classification(prepared, label)
 
         typed_support = getattr(self.backend, "typed_mutation_support", "")
         if typed_support == "native":
@@ -1172,11 +1177,12 @@ class IntelligenceGraphEngine(
                         node_type, {"id": node_id, **props}
                     )
                     prepared.setdefault("id", node_id)
-                    try:
-                        stamp_ownership(prepared)
-                        stamp_classification(prepared, node_type)
-                    except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
-                        pass
+                    # BUG-033/BUG-039: fail closed, same as ``_upsert_node``
+                    # above — no bound actor must never silently produce an
+                    # unowned node (see that seam's comment for the full
+                    # rationale).
+                    stamp_ownership(prepared)
+                    stamp_classification(prepared, node_type)
                     operations.append(
                         {
                             "op": "upsert_node",

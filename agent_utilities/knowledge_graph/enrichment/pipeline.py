@@ -226,15 +226,16 @@ class _BatchedBackend:
         # this same fix stamps. Without this, every code-symbol node ingested
         # through this batching seam (the dominant KG-2.9g repo-ingest path)
         # shared the identical "written but permanently unreadable" gap.
-        # Best-effort: writes with no bound actor proceed unstamped exactly as
-        # before this seam existed.
-        try:
-            from ..core.tenant_sharing import stamp_classification, stamp_ownership
+        #
+        # BUG-033/BUG-039: fail closed, same as the other four chokepoints —
+        # a write reaching this seam with NO bound actor at all must raise,
+        # not silently land unowned. A genuinely privileged/system actor
+        # still lands intentionally unowned (``stamp_ownership``'s own,
+        # unchanged policy for platform/code-symbol data).
+        from ..core.tenant_sharing import stamp_classification, stamp_ownership
 
-            stamp_ownership(props)
-            stamp_classification(props, props.get("node_type"))
-        except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
-            pass
+        stamp_ownership(props)
+        stamp_classification(props, props.get("node_type"))
         self._nodes.append(
             {
                 "op": "add_node",

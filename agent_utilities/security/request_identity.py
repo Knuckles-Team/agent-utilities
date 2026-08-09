@@ -64,6 +64,7 @@ byte-for-byte the same.
 
 import json
 import logging
+import threading
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
@@ -392,6 +393,79 @@ def mint_local_process_session() -> GraphSession:
     )
 
 
+_system_write_session: GraphSession | None = None
+_system_write_session_lock = threading.Lock()
+
+
+def system_write_session(config: Any = None) -> GraphSession:
+    """Resolve the verified authority for a background/system-triggered graph write.
+
+    BUG-033/BUG-039 (CONCEPT:AU-OS.identity.authenticated-identity-enforcement):
+    three write paths (chat persistence, multi-IDE conversation ingestion,
+    messaging post-conversation enrichment) used to call the engine with
+    whatever ambient actor happened to be bound -- often none, since a bare
+    ``asyncio`` scheduler loop or a standalone script never threads one
+    through. That silently landed ``Thread``/``Message``/``Concept`` nodes
+    with no owner (the downstream ``stamp_ownership`` call raised
+    ``PermissionError`` and was swallowed).
+
+    Two-step resolution, preferring the caller's own authority so a write made
+    inside an already-authenticated context (a served request, a task-worker
+    thread started via ``_authorized_background_thread``, a messaging
+    co-service thread whose event loop inherited its daemon's bound session)
+    is correctly attributed to that real caller, not a generic system actor:
+
+    1. Prefer the already-verified ambient :class:`~agent_utilities.
+       knowledge_graph.core.session.GraphSession` (:meth:`GraphSession.
+       from_ambient`).
+    2. Else mint -- once per process, then cache -- this process's OWN
+       verified system identity through the exact mechanism every other
+       background/served entrypoint in this codebase already uses to
+       establish its process authority (:func:`mint_local_process_session`
+       for the ``tiny`` local profile with no configured external identity,
+       else :func:`acquire_process_identity_token` ->
+       :func:`mint_actor_from_token_sync` -> :func:`mint_graph_session` for a
+       configured external identity -- see :func:`messaging.daemon.
+       mint_process_identity` and ``kg_server.py``'s own bootstrap, which run
+       this identical sequence). This is a REAL, validated, authenticated
+       actor -- never a synthesized or unauthenticated one -- so it is never
+       a bypass of the ownership-stamping seam it is meant to satisfy.
+
+    Never returns an unauthenticated session: every branch below either
+    returns a verified :class:`GraphSession` or raises (``SessionRequiredError``
+    from ``from_ambient``'s failure path is caught internally; a genuine
+    minting failure -- e.g. neither ``KG_AUTH_TOKEN_REF`` nor
+    ``KG_IDENTITY_OAUTH2`` configured outside the ``tiny`` profile --
+    propagates loudly instead of returning a degraded identity).
+    """
+    from agent_utilities.knowledge_graph.core.session import (
+        GraphSession,
+        SessionRequiredError,
+    )
+
+    try:
+        return GraphSession.from_ambient()
+    except SessionRequiredError:
+        pass
+
+    global _system_write_session
+    with _system_write_session_lock:
+        if _system_write_session is not None:
+            return _system_write_session
+        if config is None:
+            from agent_utilities.core.config import config as _config
+
+            config = _config
+        if local_process_authority_enabled(config):
+            session = mint_local_process_session()
+        else:
+            token = acquire_process_identity_token(config)
+            actor = mint_actor_from_token_sync(token)
+            session = mint_graph_session(actor)
+        _system_write_session = session
+        return session
+
+
 async def actor_from_bearer_token(token: str) -> ActorContext:
     """Validate ``token`` against the configured JWKS and mint the actor.
 
@@ -660,4 +734,5 @@ __all__ = [
     "mint_local_process_session",
     "mint_graph_session",
     "mint_actor_from_token_sync",
+    "system_write_session",
 ]
