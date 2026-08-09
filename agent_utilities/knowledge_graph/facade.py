@@ -10,7 +10,8 @@ collaborating concerns, all served by the one authority:
 
 * **store** — the epistemic engine, automatically wrapped with any configured
   durable external projections (e.g. ``backends/`` mirrors when
-  ``GRAPH_BACKEND=fanout``), holding the labelled property graph.
+  ``GRAPH_MIRROR_TARGETS`` names one or more mirrors), holding the labelled
+  property graph.
 * **compute** — the Rust-native ``epistemic-graph`` compute client for in-process graph
   algorithms (when available).
 * **semantic / retrieval** — OWL reasoning (``owl_bridge``) and the capability-aware

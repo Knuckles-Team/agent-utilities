@@ -1,5 +1,14 @@
 # Phase-10 cutover runbook — au `638ea524` + eg `2595a24` → live RKE2
 
+> **GOC-59 accepted residual, 2026-08-09:** this dated, point-in-time runbook
+> intentionally names several now-retired configuration keys
+> (`check_current_only_contract` findings) as evidence of what was found live
+> on the `graph-os-host` drifted twin and as the exact guard-rail commands to
+> detect their reappearance. Rewriting the runbook to obscure those names
+> would destroy its audit value without changing cluster state, and this lane
+> has no live-cluster access to re-verify or re-apply it. Left open — carried
+> and owned, not silently cleared.
+
 > **Status: FINALIZED RUNBOOK, NOT APPLIED.** Every fact below was gathered read-only
 > (`kubectl get/describe/exec -- cat`, no `apply`/`patch`/`delete`/`rollout`/`scale`
 > executed) plus source inspection of au `638ea524` and eg `2595a24`, on 2026-07-25.

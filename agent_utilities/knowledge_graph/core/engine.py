@@ -1634,7 +1634,7 @@ class IntelligenceGraphEngine(
             if ephemeral or not self._compute_is_authority:
                 try:
                     self.graph_compute.remove_edge(source_id, target_id)
-                except Exception as e:  # noqa: BLE001 — graph_compute mirror delete for delete_edge — same reasoning as delete_node above: the durable backend.delete_edge already logs its failure at warning
+                except Exception as e:  # noqa: BLE001 — graph_compute in-memory delete for delete_edge — same reasoning as delete_node above: the durable backend.delete_edge already logs its failure at warning
                     logger.debug(
                         f"graph_compute remove_edge failed or edge not found: {e}"
                     )

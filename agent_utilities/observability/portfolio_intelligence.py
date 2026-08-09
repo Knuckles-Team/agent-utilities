@@ -38,8 +38,8 @@ module never models regulations itself, only walks the shape): the candidate's
 evaluated by a named ``:ComplianceGate`` (``:evaluatesRequirement``), are the
 REQUIRED units; a candidate satisfies one via a declared
 ``certifications``/``attestations`` entry or an ``:attestsTo``-style edge
-(the legacy ``governedBy``/``satisfiesCompliance``/``conformsToStandard``
-synonyms are also recognized) naming the gate/requirement/regulation. Plus
+(the ``governedBy`` synonym is also recognized) naming the
+gate/requirement/regulation. Plus
 EOL and gov-ATO gates. A failed REQUIRED gate is an immediate ``reject`` —
 no score can buy it back. Only gate-passing candidates reach the WEIGHTED
 SCORE tier. With NO ``:Regulation`` nodes in the graph at all (substrate not
@@ -467,9 +467,8 @@ def _unit_satisfied(
     """Whether the candidate has compliance evidence for ``unit`` — a declared
     ``certifications``/``attestations`` entry (on the request/candidate) naming
     the gate/requirement/regulation, or a graph edge from the candidate
-    (``:attestsTo`` and the legacy ``governedBy``/``satisfiesCompliance``/
-    ``conformsToStandard`` synonyms) targeting one of them. No evidence at all
-    ⇒ an applicable REQUIRED unit is UNMET."""
+    (``:attestsTo`` and the ``governedBy`` synonym) targeting one of them. No
+    evidence at all ⇒ an applicable REQUIRED unit is UNMET."""
     declared = {
         _norm(e)
         for e in (
@@ -493,11 +492,7 @@ def _unit_satisfied(
     evidence_ids = {unit["gateId"], unit["requirementId"], unit["regulationId"]}
     evidence_ids.discard("")
     for _s, tgt, p in _out(engine, candidate_id):
-        if (
-            _rel(p)
-            in ("attestsTo", "governedBy", "satisfiesCompliance", "conformsToStandard")
-            and tgt in evidence_ids
-        ):
+        if _rel(p) in ("attestsTo", "governedBy") and tgt in evidence_ids:
             return True
     return False
 

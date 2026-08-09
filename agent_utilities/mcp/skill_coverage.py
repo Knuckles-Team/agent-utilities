@@ -41,7 +41,7 @@ INTENTIONALLY_UNSKILLED: frozenset[str] = frozenset(
         # AU-P0-6: ``engine_rbac``/``engine_admin`` are the two newly-exposed
         # ADMIN-family low-level namespaces (RBAC policy administration; ops
         # backup/restore) — gated behind ``kg:admin`` (see
-        # ``engine_tools.ADMIN_DOMAINS``/``_enforce_admin_scope``) BEFORE being
+        # ``engine_tools.ADMIN_DOMAINS``/``_is_admin_domain``) BEFORE being
         # newly exposed, per the audit's explicit ordering. Their natural
         # wrapper is ``kg-modality-consensus`` (already wraps the sibling ADMIN
         # domains ``engine_consensus``/``engine_resharding``/``engine_tenants``),

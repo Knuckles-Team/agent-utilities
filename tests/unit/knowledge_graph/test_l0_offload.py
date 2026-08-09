@@ -1,4 +1,4 @@
-"""Plan 08 Synergy 4: graph traversal offloads to the Rust L0 compute tier.
+"""Plan 08 Synergy 4: graph traversal offloads to the Rust-native compute engine.
 
 `find_path` must issue a single L0 `get_shortest_path` call (compiled Rust)
 rather than a Python BFS over per-edge L0 calls. The Python BFS

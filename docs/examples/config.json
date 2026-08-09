@@ -55,7 +55,7 @@
     "kg_backups": 3,
     "external_graph_connectors": [],
     "epistemic_light_default": true,
-    "secrets_backend": "inmemory",
+    "secrets_backend": "engine",
     "vault_url": null,
     "vault_mount": "secret",
     "custom_skills_directory": null,

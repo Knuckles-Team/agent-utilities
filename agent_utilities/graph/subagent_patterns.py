@@ -343,7 +343,7 @@ class SubagentPatternRouter:
                     historical_rate,
                 )
                 return adjusted
-        except Exception as e:  # noqa: BLE001 — returns base_confidence, the value already computed by the caller before this optional adjustment; this outer except is the second layer of an already-tiered backend/NX best-effort lookup
+        except Exception as e:  # noqa: BLE001 — returns base_confidence, the value already computed by the caller before this optional adjustment; this outer except is the second layer of an already-layered backend/NX best-effort lookup
             logger.debug("Historical pattern lookup failed: %s", e)
 
         return base_confidence
