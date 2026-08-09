@@ -41,7 +41,6 @@ from agent_utilities.mcp.multiplexer import MCPMultiplexer
 
 __all__ = [
     "get_shared_multiplexer",
-    "_reset_shared_multiplexer_for_tests",
 ]
 
 _shared_multiplexer: MCPMultiplexer | None = None
