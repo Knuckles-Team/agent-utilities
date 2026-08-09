@@ -1168,8 +1168,21 @@ def _configure_jwt_auth(args: argparse.Namespace) -> Any:
         _sys.exit(1)
 
 
-def _configure_middleware(args: argparse.Namespace) -> list[Any]:
-    """Build the standard middleware stack for an MCP server."""
+def _configure_middleware(
+    args: argparse.Namespace, *, server_name: str = ""
+) -> list[Any]:
+    """Build the standard middleware stack for an MCP server.
+
+    ``server_name`` (the same ``name`` passed to :func:`create_mcp_server`)
+    selects :class:`~agent_utilities.mcp.middlewares.ActorContextMiddleware`'s
+    fail-closed mode (BUG-036/GOC-15): only the ``"graph-os"`` server —
+    the one MCP server in the fleet whose tools reach privileged Knowledge-
+    Graph reads/writes — gets ``require_verified_session=True``. Every other
+    fleet server (~60 independently-owned ``agents/*-mcp`` packages using this
+    same factory) keeps the prior no-op-without-a-token behavior unchanged;
+    making this fail closed fleet-wide is a separable, larger change that
+    needs its own per-package audit, not a side effect of closing BUG-036.
+    """
     from fastmcp.server.middleware.error_handling import ErrorHandlingMiddleware
     from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 
@@ -1196,9 +1209,15 @@ def _configure_middleware(args: argparse.Namespace) -> list[Any]:
     # Scope every tool call to the caller's validated OIDC (Okta/Keycloak)
     # identity so servers can auto-load resources and inherit authz per-caller
     # (CONCEPT:AU-OS.identity.idp-agnostic-role-inheritance). No-op when the
-    # request carries no validated token (loopback/stdio trust only).
+    # request carries no validated token (loopback/stdio trust only) —
+    # EXCEPT for graph-os itself, which fails closed instead (BUG-036/GOC-15,
+    # see ActorContextMiddleware/`_configure_middleware` docstrings).
     if ActorContextMiddleware is not None:
-        middlewares.append(ActorContextMiddleware())
+        middlewares.append(
+            ActorContextMiddleware(
+                require_verified_session=(server_name == "graph-os")
+            )
+        )
 
     # Per-tool Prometheus metrics (count/latency/error) for this server, scraped
     # from its own /metrics route (CONCEPT:AU-OS.observability.no-op-without-metrics). No-op without the metrics extra.
@@ -1565,7 +1584,7 @@ def create_mcp_server(
     _validate_network_exposure(args)
 
     auth = _configure_auth(args)
-    middlewares = _configure_middleware(args)
+    middlewares = _configure_middleware(args, server_name=name)
 
     remote_network = str(
         getattr(args, "transport", "stdio") or "stdio"

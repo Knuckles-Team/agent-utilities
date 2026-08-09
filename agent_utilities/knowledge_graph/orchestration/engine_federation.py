@@ -148,7 +148,23 @@ class FederationMixin:
 
         Returns:
             A list of dictionary records.
+
+        Raises:
+            SessionRequiredError: No verified caller is bound to this call
+                (CONCEPT:AU-KG.identity.verified-carrier-required-federation
+                — BUG-036/GOC-15). Every other ``graph_query`` dialect
+                requires a verified session before touching a backend
+                (``cypher``: ``engine_query.py``'s ``query_cypher``;
+                ``sql``/``sparql``: the session-routed wire client).
+                Federation had neither; this closes that gap at the public
+                entrypoint so it covers the REST-virtual-source branch, the
+                local-graph connection-alias lookup, AND the external
+                backend read in one place.
         """
+        from agent_utilities.knowledge_graph.core.session import resolve_session
+
+        resolve_session(required_scope="kg:read")
+
         # 0. REST virtual sources are served by invoking their extractor (the
         # `query` string carries no SPARQL endpoint; an optional `node_type`
         # parameter filters to one canonical type).
@@ -302,7 +318,20 @@ class FederationMixin:
         *,
         parameters: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Resolve one named connection and use its enforced read primitive."""
+        """Resolve one named connection and use its enforced read primitive.
+
+        Raises:
+            SessionRequiredError: No verified caller is bound to this call
+                (BUG-036/GOC-15). Checked again here, independent of
+                :meth:`execute_federated_query`'s own guard, so a caller that
+                reaches this method directly (as the committed carrier-
+                authority test does) is refused too — never rely on a single
+                caller remembering to gate itself.
+        """
+        from agent_utilities.knowledge_graph.core.session import resolve_session
+
+        resolve_session(required_scope="kg:read")
+
         from agent_utilities.mcp.kg_server import get_connection_registry
 
         try:

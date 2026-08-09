@@ -121,11 +121,46 @@ class ActorContextMiddleware(Middleware):
     :func:`~agent_utilities.security.entitlements.identity_scoped_resources` and
     the KG permissioning layer all see the real caller.
 
-    Mounted on every server the factory builds. When there is no validated
-    token it is a no-op; graph-os itself then rejects the call because no
-    verified session exists, while non-graph MCP servers keep their own
-    authorization contract.
+    Mounted on every server the factory builds. Two modes, selected by
+    ``require_verified_session`` (default ``False``, unchanged fleet-wide
+    behavior — see below):
+
+    * **``require_verified_session=False`` (every non-graph-os server).**
+      When there is no validated token this stays a genuine no-op — the
+      ambient actor/session are left exactly as they were. Each of these
+      servers keeps its own authorization contract (API keys, network-level
+      trust, or none, by design); this middleware's job for them is opportunistic
+      identity *enrichment*, not gating, and changing that fleet-wide would
+      be a separate, much larger change requiring its own audit of ~60
+      independently-owned packages.
+    * **``require_verified_session=True`` (graph-os only, wired in
+      ``server_factory._configure_middleware``).** graph-os's own tools reach
+      privileged Knowledge-Graph reads/writes, and BUG-036 proved that relying
+      on each tool to remember to call ``resolve_session`` itself is not
+      sufficient — the federation dialect (``engine_federation.py``) reached a
+      backend's ``execute_read`` with zero identity check because this
+      middleware's old unconditional no-op left nothing else in the MCP-native
+      dispatch path (FastMCP → this middleware → the ``@mcp.tool``-decorated
+      function) to catch it; only the *separate* ``_execute_tool`` dispatch
+      core (REST gateway / internal delegation) had its own gate
+      (``verified_tool_session_scope``). In this mode a call with no validated
+      token is refused — never silently proceeds — UNLESS a verified authority
+      is *already* bound some other legitimate way:
+      (a) an ambient :class:`~agent_utilities.knowledge_graph.core.session.GraphSession`
+      is already set (a nested call under an already-authenticated caller), or
+      (b) the tiny-profile local stdio process authority
+      (:func:`~agent_utilities.security.request_identity.mint_local_process_session`,
+      bound as ``agent_utilities.mcp.kg_server._PROCESS_SESSION``) is bound —
+      stdio has no per-call bearer token by protocol, so that process-lifetime,
+      already-verified authority IS this transport's carrier, not an absence
+      of one. Every other case raises
+      :class:`~agent_utilities.knowledge_graph.core.session.SessionRequiredError`
+      (GOC-15/GOC-62: "a surface that cannot mint a caller must refuse, never
+      proceed").
     """
+
+    def __init__(self, *, require_verified_session: bool = False) -> None:
+        self.require_verified_session = require_verified_session
 
     def _claims(self, context: MiddlewareContext) -> dict | None:
         auth = getattr(context, "auth", None)
@@ -144,6 +179,8 @@ class ActorContextMiddleware(Middleware):
 
     async def on_call_tool(self, context: MiddlewareContext, call_next):
         from agent_utilities.knowledge_graph.core.session import (
+            SessionRequiredError,
+            current_session,
             reset_session,
             set_session,
         )
@@ -155,7 +192,23 @@ class ActorContextMiddleware(Middleware):
 
         claims = self._claims(context)
         if not claims:
-            return await call_next(context)
+            if not self.require_verified_session:
+                return await call_next(context)
+            # BUG-036/GOC-15: a surface that cannot mint a caller must refuse,
+            # never proceed. The two narrow, named exemptions above (docstring)
+            # are: an authority already ambient (nested call), or the tiny
+            # stdio local-process bootstrap.
+            if current_session() is not None:
+                return await call_next(context)
+            from agent_utilities.mcp import kg_server
+
+            if getattr(kg_server, "_PROCESS_SESSION", None) is not None:
+                return await call_next(context)
+            raise SessionRequiredError(
+                "Verified caller identity required: no validated bearer "
+                "credential was presented for this tool call and no local "
+                "process authority is bound"
+            )
         actor = actor_from_claims(claims)
         try:
             session = mint_graph_session(actor)
