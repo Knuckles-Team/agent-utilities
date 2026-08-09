@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1151
+total_concepts: 1149
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4703,13 +4703,6 @@ concepts:
   code_paths:
   - agent_utilities/core/paths.py
   doc: Observational Memory Bridge
-- id: AU-KG.memory.parammem
-  name: ParamMem §6.2
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/knowledge_graph/core/engine_memory.py
-  doc: ParamMem §6.2
 - id: AU-KG.memory.persistent-self-model-owl
   name: Persistent Self-Model with OWL Integration
   pillar: AU-KG
@@ -7849,6 +7842,13 @@ concepts:
   code_paths:
   - agent_utilities/orchestration/org_runtime.py
   doc: Drafts departments → roles from the goal
+- id: AU-ORCH.org.repository-workitem-authority
+  name: Durable repository-development WorkItem authority
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/repository_work_item.py
+  doc: Durable repository-development WorkItem authority
 - id: AU-ORCH.org.work-item-dag
   name: AU-ORCH.org.work-item-dag
   pillar: AU-ORCH
@@ -8955,21 +8955,6 @@ concepts:
   code_paths:
   - agent_utilities/deployment/venv_autosync.py
   doc: AU-OS.deployment.merge-triggered-venv-flip
-- id: AU-OS.deployment.os-2
-  name: AU-OS.deployment.os-2
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/deployment/self_deploy.py
-  - agent_utilities/knowledge_graph/retrieval/deploy_context.py
-  doc: AU-OS.deployment.os-2
-- id: AU-OS.deployment.os-4
-  name: AU-OS.deployment.os-4
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/deployment/doctor.py
-  doc: AU-OS.deployment.os-4
 - id: AU-OS.deployment.report-resolved-mode
   name: report the RESOLVED mode
   pillar: AU-OS
