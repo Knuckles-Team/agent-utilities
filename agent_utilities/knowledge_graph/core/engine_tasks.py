@@ -3726,16 +3726,57 @@ class TaskManagerMixin(GraphEngineProtocol):
         return policy
 
     def _pending_by_lane(self) -> dict[str, int]:
-        """Ready WorkItem count per functional resource-class lane."""
+        """Ready WorkItem count per functional resource-class lane.
+
+        PERF (BUG-047 — CONCEPT:AU-ORCH.scheduling.resource-priority-edict): this
+        used to route through :meth:`_ingest_work_item_index`, whose
+        ``MATCH (w:WorkItem) RETURN <15 wide fields, incl. metadata>`` has no
+        WHERE/LIMIT and returns EVERY WorkItem ever created. This is the
+        engine's dominant sustained-slow-query source (measured 8-21s against a
+        500ms threshold): :meth:`_claim_next_task` calls this on every
+        non-hydration-reserved claim attempt, by every worker in the pool, on
+        every poll (idle backoff is only 2-15s) — so the full unbounded scan
+        re-ran continuously, tripping the engine circuit breaker and taking the
+        whole KG read path down with it (BUG-047/BUG-048).
+        A per-lane PENDING count needs only ``resource_class`` grouped under a
+        ``status``/``next_retry_at`` predicate, not the full row set — this
+        mirrors the aggregate-count convention already established by
+        :func:`agent_utilities.orchestration.work_item.machine_state_distribution`
+        (``RETURN <col>, count(w)`` instead of materializing every row in
+        Python). Only ``ingest_task`` WorkItems feed lane admission, matching
+        :meth:`_ingest_work_item_index`'s existing filter; the native "ready and
+        due" predicate reproduces ``_task_status_from_work_item``'s "pending"
+        classification exactly (status == "ready" and next_retry_at <= now).
+
+        No property-value index exists for ``status``/``next_retry_at`` at the
+        Cypher layer (confirmed: the schema defines no secondary index beyond
+        the ``id`` primary key, and the engine's own ``_upsert`` docstring notes
+        there is "no write-path id index" either) — this bound reduces the
+        RESPONSE SIZE from O(all WorkItem history × 15 wide fields, including a
+        JSON metadata blob) to O(number of lanes) aggregated rows, which is the
+        overwhelming share of the measured cost, but the underlying scan still
+        visits every WorkItem node server-side. A genuine indexed access path
+        (the native, keyset-paginated ``GetNodesByLabel``/``list_by_label``
+        verb epistemic-graph already exposes) would remove that residual cost
+        too; wiring it through :class:`_ControlPlaneWorkItemEngine` is a
+        follow-up, not required for this fix.
+        """
         from agent_utilities.knowledge_graph.core.task_lanes import LANE_NAMES
 
         out: dict[str, int] = {lane: 0 for lane in LANE_NAMES}
-        for item in self._ingest_work_item_index().values():
-            if _task_status_from_work_item(item) != "pending":
+        rows = self._work_item_engine.query_cypher(
+            "MATCH (w:WorkItem) WHERE w.kind = 'ingest_task' "
+            "AND w.payload_ref IS NOT NULL AND w.status = 'ready' "
+            "AND (w.next_retry_at IS NULL OR w.next_retry_at <= $now) "
+            "RETURN w.resource_class AS resource_class, count(w) AS n",
+            {"now": time.time()},
+        )
+        for row in rows or []:
+            if not isinstance(row, dict):
                 continue
-            lane = str(item.get("resource_class") or "")
+            lane = str(row.get("resource_class") or "")
             if lane in out:
-                out[lane] += 1
+                out[lane] += int(row.get("n") or 0)
         return out
 
     def _remember_work_item_claim(self, job_id: str, claim: dict[str, Any]) -> None:
@@ -4062,6 +4103,29 @@ class TaskManagerMixin(GraphEngineProtocol):
         # registry, so the policy knows what THIS worker is processing.
         worker_id = threading.current_thread().name
         poll_count = 0
+        # BUG-047 gap-fill (CONCEPT:AU-ORCH.scheduling.resource-priority-edict): this
+        # dedicated background thread polls and claims work for its entire life —
+        # tag it BACKGROUND_INGESTION ONCE so every engine call the claim decision
+        # itself makes (:meth:`_claim_next_task`'s native ``ClaimWorkItem`` RPC,
+        # :meth:`_pending_by_lane`'s admission read) carries that QoS priority
+        # claim too. Before this, the claim/admission path ran with NO priority
+        # scope entered at all: :func:`resource_priority._effective` resolves an
+        # untagged context to ``ORCHESTRATION`` (HIGH, never yields) — the poll
+        # loop's own engine reads were therefore indistinguishable from
+        # interactive/orchestration traffic to the engine's reserved read lane,
+        # even though this thread does nothing but background ingestion work.
+        # The edict WAS already wired for an already-claimed task's own body
+        # (``_run_body``'s ``priority_scope(priority_for_task_type(task_type))``
+        # below, entered only after a claim succeeds) — this closes the gap for
+        # the claim/admission decision that runs before that. ``set_priority``
+        # (not a ``with`` block) is correct here: this OS thread never does
+        # anything else, so setting its default once is equivalent to wrapping
+        # the whole loop, without reindenting it; the per-task ``priority_scope``
+        # below still correctly nests — it overrides this default for the
+        # claimed task's duration, then restores it on exit.
+        from agent_utilities.core.resource_priority import PriorityClass, set_priority
+
+        set_priority(PriorityClass.BACKGROUND_INGESTION)
         while True:
             try:
                 job_id = None

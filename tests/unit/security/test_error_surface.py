@@ -308,3 +308,113 @@ def test_public_error_payload_survives_a_broken_identity_layer(monkeypatch) -> N
     record = resolve_error_detail(detail_ref)
     assert record is not None
     assert record["tenant_id"] == ""
+
+
+# ---------------------------------------------------------------------------
+# BUG-048 — breaker-open must surface as a distinct, retryable condition.
+# ---------------------------------------------------------------------------
+
+
+def test_engine_circuit_open_error_is_retryable_and_typed() -> None:
+    """A raw breaker-open failure (a ``ConnectionError`` subclass) reaching the
+    boundary via the ubiquitous bare ``except Exception: return
+    public_error_json(e)`` pattern must NOT collapse into the same
+    ``operation_failed``/``retryable=False`` shape as a rejected/malformed
+    request — that conflation is exactly what sent two sessions chasing a
+    query-correctness hypothesis instead of retrying (BUG-048)."""
+    from agent_utilities.knowledge_graph.core.engine_breaker import (
+        EngineCircuitOpenError,
+    )
+
+    exc = EngineCircuitOpenError(
+        "epistemic-graph engine breaker OPEN for 'shard-0' after 5 consecutive "
+        "connection failures; retrying in 12.3s."
+    )
+
+    # No explicit code passed — this is the buggy default path.
+    payload = public_error_payload(exc)
+
+    assert payload["error"]["code"] == "engine_degraded"
+    assert payload["error"]["retryable"] is True
+    assert payload["retry_after_s"] > 0
+    # The sanitization boundary still holds: no message text leaks.
+    assert "shard-0" not in json.dumps(payload)
+
+
+def test_cypher_engine_error_wrapping_a_breaker_trip_is_retryable() -> None:
+    """The native-Cypher sanitization boundary (``CypherEngineError``) raises
+    ``from None``, discarding ``__cause__``/``__context__`` — but it preserves
+    the ORIGINAL exception's class name on ``error_type`` for exactly this
+    purpose. ``public_error_payload`` must read that class-level signal (never
+    the discarded detail) to still classify a breaker trip as retryable, even
+    though the immediate exception it sees is ``CypherEngineError``, not
+    ``EngineCircuitOpenError``."""
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        CypherEngineError,
+    )
+    from agent_utilities.knowledge_graph.core.engine_breaker import (
+        EngineCircuitOpenError,
+    )
+
+    try:
+        raise CypherEngineError(
+            "MATCH (n) RETURN n", "read", EngineCircuitOpenError("breaker open")
+        ) from None
+    except CypherEngineError as exc:
+        assert exc.__cause__ is None  # the sanitization boundary held
+        payload = public_error_payload(exc)
+
+    assert payload["error"]["code"] == "engine_degraded"
+    assert payload["error"]["retryable"] is True
+    assert payload["retry_after_s"] > 0
+
+
+def test_cypher_engine_error_wrapping_a_query_rejection_stays_non_retryable() -> None:
+    """A genuine query rejection (e.g. a bad predicate) must NOT be reclassified
+    as retryable — only the breaker/transport-down shapes are. This is the
+    other half of BUG-048: preserve the sanitization boundary, sanitize the
+    detail, never blur the CLASS distinction it exists to preserve."""
+    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+        CypherEngineError,
+    )
+
+    try:
+        raise CypherEngineError(
+            "MATCH (n) RETURN n.bogus_property_typo",
+            "read",
+            ValueError("bad predicate"),
+        ) from None
+    except CypherEngineError as exc:
+        payload = public_error_payload(exc)
+
+    assert payload["error"]["code"] == "operation_failed"
+    assert payload["error"]["retryable"] is False
+    assert "retry_after_s" not in payload
+
+
+def test_explicit_code_is_never_overridden_by_engine_degraded_detection() -> None:
+    """A caller that deliberately classified its own failure (e.g.
+    ``permission_denied``) must keep that classification — only the AMBIGUOUS
+    default (``operation_failed``, i.e. no code passed) is eligible for the
+    breaker-open upgrade."""
+    from agent_utilities.knowledge_graph.core.engine_breaker import (
+        EngineCircuitOpenError,
+    )
+
+    exc = EngineCircuitOpenError("breaker open")
+    payload = public_error_payload(exc, code="permission_denied")
+
+    assert payload["error"]["code"] == "permission_denied"
+    assert payload["error"]["retryable"] is False
+
+
+@pytest.mark.parametrize("exc_type", [ConnectionError, TimeoutError])
+def test_bare_transport_failures_are_also_engine_degraded(exc_type) -> None:
+    """A raw transport failure (not wrapped by ``CypherEngineError`` at all —
+    e.g. a connect-time failure before a query is even sent) is retryable too,
+    matching the engine breaker's own ``_TRIP_EXCEPTIONS``/``_RETRY_EXCEPTIONS``
+    vocabulary (``OSError``/``EOFError``/``ConnectionError``/``TimeoutError``)."""
+    payload = public_error_payload(exc_type("connection refused"))
+
+    assert payload["error"]["code"] == "engine_degraded"
+    assert payload["error"]["retryable"] is True
