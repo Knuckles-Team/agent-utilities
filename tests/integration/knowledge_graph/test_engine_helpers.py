@@ -6,6 +6,8 @@ CONCEPT:AU-KG.query.object-graph-mapper — Granular Resource Queries
 CONCEPT:AU-KG.query.object-graph-mapper — Workspace Reload
 """
 
+from typing import Any
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -329,7 +331,7 @@ class TestGranularResourceQueries:
 
 
 class TestMCPServerCatalog:
-    """Tests for get_all_mcp_servers (CONCEPT:AU-KG.query.object-graph-mapper).
+    """Tests for get_registered_mcp_servers (CONCEPT:AU-KG.query.object-graph-mapper).
 
     Root cause this covers: agent-webui's Prompts Registry/Skills views
     already read Prompt/Skill nodes straight from the KG, but the MCP
@@ -337,14 +339,30 @@ class TestMCPServerCatalog:
     never populated with the discovered fleet catalog (D-W5WR-4/D-WD-7
     follow-up) -- it always returned zero servers regardless of how many
     real ``:MCPServer`` nodes the KG held. This proves the KG-authority
-    path a webui route can now call instead.
+    path a registration/catalog-audit consumer can call.
+
+    BUG-042 note: this method used to be named ``get_all_mcp_servers`` --
+    an ambiguous name that invited exactly the two-sources-of-truth defect
+    BUG-042 records, once a second, unrelated worker independently sourced
+    the WebUI's MCP-servers-to-dispatch panel from
+    ``agent_utilities.mcp.shared_multiplexer`` (live per-session
+    dispatchable truth). Renamed to ``get_registered_mcp_servers`` to name
+    exactly what it answers -- "what is registered in the KG" -- which is a
+    real, distinct question from "what is dispatchable right now", never a
+    competing answer to the same question. See the method's docstring for
+    the full naming contract. ``test_get_registered_mcp_servers_never_claims_live_dispatchability``
+    below is the anti-divergence guard: it fails if this method's output
+    schema ever grows a field that would let it masquerade as the
+    dispatchable-truth source.
     """
 
-    def test_get_all_mcp_servers_empty(self, engine: IntelligenceGraphEngine):
+    def test_get_registered_mcp_servers_empty(self, engine: IntelligenceGraphEngine):
         """Returns empty list when no MCPServer nodes are in the graph."""
-        assert engine.get_all_mcp_servers() == []
+        assert engine.get_registered_mcp_servers() == []
 
-    def test_get_all_mcp_servers_from_backend(self, engine: IntelligenceGraphEngine):
+    def test_get_registered_mcp_servers_from_backend(
+        self, engine: IntelligenceGraphEngine
+    ):
         """Finds MCPServer nodes written through the real backend."""
         engine._upsert_node(
             "MCPServer",
@@ -355,14 +373,14 @@ class TestMCPServerCatalog:
                 "disabled": False,
             },
         )
-        servers = engine.get_all_mcp_servers()
+        servers = engine.get_registered_mcp_servers()
         assert len(servers) == 1
         assert servers[0]["name"] == "servicenow-api"
         assert servers[0]["disabled"] is False
         assert servers[0]["type"] == "mcp_server"
         assert servers[0]["tool_count"] == 0
 
-    def test_get_all_mcp_servers_counts_served_tools(
+    def test_get_registered_mcp_servers_counts_served_tools(
         self, engine: IntelligenceGraphEngine
     ):
         """A server's tool_count reflects its outgoing SERVES edges."""
@@ -377,16 +395,98 @@ class TestMCPServerCatalog:
         engine.link_nodes(
             "mcp_server_gitlab-mcp", "tool_gitlab-mcp_gitlab_issues", "SERVES"
         )
-        servers = engine.get_all_mcp_servers()
+        servers = engine.get_registered_mcp_servers()
         assert len(servers) == 1
         assert servers[0]["tool_count"] == 1
 
-    def test_get_all_mcp_servers_sorted(self, engine: IntelligenceGraphEngine):
+    def test_get_registered_mcp_servers_sorted(self, engine: IntelligenceGraphEngine):
         """Servers are returned sorted alphabetically by name."""
         engine._upsert_node("MCPServer", "mcp_server_zeta", {"name": "zeta"})
         engine._upsert_node("MCPServer", "mcp_server_alpha", {"name": "alpha"})
-        servers = engine.get_all_mcp_servers()
+        servers = engine.get_registered_mcp_servers()
         assert [s["name"] for s in servers] == ["alpha", "zeta"]
+
+    # ── BUG-042 anti-divergence guard ──────────────────────────────────
+    #
+    # The multiplexer (``agent_utilities.mcp.shared_multiplexer.list_catalog``)
+    # and this method are BOTH allowed to exist because they answer
+    # genuinely different questions (registered vs. dispatchable). What
+    # must never happen again is one of them silently growing a field that
+    # lets a caller treat it as an answer to the OTHER question -- that is
+    # exactly how the original defect could recur even after the WebUI was
+    # correctly rewired to the multiplexer (GOC-60-W03/W04a): a future edit
+    # to this method could reintroduce an ``available``/``dispatchable``
+    # field and a future caller could reasonably read that as live status.
+    # ``_REGISTRATION_ONLY_SCHEMA`` positively enumerates the registration
+    # truth's own contract fields; ``_LIVE_DISPATCH_ONLY_FIELDS`` are the
+    # multiplexer's own vocabulary (``mcp/shared_multiplexer.py``'s
+    # ``list_catalog`` row shape: ``server``/``tool_count``/``enabled_count``/
+    # ``process_running``/``probed``/``available``) that must never appear
+    # on a registration-truth row.
+
+    _LIVE_DISPATCH_ONLY_FIELDS = frozenset(
+        {
+            "available",
+            "dispatchable",
+            "dispatchable_tools",
+            "mounted",
+            "process_running",
+            "probed",
+            "enabled_count",
+            "pending",
+            "stale",
+        }
+    )
+
+    @staticmethod
+    def _assert_never_claims_live_dispatchability(
+        rows: list[dict[str, Any]],
+    ) -> None:
+        for row in rows:
+            leaked = set(row) & TestMCPServerCatalog._LIVE_DISPATCH_ONLY_FIELDS
+            assert not leaked, (
+                "get_registered_mcp_servers row leaked live-dispatch field(s) "
+                f"{sorted(leaked)}; that truth belongs ONLY to "
+                "agent_utilities.mcp.shared_multiplexer.list_catalog (BUG-042) "
+                f"-- got row {row!r}"
+            )
+
+    def test_get_registered_mcp_servers_never_claims_live_dispatchability(
+        self, engine: IntelligenceGraphEngine
+    ):
+        """BUG-042 regression guard, positive case: a real registered server
+        never grows a live-dispatch field."""
+        engine._upsert_node(
+            "MCPServer",
+            "mcp_server_declared-only",
+            {"name": "declared-only-server", "synonyms": [], "disabled": False},
+        )
+        servers = engine.get_registered_mcp_servers()
+        assert len(servers) == 1
+        self._assert_never_claims_live_dispatchability(servers)
+
+    def test_anti_divergence_guard_catches_a_conflated_row(self):
+        """Proves the guard above is not vacuous: known-bad input --
+        a row shaped like the BUG-042 regression (a registration-truth row
+        that ALSO claims live dispatchability, the exact ambiguity the
+        rename + docstring contract forbid) -- must fail the check."""
+        conflated_row = {
+            "id": "mcp_server_x",
+            "name": "x",
+            "type": "mcp_server",
+            "available": True,  # <- the live-dispatch claim that must never appear here
+        }
+        with pytest.raises(AssertionError, match="leaked live-dispatch field"):
+            self._assert_never_claims_live_dispatchability([conflated_row])
+
+    def test_get_all_mcp_servers_ambiguous_name_is_not_reintroduced(
+        self, engine: IntelligenceGraphEngine
+    ):
+        """BUG-042: the ambiguous pre-fix name must never come back, not even
+        as a back-compat alias -- No Legacy applies, and a second name for
+        the same method would re-open the "which one is authoritative"
+        confusion the rename exists to close."""
+        assert not hasattr(type(engine), "get_all_mcp_servers")
 
 
 # ─────────────────────────────────────────────────────────────────────

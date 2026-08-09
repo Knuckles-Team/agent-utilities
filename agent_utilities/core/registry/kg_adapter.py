@@ -396,7 +396,7 @@ class RegistryMixin(_Base):
             return {"id": prompt_id, **self.graph._get_node_properties(prompt_id)}
         return None
 
-    def get_all_mcp_servers(self) -> list[dict[str, Any]]:
+    def get_registered_mcp_servers(self) -> list[dict[str, Any]]:
         """Return all MCPServer nodes from the KG, with their served tool count.
 
         CONCEPT:AU-KG.query.object-graph-mapper — MCP Server Catalog. Mirrors
@@ -407,6 +407,35 @@ class RegistryMixin(_Base):
         *local* server list, never the fleet-wide discovered set. Consumers
         needing an is-this-server-enabled/disabled toggle should merge this
         with :meth:`get_toggle_state`, mirroring how prompts/skills already do.
+
+        BUG-042 naming contract — READ BEFORE calling this from a new site.
+        This method answers exactly one question: **"what MCP servers are
+        REGISTERED (declared/discovered and written to the KG, on whatever
+        ingestion cadence ``source_sync``/``_sync_fleet``/``_ingest_self_tools``
+        run on)?"** It intentionally does NOT and MUST NOT answer "what is
+        DISPATCHABLE for the calling session right now" — that is a
+        different, live, per-session-scoped question answered ONLY by
+        :func:`agent_utilities.mcp.shared_multiplexer.get_shared_multiplexer`
+        ``.list_catalog()``, which derives from the same visibility predicate
+        the real dispatch gate enforces. A server can be registered here
+        (e.g. declared in ``mcp_config.json``, or discovered on a prior
+        fleet sweep) while NOT being currently mounted/dispatchable for a
+        given session — that is expected, not a divergence bug: it is
+        exactly the "registered but not currently mounted" information a
+        catalog/audit surface (as opposed to a dispatch surface) legitimately
+        needs. Concretely: the WebUI's MCP-servers-to-dispatch panel
+        (``agent-webui`` ``api_extensions.list_all_tools``) reads the
+        multiplexer, not this method (GOC-60-W03/W04a) — do not wire it back
+        to this method. Two names, two questions, never conflated (BUG-042):
+        this one is ``get_registered_mcp_servers``, never ``get_all_mcp_servers``
+        (that ambiguous name — "all" implying a single universal truth — is
+        exactly what produced the two-sources-of-truth defect; do not
+        reintroduce it as an alias). Enforced by
+        ``tests/integration/knowledge_graph/test_engine_helpers.py::TestMCPServerCatalog``:
+        the returned row schema must never carry a live-dispatch-only field
+        (``available``/``dispatchable``/``process_running``/``probed``) —
+        that would falsely imply this source can answer the dispatchable
+        question, which only the multiplexer may answer.
         """
         results: list[dict[str, Any]] = []
         if self.backend:
