@@ -4328,16 +4328,25 @@ async def _notify_tools_changed(mcp) -> bool:
     """Emit ``notifications/tools/list_changed`` so the client re-fetches the
     tool list after a dynamic mount/unmount.
 
-    Returns whether the push actually reached the client. A missing request
-    context (e.g. eager startup with no client attached yet) is an expected,
-    silent no-op — but a LIVE client that rejected or dropped the notification
-    is a real failure and must not be swallowed into a log line only the
-    server operator sees: a caller (``load_tools``/``unload_tools``) that
-    reported success while the client's tool list silently went stale is
-    exactly the control-plane-truthfulness gap this exists to prevent
-    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Callers surface the
-    returned flag to the agent so it can tell its own tool list may be stale
-    instead of discovering it only via a later "no such tool" failure.
+    BUG-050: the return value means "the transport write did not raise" —
+    i.e. this process attempted delivery and the local send call succeeded.
+    It does NOT mean, and must never be documented or read as meaning, "the
+    client received it" or "the client refreshed its tool list": MCP's
+    ``notifications/*`` are fire-and-forget with no application-level ack, so
+    a successful local write can still be dropped by the transport, ignored
+    by the client, or simply not yet processed by the time the caller's next
+    action runs. A missing request context (e.g. eager startup with no client
+    attached yet) is an expected, silent ``False`` — but a LIVE client whose
+    send raised is a real, surfaced failure, never swallowed into a
+    server-only log line: a caller (``load_tools``/``unload_tools``) that
+    reported success while even the local send failed is exactly the
+    control-plane-truthfulness gap this exists to prevent
+    (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog). Callers surface this as
+    ``notification_sent`` (never ``notified`` — that name is retired, see
+    ``load_session_tools``) so the agent can tell "the server didn't even try
+    to push" apart from "it tried; whether the client acted on it is unknown
+    either way" — the second case looks identical to success and is not
+    reducible to a boolean this function could ever return.
     """
     from fastmcp.server.dependencies import get_context
 
@@ -4350,7 +4359,7 @@ async def _notify_tools_changed(mcp) -> bool:
         await context.send_notification(mcp_types.ToolListChangedNotification())
     except Exception as exc:
         logger.warning(
-            "tools/list_changed notification failed to reach the client: %s: %s",
+            "tools/list_changed notification failed to send: %s: %s",
             type(exc).__name__,
             redact_for_log(exc),
         )
@@ -4630,6 +4639,22 @@ async def load_session_tools(
     to detect that the server's catalog moved on without re-probing the
     whole fleet, and call ``load_tools(servers=[...])`` again to pick up
     the addition.
+
+    BUG-050 — ``notification_sent`` is NOT a callability guarantee. It reports
+    only that this process attempted (and, per its own return value, either
+    succeeded or failed) to push ``notifications/tools/list_changed`` over the
+    transport. MCP notifications are fire-and-forget with no application-level
+    ack, and this function returns before any client has had a chance to act
+    on the push — so even ``notification_sent: True`` says nothing about
+    whether THIS caller's own client has re-fetched its tool list yet. A
+    caller that cannot independently confirm a refresh (no ``ToolSearch``-
+    equivalent, no ``tools/list`` round trip of its own) MUST treat every name
+    in ``newly_exposed`` as "registered server-side, callability unconfirmed"
+    and be prepared to retry the eventual tool call (or re-list) rather than
+    dispatch it immediately as if ``notification_sent: True`` meant "ready".
+    This is the exact failure BUG-050 named: a subagent without a refresh
+    mechanism read the old ``notified: True`` as "callable now" and stalled
+    for hours on a permanently-uncallable tool.
     """
     # Split out the host server's OWN gated tools (CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) —
     # already registered locally under MCP_TOOL_MODE=intent, they only need a
@@ -4655,12 +4680,20 @@ async def load_session_tools(
     loaded.update(session_names)
     if auto_unload and newly:
         mux._auto_unload.setdefault(session_key, set()).update(newly)
-    # Truthfully report whether the client was actually told its tool list
-    # changed. A caller whose client doesn't (yet) know a newly_exposed name
-    # will see calls to it fail client-side ("no such tool") even though the
-    # server-side registration succeeded — ``notified: False`` here is the
-    # signal that distinguishes that from a genuine dispatch failure.
-    notified = await _notify_tools_changed(mcp) if newly else True
+    # BUG-050 (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog): report ONLY what the
+    # server actually knows, never what it hopes happened downstream. MCP's
+    # ``notifications/tools/list_changed`` is fire-and-forget — there is no ack in
+    # the protocol, and this function returns before the client has had any chance
+    # to act on the push even if it arrives. So the server can truthfully attest
+    # "I attempted/sent the push" (``notification_sent``); it can NEVER truthfully
+    # attest "the client refreshed its tool list" — that field does not exist
+    # because the server cannot observe it. The prior name (``notified``) invited
+    # exactly that misreading: a caller that does not itself trigger a refresh
+    # (e.g. no ``ToolSearch``-equivalent) read ``notified: True`` as "the tool is
+    # now callable" and got a real, hours-long stuck delegation out of it. See
+    # ``_notify_tools_changed`` for what "sent" means (transport write succeeded;
+    # still not receipt, let alone client processing).
+    notification_sent = await _notify_tools_changed(mcp) if newly else True
     # D-CDX-52: server-level ``load_tools`` (``servers=[...]``) is a SNAPSHOT
     # of the tools that existed on each mounted server at THIS moment. A
     # later child recovery that adds a NEW tool is catalogued and loadable on
@@ -4680,7 +4713,7 @@ async def load_session_tools(
         "session_total": len(loaded),
         "total_registered": len(mux._exposed) + len(mux._local_gated),
         "auto_unload": bool(auto_unload) and newly,
-        "notified": notified,
+        "notification_sent": notification_sent,
         "server_catalog_revisions": server_catalog_revisions,
     }
 
@@ -4701,8 +4734,13 @@ class AlwaysLoadResult(TypedDict):
     exposed: list[str]
     #: Entry (server name or tool spec) -> why it fell back to lazy discovery.
     degraded: dict[str, str]
-    #: Whether the client was actually told its tool list changed.
-    notified: NotRequired[bool]
+    #: BUG-050: whether the server attempted (and, per this flag, succeeded at)
+    #: SENDING the ``tools/list_changed`` push. NOT whether the client received
+    #: or acted on it — MCP notifications are fire-and-forget with no ack, so
+    #: the server cannot observe that. See ``load_session_tools``'s docstring
+    #: for the full reasoning; callers must not read ``True`` here as "the
+    #: client's tool list is now current".
+    notification_sent: NotRequired[bool]
     #: D-CDX-52: per-server schema revision (``MCPMultiplexer._child_schema_revisions``)
     #: at the moment THIS pass resolved. A server-level load/always-load is a
     #: SNAPSHOT of the tools that existed at that instant — a later child
@@ -4811,12 +4849,14 @@ async def _perform_always_load(
     loaded = mux.session_loaded(session_key)
     newly = [n for n in sorted(expose) if n in mux.tool_to_server and n not in loaded]
     loaded.update(newly)
-    notified = await _notify_tools_changed(mcp) if newly else True
+    # BUG-050: same honesty contract as ``load_session_tools`` — this is
+    # "was the push sent", never "did the client refresh".
+    notification_sent = await _notify_tools_changed(mcp) if newly else True
     result: AlwaysLoadResult = {
         "mounted_servers": mounted,
         "exposed": newly,
         "degraded": degraded,
-        "notified": notified,
+        "notification_sent": notification_sent,
         "server_catalog_revisions": {
             name: mux._child_schema_revisions.get(name, 0) for name in mounted
         },
@@ -4932,8 +4972,14 @@ async def unload_session_tools(
         if auto:
             auto.discard(name)
     mux.prune_session_visibility(session_key)
-    notified = await _notify_tools_changed(mcp) if removed else True
-    return {"unloaded": removed, "session_total": len(loaded), "notified": notified}
+    # BUG-050: same honesty contract as ``load_session_tools`` — "sent", not
+    # "the caller's client has stopped seeing the unloaded name".
+    notification_sent = await _notify_tools_changed(mcp) if removed else True
+    return {
+        "unloaded": removed,
+        "session_total": len(loaded),
+        "notification_sent": notification_sent,
+    }
 
 
 def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
@@ -5090,17 +5136,32 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
         FunctionTool(
             name="load_tools",
             description=(
-                "Mount and expose tools at runtime so they become directly "
-                "callable. Pass prefixed tool names (from find_tools) via "
-                "'tools', and/or whole server names via 'servers' to load all "
-                "of a server's tools (also works for graph-os's OWN granular "
-                "tools held back under the condensed intent-surface profile — "
-                "pass their bare name, e.g. 'graph_query'). Spawns the owning "
-                "child servers on first use and notifies the client that the "
-                "tool list changed — check the response's 'notified' field: "
-                "if false, your OWN client may not have refreshed its tool "
-                "list yet, so a newly_exposed name can still fail with "
-                "'no such tool' until you retry. Any server or specific tool "
+                "Mount and expose tools at runtime. This makes a tool CALLABLE "
+                "SERVER-SIDE, in this session — it does NOT, by itself, make it "
+                "appear in YOUR OWN tool list; that only happens once your own "
+                "client refreshes it. Pass prefixed tool names (from "
+                "find_tools) via 'tools', and/or whole server names via "
+                "'servers' to load all of a server's tools (also works for "
+                "graph-os's OWN granular tools held back under the condensed "
+                "intent-surface profile — pass their bare name, e.g. "
+                "'graph_query'). Spawns the owning child servers on first use "
+                "and attempts to push a tools/list_changed notification — "
+                "check the response's 'notification_sent' field, but read it "
+                "for what it actually is: whether the SERVER succeeded at "
+                "SENDING that push, never whether your client received or "
+                "acted on it (MCP notifications have no ack; the server "
+                "cannot know that). So a newly_exposed name can still fail "
+                "with 'no such tool' even when 'notification_sent' is true — "
+                "that is not a contradiction, it just means your own refresh "
+                "hasn't happened yet. If your environment has a tool-search / "
+                "tool-list-refresh mechanism (e.g. this harness's ToolSearch), "
+                "call it now to pick up the new name before dispatching to it. "
+                "If it does not, do not assume the tool is callable: retry the "
+                "call once, and if it still says 'no such tool', reconnect / "
+                "restart the session rather than stalling — a name that "
+                "cannot become callable without a client-side refresh you "
+                "have no way to trigger is a dead end worth escalating "
+                "immediately, not waiting out. Any server or specific tool "
                 "that can't be reached/registered is reported in the 'failed' "
                 "map (never silently dropped) instead of erroring the whole "
                 "call. Set auto_unload=true for a ONE-SHOT tool: it is "
@@ -5147,10 +5208,12 @@ def _register_meta_tools(mcp, mux: MCPMultiplexer) -> None:
                 "'servers' (every tool of a fleet server, or graph-os's WHOLE "
                 "condensed surface at once via servers=['graph-os']), and "
                 "'toolsets' (every tool carrying one of these tags, e.g. a "
-                "domain name — a bulk domain unload). The client is notified "
-                "that the tool list changed. Meta-tools and always-on tools are "
-                "kept regardless. Nothing is deleted — load_tools brings any of "
-                "it straight back."
+                "domain name — a bulk domain unload). The server attempts to "
+                "push a tools/list_changed notification (reported as "
+                "'notification_sent' — whether the SEND succeeded, not whether "
+                "your client acted on it; see load_tools). Meta-tools and "
+                "always-on tools are kept regardless. Nothing is deleted — "
+                "load_tools brings any of it straight back."
             ),
             parameters={
                 "type": "object",

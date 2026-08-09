@@ -7,7 +7,7 @@ valid credential or its calls are rejected (401). Children are configured per-en
 in ``mcp_config.json`` and historically carried no ``Authorization`` header, so
 flipping a child to enforce auth made it unreachable through the multiplexer.
 
-This module gives the multiplexer ONE service identity, in either of two schemes,
+This module gives the multiplexer ONE service identity, in one of three schemes,
 selected by ``MCP_CLIENT_AUTH``:
 
   * ``oidc-client-credentials`` — mint an OIDC provider service token via the
@@ -18,6 +18,20 @@ selected by ``MCP_CLIENT_AUTH``:
   * ``basic`` — attach a static ``Authorization: Basic <base64(user:pass)>`` from
     ``MCP_BASIC_AUTH_USERNAME`` and the referenced password (for a child, or an
     upstream proxy, that authenticates with HTTP Basic rather than a bearer token).
+  * ``rotating-file-bearer`` — re-read ``Authorization: Bearer <token>`` from a
+    local file on EVERY outbound request (CONCEPT:AU-OS.identity.rotating-file-bearer,
+    BUG-051). For a remote MCP server whose bearer is minted by an OUT-OF-PROCESS
+    refresh daemon (e.g. ``services/graphos-token-refresh/refresh-graphos-token.sh``,
+    a cron-driven client-credentials mint this process has no control over), a
+    header baked in once at connect/construction time goes stale the moment the
+    daemon rotates the file — the connection keeps presenting the OLD token until
+    something reconnects it. Reading the file fresh on every request instead
+    renews the credential IN-BAND, inside the SAME long-lived session, with no
+    reconnect: the daemon's next scheduled write is picked up by the very next
+    call. This is the general form of the mechanism ``graphos-codex-bridge.py``
+    already proved for Codex's stdio bridge (``RotatingBearerAuth``); this module
+    makes it a first-class, tested primitive any agent-utilities-built MCP client
+    can select via config, instead of a one-off script reimplementing it.
 
 Either way the credential is never applied over a child's explicit ``Authorization``
 header. Once a service-auth mode is selected, incomplete configuration or a mint
@@ -25,7 +39,7 @@ failure aborts the outbound request; it never silently becomes anonymous. Unset
 (``MCP_CLIENT_AUTH=none``, the default) makes every helper an inert no-op.
 
 Configuration (env):
-  MCP_CLIENT_AUTH        = oidc-client-credentials | basic | none   # scheme (default none)
+  MCP_CLIENT_AUTH        = oidc-client-credentials | basic | rotating-file-bearer | none   # scheme (default none)
   # --- oidc-client-credentials ---
   OIDC_CLIENT_ID         = <runtime client identifier>
   OIDC_CLIENT_SECRET_REF = <runtime secret reference> # required
@@ -37,6 +51,8 @@ Configuration (env):
   # --- basic ---
   MCP_BASIC_AUTH_USERNAME     = <runtime user>
   MCP_BASIC_AUTH_PASSWORD_REF = <runtime secret reference> # required
+  # --- rotating-file-bearer ---
+  MCP_BEARER_TOKEN_FILE       = <local path to a mode-0600 file holding just the token>
 """
 
 from __future__ import annotations
@@ -45,8 +61,10 @@ import base64
 import functools
 import json
 import re
+import stat
 import threading
 import time
+from pathlib import Path
 
 import anyio
 import httpx
@@ -59,7 +77,10 @@ logger = get_logger(name="MultiplexerClientAuth")
 # Recognized MCP_CLIENT_AUTH schemes.
 _MODE_OIDC = "oidc-client-credentials"
 _MODE_BASIC = "basic"
+_MODE_ROTATING_FILE_BEARER = "rotating-file-bearer"
 _MODE_NONE = "none"
+
+_MAX_BEARER_FILE_BYTES = 65_536
 
 # Refresh this many seconds before the token actually expires.
 _EXPIRY_SKEW_S = 30.0
@@ -118,11 +139,12 @@ def _resolve_runtime_secret(ref_name: str) -> str | None:
 def _auth_mode() -> str:
     """The configured outbound child-auth scheme.
 
-    ``oidc-client-credentials`` | ``basic`` | ``none``. An unrecognized value
-    is a configuration error; a typo must not silently disable authentication.
+    ``oidc-client-credentials`` | ``basic`` | ``rotating-file-bearer`` | ``none``.
+    An unrecognized value is a configuration error; a typo must not silently
+    disable authentication.
     """
     mode = str(setting("MCP_CLIENT_AUTH", _MODE_NONE) or _MODE_NONE).strip().lower()
-    if mode in (_MODE_OIDC, _MODE_BASIC, _MODE_NONE):
+    if mode in (_MODE_OIDC, _MODE_BASIC, _MODE_ROTATING_FILE_BEARER, _MODE_NONE):
         return mode
     raise RuntimeError("MCP_CLIENT_AUTH has an unsupported value")
 
@@ -195,6 +217,14 @@ def outbound_auth_configuration_status() -> dict[str, object]:
             _runtime_secret_reference("MCP_BASIC_AUTH_PASSWORD_REF")
         except RuntimeError:
             invalid.append("MCP_BASIC_AUTH_PASSWORD_REF")
+    elif mode == _MODE_ROTATING_FILE_BEARER:
+        path_text = _configured_text("MCP_BEARER_TOKEN_FILE")
+        if not path_text:
+            missing.append("MCP_BEARER_TOKEN_FILE")
+        elif len(path_text) > 4_096 or any(
+            character in path_text for character in "\r\n\x00"
+        ):
+            invalid.append("MCP_BEARER_TOKEN_FILE")
     return {
         "mode": mode,
         "ready": not missing and not invalid,
@@ -211,7 +241,115 @@ def validate_outbound_auth_configuration() -> None:
         return
     if status["mode"] == _MODE_BASIC:
         raise RuntimeError("Outbound MCP basic identity is incomplete")
+    if status["mode"] == _MODE_ROTATING_FILE_BEARER:
+        raise RuntimeError("Outbound MCP rotating-file-bearer identity is incomplete")
     raise RuntimeError("Outbound MCP service identity is incomplete")
+
+
+def _bearer_token_file() -> Path | None:
+    """The configured rotating-bearer token file path.
+
+    Active only under ``MCP_CLIENT_AUTH=rotating-file-bearer``; a missing path
+    is a hard configuration error rather than a silent fallback to another mode.
+    """
+    if _auth_mode() != _MODE_ROTATING_FILE_BEARER:
+        return None
+    validate_outbound_auth_configuration()
+    path_text = _configured_text("MCP_BEARER_TOKEN_FILE")
+    if not path_text:
+        logger.error("Outbound MCP rotating-file-bearer identity is incomplete")
+        raise RuntimeError("Outbound MCP rotating-file-bearer identity is incomplete")
+    return Path(path_text).expanduser()
+
+
+def read_rotating_bearer_token(path: Path) -> str:
+    """Read a bearer token from *path*, fresh, on every call (BUG-051).
+
+    This is the whole mechanism: no caching, no memoization across calls — the
+    caller (:class:`RotatingFileBearerAuth`) invokes this once per outbound
+    request, so a file an out-of-process daemon rewrites between two requests
+    is picked up by the very next one, in the SAME long-lived session, with no
+    reconnect. Mirrors the validation ``graphos-codex-bridge.py``'s
+    ``RotatingBearerAuth`` already proved for Codex's stdio bridge: the file
+    must be exactly mode 0600 (refuse a token an unrelated local user could
+    have read or written) and non-empty; anything else raises rather than
+    silently falling back to an unauthenticated or stale request.
+    """
+    try:
+        raw_mode = path.stat().st_mode
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise RuntimeError(
+            "rotating bearer token file is unavailable "
+            "(has the refresh daemon run yet?)"
+        ) from exc
+    if len(text.encode("utf-8", errors="replace")) > _MAX_BEARER_FILE_BYTES:
+        raise RuntimeError("rotating bearer token file is too large")
+    token = text.strip()
+    if not token or any(character in token for character in "\r\n\x00 \t"):
+        raise RuntimeError("rotating bearer token file is invalid")
+    if stat.S_IMODE(raw_mode) & 0o077:
+        raise RuntimeError(
+            "rotating bearer token file has overly permissive file mode (expected 0600)"
+        )
+    return token
+
+
+class RotatingFileBearerAuth(httpx.Auth):
+    """Per-request ``Authorization: Bearer`` sourced fresh from a local file.
+
+    CONCEPT:AU-OS.identity.rotating-file-bearer (BUG-051). The multiplexer
+    holds one pooled long-lived transport per child; baking a header in at
+    construction time freezes whatever token was valid at CONNECT time. If the
+    real refresh authority is an out-of-process daemon (cron-driven, this
+    process has no handle on it — e.g. ``refresh-graphos-token.sh``), that
+    frozen header goes stale the moment the daemon rotates the file, and nothing
+    inside this process would ever know to reconnect. Reading the file on every
+    single request instead means renewal happens IN-BAND: the file write and
+    the next outbound call race exactly once, and the call always wins because
+    it reads whatever is on disk *right then* — never a value cached at some
+    earlier point in the session's life. A 401 (the file rotated between this
+    read and the request reaching the server, or the server's own clock skew)
+    triggers exactly one re-read-and-retry, matching :class:`ClientCredentialsAuth`'s
+    shape; if the freshly re-read token is rejected too, the failure is real
+    and is not silently retried forever.
+    """
+
+    def __init__(self, token_path: Path) -> None:
+        self._token_path = token_path
+
+    def _flow(self, request: httpx.Request, token: str):
+        request.headers["Authorization"] = f"Bearer {token}"
+        response = yield request
+        if response.status_code == 401:
+            try:
+                fresh = read_rotating_bearer_token(self._token_path)
+            except Exception:  # pragma: no cover - degrade to the 401
+                return
+            request.headers["Authorization"] = f"Bearer {fresh}"
+            yield request
+
+    def auth_flow(self, request: httpx.Request):
+        token = read_rotating_bearer_token(self._token_path)
+        yield from self._flow(request, token)
+
+    async def async_auth_flow(self, request: httpx.Request):
+        # The read is blocking file I/O; offload it so a rotation never stalls
+        # the caller's event loop.
+        token = await anyio.to_thread.run_sync(
+            read_rotating_bearer_token, self._token_path
+        )
+        request.headers["Authorization"] = f"Bearer {token}"
+        response = yield request
+        if response.status_code == 401:
+            try:
+                fresh = await anyio.to_thread.run_sync(
+                    read_rotating_bearer_token, self._token_path
+                )
+            except Exception:  # pragma: no cover - degrade to the 401
+                return
+            request.headers["Authorization"] = f"Bearer {fresh}"
+            yield request
 
 
 class ClientCredentialsTokenProvider:
@@ -378,9 +516,16 @@ def child_auth_header(existing: dict | None) -> dict:
     """Authorization header for a remote child, or ``{}`` if not applicable.
 
     Returns the configured outbound credential — ``Bearer <token>`` under
-    ``oidc-client-credentials`` or ``Basic <base64>`` under ``basic``. Never
-    overrides an explicitly configured ``Authorization`` header. A configured
-    service-auth mode fails closed when its credential cannot be produced.
+    ``oidc-client-credentials`` or ``rotating-file-bearer``, or ``Basic
+    <base64>`` under ``basic``. Never overrides an explicitly configured
+    ``Authorization`` header. A configured service-auth mode fails closed when
+    its credential cannot be produced. Every call re-derives the header from
+    its live source (never memoized here), so a caller that itself calls this
+    per-request already gets BUG-051's in-band renewal for free under
+    ``rotating-file-bearer`` — it is only a STATIC header (and therefore stale
+    after rotation) if the caller bakes the RETURNED DICT into a long-lived
+    session instead of calling this again; :func:`child_auth` is the right
+    choice for that shape of caller.
     """
     if existing and any(k.lower() == "authorization" for k in existing):
         return {}
@@ -390,6 +535,11 @@ def child_auth_header(existing: dict | None) -> dict:
     basic = _basic_credentials()
     if mode == _MODE_BASIC and basic is not None:
         return {"Authorization": _basic_header_value(*basic)}
+    if mode == _MODE_ROTATING_FILE_BEARER:
+        path = _bearer_token_file()
+        if path is None:  # defensive: mode=rotating-file-bearer always has a path
+            raise RuntimeError("Outbound MCP service identity is unavailable")
+        return {"Authorization": f"Bearer {read_rotating_bearer_token(path)}"}
     provider = get_provider()
     if provider is None:  # defensive: mode=OIDC always returns or raises
         raise RuntimeError("Outbound MCP service identity is unavailable")
@@ -475,9 +625,13 @@ def child_auth(existing: dict | None) -> httpx.Auth | None:
     transports. Under ``basic`` it returns a static :class:`httpx.BasicAuth`; under
     ``oidc-client-credentials`` a :class:`ClientCredentialsAuth` that pulls a fresh
     token per request (so a pooled session keeps working across token expiry instead
-    of wedging on a 401). Never overrides a child's explicit ``Authorization``
-    header; returns ``None`` only when service identity is explicitly disabled.
-    A selected auth mode fails closed if it is incomplete.
+    of wedging on a 401); under ``rotating-file-bearer`` a
+    :class:`RotatingFileBearerAuth` that re-reads the bearer from
+    ``MCP_BEARER_TOKEN_FILE`` on every request instead (BUG-051) — the same
+    in-band-renewal shape, for a token this process does not mint itself.
+    Never overrides a child's explicit ``Authorization`` header; returns
+    ``None`` only when service identity is explicitly disabled. A selected
+    auth mode fails closed if it is incomplete.
     """
     if existing and any(k.lower() == "authorization" for k in existing):
         return None
@@ -487,6 +641,11 @@ def child_auth(existing: dict | None) -> httpx.Auth | None:
     basic = _basic_credentials()
     if mode == _MODE_BASIC and basic is not None:
         return httpx.BasicAuth(*basic)
+    if mode == _MODE_ROTATING_FILE_BEARER:
+        path = _bearer_token_file()
+        if path is None:  # defensive: mode=rotating-file-bearer always has a path
+            raise RuntimeError("Outbound MCP service identity is unavailable")
+        return RotatingFileBearerAuth(path)
     provider = get_provider()
     if provider is None:
         raise RuntimeError("Outbound MCP service identity is unavailable")
@@ -503,9 +662,13 @@ def service_session_max_age(existing: dict | None) -> float | None:
     lifetime elapses. Returns that safe lifetime (token TTL minus the refresh
     skew and a small buffer, floored), or ``None`` when the child carries its own
     ``Authorization`` (we don't manage its token), the service identity is
-    disabled, or the scheme is ``basic`` (a static credential never expires, so no
-    recycle is needed — ``get_provider`` is ``None`` for basic). Primes the OIDC
-    provider once so the IdP's real TTL is known."""
+    disabled, or the scheme is ``basic`` or ``rotating-file-bearer`` (neither
+    needs a forced recycle: ``basic`` never expires and ``rotating-file-bearer``
+    re-reads the credential fresh on every single request via
+    :class:`RotatingFileBearerAuth` — see BUG-051 — so there is no baked-in
+    token to age out from under the session in the first place; ``get_provider``
+    is ``None`` for both). Primes the OIDC provider once so the IdP's real TTL
+    is known."""
     if existing and any(k.lower() == "authorization" for k in existing):
         return None
     provider = get_provider()

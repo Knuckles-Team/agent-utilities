@@ -250,13 +250,11 @@ def interview(tier: str) -> dict:
     s["enable_web_ui"] = ask_bool("enable web UI", s["enable_web_ui"])
     s["mcp_client_auth"] = ask_choice(
         "mcp_client_auth (outbound MCP child-auth mode)",
-        ["none", "oidc-client-credentials", "basic"],
+        ["none", "oidc-client-credentials", "basic", "rotating-file-bearer"],
         s["mcp_client_auth"],
     )
     if s["mcp_client_auth"] != "none":
-        s["oidc_config_url"] = ask(
-            "OIDC discovery URL", s.get("oidc_config_url")
-        )
+        s["oidc_config_url"] = ask("OIDC discovery URL", s.get("oidc_config_url"))
 
     section("5. Secrets, messaging & observability")
     s["secrets_backend"] = ask_choice(
@@ -269,7 +267,8 @@ def interview(tier: str) -> dict:
         default=bool(s.get("kafka_bootstrap_servers")),
     ):
         s["kafka_bootstrap_servers"] = ask(
-            "kafka_bootstrap_servers", s.get("kafka_bootstrap_servers") or "redpanda:9092"
+            "kafka_bootstrap_servers",
+            s.get("kafka_bootstrap_servers") or "redpanda:9092",
         )
     else:
         s["kafka_bootstrap_servers"] = None

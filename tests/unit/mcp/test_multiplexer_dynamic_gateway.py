@@ -1979,7 +1979,14 @@ async def test_notify_tools_changed_surfaces_send_failure(monkeypatch, caplog):
     assert any("list_changed" in r.message for r in caplog.records)
 
 
-async def test_load_tools_reports_notified_true_inside_a_live_session(tmp_path):
+async def test_load_tools_reports_notification_sent_true_inside_a_live_session(
+    tmp_path,
+):
+    """BUG-050: the field is ``notification_sent`` (not ``notified``) precisely
+    because ``True`` here only ever means "the server's push did not raise" —
+    never "this client's own tool list is refreshed". See
+    ``test_load_tools_notification_sent_true_does_not_imply_the_tool_is_dispatchable_yet``
+    for the negative case that motivated the rename."""
     from fastmcp import Client, FastMCP
 
     mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
@@ -1991,13 +1998,16 @@ async def test_load_tools_reports_notified_true_inside_a_live_session(tmp_path):
         result = await client.call_tool("load_tools", {"servers": [CNT]})
 
     assert result.structured_content["newly_exposed"]
-    assert result.structured_content["notified"] is True
+    assert result.structured_content["notification_sent"] is True
+    assert "notified" not in result.structured_content
 
 
-async def test_load_tools_reports_not_notified_outside_a_request_context(tmp_path):
+async def test_load_tools_reports_notification_not_sent_outside_a_request_context(
+    tmp_path,
+):
     """Calling the core helper with no live client context (e.g. the tool's
     own ``.fn()`` invoked directly, as in ``test_meta_tools_registered_and_load_exposes``)
-    must be truthful that the client was never actually told — a caller that
+    must be truthful that the push was never even attempted — a caller that
     only checked ``newly_exposed`` would otherwise wrongly assume its own
     client's tool list is already fresh."""
     from agent_utilities.mcp.multiplexer import load_session_tools
@@ -2011,7 +2021,106 @@ async def test_load_tools_reports_not_notified_outside_a_request_context(tmp_pat
     payload = await load_session_tools(mcp, mux, servers=[CNT])
 
     assert payload["newly_exposed"]
-    assert payload["notified"] is False
+    assert payload["notification_sent"] is False
+    assert "notified" not in payload
+
+
+async def test_load_tools_notification_sent_true_does_not_imply_universal_callability(
+    tmp_path,
+):
+    """BUG-050 negative test: ``notification_sent: True`` is scoped to the
+    session that made the call — it must never be read as "the tool is now
+    callable", full stop, by any caller. Prove it the way the real incident
+    happened: session A calls ``load_tools`` and gets ``notification_sent:
+    True`` back, but an entirely independent caller (session B — standing in
+    for a delegated subagent with no shared refresh channel) that never called
+    ``load_tools`` itself still gets a hard ``ToolError`` calling the SAME tool
+    name, in the SAME live multiplexer, moments later. If ``notification_sent:
+    True`` meant what the retired ``notified`` name implied ("the tool is
+    callable now"), this would have to succeed; it must not."""
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "manage containers")]})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+    mcp.add_middleware(SessionVisibilityMiddleware(mux, mcp))
+
+    # The in-memory transport gives no real per-connection identity (see
+    # ``_session_key``'s docstring), so two independent sessions must declare
+    # themselves via ``_LOCAL_SESSION_META_KEY`` on every request — exactly
+    # the convention ``test_per_session_disclosure_isolation`` already
+    # established — or both collapse onto the shared ``__local_stdio__``
+    # bucket and this test would wrongly "pass" the OLD, false way: not
+    # because session isolation held, but because there was only one session.
+    async with Client(mcp) as session_a:
+        result = await session_a.call_tool(
+            "load_tools",
+            {"servers": [CNT]},
+            meta={_LOCAL_SESSION_META_KEY: "session-A"},
+        )
+        assert result.structured_content["notification_sent"] is True
+        assert result.structured_content["newly_exposed"]
+
+    # A second, independent session never loaded the tool. Truthful behavior:
+    # the field being True for session A carries zero information about what
+    # session B can dispatch. Matched on the SessionVisibilityMiddleware's own
+    # gate message (not just "any ToolError"): this fixture's mocked child
+    # session ALSO raises ToolError("delegated_child_tool_failed") on any
+    # call, loaded or not, so an unmatched ``pytest.raises`` would pass even
+    # with the session gate wide open — the precise match is what proves the
+    # call never reached the child at all.
+    async with Client(mcp) as session_b:
+        with pytest.raises(ToolError, match="not loaded in this session"):
+            await session_b.call_tool(
+                CNT_PREFIXED,
+                {"action": "list"},
+                meta={_LOCAL_SESSION_META_KEY: "session-B"},
+            )
+
+
+def test_load_tools_field_contract_never_reintroduces_notified(tmp_path):
+    """BUG-050 contract guard: the field name is retired, not merely renamed at
+    one call site. Grepping the source is the cheapest durable guard against a
+    future edit re-adding ``"notified":`` (e.g. a copy-pasted branch) — a
+    structural check that survives independent of any single test path."""
+    import inspect
+
+    from agent_utilities.mcp import multiplexer
+
+    source = inspect.getsource(multiplexer)
+    assert '"notified"' not in source
+    assert "notified: NotRequired[bool]" not in source
+    assert source.count('"notification_sent"') >= 3
+
+
+async def test_load_tools_description_documents_the_client_refresh_caveat(tmp_path):
+    """BUG-050 doc guard: the tool description an agent actually reads must
+    itself carry the caveat, not just an internal docstring nobody sees at
+    call time. This is the artifact that would have prevented the real
+    incident — a caller with no ``ToolSearch``-equivalent had nothing in the
+    tool description telling it ``notification_sent: True`` is not proof of
+    callability, or what to do instead. Read the description through the same
+    client-protocol view a real caller sees (``client.list_tools()``), not a
+    private FastMCP internal, so this survives a FastMCP version bump."""
+    from fastmcp import Client, FastMCP
+
+    mux = _mux_with_children(tmp_path, {})
+    mcp = FastMCP("test-mux")
+    _register_meta_tools(mcp, mux)
+
+    async with Client(mcp) as client:
+        listed = await client.list_tools()
+    load_tools_tool = next(t for t in listed if t.name == "load_tools")
+    description = load_tools_tool.description or ""
+
+    assert "notification_sent" in description
+    assert "notified" not in description
+    # The caveat itself: sending is not the same as the caller's own client
+    # having refreshed, and MCP notifications carry no acknowledgement.
+    assert "no ack" in description or "no such tool" in description
+    # Actionable guidance for a caller with no refresh mechanism of its own.
+    assert "ToolSearch" in description
+    assert "reconnect" in description or "restart" in description
 
 
 async def test_forced_reprobe_does_not_evict_a_live_joinable_probe(tmp_path):
@@ -2110,7 +2219,7 @@ async def test_load_tools_changes_the_wire_tool_list_a_live_client_observes(tmp_
         assert CNT_PREFIXED not in before
 
         result = await client.call_tool("load_tools", {"servers": [CNT]})
-        assert result.structured_content["notified"] is True
+        assert result.structured_content["notification_sent"] is True
 
         after = {t.name for t in await client.list_tools()}
 

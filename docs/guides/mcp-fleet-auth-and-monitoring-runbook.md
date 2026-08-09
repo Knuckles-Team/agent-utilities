@@ -42,6 +42,15 @@ endpoint must match the egress and TLS policies. For HTTP Basic children, use
 `MCP_CLIENT_AUTH=basic`, `MCP_BASIC_AUTH_USERNAME`, and
 `MCP_BASIC_AUTH_PASSWORD_REF`.
 
+For a child whose bearer is minted by an out-of-process refresh daemon this
+service does not control (BUG-051 — e.g. a cron job that rewrites a local
+token file on its own schedule, outside any OIDC grant this service could
+mint itself), use `MCP_CLIENT_AUTH=rotating-file-bearer` and
+`MCP_BEARER_TOKEN_FILE=<path to a mode-0600 file holding just the token>`.
+The file is read fresh on every outbound request rather than cached at
+connect time, so a daemon's rotation takes effect on the very next request
+with no reconnect.
+
 Never put bearer tokens or resolved secrets in child configuration. Token
 minting is bounded, cached, refreshed before expiry, and retried once after a
 401. If credential production fails, the delegated call fails closed.
