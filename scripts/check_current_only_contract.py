@@ -237,6 +237,18 @@ RETIRED_IDENTIFIERS: tuple[str, ...] = (
 )
 RETIRED_PATHS: tuple[str, ...] = (
     "agent_utilities/core/agent_" + "launcher.py",
+    # GOC-59 (BUG-032 shape): accepted residual, NOT a gap in this gate's
+    # coverage. This module is a back-compat re-export shim over
+    # ``agent_utilities.core.exceptions`` (its own docstring says so). It has
+    # zero in-repo importers, but ``agents/microsoft-agent`` -- a real,
+    # actively-developed repo with a live GitHub origin remote
+    # (github.com/Knuckles-Team/microsoft-agent) -- imports it at
+    # ``tests/test_auth_coverage.py:5``
+    # (``from agent_utilities.exceptions import AuthError, UnauthorizedError``).
+    # Deleting it would break that repo's test suite; migrating that one
+    # caller onto ``agent_utilities.core.exceptions`` is a separate,
+    # cross-repo change, not a Phase-0 publication-unblock item. Carried and
+    # owned, not silently cleared.
     "agent_utilities/exceptions" + ".py",
     "agent_utilities/graph/" + "steps.py",
     "agent_utilities/knowledge_graph/core/ingest_" + "engine.py",

@@ -7,7 +7,7 @@
 # `tests/scale/soak/` (the soak/chaos harness).
 #
 # Every numeric axis here is anchored to the EXISTING capacity_model.py constants
-# (RESIDENTS_PER_L0_SHARD, ACTIVE_AGENTS_PER_WORKER, EVENTS_PER_ACTIVE_AGENT_PER_SEC,
+# (RESIDENTS_PER_ENGINE_SHARD, ACTIVE_AGENTS_PER_WORKER, EVENTS_PER_ACTIVE_AGENT_PER_SEC,
 # the ~52 kB measured working-set anchor, the AddNode p50 anchor) rather than picking
 # new unanchored numbers — see the `# anchor:` comments. `active_fraction=0.02` is the
 # model's own reference active fraction for the 1M case.
