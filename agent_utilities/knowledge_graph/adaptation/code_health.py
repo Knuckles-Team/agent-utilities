@@ -69,7 +69,32 @@ def _load_baseline_snapshot(backend: Any, repo: str) -> dict[str, Any] | None:
 
 
 def _save_baseline_snapshot(backend: Any, repo: str, snapshot: dict[str, Any]) -> None:
-    """Persist the refreshed baseline snapshot for ``repo`` as an engine node (upsert)."""
+    """Persist the refreshed baseline snapshot for ``repo`` as an engine node (upsert).
+
+    BUG-059 disposition — JUSTIFIED BYPASS, not routed. This writes straight to
+    the raw engine-authority backend (never
+    ``IntelligenceGraphEngine._upsert_node``/``GraphComputeEngine.add_node``), so
+    it never reaches the ``stamp_ownership`` gate. That is deliberate here,
+    unlike the sibling sites this same audit routed:
+
+    * The caller is the ``code_health`` maintenance tick (opt-in via
+      ``KG_CODE_HEALTH``), a periodic LLM-free daemon sweep with no
+      request/actor context at all — never a human or agent action.
+    * The payload is a derived, content-addressed regression baseline (a
+      diffable snapshot of the SAME liveness analysis for a given repo state),
+      not anyone's owned data — indistinguishable in kind from the
+      system/platform writes ``stamp_ownership`` already leaves intentionally
+      unowned for a privileged actor.
+    * Routing this through ``stamp_ownership`` today would not audit a real
+      gap — it would make every baseline write raise ``IdentityRequiredError``
+      unconditionally, because this daemon has never bound an actor (that is
+      BUG-055's class of defect — thread a background-authorized session
+      through the daemon tick — not something this call site can fix in
+      isolation without also fixing the daemon's session bootstrap).
+
+    See ``tests/unit/knowledge_graph/adaptation/test_code_health_bug059.py``
+    for the pinning test that keeps this bypass intentional.
+    """
     backend.add_node(
         _baseline_node_id(repo),
         label=_BASELINE_LABEL,

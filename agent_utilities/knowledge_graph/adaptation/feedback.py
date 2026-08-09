@@ -48,6 +48,26 @@ _RULE_TYPE = {
 }
 
 
+def _stamp_and_type(props: dict[str, Any], node_type: str) -> dict[str, Any]:
+    """Stamp ownership/classification onto a node-write props dict (BUG-059).
+
+    ``FeedbackService.backend`` is ``engine.backend`` — the RAW backend
+    (:meth:`FeedbackService.from_engine`) — so ``self.backend.add_node(...)``
+    never reaches ``IntelligenceGraphEngine._upsert_node`` /
+    ``GraphComputeEngine.add_node``'s ``stamp_ownership``/
+    ``stamp_classification`` gate. Every write in this module is a HUMAN
+    correction ("this was wrong, here's the fix") reached through an explicit
+    API/MCP action, so an actor is expected to be bound; stamp here, at the
+    seam this module actually writes through, same pattern as
+    ``enrichment.pipeline._BatchedBackend.add_node``.
+    """
+    from ..core.tenant_sharing import stamp_classification, stamp_ownership
+
+    stamp_ownership(props)
+    stamp_classification(props, node_type)
+    return props
+
+
 @dataclass
 class CorrectionResult:
     correction_type: str
@@ -593,12 +613,17 @@ class FeedbackService:
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         self.backend.add_node(
             gid,
-            node_type="Gotcha",
-            path=path,
-            note=note.strip(),
-            severity=severity,
-            actor_id=actor_id,
-            timestamp=ts,
+            **_stamp_and_type(
+                {
+                    "node_type": "Gotcha",
+                    "path": path,
+                    "note": note.strip(),
+                    "severity": severity,
+                    "actor_id": actor_id,
+                    "timestamp": ts,
+                },
+                "Gotcha",
+            ),
         )
         return CorrectionResult(
             "gotcha", target_id, True, f"pinned gotcha to {path}", [gid]
@@ -615,16 +640,23 @@ class FeedbackService:
         corr_id = f"correction:{uuid.uuid4().hex}"
         self.backend.add_node(
             corr_id,
-            node_type="correction",
-            target=target_id,
-            reason=reason,
-            corrected_value=str(corrected_value or ""),
-            actor_id=actor_id,
-            assertion_type="human_judgment",
-            timestamp=ts,
+            **_stamp_and_type(
+                {
+                    "node_type": "correction",
+                    "target": target_id,
+                    "reason": reason,
+                    "corrected_value": str(corrected_value or ""),
+                    "actor_id": actor_id,
+                    "assertion_type": "human_judgment",
+                    "timestamp": ts,
+                },
+                "correction",
+            ),
         )
         created = [corr_id]
         if target_id and hasattr(self.backend, "add_edge"):
+            # BUG-058 (owned separately): ``add_edge`` has no ownership gate at
+            # all yet — nothing for this write to enter until it lands.
             try:
                 self.backend.add_edge(corr_id, target_id, rel_type="corrects")
             except Exception as exc:  # pragma: no cover  # noqa: BLE001 — provenance-only 'corrects' edge; the correction assertion (corr_id) is already recorded above and the governance rule this feeds is created unconditionally below regardless of whether this edge lands
@@ -633,15 +665,20 @@ class FeedbackService:
         rule_type = _RULE_TYPE.get(rule_scope, "governance_rule")
         self.backend.add_node(
             rule_id,
-            node_type=rule_type,
-            kind=rule_kind,
-            target=target_id,
-            weight=0.5,
-            reason=reason,
-            active=True,
-            assertion_type="human_judgment",
-            source_correction=corr_id,
-            timestamp=ts,
+            **_stamp_and_type(
+                {
+                    "node_type": rule_type,
+                    "kind": rule_kind,
+                    "target": target_id,
+                    "weight": 0.5,
+                    "reason": reason,
+                    "active": True,
+                    "assertion_type": "human_judgment",
+                    "source_correction": corr_id,
+                    "timestamp": ts,
+                },
+                rule_type,
+            ),
         )
         created.append(rule_id)
         return CorrectionResult(

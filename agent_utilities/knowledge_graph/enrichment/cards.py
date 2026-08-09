@@ -268,6 +268,27 @@ class CardStore:
         return out
 
     def put_many(self, items: list[tuple[str, str, list[str]]]) -> None:
+        """Persist the given ``(ast_hash, summary, responsibilities)`` cards.
+
+        BUG-059 disposition — JUSTIFIED BYPASS. ``self._backend.add_node`` below
+        is the raw engine-authority backend, never
+        ``IntelligenceGraphEngine._upsert_node``/``GraphComputeEngine.add_node``,
+        so it never reaches ``stamp_ownership``. Deliberate, not an oversight:
+        a card is a pure function of its ``ast_hash`` (the SAME summary for the
+        SAME bytes, "across ingest runs and across repos" per this class's own
+        docstring) — content-derived cache data, not anyone's owned content.
+        More concretely, this store is constructed from two call sites with
+        very different actor availability: inline inside
+        ``enrichment.pipeline.EnrichmentPipeline.enrich_files`` (a
+        request/ingest-triggered call, actor plausibly bound) AND from
+        ``core.engine_tasks.MaintenanceScheduler._tick_enrichment`` — a
+        periodic background daemon tick with no request/actor context at all.
+        Routing this through ``stamp_ownership`` would make the SAME code path
+        raise ``IdentityRequiredError`` unconditionally from the daemon tick
+        (BUG-055's class of defect — no background-authorized session is
+        threaded through that scheduler loop) while working from the other.
+        See ``tests/unit/knowledge_graph/enrichment/test_cards_bug059.py``.
+        """
         if not items:
             return
         from datetime import UTC, datetime
