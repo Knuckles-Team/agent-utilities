@@ -745,12 +745,17 @@ def test_consumer_loop_processes_and_acks_after(dispatch_db, fake_queue, queued_
 
 
 def test_consumer_loop_acks_poison_envelope(dispatch_db, fake_queue):
-    """A malformed envelope is logged + acked — it never wedges the loop."""
+    """A malformed envelope never wedges the loop — but (BUG-003) it is only
+    acked AFTER a durable dead-letter WorkItem records the failure, never
+    logged-and-acked with no durable trace."""
     import threading
 
     from agent_utilities.orchestration import agent_dispatch_worker as worker
+    from agent_utilities.orchestration import work_item as _wi
+    from agent_utilities.core import sessions as _sessions
 
-    fake_queue.put({"job_id": "poison", "kind": "goal_loop"})  # no session_id
+    payload = {"job_id": "poison", "kind": "goal_loop"}  # no session_id
+    fake_queue.put(payload)
     stop = threading.Event()
     real_get = fake_queue.get
 
@@ -762,7 +767,16 @@ def test_consumer_loop_acks_poison_envelope(dispatch_db, fake_queue):
 
     fake_queue.get = _get
     worker.run_dispatch_consumer_loop(fake_queue, stop, idle_sleep_s=0.01)
-    assert fake_queue.get_queue_size() == 0
+    assert fake_queue.get_queue_size() == 0  # still doesn't wedge the loop
+
+    # A durable dead-letter WorkItem for this exact poison payload must exist
+    # BEFORE the ack above could have legally happened.
+    poison_id = worker.poison_work_item_id(payload)
+    engine = _sessions._goal_engine()
+    item = _wi.get_work_item(engine, poison_id)
+    assert item is not None
+    assert item["status"] in _wi.TERMINAL_WORK_ITEM_STATUSES
+    assert item["kind"] == "dispatch_poison"
 
 
 def test_two_workers_one_session_execute_serially(dispatch_db, fake_queue, monkeypatch):
