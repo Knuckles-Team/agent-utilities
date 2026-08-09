@@ -399,3 +399,79 @@ def test_stamp_classification_does_not_require_an_actor():
         assert props["classification"] == "confidential"
 
     contextvars.Context().run(isolated)
+
+
+# --- GOC-61 phase-1 system-graph write gate (W04 + 2026-08-09 owner ruling) -
+
+
+def test_check_system_graph_write_noop_for_non_system_graph():
+    # Not a system graph at all -> no-op regardless of actor/type.
+    ts.check_system_graph_write("tenant__acme____commons__", "Memory", _user("mallory", "acme"))
+    ts.check_system_graph_write("code:agent-utilities", "Memory", _user("mallory", "acme"))
+
+
+def test_check_system_graph_write_denies_unprivileged_caller_of_shareable_type():
+    """Known-bad input (a): an unprivileged caller writing a SHAREABLE type is refused.
+
+    This is the AUTHORITY condition acting alone -- the node type (``Tool``)
+    is legitimate commons content, but the caller holds no ``kg:admin`` and is
+    not inside an authorized share verb.
+    """
+    mallory = _user("mallory", "acme")  # authenticated, no kg:admin
+    with pytest.raises(PermissionError):
+        ts.check_system_graph_write("__commons__", "Tool", mallory)
+
+
+def test_check_system_graph_write_denies_privileged_caller_of_private_type():
+    """Known-bad input (b): a FULLY PRIVILEGED (kg:admin) caller writing a
+    PRIVATE-class type is refused. This is the one a coarser, single-condition
+    gate gets wrong -- admin authority authorizes WHO may write to a system
+    graph, never WHAT may be published there (2026-08-09 owner ruling).
+    """
+    root = _user("root", "acme", roles=("kg:admin",))
+    for private_type in ("Memory", "Message", "InboundMessage", "Memento", "EvictedBlock", "Thread"):
+        with pytest.raises(PermissionError):
+            ts.check_system_graph_write("__commons__", private_type, root)
+
+
+def test_check_system_graph_write_allows_privileged_caller_of_shareable_type():
+    root = _user("root", "acme", roles=("kg:admin",))
+    for shareable_type in sorted(ts.COMMONS_SHAREABLE_NODE_TYPES):
+        ts.check_system_graph_write("__commons__", shareable_type, root)  # must not raise
+
+
+def test_check_system_graph_write_denies_unprivileged_caller_even_for_control_graph():
+    mallory = _user("mallory", "acme")
+    with pytest.raises(PermissionError):
+        ts.check_system_graph_write("__control__", "Tool", mallory)
+
+
+def test_check_system_graph_write_share_verb_bypasses_authority_not_content():
+    """The ambient _SHARE_VERB_ACTIVE context (promote_to_commons) waives the
+    AUTHORITY condition but must never waive the CONTENT condition.
+    """
+    mallory = _user("mallory", "acme")  # no kg:admin
+    token = ts._SHARE_VERB_ACTIVE.set(True)
+    try:
+        # Authority waived: an unprivileged actor may write a shareable type
+        # from inside an already-authorized share verb.
+        ts.check_system_graph_write("__commons__", "Skill", mallory)
+        # Content NOT waived: the same context still refuses a private type.
+        with pytest.raises(PermissionError):
+            ts.check_system_graph_write("__commons__", "Memory", mallory)
+    finally:
+        ts._SHARE_VERB_ACTIVE.reset(token)
+
+
+def test_check_system_graph_write_unauthenticated_system_path_exempted_from_authority_only():
+    import contextvars
+
+    def isolated():
+        # No bound actor at all (genuine background/system write) -- exempt
+        # from the AUTHORITY condition (matches stamp_ownership's existing
+        # best-effort exemption), but the CONTENT gate still applies.
+        ts.check_system_graph_write("__commons__", "MCPServer", None)  # must not raise
+        with pytest.raises(PermissionError):
+            ts.check_system_graph_write("__commons__", "Memory", None)
+
+    contextvars.Context().run(isolated)

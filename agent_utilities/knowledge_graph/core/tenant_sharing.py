@@ -30,6 +30,7 @@ application role named ``admin`` is not graph authority.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import re
 from typing import Any
@@ -41,6 +42,7 @@ from .shard_topology import default_graph_name, tenant_graph_name
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "COMMONS_SHAREABLE_NODE_TYPES",
     "OWNER_KEY",
     "PUBLIC_CATALOG_LABELS",
     "SCOPE_COMMONS",
@@ -50,6 +52,7 @@ __all__ = [
     "TENANT_KEY",
     "accessible_graphs",
     "apply_visibility",
+    "check_system_graph_write",
     "commons_graph_name",
     "filter_visible",
     "is_privileged",
@@ -640,22 +643,33 @@ def promote_to_commons(
     if dst is None:
         logger.warning("promote_to_commons: commons graph unavailable for %s", node_id)
         return False
-    if hasattr(dst, "add_node"):
-        dst.add_node(node_id, **{k: v for k, v in props.items() if k != "id"})
-    else:
-        # ``SET n += $props`` is a map-merge assignment, outside the native
-        # write subset (SET values must be literals;
-        # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
-        # ``materialization.set_clause`` is the one SET-clause builder used
-        # everywhere else in this codebase for the portable per-property
-        # equivalent (``IntelligenceGraphEngine._get_set_clause`` delegates
-        # to the same function); params are the flattened props themselves
-        # so each generated ``$key`` placeholder resolves.
-        from .materialization import set_clause
+    # GOC-61 phase-1 write gate (check_system_graph_write, below): the CONTENT
+    # condition applies unconditionally, even here — promotion is authorized
+    # (owner/admin already checked above), but authorization to SHARE a node
+    # is not authorization to publish ANY node type into a system graph. The
+    # AUTHORITY condition is the one this context legitimately bypasses (the
+    # owner/admin check just above already satisfies it), signalled via the
+    # ambient _SHARE_VERB_ACTIVE context.
+    token = _SHARE_VERB_ACTIVE.set(True)
+    try:
+        if hasattr(dst, "add_node"):
+            dst.add_node(node_id, **{k: v for k, v in props.items() if k != "id"})
+        else:
+            # ``SET n += $props`` is a map-merge assignment, outside the native
+            # write subset (SET values must be literals;
+            # epistemic-graph/crates/eg-query/src/cypher/parser.rs:1184).
+            # ``materialization.set_clause`` is the one SET-clause builder used
+            # everywhere else in this codebase for the portable per-property
+            # equivalent (``IntelligenceGraphEngine._get_set_clause`` delegates
+            # to the same function); params are the flattened props themselves
+            # so each generated ``$key`` placeholder resolves.
+            from .materialization import set_clause
 
-        merge_props = {**props, "id": node_id}
-        query = f"MERGE (n {{id: $id}}) {set_clause(merge_props, dst)}".rstrip()
-        dst.execute(query, merge_props)
+            merge_props = {**props, "id": node_id}
+            query = f"MERGE (n {{id: $id}}) {set_clause(merge_props, dst)}".rstrip()
+            dst.execute(query, merge_props)
+    finally:
+        _SHARE_VERB_ACTIVE.reset(token)
     # Reflect the promotion on the org-local copy too, so it reads as shared.
     try:
         _set_scope(node_id, SCOPE_COMMONS, src)
@@ -678,3 +692,132 @@ def _commons_store(config: Any = None) -> Any:
     except Exception as exc:  # noqa: BLE001 — degrade cleanly
         logger.debug("commons store unavailable: %s", exc)
         return None
+
+
+# ---------------------------------------------------------------------------
+# System-graph write authorization (GOC-61 phase 1, W04 — minimal stopgap)
+# ---------------------------------------------------------------------------
+
+# Ambient signal that a write is happening INSIDE an already-authorized
+# sharing verb (currently only :func:`promote_to_commons`, which already ran
+# ``_require_share_authority`` — owner-or-admin — on the SOURCE node before
+# writing the copy). Bypasses ONLY the AUTHORITY condition of
+# :func:`check_system_graph_write`; the CONTENT condition is never bypassed by
+# this — see that function's docstring. A plain ``contextvars.ContextVar`` is
+# correct here (not a mutable module global): it is task/request-local, so a
+# concurrent unrelated write on another task is never affected by one
+# in-flight ``promote_to_commons`` call.
+_SHARE_VERB_ACTIVE: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "_SHARE_VERB_ACTIVE", default=False
+)
+
+#: Node types the program owner has explicitly ruled SHAREABLE in a system/
+#: commons graph (2026-08-09 ruling, GOC-61 phase 1 pre-flight check): the
+#: capability catalog only — agent skills, MCP servers and MCP tools, agent
+#: prompts, LLM models. Everything else (private chat history, conversation
+#: mementos, Telegram chats, and any type not explicitly listed) is DENIED BY
+#: DEFAULT. A new node type must be explicitly added here — with the same
+#: scrutiny as this ruling — before it may ever land in a system graph; it
+#: must NEVER become shareable merely by not being classified yet.
+#: Source-verified against ``agent_utilities/models/schema_definition.py``
+#: entity names (not guessed): Skill (:314), Tool/NativeTool/MCPServer/
+#: ToolMetadata/CallableResource/Server (tool+server catalog), Prompt (:295),
+#: LanguageModel/EmbeddingModel (:87/:109), WorkflowDefinition (skill-graph
+#: runnables, GOC-60 E7's KG resource_type family).
+COMMONS_SHAREABLE_NODE_TYPES: frozenset[str] = frozenset(
+    {
+        # agent skills
+        "Skill",
+        "CallableResource",
+        "WorkflowDefinition",
+        # MCP servers and MCP tools
+        "MCPServer",
+        "Server",
+        "Tool",
+        "NativeTool",
+        "ToolMetadata",
+        # agent prompts
+        "Prompt",
+        # LLM models
+        "LanguageModel",
+        "EmbeddingModel",
+    }
+)
+
+
+def check_system_graph_write(
+    graph_name: str | None,
+    node_type: str | None,
+    actor: ActorContext | None = None,
+) -> None:
+    """Enforce the GOC-61 phase-1 system-graph write gate (W04 + 2026-08-09 owner ruling).
+
+    A no-op unless ``graph_name`` is a system graph
+    (:func:`~agent_utilities.knowledge_graph.core.shard_topology.is_system_graph`
+    — ``__commons__``, ``__control__``, ``__secrets__``, ...). When it is, TWO
+    independent conditions are enforced, both must hold, and neither implies
+    the other:
+
+    1. **CONTENT — deny-by-default, unconditional.** ``node_type`` must be in
+       :data:`COMMONS_SHAREABLE_NODE_TYPES`. This is checked FIRST and is
+       **never** bypassed — not for a ``kg:admin`` caller, not for a write
+       already authorized through the ``graph_share`` verb
+       (:func:`promote_to_commons`). ``__commons__`` is readable by every
+       tenant; admin authority is authorization for WHO may write to a system
+       graph, never for WHAT may be published there. A privileged caller
+       writing a private-class node into commons is refused exactly like an
+       unprivileged one — this is the case a coarser, single-condition gate
+       would get wrong.
+    2. **AUTHORITY.** The caller holds ``kg:admin`` (reused per the GOC-61
+       design; superseded by the narrower ``kg:share``/``kg:share-admin``
+       scopes in phase 2), OR the write is happening inside an
+       already-authorized sharing verb (:data:`_SHARE_VERB_ACTIVE` —
+       currently only :func:`promote_to_commons`, which already checked
+       owner-or-admin on the source node). A write with no bound/authenticated
+       actor at all (a genuine system/background path) is exempted from this
+       condition ONLY — the same best-effort exemption
+       :func:`stamp_ownership`/:func:`stamp_classification` already grant at
+       this exact chokepoint (``GraphComputeEngine.add_node``) — never from
+       condition 1.
+
+    Raises :class:`PermissionError` on denial; this must NOT be swallowed by
+    a caller's best-effort ``except PermissionError: pass`` — unlike the
+    ownership/classification stamps, a denial here must block the write.
+    """
+    from .shard_topology import is_system_graph
+
+    if not is_system_graph(graph_name):
+        return
+
+    # Condition 1 (content) — checked first, never bypassed.
+    type_name = str(node_type or "").strip()
+    if type_name not in COMMONS_SHAREABLE_NODE_TYPES:
+        raise PermissionError(
+            f"{graph_name!r} is a shared system graph; node type "
+            f"{type_name or '<untyped>'!r} is not on the commons-shareable "
+            "allowlist (deny-by-default) and may not be written there"
+        )
+
+    # Condition 2 (authority) — bypassed only by an already-authorized share
+    # verb, or a genuinely unauthenticated/system write path.
+    if _SHARE_VERB_ACTIVE.get():
+        return
+    if actor is not None:
+        resolved = actor
+    else:
+        try:
+            # current_actor() raises (PermissionError subclass) rather than
+            # returning a default when NO actor is bound at all — that is the
+            # genuine system/background case, exempted here exactly like
+            # stamp_ownership's own best-effort exemption; it must not be
+            # confused with "bound but unauthenticated", handled below.
+            resolved = current_actor()
+        except PermissionError:
+            return
+    if not resolved.authenticated or not str(resolved.actor_id or "").strip():
+        return
+    if not _PRIVILEGED_ROLES.intersection(resolved.roles):
+        raise PermissionError(
+            f"Writing directly to system graph {graph_name!r} requires "
+            "kg:admin authority, or must route through the graph_share verb"
+        )

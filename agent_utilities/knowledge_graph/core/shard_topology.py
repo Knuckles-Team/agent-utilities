@@ -33,6 +33,7 @@ __all__ = [
     "DEFAULT_GRAPH",
     "DEFAULT_LOCAL_ENDPOINT",
     "is_local_endpoint",
+    "is_system_graph",
     "probe_endpoint",
     "resolve_endpoints",
     "resolve_routing_graph",
@@ -95,6 +96,31 @@ def default_graph_name(config: Any = None) -> str:
     """The configured default graph (``KG_DEFAULT_GRAPH``, default ``__commons__``)."""
     cfg = _config(config)
     return getattr(cfg, "kg_default_graph", DEFAULT_GRAPH) or DEFAULT_GRAPH
+
+
+def is_system_graph(name: str | None) -> bool:
+    """True for a dunder-named system-scoped graph (GOC-61 §2.5/§6, PHASE-1 STOPGAP).
+
+    Matches the informal ``__…__`` convention already documented in this
+    codebase (``security/secrets_client.py``: "a system ``__…__`` graph like
+    ``__control__`` / ``__commons__`` / ``__secrets__``") — the naming family
+    that is readable/reachable by every tenant by design, as opposed to a
+    per-tenant (``tenant__<slug>__<base>``) or per-source content graph
+    (``code:``/``src:``/``chat:``/``research:`` — see
+    :func:`~agent_utilities.knowledge_graph.core.ingest_routing.is_content_graph`,
+    this predicate's sibling for the OTHER system-graph family).
+
+    **THIS IS A PHASE-1 STOPGAP, NOT A PERMANENT DESIGN.** GOC-61 §2.5 point 4
+    replaces this hardcoded naming check with the durable ``:GraphNamespace``
+    registry in phase 2, so a new system-shared graph never needs a code
+    change. Do not grow this into a hardcoded name list — if a new system
+    graph shows up that this predicate misses, that is the signal phase 2 is
+    overdue, not a reason to special-case it here.
+    """
+    if not name:
+        return False
+    n = str(name).strip()
+    return len(n) >= 5 and n.startswith("__") and n.endswith("__")
 
 
 # ---------------------------------------------------------------------------

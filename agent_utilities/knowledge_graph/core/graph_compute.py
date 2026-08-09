@@ -2281,6 +2281,17 @@ class GraphComputeEngine:
         except PermissionError:  # noqa: BLE001 — deliberate best-effort: no bound actor means nothing to stamp
             pass
 
+        # GOC-61 phase-1 system-graph write gate (W04 + 2026-08-09 owner
+        # ruling, CONCEPT:AU-KG.compute.data-is-private-its): unlike the
+        # best-effort stamps above, a denial here is NOT swallowed — this is
+        # the single chokepoint every ``add_node`` call reaches (see the
+        # comment above), so it is where an unauthorized or disallowed-type
+        # write into ``__commons__``/``__control__``/... is actually stopped,
+        # not merely logged.
+        from .tenant_sharing import check_system_graph_write
+
+        check_system_graph_write(self.graph_name, props.get("node_type"))
+
         props = clean_props(props)
         self._client.nodes.add(node_id, props)
 
