@@ -294,21 +294,39 @@ jobs:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: uv publish --check-url https://pypi.org/simple dist/agent_utilities-*.whl
 
-  publish-docker:
+  # BUG-072: the docker publish needs its OWN approval gate, not an inherited one.
+  #
+  # The previous design had `publish-docker` declare no `environment:` and rely on
+  # `needs: publish-pypi`, justified by the claim that the protection rule lives in
+  # the called `container_pipeline.yml`. That claim is FALSE, verified twice: the
+  # file is 154 lines with no `environment:` key, and `git log --all -S"environment:"`
+  # shows the string has never existed in its history on any branch. So the gate on
+  # an effectively irreversible action -- a pulled `:latest` cannot be un-pulled --
+  # was guarding nothing.
+  #
+  # `needs:` alone only proves ORDERING, not that a reviewer approved *this* step:
+  # a single pypi-publish approval was silently authorizing the container push too.
+  #
+  # The constraint that produced the original mistake is real: a job using `uses:`
+  # accepts only name/uses/with/secrets/needs/if/permissions/strategy/concurrency,
+  # and adding `environment:` there makes the parser treat it as a normal job,
+  # failing with "Unexpected value 'uses'" and taking the WHOLE file down.
+  # A plain wrapper job sidesteps that -- it can legitimately declare `environment:`
+  # -- and `publish-docker` then gates on it.
+  #
+  # NOTE: the `docker-publish` environment must have required reviewers configured
+  # in Settings -> Environments. Until it does, the key exists but enforces nothing.
+  # That caveat applied to the pre-existing `pypi-publish` gate too.
+  docker-publish-approval:
     needs: publish-pypi
-    # D-ORC-10: this job `needs: publish-pypi`, so it cannot run unless that
-    # job's tag + environment gate already passed. It deliberately declares NO
-    # `environment:` of its own: a job that calls a reusable workflow (`uses:`)
-    # accepts only name/uses/with/secrets/needs/if/permissions/strategy/
-    # concurrency, and adding `environment:` makes the parser treat it as a
-    # normal job -- which then fails validation with "Unexpected value 'uses'"
-    # / "Required property is missing: runs-on" and takes the WHOLE workflow
-    # file down, so nothing in this pipeline runs at all. (Confirmed on
-    # agent-webui, whose identical `environment:`-on-a-`uses:`-job invalidated
-    # its pipeline.yml.) An environment protection rule for the container
-    # publish has to be declared on the publishing job INSIDE
-    # container_pipeline.yml instead; the `needs:` chain above is what gates
-    # this one.
+    runs-on: ubuntu-latest
+    environment: docker-publish
+    steps:
+      - name: Approval checkpoint for an irreversible container publish
+        run: echo "docker-publish environment approved; proceeding to container publish"
+
+  publish-docker:
+    needs: docker-publish-approval
     # SC-GHA-001 (this repo's own supply-chain-source-contract gate) requires every
     # external reusable workflow pinned to a full commit SHA, never a floating branch
     # ref -- so unlike epistemic-graph/agent-webui (no such gate), this cannot be
