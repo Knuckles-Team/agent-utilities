@@ -86,7 +86,16 @@ class _FakeEngine:
             rows = [n for n in rows if n.get("tenant_ref") == params.get("tenant_ref")]
         if "fence_ref" in query and "fence_ref" not in params:
             rows = [n for n in rows if n.get("fence_ref")]
-        rows = sorted(rows, key=lambda n: int(n.get("event_sequence") or 0), reverse=True)
+        # Honor the query's own ORDER BY direction rather than always
+        # returning newest-first: production issues both
+        # "ORDER BY t.event_sequence DESC LIMIT 1" (latest-event lookups)
+        # and "ORDER BY t.event_sequence ASC LIMIT $limit" (the full ordered
+        # provenance stream). Hardcoding reverse=True silently inverted the
+        # ASC callers.
+        ascending = "ORDER BY t.event_sequence ASC" in query
+        rows = sorted(
+            rows, key=lambda n: int(n.get("event_sequence") or 0), reverse=not ascending
+        )
         limit = int(params.get("limit") or len(rows) or 1)
         if "RETURN t.fence_ref" in query:
             return [
@@ -323,7 +332,22 @@ def test_cross_tenant_query_denies() -> None:
     assert other_tenant == []
 
 
-def test_query_without_any_tenant_scope_refuses() -> None:
+def test_query_without_any_tenant_scope_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Simulates the "no identity" environment even though the autouse
+    ``isolate_graph_compute_engine`` fixture normally binds a verified test
+    actor with a tenant, by making ambient actor resolution raise as if
+    unauthenticated -- mirrors the repo-wide convention (e.g.
+    ``test_agent_dispatch_delivery_safety.py::test_dispatch_worker_pool_fails_closed_without_verified_actor``).
+    """
+    from agent_utilities.security.brain_context import IdentityRequiredError
+
+    def _no_actor() -> Any:
+        raise IdentityRequiredError("no actor bound")
+
+    monkeypatch.setattr(
+        "agent_utilities.security.brain_context.current_actor", _no_actor
+    )
+
     engine = _FakeEngine()
     with pytest.raises(ValueError, match="tenant scope"):
         query_repository_provenance(
