@@ -92,6 +92,19 @@ __all__ = [
     "MCP_TOOL_DURATION",
     "MCP_TOOL_IN_FLIGHT",
     "PROMETHEUS_AVAILABLE",
+    "REPOSITORY_BISECTION_RUNS",
+    "REPOSITORY_BUILD_CACHE_OPS",
+    "REPOSITORY_CAPACITY_RESERVATIONS",
+    "REPOSITORY_JOB_QUEUE_AGE",
+    "REPOSITORY_JOB_QUEUE_DEPTH",
+    "REPOSITORY_JOB_RETRIES",
+    "REPOSITORY_LANDING_DRIFT",
+    "REPOSITORY_LANE_AGE",
+    "REPOSITORY_LANE_COUNT",
+    "REPOSITORY_LANE_DISK_BYTES",
+    "REPOSITORY_RELEASE_DAG_STAGE_DURATION",
+    "REPOSITORY_VALIDATION_DURATION",
+    "REPOSITORY_WORKER_HEALTH",
     "SCHEDULED_JOB_DURATION",
     "SCHEDULED_JOB_RUNS",
     "SKILL_CALLS",
@@ -374,6 +387,85 @@ DB_CALLS = _counter(
     "agent_utilities_db_calls_total",
     "Database/graph-engine calls by store (usage|kg|state).",
     ("store",),
+)
+
+# Repository-development provenance/metrics bridge (CONCEPT:AU-KG.audit.repository-job-provenance-bridge,
+# RMDD-19): bounded-cardinality instruments for repository job queue/capacity/
+# build-cache/validation/bisection/lane/worker/retry/landing/release-DAG
+# state, read by ``agent_utilities.observability.repository_metrics`` and
+# emitted by repository-manager's domain provenance adapter
+# (``repository_manager.provenance``). Every label is a bounded enum — a
+# repository alias, a resource/priority/retry/drift class, a host inventory
+# alias, a validation stage (C-06), or a build-cache outcome (C-05) — never a
+# job id, filesystem path, or credential, matching the cardinality discipline
+# every other block in this module already follows.
+REPOSITORY_JOB_QUEUE_DEPTH = _gauge(
+    "agent_utilities_repository_job_queue_depth",
+    "Pending repository jobs by repository alias and priority class.",
+    ("repo", "priority_class"),
+)
+REPOSITORY_JOB_QUEUE_AGE = _histogram(
+    "agent_utilities_repository_job_queue_age_seconds",
+    "Age of a repository job at the moment it leaves the queue, by repository alias.",
+    ("repo",),
+)
+REPOSITORY_CAPACITY_RESERVATIONS = _gauge(
+    "agent_utilities_repository_capacity_reservations",
+    "Active resource reservations by resource class and host alias.",
+    ("resource_class", "host_alias"),
+)
+REPOSITORY_BUILD_CACHE_OPS = _counter(
+    "agent_utilities_repository_build_cache_ops_total",
+    "Build-cache operations by repository alias and outcome (C-05: "
+    "hit|waited_hit|produced_miss|degraded_uncacheable|corrupted_entry|"
+    "refused|failed).",
+    ("repo", "outcome"),
+)
+REPOSITORY_VALIDATION_DURATION = _histogram(
+    "agent_utilities_repository_validation_duration_seconds",
+    "Validation gate duration by repository alias and stage (C-06: "
+    "feedback|integration|certification|smoke|release).",
+    ("repo", "stage"),
+)
+REPOSITORY_BISECTION_RUNS = _counter(
+    "agent_utilities_repository_bisection_runs_total",
+    "Generation failure-bisection runs by repository alias and outcome.",
+    ("repo", "outcome"),
+)
+REPOSITORY_LANE_COUNT = _gauge(
+    "agent_utilities_repository_lane_count",
+    "Active development lanes by repository alias.",
+    ("repo",),
+)
+REPOSITORY_LANE_DISK_BYTES = _gauge(
+    "agent_utilities_repository_lane_disk_bytes",
+    "Observed lane worktree disk usage (bytes) by repository alias.",
+    ("repo",),
+)
+REPOSITORY_LANE_AGE = _histogram(
+    "agent_utilities_repository_lane_age_seconds",
+    "Lane age at close/reclaim time by repository alias.",
+    ("repo",),
+)
+REPOSITORY_WORKER_HEALTH = _gauge(
+    "agent_utilities_repository_worker_health",
+    "Repository worker health by host inventory alias (1=healthy, 0=unhealthy).",
+    ("host_alias",),
+)
+REPOSITORY_JOB_RETRIES = _counter(
+    "agent_utilities_repository_job_retries_total",
+    "Repository job retry/dead-letter transitions by repository alias and retry class.",
+    ("repo", "retry_class"),
+)
+REPOSITORY_LANDING_DRIFT = _counter(
+    "agent_utilities_repository_landing_drift_total",
+    "Landing base-moved / re-target events by repository alias and drift kind.",
+    ("repo", "drift_kind"),
+)
+REPOSITORY_RELEASE_DAG_STAGE_DURATION = _histogram(
+    "agent_utilities_repository_release_dag_stage_duration_seconds",
+    "Workspace release-DAG stage duration by repository alias and stage.",
+    ("repo", "stage"),
 )
 
 # Per-tool instrumentation for STANDALONE MCP servers built by
