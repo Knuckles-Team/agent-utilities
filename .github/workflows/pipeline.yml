@@ -137,25 +137,59 @@ jobs:
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: '0.11.7'
+      # BUG-072 usability fix: `uv publish` fails hard with PyPI's `400 File
+      # already exists` when this exact version was already released and the
+      # wheel content has since changed (commits landed after a release with
+      # no version bump). That is a no-op, not a CI failure. This step checks
+      # PyPI first and sets `already_published`; it never fails the job
+      # itself (fails OPEN on any network/parse problem so a hiccup here
+      # never silently blocks a legitimate release -- the real `uv publish`
+      # step below still runs and reports the actual outcome in that case).
+      - name: Check whether this version is already published to PyPI
+        id: pypi_check
+        run: python3 scripts/release/check_pypi_version_unpublished.py dist/agent_utilities-*.whl
       - name: Publish the exact wheel validated on Linux and Windows
+        if: steps.pypi_check.outputs.already_published != 'true'
         env:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
         run: uv publish --check-url https://pypi.org/simple dist/agent_utilities-*.whl
-  publish-docker:
+  # BUG-072: restores a dedicated approval gate for the docker publish, distinct
+  # from pypi-publish. A job that calls a reusable workflow (`uses:`) accepts
+  # only name/uses/with/secrets/needs/if/permissions/strategy/concurrency --
+  # adding `environment:` there makes the parser treat it as a normal job,
+  # which then fails validation with "Unexpected value 'uses'" / "Required
+  # property is missing: runs-on" and takes the WHOLE workflow file down
+  # (confirmed live on agent-webui, whose identical `environment:`-on-a-`uses:`
+  # job invalidated its pipeline.yml). That is real, and is why `environment:
+  # docker-publish` was previously dropped straight off publish-docker -- but
+  # doing so left docker publish (an irreversible action: a pulled `:latest`
+  # can't be un-pulled) with no dedicated protection of its own: `needs:
+  # publish-pypi` only proves *ordering*, not that a reviewer approved *this*
+  # step -- a single pypi-publish approval would silently also authorize the
+  # docker push, and the two environments can carry different reviewers/wait
+  # timers. `Knuckles-Team/pipelines/.github/workflows/container_pipeline.yml`
+  # (verified directly, 2026-08-10) declares no `environment:` of its own
+  # either, so nothing downstream restores the gate implicitly.
+  # Fix: a plain job (no `uses:`) can declare `environment:`, so it carries the
+  # protection instead of the `uses:` job. `publish-docker` then `needs:` this
+  # job, which is what makes the gate real rather than merely documented.
+  docker-publish-approval:
+    name: Docker publish approval gate
     needs: publish-pypi
-    # D-ORC-10: this job `needs: publish-pypi`, so it cannot run unless that
-    # job's tag + environment gate already passed. It deliberately declares NO
-    # `environment:` of its own: a job that calls a reusable workflow (`uses:`)
-    # accepts only name/uses/with/secrets/needs/if/permissions/strategy/
-    # concurrency, and adding `environment:` makes the parser treat it as a
-    # normal job -- which then fails validation with "Unexpected value 'uses'"
-    # / "Required property is missing: runs-on" and takes the WHOLE workflow
-    # file down, so nothing in this pipeline runs at all. (Confirmed on
-    # agent-webui, whose identical `environment:`-on-a-`uses:`-job invalidated
-    # its pipeline.yml.) An environment protection rule for the container
-    # publish has to be declared on the publishing job INSIDE
-    # container_pipeline.yml instead; the `needs:` chain above is what gates
-    # this one.
+    runs-on: ubuntu-latest
+    environment: docker-publish
+    steps:
+      - name: Record docker-publish approval
+        run: |
+          echo "docker-publish environment gate satisfied for ${{ github.event.workflow_run.head_sha }}"
+  publish-docker:
+    needs: docker-publish-approval
+    # needs: docker-publish-approval (above) transitively requires publish-pypi
+    # to have already passed (its tag + environment gate), so this job cannot
+    # start before either gate has cleared -- and it now additionally cannot
+    # start before ITS OWN `docker-publish` environment protection (configured
+    # once in Settings > Environments > docker-publish) has cleared, restoring
+    # the dedicated approval BUG-072 found missing.
     # SC-GHA-001 (this repo's own supply-chain-source-contract gate) requires every
     # external reusable workflow pinned to a full commit SHA, never a floating branch
     # ref -- so unlike epistemic-graph/agent-webui (no such gate), this cannot be
