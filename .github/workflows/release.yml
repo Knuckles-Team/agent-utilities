@@ -98,6 +98,17 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
+      # ---- Dependency vulnerability audit (OSV). BLOCKING, deliberately.
+      # The rest of the security suite (CodeQL, SBOM/license) is advisory
+      # because it is slow and its findings are rarely ship/no-ship. This one
+      # is different on both counts: it is stdlib-only and fast, and "we are
+      # about to publish a package pinning a dependency with a known CVE" is a
+      # legitimate reason to refuse a release, unlike architecture or docs
+      # debt. Restored to blocking by owner decision after the two-workflow
+      # split initially demoted it along with everything else.
+      - name: Dependency vulnerability audit (OSV)
+        run: python3 scripts/audit_dependencies.py uv.lock
+
       # ---- Cross-repo release-order gate. Stdlib-only (no sync needed):
       # verifies the epistemic-graph floor this repo declares is actually
       # resolvable on PyPI before we spend any CI time building. eg must
