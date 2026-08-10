@@ -120,13 +120,31 @@ async def _list_mcp_server_tools(*, server_name: str) -> list[dict[str, Any]]:
             name = tool.get("name")
             description = tool.get("description", "") or ""
             schema = tool.get("inputSchema") or tool.get("input_schema") or {}
+            meta = tool.get("meta")
         else:
             name = getattr(tool, "name", None)
             description = getattr(tool, "description", "") or ""
             schema = getattr(tool, "inputSchema", None) or {}
+            meta = getattr(tool, "meta", None)
         if not name:
             continue
-        tools.append({"name": name, "description": description, "input_schema": schema})
+        entry: dict[str, Any] = {
+            "name": name,
+            "description": description,
+            "input_schema": schema,
+        }
+        # BUG-071: an MCP Apps tool's UI binding (``meta["ui"]["resourceUri"]``,
+        # the ``io.modelcontextprotocol/ui`` extension) is declared on the tool
+        # DESCRIPTOR (this is a `tools/list`-time field, not a `tools/call`
+        # result field — the entry-point tools in `mcp/tools/mcp_apps.py`
+        # answer their calls with plain `{"jobId": ...}`/`{"traceId": ...}`, no
+        # meta at all). Forward it so a WebUI app-launcher can discover which
+        # `ui://` resource to fetch and render for a given tool, exactly as it
+        # already does for `read_mcp_resource`. Omitted when absent so an
+        # ordinary tool's shape is unchanged.
+        if meta:
+            entry["meta"] = meta
+        tools.append(entry)
     return tools
 
 

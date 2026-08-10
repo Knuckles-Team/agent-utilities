@@ -108,6 +108,7 @@ def _fake_tool(
     description: str = "",
     schema: dict | None = None,
     tags: list[str] | None = None,
+    meta: dict | None = None,
 ):
     tool = MagicMock()
     tool.name = name
@@ -115,7 +116,12 @@ def _fake_tool(
     tool.input_schema = schema if schema is not None else {}
     tool.annotations = None
     # FastMCP propagates tags via _meta; the multiplexer reads tool.meta.
-    tool.meta = {"fastmcp": {"tags": list(tags)}} if tags is not None else None
+    # An explicit `meta` (e.g. an MCP Apps `{"ui": {"resourceUri": ...}}`
+    # tool-descriptor declaration, BUG-071) wins over the tags-derived default.
+    if meta is not None:
+        tool.meta = meta
+    else:
+        tool.meta = {"fastmcp": {"tags": list(tags)}} if tags is not None else None
     return tool
 
 
@@ -1152,6 +1158,45 @@ async def test_probe_server_uses_live_tools_when_mounted(tmp_path):
     info = await mux.probe_server(CNT)
     assert info["error"] is None
     assert info["tools"][0]["name"] == CNT_TOOL
+
+
+async def test_probe_server_preserves_an_mcp_apps_tool_descriptor_meta(tmp_path):
+    """BUG-071: an MCP Apps tool's ``_meta.ui.resourceUri`` (the
+    ``io.modelcontextprotocol/ui`` extension) is declared on the TOOL
+    DESCRIPTOR, so it must survive the mounted-child probe path
+    (``_live_tools_for_server``) that ``webui_mcp_delegation._list_mcp_server_tools``
+    reads — this was previously dropped even though ``tool_object()`` already
+    carries it (``_prefixed_child_tools`` copies ``tool.meta`` when mounting).
+    """
+    ui_meta = {"ui": {"resourceUri": "ui://graph-os/task-progress.html", "visibility": ["model"]}}
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
+
+    async def fake_start_child(server_name, cfg):
+        tools = [_fake_tool(CNT_TOOL, "containers", meta=ui_meta)]
+        session = AsyncMock()
+        return server_name, session, tools, cfg
+
+    mux._start_child = AsyncMock(side_effect=fake_start_child)  # type: ignore[method-assign]
+    await mux.mount_child(CNT)
+    mux._open_one_session = AsyncMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("must not reconnect")
+    )
+
+    info = await mux.probe_server(CNT)
+
+    assert info["error"] is None
+    assert info["tools"][0]["name"] == CNT_TOOL
+    assert info["tools"][0]["meta"] == ui_meta
+
+
+async def test_live_tools_for_server_omits_meta_key_when_absent(tmp_path):
+    """An ordinary (non-Apps) tool's dict shape is unchanged (BUG-071 is additive)."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
+    await mux.mount_child(CNT)
+
+    info = await mux.probe_server(CNT)
+
+    assert "meta" not in info["tools"][0]
 
 
 # --------------------------------------------------------------------------- #

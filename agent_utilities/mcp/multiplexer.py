@@ -2896,20 +2896,32 @@ class MCPMultiplexer:
         return self._prefix_reverse.get(prefix)
 
     def _live_tools_for_server(self, server_name: str) -> list[dict]:
-        """Raw ``[{name, description, inputSchema}]`` for an already-mounted
-        child, reconstructed from the aggregation maps (no reconnect)."""
+        """Raw ``[{name, description, inputSchema, meta}]`` for an already-mounted
+        child, reconstructed from the aggregation maps (no reconnect).
+
+        ``meta`` (BUG-071) carries the MCP Apps extension's ``ui.resourceUri``
+        declaration (``io.modelcontextprotocol/ui``) — a TOOL-DESCRIPTOR field
+        per the extension spec, not something a ``tools/call`` result carries.
+        ``tool_object`` already preserves it (``_prefixed_child_tools`` copies
+        ``_meta=getattr(tool, "meta", None)`` when a child is mounted); this was
+        simply never read back out into the catalog dict callers (e.g.
+        ``webui_mcp_delegation._list_mcp_server_tools``) actually see. Omitted
+        when absent so an unannotated tool's dict shape is unchanged.
+        """
         out: list[dict] = []
         for prefixed, (srv, original) in self.tool_to_server.items():
             if srv != server_name:
                 continue
             tobj = self.tool_object(prefixed)
-            out.append(
-                {
-                    "name": original,
-                    "description": (tobj.description if tobj else "") or "",
-                    "inputSchema": (tobj.input_schema if tobj else {}) or {},
-                }
-            )
+            entry: dict[str, Any] = {
+                "name": original,
+                "description": (tobj.description if tobj else "") or "",
+                "inputSchema": (tobj.input_schema if tobj else {}) or {},
+            }
+            meta = getattr(tobj, "meta", None) if tobj else None
+            if meta:
+                entry["meta"] = meta
+            out.append(entry)
         return out
 
     def _cache_probe(self, server_name: str, info: dict) -> dict:
