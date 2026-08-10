@@ -1,5 +1,6 @@
 """CONCEPT:AU-OS.safety.doom-loop-detection"""
 
+import os
 import tempfile
 from pathlib import Path
 
@@ -62,6 +63,37 @@ def test_ensure_dirs(monkeypatch):
         assert (tmp_path / "data" / "kg").exists()
         assert (tmp_path / "cache").exists()
         assert (tmp_path / "log").exists()
+
+
+@pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")
+@pytest.mark.skipif(
+    not hasattr(os, "getuid") or os.getuid() == 0,
+    reason="permission-denial only reproduces for a non-root process",
+)
+def test_ensure_dirs_fails_loudly_naming_the_setting_when_not_writable(monkeypatch):
+    # BUG-ROFS-1 reproduction: a directory that already EXISTS (so a bare
+    # mkdir(exist_ok=True) reports nothing wrong) but is not writable by this
+    # process -- e.g. kubelet auto-creating an intermediate mount-point
+    # directory with different ownership. ensure_dirs() must name the exact
+    # setting at fault, not surface a bare PermissionError.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_path = Path(tmpdir)
+        locked_cache = tmp_path / "cache"
+        locked_cache.mkdir()
+        locked_cache.chmod(0o555)  # read+execute only, no write
+        try:
+            monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(tmp_path / "config"))
+            monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path / "data"))
+            monkeypatch.setenv("AGENT_UTILITIES_CACHE_DIR", str(locked_cache))
+            monkeypatch.setenv("AGENT_UTILITIES_LOG_DIR", str(tmp_path / "log"))
+
+            with pytest.raises(paths.RuntimeDirectoryNotWritableError) as exc_info:
+                paths.ensure_dirs()
+            message = str(exc_info.value)
+            assert "AGENT_UTILITIES_CACHE_DIR" in message
+            assert str(locked_cache) in message
+        finally:
+            locked_cache.chmod(0o755)  # restore so TemporaryDirectory cleanup succeeds
 
 
 @pytest.mark.concept("CONCEPT:AU-OS.safety.doom-loop-detection")

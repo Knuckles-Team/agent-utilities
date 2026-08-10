@@ -112,6 +112,42 @@ ten independently-reviewable k8s input categories — so widening it would have
 smuggled unrelated dev/test/prod semantics into a schema that already means
 something else.
 
+## Extension — `filesystem.runtime_paths` (BUG-ROFS-1 runtime-path configurability)
+
+The original ten sections modeled a writable-path *exception* to
+`read_only_root_filesystem` (`filesystem.writable_paths`: WHERE a volume is
+mounted and WHY) but not WHICH env var a served process reads to find its home
+inside that mount. That gap was discovered live: the graph-os `readOnlyRootFilesystem`
+rollout (`services/graph-os` `fix/rofs-tmp-home`) had to empirically rediscover the
+image's real `$HOME` (`/tmp`, not `/home/app` — that account does not exist) by
+reading `/etc/passwd` inside a running container, then hand-wire `HOME`/
+`XDG_CACHE_HOME`/`XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`XDG_STATE_HOME`/
+`AGENT_UTILITIES_DATA_DIR` as scattered literals split between a k8s ConfigMap and a
+per-container `env:` block, with no schema forcing them to agree.
+
+`filesystem.runtime_paths` closes that gap **inside the existing section** rather
+than adding an eleventh top-level category or a parallel mechanism:
+`RuntimePathBinding(env_var, path, writable_path_ref)` binds each of the closed
+`RUNTIME_PATH_ENV_VARS` set (`HOME`, the three XDG dirs a served process actually
+consults, `XDG_STATE_HOME`, and `AGENT_UTILITIES_DATA_DIR`) to an explicit path, and
+`writable_path_ref` must name — and `path` must fall under — a `filesystem.
+writable_paths[].mount_path` this same profile already declared and justified.
+`validate_environment_profile` enforces: every one of the six vars is bound exactly
+once (closed, like every other section — an env var this schema doesn't know about,
+or a missing one, is a load error); every `path` is absolute; every binding is
+anchored under a real, reviewed writable mount. A profile can no longer point
+`AGENT_UTILITIES_DATA_DIR` (or any of the others) somewhere the `filesystem` section
+never reviewed as writable, and the exact set BUG-ROFS-1 needed is now something a
+reviewer reads in one place instead of reconstructing from a live container.
+
+This section is an **input schema only** (same scope boundary as the rest of the
+concept, below) — it declares what the k8s manifest's `ConfigMap`/`env:` blocks
+*should* say, machine-checked; the graph-os manifest itself
+(`services/graph-os/k8s/manifests.yaml`'s `graph-os-env` ConfigMap) is the actually
+-applied source of truth for the live deployment and is kept in sync by hand today
+(see that repo's own `AGENTS.md`), the same "input, not renderer" relationship the
+Scope note below already describes for the other nine sections.
+
 ## Scope note
 
 This concept covers the environment-profile schema, its loader/extension

@@ -22,7 +22,13 @@ a Python-side default, so a profile is fully reviewable from the file alone.
 
 `filesystem` expresses the writable-path exceptions the read-only-root-filesystem
 hardening work is uncovering (`writable_paths: [{mount_path, medium, reason,
-size_limit}]`) — each exception must name why it exists. `validation` expresses
+size_limit}]`) — each exception must name why it exists — plus, since BUG-ROFS-1
+(`services/graph-os`'s `readOnlyRootFilesystem` rollout had to rediscover its
+image's real `$HOME` by reading a live container's `/etc/passwd`), an explicit
+`runtime_paths: [{env_var, path, writable_path_ref}]` binding for every one of
+`HOME`/`XDG_CACHE_HOME`/`XDG_CONFIG_HOME`/`XDG_DATA_HOME`/`XDG_STATE_HOME`/
+`AGENT_UTILITIES_DATA_DIR` — each must be bound exactly once, to an absolute path
+anchored under a `writable_paths` mount this same profile already declared. `validation` expresses
 what must be *proven* post-deploy, not merely observed as "not crashing": every
 profile must declare at least one `functional_checks` entry of kind
 `mcp-tools-list` — a real MCP `tools/list` call, per this repo's standing rule that

@@ -191,6 +191,78 @@ def test_writable_path_with_unknown_medium_is_rejected():
         validate_environment_profile(profile)
 
 
+# ── fail loud: filesystem.runtime_paths (BUG-ROFS-1 configurability) ──────
+def test_default_profiles_bind_every_runtime_path_env_var():
+    from agent_utilities.deployment.genesis_environments import RUNTIME_PATH_ENV_VARS
+
+    for name in ("dev", "test", "prod"):
+        profile = load_environment_profile(name)
+        bound = {rp.env_var for rp in profile.filesystem.runtime_paths}
+        assert bound == RUNTIME_PATH_ENV_VARS
+        for rp in profile.filesystem.runtime_paths:
+            assert rp.path.startswith("/")
+            assert rp.writable_path_ref in {
+                wp.mount_path for wp in profile.filesystem.writable_paths
+            }
+
+
+def test_runtime_path_missing_a_required_env_var_is_rejected():
+    raw = _raw("dev")
+    raw["filesystem"]["runtime_paths"] = [
+        rp for rp in raw["filesystem"]["runtime_paths"] if rp["env_var"] != "HOME"
+    ]
+    profile = _profile_from_mapping(raw, source=BUILTIN_ENVIRONMENTS_DIR / "dev.yaml")
+    with pytest.raises(EnvironmentProfileError, match="missing binding"):
+        validate_environment_profile(profile)
+
+
+def test_runtime_path_unknown_env_var_is_rejected():
+    raw = _raw("dev")
+    raw["filesystem"]["runtime_paths"].append(
+        {"env_var": "PATH", "path": "/tmp/bin", "writable_path_ref": "/tmp"}
+    )
+    profile = _profile_from_mapping(raw, source=BUILTIN_ENVIRONMENTS_DIR / "dev.yaml")
+    with pytest.raises(EnvironmentProfileError, match="unrecognized env"):
+        validate_environment_profile(profile)
+
+
+def test_runtime_path_duplicate_env_var_is_rejected():
+    raw = _raw("dev")
+    raw["filesystem"]["runtime_paths"].append(
+        dict(raw["filesystem"]["runtime_paths"][0])
+    )
+    profile = _profile_from_mapping(raw, source=BUILTIN_ENVIRONMENTS_DIR / "dev.yaml")
+    with pytest.raises(EnvironmentProfileError, match="duplicate"):
+        validate_environment_profile(profile)
+
+
+def test_runtime_path_relative_path_is_rejected():
+    raw = _raw("dev")
+    raw["filesystem"]["runtime_paths"][0]["path"] = "relative/path"
+    profile = _profile_from_mapping(raw, source=BUILTIN_ENVIRONMENTS_DIR / "dev.yaml")
+    with pytest.raises(EnvironmentProfileError, match="absolute path"):
+        validate_environment_profile(profile)
+
+
+def test_runtime_path_ref_must_name_a_declared_writable_path():
+    raw = _raw("dev")
+    raw["filesystem"]["runtime_paths"][0]["writable_path_ref"] = "/var/unreviewed"
+    profile = _profile_from_mapping(raw, source=BUILTIN_ENVIRONMENTS_DIR / "dev.yaml")
+    with pytest.raises(EnvironmentProfileError, match="does not name any"):
+        validate_environment_profile(profile)
+
+
+def test_runtime_path_must_live_under_its_writable_path_ref():
+    raw = _raw("dev")
+    # /tmp is a declared writable path, but this value escapes it.
+    raw["filesystem"]["runtime_paths"][0]["path"] = "/etc/not-under-tmp"
+    profile = _profile_from_mapping(raw, source=BUILTIN_ENVIRONMENTS_DIR / "dev.yaml")
+    with pytest.raises(
+        EnvironmentProfileError, match="not under its own writable_path_ref"
+    ):
+        validate_environment_profile(profile)
+
+
 # ── fail loud: prod tier release discipline ────────────────────────────────
 def test_prod_tier_rejects_floating_tag():
     raw = _raw("prod")
