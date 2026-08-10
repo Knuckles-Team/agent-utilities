@@ -324,7 +324,13 @@ class RotatingFileBearerAuth(httpx.Auth):
         if response.status_code == 401:
             try:
                 fresh = read_rotating_bearer_token(self._token_path)
-            except Exception:  # pragma: no cover - degrade to the 401
+            except Exception as exc:  # pragma: no cover - degrade to the 401
+                logger.warning(
+                    "rotating bearer token re-read failed after a 401 for %s; "
+                    "degrading to the original 401 response: %s",
+                    self._token_path,
+                    exc,
+                )
                 return
             request.headers["Authorization"] = f"Bearer {fresh}"
             yield request
@@ -346,7 +352,13 @@ class RotatingFileBearerAuth(httpx.Auth):
                 fresh = await anyio.to_thread.run_sync(
                     read_rotating_bearer_token, self._token_path
                 )
-            except Exception:  # pragma: no cover - degrade to the 401
+            except Exception as exc:  # pragma: no cover - degrade to the 401
+                logger.warning(
+                    "rotating bearer token re-read failed after a 401 for %s; "
+                    "degrading to the original 401 response: %s",
+                    self._token_path,
+                    exc,
+                )
                 return
             request.headers["Authorization"] = f"Bearer {fresh}"
             yield request

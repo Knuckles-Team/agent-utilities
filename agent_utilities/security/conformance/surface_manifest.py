@@ -108,6 +108,13 @@ QUERY_DIALECT_MANIFEST: tuple[SurfaceEntry, ...] = (
 
 
 def lookup_query_dialect(surface_id: str) -> SurfaceEntry | None:
+    """WIRE-FIRST (D-OB-9) NOTE: this function's only caller is
+    ``tests/unit/security/conformance/test_known_fail_opens.py``. By design —
+    same reasoning as :func:`surface_inventory.enumerate_query_dialect_surfaces`:
+    the manifest lookup exists to be asserted against by the conformance
+    suite's drift/disposition tests, not invoked from production code. See
+    ``scripts/wire_first_baseline.json``.
+    """
     for entry in QUERY_DIALECT_MANIFEST:
         if entry.surface_id == surface_id:
             return entry

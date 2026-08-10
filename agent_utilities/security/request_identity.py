@@ -445,7 +445,7 @@ def system_write_session(config: Any = None) -> GraphSession:
 
     try:
         return GraphSession.from_ambient()
-    except SessionRequiredError:
+    except SessionRequiredError:  # noqa: BLE001 — expected control flow: no ambient session bound is the documented signal to fall through to minting this process's own verified system identity below, not a real failure (see docstring above)
         pass
 
     global _system_write_session

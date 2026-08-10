@@ -102,3 +102,19 @@ def start_epistemic_sync_daemon() -> None:
     )
     t.start()
     logger.info("Epistemic Sync background daemon initialized successfully.")
+
+
+# WIRE-FIRST (D-OB-9) NOTE on start_epistemic_sync_daemon, above — genuine,
+# already-documented zero-caller entrypoint, not a new dead-code
+# introduction: BUG-061's own commit message states it "has zero callers
+# repo-wide today ... so it cannot fail yet" and explicitly chose to FIX
+# (bind an authorized session) rather than delete it, because it reads as a
+# deliberate, not-yet-wired recurring-sync daemon entrypoint rather than
+# legacy dead code (the live `epistemic_sync` MCP action calls
+# EpistemicSyncWorkflow.run_sync_cycle() directly instead). It only newly
+# tripped this ratchet because BUG-061 added its first regression test
+# (tests/unit/workflows/test_epistemic_sync_daemon_identity.py) — writing a
+# test for a real bug fix is what made a previously-invisible-to-this-gate
+# symbol visible as "test-only". Baselined, not fixed, because actually
+# wiring it (deciding who should start this daemon and when) is a product
+# decision outside this gate-clearing pass's scope.
