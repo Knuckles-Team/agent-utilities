@@ -629,4 +629,3 @@ def test_batch_typed_mutations_edge_branch_fails_closed_with_no_bound_session():
     with pytest.raises(PermissionError):
         contextvars.Context().run(isolated)
     backend.apply_typed_batch.assert_not_called()
-

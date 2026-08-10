@@ -485,9 +485,7 @@ def provision_tier2_admission(
         else:
             assert entry.role is not None  # enforced in __post_init__
             client.add_role(entry.role)
-            client.add_grant(
-                entry.role, {"Graph": "__admin__"}, "Admin", "Allow"
-            )
+            client.add_grant(entry.role, {"Graph": "__admin__"}, "Admin", "Allow")
             outcomes.append(
                 AdmissionOutcome(
                     agent_id=entry.agent_id,
