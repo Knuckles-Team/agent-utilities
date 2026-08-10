@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1161
+total_concepts: 1162
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -9427,6 +9427,13 @@ concepts:
   code_paths:
   - agent_utilities/security/engine_rbac_admission.py
   doc: See
+- id: AU-OS.identity.engine-rbac-admission-deploy-bridge
+  name: AU-OS.identity.engine-rbac-admission-deploy-bridge
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/security/tier2_admission_cli.py
+  doc: AU-OS.identity.engine-rbac-admission-deploy-bridge
 - id: AU-OS.identity.identity-policy-check
   name: AU-KG.audit.kg-native-audit-sink
   pillar: AU-OS

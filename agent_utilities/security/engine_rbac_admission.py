@@ -450,18 +450,20 @@ def provision_tier2_admission(
     entry, so a deployment log records this as a reproducible, auditable step —
     never a silent hand operation.
 
-    WIRE-FIRST (D-OB-9) NOTE — genuine gap, not a false positive: this
-    module's own docstring says it is "run by deployment tooling immediately
-    after Keycloak-side (Tier-1) provisioning", but as of this commit nothing
-    — not this repo's deployment tooling, not the sibling ``agent-webui``
-    repo's ``scripts/provision_identity.py`` this module's docstring names as
-    the Tier-1 counterpart — actually calls it yet; its only exerciser today
-    is ``tests/unit/security/test_engine_rbac_admission.py``. Baselined
-    (not fixed) because wiring it for real means calling a live,
-    security-sensitive engine-admin RPC from deployment tooling in another
-    repo — out of scope for a gate-clearing pass and not something to do
-    without the deployment-tooling owner's review. Tracked as a follow-up:
-    wire this into the Tier-2 admission step of the GOC-62 deploy pipeline.
+    WIRED (BUG-068/BUG-038): this function now has a real, in-source caller —
+    :func:`~agent_utilities.security.tier2_admission_cli.run_tier2_admission`
+    (this repo's deployment-tooling bridge: resolves the provisioner's signer
+    credentials from the configured secrets backend, dry-run by default,
+    ``apply=True`` required for a live call). The sibling ``agent-webui``
+    repo's ``scripts/provision_identity.py`` (Tier-1 Keycloak provisioning)
+    calls that bridge from its own ``tier2-admission`` deploy stage
+    immediately after resolving the webui service account's Keycloak
+    ``sub`` — the value that becomes its ``VerifiedRequestContext.agent_id``
+    at request time — closing exactly the gap this docstring used to
+    describe as unwired. See ``tests/unit/security/test_tier2_admission_cli.py``
+    for the fixture-proven wiring; no test in this repo exercises
+    ``LiveEngineAdmissionClient`` against a real cluster (see that CLI's own
+    docstring for why, and the BUG-068 report for what would prove it live).
     """
 
     bootstrap_attempted = bootstrap_authority is not None
