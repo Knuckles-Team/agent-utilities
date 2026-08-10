@@ -65,6 +65,7 @@ __all__ = [
     "TenantQuotaExceeded",
     "new_work_item_id",
     "submit_work_item",
+    "submit_work_item_atomic",
     "get_work_item",
     "claim_specific",
     "claim_next",
@@ -647,7 +648,7 @@ def find_status_machine_divergences(
 # ── submit ───────────────────────────────────────────────────────────────
 
 
-def submit_work_item(
+def _submit_work_item(
     engine: Any,
     *,
     kind: str,
@@ -672,6 +673,8 @@ def submit_work_item(
     created_by: str = "",
     metadata: dict[str, Any] | None = None,
     work_item_id: str | None = None,
+    create_if_absent: bool = False,
+    return_created: bool = False,
     max_tenant_in_flight: int | None = None,
     now: float | None = None,
     consent_required: bool = False,
@@ -680,7 +683,7 @@ def submit_work_item(
     consent_basis: str = "",
     consent_granted_at: float | None = None,
     consent_expires_at: float | None = None,
-) -> str:
+) -> str | tuple[str, bool]:
     """Submit one WorkItem; returns its id.
 
     Idempotent when ``work_item_id`` is caller-supplied and already exists
@@ -698,6 +701,10 @@ def submit_work_item(
     ``consent_basis``/``consent_granted_at`` (and, if the grant has an explicit
     lifetime, ``consent_expires_at``); see :func:`claim_specific`/:func:`claim_next`
     for the enforcement this then engages.
+    ``create_if_absent`` is an additive admission path for adapters that need
+    the engine's atomic membership-test-and-insert primitive.  It never
+    overwrites a concurrent winner; callers must read and compare the winner's
+    immutable input before treating a duplicate as idempotent.
     """
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
     from agent_utilities.models.knowledge_graph import WorkItemNode
@@ -708,7 +715,7 @@ def submit_work_item(
     item_id = work_item_id or new_work_item_id()
 
     if get_work_item(engine, item_id) is not None:
-        return item_id  # idempotent upsert
+        return (item_id, False) if return_created else item_id  # idempotent upsert
 
     if tenant and max_tenant_in_flight is not None:
         in_flight = tenant_in_flight_count(engine, tenant)
@@ -794,9 +801,25 @@ def submit_work_item(
         consent_granted_at=consent_granted_at,
         consent_expires_at=consent_expires_at,
     )
-    _authority(engine).add_node(
-        item_id, _NODE_LABEL, properties=node.to_graph_properties(exclude={"id"})
-    )
+    properties = node.to_graph_properties(exclude={"id"})
+    if create_if_absent:
+        # ``WorkItemNode`` projects its enum value as ``work_item`` for model
+        # serialization, while graph authorities persist the canonical class
+        # label ``WorkItem``.  The control-plane adapter applies this stamp on
+        # its ordinary add path; preserve it for the atomic native path too.
+        properties["node_type"] = _NODE_LABEL
+        create = getattr(_authority(engine), "create_node_if_absent", None)
+        if not callable(create):
+            raise WorkItemBackendUnavailable(
+                "atomic WorkItem submission requires engine-native "
+                "create_node_if_absent"
+            )
+        created = bool(create(item_id, properties=properties))
+        if not created:
+            return (item_id, False) if return_created else item_id
+    else:
+        _authority(engine).add_node(item_id, _NODE_LABEL, properties=properties)
+        created = True
 
     edge_type = _task_depends_on_edge_type()
     for dep_id in resolved_deps:
@@ -805,21 +828,136 @@ def submit_work_item(
         _link(engine, item_id, dep_id, edge_type)
         _append_downstream(engine, dep_id, item_id, now=now)
 
-    return item_id
+    _reconcile_dependency_readiness(engine, item_id, now=now)
+    return (item_id, created) if return_created else item_id
+
+
+def submit_work_item(
+    engine: Any,
+    *,
+    kind: str,
+    queue: str | None = None,
+    payload_ref: str = "",
+    tenant: str = "",
+    depends_on: Sequence[str] = (),
+    priority: Any = 2,
+    deadline_unix: float | None = None,
+    available_at: float | None = None,
+    budget: float | None = None,
+    resource_class: str = "default",
+    fairness_group: str = "",
+    max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    backoff_base_s: float = DEFAULT_BACKOFF_BASE_S,
+    idempotency_key: str | None = None,
+    correlation_id: str | None = None,
+    description: str = "",
+    dag_id: str = "",
+    checkpoint_id: str | None = None,
+    assigned_to: str = "",
+    created_by: str = "",
+    metadata: dict[str, Any] | None = None,
+    work_item_id: str | None = None,
+    max_tenant_in_flight: int | None = None,
+    now: float | None = None,
+    consent_required: bool = False,
+    consent_scope: str = "",
+    consent_subject: str = "",
+    consent_basis: str = "",
+    consent_granted_at: float | None = None,
+    consent_expires_at: float | None = None,
+) -> str:
+    """Submit one WorkItem; returns its id.
+
+    Idempotent when ``work_item_id`` is caller-supplied and already exists
+    (an upsert no-op — mirrors ``engine_tasks.submit_task``'s deterministic-
+    ``job_id`` dedup pattern, e.g. for the scheduler's ``sched:<name>:<minute>``
+    ids). No dependency ⇒ immediately ``ready``; any unresolved dependency ⇒
+    ``submitted`` with ``dep_count`` set, released atomically as each parent
+    succeeds in the engine-native commit transaction.
+
+    ``consent_*`` (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate, D-25-3):
+    default ``consent_required=False`` submits an ordinary, ungated item — the
+    overwhelming majority of WorkItems (goal loops, agent dispatch, ingest jobs).
+    A producer binding this item to subject-consented work passes
+    ``consent_required=True`` plus ``consent_scope``/``consent_subject``/
+    ``consent_basis``/``consent_granted_at`` (and, if the grant has an explicit
+    lifetime, ``consent_expires_at``); see :func:`claim_specific`/:func:`claim_next`
+    for the enforcement this then engages.
+    """
+    result = _submit_work_item(
+        engine,
+        kind=kind,
+        queue=queue,
+        payload_ref=payload_ref,
+        tenant=tenant,
+        depends_on=depends_on,
+        priority=priority,
+        deadline_unix=deadline_unix,
+        available_at=available_at,
+        budget=budget,
+        resource_class=resource_class,
+        fairness_group=fairness_group,
+        max_attempts=max_attempts,
+        backoff_base_s=backoff_base_s,
+        idempotency_key=idempotency_key,
+        correlation_id=correlation_id,
+        description=description,
+        dag_id=dag_id,
+        checkpoint_id=checkpoint_id,
+        assigned_to=assigned_to,
+        created_by=created_by,
+        metadata=metadata,
+        work_item_id=work_item_id,
+        max_tenant_in_flight=max_tenant_in_flight,
+        now=now,
+        consent_required=consent_required,
+        consent_scope=consent_scope,
+        consent_subject=consent_subject,
+        consent_basis=consent_basis,
+        consent_granted_at=consent_granted_at,
+        consent_expires_at=consent_expires_at,
+    )
+    if not isinstance(result, str):  # pragma: no cover - wrapper invariant
+        raise WorkItemBackendUnavailable(
+            "generic WorkItem submission returned atomic admission metadata"
+        )
+    return result
+
+
+def submit_work_item_atomic(engine: Any, **kwargs: Any) -> tuple[str, bool]:
+    """Atomically submit a WorkItem and report whether this caller created it.
+
+    This is the admission primitive for adapters whose idempotency result must
+    distinguish the first writer from a concurrent duplicate.  It requires
+    ``work_item_id`` and uses the engine-native create-if-absent operation; the
+    generic submitter remains unchanged for callers that only need its stable
+    ID return value.
+    """
+
+    if not kwargs.get("create_if_absent", True):
+        raise ValueError("submit_work_item_atomic requires create_if_absent=True")
+    kwargs["create_if_absent"] = True
+    kwargs["return_created"] = True
+    result = _submit_work_item(engine, **kwargs)
+    if not isinstance(result, tuple):  # pragma: no cover - overload invariant
+        raise WorkItemBackendUnavailable(
+            "atomic WorkItem submission did not return admission metadata"
+        )
+    return result
 
 
 def _append_downstream(
     engine: Any, parent_id: str, child_id: str, *, now: float | None = None
-) -> None:
+) -> bool:
     """CAS-append ``child_id`` to the parent's reverse dependency index."""
     now = now if now is not None else _now()
     for _ in range(_CAS_LOOP_MAX_RETRIES):
         parent = get_work_item(engine, parent_id)
         if parent is None:
-            return
+            return False
         current = list(parent.get("downstream_ids") or [])
         if child_id in current:
-            return
+            return False
         updated = current + [child_id]
         won = _cas(
             engine,
@@ -828,13 +966,69 @@ def _append_downstream(
             {"downstream_ids": updated, "updated_at": now},
         )
         if won:
-            return
+            return True
     logger.warning(
         "work_item: failed to index downstream %s -> %s after %d retries",
         parent_id,
         child_id,
         _CAS_LOOP_MAX_RETRIES,
     )
+    return False
+
+
+def _reconcile_dependency_readiness(
+    engine: Any, item_id: str, *, now: float | None = None
+) -> bool:
+    """Repair the create-then-index dependency admission window.
+
+    Dependency admission necessarily creates the child before it can append
+    the child to each parent's reverse index. A parent may therefore commit
+    successfully between those two writes. Native commit release handles the
+    ordinary indexed path; this bounded reconciliation closes the
+    interleaving in which a parent is already terminal by the time its index
+    append completes.
+
+    The reconciliation always computes the *current* unresolved-parent count,
+    including when it is nonzero. This matters for multiple dependencies: if
+    parent A commits before its index append while parent B is still active,
+    the child must be corrected from ``dep_count=2`` to ``1`` before B's
+    indexed commit decrements it. The status/count CAS is retried when a
+    concurrent native release wins the first attempt.
+    """
+    timestamp = now if now is not None else _now()
+    for _ in range(_CAS_LOOP_MAX_RETRIES):
+        item = get_work_item(engine, item_id)
+        if item is None or item.get("status") != "submitted":
+            return False
+        dependency_ids = [str(value) for value in item.get("depends_on") or () if value]
+        if not dependency_ids:
+            return False
+        unresolved = 0
+        for dependency_id in dependency_ids:
+            dependency = get_work_item(engine, dependency_id)
+            if dependency is None or dependency.get("status") != "succeeded":
+                unresolved += 1
+        current_count = int(item.get("dep_count") or 0)
+        next_status = "ready" if unresolved == 0 else "submitted"
+        if current_count == unresolved and next_status == item.get("status"):
+            return False
+        if _cas(
+            engine,
+            item_id,
+            {"status": "submitted", "dep_count": current_count},
+            {
+                "status": next_status,
+                "dep_count": unresolved,
+                "updated_at": timestamp,
+            },
+        ):
+            return True
+    logger.warning(
+        "work_item: dependency readiness reconciliation for %s lost %d CAS retries",
+        item_id,
+        _CAS_LOOP_MAX_RETRIES,
+    )
+    return False
 
 
 # ── claim / lease / fencing ─────────────────────────────────────────────

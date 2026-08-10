@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-375 publishable pages · 187 direct nav targets · 123 public capabilities · 817 action rows · 553 typed configuration fields · 357 runtime-only call-site inputs.
+378 publishable pages · 188 direct nav targets · 123 public capabilities · 817 action rows · 554 typed configuration fields · 359 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -161,6 +161,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Codebase context via the KG — query, don't grep](../architecture/codebase-context.md) — direct nav
 - [Company Brain Runtime — Wiring the 6 Layers](../architecture/company_brain_runtime.md) — direct nav
 - [Concept hierarchy](../architecture/concept-hierarchy.md) — catalog
+- [Cross-host concept reservation authority](../architecture/concept-reservation-authority.md) — catalog
 - [Knowledge Graph Ingestion — Concept Extraction Standards](../architecture/concept_extraction_standards.md) — catalog
 - [Configuration Reference & Flag Audit](../architecture/configuration.md) — direct nav
 - [Containerized deployment](../architecture/containerized-deployment.md) — direct nav
@@ -224,6 +225,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Multi-Agent Social System (MASS)](../architecture/multi_agent_social_system.md) — direct nav
 - [Multi-Source Assimilation Program](../architecture/multi_source_assimilation.md) — direct nav
 - [Multi-Tenant graph-os over Streamable-HTTP](../architecture/multi_tenant_streamable_http.md) — catalog
+- [Native WorkItem resource-reservation boundary](../architecture/native-resource-reservation.md) — catalog
 - [Non-Blocking Hierarchical Execution](../architecture/non-blocking-execution.md) — direct nav
 - [North-Star Architecture — one saturating engine, a non-blocking pipeline, and 100% delegation](../architecture/north-star-architecture.md) — direct nav
 - [Incremental object-centric derivation + conformance checking](../architecture/object_centric_derivation_and_conformance.md) — direct nav
@@ -246,6 +248,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — direct nav
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — direct nav
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — direct nav
+- [Repository-development WorkItem authority](../architecture/repository-workitem-authority.md) — direct nav
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — direct nav
 - [Runtime-Reliability Loop — detect → signal → gap → heal](../architecture/runtime-reliability-loop.md) — direct nav
 - [Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)](../architecture/sampling_profiles.md) — direct nav

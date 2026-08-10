@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1160
+total_concepts: 1163
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -7871,6 +7871,13 @@ concepts:
   code_paths:
   - agent_utilities/orchestration/org_runtime.py
   doc: Drafts departments → roles from the goal
+- id: AU-ORCH.org.repository-workitem-authority
+  name: Durable repository-development WorkItem authority
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/repository_work_item.py
+  doc: Durable repository-development WorkItem authority
 - id: AU-ORCH.org.work-item-dag
   name: AU-ORCH.org.work-item-dag
   pillar: AU-ORCH
@@ -9167,6 +9174,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/merge_queue.py
   doc: AU-OS.governance.cross-branch-duplicate-symbol
+- id: AU-OS.governance.cross-host-concept-reservation-authority
+  name: AU-OS.governance.cross-host-concept-reservation-authority
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/concept_reservation.py
+  doc: AU-OS.governance.cross-host-concept-reservation-authority
 - id: AU-OS.governance.fail-closed-claim-check
   name: AU-OS.governance.fail-closed-claim-check
   pillar: AU-OS
@@ -9526,6 +9540,13 @@ concepts:
   - agent_utilities/mcp/client_credentials.py
   - agent_utilities/mcp/server_factory.py
   doc: IdP-agnostic
+- id: AU-OS.identity.rotating-file-bearer
+  name: AU-OS.identity.rotating-file-bearer
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/mcp/client_credentials.py
+  doc: AU-OS.identity.rotating-file-bearer
 - id: AU-OS.identity.run-scoped-tool-token
   name: Run-Scoped Tool Token
   pillar: AU-OS

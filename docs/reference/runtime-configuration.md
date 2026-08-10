@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-553 typed fields · 357 runtime-only call-site inputs.
+554 typed fields · 359 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -324,6 +324,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `OIDC_SCOPE` | `Union` | `unset` |
 | `MCP_BASIC_AUTH_USERNAME` | `Union` | `unset` |
 | `MCP_BASIC_AUTH_PASSWORD_REF` | `Union` | `unset` |
+| `MCP_BEARER_TOKEN_FILE` | `Union` | `unset` |
 | `OIDC_TLS_PROFILE` | `Union` | `unset` |
 | `OIDC_TLS_PROFILE_REF` | `Union` | `unset` |
 | `OIDC_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `[]` |
@@ -724,7 +725,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `AGENT_UTILITIES_SELF_INGEST_SPILL_PATH` | 1 |
 | `AGENT_UTILITIES_SELF_INGEST_TIMEOUT` | 1 |
 | `AGENT_UTILITIES_TESTING` | 8 |
-| `AGENT_UTILITIES_TOKEN_SECRET` | 1 |
+| `AGENT_UTILITIES_TOKEN_SECRET` | 2 |
 | `APPDATA` | 1 |
 | `ARCHI_MODEL_PATH` | 1 |
 | `ARD_FEDERATION_MODE` | 1 |
@@ -919,6 +920,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `MCP_ENABLED_TOOLS` | 1 |
 | `MCP_FLEET_REGISTRATION` | 1 |
 | `MCP_FLEET_REGISTRATION_TTL_SECS` | 1 |
+| `MCP_JWT_AUDIENCE` | 1 |
+| `MCP_JWT_ISSUER` | 1 |
 | `MCP_PUBLIC_BASE_URL` | 1 |
 | `MCP_SDK_FLOOR_ENFORCE` | 1 |
 | `MEDIA_TOOLS` | 1 |

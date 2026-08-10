@@ -799,6 +799,25 @@ class _ControlPlaneWorkItemEngine:
         props["node_type"] = node_type
         add(node_id, label=node_type, **props)
 
+    def create_node_if_absent(
+        self, node_id: str, properties: dict[str, Any] | None = None
+    ) -> bool:
+        """Expose the control graph's atomic WorkItem create primitive.
+
+        Repository-development admission needs the native membership-test and
+        insert result so concurrent first writers can distinguish the winner
+        from a deduplicated loser. The control-plane wrapper must delegate this
+        directly to the host's native graph client; falling back to
+        ``add_node`` would reintroduce the read-then-write race this adapter
+        exists to close.
+        """
+
+        return bool(
+            self._native_work_item_method("create_node_if_absent")(
+                node_id, properties=properties
+            )
+        )
+
     def link_nodes(
         self,
         source_id: str,

@@ -180,3 +180,61 @@ Retiring the fastmcp-3 default (`[mcp]` now floors on `fastmcp>=4.0.0b1` instead
 both breaking changes for any consumer pinned to the old floor. au's version stays frozen
 per the standing operator directive; the bump is a decision for whoever unfreezes it (see
 `reports/deferred/lane-2.1b.md` D-2.1b-2 and the unified program's D-08).
+
+## Native Tasks projection and owning-server routing
+
+`WorkItemTasksExtension` (`CONCEPT:AU-ECO.mcp.tasks-workitem-bridge`) is the one
+native `io.modelcontextprotocol/tasks` registration for a server. It projects
+both graph-orchestrator IDs and Repository Manager's durable `rmjob:<uuid>` /
+`workitem:repository_manager:<uuid>` IDs from the existing WorkItem authority;
+it does not install `fastmcp_tasks`, Docket, Redis, or another queue. Repository
+reads and mutations are tenant/owner scoped on every request, so a poll after a
+restart or on a replica reads the same durable record.
+
+The extension advertises the exact projection revision
+`2c1425d9a288b9b1f489430fe1e00bb392b47e48` in its FastMCP capability settings.
+GraphOS's multiplexer interrogates every live pooled session and only forwards
+`tasks/get`, `tasks/update`, or `tasks/cancel` when every selectable session
+advertises that revision. Requests use FastMCP 4.0.0b1's
+`ClientSession.send_request` through the existing bounded `ChildRuntime`, so
+native task polling cannot bypass per-child queue, restart, timeout, or breaker
+limits. A disconnect clears capability state until a fresh handshake succeeds;
+retired runtimes cannot repopulate a replacement catalog epoch.
+
+For a network child, the multiplexer mints a short-lived run token using the
+existing `AGENT_UTILITIES_TOKEN_SECRET` (`security.run_token`) and binds the
+normalized task request, owning server, method, exact revision, and the
+verified `{tenant, owner, scopes}`. The child additionally requires its
+FastMCP-verified service bearer to match configured issuer/audience and carry
+`mcp:delegate` (or an administrative equivalent). For a local stdio child,
+each connection generation receives a random private channel secret through a
+parent-controlled environment variable; the task proof carries a second MAC
+over the run token, so the shared fleet secret alone is not a stdio authority.
+The child validates signature, expiry, endpoint, operation, channel (when
+stdio), and digest before using delegated identity for the Repository WorkItem
+adapter. A byte-for-byte retry of the same request is intentionally permitted
+within the short token lifetime; the request binding prevents changing its
+task, owner, server, method, or revision. Expired, rotated-secret, tampered,
+or mismatched metadata is rejected. Ephemeral per-process fallback secrets are
+unsuitable for cross-process routing. If no authenticated channel or shared
+signing secret is configured, forwarding fails closed with portable `rm_jobs`
+guidance.
+
+`tasks/get` may retry once after a transport reconnect only after rechecking
+the exact revision and current catalog/runtime epoch. `tasks/update` and
+`tasks/cancel` never replay across a reconnect; they fail closed when the
+catalog epoch or ChildRuntime generation changes before send. Delegated proofs
+are never copied into response metadata.
+Older clients that cannot negotiate the modern Tasks extension should use
+RMDD-20's portable `rm_jobs` tools rather than receiving an unexpected inline
+long-running operation.
+
+Native task request models also enforce the general MCP control-plane bounds:
+`taskId` must be nonblank, trimmed, and control-character-free within 512 UTF-8
+bytes, and `inputResponses` is limited to
+64 KiB, 4,096 JSON items, depth 24, and 16 KiB per string. These checks run at
+the FastMCP parameter-schema boundary before routing or persistence; oversized,
+cyclic, deep, or non-JSON values are rejected without logging their contents.
+Repository projections fail closed when the owner-scoped adapter row is
+missing, has the wrong identity/shape, or contains an absent or malformed
+lifecycle timestamp; they never synthesize a current time for durable state.

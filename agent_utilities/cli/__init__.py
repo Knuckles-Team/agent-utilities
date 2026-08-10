@@ -460,7 +460,11 @@ def _ingest_sessions(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _concept(args: argparse.Namespace) -> dict[str, Any]:
-    """Concept-ID reservation — runs against the file ledger directly (no gateway)."""
+    """Same-host compatibility concept reservation against the file ledger.
+
+    Separate-host callers must use graph-os' native concept authority; this
+    legacy CLI path is intentionally not advertised as globally atomic.
+    """
     import uuid
 
     from agent_utilities.governance import concept_allocator as ca

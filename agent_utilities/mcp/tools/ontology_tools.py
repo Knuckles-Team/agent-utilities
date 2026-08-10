@@ -1164,11 +1164,13 @@ def register_ontology_tools(mcp):
     @mcp.tool(
         name="concept_registry",
         description=(
-            "Atomically claim/list/release canonical OKF-CIS concept ids across parallel sessions & worktrees "
-            "(CONCEPT:AU-OS.governance.atomic-concept-id-reservation). action='reserve' validates and claims concept_id, then appends it to the committed, "
-            "merge=union ledger so two sessions never collide; 'list' shows reservations; "
-            "'release' frees one; 'reconcile' marks landed/expired. The ledger is authoritative; "
-            "reservations are also projected into the KG when the gateway is healthy."
+            "Coordinate canonical OKF-CIS concept ids for linked worktrees on one host "
+            "(CONCEPT:AU-OS.governance.atomic-concept-id-reservation). This compatibility "
+            "ledger path is not a separate-host authority; cross-host callers must use "
+            "the graph-os native concept reservation contract and fail closed when it is "
+            "unavailable. action='reserve' validates and claims concept_id, then appends "
+            "it to the committed, merge=union ledger; 'list' shows reservations; "
+            "'release' frees one; 'reconcile' marks landed/expired."
         ),
         tags=["graph-os", "governance", "concept"],
     )
@@ -1190,7 +1192,7 @@ def register_ontology_tools(mcp):
         ),
         status: str = Field(
             default="",
-            description="For 'list': filter by status (reserved/landed/expired).",
+            description="For 'list': filter by status (reserved/materialized/landed/released/expired/tombstoned).",
         ),
         ttl_seconds: int = Field(
             default=86_400, description="Reservation TTL before it is reclaimable."
@@ -1235,10 +1237,9 @@ def register_ontology_tools(mcp):
                     ttl_seconds=int(ttl_seconds),
                     repo_root=repo_root,
                 )
-                # Best-effort projection through this already-authenticated
-                # GraphOS execution context. The ledger remains authoritative;
-                # no second gateway, transport probe, or process coordinator is
-                # involved.
+                # Compatibility projection through this already-authenticated
+                # GraphOS execution context. The local ledger is authoritative
+                # for this legacy path only; it is not a separate-host authority.
                 try:
                     _run_coro(
                         kg_server._execute_tool(

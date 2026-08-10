@@ -1650,7 +1650,11 @@ def create_mcp_server(
     )
 
     if TASKS_EXTENSION_AVAILABLE:
-        mcp.add_extension(WorkItemTasksExtension())
+        # The owning server identity is part of the native Tasks response
+        # metadata.  GraphOS's multiplexer uses it to route follow-up
+        # tasks/get/update/cancel requests without introducing another task
+        # registry or scheduler.
+        mcp.add_extension(WorkItemTasksExtension(server_id=name))
 
     # Operational routes live outside the tool authorization path. Health is a
     # generic readiness result. Metrics are local-only unless a remote listener
