@@ -925,7 +925,7 @@ def check_system_graph_write(
             # stamp_ownership's own best-effort exemption; it must not be
             # confused with "bound but unauthenticated", handled below.
             resolved = current_actor()
-        except PermissionError:
+        except PermissionError:  # noqa: BLE001 — genuine system/background case (no actor bound at all); deliberate exemption, see the comment above
             return
     if not resolved.authenticated or not str(resolved.actor_id or "").strip():
         return

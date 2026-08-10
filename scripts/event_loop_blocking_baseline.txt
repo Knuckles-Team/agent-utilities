@@ -3,7 +3,6 @@
 # New sites not listed here fail the gate; fixing a listed site (a real thread
 # hop via run_blocking_ordered/to_thread) is always allowed and should be
 # followed by --update-baseline to shrink this file. See script docstring.
-agent_utilities/agent/registry_builder.py	ingest_prompts_to_graph	engine write: _upsert_node (engine._upsert_node)
 agent_utilities/analysis/analyzer.py	background_research	engine read: search_hybrid (self.engine.search_hybrid)
 agent_utilities/analysis/analyzer.py	deep_extract	engine read: search_hybrid (self.engine.search_hybrid)
 agent_utilities/analysis/analyzer.py	relevance_sweep	engine read: search_hybrid (self.engine.search_hybrid)
@@ -33,7 +32,7 @@ agent_utilities/harness/evolve_agent.py	_optimize_cluster	open() (blocking file 
 agent_utilities/harness/evolve_agent.py	persist_manifest	open() (blocking file I/O)
 agent_utilities/harness/trace_backend.py	get_trace_summary	open() (blocking file I/O)
 agent_utilities/harness/trace_backend.py	get_traces	open() (blocking file I/O)
-agent_utilities/knowledge_graph/__main__.py	main	engine read: search_hybrid (engine.search_hybrid)
+agent_utilities/knowledge_graph/__main__.py	_run	engine read: search_hybrid (engine.search_hybrid)
 agent_utilities/knowledge_graph/core/engine_ingestion.py	_ingest_mcp_from_path	blocking file read: Path.read_bytes (p.read_bytes)
 agent_utilities/knowledge_graph/core/engine_tasks.py	_run_background_task	blocking file read: Path.read_text (target.read_text)
 agent_utilities/knowledge_graph/core/engine_tasks.py	_run_background_task	blocking remote-embedder call: get_text_embedding (embed_model.get_text_embedding)
@@ -41,9 +40,6 @@ agent_utilities/knowledge_graph/core/engine_tasks.py	_run_background_task	engine
 agent_utilities/knowledge_graph/core/engine_tasks.py	_run_background_task	engine write: add_node (self.add_node)
 agent_utilities/knowledge_graph/core/engine_tasks.py	_run_background_task	engine write: submit_task (durable WorkItem enqueue) (self.submit_task)
 agent_utilities/knowledge_graph/core/engine_tasks.py	_run_relevance_sweep	engine read: query_cypher (self.query_cypher)
-agent_utilities/knowledge_graph/core/kafka_graph_sync.py	_full_reload	engine write: add_edge (self._graph.add_edge)
-agent_utilities/knowledge_graph/core/kafka_graph_sync.py	_full_reload	engine write: add_node (self._graph.add_node)
-agent_utilities/knowledge_graph/core/kafka_graph_sync.py	_reconcile	engine write: add_node (self._graph.add_node)
 agent_utilities/knowledge_graph/core/owl_bridge.py	stream_api_to_graph	engine write: add_edge (self.graph.add_edge)
 agent_utilities/knowledge_graph/core/owl_bridge.py	stream_api_to_graph	engine write: add_node (self.graph.add_node)
 agent_utilities/knowledge_graph/core/rule_synthesizer.py	process_resolved_conflicts	engine read: query_cypher (self.engine.query_cypher)
@@ -98,8 +94,6 @@ agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py	execute_shacl_gate
 agent_utilities/knowledge_graph/pipeline/phases/workspace_sync.py	execute_workspace_sync	open() (blocking file I/O)
 agent_utilities/mcp/agent_manager.py	sync_mcp_agents	engine write: add_node (engine.add_node)
 agent_utilities/mcp/agent_manager.py	sync_mcp_agents	engine write: link_nodes (engine.link_nodes)
-agent_utilities/orchestration/session_continuity.py	persist_session_turn	engine write: add_edge (add_edge)
-agent_utilities/orchestration/session_continuity.py	persist_session_turn	engine write: add_node (add_node)
 agent_utilities/patterns/prompt_chain.py	_persist_to_kg	engine write: upsert_node (self._engine.upsert_node)
 agent_utilities/rlm/repl.py	graph_query	engine read: query_cypher (engine.query_cypher)
 agent_utilities/rlm/repl.py	run_full_rlm	engine write: add_node (self.graph_deps.knowledge_engine.graph.add_node)

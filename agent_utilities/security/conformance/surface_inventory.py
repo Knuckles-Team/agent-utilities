@@ -91,9 +91,7 @@ def _find_run_graph_query_scope_branches(tree: ast.Module) -> list[DialectSurfac
                 if isinstance(comparator, ast.Constant) and isinstance(
                     comparator.value, str
                 ):
-                    found.append(
-                        DialectSurface(name=comparator.value, line=sub.lineno)
-                    )
+                    found.append(DialectSurface(name=comparator.value, line=sub.lineno))
             # Do not descend further looking for a SECOND `_run_graph_query` —
             # there is exactly one; stop here rather than risk a duplicate
             # nested match.
@@ -107,6 +105,15 @@ def enumerate_query_dialect_surfaces(
 ) -> tuple[DialectSurface, ...]:
     """Return every dialect `graph_query` accepts, discovered by parsing the
     real source — the live half of the GOC-62 D2 enumeration mechanism.
+
+    WIRE-FIRST (D-OB-9) NOTE: this function's only caller is
+    ``tests/unit/security/conformance/test_surface_enumeration_drift.py``.
+    That is by design, not a wiring gap — it IS the drift-detection
+    conformance check the package docstring describes ("a drift test that
+    FAILS when introspection finds a surface the manifest does not know
+    about"); a conformance/drift check's entire job is to run inside the
+    test suite, there is no production runtime call site to wire it to. See
+    ``scripts/wire_first_baseline.json``.
 
     Raises :class:`FileNotFoundError` if the module cannot be located (never
     silently returns an empty/partial result — an enumerator that fails

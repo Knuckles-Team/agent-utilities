@@ -235,6 +235,15 @@ class FixtureEngineAdmissionClient:
     ``crates/eg-core/src/isolation.rs``, cited in each method below) — not just a
     call recorder. Lets a test prove Tier-2 reachability (``has_admin_capability``)
     end-to-end without a live engine.
+
+    WIRE-FIRST (D-OB-9) NOTE: only ever constructed by
+    ``tests/unit/security/test_engine_rbac_admission.py``. By design — this is
+    the same Protocol/Fixture/Live client split this module's docstring says it
+    mirrors from ``graph_ownership_apply.py``, whose own
+    ``graph_ownership.py::FixtureCatalogClient`` is the exact same
+    test-only-double shape and is already accepted in
+    ``scripts/wire_first_baseline.json``. A fixture double's only caller is,
+    by construction, the tests it lets run without a live engine.
     """
 
     def __init__(self) -> None:
@@ -251,7 +260,12 @@ class FixtureEngineAdmissionClient:
     def identity_bootstrap_pending(self) -> bool:
         """Test-only introspection (the real engine exposes no equivalent RPC —
         GOC-62 §D3(a)'s admission pass never queries this; it always ATTEMPTS
-        bootstrap and reads the failure reason, exactly like production must)."""
+        bootstrap and reads the failure reason, exactly like production must).
+
+        WIRE-FIRST (D-OB-9) NOTE: deliberately test-only, same reasoning as
+        the class docstring above — there is no production RPC this could
+        call through to.
+        """
 
         return not self._bootstrap_consumed and not self.agents
 
@@ -435,6 +449,19 @@ def provision_tier2_admission(
     Returns a full :class:`AdmissionResult` naming exactly what happened per
     entry, so a deployment log records this as a reproducible, auditable step —
     never a silent hand operation.
+
+    WIRE-FIRST (D-OB-9) NOTE — genuine gap, not a false positive: this
+    module's own docstring says it is "run by deployment tooling immediately
+    after Keycloak-side (Tier-1) provisioning", but as of this commit nothing
+    — not this repo's deployment tooling, not the sibling ``agent-webui``
+    repo's ``scripts/provision_identity.py`` this module's docstring names as
+    the Tier-1 counterpart — actually calls it yet; its only exerciser today
+    is ``tests/unit/security/test_engine_rbac_admission.py``. Baselined
+    (not fixed) because wiring it for real means calling a live,
+    security-sensitive engine-admin RPC from deployment tooling in another
+    repo — out of scope for a gate-clearing pass and not something to do
+    without the deployment-tooling owner's review. Tracked as a follow-up:
+    wire this into the Tier-2 admission step of the GOC-62 deploy pipeline.
     """
 
     bootstrap_attempted = bootstrap_authority is not None
@@ -485,9 +512,7 @@ def provision_tier2_admission(
         else:
             assert entry.role is not None  # enforced in __post_init__
             client.add_role(entry.role)
-            client.add_grant(
-                entry.role, {"Graph": "__admin__"}, "Admin", "Allow"
-            )
+            client.add_grant(entry.role, {"Graph": "__admin__"}, "Admin", "Allow")
             outcomes.append(
                 AdmissionOutcome(
                     agent_id=entry.agent_id,
