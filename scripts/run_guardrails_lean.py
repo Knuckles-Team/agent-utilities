@@ -1,29 +1,34 @@
 #!/usr/bin/env python3
-"""Run the CI ``Guardrails`` gates inside a fresh CI-EQUIVALENT LEAN venv.
+"""Run the CI ``Release`` workflow's ``gates`` job inside a fresh CI-EQUIVALENT LEAN venv.
 
 **Why this exists — closing the "passes-local / fails-CI" class.** The CI
-``Guardrails`` workflow (``.github/workflows/guardrails.yml``) deliberately
-creates a *lean*, lock-backed environment with ``uv sync --frozen`` while
-excluding sibling workspace-only runtime packages. This is explicitly a static
-source-contract lane, not an installed GraphOS certification lane: the published
-wheel pipeline separately installs the wheel with ``epistemic-graph[full]`` and
-executes its native server/numeric contract. It does **not** install the heavy agent
-runtime. A full local dev install, by contrast, has everything.
+``Release`` workflow's ``gates`` job (``.github/workflows/release.yml``)
+deliberately creates a *lean*, lock-backed environment with ``uv sync --frozen``
+while excluding sibling workspace-only runtime packages. This is explicitly a
+static source-contract lane, not an installed GraphOS certification lane: the
+published wheel pipeline separately installs the wheel with
+``epistemic-graph[full]`` and executes its native server/numeric contract. It
+does **not** install the heavy agent runtime. A full local dev install, by
+contrast, has everything.
 So a guardrail gate that transitively imports an ``[agent-runtime]`` dependency
 (e.g. ``pydantic_ai`` via ``agent_utilities.graph.__init__``) **passes locally but
 dies in CI** with ``ModuleNotFoundError`` — exactly the failure mode the
 Eval-corpus gate hit.
 
-This runner reproduces CI's Guardrails environment **on the developer's machine**:
-it builds a throwaway lean venv with the *exact* install from ``guardrails.yml``,
-then executes the gate commands *derived from the same file* inside it. If a gate
-would fail in CI's lean install, it fails here too — locally, before the push.
+This runner reproduces CI's lean ``gates`` environment **on the developer's
+machine**: it builds a throwaway lean venv with the *exact* install from
+``release.yml``'s ``gates`` job, then executes the gate commands *derived from
+the same job* inside it. If a gate would fail in CI's lean install, it fails
+here too — locally, before the push.
 
-**DRY with ``guardrails.yml``.** The install package list and the gate command
-list are both parsed out of ``.github/workflows/guardrails.yml`` at runtime, so
-this script cannot drift from CI: add/remove/edit a gate in the workflow and this
-runner follows automatically. Advisory steps (``continue-on-error: true``) are run
-but never fail the run, mirroring CI semantics.
+**DRY with ``release.yml``.** The install package list and the gate command
+list are both parsed out of the ``gates`` job in ``.github/workflows/release.yml``
+at runtime, so this script cannot drift from CI: add/remove/edit a gate step in
+that job and this runner follows automatically. Advisory steps
+(``continue-on-error: true``) are run but never fail the run, mirroring CI
+semantics — none of the ``gates`` job's own steps carry that flag today (it is
+release-critical and strictly blocking), but the parsing stays generic in case
+that ever changes.
 
 Wired into pre-commit as the ``guardrails-lean-parity`` hook
 (``stages: [pre-push, manual]`` — it builds a venv, too slow for every commit)::
@@ -55,8 +60,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import uv_workspace  # noqa: E402 -- sibling script, pure stdlib, no circularity risk
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
-_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "guardrails.yml"
-_PY_VERSION = "3.12"  # matches actions/setup-python in guardrails.yml
+_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "release.yml"
+_WORKFLOW_JOB = "gates"
+_PY_VERSION = "3.12"  # matches actions/setup-python in release.yml's gates job
 
 
 @dataclass
@@ -77,8 +83,8 @@ def _load_workflow() -> dict:
 
 def _steps(workflow: dict) -> list[dict]:
     jobs = workflow.get("jobs") or {}
-    guardrails = jobs.get("guardrails") or {}
-    return list(guardrails.get("steps") or [])
+    gates_job = jobs.get(_WORKFLOW_JOB) or {}
+    return list(gates_job.get("steps") or [])
 
 
 def _parse_sync_command(steps: list[dict]) -> list[str]:
@@ -100,7 +106,10 @@ def _parse_sync_command(steps: list[dict]) -> list[str]:
         parsed = shlex.split(command)
         if parsed[:2] == ["uv", "sync"] and "--frozen" in parsed:
             return parsed
-    sys.exit("ERROR: could not parse frozen uv sync from guardrails.yml")
+    sys.exit(
+        f"ERROR: could not parse frozen uv sync from {_WORKFLOW.name}'s "
+        f"{_WORKFLOW_JOB!r} job"
+    )
 
 
 def _parse_gates(steps: list[dict]) -> list[Gate]:
@@ -164,7 +173,7 @@ def _gate_env(venv_dir: Path) -> dict[str, str]:
     env.pop("PYTHONHOME", None)
     # Never synthesize a missing numeric kernel. The workflow's frozen sync command
     # deliberately omits the sibling engine (`--no-install-package epistemic-graph`,
-    # parsed verbatim from guardrails.yml above) in this source-only lane, while the
+    # parsed verbatim from release.yml's gates job above) in this source-only lane, while the
     # publication lane installs and exercises the declared [full] dependency. This
     # keeps the lean venv a faithful CI mirror without a second, redundant blocking
     # mechanism that could itself drift from the real extras name.
@@ -211,7 +220,7 @@ def main() -> int:
 
     if args.list:
         print("lean sync command:", " ".join(sync_command))
-        print("gates (derived from guardrails.yml):")
+        print(f"gates (derived from release.yml's {_WORKFLOW_JOB!r} job):")
         for g in gates:
             print(f"  - {'[advisory] ' if g.advisory else ''}{g.name}")
         return 0

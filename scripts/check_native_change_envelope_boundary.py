@@ -25,7 +25,7 @@ RESEARCH_PIPELINE = ROOT / "agent_utilities/automation/research_pipeline.py"
 RESEARCH_FEED = ROOT / "agent_utilities/knowledge_graph/research/feed_grading.py"
 RESEARCH_COHORT = ROOT / "agent_utilities/knowledge_graph/research/cohort.py"
 ENGINE_TASKS = ROOT / "agent_utilities/knowledge_graph/core/engine_tasks.py"
-CI = ROOT / ".github/workflows/guardrails.yml"
+CI = ROOT / ".github/workflows/advisory.yml"
 
 _RETIRED_SEQUENTIAL_SYMBOLS = {
     "_ingest_envelope_legacy",
