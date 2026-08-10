@@ -91,9 +91,7 @@ def _find_run_graph_query_scope_branches(tree: ast.Module) -> list[DialectSurfac
                 if isinstance(comparator, ast.Constant) and isinstance(
                     comparator.value, str
                 ):
-                    found.append(
-                        DialectSurface(name=comparator.value, line=sub.lineno)
-                    )
+                    found.append(DialectSurface(name=comparator.value, line=sub.lineno))
             # Do not descend further looking for a SECOND `_run_graph_query` —
             # there is exactly one; stop here rather than risk a duplicate
             # nested match.

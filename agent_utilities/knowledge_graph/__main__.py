@@ -77,10 +77,10 @@ async def main():
 
     session = system_write_session()
     with use_actor(session.actor), use_session(session):
-        await _run(args)
+        await _run(args, parser)
 
 
-async def _run(args: argparse.Namespace) -> None:
+async def _run(args: argparse.Namespace, parser: argparse.ArgumentParser) -> None:
     """Body of :func:`main`, run under a bound system actor (BUG-056)."""
     config = PipelineConfig(
         workspace_path=str(Path.cwd()),

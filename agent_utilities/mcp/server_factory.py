@@ -1214,9 +1214,7 @@ def _configure_middleware(
     # see ActorContextMiddleware/`_configure_middleware` docstrings).
     if ActorContextMiddleware is not None:
         middlewares.append(
-            ActorContextMiddleware(
-                require_verified_session=(server_name == "graph-os")
-            )
+            ActorContextMiddleware(require_verified_session=(server_name == "graph-os"))
         )
 
     # Per-tool Prometheus metrics (count/latency/error) for this server, scraped

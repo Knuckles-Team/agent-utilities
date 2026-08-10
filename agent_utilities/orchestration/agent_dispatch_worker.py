@@ -1541,9 +1541,7 @@ def _dead_letter_poison_envelope(
             return None
         return work_item_id
     except Exception as exc:  # noqa: BLE001 — durability confirmation fails closed
-        logger.error(
-            "agent-dispatch poison DLQ write failed (%s)", type(exc).__name__
-        )
+        logger.error("agent-dispatch poison DLQ write failed (%s)", type(exc).__name__)
         return None
 
 
