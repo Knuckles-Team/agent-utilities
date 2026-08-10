@@ -28,6 +28,15 @@ from .config_generator import (
     is_restart_required,
     write_config,
 )
+from .genesis_environments import (
+    EnvironmentProfile,
+    EnvironmentProfileError,
+    MissingSecretReferenceError,
+    list_environment_profiles,
+    load_environment_profile,
+    profile_summary,
+    validate_environment_profile,
+)
 from .repo_templates import (
     CI_TEMPLATES,
     PROFILE_REPO_SETS,
@@ -55,6 +64,9 @@ __all__ = [
     "CODEX_GRAPHOS_COMMAND",
     "CODEX_GRAPHOS_SERVER",
     "CodexRegistrationError",
+    "EnvironmentProfile",
+    "EnvironmentProfileError",
+    "MissingSecretReferenceError",
     "PROFILES",
     "PROFILE_REPO_SETS",
     "STANDARD_REPOS",
@@ -64,7 +76,10 @@ __all__ = [
     "generate_config",
     "graphos_stdio_spec",
     "is_restart_required",
+    "list_environment_profiles",
+    "load_environment_profile",
     "manifest_summary",
+    "profile_summary",
     "provision_plan",
     "render_skeleton",
     "register_codex_graphos",
@@ -72,6 +87,7 @@ __all__ = [
     "run_preflight",
     "runner_plan",
     "standard_repos",
+    "validate_environment_profile",
     "write_config",
 ]
 

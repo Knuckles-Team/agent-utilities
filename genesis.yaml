@@ -299,3 +299,31 @@ private_repos:
   - CI_TEMPLATES_PROJECT
   - RUNNER_TAG
   - REGISTRY
+environment_profiles:
+  concept: AU-OS.deployment.genesis-environment-profiles
+  design_doc: .specify/design/genesis-environment-profiles/design.md
+  builtin_dir: deploy/environments
+  extension_dir: ~/.config/agent-utilities/environments (XDG config dir; agent_utilities.core.paths.config_dir()
+    / 'environments')
+  categories:
+  - environment
+  - target
+  - release
+  - runtime
+  - filesystem
+  - configuration
+  - secrets
+  - network
+  - identity
+  - validation
+  defaults:
+  - dev
+  - prod
+  - test
+  secret_reference_schemes:
+  - env://VAR
+  - vault://path
+  - secret://path
+  - k8s-secret://namespace/name
+  loader: agent_utilities.deployment.genesis_environments.load_environment_profile
+  cli: setup-config environments {list,show,validate}

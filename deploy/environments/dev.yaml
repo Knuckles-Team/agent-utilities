@@ -1,0 +1,96 @@
+# Named environment profile: dev — CONCEPT:AU-OS.deployment.genesis-environment-profiles
+#
+# Genesis k8s deployment inputs for the "dev" environment. Every value below is
+# explicit and complete; nothing here is inferred or filled in at apply time —
+# see agent_utilities/deployment/genesis_environments.py and
+# .specify/design/genesis-environment-profiles/design.md.
+#
+# Secrets are REFERENCES only (env://, vault://, secret://, k8s-secret://ns/name) —
+# never a value. Load with:
+#   from agent_utilities.deployment.genesis_environments import load_environment_profile
+#   load_environment_profile("dev")
+# or: setup-config environments show dev
+
+environment:
+  name: dev
+  tier: non-prod
+  description: >-
+    Single developer-facing namespace. Fast iteration; relaxed release-pin
+    discipline is allowed (non-prod only).
+  labels:
+    flavor: dev
+    tier: kg-mcp
+
+target:
+  orchestrator: kubernetes
+  namespace: platform
+  authority: namespace-only
+  cluster_context_ref: null
+  node_selector:
+    kubernetes.io/hostname: r510
+
+release:
+  image_repository: knucklessg1/graph-os-unified
+  tag_policy: floating-tag
+  image_pull_policy: Always
+  revision: null
+  rollout_strategy: Recreate
+
+runtime:
+  replicas: 1
+  requests_cpu: 250m
+  requests_memory: 512Mi
+  limits_cpu: "2"
+  limits_memory: 4Gi
+  restart_policy: Always
+
+filesystem:
+  read_only_root_filesystem: true
+  writable_paths:
+    - mount_path: /tmp
+      medium: emptyDir
+      reason: >-
+        Process HOME/cache/temp state (Python egg cache, uv/pip scratch, XDG
+        runtime dirs) under a read-only root filesystem.
+      size_limit: 1Gi
+  read_only_mounts:
+    - /au
+    - /skills
+    - /home/apps/workspace
+
+configuration:
+  config_map_refs:
+    - graph-os-env
+  env:
+    KG_LOOP: "0"
+    KG_FUSEKI_ENDPOINT: http://fuseki.apps.svc.cluster.local:80
+
+secrets:
+  required:
+    - name: graph-os-secrets
+      ref: k8s-secret://platform/graph-os-secrets
+      keys:
+        - OIDC_CLIENT_SECRET
+        - ENGINE_HMAC_KEY
+
+network:
+  ingress_host: graph-os-dev.arpa
+  service_port: 8000
+  network_policy_enabled: false
+  allowed_namespaces: []
+
+identity:
+  idp: none
+  service_account: default
+  automount_service_account_token: false
+  client_secret_ref: null
+
+validation:
+  readiness_checks:
+    - http:/health/ready
+  liveness_checks:
+    - http:/health
+  functional_checks:
+    - kind: mcp-tools-list
+      target: streamable-http:/mcp
+      expected: A real MCP tools/list call returns at least one tool within 30s.
