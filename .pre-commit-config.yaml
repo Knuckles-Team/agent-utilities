@@ -129,6 +129,17 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # Repo-root hygiene: an ALLOWLIST of what may sit at the root. Two scratch
+  # proof artifacts that said "safe to delete" in their own body, plus a
+  # workspace-level `plans/` directory, reached a public GitHub repo before
+  # anyone noticed. A denylist would only ever catch the junk we already
+  # thought of.
+  - id: check-root-hygiene
+    name: Repository root hygiene (allowlisted entries only)
+    entry: python3 scripts/check_root_hygiene.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: turtle-format
     name: Format Turtle with rdflib==7.6.0
     entry: python -m scripts.format_ttl
