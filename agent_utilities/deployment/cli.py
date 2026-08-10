@@ -20,6 +20,12 @@ from .config_generator import (
     config_reference,
     write_config,
 )
+from .genesis_environments import (
+    EnvironmentProfileError,
+    list_environment_profiles,
+    load_environment_profile,
+    profile_summary,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -66,6 +72,27 @@ def main(argv: list[str] | None = None) -> int:
         help="Show the fence that would be written without touching disk.",
     )
 
+    env = sub.add_parser(
+        "environments",
+        help="Named genesis k8s deployment-input profiles (dev/test/prod + extensions).",
+    )
+    env_sub = env.add_subparsers(dest="environments_command", required=True)
+    env_sub.add_parser(
+        "list", help="List discovered profile names and their source file."
+    )
+    env_show = env_sub.add_parser(
+        "show",
+        help="Print one profile's fully-resolved, reviewable values (no secret values).",
+    )
+    env_show.add_argument(
+        "name", help="Profile name, e.g. dev, test, prod, or an extension."
+    )
+    env_validate = env_sub.add_parser(
+        "validate",
+        help="Load + validate one profile; exit non-zero and name the problem on failure.",
+    )
+    env_validate.add_argument("name", help="Profile name to validate.")
+
     args = parser.parse_args(argv)
 
     if args.command == "generate":
@@ -100,6 +127,36 @@ def main(argv: list[str] | None = None) -> int:
         res = write_fence(target, policy, dry_run=args.dry_run)
         print(json.dumps(res, indent=2, default=str))
         return 0
+    if args.command == "environments":
+        if args.environments_command == "list":
+            catalog = list_environment_profiles()
+            print(
+                json.dumps(
+                    {name: str(path) for name, path in sorted(catalog.items())},
+                    indent=2,
+                )
+            )
+            return 0
+        try:
+            profile = load_environment_profile(args.name)
+        except EnvironmentProfileError as exc:
+            print(json.dumps({"status": "error", "message": str(exc)}))
+            return 1
+        if args.environments_command == "show":
+            print(json.dumps(profile_summary(profile), indent=2))
+            return 0
+        if args.environments_command == "validate":
+            print(
+                json.dumps(
+                    {
+                        "status": "ok",
+                        "profile": args.name,
+                        "source": str(profile.source),
+                    },
+                    indent=2,
+                )
+            )
+            return 0
     return 2
 
 

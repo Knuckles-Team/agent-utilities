@@ -1,0 +1,132 @@
+# Named environment profile: prod — CONCEPT:AU-OS.deployment.genesis-environment-profiles
+#
+# Genesis k8s deployment inputs for the "prod" environment. Every value below is
+# explicit and complete; nothing here is inferred or filled in at apply time —
+# see agent_utilities/deployment/genesis_environments.py and
+# .specify/design/genesis-environment-profiles/design.md.
+#
+# tier: prod triggers two extra gates at load time (validate_environment_profile):
+#   - release.tag_policy MUST be digest-pinned with a non-null release.revision
+#     (floating tags are development-only);
+#   - validation.functional_checks MUST include an mcp-tools-list entry (already
+#     required for every tier, but prod additionally cannot skip it).
+#
+# Secrets are REFERENCES only (env://, vault://, secret://, k8s-secret://ns/name) —
+# never a value. Load with:
+#   from agent_utilities.deployment.genesis_environments import load_environment_profile
+#   load_environment_profile("prod")
+# or: setup-config environments show prod
+
+environment:
+  name: prod
+  tier: prod
+  description: >-
+    Production namespace. Digest-pinned releases only, network policy
+    enforced, and every deploy must prove a real MCP tools/list round trip
+    before it is considered verified.
+  labels:
+    flavor: prod
+    tier: kg-mcp
+
+target:
+  orchestrator: kubernetes
+  namespace: platform
+  authority: cluster-admin
+  cluster_context_ref: null
+  node_selector:
+    kubernetes.io/hostname: r510
+
+release:
+  image_repository: knucklessg1/graph-os-unified
+  tag_policy: digest-pinned
+  image_pull_policy: Always
+  revision: sha256:0296aff52eb88053e85937606f854fc8d159563bd8b3111f17e9f2dea9d5b621
+  rollout_strategy: Recreate
+
+runtime:
+  replicas: 1
+  requests_cpu: "1"
+  requests_memory: 4Gi
+  limits_cpu: "6"
+  limits_memory: 24Gi
+  restart_policy: Always
+
+filesystem:
+  read_only_root_filesystem: true
+  writable_paths:
+    - mount_path: /tmp
+      medium: emptyDir
+      reason: >-
+        Process HOME/cache/temp state (Python egg cache, uv/pip scratch, XDG
+        runtime dirs) under a read-only root filesystem — the same writable-path
+        exception the concurrent readOnlyRootFilesystem hardening on
+        services/graph-os/k8s/graph-os.deployment.yaml is adding.
+      size_limit: 1Gi
+    - mount_path: /run/epistemic-graph
+      medium: emptyDir
+      reason: Unix-domain-socket directory shared between the engine and its clients.
+      size_limit: null
+    - mount_path: /data/graph_snapshots
+      medium: hostPath
+      reason: >-
+        Node-pinned redb persistence directory; the engine holds a single-writer
+        OS lock here, which is why replicas is capped at 1 (see the RollingUpdate
+        comment in graph-os.deployment.yaml).
+      size_limit: null
+  read_only_mounts:
+    - /au
+    - /skills
+    - /home/apps/workspace
+    - /etc/ssl/homelab
+
+configuration:
+  config_map_refs:
+    - graph-os-env
+  env:
+    KG_LOOP: "1"
+    KG_LOOP_INTERVAL: "1800"
+    KG_FUSEKI_ENDPOINT: http://fuseki.apps.svc.cluster.local:80
+
+secrets:
+  required:
+    - name: graph-os-secrets
+      ref: k8s-secret://platform/graph-os-secrets
+      keys:
+        - OIDC_CLIENT_SECRET
+        - ENGINE_HMAC_KEY
+    - name: epistemic-graph-secrets
+      ref: k8s-secret://platform/epistemic-graph-secrets
+      keys:
+        - PERSISTENCE_IDENTITY_HMAC_KEY
+    - name: langfuse-otel
+      ref: vault://apps/graph-os/langfuse-otel
+      keys:
+        - OTEL_EXPORTER_OTLP_HEADERS
+
+network:
+  ingress_host: graph-os.arpa
+  service_port: 8000
+  network_policy_enabled: true
+  allowed_namespaces:
+    - platform
+    - apps
+
+identity:
+  idp: keycloak
+  service_account: graph-os
+  automount_service_account_token: false
+  client_secret_ref: graph-os-secrets
+
+validation:
+  readiness_checks:
+    - http:/health/ready
+  liveness_checks:
+    - http:/health
+    - exec:engine-liveness-metrics-delta
+  functional_checks:
+    - kind: mcp-tools-list
+      target: streamable-http:/mcp
+      expected: A real MCP tools/list call returns at least one tool within 30s.
+    - kind: graph-query-roundtrip
+      target: graph_query
+      expected: A synthetic write/read round trip in an isolated graph succeeds.

@@ -31,6 +31,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 REGISTRY = ROOT / "deploy" / "mcp-fleet.registry.yml"
 RECIPES = ROOT / "docs" / "recipes"
+ENVIRONMENTS_DIR = ROOT / "deploy" / "environments"
 
 # The standard operator-owned PRIVATE repo set + generalized CI templates genesis
 # provisions per profile (CONCEPT:AU-OS.deployment.standard-repo-templates / OS-5.75). Sourced from
@@ -258,6 +259,19 @@ IDE_TARGETS = [
 ]
 
 
+def _environment_profile_names() -> list[str]:
+    """Repo-shipped named environment profiles (dev/test/prod) — see
+    ``agent_utilities.deployment.genesis_environments`` (CONCEPT:AU-OS.deployment.genesis-environment-profiles).
+
+    Listed by filename only (no YAML parse, matching this generator's no-package-
+    import bootstrap constraint) — the schema/validation live in the deployment
+    module, not here.
+    """
+    if not ENVIRONMENTS_DIR.is_dir():
+        return []
+    return sorted(p.stem for p in ENVIRONMENTS_DIR.glob("*.yaml"))
+
+
 def _load_registry() -> list[dict]:
     if not REGISTRY.exists():
         print(
@@ -395,6 +409,45 @@ def build() -> dict:
         # private repos + the XDG config — never in this public repo. Abstract,
         # templated, profile-scaled (CONCEPT:AU-OS.deployment.standard-repo-templates / OS-5.75).
         "private_repos": _repo_manifest_summary(),
+        # Named genesis k8s deployment-input profiles — an ORTHOGONAL axis to
+        # `profiles` above: `profiles` picks the deployment TOPOLOGY (tiny |
+        # single-node-prod | enterprise); this picks the named ENVIRONMENT
+        # (dev | test | prod by default) a given topology deploys into.
+        # CONCEPT:AU-OS.deployment.genesis-environment-profiles — ten explicit,
+        # reviewable input categories (environment/target/release/runtime/
+        # filesystem/configuration/secrets/network/identity/validation); secrets
+        # are references only (env:// | vault:// | secret:// | k8s-secret://ns/name),
+        # never values, and a missing one fails the load loudly. The named set is
+        # data, not a closed enum: add a new name by dropping a YAML file in
+        # `builtin_dir` or `extension_dir` below — no code change.
+        "environment_profiles": {
+            "concept": "AU-OS.deployment.genesis-environment-profiles",
+            "design_doc": ".specify/design/genesis-environment-profiles/design.md",
+            "builtin_dir": ENVIRONMENTS_DIR.relative_to(ROOT).as_posix(),
+            "extension_dir": "~/.config/agent-utilities/environments (XDG config dir;"
+            " agent_utilities.core.paths.config_dir() / 'environments')",
+            "categories": [
+                "environment",
+                "target",
+                "release",
+                "runtime",
+                "filesystem",
+                "configuration",
+                "secrets",
+                "network",
+                "identity",
+                "validation",
+            ],
+            "defaults": _environment_profile_names(),
+            "secret_reference_schemes": [
+                "env://VAR",
+                "vault://path",
+                "secret://path",
+                "k8s-secret://namespace/name",
+            ],
+            "loader": "agent_utilities.deployment.genesis_environments.load_environment_profile",
+            "cli": "setup-config environments {list,show,validate}",
+        },
     }
 
 

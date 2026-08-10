@@ -1,0 +1,105 @@
+# Named environment profile: test — CONCEPT:AU-OS.deployment.genesis-environment-profiles
+#
+# Genesis k8s deployment inputs for the "test" environment. Every value below is
+# explicit and complete; nothing here is inferred or filled in at apply time —
+# see agent_utilities/deployment/genesis_environments.py and
+# .specify/design/genesis-environment-profiles/design.md.
+#
+# Secrets are REFERENCES only (env://, vault://, secret://, k8s-secret://ns/name) —
+# never a value. Load with:
+#   from agent_utilities.deployment.genesis_environments import load_environment_profile
+#   load_environment_profile("test")
+# or: setup-config environments show test
+
+environment:
+  name: test
+  tier: non-prod
+  description: >-
+    Shared pre-production namespace used for integration/regression runs.
+    Digest pinning is recommended but not yet mandatory (mandatory only at
+    tier=prod); this profile pins by digest anyway to keep parity with prod.
+  labels:
+    flavor: test
+    tier: kg-mcp
+
+target:
+  orchestrator: kubernetes
+  namespace: platform-test
+  authority: namespace-only
+  cluster_context_ref: null
+  node_selector: {}
+
+release:
+  image_repository: knucklessg1/graph-os-unified
+  tag_policy: digest-pinned
+  image_pull_policy: IfNotPresent
+  revision: sha256:0296aff52eb88053e85937606f854fc8d159563bd8b3111f17e9f2dea9d5b621
+  rollout_strategy: RollingUpdate
+
+runtime:
+  replicas: 2
+  requests_cpu: 500m
+  requests_memory: 1Gi
+  limits_cpu: "4"
+  limits_memory: 6Gi
+  restart_policy: Always
+
+filesystem:
+  read_only_root_filesystem: true
+  writable_paths:
+    - mount_path: /tmp
+      medium: emptyDir
+      reason: >-
+        Process HOME/cache/temp state (Python egg cache, uv/pip scratch, XDG
+        runtime dirs) under a read-only root filesystem.
+      size_limit: 1Gi
+  read_only_mounts:
+    - /au
+    - /skills
+    - /home/apps/workspace
+
+configuration:
+  config_map_refs:
+    - graph-os-env
+  env:
+    KG_LOOP: "1"
+    KG_FUSEKI_ENDPOINT: http://fuseki.apps.svc.cluster.local:80
+
+secrets:
+  required:
+    - name: graph-os-secrets
+      ref: k8s-secret://platform-test/graph-os-secrets
+      keys:
+        - OIDC_CLIENT_SECRET
+        - ENGINE_HMAC_KEY
+    - name: langfuse-otel
+      ref: vault://apps/graph-os-test/langfuse-otel
+      keys:
+        - OTEL_EXPORTER_OTLP_HEADERS
+
+network:
+  ingress_host: graph-os-test.arpa
+  service_port: 8000
+  network_policy_enabled: true
+  allowed_namespaces:
+    - platform-test
+    - platform
+
+identity:
+  idp: keycloak
+  service_account: graph-os
+  automount_service_account_token: false
+  client_secret_ref: graph-os-secrets
+
+validation:
+  readiness_checks:
+    - http:/health/ready
+  liveness_checks:
+    - http:/health
+  functional_checks:
+    - kind: mcp-tools-list
+      target: streamable-http:/mcp
+      expected: A real MCP tools/list call returns at least one tool within 30s.
+    - kind: graph-query-roundtrip
+      target: graph_query
+      expected: A synthetic write/read round trip in an isolated graph succeeds.
