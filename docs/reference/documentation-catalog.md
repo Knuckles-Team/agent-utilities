@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-375 publishable pages · 187 direct nav targets · 123 public capabilities · 817 action rows · 553 typed configuration fields · 357 runtime-only call-site inputs.
+375 publishable pages · 187 direct nav targets · 123 public capabilities · 817 action rows · 554 typed configuration fields · 357 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -213,9 +213,9 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Layered Hybrid Architecture — KG Comparative Analysis Pipeline](../architecture/layered_analysis_architecture.md) — catalog
 - [LLM / Embedding Server-Capacity Guard](../architecture/llm-server-capacity-guard.md) — direct nav
 - [Mandatory ContextCompiler model boundary](../architecture/mandatory-context-compiler.md) — direct nav
+- [The MCP 2026-07-28 protocol on graph-os's own surface (BUG-069)](../architecture/mcp-2026-protocol-surface.md) — direct nav
 - [MCP authentication and network trust](../architecture/mcp_auth.md) — direct nav
 - [GraphOS Embedded Fleet Gateway](../architecture/mcp_multiplexer.md) — catalog
-- [The MCP 2026-07-28 protocol on graph-os's own surface (BUG-069)](../architecture/mcp-2026-protocol-surface.md) — direct nav
 - [The merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — direct nav
 - [Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — direct nav
 - [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — direct nav
