@@ -39,6 +39,13 @@ from pydantic import (
 )
 
 from agent_utilities.orchestration import work_item as _work_item
+from agent_utilities.orchestration.operation_payload import (
+    MAX_OPERATION_PAYLOAD_BYTES,
+    RepositoryBuildExecutionPayloadV1,
+    RepositoryOperationPayload,
+    operation_payload_from_mapping,
+    payload_digest,
+)
 from agent_utilities.orchestration.work_item import (
     DEFAULT_LEASE_TTL_S,
     WorkItemBackendUnavailable,
@@ -56,6 +63,7 @@ from agent_utilities.protocols.epistemic_operations._generated import (
     DevelopmentLaneCleanupIntent,
     DevelopmentLaneIntent,
 )
+from agent_utilities.security.persistence_privacy import PersistencePrivacyGuard
 
 CONTRACT_VERSION: Literal["1"] = "1"
 _METADATA_KEY = "repository_work_item"
@@ -69,6 +77,9 @@ _SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _IDEMPOTENCY_NAMESPACE = uuid.UUID("f2e04c6d-71aa-4ae8-8a15-20a2b2fce94f")
 _MAX_LIST_LIMIT = 1000
+TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE = (
+    "typed_execution_payload_authority_unavailable"
+)
 
 
 class RepositoryWorkItemError(ValueError):
@@ -435,7 +446,12 @@ class RepositoryWorkItemRequest(BaseModel):
     orchestration cross this package boundary.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True, use_enum_values=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        use_enum_values=True,
+        revalidate_instances="always",
+    )
 
     contract_version: Literal["1"] = CONTRACT_VERSION
     request_id: str
@@ -499,6 +515,14 @@ class RepositoryWorkItemRequest(BaseModel):
     # carry an opaque ``lane_event`` payload.
     lane_intent: DevelopmentLaneIntent | None = None
     lane_cleanup_intent: DevelopmentLaneCleanupIntent | None = None
+    # RMDD-29: operation-specific input is a second, independent additive
+    # typed extension living beside RMDD-28's lane intent above -- neither
+    # is projected into correlation_id, consent, target policy, or a generic
+    # mapping field, and neither substitutes for the other. A lane.lifecycle/
+    # lane.cleanup WorkItem carries lane_intent/lane_cleanup_intent; a build
+    # WorkItem may separately carry operation_payload; both remain None on
+    # every other operation kind.
+    operation_payload: RepositoryOperationPayload | None = None
 
     @field_validator(
         "request_id",
@@ -578,6 +602,13 @@ class RepositoryWorkItemRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_target(self) -> RepositoryWorkItemRequest:
+        if (
+            self.operation != RepositoryOperation.BUILD
+            and self.operation_payload is not None
+        ):
+            raise ValueError(
+                "operation_payload discriminator does not match the operation"
+            )
         if self.resolved_profile_authority is not None and (
             self.profile_version is None
             or self.disk_policy_key is None
@@ -733,6 +764,9 @@ class RepositoryWorkItemRequest(BaseModel):
             config_digest=raw.get("config_digest"),
             input_digest=input_digest,
             correlation_id=raw.get("correlation_id"),
+            operation_payload=raw.get("operation_payload"),
+            lane_intent=raw.get("lane_intent"),
+            lane_cleanup_intent=raw.get("lane_cleanup_intent"),
         )
 
 
@@ -776,6 +810,9 @@ class RepositoryWorkItemView(BaseModel):
     input_digest: str
     config_digest: str | None = None
     correlation_id: str | None = None
+    operation_payload_kind: str | None = None
+    operation_payload_version: str | None = None
+    operation_payload_digest: str | None = None
     resource_class: str = "light-check"
     concurrency_key: str = "light-check"
     fairness_group: str = "default"
@@ -816,6 +853,9 @@ class RepositoryWorkItemResult(BaseModel):
     state: RepositoryJobState
     repository_id: str
     tenant_id: str
+    operation_payload_kind: str | None = None
+    operation_payload_version: str | None = None
+    operation_payload_digest: str | None = None
     target_kind: str = "local"
     target_alias: str | None = None
     lane_id: str | None = None
@@ -965,6 +1005,91 @@ def _request_metadata(
 ) -> dict[str, Any]:
     """Build the bounded, privacy-safe WorkItem extension record."""
 
+    operation_payload = request.operation_payload
+    serialized_payload = (
+        operation_payload.model_dump(mode="json", exclude_none=False)
+        if operation_payload is not None
+        else None
+    )
+    if serialized_payload is not None:
+        assert operation_payload is not None
+        computed_payload_digest = payload_digest(serialized_payload)
+        if operation_payload.payload_digest != computed_payload_digest:
+            raise RepositoryWorkItemConflict(
+                "input_conflict: operation payload digest does not match its body"
+            )
+        encoded_size = len(
+            json.dumps(
+                serialized_payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        )
+        if encoded_size > MAX_OPERATION_PAYLOAD_BYTES:
+            raise RepositoryWorkItemError("operation payload exceeds its durable bound")
+        clean_payload, privacy_report = PersistencePrivacyGuard().sanitize(
+            serialized_payload
+        )
+        if privacy_report.changed or clean_payload != serialized_payload:
+            raise RepositoryWorkItemError(
+                "operation payload fails persistence privacy validation"
+            )
+
+    resource_reservation = {
+        "schema_version": "1",
+        "profile_name": _encode_opaque(request.resource_class),
+        "profile_version": _encode_opaque(request.profile_version),
+        "cpu_weight": request.cpu_weight,
+        "memory_mib": request.memory_mib,
+        "disk_mib": request.disk_mib,
+        "process_slots": request.process_slots,
+        "host_labels": _encode_opaque_sequence(request.host_labels),
+        "anti_affinity": _encode_opaque_sequence(request.anti_affinity),
+        "preferred_target": _target_policy_metadata(request.preferred_target),
+        "required_target": (
+            _target_policy_metadata(request.required_target)
+            if request.required_target is not None
+            else None
+        ),
+        "repository_id": _encode_opaque(request.repository_id),
+        "concurrency_key": _encode_opaque(request.concurrency_key),
+        "fairness_group": _encode_opaque(request.fairness_group),
+        "disk_low_watermark_mib": request.disk_low_watermark_mib,
+        "disk_high_watermark_mib": request.disk_high_watermark_mib,
+        # WorkItem admission identity and the later reservation input
+        # fingerprint are deliberately separate.  The former is known at
+        # submission; native reservation recomputes the latter from the
+        # fenced attempt/host/TTL request.
+        "work_item_input_fingerprint": "v1:" + request.immutable_digest(),
+        **(
+            {"resolved_profile_authority": request.resolved_profile_authority}
+            if resolved_profile_projection
+            else {}
+        ),
+        "concurrency_limit": request.concurrency_limit,
+        "repository_exclusive": request.repository_exclusive,
+        "branch_exclusive": request.branch_exclusive,
+        "disk_policy_key": _encode_opaque(request.disk_policy_key),
+        "fairness_cost": request.fairness_cost,
+        "branch": _encode_opaque(request.branch or request.base_ref),
+        "branch_explicit": request.branch is not None,
+        "base_ref": _encode_opaque(request.base_ref),
+        "target_kind": request.target_kind,
+        "target_alias": _encode_opaque(request.target_alias),
+    }
+    extension_metadata: dict[str, Any] = {
+        "resource_reservation": resource_reservation,
+    }
+    if serialized_payload is not None:
+        assert operation_payload is not None
+        extension_metadata.update(
+            {
+                "operation_payload": serialized_payload,
+                "operation_payload_digest": operation_payload.payload_digest,
+            }
+        )
+
     return {
         _METADATA_KEY: {
             "contract_version": CONTRACT_VERSION,
@@ -975,6 +1100,7 @@ def _request_metadata(
             "immutable_input_digest": input_digest,
             "source_input_digest": request.input_digest,
             "operation": _operation_value(request.operation),
+            **extension_metadata,
             "repository_id": _encode_opaque(request.repository_id),
             "base_ref": _encode_opaque(request.base_ref),
             "branch": _encode_opaque(request.branch),
@@ -983,52 +1109,6 @@ def _request_metadata(
             "session_id": _encode_opaque(request.session_id),
             "resource_class": _encode_opaque(request.resource_class),
             "concurrency_key": _encode_opaque(request.concurrency_key),
-            # RMDD-27's native transaction treats this complete nested record as
-            # an immutable WorkItem admission extension.  Empty policy fields are
-            # intentional fail-closed markers for old callers; the engine must
-            # reject them rather than infer profile/exclusivity authority.
-            "resource_reservation": {
-                "schema_version": "1",
-                "profile_name": _encode_opaque(request.resource_class),
-                "profile_version": _encode_opaque(request.profile_version),
-                "cpu_weight": request.cpu_weight,
-                "memory_mib": request.memory_mib,
-                "disk_mib": request.disk_mib,
-                "process_slots": request.process_slots,
-                "host_labels": _encode_opaque_sequence(request.host_labels),
-                "anti_affinity": _encode_opaque_sequence(request.anti_affinity),
-                "preferred_target": _target_policy_metadata(request.preferred_target),
-                "required_target": (
-                    _target_policy_metadata(request.required_target)
-                    if request.required_target is not None
-                    else None
-                ),
-                "repository_id": _encode_opaque(request.repository_id),
-                "concurrency_key": _encode_opaque(request.concurrency_key),
-                "fairness_group": _encode_opaque(request.fairness_group),
-                "disk_low_watermark_mib": request.disk_low_watermark_mib,
-                "disk_high_watermark_mib": request.disk_high_watermark_mib,
-                # WorkItem admission identity and the later reservation input
-                # fingerprint are deliberately separate.  The former is known
-                # at submission; native reservation recomputes the latter from
-                # the fenced attempt/host/TTL request.
-                "work_item_input_fingerprint": "v1:" + request.immutable_digest(),
-                **(
-                    {"resolved_profile_authority": request.resolved_profile_authority}
-                    if resolved_profile_projection
-                    else {}
-                ),
-                "concurrency_limit": request.concurrency_limit,
-                "repository_exclusive": request.repository_exclusive,
-                "branch_exclusive": request.branch_exclusive,
-                "disk_policy_key": _encode_opaque(request.disk_policy_key),
-                "fairness_cost": request.fairness_cost,
-                "branch": _encode_opaque(request.branch or request.base_ref),
-                "branch_explicit": request.branch is not None,
-                "base_ref": _encode_opaque(request.base_ref),
-                "target_kind": request.target_kind,
-                "target_alias": _encode_opaque(request.target_alias),
-            },
             "fairness_group": _encode_opaque(request.fairness_group),
             "priority": request.priority,
             "cpu_weight": request.cpu_weight,
@@ -1093,7 +1173,9 @@ def _native_admission_projection(
     }
 
 
-def _metadata_record(row: Mapping[str, Any]) -> dict[str, Any]:
+def _metadata_record(
+    row: Mapping[str, Any], *, include_payload: bool = True
+) -> dict[str, Any]:
     metadata = row.get("metadata")
     if not isinstance(metadata, Mapping):
         raise RepositoryWorkItemConflict("repository WorkItem metadata is missing")
@@ -1141,6 +1223,53 @@ def _metadata_record(row: Mapping[str, Any]) -> dict[str, Any]:
     for field in ("host_labels", "anti_affinity", "validation_stages", "dependencies"):
         if field in result:
             result[field] = _decode_opaque_sequence(result[field], field)
+    raw_payload = result.get("operation_payload")
+    stored_payload_digest = result.get("operation_payload_digest")
+    if raw_payload is not None:
+        if not include_payload:
+            # Ordinary projections may carry only the closed discriminator
+            # summary.  Never parse or retain the executable body on this
+            # path; exact input requires the native capability seam below.
+            if isinstance(raw_payload, Mapping):
+                result["operation_payload"] = {
+                    "kind": raw_payload.get("kind"),
+                    "schema_version": raw_payload.get("schema_version"),
+                }
+            else:
+                result["operation_payload"] = None
+            return result
+        try:
+            typed_payload = operation_payload_from_mapping(raw_payload)
+        except (TypeError, ValueError) as exc:
+            raise RepositoryWorkItemConflict(
+                "input_conflict: repository WorkItem operation payload is invalid"
+            ) from exc
+        if result.get("operation") != RepositoryOperation.BUILD.value:
+            raise RepositoryWorkItemConflict(
+                "input_conflict: operation payload discriminator does not match operation"
+            )
+        computed_payload_digest = payload_digest(typed_payload)
+        raw_payload_digest = (
+            raw_payload.get("payload_digest")
+            if isinstance(raw_payload, Mapping)
+            else None
+        )
+        if (
+            stored_payload_digest != computed_payload_digest
+            or raw_payload_digest != computed_payload_digest
+            or typed_payload.payload_digest != computed_payload_digest
+        ):
+            raise RepositoryWorkItemConflict(
+                "input_conflict: repository WorkItem operation payload digest mismatch"
+            )
+        result["operation_payload"] = typed_payload.model_dump(
+            mode="json", exclude_none=False
+        )
+        result["operation_payload_digest"] = computed_payload_digest
+    elif stored_payload_digest is not None:
+        raise RepositoryWorkItemConflict(
+            "input_conflict: operation payload digest has no body"
+        )
     return result
 
 
@@ -1165,7 +1294,7 @@ def _assert_idempotent(
         )
     if record.get("immutable_input_digest") != input_digest:
         raise RepositoryWorkItemConflict(
-            "idempotency key was reused with changed immutable repository input"
+            "input_conflict: idempotency key was reused with changed immutable repository input"
         )
 
 
@@ -1199,7 +1328,11 @@ def submit_repository_work_item(
     request digest is rejected rather than overwritten.
     """
 
-    raw_request = _as_mapping(request)
+    raw_request = (
+        dict(vars(request))
+        if isinstance(request, RepositoryWorkItemRequest)
+        else _as_mapping(request)
+    )
     raw_resources = _nested_mapping(raw_request.get("resources"))
     supplied_authority = raw_resources.get(
         "resolved_profile_authority"
@@ -1267,7 +1400,7 @@ def submit_repository_work_item(
         )
     try:
         typed_request = (
-            request
+            RepositoryWorkItemRequest.model_validate(request)
             if isinstance(request, RepositoryWorkItemRequest)
             else RepositoryWorkItemRequest.from_contract(request)
         )
@@ -1275,6 +1408,17 @@ def submit_repository_work_item(
         raise RepositoryWorkItemError(
             "repository request is invalid at the WorkItem authority boundary"
         ) from exc
+    if typed_request.operation == RepositoryOperation.BUILD and (
+        typed_request.operation_payload is not None
+    ):
+        if typed_request.operation_payload.repository_id != typed_request.repository_id:
+            raise RepositoryWorkItemError(
+                "operation payload repository identity disagrees with WorkItem"
+            )
+        if typed_request.operation_payload.base_sha != typed_request.base_sha:
+            raise RepositoryWorkItemError(
+                "operation payload base SHA disagrees with WorkItem"
+            )
     if resolved_profile_projection and typed_request.resolved_profile_authority is None:
         raise RepositoryWorkItemError(
             "trusted resolved profile projection was not preserved by contract adaptation"
@@ -1368,7 +1512,18 @@ def _state_value(value: object) -> str:
 
 
 def _view_from_row(row: Mapping[str, Any]) -> RepositoryWorkItemView:
-    record = _metadata_record(row)
+    record = _metadata_record(row, include_payload=False)
+    operation_payload = record.get("operation_payload")
+    payload_kind = (
+        str(operation_payload.get("kind"))
+        if isinstance(operation_payload, Mapping)
+        else None
+    )
+    payload_version = (
+        str(operation_payload.get("schema_version"))
+        if isinstance(operation_payload, Mapping)
+        else None
+    )
     lease = None
     if row.get("lease_owner"):
         lease = RepositoryLease(
@@ -1445,6 +1600,9 @@ def _view_from_row(row: Mapping[str, Any]) -> RepositoryWorkItemView:
         input_digest=record["immutable_input_digest"],
         config_digest=record.get("config_digest"),
         correlation_id=row.get("correlation_id"),
+        operation_payload_kind=payload_kind,
+        operation_payload_version=payload_version,
+        operation_payload_digest=record.get("operation_payload_digest"),
         attempt=int(row.get("attempt") or 0),
         max_attempts=max(1, int(row.get("max_attempts") or 1)),
         checkpoint=row.get("checkpoint_id"),
@@ -1508,12 +1666,48 @@ def get_repository_work_item(
     row = get_work_item(engine, repository_work_item_id(job_id))
     if row is None or row.get("tenant") != tenant:
         return None
-    record = _metadata_record(row)
+    record = _metadata_record(row, include_payload=False)
     if owner_id is not None and record.get("owner_id") != _nonblank(
         owner_id, "owner_id"
     ):
         return None
     return _view_from_row(row)
+
+
+def get_repository_operation_payload(
+    engine: Any,
+    identifier: str,
+    *,
+    tenant: str,
+    owner_id: str,
+) -> RepositoryBuildExecutionPayloadV1 | None:
+    """Fail closed until EG supplies one atomic native exact-input operation.
+
+    The legacy owner-shaped signature is retained only as a compatibility
+    boundary.  It never inspects the engine, owner string, or public metadata;
+    native authority integration will replace this path after the EG schema
+    freeze.
+    """
+
+    del engine, identifier, tenant, owner_id
+    raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
+
+
+def get_repository_operation_payload_for_claim(
+    engine: Any,
+    identifier: str,
+    *,
+    tenant: str,
+    claim: Mapping[str, Any],
+) -> RepositoryBuildExecutionPayloadV1 | None:
+    """Reject the retired public tuple claim path before any row read.
+
+    Fencing tuples are mutation CAS evidence, not authentication.  Native
+    worker callers must use the future EG-native atomic exact-input operation.
+    """
+
+    del engine, identifier, tenant, claim
+    raise RepositoryWorkItemError(TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE)
 
 
 _T = TypeVar("_T", bound=str)
@@ -1976,6 +2170,9 @@ def repository_result_from_view(
         state=view.state,
         repository_id=view.repository_id,
         tenant_id=view.tenant_id,
+        operation_payload_kind=view.operation_payload_kind,
+        operation_payload_version=view.operation_payload_version,
+        operation_payload_digest=view.operation_payload_digest,
         target_kind=view.target_kind,
         target_alias=view.target_alias,
         lane_id=view.lane_id,
@@ -2014,6 +2211,8 @@ __all__ = [
     "RepositoryJobState",
     "RepositoryLease",
     "RepositoryOperation",
+    "RepositoryBuildExecutionPayloadV1",
+    "RepositoryOperationPayload",
     "RepositoryTargetPolicy",
     "RepositoryWorkItemConflict",
     "RepositoryWorkItemError",
@@ -2022,11 +2221,14 @@ __all__ = [
     "RepositoryWorkItemRequest",
     "RepositoryWorkItemResult",
     "RepositoryWorkItemView",
+    "TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE",
     "cancel_repository_work_item",
     "checkpoint_repository_work_item",
     "claim_next_repository_work_item",
     "claim_repository_work_item",
     "commit_repository_work_item",
+    "get_repository_operation_payload",
+    "get_repository_operation_payload_for_claim",
     "get_repository_work_item",
     "heartbeat_repository_work_item",
     "list_repository_work_items",

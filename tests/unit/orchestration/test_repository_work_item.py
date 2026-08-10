@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import UTC, datetime
 from typing import Any
 
@@ -11,7 +12,12 @@ import pytest
 
 from agent_utilities.orchestration import repository_work_item as rwi
 from agent_utilities.orchestration import work_item as wi
+from agent_utilities.orchestration.operation_payload import (
+    RepositoryBuildExecutionPayloadV1,
+    cache_key_digest_from_components,
+)
 from agent_utilities.orchestration.repository_work_item import (
+    TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
     RepositoryConsentPolicy,
     RepositoryJobState,
     RepositoryOperation,
@@ -23,6 +29,8 @@ from agent_utilities.orchestration.repository_work_item import (
     checkpoint_repository_work_item,
     claim_repository_work_item,
     commit_repository_work_item,
+    get_repository_operation_payload,
+    get_repository_operation_payload_for_claim,
     get_repository_work_item,
     heartbeat_repository_work_item,
     list_repository_work_items,
@@ -432,6 +440,48 @@ def _request(
     )
 
 
+def _operation_payload(
+    *,
+    repository_id: str = "agent-utilities",
+    base_sha: str = "a" * 40,
+) -> RepositoryBuildExecutionPayloadV1:
+    components = {
+        "key_version": "v2",
+        "repo": repository_id,
+        "spec": "test-build",
+        "tree_sha": base_sha,
+        "feature_set": "cargo build",
+        "toolchain_fingerprint": "unpinned",
+        "target_triple": "x86_64-unknown-linux-gnu",
+        "config_digest": "b" * 64,
+        "spec_digest": "c" * 64,
+        "generation_id": "",
+        "generation_digest": "",
+    }
+    return RepositoryBuildExecutionPayloadV1(
+        repository_id=repository_id,
+        base_sha=base_sha,
+        tree_sha=base_sha,
+        build_spec_name="test-build",
+        spec_digest=components["spec_digest"],
+        config_digest=components["config_digest"],
+        toolchain_digest="d" * 64,
+        artifact_contract_digest="e" * 64,
+        feature_set=components["feature_set"],
+        target_triple=components["target_triple"],
+        cache_key_components=components,
+        cache_key_digest=cache_key_digest_from_components(components),
+        argv=("cargo", "build"),
+        workdir=".",
+        timeout_seconds=60,
+        artifact_patterns=("target/**",),
+        environment_refs=("CI",),
+        execution_policy_ref="repository.build-policy:v1",
+        profile_ref="repository_manager:resource_profile:light-check:v1",
+        cacheable=True,
+    )
+
+
 def test_registered_kinds_and_nested_contract_projection() -> None:
     request = RepositoryWorkItemRequest.from_contract(
         {
@@ -627,7 +677,9 @@ def test_nested_c03_resource_projection_survives_view_and_result_round_trip() ->
         )
 
 
-def _trusted_resolved_request(*, key: str = "resolved-profile") -> RepositoryWorkItemRequest:
+def _trusted_resolved_request(
+    *, key: str = "resolved-profile"
+) -> RepositoryWorkItemRequest:
     return _request(key=key).model_copy(
         update={
             "profile_version": "1",
@@ -680,9 +732,7 @@ def test_trusted_resolved_projection_rejects_partial_authority_marker() -> None:
         "repository_manager:resource_profile_registry:v1"
     )
     with pytest.raises(RepositoryWorkItemError, match="projection is incomplete"):
-        submit_repository_work_item(
-            engine, raw, resolved_profile_projection=True
-        )
+        submit_repository_work_item(engine, raw, resolved_profile_projection=True)
 
 
 def test_c01_consent_is_projected_without_broadening_branch_land_or_repair() -> None:
@@ -1560,3 +1610,418 @@ def test_checkpoint_retry_dead_letter_and_typed_terminal_result() -> None:
     assert result.failure_class == "validation_candidate_failure"
     assert result.target_kind == "local"
     assert result.retry_class is None
+
+
+def test_operation_payload_is_atomic_private_summary_and_exact_owner_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    request = _request(key="typed-payload").model_copy(
+        update={"operation_payload": payload}
+    )
+    submitted = submit_repository_work_item(engine, request)
+    row = engine.nodes[submitted.work_item_id]
+    record = row["metadata"]["repository_work_item"]
+    assert record["resource_reservation"]["schema_version"] == "1"
+    assert record["operation_payload"]["kind"] == "repository.build-execution/v1"
+    assert record["operation_payload_digest"] == payload.payload_digest
+    assert row["correlation_id"] == request.request_id
+    assert "argv" not in row["correlation_id"]
+
+    view = get_repository_work_item(engine, submitted.job_id, tenant="tenant-a")
+    assert view is not None
+    assert view.operation_payload_kind == "repository.build-execution/v1"
+    assert view.operation_payload_version == "1"
+    assert view.operation_payload_digest == payload.payload_digest
+    assert "operation_payload" not in view.model_dump(mode="json")
+    listed = list_repository_work_items(engine, tenant="tenant-a")
+    assert len(listed) == 1
+    assert "operation_payload" not in listed[0].model_dump(mode="json")
+
+    reads = 0
+    original_get = rwi.get_work_item
+
+    def observe_get(engine_arg: Any, item_id: str) -> dict[str, Any] | None:
+        nonlocal reads
+        reads += 1
+        return original_get(engine_arg, item_id)
+
+    monkeypatch.setattr(rwi, "get_work_item", observe_get)
+    with pytest.raises(
+        RepositoryWorkItemError,
+        match=TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
+    ):
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+    with pytest.raises(RepositoryWorkItemError):
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-b",
+            owner_id="actor-a",
+        )
+    with pytest.raises(RepositoryWorkItemError):
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="copied-owner-is-ignored",
+        )
+    assert reads == 0
+    claim = claim_repository_work_item(
+        engine, submitted.job_id, tenant="tenant-a", token="typed-worker", now=10.0
+    )
+    assert claim is not None
+    assert (
+        commit_repository_work_item(
+            engine,
+            submitted.job_id,
+            claim,
+            tenant="tenant-a",
+            outcome="succeeded",
+            result_ref="artifact:typed",
+            now=11.0,
+        )
+        == "committed"
+    )
+    terminal = get_repository_work_item(engine, submitted.job_id, tenant="tenant-a")
+    assert terminal is not None
+    result = repository_result_from_view(terminal)
+    assert result.operation_payload_kind == "repository.build-execution/v1"
+    assert result.operation_payload_version == "1"
+    assert result.operation_payload_digest == payload.payload_digest
+    assert "operation_payload" not in result.model_dump(mode="json")
+    with pytest.raises(
+        RepositoryWorkItemError,
+        match=TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
+    ):
+        get_repository_operation_payload(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="another-owner",
+        )
+
+
+def test_claim_bound_exact_read_rejects_public_and_stale_worker_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    submitted = submit_repository_work_item(
+        engine,
+        _request(key="claim-bound-payload").model_copy(
+            update={"operation_payload": payload}
+        ),
+    )
+    reads = 0
+    original_get = rwi.get_work_item
+
+    def observe_get(engine_arg: Any, item_id: str) -> dict[str, Any] | None:
+        nonlocal reads
+        reads += 1
+        return original_get(engine_arg, item_id)
+
+    monkeypatch.setattr(rwi, "get_work_item", observe_get)
+    with pytest.raises(
+        RepositoryWorkItemError,
+        match=TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
+    ):
+        get_repository_operation_payload_for_claim(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            claim={
+                "_native": True,
+                "work_item_id": submitted.work_item_id,
+                "lease_epoch": 1,
+                "fencing_token": 1,
+                "attempt": 1,
+            },
+        )
+    assert reads == 0
+
+
+def test_claim_bound_exact_read_rejects_reclaim_between_authority_and_row_reads(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    submitted = submit_repository_work_item(
+        engine,
+        _request(key="claim-read-race").model_copy(
+            update={"operation_payload": payload}
+        ),
+    )
+    reads = 0
+
+    def unexpected_row_read(engine_arg: Any, item_id: str) -> dict[str, Any] | None:
+        nonlocal reads
+        reads += 1
+        raise AssertionError(f"private row read before native auth: {item_id}")
+
+    monkeypatch.setattr(rwi, "get_work_item", unexpected_row_read)
+    with pytest.raises(
+        RepositoryWorkItemError,
+        match=TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
+    ):
+        get_repository_operation_payload_for_claim(
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            claim={"_native": True, "work_item_id": submitted.work_item_id},
+        )
+    assert reads == 0
+
+
+def test_claim_bound_exact_read_enforces_expiry_boundaries_and_malformed_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    submitted = submit_repository_work_item(
+        engine,
+        _request(key="claim-expiry-payload").model_copy(
+            update={"operation_payload": payload}
+        ),
+    )
+    reads = 0
+    original_get = rwi.get_work_item
+
+    def observe_get(engine_arg: Any, item_id: str) -> dict[str, Any] | None:
+        nonlocal reads
+        reads += 1
+        return original_get(engine_arg, item_id)
+
+    monkeypatch.setattr(rwi, "get_work_item", observe_get)
+    for claim in (
+        {"_native": True, "work_item_id": submitted.work_item_id},
+        {"_native": True, "work_item_id": submitted.work_item_id, "lease_epoch": 1},
+    ):
+        with pytest.raises(
+            RepositoryWorkItemError,
+            match=TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
+        ):
+            get_repository_operation_payload_for_claim(
+                engine,
+                submitted.job_id,
+                tenant="tenant-a",
+                claim=claim,
+            )
+    assert reads == 0
+
+
+def test_exact_input_has_no_python_capability_mint_or_split_read_api() -> None:
+    engine = RepositoryEngine()
+    submitted = submit_repository_work_item(engine, _request(key="no-capability-api"))
+    with pytest.raises(TypeError):
+        get_repository_operation_payload(  # type: ignore[call-arg]
+            engine,
+            submitted.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+            capability="copied-public-fence",
+        )
+    assert not hasattr(rwi, "get_repository_operation_payload_for_capability")
+    assert not hasattr(rwi, "verify_repository_operation_capability")
+
+
+def test_payload_digest_conflict_tamper_and_explicit_copy_preservation() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    request = _request(key="typed-conflict").model_copy(
+        update={"operation_payload": payload}
+    )
+    first = submit_repository_work_item(engine, request)
+    duplicate = submit_repository_work_item(engine, request)
+    assert duplicate.deduplicated is True
+    changed_payload = payload.model_copy(update={"argv": ("cargo", "test")})
+    changed = request.model_copy(update={"operation_payload": changed_payload})
+    with pytest.raises(RepositoryWorkItemConflict, match="input_conflict"):
+        submit_repository_work_item(engine, changed)
+    assert (
+        engine.nodes[first.work_item_id]["metadata"]["repository_work_item"][
+            "operation_payload_digest"
+        ]
+        == payload.payload_digest
+    )
+
+    tampered = engine.nodes[first.work_item_id]["metadata"]["repository_work_item"]
+    tampered["operation_payload"]["argv"] = ["cargo", "clean"]
+    with pytest.raises(RepositoryWorkItemConflict, match="input_conflict"):
+        rwi._metadata_record(engine.nodes[first.work_item_id])  # noqa: SLF001
+
+    retry_request = request.model_copy(
+        update={
+            "request_id": "typed-conflict-retry:request",
+            "idempotency_key": "typed-conflict-retry",
+        }
+    )
+    # An explicit new WorkItem copies the exact typed input; correlation is
+    # still only the new request relationship.
+    second = submit_repository_work_item(engine, retry_request)
+    with pytest.raises(
+        RepositoryWorkItemError,
+        match=TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
+    ):
+        get_repository_operation_payload(
+            engine,
+            second.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+
+
+def test_typed_build_repair_preserves_exact_payload_and_replays_idempotently() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    source_request = _request(key="typed-repair-source").model_copy(
+        update={"operation_payload": payload}
+    )
+    source = submit_repository_work_item(engine, source_request)
+
+    repair_values = source_request.model_dump(mode="python", exclude_none=False)
+    repair_values.update(
+        {
+            "request_id": "repair:typed-repair:request",
+            "idempotency_key": "repair:typed-repair",
+            "correlation_id": source.job_id,
+            "retry_class": "reconciliation",
+            "input_digest": "f" * 64,
+        }
+    )
+    repaired = submit_repository_work_item(engine, repair_values)
+    view = get_repository_work_item(engine, repaired.job_id, tenant="tenant-a")
+    assert view is not None
+    assert view.operation == RepositoryOperation.BUILD.value
+    assert view.correlation_id == source.job_id
+    assert view.retry_class == "reconciliation"
+    repaired_record = rwi._metadata_record(  # noqa: SLF001
+        engine.nodes[repaired.work_item_id]
+    )
+    assert repaired_record["operation_payload"] == payload.model_dump(
+        mode="json", exclude_none=False
+    )
+
+    restarted = RepositoryEngine()
+    restarted.nodes = deepcopy(engine.nodes)
+    restarted_record = rwi._metadata_record(  # noqa: SLF001
+        restarted.nodes[repaired.work_item_id]
+    )
+    assert restarted_record["operation_payload"] == payload.model_dump(
+        mode="json", exclude_none=False
+    )
+    replay = submit_repository_work_item(engine, repair_values)
+    assert replay.deduplicated is True
+
+    changed_payload = payload.model_copy(update={"argv": ("cargo", "test")})
+    changed_values = dict(repair_values)
+    changed_values["operation_payload"] = changed_payload.model_dump(
+        mode="json", exclude_none=False
+    )
+    with pytest.raises(RepositoryWorkItemConflict, match="input_conflict"):
+        submit_repository_work_item(engine, changed_values)
+
+
+def test_payloadless_legacy_build_is_readable_but_exact_input_fails_closed() -> None:
+    engine = RepositoryEngine()
+    legacy = submit_repository_work_item(engine, _request(key="legacy-build"))
+    view = get_repository_work_item(engine, legacy.job_id, tenant="tenant-a")
+    assert view is not None
+    assert view.operation_payload_kind is None
+    assert view.operation_payload_digest is None
+    with pytest.raises(
+        RepositoryWorkItemError,
+        match=TYPED_EXECUTION_PAYLOAD_AUTHORITY_UNAVAILABLE,
+    ):
+        get_repository_operation_payload(
+            engine,
+            legacy.job_id,
+            tenant="tenant-a",
+            owner_id="actor-a",
+        )
+
+
+def test_unknown_variant_refuses_before_work_item_creation() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    raw = _request(key="unknown-payload").model_dump(mode="python")
+    raw["operation_payload"] = {
+        **payload.model_dump(mode="json"),
+        "kind": "repository.future/v1",
+    }
+    with pytest.raises(RepositoryWorkItemError, match="invalid"):
+        submit_repository_work_item(engine, raw)
+    job_id = repository_job_id("tenant-a", "unknown-payload")
+    assert repository_work_item_id(job_id) not in engine.nodes
+
+
+def test_existing_request_instances_revalidate_typed_payload_at_authority() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    request = _request(key="invalid-copy").model_copy(
+        update={
+            "operation_payload": {
+                **payload.model_dump(mode="python"),
+                "argv": ("sh", "-c", "echo secret"),
+            }
+        }
+    )
+    with pytest.raises(RepositoryWorkItemError, match="invalid"):
+        submit_repository_work_item(engine, request)
+    job_id = repository_job_id("tenant-a", "invalid-copy")
+    assert repository_work_item_id(job_id) not in engine.nodes
+
+
+def test_automatic_retry_keeps_exact_operation_payload_and_digest() -> None:
+    engine = RepositoryEngine()
+    payload = _operation_payload()
+    request = _request(key="typed-auto-retry").model_copy(
+        update={"operation_payload": payload}
+    )
+    submitted = submit_repository_work_item(engine, request, max_attempts=2)
+    first = claim_repository_work_item(
+        engine,
+        submitted.job_id,
+        tenant="tenant-a",
+        token="typed-worker-a",
+        now=100.0,
+    )
+    assert first is not None
+    assert (
+        commit_repository_work_item(
+            engine,
+            submitted.job_id,
+            first,
+            tenant="tenant-a",
+            outcome="failed",
+            failure_class="worker_environment_failure",
+            retryable=True,
+            now=101.0,
+        )
+        == "retry_scheduled"
+    )
+    record = rwi._metadata_record(  # noqa: SLF001
+        engine.nodes[submitted.work_item_id]
+    )
+    assert record["operation_payload"] == payload.model_dump(
+        mode="json", exclude_none=False
+    )
+    second = claim_repository_work_item(
+        engine,
+        submitted.job_id,
+        tenant="tenant-a",
+        token="typed-worker-b",
+        now=102.0,
+    )
+    assert second is not None
+    assert second["work_item_id"] == submitted.work_item_id
+    retry_record = rwi._metadata_record(  # noqa: SLF001
+        engine.nodes[submitted.work_item_id]
+    )
+    assert retry_record["operation_payload_digest"] == payload.payload_digest
