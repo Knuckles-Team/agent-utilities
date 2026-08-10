@@ -676,6 +676,17 @@ module = [
 disable_error_code = ["attr-defined"]
 
 [tool.uv]
+# INFRA-2 (RMDD-D2): the lock (`uv.lock:11`, `prerelease-mode = "allow"`) and this
+# manifest disagreed — nothing here declared the mode, so any invocation without an
+# explicit `--prerelease`/`UV_PRERELEASE` flag (e.g. `run_agent_utilities_gate.py`'s
+# `uv run --project <au> --locked python`) fell back to uv's default
+# `if-necessary-or-explicit`, forcing an unwanted re-resolve that `--locked` then
+# correctly refused, taking down `okf-no-legacy-concepts`, `check-stubs`,
+# `check-cli-help`, and `pytest` fleet-wide. Declaring it here is the chokepoint: every
+# caller of this project inherits the mode with no per-caller flag, and it makes
+# pyproject.toml agree with what the lock already recorded. `uv lock --check` before and
+# after resolves the identical 366 packages — this is a declaration, not a re-resolution.
+prerelease = "allow"
 override-dependencies = [
     # CONCEPT:PHASE2-RECONCILE — nltk transitively pinned below 3.10 by an older
     # fleet dependency; the ecosystem-wide resolve needs the 3.10+ floor.
