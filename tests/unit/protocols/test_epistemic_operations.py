@@ -12,6 +12,7 @@ from agent_utilities.protocols.epistemic_operations import (
     OperationResult,
     PlacementRoute,
     RequestContext,
+    ResourceReservationRequest,
     load_catalog,
     load_schema,
 )
@@ -55,9 +56,15 @@ def test_catalog_contains_exact_current_schema_set() -> None:
         "claim_work_item",
         "evidence_bundle",
         "operation_result",
+        "resource_reservation",
+        "resource_reservation_status",
+        "resource_host_update",
     ]
     assert [entry["version"] for entry in catalog["schemas"]] == [
         "2",
+        "1",
+        "1",
+        "1",
         "1",
         "1",
         "1",
@@ -90,6 +97,62 @@ def test_request_context_rejects_type_coercion() -> None:
     payload["issued_at_ms"] = "1000"
     with pytest.raises(ValidationError, match="valid integer"):
         RequestContext.model_validate(payload)
+
+
+def _resource_request_payload(*, profile_version: str = "1") -> dict[str, Any]:
+    return {
+        "schema_version": "1",
+        "tenant_ref": "tenant:opaque",
+        "work_item_id": "work:opaque",
+        "owner_id": "owner:opaque",
+        "fence": "1",
+        "lease_epoch": 1,
+        "fencing_token": 1,
+        "attempt": 1,
+        "reservation_id": "reservation:opaque",
+        "input_fingerprint": "v1:" + "0" * 64,
+        "profile_name": "rust-build",
+        "profile_version": profile_version,
+        "host_ref": "host:opaque",
+        "requirement": {
+            "cpu_weight": 1,
+            "memory_mib": 1,
+            "disk_mib": 1,
+            "process_slots": 1,
+        },
+        "target_kind": "local",
+        "target_alias": None,
+        "repository_id": "repo:opaque",
+        "branch": "main",
+        "concurrency_key": "rust-build",
+        "concurrency_limit": None,
+        "repository_exclusive": False,
+        "branch_exclusive": False,
+        "required_labels": [],
+        "anti_affinity": [],
+        "fairness_group": "default",
+        "fairness_cost": 1,
+        "disk_low_watermark_mib": None,
+        "disk_high_watermark_mib": None,
+        "disk_policy_key": "rust-v1",
+        "reserved_at_ms": 1,
+        "expires_at_ms": 2,
+        "idempotency_key": "invocation:opaque",
+        "now_ms": 1,
+        "expected_host_revision": None,
+        "expected_lifecycle_revision": None,
+    }
+
+
+def test_resource_projection_rejects_noncanonical_profile_version_and_duplicate_labels() -> None:
+    with pytest.raises(ValidationError, match="profile_version"):
+        ResourceReservationRequest.model_validate(
+            _resource_request_payload(profile_version="01")
+        )
+    duplicate = _resource_request_payload()
+    duplicate["required_labels"] = ["linux", "linux"]
+    with pytest.raises(ValidationError, match="unique"):
+        ResourceReservationRequest.model_validate(duplicate)
 
 
 def test_schema_loader_is_catalog_bounded() -> None:

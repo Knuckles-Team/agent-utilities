@@ -34,6 +34,7 @@ def test_graphos_advertises_and_serves_the_workitem_backed_tasks_extension() -> 
     from agent_utilities.mcp.tasks_extension import (
         TASKS_EXTENSION_AVAILABLE,
         TASKS_EXTENSION_ID,
+        TASKS_EXTENSION_REVISION,
         WorkItemTasksExtension,
     )
 
@@ -49,6 +50,9 @@ def test_graphos_advertises_and_serves_the_workitem_backed_tasks_extension() -> 
 
     capabilities = mcp._mcp_server.create_initialization_options().capabilities
     assert TASKS_EXTENSION_ID in (capabilities.extensions or {})
+    assert mcp._extensions[TASKS_EXTENSION_ID].settings() == {
+        "revision": TASKS_EXTENSION_REVISION
+    }
 
     # The tasks extension registers exactly these three methods when mounted,
     # each bound to WorkItemTasksExtension's own handler -- reachable, and

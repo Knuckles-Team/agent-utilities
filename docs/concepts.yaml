@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1162
+total_concepts: 1166
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2286,6 +2286,15 @@ concepts:
   - agent_utilities/capabilities/composition.py
   - agent_utilities/capabilities/kg_audit_sink.py
   doc: PA-R1.7
+- id: AU-KG.audit.repository-job-provenance-bridge
+  name: RMDD-19 repository job provenance
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/observability/gateway_metrics.py
+  - agent_utilities/observability/repository_metrics.py
+  - agent_utilities/observability/repository_provenance.py
+  doc: RMDD-19 repository job provenance
 - id: AU-KG.audit.tool-call-acted-on-reverse-index
   name: AU-KG.audit.tool-call-acted-on-reverse-index
   pillar: AU-KG
@@ -7871,6 +7880,13 @@ concepts:
   code_paths:
   - agent_utilities/orchestration/org_runtime.py
   doc: Drafts departments → roles from the goal
+- id: AU-ORCH.org.repository-workitem-authority
+  name: Durable repository-development WorkItem authority
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/repository_work_item.py
+  doc: Durable repository-development WorkItem authority
 - id: AU-ORCH.org.work-item-dag
   name: AU-ORCH.org.work-item-dag
   pillar: AU-ORCH
@@ -8942,6 +8958,13 @@ concepts:
   - agent_utilities/orchestration/fleet_reconciler.py
   - agent_utilities/runtime/policy.py
   doc: this function only actuates + records
+- id: AU-OS.deployment.genesis-environment-profiles
+  name: see
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/deployment/genesis_environments.py
+  doc: see
 - id: AU-OS.deployment.governance-derived-claude-code
   name: Governance-derived Claude Code permission-fence generator
   pillar: AU-OS
@@ -9167,6 +9190,13 @@ concepts:
   code_paths:
   - agent_utilities/governance/merge_queue.py
   doc: AU-OS.governance.cross-branch-duplicate-symbol
+- id: AU-OS.governance.cross-host-concept-reservation-authority
+  name: AU-OS.governance.cross-host-concept-reservation-authority
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/governance/concept_reservation.py
+  doc: AU-OS.governance.cross-host-concept-reservation-authority
 - id: AU-OS.governance.fail-closed-claim-check
   name: AU-OS.governance.fail-closed-claim-check
   pillar: AU-OS

@@ -103,6 +103,7 @@ nav:
       - Drift-Proof Release & Versioning: architecture/drift_proof_release.md
       - Lane Concurrency (four arbitration classes): architecture/lane-concurrency.md
       - Merge Queue (continuous merge, tiered gate): architecture/merge-queue.md
+      - Repository-development WorkItem authority: architecture/repository-workitem-authority.md
       - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
       - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
       - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md

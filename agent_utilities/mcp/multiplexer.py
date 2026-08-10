@@ -241,6 +241,7 @@ _CHILD_ENV_ALLOWLIST = frozenset(
         "XDG_STATE_HOME",
     }
 )
+_TASK_DELEGATION_CHANNEL_ENV = "AGENT_UTILITIES_MCP_TASK_CHANNEL_SECRET"
 _PROVIDER_CHILD_ENV_KEYS = frozenset({"AGENT_PROVIDER_PROFILE", "PROVIDER_CONFIGS"})
 _PROVIDER_RESOLUTION_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
     max_workers=4,
@@ -1474,6 +1475,279 @@ class MCPMultiplexer:
                 }
             )
 
+    @staticmethod
+    def _tasks_child_capable(initialization: Any) -> bool:
+        """Return whether one initialize result advertises this Tasks revision."""
+
+        from agent_utilities.mcp.tasks_extension import (
+            TASKS_EXTENSION_ID,
+            TASKS_EXTENSION_REVISION,
+        )
+
+        capabilities = getattr(initialization, "capabilities", None)
+        extensions = getattr(capabilities, "extensions", None)
+        if not isinstance(extensions, Mapping):
+            return False
+        settings = extensions.get(TASKS_EXTENSION_ID)
+        return isinstance(settings, Mapping) and (
+            settings.get("revision") == TASKS_EXTENSION_REVISION
+        )
+
+    def _tasks_runtime_capable(self, server_name: str, runtime: ChildRuntime) -> bool:
+        """Require every selectable session in one child pool to qualify."""
+
+        sessions = getattr(runtime, "_sessions", None)
+        if not isinstance(sessions, list) or not sessions:
+            return False
+        # The live pool is the sole capability authority. Every selectable
+        # session is interrogated directly so a rolling/mixed replica cannot
+        # inherit one last-writer handshake or a retired generation's record.
+        return all(
+            self._tasks_child_capable(getattr(session, "initialize_result", None))
+            for session in sessions
+        )
+
+    async def forward_task_method(
+        self,
+        method: str,
+        params: Mapping[str, Any],
+        *,
+        caller: Mapping[str, Any] | None = None,
+        route: Mapping[str, Any] | None = None,
+    ) -> Any:
+        """Forward one native Tasks request to its owning child server.
+
+        This is a request router, not a task store.  The child WorkItem
+        authority answers the request and the existing ``ChildRuntime``
+        supplies bounded queueing, restart/retry, and replica-session
+        selection. Capability negotiation is checked against the child's
+        latest initialize result before any task ID crosses the route.
+        """
+
+        from agent_utilities.mcp.tasks_extension import (
+            TASKS_EXTENSION_ID,
+            TASKS_EXTENSION_REVISION,
+            _AckResult,
+            _CancelTaskParams,
+            _channel_proof,
+            _GetTaskParams,
+            _GetTaskResult,
+            _mint_delegation_token,
+            _UpdateTaskParams,
+        )
+
+        if method not in {"tasks/get", "tasks/update", "tasks/cancel"}:
+            raise ToolError("Unsupported Tasks method")
+        if not isinstance(params, Mapping):
+            raise ToolError("Tasks request parameters are invalid")
+        route_data = dict(route or {})
+        if not route_data:
+            raw_meta = params.get("_meta")
+            raw_extension = (
+                raw_meta.get(TASKS_EXTENSION_ID)
+                if isinstance(raw_meta, Mapping)
+                else None
+            )
+            if isinstance(raw_extension, Mapping):
+                route_data = dict(raw_extension)
+        server_name = route_data.get("server")
+        if not isinstance(server_name, str) or not server_name.strip():
+            raise ToolError("Tasks request has no owning-server route")
+        server_name = server_name.strip()
+        if route_data.get("revision") != TASKS_EXTENSION_REVISION:
+            raise ToolError("Tasks owning-server route revision is unsupported")
+        catalog = self.load_catalog()
+        if server_name not in catalog:
+            raise ToolError("Tasks owning server is not in the active catalog")
+        # Apply the same fleet/delegation authorization used by tool
+        # forwarding before a task poll can lazily spawn a child.
+        _require_fleet_capability("delegate")
+        configured_scopes = catalog[server_name].get("required_scopes", [])
+        if isinstance(configured_scopes, str):
+            configured_scopes = configured_scopes.split()
+        if not isinstance(configured_scopes, list) or not all(
+            isinstance(scope, str) and 1 <= len(scope) <= 128
+            for scope in configured_scopes
+        ):
+            raise ToolError("Child MCP scope configuration is invalid")
+        _require_fleet_capability("delegate", configured_scopes)
+
+        # Lazy task polling is allowed to mount the owner exactly once, just as
+        # lazy tool loading does. No process-local task state is created.
+        if server_name not in self.children:
+            await self.mount_child(server_name)
+        runtime = self.children.get(server_name)
+        if runtime is None:
+            raise ToolError("Tasks owning server is unavailable")
+        if not self._tasks_runtime_capable(server_name, runtime):
+            raise ToolError("Tasks owning server did not advertise native Tasks")
+        admission_epoch = self._catalog_epoch
+        runtime_generation = getattr(runtime, "generation", None)
+        if not isinstance(runtime_generation, int):
+            runtime_generation = None
+        mutation = method in {"tasks/update", "tasks/cancel"}
+
+        if method == "tasks/get":
+            params_type = _GetTaskParams
+            result_type = _GetTaskResult
+        elif method == "tasks/update":
+            params_type = _UpdateTaskParams
+            result_type = _AckResult
+        else:
+            params_type = _CancelTaskParams
+            result_type = _AckResult
+
+        raw_meta = params.get("_meta")
+        base_meta = dict(raw_meta) if isinstance(raw_meta, Mapping) else {}
+        if isinstance(route_data.get("caller"), Mapping) and not isinstance(
+            caller, Mapping
+        ):
+            raise ToolError("Tasks route caller is not verified")
+        if not isinstance(caller, Mapping):
+            raise ToolError(
+                "Authenticated task delegation is unavailable; use portable rm_jobs tools"
+            )
+        child_cfg = catalog[server_name]
+        explicit_transport = str(child_cfg.get("transport", "")).lower()
+        is_remote = bool(child_cfg.get("url")) or explicit_transport in {
+            "streamable-http",
+            "sse",
+        }
+        try:
+            from agent_utilities.core.config import setting
+
+            if not str(setting("AGENT_UTILITIES_TOKEN_SECRET", "") or "").strip():
+                raise RuntimeError(
+                    "shared task-delegation signing secret is unavailable"
+                )
+        except Exception as exc:
+            logger.warning(
+                "Tasks route delegation proof unavailable for child %s (%s)",
+                server_name,
+                type(exc).__name__,
+            )
+            raise ToolError(
+                "Authenticated task delegation is unavailable; use portable rm_jobs tools"
+            ) from None
+
+        identity = {
+            "tenant": str(caller.get("tenant") or ""),
+            "owner": str(caller.get("owner") or ""),
+            "scopes": sorted(str(scope) for scope in caller.get("scopes", ())),
+        }
+        if not identity["tenant"] or not identity["owner"]:
+            raise ToolError("Tasks route caller is not verified")
+
+        request_type = mcp_types.Request[params_type, str]
+
+        def _build_request(_current_generation: int, current_secret: str | None) -> Any:
+            try:
+                delegation_token = _mint_delegation_token(
+                    method,
+                    params,
+                    server=server_name,
+                    revision=TASKS_EXTENSION_REVISION,
+                    caller=identity,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Tasks route delegation proof unavailable for child %s (%s)",
+                    server_name,
+                    type(exc).__name__,
+                )
+                raise ToolError(
+                    "Authenticated task delegation is unavailable; use portable rm_jobs tools"
+                ) from None
+            envelope: dict[str, Any] = {
+                "server": server_name,
+                "revision": TASKS_EXTENSION_REVISION,
+                "caller": identity,
+                "delegation": {
+                    "issuer": "mcp-multiplexer",
+                    "token": delegation_token,
+                },
+            }
+            if not is_remote:
+                generation_secret = str(current_secret or "").strip()
+                if not 32 <= len(generation_secret) <= 512:
+                    raise ToolError(
+                        "Authenticated stdio task channel is unavailable; "
+                        "use portable rm_jobs tools"
+                    )
+                envelope["delegation"]["channel"] = _channel_proof(
+                    generation_secret, delegation_token
+                )
+            outgoing = dict(params)
+            outgoing_meta = dict(base_meta)
+            outgoing_meta[TASKS_EXTENSION_ID] = envelope
+            outgoing["_meta"] = outgoing_meta
+            parsed = params_type.model_validate(outgoing)
+            return request_type(method=method, params=parsed)
+
+        parsed_input = params_type.model_validate(dict(params))
+
+        call_request = getattr(runtime, "call_request", None)
+        if not callable(call_request):
+            raise ToolError("Tasks owning server has no bounded request runtime")
+
+        admission_secret = getattr(runtime, "_task_generation_secret", None)
+
+        def _assert_task_route_current(
+            current_generation: int, current_secret: str | None
+        ) -> None:
+            if (
+                self._catalog_epoch != admission_epoch
+                or self.children.get(server_name) is not runtime
+                or not self._tasks_runtime_capable(server_name, runtime)
+            ):
+                message = (
+                    "Tasks mutation route was retired before the request was sent"
+                    if mutation
+                    else "Tasks read route was retired before the request was sent"
+                )
+                raise ToolError(message)
+            if not is_remote and not 32 <= len(str(current_secret or "")) <= 512:
+                raise ToolError(
+                    "Authenticated stdio task channel is unavailable; "
+                    "use portable rm_jobs tools"
+                )
+            if (
+                mutation
+                and runtime_generation is not None
+                and current_generation != runtime_generation
+            ):
+                raise ToolError(
+                    "Tasks mutation connection generation changed before send"
+                )
+            if mutation and not is_remote and current_secret != admission_secret:
+                raise ToolError(
+                    "Tasks mutation connection generation changed before send"
+                )
+
+        request = (
+            _build_request(runtime_generation or 0, admission_secret)
+            if mutation
+            else None
+        )
+        result = await call_request(
+            request,
+            result_type,
+            retry_on_transient=not mutation,
+            generation_marker=runtime_generation if mutation else None,
+            request_factory=None if mutation else _build_request,
+            # Reads may retry once, but each attempt still revalidates the
+            # owning catalog/runtime and exact Tasks revision. Mutations add
+            # generation fencing and disable retry below.
+            before_send=_assert_task_route_current,
+        )
+        if not isinstance(result, result_type):
+            result = result_type.model_validate(result)
+        task_id = getattr(parsed_input, "task_id", None)
+        returned_id = getattr(result, "task_id", None)
+        if task_id and returned_id and returned_id != task_id:
+            raise ToolError("Tasks owning server returned a mismatched task ID")
+        return result
+
     def _admit_runtime_policy_tools(
         self,
         server_name: str,
@@ -1515,7 +1789,11 @@ class MCPMultiplexer:
         return admitted
 
     async def _open_one_session(
-        self, server_name: str, cfg: dict, stack: contextlib.AsyncExitStack
+        self,
+        server_name: str,
+        cfg: dict,
+        stack: contextlib.AsyncExitStack,
+        generation_secret: str | None = None,
     ) -> ClientSession:
         """Open + initialize ONE ``ClientSession`` for a child (stdio or remote),
         entering its transports on ``stack``. Raises on failure. Shared by
@@ -1828,7 +2106,11 @@ class MCPMultiplexer:
             )
             for raw_key, raw_value in configured_env.items():
                 key = str(raw_key)
-                if key.upper() in (_PROVIDER_CHILD_ENV_KEYS | provider_controlled_keys):
+                if key.upper() in (
+                    _PROVIDER_CHILD_ENV_KEYS
+                    | provider_controlled_keys
+                    | {_TASK_DELEGATION_CHANNEL_ENV}
+                ):
                     raise RuntimeError(
                         "MCP child provider environment is parent-controlled"
                     )
@@ -1844,6 +2126,10 @@ class MCPMultiplexer:
                 ):
                     raise RuntimeError("Local MCP child environment is invalid")
                 merged_env[key] = value
+            if generation_secret is not None:
+                if not 32 <= len(generation_secret) <= 512:
+                    raise RuntimeError("Local MCP task channel secret is invalid")
+                merged_env[_TASK_DELEGATION_CHANNEL_ENV] = generation_secret
             server_params = StdioServerParameters(
                 command=command, args=args, env=merged_env
             )
@@ -1874,6 +2160,10 @@ class MCPMultiplexer:
         # Keep the handshake bounded, but honor the same per-child connect
         # budget rather than imposing a second, hidden fixed ceiling.
         await asyncio.wait_for(session.initialize(), timeout=initialization_timeout)
+        # Production capability state is read directly from the live
+        # ChildRuntime session pool. A retired runtime can finish a late
+        # reconnect after a catalog epoch changes, so this transport-open path
+        # mutates no shared handshake record.
         return session
 
     async def _start_child(
@@ -1948,8 +2238,12 @@ class MCPMultiplexer:
             "Starting MCP child (transport=%s)", "remote" if is_remote else "stdio"
         )
 
-        async def _connect_one(stack: contextlib.AsyncExitStack):
-            return await self._open_one_session(server_name, cfg, stack)
+        async def _connect_one(
+            stack: contextlib.AsyncExitStack, generation_secret: str | None
+        ):
+            return await self._open_one_session(
+                server_name, cfg, stack, generation_secret
+            )
 
         async def _connect(stack: contextlib.AsyncExitStack):
             """One connection generation: full session pool + tool list.
@@ -1957,7 +2251,11 @@ class MCPMultiplexer:
             The stack is owned by the runtime's supervisor task (entered and
             exited there), so each crash/restart cleanly tears down and
             rebuilds every transport of the generation."""
-            sessions = [await _connect_one(stack) for _ in range(pool_size)]
+            generation_secret = secrets.token_urlsafe(48) if not is_remote else None
+            runtime._task_generation_secret = generation_secret
+            sessions = [
+                await _connect_one(stack, generation_secret) for _ in range(pool_size)
+            ]
             tools_result = await sessions[0].list_tools()
             _bounded_tool_catalog(tools_result.tools)
             tools = list(tools_result.tools)
@@ -2656,10 +2954,8 @@ class MCPMultiplexer:
             runtime = ChildRuntime(server_name, cfg)
             runtime.adopt_sessions(sessions)
         self.children[server_name] = runtime
-        # `primary_session` is `None` only for a runtime with no adopted sessions
-        # yet, which shouldn't happen this far into registration (both branches
-        # above guarantee at least one) — but don't put a `None` where a real
-        # `ClientSession` is expected if that invariant is ever violated.
+        # `primary_session` is `None` only for a runtime with no adopted
+        # sessions yet, which should not happen this far into registration.
         primary = runtime.primary_session
         if primary is not None:
             self.sessions[server_name] = primary
@@ -5362,6 +5658,23 @@ def attach_fleet_loader(
     if embed_fn is not None:
         mux._embed_fn = embed_fn
     mux.load_catalog()  # parse the fleet config into the catalog; spawns nothing
+    # Reuse the host's one native WorkItem Tasks extension for owning-server
+    # follow-ups.  FastMCP 4 stores extensions by identifier; adding a second
+    # ``io.modelcontextprotocol/tasks`` extension would overwrite handlers and
+    # create an accidental parallel authority.  The private mapping is stable
+    # in the exact locked FastMCP 4.0.0b1 API and is guarded for older/degraded
+    # images where the extension was intentionally not mounted.
+    tasks_extension = getattr(mcp, "_extensions", {}).get(
+        "io.modelcontextprotocol/tasks"
+    )
+    if tasks_extension is not None:
+        setter = getattr(tasks_extension, "set_task_router", None)
+        if callable(setter):
+            setter(mux)
+        else:
+            logger.warning(
+                "native Tasks extension does not expose multiplexer route binding"
+            )
     # CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog — the always-load declaration is READ here
     # (synchronously, no I/O) but ACTED ON in the serving loop, on a session's
     # first request, by ``SessionVisibilityMiddleware``. Nothing is spawned at

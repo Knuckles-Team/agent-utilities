@@ -83,12 +83,42 @@ _LEDGER_REQUIRED_KEYS = frozenset(
         "status",
     }
 )
-_LEDGER_OPTIONAL_KEYS = frozenset({"design_ref", "landed_at"})
-_LEDGER_STATUSES = frozenset({"reserved", "landed", "expired"})
+_LEDGER_OPTIONAL_KEYS = frozenset(
+    {
+        "namespace",
+        "range_start",
+        "range_end",
+        "policy_version",
+        "provenance_refs",
+        "design_ref",
+        "landed_at",
+        "materialized_at",
+        "expired_at",
+        "released_at",
+        "tombstoned_at",
+        "reservation_ref",
+        "fence",
+        "visibility",
+    }
+)
+# The central authority may project its complete lifecycle into this generated
+# view.  The legacy CLI still uses reserved/landed/expired; the additional
+# states are accepted only as append-only projections and never make the local
+# file lock a cross-host authority.
+_LEDGER_STATUSES = frozenset(
+    {"reserved", "materialized", "landed", "released", "expired", "tombstoned"}
+)
 # A later event supersedes an earlier one; same-instant events break the tie by
 # how far the record has advanced (a reconcile that lands or expires a claim
 # writes the same reserved_at as the claim it supersedes).
-_STATUS_RANK = {"reserved": 0, "expired": 1, "landed": 2}
+_STATUS_RANK = {
+    "reserved": 0,
+    "materialized": 1,
+    "released": 2,
+    "expired": 2,
+    "landed": 3,
+    "tombstoned": 4,
+}
 
 _VIEW_HEADER = [
     "# Concept-ID reservation ledger — GENERATED, do not edit by hand.",
@@ -223,7 +253,39 @@ def _validate(record: dict[str, Any]) -> dict[str, Any]:
     for field in ("session_ref", "design_ref"):
         if field in record and not _LEDGER_REFERENCE_RE.fullmatch(str(record[field])):
             raise ValueError("concept reservation ledger contains a raw identity")
-    for field in ("reserved_at", "expires_at", "landed_at"):
+    if "namespace" in record and not concept_id.startswith(f"{record['namespace']}."):
+        raise ValueError("concept reservation ledger namespace disagrees with identity")
+    if "policy_version" in record and (
+        not isinstance(record["policy_version"], str)
+        or not record["policy_version"].strip()
+    ):
+        raise ValueError("concept reservation ledger policy version is invalid")
+    for field in ("range_start", "range_end"):
+        if field in record and (
+            not isinstance(record[field], int) or record[field] < 0
+        ):
+            raise ValueError("concept reservation ledger range is invalid")
+    if (
+        "range_start" in record
+        and "range_end" in record
+        and record["range_end"] < record["range_start"]
+    ):
+        raise ValueError("concept reservation ledger range is invalid")
+    if "provenance_refs" in record:
+        refs = record["provenance_refs"]
+        if not isinstance(refs, list) or any(
+            not _LEDGER_REFERENCE_RE.fullmatch(str(ref)) for ref in refs
+        ):
+            raise ValueError("concept reservation ledger provenance is invalid")
+    for field in (
+        "reserved_at",
+        "expires_at",
+        "landed_at",
+        "materialized_at",
+        "expired_at",
+        "released_at",
+        "tombstoned_at",
+    ):
         if field in record:
             try:
                 datetime.fromisoformat(str(record[field]))
@@ -348,7 +410,7 @@ def _open_reservation_ids(records: list[dict[str, Any]], *, now: datetime) -> se
         status = rec.get("status")
         if status == "landed":
             out.add(str(rec["id"]))
-        elif status == "reserved":
+        elif status in {"reserved", "materialized"}:
             expires = rec.get("expires_at")
             if not _is_expired(expires, now):
                 out.add(str(rec["id"]))
@@ -482,6 +544,101 @@ def reserve_concept_id(
         return record
 
 
+def materialize_authoritative_record(
+    record: dict[str, Any], *, repo_root: Path | None = None
+) -> dict[str, Any]:
+    """Append a graph-authority claim to the caller's local fragment.
+
+    This is a compatibility projection for Repository Manager and merge
+    tooling.  It never allocates, checks global uniqueness, or substitutes for
+    the native graph transaction.  The ``reservation_ref`` and ``fence`` fields
+    make retries after a crash between the authority transition and fragment
+    write idempotent: an equal-or-newer projection is a no-op, while a local
+    claim with the same ID is rejected rather than overwritten.
+    """
+
+    required = {
+        "reservation_id",
+        "concept_id",
+        "namespace",
+        "tenant_ref",
+        "owner_ref",
+        "created_at",
+        "expires_at",
+        "state",
+        "fence",
+        "visibility",
+    }
+    if not required <= set(record):
+        raise ValueError("authoritative concept reservation record is incomplete")
+    concept_id = str(record["concept_id"])
+    parsed = parse_okf_id(concept_id)
+    state = str(record["state"])
+    projection_status = {
+        "reserved": "reserved",
+        "materialized": "materialized",
+        "landed": "landed",
+        "released": "released",
+        "expired": "expired",
+        "tombstoned": "tombstoned",
+    }.get(state)
+    if projection_status is None:
+        raise ValueError("authoritative concept reservation state is invalid")
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
+    reservation_ref = persistence_reference(
+        "concept_reservation", str(record["reservation_id"])
+    )
+    projection: dict[str, Any] = {
+        "id": concept_id,
+        "slug": parsed.slug,
+        "pillar": parsed.pillar,
+        "domain": parsed.domain,
+        "namespace": str(record["namespace"]),
+        "policy_version": str(record.get("policy_version") or "native-unknown"),
+        "session_ref": str(record["owner_ref"]),
+        "reserved_at": str(record["created_at"]),
+        "expires_at": str(record["expires_at"]),
+        "status": projection_status,
+        "reservation_ref": reservation_ref,
+        "fence": int(record["fence"]),
+        "visibility": str(record["visibility"]),
+    }
+    if record.get("provenance_refs") is not None:
+        projection["provenance_refs"] = list(record["provenance_refs"])
+    for field in ("range_start", "range_end"):
+        if record.get(field) is not None:
+            projection[field] = int(record[field])
+    for source, target in (
+        ("design_ref", "design_ref"),
+        ("landed_at", "landed_at"),
+        ("materialized_at", "materialized_at"),
+        ("expired_at", "expired_at"),
+        ("released_at", "released_at"),
+        ("tombstoned_at", "tombstoned_at"),
+    ):
+        if record.get(source) is not None:
+            projection[target] = str(record[source])
+    _validate(projection)
+    root = _root(repo_root)
+    with _Arbiter(root):
+        current = {str(item["id"]): item for item in _fold(root)}
+        previous = current.get(concept_id)
+        if previous is not None:
+            previous_ref = previous.get("reservation_ref")
+            previous_fence = int(previous.get("fence", 0) or 0)
+            if previous_ref != reservation_ref:
+                raise ValueError(
+                    f"concept id {concept_id} is already projected by another reservation"
+                )
+            if previous_fence >= projection["fence"]:
+                return previous
+        lane = lane_name(root)
+        _store(root).append(projection, lane=lane)
+        regenerate_view(root)
+        return projection
+
+
 def release_concept_id(concept_id: str, *, repo_root: Path | None = None) -> bool:
     """Release a reservation this lane owns (e.g. the work was abandoned).
 
@@ -545,13 +702,22 @@ def reconcile(
         transitions: list[dict[str, Any]] = []
         for rec in records:
             cid = str(rec.get("id"))
-            if rec.get("status") != "reserved":
+            if rec.get("status") not in {"reserved", "materialized"}:
                 continue
             if cid in code:
-                transitions.append({**rec, "status": "landed", "landed_at": _iso(now)})
+                transitions.append(
+                    {
+                        **rec,
+                        "status": "landed",
+                        "landed_at": _iso(now),
+                        "visibility": "repository",
+                    }
+                )
                 landed.append(cid)
             elif _is_expired(rec.get("expires_at"), now):
-                transitions.append({**rec, "status": "expired"})
+                transitions.append(
+                    {**rec, "status": "expired", "expired_at": _iso(now)}
+                )
                 expired.append(cid)
         if transitions:
             store = _store(root)
