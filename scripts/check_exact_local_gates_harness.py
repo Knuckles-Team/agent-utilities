@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parent.parent
 HARNESS = ROOT / "scripts" / "certification" / "exact_local_gates.py"
 DOCUMENTATION = ROOT / "docs" / "release" / "exact-local-gates.md"
 NAVIGATION = ROOT / "mkdocs.yml"
-WORKFLOW = ROOT / ".github" / "workflows" / "guardrails.yml"
+WORKFLOW = ROOT / ".github" / "workflows" / "advisory.yml"
 A2A_TEST = ROOT / "tests" / "integration" / "protocols" / "test_a2a_epistemic_live.py"
 
 EXPECTED_INTENT_TOOLS = (
