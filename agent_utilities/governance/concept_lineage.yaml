@@ -349,6 +349,13 @@ retired:
   AU-KG.compute.when-exposes-native:
     reason: the same sentence fragment one clause later, on the server-side entity-resolution escalation;
       same decision, same document
+  AU-KG.query.intelligent-routing:
+    reason: 'Named the "Intelligent Query Routing" header comment of agent_utilities/graph/routing/strategies/query_tier.py,
+      deleted whole in GOC-59-W05 (commit 13b1c5c8) as itself-retired dead code: it implemented the
+      retired L0/L1/L2/L3 tiered graph backend architecture that AGENTS.md''s Architecture Reference
+      supersedes with the epistemic-graph engine as the ONE authority (no numeric storage-tier hierarchy),
+      and had zero live callers anywhere in agent_utilities/** (proven by grep in the deletion commit).
+      No successor marker inherits this decision -- the module itself was the retired surface.'
   AU-KG.memory.parammem:
     reason: 'A background-research citation tag, not a decision. Its pre-migration id was the generic
       KG-2.1 (Tiered Memory & Context), reused across ~11 unrelated sites in engine_memory.py (ContextBudgetOptimizer,
