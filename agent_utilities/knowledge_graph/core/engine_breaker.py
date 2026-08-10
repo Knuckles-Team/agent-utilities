@@ -252,6 +252,154 @@ def _observe_latency(op: str, elapsed: float, endpoint: str) -> None:
             pass
 
 
+# ---------------------------------------------------------------------------
+# BUG-070: caller/session attribution for generic-payload mutations.
+# ---------------------------------------------------------------------------
+# BUG-064 root cause: a caller-supplied Cypher payload flowed through
+# `lifecycle.batch_update` and mutated 45,478 of 47,465 live nodes (stamping
+# `_visibility='public'`, converting default-deny into allow-all) with NO
+# caller or session identity recorded at ANY layer -- not the engine's own
+# slow-query log ("op=lifecycle.batch_update ... duration=57.88s"), not this
+# sidecar. Three separate investigations (`git log -S`/`-G` across both
+# repos, every branch) found nothing, because nothing was ever committed --
+# the mutation arrived as a runtime payload, not code.
+#
+# EVERY Python path that reaches the wire `BatchUpdate` RPC --
+# `GraphComputeEngine.batch_update`/`bulk_mutate`/`batch_update_concurrent`,
+# the `engine_lifecycle_batch_update` MCP/REST tool, the epistemic-graph
+# backend's batch writers, and the enrichment pipeline's bulk path -- shares
+# ONE process-wide breaker-wrapped client (`GraphComputeEngine._client`), so
+# they all funnel through THIS `_guard` closure under the identical op label
+# `"lifecycle.batch_update"`. That makes this the one place attribution can
+# be attached ONCE for all of them, rather than at each individual Python
+# call site (the BUG-039/059/048 pattern this workspace keeps re-learning:
+# fixing one entrypoint while several others bypass it).
+_ATTRIBUTED_MUTATION_OPS = frozenset({"lifecycle.batch_update"})
+
+
+def _mutation_attribution(args: tuple[Any, ...]) -> dict[str, Any]:
+    """Best-effort caller/session/WorkItem identity for an attributed op.
+
+    Never raises -- attribution is an audit aid, not a gate. The real
+    fail-closed authorization already happened (or was refused) in
+    ``_SessionRoutedAsyncClient._send``'s ambient-``GraphSession`` check
+    (governance stamping, BUG-033/058/062); this only makes that identity,
+    plus which WorkItem/lease/agent/tool-call it came from, visible from a
+    log line instead of requiring engine-side archaeology after the fact.
+    """
+    info: dict[str, Any] = {
+        "actor_id": None,
+        "actor_authenticated": False,
+        "tenant": None,
+        "graph": None,
+        "correlation_id": None,
+        "work_item_id": None,
+        "work_item_agent_id": None,
+        "work_item_lease_id": None,
+        "work_item_capability": None,
+        "operation_count": None,
+    }
+    try:
+        if args and isinstance(args[0], (list, tuple)):
+            info["operation_count"] = len(args[0])
+    except Exception:  # noqa: BLE001 — attribution must never break the call
+        pass
+    try:
+        from agent_utilities.messaging.bus_privacy import bus_reference
+
+        from .session import current_session
+
+        session = current_session()
+        if session is not None:
+            actor = getattr(session, "actor", None)
+            actor_id = str(getattr(actor, "actor_id", "") or "").strip()
+            tenant = str(getattr(session, "tenant", "") or "").strip()
+            info["actor_authenticated"] = bool(
+                getattr(actor, "authenticated", False)
+            )
+            if actor_id:
+                info["actor_id"] = bus_reference("agent", actor_id, tenant=tenant)
+            info["tenant"] = bus_reference("tenant", tenant) if tenant else None
+            info["graph"] = str(getattr(session, "graph", "") or "") or None
+    except Exception:  # noqa: BLE001 — never let attribution break the RPC
+        pass
+    try:
+        from agent_utilities.observability.correlation import get_correlation_id
+
+        info["correlation_id"] = get_correlation_id()
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        from agent_utilities.orchestration.work_item_context import (
+            current_work_item_context,
+        )
+
+        work_item = current_work_item_context()
+        if work_item:
+            info["work_item_id"] = work_item.get("work_item_id") or None
+            info["work_item_agent_id"] = work_item.get("agent_id") or None
+            info["work_item_lease_id"] = work_item.get("lease_id") or None
+            info["work_item_capability"] = work_item.get("capability") or None
+    except Exception:  # noqa: BLE001
+        pass
+    return info
+
+
+def _log_mutation_attribution(
+    op: str, elapsed: float, outcome: str, args: tuple[Any, ...]
+) -> None:
+    """Log WHO ran an attributed generic-payload mutation alongside WHAT ran.
+
+    Unconditional for every call to an :data:`_ATTRIBUTED_MUTATION_OPS`
+    member (success or failure) -- not gated behind the slow-call threshold
+    :func:`_observe_latency` uses, because the audit gap BUG-064 exposed was
+    "no identity was ever recorded", not "it wasn't recorded loudly enough
+    when slow". A call with NO bound actor AND no WorkItem context logs
+    loud (ERROR) instead of silently falling through -- the audit
+    counterpart to the write-chokepoint fail-closed governance stamping
+    already enforced in ``_SessionRoutedAsyncClient._send``.
+    """
+    if op not in _ATTRIBUTED_MUTATION_OPS:
+        return
+    attribution = _mutation_attribution(args)
+    attributed = bool(attribution["actor_id"] and attribution["actor_authenticated"])
+    has_work_item = bool(attribution["work_item_id"])
+    if not attributed and not has_work_item:
+        logger.error(
+            "UNATTRIBUTED generic mutation op=%s outcome=%s duration=%.2fs "
+            "operations=%s -- no caller/session/work-item identity was bound "
+            "at the call site; this is the exact shape of BUG-064 (45k nodes "
+            "mutated via lifecycle.batch_update with no recorded actor). "
+            "actor_authenticated=%s tenant=%s graph=%s correlation_id=%s",
+            op,
+            outcome,
+            elapsed,
+            attribution["operation_count"],
+            attribution["actor_authenticated"],
+            attribution["tenant"],
+            attribution["graph"],
+            attribution["correlation_id"],
+        )
+        return
+    logger.info(
+        "batch_update attribution op=%s outcome=%s duration=%.2fs operations=%s "
+        "actor=%s tenant=%s graph=%s work_item=%s work_item_agent=%s "
+        "work_item_lease=%s work_item_capability=%s correlation_id=%s",
+        op,
+        outcome,
+        elapsed,
+        attribution["operation_count"],
+        attribution["actor_id"],
+        attribution["tenant"],
+        attribution["graph"],
+        attribution["work_item_id"],
+        attribution["work_item_agent_id"],
+        attribution["work_item_lease_id"],
+        attribution["work_item_capability"],
+        attribution["correlation_id"],
+    )
+
+
 # Adaptive transient-retry (CONCEPT:AU-KG.compute.single-dropped-connection). A single dropped connection
 # (``ConnectionReset``/``BrokenPipe`` mid-op) is TRANSIENT: the client transparently
 # re-establishes the socket on its next call (``client._reconnect``). Without a retry
@@ -277,33 +425,44 @@ def _guard(fn: Any, breaker: CircuitBreaker, op: str) -> Any:
             try:
                 result = fn(*args, **kwargs)
             except _RETRY_EXCEPTIONS:
-                _observe_latency(op, time.monotonic() - started, breaker.endpoint)
+                elapsed = time.monotonic() - started
+                _observe_latency(op, elapsed, breaker.endpoint)
                 if attempt < _MAX_TRANSIENT_RETRIES:
                     # transient drop — let the client reconnect on the retry, and do
                     # NOT count it against the breaker yet (adaptive, KG-2.262).
+                    # Not a terminal outcome, so no attribution log here — the
+                    # eventual terminal branch (below, or the next attempt's
+                    # success) logs it once.
                     _record_outcome(breaker, op, "retry")
                     time.sleep(_RETRY_BACKOFF_BASE_S * (2**attempt))
                     continue
                 breaker.record_failure()
                 _record_outcome(breaker, op, "connection_error")
+                _log_mutation_attribution(op, elapsed, "connection_error", args)
                 raise
             except _TRIP_EXCEPTIONS:
                 # A bounded RPC timeout is already the complete call budget.
                 # Count it once and fail instead of replaying work that may still
                 # be running on a contended engine.
-                _observe_latency(op, time.monotonic() - started, breaker.endpoint)
+                elapsed = time.monotonic() - started
+                _observe_latency(op, elapsed, breaker.endpoint)
                 breaker.record_failure()
                 _record_outcome(breaker, op, "connection_error")
+                _log_mutation_attribution(op, elapsed, "connection_error", args)
                 raise
             except Exception:
                 # Application-level error (bad query, missing node...): the engine
                 # answered, so the circuit stays closed.
-                _observe_latency(op, time.monotonic() - started, breaker.endpoint)
+                elapsed = time.monotonic() - started
+                _observe_latency(op, elapsed, breaker.endpoint)
                 _record_outcome(breaker, op, "error")
+                _log_mutation_attribution(op, elapsed, "error", args)
                 raise
-            _observe_latency(op, time.monotonic() - started, breaker.endpoint)
+            elapsed = time.monotonic() - started
+            _observe_latency(op, elapsed, breaker.endpoint)
             breaker.record_success()
             _record_outcome(breaker, op, "ok")
+            _log_mutation_attribution(op, elapsed, "ok", args)
             return result
 
     call.__name__ = getattr(fn, "__name__", op)
