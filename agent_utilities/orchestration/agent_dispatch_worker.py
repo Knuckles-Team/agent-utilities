@@ -880,7 +880,22 @@ def execute_work_item_turn(
         # side-effect fencing surface.
         try:
             lease.require_current()
-            result = (executor or _default_work_item_executor)(claim, lease)
+            # BUG-070: bind WorkItem/lease/agent identity for the exact
+            # duration of the executor call so any generic engine mutation
+            # it triggers (e.g. lifecycle.batch_update) is attributable from
+            # logs alone -- see work_item_context's module docstring for the
+            # BUG-064 incident this closes the gap for.
+            from agent_utilities.orchestration.work_item_context import (
+                bind_work_item_context,
+            )
+
+            with bind_work_item_context(
+                work_item_id=work_item_id,
+                agent_id=agent_id,
+                lease_id=str(claim.get("lease_id", "")),
+                capability=capability,
+            ):
+                result = (executor or _default_work_item_executor)(claim, lease)
             status = "completed"
             reward = 1.0
         except WorkItemLeaseLost:
@@ -1053,7 +1068,21 @@ def execute_agent_task_turn(
         lease.start()
         try:
             lease.require_current()
-            result = (executor or _default_agent_task_executor)(claim)
+            # BUG-070: same WorkItem-identity binding as execute_work_item_turn
+            # -- the AgentTask bridge shadows onto a WorkItem 1:1, so it is the
+            # same claimed-WorkItem execution seam a generic engine mutation
+            # (e.g. lifecycle.batch_update) can reach through.
+            from agent_utilities.orchestration.work_item_context import (
+                bind_work_item_context,
+            )
+
+            with bind_work_item_context(
+                work_item_id=work_item_id,
+                agent_id=agent_id,
+                lease_id=str(claim.get("lease_id", "")),
+                task_id=task_id,
+            ):
+                result = (executor or _default_agent_task_executor)(claim)
             status = "completed"
         except WorkItemLeaseLost:
             raise
