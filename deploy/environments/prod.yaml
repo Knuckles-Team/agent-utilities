@@ -78,6 +78,25 @@ filesystem:
     - /skills
     - /home/apps/workspace
     - /etc/ssl/homelab
+  runtime_paths:
+    - env_var: HOME
+      path: /tmp
+      writable_path_ref: /tmp
+    - env_var: XDG_CACHE_HOME
+      path: /tmp/.cache
+      writable_path_ref: /tmp
+    - env_var: XDG_CONFIG_HOME
+      path: /tmp/.config
+      writable_path_ref: /tmp
+    - env_var: XDG_DATA_HOME
+      path: /tmp/.local/share
+      writable_path_ref: /tmp
+    - env_var: XDG_STATE_HOME
+      path: /tmp/.local/state
+      writable_path_ref: /tmp
+    - env_var: AGENT_UTILITIES_DATA_DIR
+      path: /tmp/.local/share/agent-utilities
+      writable_path_ref: /tmp
 
 configuration:
   config_map_refs:

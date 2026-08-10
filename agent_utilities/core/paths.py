@@ -313,29 +313,78 @@ def log_dir() -> Path:
     return Path(platformdirs.user_log_path(APP_NAME, APP_AUTHOR))
 
 
+class RuntimeDirectoryNotWritableError(RuntimeError):
+    """A configured XDG-family directory exists but this process cannot write to it.
+
+    Names the exact setting (env var + resolver) and resolved path, and never
+    lets the underlying ``OSError``/``PermissionError`` surface bare — this is
+    the fail-loud fix for BUG-ROFS-1's failure mode, where kubelet had
+    auto-created an intermediate directory (e.g. ``/tmp/.local``) as
+    ``root:root 0755`` to attach a sibling volume mount. ``mkdir(exist_ok=True)``
+    alone treats that as "already exists" and reports nothing wrong; only an
+    actual write probe (below) catches it, and it must be caught HERE — at
+    startup, naming the setting — not at some arbitrary later write call site
+    as an unexplained ``PermissionError``.
+    """
+
+
+def _ensure_writable_dir(setting: str, path: Path) -> None:
+    """Create ``path`` if missing, then PROVE this process can write to it.
+
+    ``setting`` names the environment variable / resolver responsible for
+    ``path`` (e.g. ``"AGENT_UTILITIES_DATA_DIR (data_dir())"``) so a
+    misconfiguration is reported against the exact knob a reviewer/operator
+    would change, not just an opaque filesystem path.
+    """
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        probe = path / f".write-probe-{os.getpid()}"
+        probe.touch()
+        probe.unlink()
+    except OSError as exc:
+        raise RuntimeDirectoryNotWritableError(
+            f"{setting} resolves to {path!s}, but this process (uid="
+            f"{os.getuid() if hasattr(os, 'getuid') else 'n/a'}) cannot write "
+            f"to it: {exc}. Point {setting.split()[0]} at a directory this "
+            "process's uid/gid can actually create files in -- check the "
+            "volume mount, its owning group (Kubernetes fsGroup), and any "
+            "intermediate directory a sibling mount may have auto-created "
+            "with different ownership (see BUG-ROFS-1)."
+        ) from exc
+
+
 def ensure_dirs() -> None:
-    """Create all XDG directories on first run.
+    """Create all XDG directories on first run and prove each is writable.
 
     Called during server startup or KG initialization to ensure the
-    directory structure exists before any file operations.
+    directory structure exists — and is actually usable by this process —
+    before any file operations. Raises :class:`RuntimeDirectoryNotWritableError`
+    naming the exact setting and path at fault rather than deferring the
+    failure to a later, unrelated write call site.
     """
-    dirs = [
-        config_dir(),
-        data_dir() / "kg",
-        cache_dir(),
-        ontology_dir(),
-        runtime_dir(),
-        research_dir(),
-        memory_view_dir(),
-        messaging_sessions_dir(),
-        messaging_sessions_dir() / "sessions",
-        messaging_sessions_dir() / "history",
-        skills_dir(),
-        prompts_dir(),
-        log_dir(),
+    named_dirs: list[tuple[str, Path]] = [
+        ("AGENT_UTILITIES_CONFIG_DIR (config_dir())", config_dir()),
+        ("AGENT_UTILITIES_DATA_DIR (data_dir())/kg", data_dir() / "kg"),
+        ("AGENT_UTILITIES_CACHE_DIR (cache_dir())", cache_dir()),
+        ("AGENT_UTILITIES_DATA_DIR (data_dir())/ontologies", ontology_dir()),
+        ("AGENT_UTILITIES_DATA_DIR (data_dir())/runtime", runtime_dir()),
+        ("AGENT_UTILITIES_DATA_DIR (data_dir())/research", research_dir()),
+        ("AGENT_UTILITIES_MEMORY_DIR (memory_view_dir())", memory_view_dir()),
+        ("AGENT_UTILITIES_DATA_DIR (data_dir())/messaging", messaging_sessions_dir()),
+        (
+            "AGENT_UTILITIES_DATA_DIR (data_dir())/messaging/sessions",
+            messaging_sessions_dir() / "sessions",
+        ),
+        (
+            "AGENT_UTILITIES_DATA_DIR (data_dir())/messaging/history",
+            messaging_sessions_dir() / "history",
+        ),
+        ("AGENT_UTILITIES_SKILLS_DIR (skills_dir())", skills_dir()),
+        ("AGENT_UTILITIES_PROMPTS_DIR (prompts_dir())", prompts_dir()),
+        ("AGENT_UTILITIES_LOG_DIR (log_dir(), XDG_STATE_HOME-derived)", log_dir()),
     ]
-    for d in dirs:
-        d.mkdir(parents=True, exist_ok=True)
+    for setting, d in named_dirs:
+        _ensure_writable_dir(setting, d)
     logger.debug(
         "XDG directories ensured at: config=%s, data=%s, cache=%s, log=%s",
         config_dir(),

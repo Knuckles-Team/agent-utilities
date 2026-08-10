@@ -22,6 +22,13 @@ record. Summary:
   secret with no reference is a load-time :class:`MissingSecretReferenceError`,
   never a default, an empty value, or an inferred lookup — "we do not infer
   credentials."
+* ``filesystem.runtime_paths`` binds every one of :data:`RUNTIME_PATH_ENV_VARS`
+  (``HOME``, the three XDG dirs, ``XDG_STATE_HOME``, and
+  ``AGENT_UTILITIES_DATA_DIR``) to an explicit path anchored under a declared
+  ``filesystem.writable_paths`` mount — the fix for BUG-ROFS-1, where the
+  served process's real home (``/tmp``, not ``/home/app``) had to be
+  rediscovered by reading a live container's ``/etc/passwd``. See
+  :class:`RuntimePathBinding`.
 
 This module only defines, discovers, loads, and validates the schema. Rendering a
 profile into live Kubernetes objects remains ``agent-os-genesis``'s job (Phase 4,
@@ -63,6 +70,25 @@ _SECRET_REF_RE = re.compile(
 )
 
 _WRITABLE_MEDIA = frozenset({"emptyDir", "hostPath", "pvc"})
+
+#: The closed set of runtime-path env vars a served profile must bind explicitly
+#: (`filesystem.runtime_paths`) — see :class:`RuntimePathBinding`. This is the
+#: exact set BUG-ROFS-1 needed spelled out instead of rediscovered by reading
+#: `/etc/passwd` in a live container: the process's home directory, the three
+#: XDG dirs it actually writes under, the state/log dir, and the
+#: agent-utilities data root. Closed (not open-ended) for the same reason every
+#: other section here is closed — a typo'd or forgotten env var should be a
+#: load-time error, not a runtime `PermissionError` discovered empirically.
+RUNTIME_PATH_ENV_VARS = frozenset(
+    {
+        "HOME",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+        "AGENT_UTILITIES_DATA_DIR",
+    }
+)
 
 
 class EnvironmentProfileError(Exception):
@@ -142,12 +168,34 @@ class WritablePath:
 
 
 @dataclass(frozen=True)
+class RuntimePathBinding:
+    """One runtime env-var -> path binding for the served process's home layout.
+
+    Makes ``$HOME``, the XDG dirs, and ``AGENT_UTILITIES_DATA_DIR`` explicit,
+    reviewable profile inputs instead of an image-baked default or a literal
+    hand-typed into a k8s manifest's ``env:`` list — the exact gap that forced
+    BUG-ROFS-1's fix to be discovered empirically (reading a live container's
+    ``/etc/passwd`` to learn the image's real home is ``/tmp``, not
+    ``/home/app``). ``env_var`` must be one of :data:`RUNTIME_PATH_ENV_VARS`;
+    ``writable_path_ref`` must name a ``filesystem.writable_paths[].mount_path``
+    this profile already declared and justified, and ``path`` must fall under
+    it — a runtime path can only point somewhere the filesystem section already
+    reviewed as writable, never an unreviewed location.
+    """
+
+    env_var: str
+    path: str
+    writable_path_ref: str
+
+
+@dataclass(frozen=True)
 class FilesystemInputs:
     """Root-fs posture + the explicit writable-path exceptions to it."""
 
     read_only_root_filesystem: bool
     writable_paths: tuple[WritablePath, ...]
     read_only_mounts: tuple[str, ...]
+    runtime_paths: tuple[RuntimePathBinding, ...]
 
 
 @dataclass(frozen=True)
@@ -446,10 +494,29 @@ def _writable_path_from_mapping(raw: Any, *, index: int, source: Path) -> Writab
     )
 
 
+def _runtime_path_binding_from_mapping(
+    raw: Any, *, index: int, source: Path
+) -> RuntimePathBinding:
+    section = f"filesystem.runtime_paths[{index}]"
+    m = _require_keys(
+        raw, ("env_var", "path", "writable_path_ref"), section=section, source=source
+    )
+    return RuntimePathBinding(
+        env_var=_str(m, "env_var", section=section, source=source),
+        path=_str(m, "path", section=section, source=source),
+        writable_path_ref=_str(m, "writable_path_ref", section=section, source=source),
+    )
+
+
 def _filesystem_from_mapping(raw: Any, source: Path) -> FilesystemInputs:
     m = _require_keys(
         raw,
-        ("read_only_root_filesystem", "writable_paths", "read_only_mounts"),
+        (
+            "read_only_root_filesystem",
+            "writable_paths",
+            "read_only_mounts",
+            "runtime_paths",
+        ),
         section="filesystem",
         source=source,
     )
@@ -462,6 +529,15 @@ def _filesystem_from_mapping(raw: Any, source: Path) -> FilesystemInputs:
         _writable_path_from_mapping(item, index=i, source=source)
         for i, item in enumerate(writable_raw)
     )
+    runtime_paths_raw = m["runtime_paths"]
+    if not isinstance(runtime_paths_raw, list):
+        raise EnvironmentProfileError(
+            f"{source}: filesystem.runtime_paths must be a list, got {runtime_paths_raw!r}."
+        )
+    runtime_paths = tuple(
+        _runtime_path_binding_from_mapping(item, index=i, source=source)
+        for i, item in enumerate(runtime_paths_raw)
+    )
     return FilesystemInputs(
         read_only_root_filesystem=_bool(
             m, "read_only_root_filesystem", section="filesystem", source=source
@@ -470,6 +546,7 @@ def _filesystem_from_mapping(raw: Any, source: Path) -> FilesystemInputs:
         read_only_mounts=_str_tuple(
             m, "read_only_mounts", section="filesystem", source=source
         ),
+        runtime_paths=runtime_paths,
     )
 
 
@@ -797,6 +874,57 @@ def validate_environment_profile(profile: EnvironmentProfile) -> None:
                 "justified in the file so a reviewer can see why it exists."
             )
 
+    # -- filesystem: every runtime-path binding must be a known env var, unique,
+    #    an absolute path, and anchored under an already-declared writable path —
+    #    never an unreviewed location dreamed up only in this sub-section. Every
+    #    var in RUNTIME_PATH_ENV_VARS must be bound exactly once (BUG-ROFS-1's
+    #    whole point: nothing here is left to be rediscovered from a live
+    #    container's /etc/passwd).
+    writable_mount_paths = {wp.mount_path for wp in profile.filesystem.writable_paths}
+    bound_env_vars = [rp.env_var for rp in profile.filesystem.runtime_paths]
+    unknown_env_vars = sorted(set(bound_env_vars) - RUNTIME_PATH_ENV_VARS)
+    if unknown_env_vars:
+        raise EnvironmentProfileError(
+            f"{source}: filesystem.runtime_paths declares unrecognized env "
+            f"var(s) {unknown_env_vars} — expected only "
+            f"{sorted(RUNTIME_PATH_ENV_VARS)}."
+        )
+    missing_env_vars = sorted(RUNTIME_PATH_ENV_VARS - set(bound_env_vars))
+    if missing_env_vars:
+        raise EnvironmentProfileError(
+            f"{source}: filesystem.runtime_paths is missing binding(s) for "
+            f"{missing_env_vars} — every one of {sorted(RUNTIME_PATH_ENV_VARS)} "
+            "must be bound explicitly; nothing is left to an image-baked "
+            "default or inferred at apply time."
+        )
+    if len(bound_env_vars) != len(set(bound_env_vars)):
+        raise EnvironmentProfileError(
+            f"{source}: filesystem.runtime_paths has duplicate env_var binding(s)."
+        )
+    for rp in profile.filesystem.runtime_paths:
+        if not rp.path.startswith("/"):
+            raise EnvironmentProfileError(
+                f"{source}: filesystem.runtime_paths[env_var={rp.env_var!r}].path "
+                f"{rp.path!r} must be an absolute path."
+            )
+        if rp.writable_path_ref not in writable_mount_paths:
+            raise EnvironmentProfileError(
+                f"{source}: filesystem.runtime_paths[env_var={rp.env_var!r}]."
+                f"writable_path_ref {rp.writable_path_ref!r} does not name any "
+                f"filesystem.writable_paths[].mount_path ({sorted(writable_mount_paths)}). "
+                "A runtime path may only be anchored under a mount this profile "
+                "already declared and justified as writable."
+            )
+        if rp.path != rp.writable_path_ref and not rp.path.startswith(
+            rp.writable_path_ref.rstrip("/") + "/"
+        ):
+            raise EnvironmentProfileError(
+                f"{source}: filesystem.runtime_paths[env_var={rp.env_var!r}].path "
+                f"{rp.path!r} is not under its own writable_path_ref "
+                f"{rp.writable_path_ref!r} — a runtime path must live at or "
+                "below the writable mount it claims to be anchored under."
+            )
+
     # -- target/identity: cross-check against genesis.yaml's own run_plan enums.
     orchestrators = _genesis_run_plan("orchestrators")
     if profile.target.orchestrator not in orchestrators:
@@ -888,6 +1016,14 @@ def profile_summary(profile: EnvironmentProfile) -> dict[str, Any]:
                 for wp in profile.filesystem.writable_paths
             ],
             "read_only_mounts": list(profile.filesystem.read_only_mounts),
+            "runtime_paths": [
+                {
+                    "env_var": rp.env_var,
+                    "path": rp.path,
+                    "writable_path_ref": rp.writable_path_ref,
+                }
+                for rp in profile.filesystem.runtime_paths
+            ],
         },
         "configuration": {
             "config_map_refs": list(profile.configuration.config_map_refs),
