@@ -1,0 +1,442 @@
+name: Advisory
+
+# ─────────────────────────────────────────────────────────────────────────
+# Half of the two-workflow model — see release.yml's header comment for the
+# full explanation. In short: this workflow REPORTS, it never BLOCKS.
+#
+# Every step below runs with `continue-on-error: true` (or an equivalent
+# non-blocking wrapper for a step that must still surface its own failure
+# text) so a red check here never fails the job/workflow, but is still
+# clearly visible as a red step in the Actions UI, in `::warning::`/
+# `::error::` annotations, and in the job summary written at the end. Debt
+# stays visible; it just never silently skips a release the way the old
+# `workflow_run`-chained pipeline.yml did.
+#
+# This file is the union of what used to be guardrails.yml's ADVISORY
+# section, concept-governance.yml, security.yml's non-test-suite steps, and
+# the advisory half of guardrails.yml's BLOCKING section that did not make
+# the release-critical cut defined in release.yml (see the coverage table in
+# the redesign's handoff notes / PR description for the full old-check ->
+# new-home mapping).
+#
+# Also carries the `pages` job (formerly the standalone pages.yml). Pages was
+# NOT genuinely independent of the release: it ran `pip install -e .`, which
+# resolves the SAME `epistemic-graph[full]>=2.23.2,<3.0.0` floor release.yml's
+# `gates` job checks — the exact deadlock in problem #2 (eg 2.23.0 is newest
+# on PyPI; au needs >=2.23.2) was Pages' actual failure mode ("Deploy-Pages
+# failure"). Docs deploy has no business blocking a package release either
+# way, so it belongs here: it reports its own failure (a red job, visible in
+# the Actions UI) without gating anything. It intentionally does not carry
+# per-job path filtering (GitHub Actions triggers are workflow-scoped, not
+# job-scoped, and this workflow's own `push` trigger is unconditional) — it
+# simply runs a cheap `mkdocs build` on every push to `main`.
+# ─────────────────────────────────────────────────────────────────────────
+
+on:
+  pull_request:
+    paths:
+      - 'agent_utilities/**'
+      - 'scripts/**'
+      - 'tests/**'
+      - 'docs/**'
+      - 'deploy/**'
+      - 'mkdocs.yml'
+      - 'pyproject.toml'
+      - 'uv.lock'
+      - 'MANIFEST.in'
+      - 'build_backend.py'
+      - 'requirements*.txt'
+      - 'agent_utilities/dependency-license-catalog.json'
+      - 'AGENTS.md'
+      - '**/Dockerfile*'
+      - '**/*compose*.yml'
+      - '**/*compose*.yaml'
+      - '**/*.stack.yml'
+      - '**/*.stack.yaml'
+      - '.pre-commit-config.yaml'
+      - '.github/**'
+  push:
+    branches:
+      - 'main'
+
+permissions:
+  contents: read
+
+jobs:
+  advisory:
+    name: Advisory gates (report only, never blocks)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        with:
+          languages: python
+          build-mode: none
+          queries: security-extended
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # D-CIP-2: uv.lock pins epistemic-graph/langfuse-agent as editable workspace
+      # siblings at .uv-workspace-siblings/<name> -- materialize them here exactly
+      # where uv.lock expects them so the SBOM/license audit below can audit their
+      # real license metadata instead of a stub (unlike every other job, which
+      # excludes them because it needs no runtime engine).
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/epistemic-graph
+          path: .uv-workspace-siblings/epistemic-graph
+          persist-credentials: false
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: Knuckles-Team/langfuse-agent
+          path: .uv-workspace-siblings/langfuse-agent
+          persist-credentials: false
+
+      - name: Sync full advisory environment (runtime engine + test extras)
+        run: |
+          uv sync --frozen --extra test --group guardrails --extra agent-runtime
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # ── formerly guardrails.yml's one already-advisory gate ──────────────
+      - name: Coupling gate (geniusbot -> agent_utilities adapter seam)
+        continue-on-error: true
+        run: python3 scripts/check_coupling.py
+
+      # ── formerly guardrails.yml's BLOCKING gates that did not make the
+      # release-critical cut (packaging/tests only blocks now; everything
+      # else here defends real invariants but is not itself release-critical
+      # per the approved design, so it moves here to keep reporting, never
+      # blocking) ──────────────────────────────────────────────────────────
+      - name: No-stub gate
+        continue-on-error: true
+        run: python3 scripts/check_no_stub.py
+
+      - name: Concept-freshness gate
+        continue-on-error: true
+        run: python3 scripts/check_concepts.py
+
+      - name: OKF-CIS domain-vocab gate (closed vocab + registered slugs)
+        continue-on-error: true
+        run: python3 scripts/check_domain_vocab.py agent_utilities
+
+      - name: Prompt-schema gate (canonical StructuredPrompt + fresh prompt.schema.json)
+        continue-on-error: true
+        run: python3 scripts/check_prompt_schema.py
+
+      - name: Genesis-manifest freshness gate
+        continue-on-error: true
+        run: python3 scripts/check_genesis_manifest.py
+
+      - name: Ontology library gate (valid + connected, no unlinked/broken)
+        continue-on-error: true
+        run: python3 scripts/check_ontology.py
+
+      - name: Skill-name collision gate (fleet-wide install-all uniqueness)
+        continue-on-error: true
+        run: python3 scripts/check_skill_name_collision.py
+
+      - name: Retrieval-quality gate
+        continue-on-error: true
+        run: python3 scripts/check_retrieval_quality.py
+
+      - name: Eval-corpus gate
+        continue-on-error: true
+        run: python3 scripts/check_eval_corpus.py
+
+      - name: Reliability-corpus gate
+        continue-on-error: true
+        run: python3 scripts/check_reliability_corpus.py
+
+      - name: Citation-lineage gate (mandatory evidence citation + embedding versioning)
+        continue-on-error: true
+        run: python3 scripts/check_citation_lineage.py
+
+      - name: Prod-profile guard
+        continue-on-error: true
+        run: python3 -m pytest tests/scale/test_prod_profile_guard.py -q -p no:cacheprovider -o addopts="" -k "prod or profile"
+
+      - name: Gate meta-tests (prove every gate can fail)
+        continue-on-error: true
+        run: python3 -m pytest tests/gates -q -p no:cacheprovider -o addopts=""
+
+      - name: Documentation contract gate
+        continue-on-error: true
+        run: python3 scripts/docs_contract.py --check
+
+      - name: Epistemic Operations Protocol gate (catalog + Python projection)
+        continue-on-error: true
+        run: python3 scripts/check_epistemic_operations_protocol.py --self-only
+
+      - name: Release version consistency gate
+        continue-on-error: true
+        run: python3 scripts/check_version_consistency.py
+
+      - name: Production cell source contract
+        continue-on-error: true
+        run: python3 scripts/deployment/check_production_assets.py
+
+      - name: Hardened Swarm source contract
+        continue-on-error: true
+        run: python3 scripts/deployment/check_swarm_assets.py --self-check
+
+      - name: Tenant and identity source contract
+        continue-on-error: true
+        run: python3 scripts/security/check_tenant_identity_contract.py --self-check
+
+      - name: Compatibility and release-train contract
+        continue-on-error: true
+        run: python3 scripts/release/check_compatibility.py --matrix-only
+
+      - name: Public graph-boundary contract
+        continue-on-error: true
+        run: python3 scripts/check_public_graph_boundary.py
+
+      - name: Engine-native ChangeEnvelope boundary
+        continue-on-error: true
+        run: python3 scripts/check_native_change_envelope_boundary.py
+
+      - name: Universal external-graph connector contract
+        continue-on-error: true
+        run: python3 scripts/check_external_graph_contract.py
+
+      - name: Current-only API and configuration contract
+        continue-on-error: true
+        run: python3 scripts/check_current_only_contract.py
+
+      - name: Connector live-certification source contract
+        continue-on-error: true
+        run: python3 scripts/check_connector_live_certification.py --self-check
+
+      - name: Exact-installed local certification source contract
+        continue-on-error: true
+        run: python3 scripts/check_exact_local_gates_harness.py
+
+      - name: Exact local promoter behavioral contract
+        continue-on-error: true
+        run: python3 -m pytest tests/unit/release/test_promote_local_release.py tests/gates/test_exact_local_release_contract.py -q -p no:cacheprovider -o addopts=""
+
+      - name: CI bootstrap and supply-chain policy behavioral contract
+        continue-on-error: true
+        run: python3 -m pytest tests/unit/scripts/test_run_guardrails_lean.py tests/unit/scripts/test_check_fleet_supply_chain.py -q -p no:cacheprovider -o addopts=""
+
+      - name: Mandatory ContextCompiler boundary
+        continue-on-error: true
+        run: python3 scripts/check_context_compiler_boundary.py
+
+      - name: Governed HTTP egress boundary
+        continue-on-error: true
+        run: python3 scripts/check_http_egress_boundary.py
+
+      - name: Consolidated pre-bundled skill contract
+        continue-on-error: true
+        run: python3 scripts/check_prebundled_skills.py
+
+      - name: Tracked artifact privacy gate
+        continue-on-error: true
+        run: python3 scripts/check_tracked_privacy.py
+
+      - name: Software supply-chain source contract
+        continue-on-error: true
+        run: python3 scripts/check_fleet_supply_chain.py .
+
+      - name: Dependency vulnerability audit (OSV)
+        continue-on-error: true
+        run: python3 scripts/audit_dependencies.py uv.lock
+
+      - name: Anti-sprawl gate
+        continue-on-error: true
+        run: python3 scripts/check_sprawl.py
+
+      - name: Config-flag anti-sprawl gate
+        continue-on-error: true
+        run: python3 scripts/check_no_env_sprawl.py
+
+      - name: Liveness ratchet gate
+        continue-on-error: true
+        run: python3 scripts/check_liveness.py
+
+      # ── formerly security.yml (SBOM/license + auth/tenant test subsets are
+      # now also exercised as part of release.yml's consolidated "Test suite"
+      # step over the whole tests/ tree; kept here too so a failure is
+      # visible on every PR/push without needing to cross-reference the
+      # release workflow, and so CodeQL -- which release.yml deliberately
+      # does not run, being slow and non-packaging-related -- has a home) ──
+      - name: CycloneDX SBOM and license policy
+        continue-on-error: true
+        run: >-
+          python3 scripts/security/check_sbom_licenses.py
+          --output "$RUNNER_TEMP/agent-utilities.cdx.json"
+
+      - name: Upload sanitized SBOM
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: agent-utilities-cyclonedx
+          path: ${{ runner.temp }}/agent-utilities.cdx.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Bounded parser fuzzing
+        continue-on-error: true
+        run: >-
+          python3 -m pytest tests/unit/security/test_parser_fuzz.py
+          -q -p no:cacheprovider -o addopts=""
+
+      - name: Authentication negative paths
+        continue-on-error: true
+        run: >-
+          python3 -m pytest
+          tests/unit/core/test_request_identity.py
+          tests/unit/mcp/test_graphos_bootstrap_isolation.py
+          tests/unit/security/test_cli_secret_references.py
+          -q -p no:cacheprovider -o addopts=""
+
+      - name: Tenant-isolation regression suite
+        continue-on-error: true
+        run: >-
+          python3 -m pytest
+          tests/unit/security/test_tenant_identity_contract.py
+          tests/unit/test_tenant_e2e_au_p0_5.py
+          -q -p no:cacheprovider -o addopts=""
+
+      - name: CodeQL analysis
+        continue-on-error: true
+        uses: github/codeql-action/analyze@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4
+        with:
+          category: /language:python
+
+      # ── formerly concept-governance.yml ───────────────────────────────
+      - name: Merged-Concept Visibility Audit (D-RG2-3, push only)
+        if: github.event_name == 'push'
+        continue-on-error: true
+        run: uv run --no-sync python3 scripts/check_concept_governance.py --audit-merged
+
+      - name: Extend-Before-Invent Gate (new CONCEPT tags need a design doc, PR only)
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: |
+          echo "Scanning for new CONCEPT: tags in this PR..."
+          pip install pyyaml >/dev/null 2>&1 || true
+          VALID=$(python -c "import yaml; d=yaml.safe_load(open('docs/concepts.yaml')) or {}; print(' '.join(sorted({p.split('-')[0] for p in d.get('pillars', [])})))")
+          if [ -z "$VALID" ]; then
+            VALID="ORCH KG AHE ECO OS SAFE EE ML"
+          fi
+          NEW_CONCEPTS=$(git diff origin/main...HEAD --unified=0 | \
+            grep -oP '(?<=CONCEPT:)[A-Z]{2}-(?:ORCH|KG|AHE|ECO|OS|GBOT)(?:\.[a-z0-9-]+)+' | \
+            sort -u || true)
+          if [ -z "$NEW_CONCEPTS" ]; then
+            echo "No new CONCEPT: tags found. Governance check passed."
+            exit 0
+          fi
+          echo "New CONCEPT tags found:"
+          echo "$NEW_CONCEPTS"
+          VIOLATIONS=""
+          for concept in $NEW_CONCEPTS; do
+            PILLAR=$(echo "$concept" | grep -oP '^[A-Z]+')
+            DESIGN_DIR=".specify/design/"
+            if ! find "$DESIGN_DIR" -name "*.md" -exec grep -l "$concept" {} \; 2>/dev/null | head -1 | grep -q .; then
+              VIOLATIONS="$VIOLATIONS\n  $concept -- No design document references this concept"
+            fi
+            if echo "$VALID" | tr ' ' '\n' | grep -qx "$PILLAR"; then
+              echo "  OK: $concept -- valid pillar: $PILLAR"
+            else
+              VIOLATIONS="$VIOLATIONS\n  $concept -- invalid pillar prefix: $PILLAR (must be one of: $VALID)"
+            fi
+          done
+          if [ -n "$VIOLATIONS" ]; then
+            echo "::warning::Governance violations found (advisory, does not block):"
+            echo -e "$VIOLATIONS"
+            exit 1
+          fi
+          echo "All new concepts have design documents. Governance check passed."
+
+      - name: Advisory summary
+        if: always()
+        run: |
+          echo "## Advisory gates ran in report-only mode" >> "$GITHUB_STEP_SUMMARY"
+          echo "Every step above uses \`continue-on-error: true\`. A red step here" >> "$GITHUB_STEP_SUMMARY"
+          echo "is real debt and never blocks a release -- release-blocking checks" >> "$GITHUB_STEP_SUMMARY"
+          echo "live only in \`release.yml\`. Scroll up for which step(s) failed." >> "$GITHUB_STEP_SUMMARY"
+
+  # ── formerly the standalone pages.yml — see the header comment for why it
+  # moved here. Runs on push to main only; a failure is a red job in this
+  # workflow's run, never a blocker for release.yml.
+  pages:
+    name: Deploy GitHub Pages (report only, never blocks)
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          # '3.x' floats to the runner's newest CPython. requires-python is
+          # '>=3.12,<3.15' (pyproject.toml); pin explicitly for the same
+          # reason every other job here does.
+          python-version: '3.12'
+
+      - name: Install package and MkDocs
+        id: install
+        continue-on-error: true
+        run: |
+          pip install -e .
+          pip install mkdocs-material mkdocs-awesome-pages-plugin
+
+      - name: Build Docs
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        run: |
+          python3 scripts/docs_contract.py --check
+          python3 scripts/check_tracked_privacy.py
+          mkdocs build --strict
+
+      - name: Setup Pages
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
+      - name: Upload artifact
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: './site'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        if: steps.install.outcome == 'success'
+        continue-on-error: true
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5
+
+      - name: Report install failure (cross-repo release-order deadlock)
+        if: steps.install.outcome != 'success'
+        run: |
+          echo "::warning::pages job could not install agent-utilities -- most likely the same cross-repo epistemic-graph release-order deadlock release.yml's 'gates' job checks for (see scripts/release/check_eg_pypi_resolvable.py). This does not block any release; docs redeploy automatically once installable again."
+          exit 0
