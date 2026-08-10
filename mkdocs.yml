@@ -89,6 +89,7 @@ nav:
       - Sovereign / Self-Hosted (+ air-gap path): guides/sovereign-self-hosted.md
       - Recipe — Single-node prod: recipes/single-node-prod.md
       - Recipe — Enterprise: recipes/enterprise.md
+      - Genesis k8s Deployment Inputs + Named Environment Profiles: architecture/genesis-environment-profiles.md
       - Recipe — Stardog + pg-age databases: recipes/databases.md
       - Recipe — Delta-based ingestion via backends: recipes/delta-ingestion.md
       - Recipe — Unified scheduling + RSS research feed: recipes/unified-scheduling.md
