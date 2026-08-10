@@ -1168,7 +1168,12 @@ async def test_probe_server_preserves_an_mcp_apps_tool_descriptor_meta(tmp_path)
     reads — this was previously dropped even though ``tool_object()`` already
     carries it (``_prefixed_child_tools`` copies ``tool.meta`` when mounting).
     """
-    ui_meta = {"ui": {"resourceUri": "ui://graph-os/task-progress.html", "visibility": ["model"]}}
+    ui_meta = {
+        "ui": {
+            "resourceUri": "ui://graph-os/task-progress.html",
+            "visibility": ["model"],
+        }
+    }
     mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
 
     async def fake_start_child(server_name, cfg):

@@ -138,7 +138,12 @@ async def test_list_mcp_server_tools_forwards_an_mcp_apps_resource_uri(
     """
     from agent_utilities.mcp import shared_multiplexer as shared_mux_mod
 
-    ui_meta = {"ui": {"resourceUri": "ui://graph-os/task-progress.html", "visibility": ["model"]}}
+    ui_meta = {
+        "ui": {
+            "resourceUri": "ui://graph-os/task-progress.html",
+            "visibility": ["model"],
+        }
+    }
 
     class _StubMux:
         async def probe_server(self, server_name: str) -> dict:
