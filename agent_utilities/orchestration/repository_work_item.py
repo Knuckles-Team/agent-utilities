@@ -458,9 +458,9 @@ class RepositoryWorkItemRequest(BaseModel):
     resource_class: str = "light-check"
     concurrency_key: str = "light-check"
     profile_version: str | None = None
-    resolved_profile_authority: Literal[
-        "repository_manager:resource_profile_registry:v1"
-    ] | None = None
+    resolved_profile_authority: (
+        Literal["repository_manager:resource_profile_registry:v1"] | None
+    ) = None
     concurrency_limit: StrictInt | None = Field(default=None, ge=1)
     repository_exclusive: StrictBool = False
     branch_exclusive: StrictBool = False
@@ -620,18 +620,14 @@ class RepositoryWorkItemRequest(BaseModel):
             )
         if self.operation == RepositoryOperation.LANE_LIFECYCLE:
             if self.lane_intent is None:
-                raise ValueError(
-                    "lane.lifecycle requires a typed lane_intent"
-                )
+                raise ValueError("lane.lifecycle requires a typed lane_intent")
         elif self.lane_intent is not None:
             raise ValueError(
                 "lane_intent is only valid on a lane.lifecycle WorkItem request"
             )
         if self.operation == RepositoryOperation.LANE_CLEANUP:
             if self.lane_cleanup_intent is None:
-                raise ValueError(
-                    "lane.cleanup requires a typed lane_cleanup_intent"
-                )
+                raise ValueError("lane.cleanup requires a typed lane_cleanup_intent")
         elif self.lane_cleanup_intent is not None:
             raise ValueError(
                 "lane_cleanup_intent is only valid on a lane.cleanup WorkItem request"
@@ -704,8 +700,12 @@ class RepositoryWorkItemRequest(BaseModel):
             concurrency_limit=resources.get("concurrency_limit")
             if resources.get("concurrency_limit") is not None
             else raw.get("concurrency_limit"),
-            repository_exclusive=resources.get("repository_exclusive", raw.get("repository_exclusive", False)),
-            branch_exclusive=resources.get("branch_exclusive", raw.get("branch_exclusive", False)),
+            repository_exclusive=resources.get(
+                "repository_exclusive", raw.get("repository_exclusive", False)
+            ),
+            branch_exclusive=resources.get(
+                "branch_exclusive", raw.get("branch_exclusive", False)
+            ),
             disk_policy_key=resources.get("disk_policy_key")
             or raw.get("disk_policy_key"),
             fairness_cost=resources.get("fairness_cost")
@@ -1043,9 +1043,7 @@ def _request_metadata(
                 else None
             ),
             "anti_affinity": _encode_opaque_sequence(request.anti_affinity),
-            "queue_deadline": (
-                _canonical_json_datetime(request.queue_deadline)
-            ),
+            "queue_deadline": (_canonical_json_datetime(request.queue_deadline)),
             "disk_low_watermark_mib": request.disk_low_watermark_mib,
             "disk_high_watermark_mib": request.disk_high_watermark_mib,
             "target_kind": request.target_kind,
@@ -1203,9 +1201,9 @@ def submit_repository_work_item(
 
     raw_request = _as_mapping(request)
     raw_resources = _nested_mapping(raw_request.get("resources"))
-    supplied_authority = raw_resources.get("resolved_profile_authority") or raw_request.get(
+    supplied_authority = raw_resources.get(
         "resolved_profile_authority"
-    )
+    ) or raw_request.get("resolved_profile_authority")
     if resolved_profile_projection:
         if supplied_authority != "repository_manager:resource_profile_registry:v1":
             raise RepositoryWorkItemError(
@@ -1256,10 +1254,7 @@ def submit_repository_work_item(
             field
             for field in required_authority_fields
             if field not in authority_source
-            or (
-                field in required_non_null_fields
-                and authority_source[field] is None
-            )
+            or (field in required_non_null_fields and authority_source[field] is None)
         ]
         if missing_authority_fields:
             raise RepositoryWorkItemError(
