@@ -3,7 +3,7 @@
 
 The packaged JSON Schema catalog is authoritative.  This gate proves:
 
-* exactly fifteen current-only schemas exist and reject unknown fields;
+* exactly sixteen current-only schemas exist and reject unknown fields;
 * credentials, endpoints, personal fields, and local-path fields are absent;
 * every bound JSON object has identical ordered fields in Python and Rust;
 * the generated strict Python/Rust client DTOs and manifests match the catalog;
@@ -55,6 +55,7 @@ REQUIRED_SCHEMAS = (
     "resource_reservation",
     "resource_reservation_status",
     "resource_host_update",
+    "development_lane",
 )
 REQUIRED_SCHEMA_VERSIONS = {
     "request_context": "2",
@@ -72,6 +73,7 @@ REQUIRED_SCHEMA_VERSIONS = {
     "resource_reservation": "1",
     "resource_reservation_status": "1",
     "resource_host_update": "1",
+    "development_lane": "1",
 }
 FORBIDDEN_PROPERTY_NAMES = {
     "base_url",

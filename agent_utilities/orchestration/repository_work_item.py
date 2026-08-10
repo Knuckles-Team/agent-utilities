@@ -52,6 +52,10 @@ from agent_utilities.orchestration.work_item import (
     mark_running,
     submit_work_item_atomic,
 )
+from agent_utilities.protocols.epistemic_operations._generated import (
+    DevelopmentLaneCleanupIntent,
+    DevelopmentLaneIntent,
+)
 
 CONTRACT_VERSION: Literal["1"] = "1"
 _METADATA_KEY = "repository_work_item"
@@ -80,6 +84,14 @@ class RepositoryOperation(StrEnum):
 
     LANE_ALLOCATE = "lane.allocate"
     LANE_CHECK = "lane.check"
+    # RMDD-28: the native DevelopmentLaneHold lifecycle WorkItem family. Distinct
+    # from LANE_ALLOCATE/LANE_CHECK (RMDD-06's generic job submissions) -- these
+    # two kinds are the sole typed carrier for a DevelopmentLaneIntent/
+    # DevelopmentLaneCleanupIntent and are what the native reserve/renew/
+    # observe/finish transaction and the separate fenced cleanup transaction
+    # bind to (see the RMDD-28 lane brief, "Authority and identity model").
+    LANE_LIFECYCLE = "lane.lifecycle"
+    LANE_CLEANUP = "lane.cleanup"
     REPOSITORY = "repository"
     VALIDATION = "validation"
     BUILD = "build"
@@ -99,6 +111,8 @@ class RepositoryWorkItemKind(StrEnum):
 
     LANE_ALLOCATE = "repository.lane.allocate"
     LANE_CHECK = "repository.lane.check"
+    LANE_LIFECYCLE = "repository.lane.lifecycle"
+    LANE_CLEANUP = "repository.lane.cleanup"
     OPERATION = "repository.operation"
     VALIDATION = "repository.validation"
     BUILD = "repository.build"
@@ -129,6 +143,8 @@ class RepositoryJobState(StrEnum):
 _OPERATION_TO_KIND: dict[RepositoryOperation, RepositoryWorkItemKind] = {
     RepositoryOperation.LANE_ALLOCATE: RepositoryWorkItemKind.LANE_ALLOCATE,
     RepositoryOperation.LANE_CHECK: RepositoryWorkItemKind.LANE_CHECK,
+    RepositoryOperation.LANE_LIFECYCLE: RepositoryWorkItemKind.LANE_LIFECYCLE,
+    RepositoryOperation.LANE_CLEANUP: RepositoryWorkItemKind.LANE_CLEANUP,
     RepositoryOperation.REPOSITORY: RepositoryWorkItemKind.OPERATION,
     RepositoryOperation.VALIDATION: RepositoryWorkItemKind.VALIDATION,
     RepositoryOperation.BUILD: RepositoryWorkItemKind.BUILD,
@@ -474,6 +490,15 @@ class RepositoryWorkItemRequest(BaseModel):
     config_digest: str | None = None
     input_digest: str | None = None
     correlation_id: str | None = None
+    # RMDD-28: the sole typed carrier for a development-lane allocation/cleanup
+    # intent. Genuinely immutable -- this whole model is
+    # ``ConfigDict(frozen=True)``, so any attempted post-construction mutation
+    # (``request.lane_intent = ...``) raises, it is not merely a convention.
+    # Never populated from ``consent``/``preferred_target``/``correlation_id``;
+    # those remain ``extra="forbid"`` typed models of their own and cannot
+    # carry an opaque ``lane_event`` payload.
+    lane_intent: DevelopmentLaneIntent | None = None
+    lane_cleanup_intent: DevelopmentLaneCleanupIntent | None = None
 
     @field_validator(
         "request_id",
@@ -589,6 +614,28 @@ class RepositoryWorkItemRequest(BaseModel):
         high = self.disk_high_watermark_mib
         if low is not None and high is not None and low > high:
             raise ValueError("disk low watermark must not exceed high watermark")
+        if self.lane_intent is not None and self.lane_cleanup_intent is not None:
+            raise ValueError(
+                "lane_intent and lane_cleanup_intent are mutually exclusive"
+            )
+        if self.operation == RepositoryOperation.LANE_LIFECYCLE:
+            if self.lane_intent is None:
+                raise ValueError(
+                    "lane.lifecycle requires a typed lane_intent"
+                )
+        elif self.lane_intent is not None:
+            raise ValueError(
+                "lane_intent is only valid on a lane.lifecycle WorkItem request"
+            )
+        if self.operation == RepositoryOperation.LANE_CLEANUP:
+            if self.lane_cleanup_intent is None:
+                raise ValueError(
+                    "lane.cleanup requires a typed lane_cleanup_intent"
+                )
+        elif self.lane_cleanup_intent is not None:
+            raise ValueError(
+                "lane_cleanup_intent is only valid on a lane.cleanup WorkItem request"
+            )
         return self
 
     def immutable_digest(self) -> str:

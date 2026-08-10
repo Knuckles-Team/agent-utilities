@@ -90,6 +90,11 @@
       "name": "resource_host_update",
       "version": "1",
       "file": "resource-host-update.schema.json"
+    },
+    {
+      "name": "development_lane",
+      "version": "1",
+      "file": "development-lane.schema.json"
     }
   ]
 }
