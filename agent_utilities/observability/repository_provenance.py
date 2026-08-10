@@ -116,7 +116,11 @@ REPOSITORY_EVENT_KINDS: frozenset[str] = frozenset(get_args(RepositoryEventKind)
 # replay by a superseded (stale-fenced) writer must never be recorded as if
 # it were the current outcome.
 TERMINAL_EVENT_KINDS: frozenset[str] = frozenset({"command_result", "landing_push"})
-TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "failed"})
+TERMINAL_STATUSES: frozenset[str] = frozenset({"succeeded", "failed", "landed"})
+# "landed" covers repository_manager.development.enums.LandingOutcome.LANDED --
+# landing_push's own success vocabulary differs from command_result's
+# (succeeded/failed), so both must be present for the fence guard to protect
+# a landing success exactly like a command-result success.
 
 # Matches repository_manager.development.enums.RefusalCode.STALE_FENCE_DUPLICATE_EFFECT
 # (C-10) byte-for-byte, without importing repository-manager from agent-utilities.

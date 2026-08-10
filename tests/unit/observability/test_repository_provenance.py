@@ -566,3 +566,55 @@ def test_no_fence_supplied_skips_fence_guard_best_effort() -> None:
         status="reserved",
     )
     assert result["kind"] == "concept_event"
+
+
+def test_landing_push_landed_status_is_also_fence_protected() -> None:
+    """``landing_push``'s success vocabulary is 'landed', not 'succeeded'
+    (repository_manager.development.enums.LandingOutcome) -- the fence guard
+    must protect it exactly like a command_result success, not silently
+    exempt it because the status string differs."""
+
+    engine = _FakeEngine()
+    work_item_id = "workitem:repository_manager:fixture-landing"
+
+    write_repository_event(
+        engine,
+        work_item_id=work_item_id,
+        attempt=1,
+        kind="lease_claimed",
+        occurrence=0,
+        status="leased",
+        fence="fence-epoch-1",
+    )
+    landed = write_repository_event(
+        engine,
+        work_item_id=work_item_id,
+        attempt=1,
+        kind="landing_push",
+        occurrence=0,
+        status="landed",
+        fence="fence-epoch-1",
+    )
+    assert landed["status"] == "landed"
+
+    # A new lease supersedes the fence.
+    write_repository_event(
+        engine,
+        work_item_id=work_item_id,
+        attempt=2,
+        kind="lease_claimed",
+        occurrence=0,
+        status="leased",
+        fence="fence-epoch-2",
+    )
+    # A stale replay of the OLD landing success must be refused.
+    with pytest.raises(StaleFenceError):
+        write_repository_event(
+            engine,
+            work_item_id=work_item_id,
+            attempt=1,
+            kind="landing_push",
+            occurrence=1,
+            status="landed",
+            fence="fence-epoch-1",
+        )
