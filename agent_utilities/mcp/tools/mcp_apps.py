@@ -4,11 +4,26 @@
 CONCEPT:AU-ECO.ui.mcp-apps-host
 
 Registers each app's entry-point tool (``graph_task_progress_app`` /
-``graph_trace_waterfall_app``) whose result carries ``_meta.ui.resourceUri`` per the
-MCP Apps extension (``io.modelcontextprotocol/ui``, already unconditionally
-advertised by fastmcp 4 -- see
-``fastmcp.server.low_level.LowLevelServer.get_capabilities``), and the ``ui://``
-resource itself: a small, dependency-free HTML/JS page.
+``graph_trace_waterfall_app``), declared via ``@mcp.tool(app=AppConfig(resource_uri=...))``,
+and the ``ui://`` resource itself: a small, dependency-free HTML/JS page.
+
+BUG-071 correction: ``_meta.ui.resourceUri`` (the MCP Apps extension,
+``io.modelcontextprotocol/ui``, already unconditionally advertised by fastmcp 4 --
+see ``fastmcp.server.low_level.LowLevelServer.get_capabilities``) is a
+**tool-descriptor** field -- ``AppConfig`` merges it into the registered
+``Tool.meta``, so it rides on the ``tools/list`` response for THIS tool, once,
+statically. It is NOT a ``tools/call`` result field: fastmcp never copies a
+tool's declared ``meta`` onto the ``CallToolResult`` it returns for that tool
+(confirmed against fastmcp 4.0.0b2 and the upstream spec -- a host is expected to
+read ``resourceUri`` from ``tools/list`` and preload/fetch the resource before
+the tool is ever called, per the extension's own "UI preloading" step). The
+entry-point tools below answer their calls with plain ``{"jobId": ...}`` /
+``{"traceId": ...}``, no meta at all, and that is correct/unchanged. The actual
+host-side chokepoint that must forward this ``Tool.meta`` is the tool
+*inventory* path -- ``MCPMultiplexer._live_tools_for_server`` and
+``webui_mcp_delegation._list_mcp_server_tools`` -- not the tool *call* path
+(``call_tool_once``/``McpToolSourceConnector._decode``, which decode a
+``CallToolResult`` and never had a ``resourceUri`` to lose).
 
 Of the original "apps worth shipping" list (trace waterfall, workflow viewer,
 evaluation scorecard, task progress, ontology diff, approval form), two now ship:

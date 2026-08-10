@@ -10,12 +10,19 @@ protocol round trip and the result decoding are the production ones.
 
 from __future__ import annotations
 
+import json
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
 fastmcp = pytest.importorskip("fastmcp")
 
+from agent_utilities.mcp.multiplexer import MCPMultiplexer  # noqa: E402
+from agent_utilities.mcp.tools.mcp_apps import (  # noqa: E402
+    TASK_PROGRESS_RESOURCE_URI,
+    register_mcp_apps_tools,
+)
 from agent_utilities.protocols.source_connectors.connectors.mcp_tool import (  # noqa: E402
     McpToolSourceConnector,
     McpToolSourceError,
@@ -121,6 +128,149 @@ async def test_list_mcp_server_tools_reads_the_shared_multiplexer(
             "input_schema": {"type": "object"},
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_list_mcp_server_tools_forwards_an_mcp_apps_resource_uri(
+    monkeypatch,
+) -> None:
+    """BUG-071: an MCP Apps tool's ``_meta.ui.resourceUri`` (the
+    ``io.modelcontextprotocol/ui`` extension) must survive to the WebUI's tool
+    inventory so an app-launcher can discover which ``ui://`` resource to
+    render — it is a ``tools/list``-time field declared on the tool descriptor
+    (``fastmcp``'s ``AppConfig``), never a ``tools/call`` result field, so
+    ``call_tool_once``/``_decode`` were never where it could be lost. This
+    covers the multiplexer's already-mounted-child dict shape
+    (``MCPMultiplexer._live_tools_for_server``).
+    """
+    from agent_utilities.mcp import shared_multiplexer as shared_mux_mod
+
+    ui_meta = {
+        "ui": {
+            "resourceUri": "ui://graph-os/task-progress.html",
+            "visibility": ["model"],
+        }
+    }
+
+    class _StubMux:
+        async def probe_server(self, server_name: str) -> dict:
+            return {
+                "tools": [
+                    {
+                        "name": "graph_task_progress_app",
+                        "description": "Launch a live task-progress MCP App.",
+                        "inputSchema": {"type": "object"},
+                        "meta": ui_meta,
+                    },
+                    {
+                        "name": "graph_jobs",
+                        "description": "Poll a job.",
+                        "inputSchema": {"type": "object"},
+                        # no meta — an ordinary tool, must stay unchanged
+                    },
+                ],
+                "error": None,
+            }
+
+    async def _get_stub() -> Any:
+        return _StubMux()
+
+    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_stub)
+
+    list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
+    tools = await list_mcp_server_tools(server_name="graph-os")
+
+    by_name = {t["name"]: t for t in tools}
+    assert by_name["graph_task_progress_app"]["meta"] == ui_meta
+    assert "meta" not in by_name["graph_jobs"]
+
+
+@pytest.mark.asyncio
+async def test_list_mcp_server_tools_forwards_meta_from_an_unmounted_probe_tool_object(
+    monkeypatch,
+) -> None:
+    """Same as above, for the OTHER shape ``probe_server`` can return: a raw
+    ``mcp.types.Tool`` straight off ``session.list_tools()`` for a server that
+    is not yet mounted in the shared multiplexer (the cold-probe path)."""
+    import mcp.types as mcp_types
+
+    from agent_utilities.mcp import shared_multiplexer as shared_mux_mod
+
+    ui_meta = {"ui": {"resourceUri": "ui://graph-os/trace-waterfall.html"}}
+    tool_obj = mcp_types.Tool(
+        name="graph_trace_waterfall_app",
+        description="Launch a trace-waterfall MCP App.",
+        input_schema={"type": "object"},
+        _meta=ui_meta,
+    )
+
+    class _StubMux:
+        async def probe_server(self, server_name: str) -> dict:
+            return {"tools": [tool_obj], "error": None}
+
+    async def _get_stub() -> Any:
+        return _StubMux()
+
+    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_stub)
+
+    list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
+    tools = await list_mcp_server_tools(server_name="graph-os")
+
+    assert tools[0]["name"] == "graph_trace_waterfall_app"
+    assert tools[0]["meta"] == ui_meta
+
+
+@pytest.mark.asyncio
+async def test_list_mcp_server_tools_carries_a_real_mcp_apps_tool_end_to_end(
+    monkeypatch, tmp_path
+) -> None:
+    """The strongest BUG-071 proof: the REAL production ``mcp_apps.py``
+    registration (``register_mcp_apps_tools``, the exact code that ships
+    ``graph_task_progress_app``) mounted as a genuine child of a real
+    ``MCPMultiplexer``, probed and inventoried through the real, unmodified
+    ``_live_tools_for_server``/``probe_server`` and
+    ``webui_mcp_delegation._list_mcp_server_tools``.
+
+    Only the child-process TRANSPORT is substituted (a real in-process
+    ``fastmcp.Client`` in place of a spawned subprocess) — the same boundary
+    every other test in ``test_multiplexer_dynamic_gateway.py`` mocks
+    (``_start_child``); the tool objects themselves are the real ones fastmcp
+    produced from the real ``AppConfig(resource_uri=...)`` declaration, not a
+    hand-built stand-in.
+    """
+    from agent_utilities.mcp import shared_multiplexer as shared_mux_mod
+
+    real_server = fastmcp.FastMCP("graph-os-apps")
+    register_mcp_apps_tools(real_server)
+
+    config_path = tmp_path / "mcp_config.json"
+    config_path.write_text(
+        json.dumps({"mcpServers": {"graph-os": {"command": "graph-os"}}}),
+        encoding="utf-8",
+    )
+    mux = MCPMultiplexer(config_path)
+
+    async def fake_start_child(server_name: str, cfg: dict) -> Any:
+        async with fastmcp.Client(real_server) as client:
+            listed = await client.list_tools()
+        session = AsyncMock()
+        return server_name, session, listed, cfg
+
+    mux._start_child = AsyncMock(side_effect=fake_start_child)  # type: ignore[method-assign]
+    await mux.mount_child("graph-os")  # exercises the mounted-child probe branch
+
+    async def _get_mux() -> Any:
+        return mux
+
+    monkeypatch.setattr(shared_mux_mod, "get_shared_multiplexer", _get_mux)
+
+    list_mcp_server_tools = webui_mcp_delegation_helpers()["list_mcp_server_tools"]
+    tools = await list_mcp_server_tools(server_name="graph-os")
+
+    by_name = {t["name"]: t for t in tools}
+    assert by_name["graph_task_progress_app"]["meta"]["ui"]["resourceUri"] == (
+        TASK_PROGRESS_RESOURCE_URI
+    )
 
 
 @pytest.mark.asyncio
