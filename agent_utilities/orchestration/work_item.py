@@ -1340,8 +1340,10 @@ def defer_work_item(
 # ``TERMINAL_WORK_ITEM_STATUSES``: the WorkItem stays ``running`` the whole
 # time (a worker can still heartbeat/checkpoint it normally); only
 # ``metadata.pending_input_request``/``pending_input_response`` change. A
-# Tasks adapter (``mcp_v2_gateway.gateway``, or a native
-# ``fastmcp.server.extensions.ServerExtension``) projects the presence of a
+# Tasks adapter — ``agent_utilities.mcp.tasks_extension.WorkItemTasksExtension``,
+# a native ``fastmcp.server.extensions.ServerExtension`` (the formerly
+# separate ``mcp_v2_gateway.gateway`` sidecar was retired under BUG-069; see
+# docs/architecture/mcp-2026-protocol-surface.md) — projects the presence of a
 # live ``pending_input_request`` onto the extension's ``input_required``
 # wire status; everything else about submit/claim/commit is unchanged.
 

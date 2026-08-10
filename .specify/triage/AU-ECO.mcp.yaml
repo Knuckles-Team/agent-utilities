@@ -1181,10 +1181,14 @@ concepts:
       - docs/capabilities-power.md:4885
       - tests/unit/test_usage_api.py:1
   AU-ECO.mcp.v2-gateway-otel-tracing:
-    decision: PENDING
+    decision: retire
     parent: ''
     rationale: ''
-    reason: ''
+    reason: 'BUG-069: mcp_v2_gateway/ (the isolated MCP 2026-07-28 sidecar this concept
+      instrumented) was retired -- its mcp<2/FastMCP isolation premise expired once
+      agent-utilities moved to fastmcp>=4.0.0b1 / mcp==2.0.0 in-process, and the SDK
+      now serves 2026-07-28 natively on graph-os''s own /mcp endpoint. See
+      docs/architecture/mcp-2026-protocol-surface.md.'
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source

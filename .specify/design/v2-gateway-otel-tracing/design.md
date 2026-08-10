@@ -2,6 +2,16 @@
 
 CONCEPT:AU-ECO.mcp.v2-gateway-otel-tracing
 
+> **Retired under BUG-069.** `mcp_v2_gateway/` (the isolated sidecar this
+> design document covers) was removed once its `mcp<2`/FastMCP isolation
+> premise expired: `agent-utilities` now runs `fastmcp>=4.0.0b1` / `mcp==2.0.0`
+> in-process, and the installed SDK serves the 2026-07-28 protocol version
+> natively on graph-os's own `/mcp` endpoint, including the modern
+> `traceparent`/`tracestate` propagation this document's `tracing.py` used to
+> hand-roll (`mcp.shared._otel`). See
+> `docs/architecture/mcp-2026-protocol-surface.md` for the current state.
+> Kept below as the historical decision record.
+
 ## KG Analysis (Required)
 
 ### Nearest Existing Concepts

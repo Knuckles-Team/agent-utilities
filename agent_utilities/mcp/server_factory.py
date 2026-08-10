@@ -1633,9 +1633,12 @@ def create_mcp_server(
     # fastmcp_tasks.extension.TasksExtension: that package's engine is
     # hard-wired to Docket/Redis, a second job system this codebase's one
     # WorkItem state machine (AU-P1-1) forbids duplicating. This makes the
-    # exact same WorkItem-backed contract the isolated mcp_v2_gateway sidecar
-    # already exposes for 2026-07-28 stateless clients reachable to a client
-    # connected directly to this server too.
+    # same WorkItem-backed contract available to any MCP protocol version
+    # this server negotiates over its one `/mcp` endpoint, including
+    # 2026-07-28 (BUG-069: the isolated mcp_v2_gateway sidecar that used to
+    # carry an equivalent projection over its own hop was retired once the
+    # `mcp<2` isolation premise it depended on expired -- see
+    # docs/architecture/mcp-2026-protocol-surface.md).
     #
     # `fastmcp.server.extensions` (what the Tasks extension mounts through)
     # is fastmcp-4-only; the fleet is EXPLICITLY mixed-version (D-SH-3: child

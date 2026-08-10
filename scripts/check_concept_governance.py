@@ -54,9 +54,10 @@ universe, even though that is the single generated source of truth for the
 *registered* concept catalog and is what the CI workflow doc / D-RG2-3's
 "suggested shape" both point at. ``docs/concepts.yaml`` is built by
 ``build_concepts_yaml.py``, which scans only ``agent_utilities/**`` — but a
-``CONCEPT:`` marker is legitimately written in ``scripts/``, ``tests/``,
-``mcp_v2_gateway/`` (a sibling package outside ``agent_utilities/``), and
-prose docs (``AGENTS.md``, ``docs/architecture/*.md``). Five of the 39
+``CONCEPT:`` marker is legitimately written in ``scripts/``, ``tests/``, a
+sibling package outside ``agent_utilities/`` (formerly ``mcp_v2_gateway/``,
+retired under BUG-069 — see ``docs/architecture/mcp-2026-protocol-surface.md``),
+and prose docs (``AGENTS.md``, ``docs/architecture/*.md``). Five of the 39
 concepts this exact gate gap produced (D-RG2-2) live ONLY in such files —
 using ``docs/concepts.yaml`` as the universe would have silently exempted
 them from the audit this mode exists to provide, defeating its own purpose.
@@ -279,8 +280,7 @@ def all_registered_concepts(root: Path = ROOT) -> list[str]:
     See the module docstring ("Merged-but-undocumented mode") for why this
     deliberately re-scans the tree instead of reading ``docs/concepts.yaml``:
     that registry is generated from ``agent_utilities/**`` only, and misses
-    markers legitimately written in ``scripts/``, ``tests/``,
-    ``mcp_v2_gateway/``, or prose docs.
+    markers legitimately written in ``scripts/``, ``tests/``, or prose docs.
     """
     found: set[str] = set()
     for path in _tracked_or_walked_files(root):

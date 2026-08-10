@@ -52,7 +52,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-DEFAULT_ROOTS = ("agent_utilities", "mcp_v2_gateway", "scripts", "tests", "examples")
+DEFAULT_ROOTS = ("agent_utilities", "scripts", "tests", "examples")
 
 
 @dataclass

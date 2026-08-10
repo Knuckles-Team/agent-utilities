@@ -110,20 +110,25 @@ def test_reconcile_marks_landed(repo: Path) -> None:
     ]
 
 
-def test_reconcile_marks_landed_in_the_mcp_v2_gateway_sidecar_package(
+def test_reconcile_marks_landed_in_a_non_default_scan_root(
     repo: Path,
 ) -> None:
-    """D-25-8 — a CONCEPT: marker landing in mcp_v2_gateway/ (the one other
-    in-repo, deliberately-isolated Python sidecar package) must reconcile to
-    'landed' exactly like one in agent_utilities/ — previously it stayed
-    'reserved' forever because _default_scan_roots() never walked that tree."""
+    """D-25-8 — a CONCEPT: marker landing outside agent_utilities/ (e.g. a
+    separate in-repo package, historically ``mcp_v2_gateway/`` before its
+    BUG-069 retirement — see docs/architecture/mcp-2026-protocol-surface.md)
+    must reconcile to 'landed' exactly like one in agent_utilities/, given an
+    explicit extra scan root — previously it stayed 'reserved' forever
+    because _default_scan_roots() never walked anything but the one default
+    package. This exercises reconcile()'s scan_roots override directly
+    rather than depending on a specific extra package existing by default."""
     concept_id = "AU-KG.compute.gateway-landed-feature"
     ca.reserve_concept_id(concept_id, session_id="s", repo_root=repo)
-    (repo / "mcp_v2_gateway").mkdir()
-    (repo / "mcp_v2_gateway" / "tracing.py").write_text(
+    (repo / "other_package").mkdir()
+    (repo / "other_package" / "tracing.py").write_text(
         f"# CONCEPT:{concept_id}\n", encoding="utf-8"
     )
-    assert ca.reconcile(repo_root=repo)["landed"] == [concept_id]
+    scan_roots = [repo / "agent_utilities", repo / "other_package"]
+    assert ca.reconcile(repo_root=repo, scan_roots=scan_roots)["landed"] == [concept_id]
     assert [r["id"] for r in ca.list_reservations(repo_root=repo, status="landed")] == [
         concept_id
     ]

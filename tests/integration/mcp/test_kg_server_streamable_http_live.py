@@ -422,6 +422,120 @@ def test_streamable_http_serves_real_mcp_and_rejects_unauthenticated(
             )
 
 
+def test_streamable_http_serves_2026_07_28_protocol_natively(monkeypatch, jwks_server):
+    """BUG-069 wiring proof: the exact same real graph-os server/port/path this
+    module's other test drives against the legacy 2025-06-18 handshake ALSO
+    answers a modern, stateless MCP 2026-07-28 single-exchange request — no
+    ``mcp_v2_gateway`` sidecar, second port, or second process anywhere.
+
+    This is the installed ``mcp==2.0.0`` SDK's own routing
+    (``StreamableHTTPSessionManager._handle_request`` -> ``handle_modern_request``)
+    firing purely off the ``MCP-Protocol-Version`` header, reached through the
+    REAL production ``_build_server()`` app + real JWT auth stack + real
+    uvicorn socket this file already uses for the legacy path — not a bare
+    synthetic ``FastMCP()`` instance. There is deliberately no
+    ``initialize``/``notifications/initialized`` handshake and no
+    ``Mcp-Session-Id`` here: that absence, succeeding anyway, is the point.
+    """
+    issuer = "https://e2e-test-issuer.invalid/realms/homelab"
+    audience = "graph-os-e2e-test"
+
+    with _live_streamable_http_server(
+        monkeypatch, jwks_server, issuer=issuer, audience=audience
+    ) as base:
+        token = jwks_server.mint(
+            sub="user:e2e-2026-tester",
+            tenant_id="tenant:e2e",
+            issuer=issuer,
+            audience=audience,
+        )
+
+        # ---- 1. UNAUTHENTICATED modern request is still rejected ----------
+        # The same auth boundary applies regardless of protocol version: a
+        # sidecar-free surface must not accidentally widen who can call it.
+        unauth_headers = {
+            "Accept": "application/json, text/event-stream",
+            "Content-Type": "application/json",
+            "MCP-Protocol-Version": "2026-07-28",
+            "Mcp-Method": "tools/list",
+        }
+        list_body = {
+            "jsonrpc": "2.0",
+            "id": "m1",
+            "method": "tools/list",
+            "params": {
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {},
+                }
+            },
+        }
+        r_unauth = httpx.post(
+            f"{base}/mcp", json=list_body, headers=unauth_headers, timeout=10.0
+        )
+        assert r_unauth.status_code == 401, (
+            f"expected 401 for an unauthenticated 2026-07-28 request, got "
+            f"{r_unauth.status_code}: {r_unauth.text[:300]}"
+        )
+
+        # ---- 2. AUTHENTICATED modern tools/list succeeds, ONE exchange ----
+        auth_headers = {**unauth_headers, "Authorization": f"Bearer {token}"}
+        r_list = httpx.post(
+            f"{base}/mcp", json=list_body, headers=auth_headers, timeout=15.0
+        )
+        assert r_list.status_code == 200, r_list.text[:500]
+        assert "mcp-session-id" not in {k.lower() for k in r_list.headers}, (
+            "a modern 2026-07-28 exchange must stay session-less — a "
+            "Mcp-Session-Id header here would mean this actually fell "
+            "through to the legacy stateful path"
+        )
+        list_payload = _parse_mcp_response(r_list)
+        assert "error" not in list_payload, list_payload
+        tool_names = {t["name"] for t in list_payload["result"]["tools"]}
+        assert len(tool_names) >= 50, (
+            f"expected the real graph-os tool catalog, got {len(tool_names)}: "
+            f"{sorted(tool_names)[:20]}"
+        )
+        assert "graph_query" in tool_names or "kg_query" in tool_names
+
+        # ---- 3. tasks/get for an unknown task routes into the native,
+        # in-process WorkItemTasksExtension (agent_utilities/mcp/
+        # tasks_extension.py) rather than 404ing as an unrecognized method —
+        # proof the Tasks capability this protocol version needs is answered
+        # on THIS server, with no downstream hop to anywhere. ---------------
+        tasks_body = {
+            "jsonrpc": "2.0",
+            "id": "m2",
+            "method": "tasks/get",
+            "params": {
+                "taskId": "does-not-exist",
+                "_meta": {
+                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                    "io.modelcontextprotocol/clientCapabilities": {
+                        "extensions": {"io.modelcontextprotocol/tasks": {}}
+                    },
+                },
+            },
+        }
+        tasks_headers = {
+            **auth_headers,
+            "Mcp-Method": "tasks/get",
+        }
+        r_task = httpx.post(
+            f"{base}/mcp", json=tasks_body, headers=tasks_headers, timeout=15.0
+        )
+        assert r_task.status_code == 200, r_task.text[:500]
+        task_payload = _parse_mcp_response(r_task)
+        # A real WorkItem lookup miss (application-level "not found") is the
+        # expected outcome for a made-up id; a JSON-RPC "Method not found"
+        # (-32601) would mean the extension never mounted for this version.
+        error = task_payload.get("error")
+        assert not (isinstance(error, dict) and error.get("code") == -32601), (
+            f"tasks/get was NOT dispatched to a registered handler on this "
+            f"server: {task_payload}"
+        )
+
+
 def _parse_mcp_response(response: httpx.Response) -> dict[str, Any]:
     """Streamable-HTTP responses may be a bare JSON body or an SSE stream of
     ``data: <json>`` frames; return the parsed JSON-RPC payload either way."""
