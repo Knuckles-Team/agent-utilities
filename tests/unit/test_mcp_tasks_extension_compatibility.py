@@ -9,11 +9,12 @@ forbids duplicating. This exercises real FastMCP initialization metadata and
 handler registration rather than a local capability model.
 
 Until 2026-07-31 this test asserted the OPPOSITE (GraphOS must NOT advertise
-the extension until wired up) -- see `docs/architecture/mcp_v2_gateway.md`
-and the isolated `mcp_v2_gateway` sidecar's own Tasks↔WorkItem mapping, which
-landed first. Left passing unchanged, that negative assertion would have hidden
-the feature actually shipping (a Wire-First violation), so it is updated here
-to the real, current contract instead.
+the extension until wired up) -- see the isolated `mcp_v2_gateway` sidecar's
+own Tasks<->WorkItem mapping, which landed first and was later retired under
+BUG-069 once served natively here (`docs/architecture/mcp-2026-protocol-surface.md`).
+Left passing unchanged, that negative assertion would have hidden the feature
+actually shipping (a Wire-First violation), so it is updated here to the
+real, current contract instead.
 
 CONCEPT:AU-ECO.mcp.protocol-compat-bridge — MCP SDK v2's `LowLevelServer` (the
 `mcp._mcp_server` this test drives) renamed the request-handler store from a

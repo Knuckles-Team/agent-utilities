@@ -215,7 +215,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Mandatory ContextCompiler model boundary](../architecture/mandatory-context-compiler.md) — direct nav
 - [MCP authentication and network trust](../architecture/mcp_auth.md) — direct nav
 - [GraphOS Embedded Fleet Gateway](../architecture/mcp_multiplexer.md) — catalog
-- [GraphOS MCP v2 compatibility gateway](../architecture/mcp_v2_gateway.md) — direct nav
+- [The MCP 2026-07-28 protocol on graph-os's own surface (BUG-069)](../architecture/mcp-2026-protocol-surface.md) — direct nav
 - [The merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — direct nav
 - [Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — direct nav
 - [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — direct nav

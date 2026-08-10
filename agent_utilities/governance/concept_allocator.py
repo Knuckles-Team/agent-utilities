@@ -368,16 +368,15 @@ def _default_scan_roots(repo_root: Path) -> list[Path]:
     """Every source tree a ``CONCEPT:`` marker can land in, for reservation
     scans and ``reconcile()`` (D-25-8).
 
-    ``agent_utilities/`` is the main package; ``mcp_v2_gateway/`` is the one
-    other in-repo, deliberately-isolated Python sidecar package (see its own
-    ``AGENTS.md`` / ``pyproject.toml`` — separate wheel, separate deploy
-    surface, same repo). Before this fix a marker landing there (e.g.
-    ``AU-ECO.mcp.v2-gateway-otel-tracing``) never left ``reserved`` status
-    because ``scan_code_markers`` never walked it.  ``scan_code_markers``
-    already skips a root that doesn't exist, so this is safe for a synthetic
-    test ``repo_root`` fixture that only creates ``agent_utilities/``.
+    ``agent_utilities/`` is the main package and, as of BUG-069, the only
+    in-repo Python package: ``mcp_v2_gateway/`` (the isolated MCP 2026-07-28
+    sidecar D-25-8 originally added this root for) was retired and folded
+    into ``agent_utilities/mcp/`` once its isolation premise expired (see
+    ``docs/architecture/mcp-2026-protocol-surface.md``). ``scan_code_markers``
+    already skips a root that doesn't exist, so a future isolated package can
+    be added back here the same way without special-casing a missing one.
     """
-    return [repo_root / "agent_utilities", repo_root / "mcp_v2_gateway"]
+    return [repo_root / "agent_utilities"]
 
 
 def _taken_union(

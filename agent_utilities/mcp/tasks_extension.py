@@ -2,11 +2,16 @@
 
 CONCEPT:AU-ECO.mcp.tasks-workitem-bridge
 
-Reaches the same WorkItem-backed Tasks contract the isolated
-``mcp_v2_gateway`` sidecar already implements for stateless 2026-07-28
-clients (``mcp_v2_gateway/gateway.py``), but for a client connected directly
-to GraphOS's own FastMCP 4 server -- ``mcp>=2.0.0`` is now the default (see
-``server_factory.py``, ``docs/architecture/fastmcp4-default.md``).
+Serves the WorkItem-backed Tasks contract for a client connected directly to
+GraphOS's own FastMCP 4 server, over whichever MCP protocol version that
+client negotiates -- ``mcp>=2.0.0`` is now the default (see
+``server_factory.py``, ``docs/architecture/fastmcp4-default.md``), and the
+2026-07-28 stateless single-exchange transport it enables is served natively
+by the installed SDK on this same server, not a separate process (BUG-069;
+see ``docs/architecture/mcp-2026-protocol-surface.md``). This module used to
+mirror an equivalent projection an isolated ``mcp_v2_gateway`` sidecar
+carried over its own HTTP hop to a legacy GraphOS session; that sidecar has
+been retired -- this is now the only implementation.
 
 Deliberately does **not** mount ``fastmcp_tasks.extension.TasksExtension``:
 that package's execution engine is hard-wired to a Docket/Redis backend
@@ -17,13 +22,12 @@ add). This module only reuses the extension's *registration* mechanism
 (``fastmcp.server.extensions.ServerExtension``/``MethodBinding``) -- never
 its execution engine -- and backs every method with
 ``agent_utilities.orchestration.work_item`` directly, the exact same
-authority ``graph_jobs`` (``agent_utilities/mcp/tools/job_tools.py``) and the
-isolated gateway both already use. The wire model field names below mirror
-``fastmcp_tasks.models`` (the current SEP-2663 draft: flat task fields,
-``inputRequests`` for ``input_required``) rather than the older, reduced
-pinned revision the isolated gateway locks to for its own separate,
-documented reasons (``mcp_v2_gateway/gateway.py``'s
-``TASKS_EXTENSION_REVISION``).
+authority ``graph_jobs`` (``agent_utilities/mcp/tools/job_tools.py``) uses.
+The wire model field names below follow ``fastmcp_tasks.models`` (the
+current SEP-2663 draft: flat task fields, ``inputRequests`` for
+``input_required``) rather than the older, reduced revision the retired
+sidecar had pinned to (its own ``TASKS_EXTENSION_REVISION``) for reasons
+that no longer apply once there is only one implementation.
 """
 
 from __future__ import annotations
