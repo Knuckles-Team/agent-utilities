@@ -19,6 +19,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import os
 import re
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
@@ -99,6 +100,41 @@ _MAX_ID_CHARS = 512
 _DISPATCH_PAGE_LIMIT = 64
 _DISPATCH_RUN = 1
 _DISPATCH_CANCEL = 2
+
+
+#: Outer wall-clock ceiling for one synchronous graph call made from
+#: :meth:`EpistemicGraphA2ARuntime.call`, enforced via the SDK's own
+#: ``sync_call_deadline`` (CONCEPT:AU-ECO.messaging.native-backend-abstraction).
+#:
+#: The call runs the ``SyncEpistemicGraphClient``'s sync wrapper on a worker
+#: thread (``anyio.to_thread.run_sync``). That wrapper already bounds the
+#: RPC's own read/write budget internally (``GRAPH_SERVICE_RPC_TIMEOUT`` /
+#: ``GRAPH_SERVICE_HEAVY_RPC_TIMEOUT``), but only for the read/write phase of
+#: an established call -- lock acquisition, a reconnect dial, or any other
+#: step ahead of that phase is NOT covered by it, and without an ambient
+#: ``sync_call_deadline`` the worker thread's own
+#: ``_sync_result_before_deadline`` falls through to a bare, unbounded
+#: ``future.result()``. A hang there is invisible to pytest's default
+#: signal-based ``--timeout``, because the block happens on a worker thread,
+#: not the main thread SIGALRM can interrupt -- confirmed live via a
+#: ``py-spy dump`` catching the stack inside exactly this fallthrough.
+#:
+#: Set generously above the client's own heavy-RPC budget (default 1200s) so
+#: this is a true outer backstop, not a second, tighter budget that would
+#: prematurely cancel a legitimately long-running heavy operation. Reads the
+#: same env vars the client itself honours so a deployment that raises those
+#: stays consistent, plus fixed headroom for the connect/write phases the
+#: read budget does not cover.
+def _a2a_sync_call_deadline_seconds() -> float:
+    heavy = float(os.environ.get("GRAPH_SERVICE_HEAVY_RPC_TIMEOUT", "1200") or 1200)
+    connect = float(os.environ.get("GRAPH_SERVICE_CONNECT_TIMEOUT", "10") or 10)
+    write = float(os.environ.get("GRAPH_SERVICE_WRITE_TIMEOUT", "30") or 30)
+    margin = float(
+        os.environ.get("AGENT_UTILITIES_A2A_CALL_DEADLINE_MARGIN_SECONDS", "60") or 60
+    )
+    return heavy + connect + write + margin
+
+
 _TASK_RECORD_FIELDS = frozenset(
     {
         "record_kind",
@@ -468,7 +504,19 @@ class EpistemicGraphA2ARuntime:
             with use_actor(session.actor), use_session(session):
                 return operation(*args, **kwargs)
 
-        return await anyio.to_thread.run_sync(_invoke)
+        # Bound the whole synchronous round trip (not just its read/write
+        # phase) so a stall anywhere ahead of that phase cannot strand the
+        # worker thread forever. See ``_a2a_sync_call_deadline_seconds``.
+        from epistemic_graph.client import SyncCallDeadlineExceeded, sync_call_deadline
+
+        try:
+            with sync_call_deadline(_a2a_sync_call_deadline_seconds()):
+                return await anyio.to_thread.run_sync(_invoke)
+        except SyncCallDeadlineExceeded as exc:
+            raise TimeoutError(
+                f"Epistemic Graph A2A call {namespace}.{method} exceeded its "
+                "synchronous call deadline"
+            ) from exc
 
     def task_prefix(self) -> str:
         if not self.tenant_key:
