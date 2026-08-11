@@ -10,7 +10,7 @@
     members: fleet-meta-tools-always-on, gateway-dispatch-isolation, intent-surface-condensed-collapse, intent-surface-cpd-ranking, intent-surface-delegation-shape, intent-surface-outcome-learning, intent-surface-resolution-cache, intent-surface-tool-lifecycle, knowledge-graph-exposure, two-surfaces-mcp-rest
 
 ### client-side-chat-session  (2 concepts)
-    agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23967 | "one_line": "Ingest AI agent chat/session history into the usage store + KG (CONCEPT·AU-ECO.mcp.client-side-chat-session). 'collect' auto-detects installed agents on THIS host and 
+    agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23967 | "one_line": "Ingest AI agent chat/session history into the usage store + KG (CONCEPT·AU-ECO.mcp.client-side-chat-session). 'collect' auto-detects installed agents on THIS host and
     agent_utilities/cli/__init__.py:155 | # CONCEPT·AU-ECO.mcp.client-side-chat-session — client-side chat/session ingestion for Claude + Antigravity
     members: client-side-chat-session, usage-cost-observability-surface
 
@@ -47,7 +47,7 @@
 
 ### client-side-chat-session
     why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one, so this is the decision that has to be written down
-    agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23967 | "one_line": "Ingest AI agent chat/session history into the usage store + KG (CONCEPT·AU-ECO.mcp.client-side-chat-session). 'collect' auto-detects installed agents on THIS host and 
+    agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23967 | "one_line": "Ingest AI agent chat/session history into the usage store + KG (CONCEPT·AU-ECO.mcp.client-side-chat-session). 'collect' auto-detects installed agents on THIS host and
     agent_utilities/cli/__init__.py:155 | # CONCEPT·AU-ECO.mcp.client-side-chat-session — client-side chat/session ingestion for Claude + Antigravity
 
 ### cross-process-skill-harvest

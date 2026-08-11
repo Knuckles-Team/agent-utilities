@@ -64,7 +64,9 @@ class EngineNativeReservationTransport:
             "ReserveWorkItemResources": getattr(self._work_items, "reserve", None),
             "ReleaseWorkItemResources": getattr(self._work_items, "release", None),
             "ReclaimWorkItemResources": getattr(self._work_items, "reclaim", None),
-            "QueryWorkItemReservation": getattr(self._work_items, "query_reservation", None),
+            "QueryWorkItemReservation": getattr(
+                self._work_items, "query_reservation", None
+            ),
             "ResourceReservationStatus": getattr(self._work_items, "status", None),
             "UpdateResourceHost": getattr(self._work_items, "update_host", None),
         }[name]
@@ -105,7 +107,9 @@ class EngineNativeReservationTransport:
             raise
         except Exception as exc:  # noqa: BLE001 - preserve typed transport errors
             if getattr(exc, "code", None) == NativeReservationUnavailable.code:
-                raise NativeReservationUnavailable(NativeReservationUnavailable.code) from exc
+                raise NativeReservationUnavailable(
+                    NativeReservationUnavailable.code
+                ) from exc
             raise
         if inspect.isawaitable(value):
             # A mistaken async fake/client may have already created a coroutine;
@@ -114,7 +118,9 @@ class EngineNativeReservationTransport:
             close = getattr(value, "close", None)
             if callable(close):
                 close()
-            raise TypeError("EngineNativeReservationTransport requires a sync generated client")
+            raise TypeError(
+                "EngineNativeReservationTransport requires a sync generated client"
+            )
         return _bounded_mapping(value, name)
 
     def reserve(self, request: Mapping[str, Any]) -> dict[str, Any]:
@@ -132,7 +138,9 @@ class EngineNativeReservationTransport:
     def status(self, request: Mapping[str, Any]) -> dict[str, Any]:
         result = self._call("ResourceReservationStatus", request)
         reservations = result.get("reservations")
-        if isinstance(reservations, list) and len(reservations) > int(request.get("limit", 0)):
+        if isinstance(reservations, list) and len(reservations) > int(
+            request.get("limit", 0)
+        ):
             raise ValueError("native reservation status exceeded requested limit")
         return result
 

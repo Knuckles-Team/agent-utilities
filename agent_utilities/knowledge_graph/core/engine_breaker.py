@@ -314,9 +314,7 @@ def _mutation_attribution(args: tuple[Any, ...]) -> dict[str, Any]:
             actor = getattr(session, "actor", None)
             actor_id = str(getattr(actor, "actor_id", "") or "").strip()
             tenant = str(getattr(session, "tenant", "") or "").strip()
-            info["actor_authenticated"] = bool(
-                getattr(actor, "authenticated", False)
-            )
+            info["actor_authenticated"] = bool(getattr(actor, "authenticated", False))
             if actor_id:
                 info["actor_id"] = bus_reference("agent", actor_id, tenant=tenant)
             info["tenant"] = bus_reference("tenant", tenant) if tenant else None
