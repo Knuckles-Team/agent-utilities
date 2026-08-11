@@ -106,8 +106,8 @@ def test_gate_rejects_work_item_bus_and_permission_case_drift() -> None:
 def test_gate_rejects_missing_runtime_worker_and_documentation_controls() -> None:
     harness, documentation, navigation, workflow, a2a = _sources()
     harness = harness.replace(
-        "def _work_item_bus_worker(\n",
-        "def _missing_work_item_bus_worker(\n",
+        "def _work_item_bus_worker(",
+        "def _missing_work_item_bus_worker(",
         1,
     )
     documentation = documentation.replace(
