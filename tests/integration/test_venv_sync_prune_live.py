@@ -19,6 +19,7 @@ because that path can never work.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -30,6 +31,33 @@ from agent_utilities.deployment.venv_sync import VenvSyncError, Workspace, prune
 pytestmark = pytest.mark.integration
 
 _UV = shutil.which("uv")
+
+
+def _uv_env(ws_root: Path) -> dict[str, str]:
+    """An environment in which a nested ``uv`` CANNOT reach the caller's venv.
+
+    D-CIP-19 root cause. ``scripts/uv_workspace.py`` exports
+    ``UV_PROJECT_ENVIRONMENT=<lane .venv>`` on EVERY invocation, so a
+    ``subprocess.run([uv, "sync"], cwd=<tmp workspace>)`` that inherits the
+    ambient environment does not build the throwaway workspace's own venv at
+    all — it retargets and REBUILDS THE LANE'S REAL VENV as this fixture
+    workspace. The lane's ~349 packages are replaced by this test's
+    dependency-free ``alpha`` package, mid-run, and every test that runs
+    afterwards fails for reasons that have nothing to do with the code.
+
+    That is precisely the incident recorded in ``lane_doctor``'s
+    ``_MIN_PLAUSIBLE_PACKAGE_COUNT`` note ("a 3-6 package venv, all belonging
+    to an unrelated project named 'alpha'") — observed on 2026-08-11 to be
+    caused by this test, not by an unrelated project.
+
+    Pinning ``UV_PROJECT_ENVIRONMENT`` to the fixture workspace's own venv (and
+    dropping ``VIRTUAL_ENV``, which uv also honours) keeps the blast radius
+    inside ``tmp_path``.
+    """
+    env = dict(os.environ)
+    env.pop("VIRTUAL_ENV", None)
+    env["UV_PROJECT_ENVIRONMENT"] = str(ws_root / ".venv")
+    return env
 
 
 def _write(path: Path, text: str) -> Path:
@@ -70,7 +98,12 @@ def test_prune_removes_an_extraneous_package_from_a_real_venv(
 
     # A genuine `uv sync` builds a genuine venv from a genuine lock.
     subprocess.run(
-        [_UV, "sync"], cwd=ws_root, check=True, capture_output=True, text=True
+        [_UV, "sync"],
+        cwd=ws_root,
+        check=True,
+        capture_output=True,
+        text=True,
+        env=_uv_env(ws_root),
     )
     workspace = Workspace.discover(ws_root, uv=_UV)
     site = workspace.site_packages()
@@ -85,6 +118,7 @@ def test_prune_removes_an_extraneous_package_from_a_real_venv(
         check=True,
         capture_output=True,
         text=True,
+        env=_uv_env(ws_root),
     )
     assert any(site.glob("extraneous_pkg-*.dist-info"))
 
