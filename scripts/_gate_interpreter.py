@@ -55,10 +55,26 @@ def _venv_python(root: Path) -> Path | None:
 
 
 def _inside(executable: str, venv: Path) -> bool:
+    """Is *executable* the managed venv's own interpreter (or inside it)?
+
+    Deliberately UNRESOLVED (``abspath``, not ``realpath``/``resolve``): a uv-
+    managed venv's ``.venv/bin/python3`` is itself a SYMLINK to a shared base
+    toolchain interpreter well outside any repo (e.g.
+    ``~/.local/share/uv/python/cpython-.../bin/python3``), so resolving it
+    walks OUT of ``.venv`` and this check would then find "not inside" on
+    EVERY correctly-managed invocation -- unconditionally forcing the
+    re-exec below on every run, mid-pytest-session when this module is
+    imported by a test rather than run standalone (observed: the re-exec
+    replaces the whole pytest process image via ``os.execve`` with pytest's
+    OWN argv, killing the session outright). ``tests/conftest.py``'s
+    equivalent guard (``_fail_fast_on_wrong_interpreter``) and
+    ``tests/_test_engine.py``'s ``resolve_engine_binary`` both document and
+    avoid this exact trap; this mirrors them instead of ``realpath``.
+    """
     try:
-        return os.path.commonpath(
-            [os.path.realpath(executable), os.path.realpath(venv)]
-        ) == os.path.realpath(venv)
+        exe = os.path.abspath(executable)
+        venv_abs = os.path.abspath(str(venv))
+        return os.path.commonpath([exe, venv_abs]) == venv_abs
     except ValueError:  # different drives / unrelated roots
         return False
 
