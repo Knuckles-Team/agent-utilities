@@ -290,7 +290,7 @@ class TestAgentSpawning:
         )
 
         res = engine.query_cypher(
-            "MATCH (a:SpawnedAgent {id: $id})-[:USES]->(r:CallableResource) RETURN r.id as rid",
+            "MATCH (a:SpawnedAgent {id: $id})-[:USES]->(r:CallableResource) RETURN r.id as id",
             {"id": agent_id},
         )
         assert len(res) > 0
@@ -350,7 +350,7 @@ class TestSelfImprovement:
         # Verify EVOLVED_FROM edge
         res = engine.query_cypher(
             "MATCH (new:SystemPrompt)-[:EVOLVED_FROM]->(old:SystemPrompt) "
-            "WHERE new.id = $nid RETURN old.id as oid",
+            "WHERE new.id = $nid RETURN old.id as id, old.id as oid",
             {"nid": new_id},
         )
         assert len(res) > 0

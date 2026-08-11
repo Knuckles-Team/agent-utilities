@@ -64,7 +64,7 @@ def test_ingestion_tools(engine):
     assert ep_id.startswith("ep:")
 
     res = engine.query_cypher(
-        "MATCH (e:Episode) WHERE e.id = $id RETURN e.description as description",
+        "MATCH (e:Episode) WHERE e.id = $id RETURN e.id as id, e.description as description",
         {"id": ep_id},
     )
     assert len(res) > 0
@@ -94,7 +94,7 @@ def test_a2a_and_skill_ingestion(engine):
         "http://agent.io", {"name": "TestAgent", "description": "Expert in A2A"}
     )
     res = engine.query_cypher(
-        "MATCH (r:CallableResource {resource_type: 'A2A_AGENT'}) RETURN r.name as name"
+        "MATCH (r:CallableResource {resource_type: 'A2A_AGENT'}) RETURN r.id as id, r.name as name"
     )
     assert len(res) > 0
     assert res[0]["name"] == "TestAgent"
@@ -106,7 +106,7 @@ def test_a2a_and_skill_ingestion(engine):
         provider="synthetic",
     )
     res = engine.query_cypher(
-        "MATCH (r:CallableResource {resource_type: 'AGENT_SKILL'}) RETURN r.name as name"
+        "MATCH (r:CallableResource {resource_type: 'AGENT_SKILL'}) RETURN r.id as id, r.name as name"
     )
     assert len(res) > 0
     assert res[0]["name"] == "TestSkill"
@@ -144,7 +144,7 @@ def test_agent_spawning(engine):
     assert agent_id.startswith("spawn:")
 
     res = engine.query_cypher(
-        "MATCH (a:SpawnedAgent) WHERE a.id = $id RETURN a.system_prompt as prompt",
+        "MATCH (a:SpawnedAgent) WHERE a.id = $id RETURN a.id as id, a.system_prompt as prompt",
         {"id": agent_id},
     )
     assert len(res) > 0
@@ -157,7 +157,7 @@ def test_self_improvement_loop(engine):
     engine.record_outcome(ep_id, reward=-1.0, feedback="Wrong approach")
 
     res = engine.query_cypher(
-        "MATCH (r:RunTrace)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) RETURN o.reward as reward"
+        "MATCH (r:RunTrace)-[:PRODUCED_OUTCOME]->(o:OutcomeEvaluation) RETURN o.id as id, o.reward as reward"
     )
     assert len(res) > 0
     assert res[0]["reward"] == 0.0
@@ -215,7 +215,8 @@ def test_temporal_decay(engine):
     maintainer.apply_temporal_decay()
 
     res = engine.query_cypher(
-        "MATCH (n) WHERE n.id = $id RETURN n.importance_score as score", {"id": mem_id}
+        "MATCH (n) WHERE n.id = $id RETURN n.id as id, n.importance_score as score",
+        {"id": mem_id},
     )
     assert len(res) > 0
     score = res[0]["score"]

@@ -62,7 +62,8 @@ class AHEMixin(_Base):
 
         # Intelligent prompt composition: Find relevant base prompts in the graph
         base_prompts = self.query_cypher(
-            "MATCH (p:SystemPrompt) WHERE p.tags CONTAINS $tag RETURN p.content as content LIMIT 1",
+            "MATCH (p:SystemPrompt) WHERE p.tags CONTAINS $tag "
+            "RETURN p.id as id, p.content as content LIMIT 1",
             {"tag": "agent-base"},
         )
         base_text = (
@@ -313,11 +314,11 @@ class AHEMixin(_Base):
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         if self.backend:
             old_prompt = self.query_cypher(
-                "MATCH (p:SystemPrompt {id: $id}) RETURN p.content as content",
+                "MATCH (p:SystemPrompt {id: $id}) RETURN p.id as id, p.content as content",
                 {"id": prompt_id},
             )
             critique = self.query_cypher(
-                "MATCH (c:Critique {id: $id}) RETURN c.textual_gradient as grad",
+                "MATCH (c:Critique {id: $id}) RETURN c.id as id, c.textual_gradient as grad",
                 {"id": critique_id},
             )
 
@@ -405,7 +406,7 @@ class AHEMixin(_Base):
         MATCH (r:RunTrace)-[:{TRACE_PRODUCED_OUTCOME_EDGE}]->(o:OutcomeEvaluation)
         WHERE o.reward >= 0.8
         MATCH (r)-[:{TRACE_USED_TOOL_EDGE}]->(t:ToolCall)
-        RETURN r.id as trace_id, t.tool_name as tool, t.sequence as tool_sequence
+        RETURN r.id as id, r.id as trace_id, t.tool_name as tool, t.sequence as tool_sequence
         ORDER BY trace_id, tool_sequence
         """
         results = self.query_cypher(query)
