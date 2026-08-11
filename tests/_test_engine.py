@@ -33,6 +33,7 @@ import socket
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -134,6 +135,25 @@ def strict_server_env(state_dir: str, *, auth_secret: str) -> dict[str, str]:
 #: governs the crash-cleanup grace once that connection is gone.
 IDLE_SHUTDOWN_SECS = 120
 
+#: D-CDX-32-cascade (2026-08-11): the held keepalive connection alone did NOT
+#: keep the engine's active-connection count above zero -- a full-suite run
+#: spends several minutes at the START of the session (``tests/consolidation``,
+#: ``tests/docs``, ``tests/gates``, ``tests/harness`` -- none of them touch the
+#: engine) before the first engine-backed test runs, comfortably longer than
+#: ``IDLE_SHUTDOWN_SECS``, and the engine's own log showed
+#: ``Idle shutdown: no connections for 120s`` firing during exactly that gap
+#: despite :meth:`EphemeralEngine._open_keepalive` having already connected.
+#: A merely-open-but-silent connection is therefore not sufficient (whether
+#: because the server only counts a connection while a request is in flight,
+#: or because an idle-read timeout on the server side closes a silent
+#: connection well under 120s -- either way, holding the socket open is not
+#: something this test helper can prove from the client side). A periodic
+#: heartbeat RPC over the SAME held connection (see
+#: :meth:`EphemeralEngine._keepalive_loop`) generates real traffic often
+#: enough to guarantee the watcher never observes a gap, independent of which
+#: of those mechanisms is the actual explanation.
+_KEEPALIVE_HEARTBEAT_INTERVAL_SECS = 20.0
+
 #: How long to wait for the engine's socket to appear after spawn, and for the
 #: process to exit on graceful SIGTERM.
 _SOCKET_WAIT_SECS = 30.0
@@ -232,6 +252,11 @@ class EphemeralEngine:
         #: teardown drops this connection along with the process, and the
         #: engine still self-cleans on schedule.
         self._keepalive_client: Any | None = None
+        #: Background thread pulsing a cheap RPC over ``_keepalive_client`` so
+        #: the held connection is provably active, not merely open — see
+        #: :data:`_KEEPALIVE_HEARTBEAT_INTERVAL_SECS`.
+        self._keepalive_thread: threading.Thread | None = None
+        self._keepalive_stop = threading.Event()
 
     # -- lifecycle -----------------------------------------------------------
     def start(self) -> EphemeralEngine:
@@ -288,7 +313,8 @@ class EphemeralEngine:
         return self
 
     def _open_keepalive(self) -> None:
-        """Hold one connection open for the engine's whole ephemeral lifetime.
+        """Hold one connection open, and actively pulsed, for the engine's
+        whole ephemeral lifetime.
 
         D-CDX-32: ``--idle-shutdown-secs`` (see :data:`IDLE_SHUTDOWN_SECS`) is
         reference-counted against the engine's *active connection* count, not
@@ -305,10 +331,20 @@ class EphemeralEngine:
         was the single largest failure cluster in the 2026-08-02 full-suite
         gate run (786 of 899 failing/erroring entries).
 
+        D-CDX-32-cascade (2026-08-11): merely holding the connection OPEN was
+        not enough on its own — reproduced live, the idle-shutdown watcher
+        still fired during the several-minute, all-non-engine-tests gap at
+        the START of a full run (``tests/consolidation``/``docs``/``gates``/
+        ``harness`` before the first ``tests/integration/backends`` test),
+        with this exact connection already established. See
+        :data:`_KEEPALIVE_HEARTBEAT_INTERVAL_SECS` and :meth:`_keepalive_loop`
+        for the actual traffic that closes that gap.
+
         Held for the process lifetime and closed in :meth:`stop`; a crashed
-        suite (no teardown) still drops this connection along with the whole
-        process, so ``--idle-shutdown-secs`` keeps doing its actual job — not
-        killing a live, in-progress session, just self-cleaning a dead one.
+        suite (no teardown) still drops this connection (and stops the
+        heartbeat thread, a daemon thread) along with the whole process, so
+        ``--idle-shutdown-secs`` keeps doing its actual job — not killing a
+        live, in-progress session, just self-cleaning a dead one.
         """
         from epistemic_graph.client import SyncEpistemicGraphClient
 
@@ -317,6 +353,37 @@ class EphemeralEngine:
             auth_secret=TEST_AUTH_SECRET,
             verified_context=bootstrap_context(),
         )
+        self._keepalive_stop.clear()
+        self._keepalive_thread = threading.Thread(
+            target=self._keepalive_loop,
+            name="au-tiny-engine-keepalive",
+            daemon=True,
+        )
+        self._keepalive_thread.start()
+
+    def _keepalive_loop(self) -> None:
+        """Pulse a cheap RPC on ``_keepalive_client`` until :meth:`stop`.
+
+        Runs in its own daemon thread for the engine's whole ephemeral
+        lifetime, independent of whatever the pytest main thread is doing —
+        a long gap of non-engine tests (or a stalled test) must never starve
+        this. ``Any`` failure here (a transient reconnect, a slow response)
+        is swallowed: this thread's only job is generating traffic, never
+        failing the suite, and the real client used by tests reconnects on
+        its own (``EpistemicGraphClient._reconnect``) regardless of this
+        loop's outcome.
+        """
+        while not self._keepalive_stop.wait(_KEEPALIVE_HEARTBEAT_INTERVAL_SECS):
+            client = self._keepalive_client
+            if client is None:
+                return
+            try:
+                client.health()
+            except Exception:
+                # Best-effort — a single missed beat must not crash the
+                # session; the next tick (or a real test's own client) tries
+                # again / reconnects.
+                pass
 
     def _bootstrap_identity(self) -> None:
         """Enroll the isolated suite signer before ordinary requests run."""
@@ -375,6 +442,10 @@ class EphemeralEngine:
 
     def stop(self) -> None:
         """Graceful SIGTERM (engine checkpoints + exits), then remove all residue."""
+        self._keepalive_stop.set()
+        if self._keepalive_thread is not None:
+            self._keepalive_thread.join(timeout=5)
+            self._keepalive_thread = None
         if self._keepalive_client is not None:
             try:
                 self._keepalive_client.close()
