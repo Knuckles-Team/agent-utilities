@@ -651,9 +651,9 @@ def _trace_waterfall(trace_id: str) -> str:
     waterfall-ready node list, for ``graph_traces action='waterfall'`` (D-25-1, the
     trace-waterfall MCP App).
 
-    Deliberately does NOT probe the raw engine observability surface (unlike
-    ``action='get'``/``'search'`` above): that surface may not exist in a given
-    engine build, while ``harness.tracing.get_kg_trace_sink()`` — the
+    Deliberately does NOT probe the raw engine observability surface — like
+    ``action='get'``/``'search'`` (:func:`_trace_native_get`/:func:`_trace_native_search`),
+    it reads the KG-native sink first: ``harness.tracing.get_kg_trace_sink()`` — the
     ``KGTraceBackend`` every daemon installs at startup — is the one trace store
     guaranteed present wherever this tool runs, and is graph-queryable durably (not
     just this in-memory mirror) once persisted. Neither ``SpanNode`` nor
@@ -727,6 +727,78 @@ def _trace_waterfall(trace_id: str) -> str:
         {"surface": "traces", "action": "waterfall", "result": result},
         default=_json_default,
     )
+
+
+def _trace_row(raw: dict[str, Any]) -> dict[str, Any]:
+    """Normalize a raw ``TraceBackend.get_traces``/``get_trace_summary`` dict
+    (``id``/``duration_ms``) into ``graph_traces``' own ``trace_id``/``duration``
+    row shape (CONCEPT:AU-KG.coordination.engine-message-broker)."""
+    return {
+        "trace_id": raw.get("id") or raw.get("trace_id"),
+        "name": raw.get("name"),
+        "status": raw.get("status"),
+        "duration": raw.get("duration_ms", raw.get("duration")),
+        "error": raw.get("error"),
+    }
+
+
+def _trace_native_search(
+    service: str, operation: str, query: str, limit: int
+) -> list[dict[str, Any]] | None:
+    """``graph_traces action='search'`` over the ALWAYS-ON KG-native trace sink —
+    the SAME store ``waterfall`` uses (CONCEPT:AU-KG.coordination.engine-message-broker).
+    Preferred over the raw external engine observability surface (which may not
+    exist in a given engine build) whenever a sink is installed; returns ``None``
+    only when no sink is installed at all, signalling the caller to fall back to
+    the external probe. ``service``/``operation``/``query`` filter client-side
+    (case-insensitively, against ``name``) since the sink's own ``get_traces``
+    takes no such filters; an installed-but-empty sink is a real (non-``None``)
+    empty result, not a fall-through.
+    """
+    from agent_utilities.harness.tracing import get_kg_trace_sink
+
+    sink = get_kg_trace_sink()
+    if sink is None or not callable(getattr(sink, "get_traces", None)):
+        return None
+    try:
+        raw_rows = _run_coro(sink.get_traces(""))
+    except Exception as exc:  # noqa: BLE001 — surface as data, never raise
+        logger.debug("graph_traces: KG-native search failed: %s", exc)
+        return []
+    rows = [_trace_row(r) for r in raw_rows or []]
+    needle = " ".join(v for v in (service, operation, query) if v).strip().lower()
+    if needle:
+        rows = [
+            r
+            for r in rows
+            if needle in " ".join(str(v) for v in r.values() if v).lower()
+        ]
+    return rows[: max(int(limit), 0)]
+
+
+def _trace_native_get(trace_id: str) -> dict[str, Any] | None:
+    """``graph_traces action='get'`` over the ALWAYS-ON KG-native trace sink —
+    see :func:`_trace_native_search`. Returns ``None`` — falling through to the
+    external engine probe — when no sink is installed, OR when an installed
+    sink doesn't know this trace id: the in-memory mirror only covers what THIS
+    process has traced since it started, so "not found" here is not proof the
+    trace doesn't exist (the external engine may know a trace from before a
+    restart, or one traced by a different process); only a genuine hit is
+    trusted as the final answer.
+    """
+    from agent_utilities.harness.tracing import get_kg_trace_sink
+
+    sink = get_kg_trace_sink()
+    if sink is None or not callable(getattr(sink, "get_trace_summary", None)):
+        return None
+    try:
+        raw = _run_coro(sink.get_trace_summary(trace_id))
+    except Exception as exc:  # noqa: BLE001 — treat as no native answer, fall through
+        logger.debug("graph_traces: KG-native get failed: %s", exc)
+        return None
+    if not raw or raw.get("error") == "not_found":
+        return None
+    return _trace_row(raw)
 
 
 def _degraded(surface: str, action: str, tried: list[str]) -> str:
@@ -867,9 +939,101 @@ def _invoke(
     )
 
 
+def _invoke_promql(
+    *,
+    action: str,
+    graph: str,
+    candidates: tuple[tuple[str, str], ...],
+    params: dict[str, Any],
+) -> str:
+    """``graph_promql``'s own dispatch (CONCEPT:AU-KG.coordination.engine-message-broker):
+    the connected engine's native PromQL surface wins when present; only when the
+    engine build has NO promql surface does this fall back to a directly
+    configured Prometheus HTTP endpoint (:func:`_prometheus_http_query`); only
+    when THAT is also unavailable does it degrade cleanly. Mirrors :func:`_invoke`
+    otherwise (same error handling for an unreachable engine / bad kwargs / engine
+    errors on the native surface).
+    """
+    surface = "promql"
+    try:
+        client = _client(graph)
+    except Exception as exc:  # noqa: BLE001 — engine down is a normal degrade
+        return _surface_error(
+            exc,
+            surface=surface,
+            action=action,
+            code="dependency_unavailable",
+        )
+    fn = _resolve(client, candidates)
+    if fn is not None:
+        try:
+            result = fn(**params)
+        except TypeError as exc:
+            return _surface_error(
+                exc, surface=surface, action=action, code="invalid_request"
+            )
+        except Exception as exc:  # noqa: BLE001 — surface engine errors as data
+            return _surface_error(exc, surface=surface, action=action)
+        return json.dumps(
+            {"surface": surface, "action": action, "result": result},
+            default=_json_default,
+        )
+    series = _prometheus_http_query(action, params)
+    if series is not None:
+        return json.dumps(
+            {"surface": surface, "action": action, "result": series},
+            default=_json_default,
+        )
+    return _degraded(surface, action, [".".join((a, m)) for a, m in candidates])
+
+
 def _drop_empty(**kwargs: Any) -> dict[str, Any]:
     """Keep only kwargs the caller actually supplied (non-empty string / non-None)."""
     return {k: v for k, v in kwargs.items() if v not in ("", None)}
+
+
+def _prometheus_base_url() -> str | None:
+    """The directly configured Prometheus HTTP base URL for ``graph_promql``'s
+    fallback (CONCEPT:AU-KG.coordination.engine-message-broker) — consulted only
+    when the connected engine build has no native PromQL surface. Unset by
+    default: no engine surface + no URL configured is a clean degrade, never an
+    invented hostname.
+    """
+    from agent_utilities.core._env import setting
+
+    url = str(setting("ENGINE_SURFACE_PROMETHEUS_URL", "") or "").strip()
+    return url or None
+
+
+def _prometheus_http_query(
+    action: str, params: dict[str, Any], *, transport: Any = None
+) -> list[Any] | None:
+    """Query a directly configured Prometheus HTTP endpoint as ``graph_promql``'s
+    fallback when the connected engine build has no native PromQL surface.
+
+    Mirrors ``orchestration.scaling_signals.PrometheusHttpProvider``'s own
+    request/parse shape (CONCEPT:AU-KG.coordination.engine-message-broker):
+    any transport/HTTP/parse problem — including "not configured" — degrades to
+    a clean ``None`` (no data), never a raised exception.
+    """
+    base_url = _prometheus_base_url()
+    if not base_url:
+        return None
+    from agent_utilities.core.http_client import create_http_client
+
+    path = "/api/v1/query_range" if action == "range" else "/api/v1/query"
+    try:
+        with create_http_client(timeout=5.0, transport=transport) as client:
+            resp = client.get(f"{base_url}{path}", params=params)
+            resp.raise_for_status()
+            payload = resp.json()
+    except Exception as e:  # noqa: BLE001 — fallback failures are "no data", never raised
+        logger.debug("graph_promql: Prometheus HTTP fallback query failed: %s", e)
+        return None
+    if not isinstance(payload, dict) or payload.get("status") != "success":
+        return None
+    result = (payload.get("data") or {}).get("result")
+    return result if isinstance(result, list) else None
 
 
 def _run_coro(coro: Any) -> Any:
@@ -1861,8 +2025,7 @@ def register_engine_surface_tools(mcp) -> None:
                 {"surface": "promql", "error": f"unknown action {action!r}"}
             )
         params.update(extra)
-        return _invoke(
-            surface="promql",
+        return _invoke_promql(
             action=action,
             graph=graph,
             candidates=candidates,
@@ -1878,14 +2041,14 @@ def register_engine_surface_tools(mcp) -> None:
     @mcp.tool(
         name="graph_traces",
         description=(
-            "CONCEPT:AU-KG.coordination.engine-message-broker — search or fetch distributed traces from the engine's "
-            "observability surface. action='search' (filter by 'service'/'operation'/"
-            "free-form 'query', capped by 'limit'), 'get' (a single 'trace_id' from the "
-            "engine's own trace surface), or 'waterfall' (a single 'trace_id''s full "
-            "Span/Generation subgraph from the always-on KG-native trace sink, flattened "
-            "for the trace-waterfall MCP App). Extra engine kwargs via params_json. "
-            "'search'/'get' degrade cleanly when the engine build has no trace surface; "
-            "'waterfall' degrades cleanly when no KG-native sink is installed."
+            "CONCEPT:AU-KG.coordination.engine-message-broker — search or fetch distributed traces. "
+            "action='search' (filter by 'service'/'operation'/free-form 'query', capped by "
+            "'limit'), 'get' (a single 'trace_id'), or 'waterfall' (a single 'trace_id''s full "
+            "Span/Generation subgraph, flattened for the trace-waterfall MCP App). All three "
+            "prefer the always-on KG-native trace sink when installed, falling back to the raw "
+            "engine observability surface only for 'search'/'get' when no sink is installed. "
+            "Extra engine kwargs via params_json (engine-surface fallback only). Degrades "
+            "cleanly when neither a sink nor a matching engine surface is available."
         ),
         tags=["graph-os", "engine", "observability", "traces"],
     )
@@ -1925,9 +2088,21 @@ def register_engine_surface_tools(mcp) -> None:
         if action == "get":
             if not trace_id:
                 return json.dumps({"surface": "traces", "error": "trace_id required"})
+            native = _trace_native_get(trace_id)
+            if native is not None:
+                return json.dumps(
+                    {"surface": "traces", "action": "get", "result": native},
+                    default=_json_default,
+                )
             params: dict[str, Any] = {"trace_id": trace_id}
             candidates = _TRACES_GET_CANDIDATES
         elif action == "search":
+            native_rows = _trace_native_search(service, operation, query, limit)
+            if native_rows is not None:
+                return json.dumps(
+                    {"surface": "traces", "action": "search", "result": native_rows},
+                    default=_json_default,
+                )
             params = _drop_empty(service=service, operation=operation, query=query)
             params["limit"] = int(limit)
             candidates = _TRACES_SEARCH_CANDIDATES

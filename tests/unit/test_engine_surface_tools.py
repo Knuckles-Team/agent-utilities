@@ -14,6 +14,7 @@ import base64
 import json
 from types import SimpleNamespace
 
+import httpx
 import pytest
 
 from agent_utilities.kvcache import KVCheckpointStore
