@@ -486,8 +486,20 @@ class LadybugBackend(GraphBackend):
         if should_release:
             try:
                 db.close()
-            except Exception:  # nosec B110
-                pass
+            except Exception as exc:  # noqa: BLE001 — best-effort release, see below
+                # Best-effort by design: this runs on the teardown path after the
+                # cache entry has ALREADY been dropped, so the mmap reservation is
+                # released regardless and re-raising here would turn a clean close
+                # into a failure. But the cause is logged rather than discarded —
+                # a ladybug close() that keeps failing is exactly the signal that
+                # this reservation leak is recurring, and swallowing it silently
+                # is what let the original 8TiB-per-path leak run unnoticed until
+                # the process ran out of addressable memory.
+                logger.warning(
+                    "ladybug: releasing cached Database for %s failed: %s",
+                    cache_key,
+                    exc,
+                )
 
     def close(self) -> None:
         """Close the database connection and database object.
