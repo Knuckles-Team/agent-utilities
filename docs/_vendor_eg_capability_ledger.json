@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-08-08T17:03:16Z",
-  "row_count": 373,
+  "cached_at": "2026-08-11T22:03:49Z",
+  "row_count": 389,
   "rows": {
     "AddEdge": {
       "audited": "true",
@@ -552,6 +552,17 @@
       "note": "engine-native tenant/fair WorkItem lease claim",
       "txn_participation": "Atomic"
     },
+    "CleanupDevelopmentLane": {
+      "audited": "true",
+      "authz_action": "lane:cleanup",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "CleanupDevelopmentLane",
+      "mutates": "true",
+      "note": "distinct cleanup WorkItem fence releases retained disk and exclusivity; now_ms is authority-normalized",
+      "txn_participation": "Atomic"
+    },
     "ClearGraph": {
       "audited": "true",
       "authz_action": "graph:admin",
@@ -870,6 +881,17 @@
       "mutates": "true",
       "note": "native lifecycle MutationBatch before registry eviction",
       "txn_participation": "Atomic"
+    },
+    "DevelopmentLaneStatus": {
+      "audited": "false",
+      "authz_action": "lane:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "DevelopmentLaneStatus",
+      "mutates": "false",
+      "note": "bounded tenant-scoped status with maintained counters",
+      "txn_participation": "Snapshot"
     },
     "DiffAgainst": {
       "audited": "false",
@@ -1982,6 +2004,17 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "FinishDevelopmentLane": {
+      "audited": "true",
+      "authz_action": "lane:reserve",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "FinishDevelopmentLane",
+      "mutates": "true",
+      "note": "terminal lifecycle releases active count but retains cleanup charges and identity; now_ms is authority-normalized",
+      "txn_participation": "Atomic"
+    },
     "FiredTriggers": {
       "audited": "false",
       "authz_action": "cdc:read",
@@ -2851,6 +2884,17 @@
       "note": "mutates is a conservative upper bound: the REAL access::requires_write(m) returns the runtime `writeback` field (persists a versioned :Model artifact)",
       "txn_participation": "Atomic"
     },
+    "MintWorkItemClaimCapability": {
+      "audited": "false",
+      "authz_action": "work:claim-capability",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "MintWorkItemClaimCapability",
+      "mutates": "true",
+      "note": "opaque native capability is retained in a private ledger and never projected",
+      "txn_participation": "Atomic"
+    },
     "MultiGraphBatchUpdate": {
       "audited": "false",
       "authz_action": "node:write",
@@ -2905,6 +2949,17 @@
       "mutates": "true",
       "note": "ADR-1/W1.1 per-node self-report into the durable cluster-topology store (server::persistence::node_info_store); issued only by the node's own Raft startup path, like CatalogAssign above -- NOT graph nodes (placement's O(N) lesson)",
       "txn_participation": "Saga"
+    },
+    "ObserveDevelopmentLane": {
+      "audited": "true",
+      "authz_action": "lane:reserve",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ObserveDevelopmentLane",
+      "mutates": "true",
+      "note": "monotonic retained-footprint observation replaces the prior native charge; now_ms is authority-normalized",
+      "txn_participation": "Atomic"
     },
     "ObserveScreen": {
       "audited": "false",
@@ -3137,6 +3192,28 @@
       "note": "PublishIdempotent is the one exception (producer-id/seq dedup makes replays idempotent by construction)",
       "txn_participation": "Atomic"
     },
+    "QueryDevelopmentLane": {
+      "audited": "false",
+      "authz_action": "lane:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "QueryDevelopmentLane",
+      "mutates": "false",
+      "note": "linearizable exact lane hold/tombstone read",
+      "txn_participation": "Snapshot"
+    },
+    "QueryWorkItemReservation": {
+      "audited": "false",
+      "authz_action": "resource:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "QueryWorkItemReservation",
+      "mutates": "false",
+      "note": "linearizable exact native authority read",
+      "txn_participation": "Snapshot"
+    },
     "RaftAddLearner": {
       "audited": "false",
       "authz_action": "admin:cluster",
@@ -3213,6 +3290,17 @@
       "mutates": "false",
       "note": "",
       "txn_participation": "Snapshot"
+    },
+    "ReclaimWorkItemResources": {
+      "audited": "true",
+      "authz_action": "resource:reserve",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ReclaimWorkItemResources",
+      "mutates": "true",
+      "note": "controller-only expiry/supersession reclaim with retained tombstone",
+      "txn_participation": "Atomic"
     },
     "RecomputeMaterialization": {
       "audited": "false",
@@ -3324,6 +3412,17 @@
       "note": "",
       "txn_participation": "Atomic"
     },
+    "ReleaseWorkItemResources": {
+      "audited": "true",
+      "authz_action": "resource:reserve",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ReleaseWorkItemResources",
+      "mutates": "true",
+      "note": "controller-only lifecycle release with retained tombstone",
+      "txn_participation": "Atomic"
+    },
     "RemoveEdge": {
       "audited": "true",
       "authz_action": "edge:write",
@@ -3357,6 +3456,17 @@
       "note": "",
       "txn_participation": "Atomic"
     },
+    "RenewDevelopmentLane": {
+      "audited": "true",
+      "authz_action": "lane:reserve",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "RenewDevelopmentLane",
+      "mutates": "true",
+      "note": "in-place O(1) hold renewal bound to the current WorkItem lease; now_ms is authority-normalized",
+      "txn_participation": "Atomic"
+    },
     "RenewWorkItemLease": {
       "audited": "true",
       "authz_action": "work:write",
@@ -3377,6 +3487,28 @@
       "method": "Reparent",
       "mutates": "true",
       "note": "",
+      "txn_participation": "Atomic"
+    },
+    "ReserveDevelopmentLane": {
+      "audited": "true",
+      "authz_action": "lane:reserve",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ReserveDevelopmentLane",
+      "mutates": "true",
+      "note": "controller-only atomic branch/worktree uniqueness and multi-scope quota hold; now_ms is authority-normalized",
+      "txn_participation": "Atomic"
+    },
+    "ReserveWorkItemResources": {
+      "audited": "true",
+      "authz_action": "resource:reserve",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ReserveWorkItemResources",
+      "mutates": "true",
+      "note": "controller-only atomic host admission and WorkItem fence validation",
       "txn_participation": "Atomic"
     },
     "Reshard": {
@@ -3410,6 +3542,17 @@
       "method": "ResolveConflict",
       "mutates": "false",
       "note": "EPI-P3-7 (gap-fill) standalone Dung argumentation (grounded/preferred/stable) conflict resolution over a BeliefGraph snapshot; handler additionally gated `epistemic-tms`",
+      "txn_participation": "Snapshot"
+    },
+    "ResourceReservationStatus": {
+      "audited": "false",
+      "authz_action": "resource:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ResourceReservationStatus",
+      "mutates": "false",
+      "note": "bounded linearizable reconciliation read",
       "txn_participation": "Snapshot"
     },
     "ResourceStats": {
@@ -4059,6 +4202,39 @@
       "method": "UnionGetNodesByLabel",
       "mutates": "false",
       "note": "",
+      "txn_participation": "Snapshot"
+    },
+    "UpdateDevelopmentLaneQuota": {
+      "audited": "true",
+      "authz_action": "lane:quota",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "UpdateDevelopmentLaneQuota",
+      "mutates": "true",
+      "note": "controller/admin-only monotonic server-owned quota policy with numeric expected_policy_revision CAS; now_ms is authority-normalized",
+      "txn_participation": "Atomic"
+    },
+    "UpdateResourceHost": {
+      "audited": "true",
+      "authz_action": "resource:host",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "UpdateResourceHost",
+      "mutates": "true",
+      "note": "controller-only monotonic host telemetry update",
+      "txn_participation": "Atomic"
+    },
+    "VerifyWorkItemClaimCapability": {
+      "audited": "false",
+      "authz_action": "work:claim-capability",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "VerifyWorkItemClaimCapability",
+      "mutates": "false",
+      "note": "linearizable live-lease check precedes private capability lookup",
       "txn_participation": "Snapshot"
     },
     "Vf2SubgraphMatch": {
