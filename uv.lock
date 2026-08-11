@@ -597,7 +597,7 @@ requires-dist = [
     { name = "agent-utilities", extras = ["mcp", "sandbox"], marker = "extra == 'agent-headless'", editable = "." },
     { name = "agent-utilities", extras = ["messaging-discord", "messaging-googlechat", "messaging-googlemeet", "messaging-irc", "messaging-line", "messaging-matrix", "messaging-mattermost", "messaging-nextcloud", "messaging-signal", "messaging-slack", "messaging-synology", "messaging-teams", "messaging-telegram", "messaging-twitch", "messaging-voicecall", "messaging-whatsapp"], marker = "extra == 'messaging'", editable = "." },
     { name = "agent-utilities", extras = ["owl"], marker = "extra == 'stardog'", editable = "." },
-    { name = "agent-webui", marker = "extra == 'ag-ui'", specifier = ">=1.1.0" },
+    { name = "agent-webui", marker = "extra == 'ag-ui'", specifier = ">=2.4.0" },
     { name = "aiohttp", marker = "extra == 'documents'", specifier = ">=3.14.1" },
     { name = "aiokafka", marker = "extra == 'kafka'", specifier = ">=0.14.0" },
     { name = "banks", marker = "extra == 'documents'", specifier = ">=2.4.5" },
@@ -747,21 +747,23 @@ guardrails = [
 
 [[package]]
 name = "agent-webui"
-version = "1.1.0"
+version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
+    { name = "joserfc" },
     { name = "langfuse" },
     { name = "logfire", extra = ["fastapi", "starlette"] },
     { name = "pydantic-ai-slim", extra = ["ui"] },
+    { name = "python-multipart" },
     { name = "sse-starlette" },
     { name = "starlette" },
     { name = "uvicorn" },
     { name = "watchfiles" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d4/a2/37d59f32dbdad14029e83c8cd57512d2b719dd420481a254df30f6bb6b26/agent_webui-1.1.0.tar.gz", hash = "sha256:24b108343ef2203869826cef7a9e411cb508047ae6f08b7a7fd5215c5892e376", size = 4428507, upload-time = "2026-07-03T10:36:18.573Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/ae/5874923599ff182fec6c803bac24912b4172dcee1992e0f7fdd6d2947398/agent_webui-2.4.0.tar.gz", hash = "sha256:ccbc364234fbbf4b00139ddefa55b2e25355387020da4a1ee37f2cb5219215cd", size = 4744926, upload-time = "2026-08-11T05:20:54.89Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4a/a2/f4b93ea008e3ec28aa169a73a3c9dc3d41d1ed0e9e714217117568cb41dc/agent_webui-1.1.0-py3-none-any.whl", hash = "sha256:86dbf9750f58304d0664acef3da1c0f6fe89e873d0b7a731552b017e4e6044af", size = 4634175, upload-time = "2026-07-03T10:36:13.726Z" },
+    { url = "https://files.pythonhosted.org/packages/42/75/807882e008641d4151f3629390fa7f72a9571c41a8d1553f7a43853a21fc/agent_webui-2.4.0-py3-none-any.whl", hash = "sha256:3d95d8996fae225d2905842c8470945e1f3b7a0552cfc39f7c48d5e14d0e6464", size = 4976335, upload-time = "2026-08-11T05:20:50.693Z" },
 ]
 
 [[package]]

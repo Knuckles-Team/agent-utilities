@@ -252,7 +252,12 @@ dynamic-workflow = [
     "pydantic-ai-harness[dynamic-workflow]>=0.14.0,<0.15.0",
 ]
 ag-ui = [
-    "agent-webui>=1.1.0"]
+    # 1.1.0's server.py called `Agent.to_web(builtin_tools=...)`; pydantic-ai's
+    # `to_web()` dropped that kwarg in favor of `capabilities=[NativeTool(...)]`
+    # on the Agent constructor, so 1.1.0 raised
+    # `TypeError: Agent.to_web() got an unexpected keyword argument 'builtin_tools'`
+    # against any current pydantic-ai. Fixed upstream in agent-webui 2.4.0.
+    "agent-webui>=2.4.0"]
 terminal = [
     "agent-terminal-ui>=1.0.0"]
 browser = [
