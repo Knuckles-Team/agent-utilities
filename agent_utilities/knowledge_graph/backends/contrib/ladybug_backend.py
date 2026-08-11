@@ -80,6 +80,19 @@ import threading
 
 _ACTIVE_DATABASES: dict[str, Any] = {}
 _ACTIVE_DATABASES_LOCK = threading.Lock()
+# Reference count per abs_db_path (CONCEPT:AU-KG.backend.mirror-health-repair):
+# multiple LadybugBackend instances may share one cached ladybug.Database (see
+# `_ensure_connection`'s cache-hit branch below). Each `ladybug.Database` reserves
+# an ~8TB mmap virtual-address-space region (ladybug's own documented workaround
+# for its buffer manager's default mmap ceiling), so leaving a "closed" backend's
+# entry in `_ACTIVE_DATABASES` forever — as plain `close()` used to — leaked one
+# such reservation per unique db_path for the life of the process. Enough unique
+# paths (e.g. one per test, each via `tempfile.mkdtemp()`) exhausts the process's
+# addressable virtual memory and every subsequent `ladybug.Database(...)` mmap
+# fails with "Buffer manager exception: Mmap for size 8796093022208 failed."
+# Only release (pop the cache entry + call the native `Database.close()`) once the
+# last referencing backend has closed.
+_ACTIVE_DATABASE_REFCOUNTS: dict[str, int] = {}
 
 _ACTIVE_LOCKS: dict[str, threading.Lock] = {}
 _ACTIVE_LOCKS_LOCK = threading.Lock()
@@ -102,6 +115,7 @@ def _cleanup_all_backends() -> None:
             pass
     with _ACTIVE_DATABASES_LOCK:
         _ACTIVE_DATABASES.clear()
+        _ACTIVE_DATABASE_REFCOUNTS.clear()
 
 
 atexit.register(_cleanup_all_backends)
@@ -220,6 +234,9 @@ class LadybugBackend(GraphBackend):
         )
         self.max_retries = max_retries
         self.db: typing.Any = None
+        # abs_db_path this instance is counted against in `_ACTIVE_DATABASE_REFCOUNTS`
+        # (set on successful `_ensure_connection`, cleared by `_release_cached_db`).
+        self._db_cache_key: str | None = None
         self.conn = None
         self._schema_created = False
         # Auto-schema caches (CONCEPT:AU-KG.backend.mirror-health-repair): tables/rel-pairs known to exist, so
@@ -272,6 +289,7 @@ class LadybugBackend(GraphBackend):
             )
             with _ACTIVE_DATABASES_LOCK:
                 _ACTIVE_DATABASES.pop(abs_db_path, None)
+                _ACTIVE_DATABASE_REFCOUNTS.pop(abs_db_path, None)
             try:
                 self.close()
             except Exception as e:
@@ -332,6 +350,10 @@ class LadybugBackend(GraphBackend):
                             **db_params,  # type: ignore[arg-type]
                         )
                         _ACTIVE_DATABASES[abs_db_path] = self.db
+                    _ACTIVE_DATABASE_REFCOUNTS[abs_db_path] = (
+                        _ACTIVE_DATABASE_REFCOUNTS.get(abs_db_path, 0) + 1
+                    )
+                    self._db_cache_key = abs_db_path
                 self.conn = ladybug.Connection(self.db)
 
                 # Apply WAL pragmas if supported
@@ -437,6 +459,36 @@ class LadybugBackend(GraphBackend):
                     raise e
         raise last_error
 
+    def _release_cached_db(self, db: typing.Any) -> None:
+        """Drop this instance's reference to the shared cached `ladybug.Database`.
+
+        Only the LAST backend referencing a given `abs_db_path` actually evicts
+        the cache entry and calls the native `Database.close()` — releasing its
+        ~8TB mmap virtual-address-space reservation. Without this, `close()`
+        merely dropped the instance's own local reference while the module-level
+        `_ACTIVE_DATABASES` cache kept a second, permanent reference alive, so the
+        mmap reservation (and every one before it, one per unique db_path) was
+        never freed for the life of the process — see `_ACTIVE_DATABASE_REFCOUNTS`.
+        """
+        cache_key = getattr(self, "_db_cache_key", None)
+        self._db_cache_key = None
+        if cache_key is None:
+            return
+        should_release = False
+        with _ACTIVE_DATABASES_LOCK:
+            remaining = _ACTIVE_DATABASE_REFCOUNTS.get(cache_key, 1) - 1
+            if remaining <= 0:
+                _ACTIVE_DATABASE_REFCOUNTS.pop(cache_key, None)
+                _ACTIVE_DATABASES.pop(cache_key, None)
+                should_release = True
+            else:
+                _ACTIVE_DATABASE_REFCOUNTS[cache_key] = remaining
+        if should_release:
+            try:
+                db.close()
+            except Exception:  # nosec B110
+                pass
+
     def close(self) -> None:
         """Close the database connection and database object."""
         with self._thread_lock:
@@ -451,6 +503,7 @@ class LadybugBackend(GraphBackend):
             db = getattr(self, "db", None)
             if db is not None:
                 self.db = None
+                self._release_cached_db(db)
                 _throttled_gc()
 
     def __del__(self) -> None:
@@ -469,6 +522,7 @@ class LadybugBackend(GraphBackend):
                     db = getattr(self, "db", None)
                     if db is not None:
                         self.db = None
+                        self._release_cached_db(db)
             else:
                 conn = getattr(self, "conn", None)
                 if conn is not None:
@@ -480,6 +534,7 @@ class LadybugBackend(GraphBackend):
                 db = getattr(self, "db", None)
                 if db is not None:
                     self.db = None
+                    self._release_cached_db(db)
         except Exception:  # nosec B110
             pass
 
