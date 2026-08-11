@@ -350,10 +350,16 @@ class LadybugBackend(GraphBackend):
                             **db_params,  # type: ignore[arg-type]
                         )
                         _ACTIVE_DATABASES[abs_db_path] = self.db
-                    _ACTIVE_DATABASE_REFCOUNTS[abs_db_path] = (
-                        _ACTIVE_DATABASE_REFCOUNTS.get(abs_db_path, 0) + 1
-                    )
-                    self._db_cache_key = abs_db_path
+                    # One backend INSTANCE is one reference, however many times
+                    # `close()` + `_ensure_connection()` cycle it through this same
+                    # path over its life (`transient` mode does that after every
+                    # single query — see `close()`'s docstring): only count it once,
+                    # on the FIRST connect to this path, not on every reconnect.
+                    if self._db_cache_key != abs_db_path:
+                        _ACTIVE_DATABASE_REFCOUNTS[abs_db_path] = (
+                            _ACTIVE_DATABASE_REFCOUNTS.get(abs_db_path, 0) + 1
+                        )
+                        self._db_cache_key = abs_db_path
                 self.conn = ladybug.Connection(self.db)
 
                 # Apply WAL pragmas if supported
@@ -459,12 +465,21 @@ class LadybugBackend(GraphBackend):
                     raise e
         raise last_error
 
-    def _release_cached_db(self, db: typing.Any) -> None:
+    def _release_cached_db(self) -> None:
         """Drop this instance's reference to the shared cached `ladybug.Database`.
+        Called ONLY from `__del__` — see `close()`'s docstring for why `close()`
+        itself must NOT release the shared cache entry (transient mode's
+        close-then-immediately-reconnect pattern would force a full Database
+        re-open on every single query).
+
+        Looks the ``Database`` up from the shared ``_ACTIVE_DATABASES`` cache by
+        ``self._db_cache_key`` — NOT from ``self.db``, which an earlier explicit
+        `close()` call has typically already set to ``None`` by the time `__del__`
+        runs; the cache is the only remaining handle to release at that point.
 
         Only the LAST backend referencing a given `abs_db_path` actually evicts
         the cache entry and calls the native `Database.close()` — releasing its
-        ~8TB mmap virtual-address-space reservation. Without this, `close()`
+        ~8TB mmap virtual-address-space reservation. Without this, `__del__`
         merely dropped the instance's own local reference while the module-level
         `_ACTIVE_DATABASES` cache kept a second, permanent reference alive, so the
         mmap reservation (and every one before it, one per unique db_path) was
@@ -474,16 +489,15 @@ class LadybugBackend(GraphBackend):
         self._db_cache_key = None
         if cache_key is None:
             return
-        should_release = False
+        db: typing.Any = None
         with _ACTIVE_DATABASES_LOCK:
             remaining = _ACTIVE_DATABASE_REFCOUNTS.get(cache_key, 1) - 1
             if remaining <= 0:
                 _ACTIVE_DATABASE_REFCOUNTS.pop(cache_key, None)
-                _ACTIVE_DATABASES.pop(cache_key, None)
-                should_release = True
+                db = _ACTIVE_DATABASES.pop(cache_key, None)
             else:
                 _ACTIVE_DATABASE_REFCOUNTS[cache_key] = remaining
-        if should_release:
+        if db is not None:
             try:
                 db.close()
             except Exception as exc:  # noqa: BLE001 — best-effort release, see below
@@ -502,7 +516,21 @@ class LadybugBackend(GraphBackend):
                 )
 
     def close(self) -> None:
-        """Close the database connection and database object."""
+        """Close this instance's connection/handle to the Database (NOT the shared
+        cache entry — see :meth:`_release_cached_db`).
+
+        ``transient`` mode (the test-suite default, CONCEPT:AU-KG.backend.mirror-health-repair)
+        calls this after EVERY query, then immediately reconnects via
+        :meth:`_ensure_connection` for the next one — the cache-hit branch there is
+        what makes that cheap. Releasing the shared `_ACTIVE_DATABASES` entry (and
+        the native `Database.close()`, which tears down its buffer pool/catalog)
+        HERE would force a full, expensive Database re-open on every single query
+        instead — measured as pytest-timeout's 300s `gc.collect()` hang inside a
+        30-query-per-test loop once this method started calling
+        :meth:`_release_cached_db` (an earlier version of this fix). The instance's
+        reference to the shared cache entry is only actually released once the
+        instance itself is destroyed — see ``__del__``.
+        """
         with self._thread_lock:
             conn = getattr(self, "conn", None)
             if conn is not None:
@@ -515,11 +543,18 @@ class LadybugBackend(GraphBackend):
             db = getattr(self, "db", None)
             if db is not None:
                 self.db = None
-                self._release_cached_db(db)
                 _throttled_gc()
 
     def __del__(self) -> None:
-        """Ensure connection is destroyed before database to avoid C++ Kuzu abort."""
+        """Ensure connection is destroyed before database to avoid C++ Kuzu abort,
+        then release this instance's share of the cached Database (see
+        `_release_cached_db`) — unconditionally: an explicit `close()` earlier in
+        this instance's life already nulled out `self.db`/`self.conn`, so this
+        must NOT gate on those still being set (that gate was this fix's own bug
+        on its first pass: it made `_release_cached_db` unreachable for any
+        instance that had ever called `close()`, i.e. every test backend, which
+        silently reintroduced the mmap leak this method exists to close).
+        """
         try:
             lock = getattr(self, "_thread_lock", None)
             if lock is not None:
@@ -531,10 +566,7 @@ class LadybugBackend(GraphBackend):
                         except Exception:
                             pass
                         self.conn = None
-                    db = getattr(self, "db", None)
-                    if db is not None:
-                        self.db = None
-                        self._release_cached_db(db)
+                    self.db = None
             else:
                 conn = getattr(self, "conn", None)
                 if conn is not None:
@@ -543,10 +575,8 @@ class LadybugBackend(GraphBackend):
                     except Exception:
                         pass
                     self.conn = None
-                db = getattr(self, "db", None)
-                if db is not None:
-                    self.db = None
-                    self._release_cached_db(db)
+                self.db = None
+            self._release_cached_db()
         except Exception:  # nosec B110
             pass
 
