@@ -1788,3 +1788,363 @@ def test_graph_pipeline_degrades_when_surface_absent(monkeypatch, tools):
         )
     )
     assert out["degraded"] is True
+
+
+# ---- merged from lane-gateway ----
+
+def test_kg_2_310_promql_degrades_cleanly_without_a_configured_prometheus(
+    monkeypatch, tools
+):
+    """No engine surface AND no Prometheus URL configured ⇒ still a clean degrade
+    (never an invented hostname)."""
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
+    monkeypatch.setattr(engine_surface_tools, "_prometheus_base_url", lambda: None)
+    out = json.loads(
+        tools["graph_promql"](
+            query="up",
+            action="instant",
+            time="",
+            start="",
+            end="",
+            step="",
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["degraded"] is True
+
+
+def test_kg_2_310_promql_falls_back_to_configured_prometheus_http(monkeypatch, tools):
+    """When the engine client has no promql surface but a Prometheus URL IS
+    configured, graph_promql answers with real data from that endpoint instead
+    of degrading."""
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
+    series = [{"metric": {"job": "gw"}, "values": [[1, "1.5"], [2, "2.0"]]}]
+    monkeypatch.setattr(
+        engine_surface_tools,
+        "_prometheus_http_query",
+        lambda action, params: series,
+    )
+    out = json.loads(
+        tools["graph_promql"](
+            query="up",
+            action="range",
+            time="",
+            start="0",
+            end="10",
+            step="30s",
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert "degraded" not in out
+    assert out["result"] == series
+
+
+def test_kg_2_310_promql_engine_surface_takes_priority_over_prometheus_http(
+    monkeypatch, tools
+):
+    """A real engine promql surface wins — the Prometheus HTTP fallback is only
+    consulted when the engine client itself has nothing."""
+    calls: list = []
+    obs = SimpleNamespace(promql=_recording_method(calls, "promql"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(observability=obs)
+    )
+
+    def _unexpected_fallback(action, params):
+        raise AssertionError("Prometheus HTTP fallback should not be consulted")
+
+    monkeypatch.setattr(
+        engine_surface_tools, "_prometheus_http_query", _unexpected_fallback
+    )
+    out = json.loads(
+        tools["graph_promql"](
+            query="up",
+            action="instant",
+            time="",
+            start="",
+            end="",
+            step="",
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["result"] == {"echoed": "promql", "kwargs": {"query": "up"}}
+
+
+def _prom_transport(payload, status_code: int = 200):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(status_code, content=json.dumps(payload).encode())
+
+    return httpx.MockTransport(handler)
+
+
+def test_prometheus_http_query_returns_result_array_over_a_fake_transport(
+    monkeypatch,
+):
+    """CONCEPT:AU-KG.coordination.engine-message-broker — _prometheus_http_query talks real Prometheus HTTP
+    semantics (mirrors orchestration.scaling_signals.PrometheusHttpProvider's own
+    fake-transport tests) — no server, no client lib required."""
+    monkeypatch.setattr(
+        engine_surface_tools, "_prometheus_base_url", lambda: "http://prom:9090"
+    )
+    payload = {
+        "status": "success",
+        "data": {"resultType": "matrix", "result": [{"metric": {}, "values": []}]},
+    }
+    result = engine_surface_tools._prometheus_http_query(
+        "range",
+        {"query": "up", "start": "0", "end": "10", "step": "30s"},
+        transport=_prom_transport(payload),
+    )
+    assert result == [{"metric": {}, "values": []}]
+
+
+def test_prometheus_http_query_is_none_when_not_configured():
+    result = engine_surface_tools._prometheus_http_query(
+        "instant", {"query": "up"}, transport=_prom_transport({})
+    )
+    assert result is None
+
+
+def test_prometheus_http_query_error_status_is_none(monkeypatch):
+    monkeypatch.setattr(
+        engine_surface_tools, "_prometheus_base_url", lambda: "http://prom:9090"
+    )
+    result = engine_surface_tools._prometheus_http_query(
+        "instant",
+        {"query": "up"},
+        transport=_prom_transport({"status": "error", "error": "bad query"}),
+    )
+    assert result is None
+
+
+def test_prometheus_http_query_http_failure_is_none(monkeypatch):
+    monkeypatch.setattr(
+        engine_surface_tools, "_prometheus_base_url", lambda: "http://prom:9090"
+    )
+    result = engine_surface_tools._prometheus_http_query(
+        "instant", {"query": "up"}, transport=_prom_transport({}, status_code=500)
+    )
+    assert result is None
+
+
+# ── graph_traces ─────────────────────────────────────────────────────────────
+
+
+def _fake_kg_trace_sink():
+    async def get_traces(round_id, **_filters):
+        return [
+            {
+                "id": "trace:1",
+                "name": "agent.run",
+                "status": "ok",
+                "duration_ms": 120.0,
+                "error": None,
+            },
+            {
+                "id": "trace:2",
+                "name": "agent.other",
+                "status": "error",
+                "duration_ms": 45.0,
+                "error": "boom",
+            },
+        ]
+
+    async def get_trace_summary(trace_id):
+        if trace_id == "trace:1":
+            return {
+                "id": "trace:1",
+                "name": "agent.run",
+                "status": "ok",
+                "duration_ms": 120.0,
+            }
+        return {"id": trace_id, "error": "not_found"}
+
+    return SimpleNamespace(get_traces=get_traces, get_trace_summary=get_trace_summary)
+
+
+def test_kg_2_310_traces_search_prefers_kg_native_sink_over_external_probe(
+    monkeypatch, tools
+):
+    """search reads the always-on KG-native sink (same store 'waterfall' uses)
+    instead of probing the external engine surface when a sink is installed."""
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink", _fake_kg_trace_sink
+    )
+
+    def _unexpected_client(graph):
+        raise AssertionError("external engine client should not be consulted")
+
+    monkeypatch.setattr(engine_surface_tools, "_client", _unexpected_client)
+    out = json.loads(
+        tools["graph_traces"](
+            action="search",
+            trace_id="",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    ids = {row["trace_id"] for row in out["result"]}
+    assert ids == {"trace:1", "trace:2"}
+
+
+def test_kg_2_310_traces_search_kg_native_filters_by_free_text_query(
+    monkeypatch, tools
+):
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink", _fake_kg_trace_sink
+    )
+    out = json.loads(
+        tools["graph_traces"](
+            action="search",
+            trace_id="",
+            service="",
+            operation="",
+            query="other",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert [row["trace_id"] for row in out["result"]] == ["trace:2"]
+
+
+def test_kg_2_310_traces_get_prefers_kg_native_sink_over_external_probe(
+    monkeypatch, tools
+):
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink", _fake_kg_trace_sink
+    )
+
+    def _unexpected_client(graph):
+        raise AssertionError("external engine client should not be consulted")
+
+    monkeypatch.setattr(engine_surface_tools, "_client", _unexpected_client)
+    out = json.loads(
+        tools["graph_traces"](
+            action="get",
+            trace_id="trace:1",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["result"] == {
+        "trace_id": "trace:1",
+        "name": "agent.run",
+        "duration": 120.0,
+        "status": "ok",
+        "error": None,
+    }
+
+
+def test_kg_2_310_traces_get_kg_native_unknown_trace_falls_back_to_external_probe(
+    monkeypatch, tools
+):
+    """An installed sink that doesn't know a trace id still falls back to the
+    external engine probe (which may know a trace this in-memory mirror
+    doesn't, e.g. after a process restart) rather than reporting not-found."""
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink", _fake_kg_trace_sink
+    )
+    calls: list = []
+    obs = SimpleNamespace(get_trace=_recording_method(calls, "get_trace"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(observability=obs)
+    )
+    out = json.loads(
+        tools["graph_traces"](
+            action="get",
+            trace_id="nope",
+            service="",
+            operation="",
+            query="",
+            limit=20,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert calls == [("get_trace", {"trace_id": "nope"})]
+    assert out["result"] == {"echoed": "get_trace", "kwargs": {"trace_id": "nope"}}
+
+
+def test_kg_2_310_traces_search_falls_back_to_external_probe_without_a_kg_sink(
+    monkeypatch, tools
+):
+    """No KG-native sink installed ⇒ unchanged legacy behavior (external probe)."""
+    monkeypatch.setattr(
+        "agent_utilities.harness.tracing.get_kg_trace_sink", lambda: None
+    )
+    calls: list = []
+    obs = SimpleNamespace(search_traces=_recording_method(calls, "search_traces"))
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(observability=obs)
+    )
+    out = json.loads(
+        tools["graph_traces"](
+            action="search",
+            trace_id="",
+            service="svc",
+            operation="",
+            query="",
+            limit=7,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert calls == [("search_traces", {"service": "svc", "limit": 7})]
+    assert out["result"] == {
+        "echoed": "search_traces",
+        "kwargs": {"service": "svc", "limit": 7},
+    }
+
+
+# ── graph_logs ───────────────────────────────────────────────────────────────
+
+
+def test_kg_2_310_logs_degrades_without_a_configured_backend(monkeypatch, tools):
+    """No engine log-query surface and no log backend (e.g. Loki) configured
+    anywhere in this repo today ⇒ a clean degrade, never fabricated log lines."""
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
+    out = json.loads(
+        tools["graph_logs"](
+            action="query",
+            stream="",
+            query="",
+            start="",
+            end="",
+            limit=200,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["degraded"] is True
+
+
+def test_kg_2_310_logs_unknown_action_is_reported(tools):
+    out = json.loads(
+        tools["graph_logs"](
+            action="tail",
+            stream="",
+            query="",
+            start="",
+            end="",
+            limit=200,
+            params_json="{}",
+            graph="",
+        )
+    )
+    assert out["error"] == "unknown action 'tail'"
+
+
+# ── graph_gis ────────────────────────────────────────────────────────────────
+
