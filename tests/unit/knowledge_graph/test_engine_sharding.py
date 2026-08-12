@@ -313,8 +313,13 @@ def test_engine_sharded_maps_ambient_tenant_to_tenant_graph(
         "connect",
         staticmethod(_fake_connect_recorder(connects)),
     )
+    # BUG-020/GOC-61 phase 1 (see shard_topology.resolve_routing_graph's
+    # docstring): an EXPLICIT graph_name — including the literal
+    # "__commons__" — is now honored verbatim, never tenant-mapped. Only
+    # graph_name=None ("caller asked for nothing specific") maps to the
+    # ambient tenant's graph, which is what this test actually exercises.
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
-        engine = _build_engine_unwrapped(graph_name="__commons__")
+        engine = _build_engine_unwrapped(graph_name=None)
     assert engine.graph_name == "tenant__acme____commons__"
     assert connects[-1]["tcp_addr"] == THREE_SHARDS[0].removeprefix("tcp://")
     engine.close()
