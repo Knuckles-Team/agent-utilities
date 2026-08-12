@@ -177,6 +177,12 @@ class TestAgentRunner:
         )
 
         monkeypatch.setattr(agent_config, "chat_models", _standard_model())
+        # _build_execution_config resolves a live toolset for a "server" agent
+        # via _fleet_server_url(toolset_id), which reads FLEET_MCP_URL_TEMPLATE
+        # straight from the environment (setting() is a live os.environ read,
+        # not an AgentConfig attribute) -- unset in this sandbox, so give it a
+        # deterministic template rather than depending on real fleet config.
+        monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.mcp.test")
         engine = _create_engine()
         agent_meta = {
             "type": "server",
