@@ -622,7 +622,7 @@ def test_nested_c03_resource_projection_survives_view_and_result_round_trip() ->
     assert view.disk_high_watermark_mib == request.disk_high_watermark_mib
 
     claim = claim_repository_work_item(
-        engine, handle.job_id, tenant="tenant-a", token="opaque-worker", now=10.0
+        engine, handle.job_id, tenant="tenant-a", token="opaque-worker", now=10.0  # sanitizer:ignore — worker IDENTIFIER, not a credential
     )
     assert claim is not None
     assert (
@@ -1674,7 +1674,7 @@ def test_operation_payload_is_atomic_private_summary_and_exact_owner_read(
         )
     assert reads == 0
     claim = claim_repository_work_item(
-        engine, submitted.job_id, tenant="tenant-a", token="typed-worker", now=10.0
+        engine, submitted.job_id, tenant="tenant-a", token="typed-worker", now=10.0  # sanitizer:ignore — worker IDENTIFIER, not a credential
     )
     assert claim is not None
     assert (
@@ -1989,7 +1989,7 @@ def test_automatic_retry_keeps_exact_operation_payload_and_digest() -> None:
         engine,
         submitted.job_id,
         tenant="tenant-a",
-        token="typed-worker-a",
+        token="typed-worker-a",  # sanitizer:ignore — worker IDENTIFIER, not a credential
         now=100.0,
     )
     assert first is not None
@@ -2016,7 +2016,7 @@ def test_automatic_retry_keeps_exact_operation_payload_and_digest() -> None:
         engine,
         submitted.job_id,
         tenant="tenant-a",
-        token="typed-worker-b",
+        token="typed-worker-b",  # sanitizer:ignore — worker IDENTIFIER, not a credential
         now=102.0,
     )
     assert second is not None

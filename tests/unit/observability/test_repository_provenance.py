@@ -505,7 +505,10 @@ def test_redaction_gate_catches_a_known_bad_input_secret_path_and_raw_command() 
     engine = _FakeEngine()
     work_item_id = "workitem:repository_manager:fixture-redaction"
 
-    real_shaped_secret = "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEF"
+    # sanitizer:ignore — synthetic, never a live credential: the value is a
+    # literal A-Z0-9 alphabet run, and this test exists precisely to assert it
+    # gets REDACTED out of the persisted node (see the assertion below).
+    real_shaped_secret = "sk-proj-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789ABCDEF"  # nosec B105
     absolute_machine_path = "/home/exampleuser/.ssh/id_rsa"
     raw_command_body = (
         f"scp {absolute_machine_path} deploy@internal:/var/backups && "
