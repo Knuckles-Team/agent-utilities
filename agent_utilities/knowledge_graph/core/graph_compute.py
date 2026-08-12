@@ -2702,11 +2702,21 @@ class GraphComputeEngine:
             node_properties = properties.get(node_id, {})
             if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
                 continue
-            embedding = node_properties.get("embedding")
-            if isinstance(embedding, list | tuple) and embedding:
-                current.append((node_id, score))
-                if len(current) >= n_results:
-                    break
+            # A node whose ``embedding`` property is present but falsy had it
+            # explicitly cleared by a concurrent text update (see
+            # ``compare_and_set_node_embedding``) — that ANN entry is stale
+            # until the vector is rebuilt/replaced. A node that never mirrors
+            # its vector into a property at all (the simple ``add_embedding``
+            # path, which is intentionally distinct from the property write —
+            # see its docstring) has no such key and is not stale by this
+            # signal; it must not be penalized for a property it never had.
+            if "embedding" in node_properties and not node_properties.get(
+                "embedding"
+            ):
+                continue
+            current.append((node_id, score))
+            if len(current) >= n_results:
+                break
         return current
 
     def query_unified(
@@ -2790,9 +2800,15 @@ class GraphComputeEngine:
                 node_properties = properties.get(str(row["id"]), {})
                 if node_properties.get(EMBEDDING_INDEX_READY_FIELD) is False:
                     continue
-                embedding = node_properties.get("embedding")
-                if isinstance(embedding, list | tuple) and embedding:
-                    current_rows.append(row)
+                # See the identical fence in semantic_search: only an
+                # explicitly-cleared ``embedding`` property signals staleness;
+                # a node that never mirrors its vector into a property (the
+                # simple add_embedding() path) has no such key and is current.
+                if "embedding" in node_properties and not node_properties.get(
+                    "embedding"
+                ):
+                    continue
+                current_rows.append(row)
             rows = current_rows
         if include_epistemic:
             from .epistemic_row import attach_epistemic_rows
