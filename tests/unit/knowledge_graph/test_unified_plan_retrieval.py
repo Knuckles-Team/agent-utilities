@@ -96,6 +96,12 @@ def _retriever(graph: Any, *, embed: Any = None) -> HybridRetriever:
     r._last_quality_report = None
     r._embed_model = embed if embed is not None else _FakeEmbed()
     r._embed_model_initialized = True
+    # Cached per-instance capability flags HybridRetriever.__init__ sets (see
+    # their docstrings at the neighbors-batch / varlen-batch call sites) —
+    # this helper skips __init__ entirely, so anything it initializes must be
+    # mirrored here.
+    r._neighbors_batch_unsupported = False
+    r._varlen_batch_unsupported = False
     from agent_utilities.knowledge_graph.core.hypergraph import (
         PositionalInteractionEncoder,
     )
@@ -106,9 +112,9 @@ def _retriever(graph: Any, *, embed: Any = None) -> HybridRetriever:
 
 def _seed(graph: Any) -> None:
     """Seed three docs with orthonormal embeddings in the REAL engine."""
-    graph.add_node("doc_alpha", {"type": "Doc", "name": "alpha doc", "year": 2025})
-    graph.add_node("doc_beta", {"type": "Doc", "name": "beta doc", "year": 2020})
-    graph.add_node("doc_gamma", {"type": "Doc", "name": "gamma doc", "year": 2024})
+    graph.add_node("doc_alpha", {"node_type": "Doc", "name": "alpha doc", "year": 2025})
+    graph.add_node("doc_beta", {"node_type": "Doc", "name": "beta doc", "year": 2020})
+    graph.add_node("doc_gamma", {"node_type": "Doc", "name": "gamma doc", "year": 2024})
     graph.add_embedding("doc_alpha", [1.0, 0.0, 0.0, 0.0])
     graph.add_embedding("doc_beta", [0.0, 1.0, 0.0, 0.0])
     graph.add_embedding("doc_gamma", [0.0, 0.0, 1.0, 0.0])

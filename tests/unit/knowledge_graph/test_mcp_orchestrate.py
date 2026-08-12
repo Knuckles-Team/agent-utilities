@@ -100,8 +100,21 @@ async def test_agent_runner_binds_provider_skill_to_authenticated_server():
 
     def mock_execute(query, params=None):
         params = params or {}
-        if "MATCH (s:Server)" in query and params.get("name") == "github-review":
-            return []
+        # _lookup_server_identity (D-DEL-1) issues one combined node+edge
+        # query per schema, each a single-predicate inline-property match —
+        # never a separate id-only lookup and never an OR'd WHERE (see that
+        # function's docstring). Match the CURRENT query shape here.
+        if (
+            "(s:Server {name: $name})-[:PROVIDES]->" in query
+            and params.get("name") == "github-mcp"
+        ):
+            return [
+                {
+                    "sid": "srv:github-mcp",
+                    "name": "github_pull_request_read",
+                    "description": "Read pull requests.",
+                }
+            ]
         if (
             "MATCH (r:CallableResource)" in query
             and params.get("name") == "github-review"
@@ -115,22 +128,6 @@ async def test_agent_runner_binds_provider_skill_to_authenticated_server():
                     "instruction_digest": runnable_skill_digest(instructions),
                     "source_ref": "skill://github-review",
                     "provider_ref": "provider://github-mcp",
-                }
-            ]
-        if "MATCH (s:Server)" in query and params.get("name") == "github-mcp":
-            return [
-                {
-                    "sid": "srv:github-mcp",
-                    "name": "github-mcp",
-                    "url": "https://github-mcp.example/mcp",
-                    "env": "",
-                }
-            ]
-        if "[:PROVIDES]" in query and params.get("sid") == "srv:github-mcp":
-            return [
-                {
-                    "name": "github_pull_request_read",
-                    "description": "Read pull requests.",
                 }
             ]
         return []
@@ -173,30 +170,21 @@ async def test_agent_runner_resolves_fleet_probed_mcp_server(monkeypatch):
 
     def mock_execute(query, params=None):
         params = params or {}
-        if params.get("name") == "servicenow-mcp" and "sid" in params:
-            # Search 1 (server lookup): only a query that also accepts the
-            # fleet-write's :MCPServer label can see this node.
-            if "MCPServer" in query:
-                return [
-                    {
-                        "sid": "mcp_server_servicenow-mcp",
-                        "name": "servicenow-mcp",
-                        "server_ref": None,
-                        "tc": 1,
-                    }
-                ]
-            return []
-        if params.get("sid") == "mcp_server_servicenow-mcp":
-            # Tool fetch: only a query that also accepts SERVES/:Tool (the
-            # fleet write's edge/resource shape) can see the tool.
-            if "Tool" in query and "SERVES" in query:
-                return [
-                    {
-                        "name": "incident_management",
-                        "description": "Manage ServiceNow incidents",
-                    }
-                ]
-            return []
+        # _lookup_server_identity (D-DEL-1) issues one combined node+edge
+        # query per schema, each a single-predicate inline-property match —
+        # only a query that also accepts the fleet-write's :MCPServer/SERVES
+        # shape can see this node (never the legacy :Server/PROVIDES shape).
+        if (
+            "(s:MCPServer {name: $name})-[:SERVES]->" in query
+            and params.get("name") == "servicenow-mcp"
+        ):
+            return [
+                {
+                    "sid": "mcp_server_servicenow-mcp",
+                    "name": "incident_management",
+                    "description": "Manage ServiceNow incidents",
+                }
+            ]
         return []
 
     mock_backend.execute.side_effect = mock_execute
