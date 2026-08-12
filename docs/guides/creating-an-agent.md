@@ -160,7 +160,7 @@ name = "my-agent"
 version = "1.0.0"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "agent-utilities[agent-runtime]>=2.2.0,<3.0.0",
+    "agent-utilities[agent-runtime]>=2.3.0,<3.0.0",
 ]
 
 [project.scripts]
