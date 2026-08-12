@@ -114,7 +114,15 @@ class TestToolFlagParsing:
         assert "portainer_toke" not in flags
 
     def test_langfuse_tool_flags(self):
-        """Langfuse config has 18+ TOOL=True env vars."""
+        """Langfuse config declares its 5 consolidated domain tool groups.
+
+        langfuse-agent's mcp_config.json was reorganized from many
+        fine-grained per-feature TOOL flags down to 5 coherent domain groups
+        (datasets/kg/management/observability/prompts_models — matching the
+        langfuse-eval-datasets/-prompt-management/-trace-analytics skill
+        split), so the historical "18+"/"trace" assumptions here are stale
+        relative to the real on-disk config this test reads.
+        """
         config = _load_config("langfuse")
         if config is None:
             pytest.skip("langfuse mcp_config.json not found on disk")
@@ -123,9 +131,8 @@ class TestToolFlagParsing:
         engine = _create_engine()
         env = config["mcpServers"]["langfuse-agent"]["env"]
         flags = engine._parse_tool_flags(env)
-        # Langfuse has many tool groups
-        assert len(flags) >= 15
-        assert "trace" in flags or "trace_" in flags
+        assert len(flags) >= 5
+        assert "langfuse_observability" in flags
 
     def test_no_tool_flags(self):
         """Config with no TOOL env vars returns empty list."""

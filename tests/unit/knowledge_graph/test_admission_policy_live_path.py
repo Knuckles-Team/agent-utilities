@@ -173,7 +173,21 @@ def test_claim_next_task_admission_allowed_starts_worker_live_path(monkeypatch):
 
     result = harness._claim_next_task(worker_id="worker-a", hydration_reserved=False)
 
-    assert result == ("first-connector-sync", {"type": "connector_sync"})
+    # _claim_next_task stamps the winning claim's own lease identity
+    # (claimed_by/work_item_epoch/work_item_id) onto the returned metadata so
+    # a caller/log line can say who holds this task and under which fencing
+    # generation — see the "Stamp the winning claim's own lease identity"
+    # comment at its call site. _patch_claim's stub claim carries no
+    # lease_owner/lease_epoch, so those surface as None here.
+    assert result == (
+        "first-connector-sync",
+        {
+            "type": "connector_sync",
+            "claimed_by": None,
+            "work_item_epoch": None,
+            "work_item_id": "workitem:ingest_task:first-connector-sync",
+        },
+    )
     # The side effect that PROVES admission ran (and allowed) for real: the
     # live registry now shows this worker busy in the connectors lane.
     assert registry.running_by_lane() == {"connectors": 1}
