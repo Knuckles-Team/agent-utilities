@@ -1479,13 +1479,16 @@ class QueryMixin(_Base):
         execution provenance and are intentionally excluded here.
         """
         if views is None:
+            # V1 backward-compat invariant (§6): callers that pass no ``views``
+            # must keep getting exactly these four. ``place``/``epistemic`` are
+            # real views (see :meth:`retrieve_place_view` /
+            # :meth:`retrieve_epistemic_view`) but are opt-in only — pass them
+            # explicitly via ``views=[...]``.
             views = [
                 "semantic",
                 "temporal",
                 "causal",
                 "entity",
-                "place",
-                "epistemic",
             ]
         context: dict[str, Any] = {"query": query, "views": {}}
         if "semantic" in views:
