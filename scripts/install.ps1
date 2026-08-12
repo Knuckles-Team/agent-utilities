@@ -78,7 +78,7 @@ if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
 
 # Published bootstraps are exact at the project boundary. Release automation
 # updates these defaults; controlled mirrors may inject another exact version.
-$auVersion = if ($env:AGENT_UTILITIES_VERSION) { $env:AGENT_UTILITIES_VERSION } else { '2.1.1' }
+$auVersion = if ($env:AGENT_UTILITIES_VERSION) { $env:AGENT_UTILITIES_VERSION } else { '2.2.0' }
 $skillsVersion = if ($env:UNIVERSAL_SKILLS_VERSION) { $env:UNIVERSAL_SKILLS_VERSION } else { '1.2.1' }
 $versionPattern = '^[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.+-]*$'
 if ($auVersion -notmatch $versionPattern -or $skillsVersion -notmatch $versionPattern) {
