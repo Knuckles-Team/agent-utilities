@@ -156,7 +156,7 @@ def test_source_attestation_never_claims_live_execution(
     # floor (>=MAJOR.MINOR.0,<MAJOR+1), derived from the pinned engine version,
     # not restated as its literal patch.
     assert attestation["compatibility"] == {
-        "agent_utilities": ">=2.1.0,<3",
+        "agent_utilities": ">=2.2.0,<3",
         "epistemic_graph": ">=2.23.0,<3",
         "bundle_schema": "2",
     }
