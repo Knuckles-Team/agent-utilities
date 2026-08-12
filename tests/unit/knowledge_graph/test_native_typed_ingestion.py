@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from types import SimpleNamespace
 from typing import Any
 
@@ -145,6 +146,11 @@ def test_graph_compute_declares_and_executes_the_typed_node_contract() -> None:
             add=lambda node_id, properties: writes.append((node_id, properties))
         )
     )
+    # add_node's GOC-61 system-graph write gate (check_system_graph_write)
+    # reads self.graph_name; it's a no-op for any non-system graph name, but
+    # this __new__()-constructed double skips __init__ so the attribute must
+    # be set explicitly.
+    backend.graph_name = "test-graph"
     engine = _engine(backend)
 
     engine._upsert_node(
@@ -272,6 +278,23 @@ def test_fanout_keeps_typed_node_and_edge_mutations_structured() -> None:
     fanout = FanOutBackend.__new__(FanOutBackend)
     fanout._authority = authority
     fanout._authority_writes = 0
+    # _resolve_governance_actor reads self._mirror_session, and add_node's
+    # write path registers/deregisters against the D-LRR-1 lifecycle fence
+    # (self._lifecycle_condition/_lifecycle_state/_active_producers) — all
+    # set in __init__, which this __new__()-constructed double skips, so
+    # they must be mirrored explicitly.
+    fanout._mirror_session = None
+    fanout._lifecycle_condition = threading.Condition()
+    fanout._lifecycle_state = "open"
+    fanout._active_producers = 0
+    # Striped same-entity mutation ordering locks — also __init__-only state.
+    from agent_utilities.knowledge_graph.backends.fanout_backend import (
+        _MUTATION_LOCK_STRIPES,
+    )
+
+    fanout._mutation_locks = tuple(
+        threading.RLock() for _ in range(_MUTATION_LOCK_STRIPES)
+    )
     queued: list[tuple[str, dict[str, Any]]] = []
     fanout._enqueue = lambda operation, payload: queued.append((operation, payload))
 
