@@ -79,6 +79,18 @@ def _is_engine_degraded(exc: BaseException) -> bool:
        Checked by class name only (never message text), so this stays a
        class-level distinction — sanitizing the detail, not the class.
     """
+    # ``PermissionError`` is a builtin ``OSError`` subclass, but this codebase
+    # extensively reuses the builtin class itself for APPLICATION-level
+    # authorization/policy rejections (166+ ``raise PermissionError(...)``
+    # sites across tenant_sharing.py, engine_query.py's ACL guard, the
+    # graph-scoped-view/GraphSession guards, ...) — never a transport
+    # condition. Exclude it before the OSError check below so an
+    # access-denied response is never misreported as a retryable "engine
+    # degraded" condition (which also flips ``retryable=True`` for the
+    # caller — actively wrong advice for a rejection that will never
+    # succeed by retrying).
+    if isinstance(exc, PermissionError):
+        return False
     if isinstance(exc, (OSError, EOFError)):
         return True
     error_type = getattr(exc, "error_type", None)
