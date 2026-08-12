@@ -5693,24 +5693,33 @@ def attach_fleet_loader(
             len(mux._always_load_tool_specs),
         )
     _register_meta_tools(mcp, mux)
-    # The always-visible surface: the meta-tools. graph-os's own tools are registered
-    # natively by ``register_tool_surface`` and are always on; every OTHER server is
-    # mounted on demand and made visible per session by the middleware below.
-    mux._global_visible = {
-        "find_tools",
-        "list_catalog",
-        "load_tools",
-        "unload_tools",
-        "multiplexer_status",
-    }
     # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse (Seam 8) — under MCP_TOOL_MODE=intent,
     # register_tool_surface has already tagged the host's own condensed/verbose
     # tools GATED_TAG; seed the session-visibility gate with those names so
     # load_tools reveals them exactly like a fleet tool (no mounting needed —
     # they are already registered local FastMCP tools, just hidden by default).
-    from agent_utilities.mcp.verbose_tools import gated_tool_names
+    from agent_utilities.mcp.verbose_tools import _provider_tools, gated_tool_names
 
     mux._local_gated = gated_tool_names(mcp)
+    # The always-visible surface: the meta-tools just registered above, PLUS
+    # every other tool graph-os already registered natively on this server
+    # (the intent verbs, the MCP Apps entry points, and — outside intent/
+    # has-own-verbose mode — the condensed/verbose surface itself) that is
+    # NOT held back by the intent gate. "graph-os's own tools ... are always
+    # on" (see below) previously only listed the five meta-tool names
+    # literally, so every OTHER natively-registered, ungated tool fell
+    # through to tool_dispatchable()'s final "unknown to our bookkeeping"
+    # branch — which itself refuses everything whenever is_serving() is
+    # False (an empty/lazily-loaded external fleet catalog, a perfectly
+    # normal deployment shape, e.g. a zero-dependency profile). That silently
+    # hid the entire intent-verb surface (ask/find/act/why/write/manage) and
+    # the MCP Apps tools on any server with no external fleet servers
+    # configured yet. Deriving the set from what is actually registered (and
+    # not gated) keeps it always on regardless of external fleet state, as
+    # documented, instead of depending on a hardcoded name list going stale.
+    mux._global_visible = (
+        set(_provider_tools(mcp).keys()) - mux._local_gated
+    )
     # Stash the mux on the server so a local tool (e.g. the ``find`` intent verb,
     # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) can best-effort widen its search to the
     # whole fleet catalog without a second multiplexer instance.
