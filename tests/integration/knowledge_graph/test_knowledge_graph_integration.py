@@ -459,20 +459,20 @@ class TestGraphAlgorithms:
     """Test graph compute analysis on the graph."""
 
     def test_impact_analysis(self, engine):
-        engine.graph.add_node("mod:auth", type="module", name="auth")
-        engine.graph.add_node("mod:api", type="module", name="api")
-        engine.graph.add_edge("mod:api", "mod:auth", type="depends_on")
+        engine.graph.add_node("mod:auth", node_type="module", name="auth")
+        engine.graph.add_node("mod:api", node_type="module", name="api")
+        engine.graph.add_edge("mod:api", "mod:auth", relationship="depends_on")
 
         impact = engine.query_impact("mod:auth")
         assert len(impact) > 0
         assert any(n["id"] == "mod:api" for n in impact)
 
     def test_shortest_path(self, engine):
-        engine.graph.add_node("A", type="node", name="A")
-        engine.graph.add_node("B", type="node", name="B")
-        engine.graph.add_node("C", type="node", name="C")
-        engine.graph.add_edge("A", "B", type="rel")
-        engine.graph.add_edge("B", "C", type="rel")
+        engine.graph.add_node("A", node_type="node", name="A")
+        engine.graph.add_node("B", node_type="node", name="B")
+        engine.graph.add_node("C", node_type="node", name="C")
+        engine.graph.add_edge("A", "B", relationship="rel")
+        engine.graph.add_edge("B", "C", relationship="rel")
 
         path = engine.find_path("A", "C")
         assert path == ["A", "B", "C"]
@@ -480,7 +480,7 @@ class TestGraphAlgorithms:
     def test_hybrid_search(self, engine):
         engine.graph.add_node(
             "tool:python",
-            type="tool",
+            node_type="tool",
             name="python_runner",
             description="Runs Python code",
         )

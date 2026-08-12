@@ -271,6 +271,7 @@ def test_backfill_native_query_avoids_properties_function_and_persists_progress(
         "skipped_no_text": 0,
         "deferred_no_text": 0,
         "conflicted": 0,
+        "aborted_early": False,
     }
     assert second == {
         "scanned": 2,
@@ -280,6 +281,7 @@ def test_backfill_native_query_avoids_properties_function_and_persists_progress(
         "skipped_no_text": 0,
         "deferred_no_text": 0,
         "conflicted": 0,
+        "aborted_early": False,
     }
     assert [node_id for node_id, _ in backend.indexed] == [
         "node-0",

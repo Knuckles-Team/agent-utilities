@@ -24,21 +24,22 @@ def clear_global_state():
 @pytest.fixture
 def memory_engine():
     graph = GraphComputeEngine(backend_type="rust")
-    # Populate with some base nodes
-    graph.add_node("entity:agent_a", name="Agent A", type="Agent")
-    graph.add_node("entity:tool_x", name="Tool X", type="Tool")
-    graph.add_node("entity:agent_b", name="Agent B", type="Agent")
+    # Populate with some base nodes. "type" is a retired node/edge property
+    # (node_type / relationship are the canonical names respectively).
+    graph.add_node("entity:agent_a", name="Agent A", node_type="Agent")
+    graph.add_node("entity:tool_x", name="Tool X", node_type="Tool")
+    graph.add_node("entity:agent_b", name="Agent B", node_type="Agent")
 
     # Tool usages
-    graph.add_edge("entity:agent_a", "entity:tool_x", type="USES")
-    graph.add_edge("entity:agent_b", "entity:tool_x", type="USES")
+    graph.add_edge("entity:agent_a", "entity:tool_x", relationship="USES")
+    graph.add_edge("entity:agent_b", "entity:tool_x", relationship="USES")
 
     # Dependencies
-    graph.add_node("entity:module_1", name="Module 1", type="Module")
-    graph.add_node("entity:module_2", name="Module 2", type="Module")
-    graph.add_node("entity:module_3", name="Module 3", type="Module")
-    graph.add_edge("entity:module_1", "entity:module_2", type="DEPENDS_ON")
-    graph.add_edge("entity:module_2", "entity:module_3", type="DEPENDS_ON")
+    graph.add_node("entity:module_1", name="Module 1", node_type="Module")
+    graph.add_node("entity:module_2", name="Module 2", node_type="Module")
+    graph.add_node("entity:module_3", name="Module 3", node_type="Module")
+    graph.add_edge("entity:module_1", "entity:module_2", relationship="DEPENDS_ON")
+    graph.add_edge("entity:module_2", "entity:module_3", relationship="DEPENDS_ON")
 
     engine = IntelligenceGraphEngine(db_path=":memory:")
     return engine
@@ -57,7 +58,7 @@ def test_inference_engine_fallback(memory_engine):
     edge_data = memory_engine.graph.get_edge_data("entity:module_1", "entity:module_3")[
         0
     ]
-    assert edge_data["type"] == "DEPENDS_ON_INDIRECT"
+    assert edge_data["relationship"] == "DEPENDS_ON_INDIRECT"
     assert edge_data["inferred"] is True
 
 
