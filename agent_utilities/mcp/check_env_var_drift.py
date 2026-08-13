@@ -151,6 +151,13 @@ RUNTIME_ALLOWLIST: frozenset[str] = frozenset(
         "LOCALAPPDATA",
         "SYSTEMROOT",
         "PROGRAMFILES",
+        # R-07: Windows' own identity vars, read by unified_install.py's
+        # _secure_mkdir() to build a `DOMAIN\user` icacls principal when
+        # expressing a POSIX 0o700 mkdir's owner-only intent via an ACL
+        # instead (Windows has no permission bits) -- the OS sets these,
+        # never a deployer via .env.example, same as USER/HOME above.
+        "USERDOMAIN",
+        "USERNAME",
         "XDG_CONFIG_HOME",
         "XDG_STATE_HOME",
         "XDG_DATA_HOME",

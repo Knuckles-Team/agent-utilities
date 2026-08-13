@@ -49,13 +49,13 @@ arbiter needs.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
 import re
 import socket
 import subprocess
+import sys
 import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -64,6 +64,11 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
+
+# R-07: file_lock is the cross-platform chokepoint for advisory file locking
+# (POSIX fcntl.flock / Windows kernel32 LockFileEx via ctypes); stdlib-only,
+# no new deps.
+from agent_utilities.knowledge_graph.core.file_lock import lock_exclusive, unlock
 
 ARBITRATION_DIRNAME = "agent-lanes"
 DEFAULT_LEASE_TTL_SECONDS = 1_800
@@ -375,17 +380,61 @@ def partitioned_paths(path: Path | str | None = None) -> PartitionedPaths:
 _PRECOMMIT_PATCH_RE = re.compile(r"^patch(\d+)-(\d+)$")
 
 
-def _pid_alive(pid: int) -> bool:
-    """Best-effort liveness check for a recorded pid (see ``_holder_is_live``)."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        # Owned by another user but real: still alive.
+def is_pid_alive(pid: int) -> bool:
+    """Portable liveness probe (R-07): does a process with this pid exist on
+    THIS host, without sending it any real signal or otherwise touching it.
+
+    THE chokepoint for this check — every other pid-liveness site in this
+    ecosystem (:func:`_holder_is_live` below, ``cli/__init__.py``'s
+    ``status()``, ``repository_manager.task_queue``'s
+    ``_global_holder_alive``) should import and call this rather than
+    re-implement it, for the same "route through one primitive" reason as
+    :mod:`file_lock`.
+
+    POSIX: ``os.kill(pid, 0)`` — the decades-old idiom. Signal 0 delivers no
+    real signal; the kernel only validates that the target pid exists and is
+    signalable by this process, raising ``ProcessLookupError``/
+    ``PermissionError`` instead of actually affecting the target.
+
+    Windows: **not** ``os.kill(pid, 0)``. CPython's Windows implementation
+    of ``os.kill`` has no special case for signal 0 — unlike POSIX, 0 has no
+    meaning to Win32 at all, so the call falls through to the general path
+    and invokes ``TerminateProcess(handle, 0)``, which would ACTUALLY KILL
+    the target process (confirmed via CPython's own issue tracker:
+    https://bugs.python.org/issue14480, closed by a core dev with "0 has no
+    special meaning on Windows so I'd rather not add another special case
+    for posix emulation" — i.e. this is documented upstream behaviour, not
+    an oversight this fix can rely on changing). Using it for a liveness
+    check would be a live, safety-critical bug the moment this code ever
+    runs on Windows: probing a stale/reused pid could kill an unrelated
+    live process. Instead this calls the real Win32 liveness primitive,
+    ``OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, ...)``: it succeeds
+    (and the handle is immediately closed again) if a process with that pid
+    exists, regardless of ownership — matching the POSIX
+    ``PermissionError`` -> still-alive branch below — and fails if the pid
+    does not correspond to a running process. Nothing is ever terminated,
+    signalled, or otherwise touched; this only asks "does it exist".
+    """
+    if sys.platform != "win32":
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            # Owned by another user but real: still alive.
+            return True
+        except OSError:
+            return False
         return True
-    except OSError:
-        return False
+
+    import ctypes
+
+    _PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = kernel32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return False  # ERROR_INVALID_PARAMETER et al.: no such process
+    kernel32.CloseHandle(handle)
     return True
 
 
@@ -412,7 +461,7 @@ def _classify_precommit_patch(patch_path: Path, scope: LaneScope) -> dict[str, A
         }
     epoch, pid = int(match.group(1)), int(match.group(2))
     recorded_at = datetime.fromtimestamp(epoch, tz=UTC).isoformat()
-    if _pid_alive(pid):
+    if is_pid_alive(pid):
         return {
             "path": str(patch_path),
             "state": "in-progress",
@@ -671,11 +720,11 @@ def _lease_mutex(scope: LaneScope, name: str = "") -> Iterator[None]:
     lock = _lease_dir(scope, name) / ".mutex"
     fd = os.open(str(lock), os.O_CREAT | os.O_WRONLY, 0o644)
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        lock_exclusive(fd)
         yield
     finally:
         try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
+            unlock(fd)
         finally:
             os.close(fd)
 
@@ -695,13 +744,7 @@ def _holder_is_live(holder: dict[str, Any]) -> bool:
     pid = holder.get("pid")
     if not isinstance(pid, int):
         return True
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    return is_pid_alive(pid)
 
 
 def lease_status(name: str, path: Path | str | None = None) -> dict[str, Any] | None:
@@ -742,8 +785,8 @@ def hold_lease(
     mechanism has no identity-verification step, so a caller can name any
     ``owner`` it likes. Nothing here (or in any caller) should treat an
     unset/mismatched ``owner`` as a security boundary — only the ``lane``
-    lock itself (this lease + ``fcntl.flock``) is enforced; ``owner`` is
-    attribution for observability, not authorization.
+    lock itself (this lease + :func:`file_lock.lock_exclusive`) is enforced;
+    ``owner`` is attribution for observability, not authorization.
     """
     scope = lane_scope(path)
     lease_file = _lease_dir(scope, name) / f"{_LANE_SAFE_RE.sub('-', name)}.lease"

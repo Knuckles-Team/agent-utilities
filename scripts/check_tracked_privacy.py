@@ -13,13 +13,23 @@ import argparse
 import getpass
 import hashlib
 import os
-import pwd
 import re
 import socket
 import stat
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+# R-07: `pwd` is POSIX-only and raises ImportError at import time on Windows.
+# It only ever supplies one extra candidate identifier (the passwd-db
+# username) alongside several already-portable ones (getpass.getuser(),
+# hostname, env vars, home-dir name) below, so on Windows this module simply
+# runs with one fewer redundant source instead of failing to import at all.
+if sys.platform != "win32":
+    import pwd
+else:  # pragma: no cover - exercised only on Windows
+    pwd = None  # type: ignore[assignment]
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -203,7 +213,6 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
 
     candidates = {
         getpass.getuser(),
-        pwd.getpwuid(os.getuid()).pw_name,
         socket.gethostname(),
         socket.gethostname().split(".", 1)[0],
         os.environ.get("USER", ""),
@@ -211,6 +220,8 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
         os.environ.get("USERNAME", ""),
         Path.home().name,
     }
+    if pwd is not None:  # POSIX: one more redundant source, see import above
+        candidates.add(pwd.getpwuid(os.getuid()).pw_name)
     candidates.update(_identifier_from_path(str(Path.home())))
     try:
         result = subprocess.run(

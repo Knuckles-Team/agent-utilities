@@ -82,6 +82,16 @@ def _resolve_gateway_workers(is_pytest: bool, enable_terminal_ui: bool) -> int:
     single process, single event loop, in-process KG daemon: exactly the
     historical behaviour. Forced to 1 under pytest (no forking inside the
     test runner) and with the terminal UI (it owns the foreground process).
+
+    R-07: multi-worker mode itself is NOT platform-restricted -- POSIX uses
+    the pre-fork model (:func:`_fork_gateway_workers`, ``os.fork``); Windows
+    (which has no ``os.fork`` at all) uses a portable ``multiprocessing``
+    spawn path (:func:`_spawn_gateway_workers_windows`) that achieves the
+    same feature -- N processes serving one shared listen socket -- by a
+    different, equally real mechanism. See :func:`_run_agent_server` for the
+    platform dispatch and :func:`_spawn_gateway_workers_windows` for the one
+    genuine capability difference this creates (non-picklable embedding
+    arguments), which is refused loudly rather than silently ignored.
     """
     from agent_utilities.core.config import config
 
@@ -134,7 +144,21 @@ def _fork_gateway_workers(workers: int, host: str, port: int):
     worker to resolve wins ``host`` (consolidated daemon/ticks); the rest
     self-heal to ``client``. Prometheus metrics and rate-limit buckets are
     per-worker. See ``docs/architecture/gateway_scaling.md``.
+
+    R-07: POSIX-only by construction (``os.fork``). :func:`_run_agent_server`
+    dispatches to :func:`_spawn_gateway_workers_windows` instead on any
+    platform without ``os.fork`` -- this assertion is the loud, documented
+    backstop for a caller that reaches here some other way, rather than a
+    silent/obscure ``AttributeError: module 'os' has no attribute 'fork'``.
     """
+    if not hasattr(os, "fork"):
+        raise RuntimeError(
+            "_fork_gateway_workers requires POSIX os.fork(), which this "
+            f"platform ({sys.platform}) does not provide. This is a hard "
+            "refusal, not a fallback: _run_agent_server should have "
+            "dispatched to _spawn_gateway_workers_windows instead of "
+            "reaching here."
+        )
     shared_socket = _bind_gateway_socket(host, port)
     logger.warning(
         "GATEWAY_WORKERS=%d: pre-forking %d gateway workers on a shared "
@@ -152,6 +176,177 @@ def _fork_gateway_workers(workers: int, host: str, port: int):
             return shared_socket, []  # child: build + serve, then os._exit
         child_pids.append(pid)
     return shared_socket, child_pids
+
+
+# R-07: the keys of build_agent_app's kwargs that are always plain,
+# picklable values (str/bool/int/list[str]/None) -- safe to hand to a
+# multiprocessing "spawn" child. Everything build_agent_app accepts that is
+# NOT in this set is a live Python object (a callable, an already-constructed
+# agent/registry/toolset instance) that cannot cross a spawn boundary at all
+# -- not a Windows limitation, a fundamental property of what "spawn a new
+# interpreter and pickle arguments to it" can carry, identical on every OS
+# multiprocessing's spawn start method runs on. See
+# :func:`_spawn_gateway_workers_windows` for how that is handled: refused
+# loudly, not silently dropped.
+_PICKLABLE_WORKER_KWARGS = frozenset(
+    {
+        "provider",
+        "model_id",
+        "base_url",
+        "api_key",
+        "mcp_url",
+        "mcp_config",
+        "custom_skills_directory",
+        "debug",
+        "host",
+        "port",
+        "enable_web_ui",
+        "custom_web_mount_path",
+        "web_ui_instructions",
+        "html_source",
+        "name",
+        "system_prompt",
+        "enable_otel",
+        "otel_endpoint",
+        "otel_headers",
+        "otel_public_key",
+        "otel_secret_key",
+        "otel_protocol",
+        "workspace",
+        "a2a_broker",
+        "a2a_storage",
+        "skill_types",
+        "enable_acp",
+        "acp_session_root",
+        "isolate_mcp",
+        "a2a_config",
+    }
+)
+
+# The live-object parameters build_agent_app also accepts, which
+# _PICKLABLE_WORKER_KWARGS deliberately excludes -- checked explicitly so a
+# caller combining these with GATEWAY_WORKERS > 1 on Windows gets one clear
+# refusal instead of a cryptic PicklingError from deep inside multiprocessing.
+_LIVE_OBJECT_WORKER_KWARGS = (
+    "custom_web_app",
+    "agent_instance",
+    "graph_bundle",
+    "mcp_toolsets",
+    "model_registry",
+)
+
+
+def _gateway_worker_entrypoint(
+    worker_kwargs: dict[str, Any], shared_socket: Any, host: str, port: int, debug: bool
+) -> None:
+    """Module-level (picklable-by-name) target for a spawned Windows gateway
+    worker: build this process's OWN app/engine connections (exactly the
+    per-process-state contract :func:`_fork_gateway_workers` documents for
+    POSIX) and serve on the inherited shared socket.
+
+    Must stay at module scope -- ``multiprocessing``'s ``spawn`` start method
+    (Windows' only option; there is no ``fork``) imports the target by
+    qualified name in the fresh child interpreter, so a nested/closure
+    function cannot be used here the way the POSIX fork path can just
+    fall through to the enclosing function's own code.
+    """
+    from agent_utilities.server.app import build_agent_app
+
+    app = build_agent_app(host=host, port=port, debug=debug, **worker_kwargs)
+    try:
+        _serve_on_socket(app.state.reload_app, shared_socket, host, port, bool(debug))
+    finally:
+        os._exit(0)  # never fall back into any caller's stack
+
+
+def _spawn_gateway_workers_windows(
+    workers: int, host: str, port: int, worker_kwargs: dict[str, Any], *, debug: bool
+) -> tuple[Any, list[Any]]:
+    """Portable equivalent of :func:`_fork_gateway_workers` for platforms
+    without ``os.fork`` (Windows): spawn ``workers - 1`` additional worker
+    PROCESSES (not threads -- this needs real process isolation, same as the
+    POSIX pre-fork model, so one worker's crash or GIL contention cannot
+    affect another's) via ``multiprocessing`` sharing the same bound listen
+    socket, while the calling process continues on to become "worker 0"
+    itself exactly like the POSIX parent does.
+
+    Same feature as the POSIX path -- N processes serving one shared listen
+    socket, each with its own app/engine connections, the KG host role
+    elected via the (now cross-platform, R-07) advisory flock in
+    :mod:`host_lock` -- reached by a different, equally real mechanism:
+    ``multiprocessing``'s ``spawn`` start method (Windows' only option) plus
+    its built-in support for pickling a bound ``socket.socket`` across the
+    process boundary (``multiprocessing.reduction`` registers a reducer for
+    ``socket.socket`` specifically so this "share one listening socket with
+    worker processes" pattern works portably).
+
+    One genuine, unavoidable capability difference from the fork path (not a
+    Windows restriction -- a property of "spawn a fresh interpreter and
+    pickle arguments to it" on ANY platform): a caller that passed a live,
+    non-picklable object (``custom_web_app``, ``agent_instance``,
+    ``graph_bundle``, ``mcp_toolsets``, ``model_registry`` -- the embedding
+    API surface, not the standard CLI/production gateway path) together with
+    ``GATEWAY_WORKERS > 1`` cannot have that object cross into a spawned
+    worker. Refused loudly and specifically here, naming exactly which
+    argument and why, rather than left to fail deep inside
+    ``multiprocessing`` with an opaque ``PicklingError`` -- or worse, silently
+    dropped.
+    """
+    import multiprocessing
+
+    live_object_kwargs = [
+        k for k in _LIVE_OBJECT_WORKER_KWARGS if worker_kwargs.get(k) is not None
+    ]
+    if live_object_kwargs:
+        raise RuntimeError(
+            f"GATEWAY_WORKERS={workers} cannot be combined with "
+            f"{', '.join(live_object_kwargs)} on this platform ({sys.platform}): "
+            "the multi-worker path here uses multiprocessing's 'spawn' start "
+            "method (there is no os.fork() on Windows), which pickles "
+            "arguments to a fresh child interpreter -- a live callable/object "
+            "instance cannot cross that boundary on ANY platform's spawn "
+            "method, this is not Windows-specific. Pass GATEWAY_WORKERS=1 "
+            "(or unset it) when using the embedding API with a custom "
+            "app/agent/registry/toolset instance; the standard CLI/production "
+            "gateway path (string/primitive config only) is unaffected."
+        )
+    # Every live-object kwarg is confirmed None above (or we already raised)
+    # -- drop them rather than pickle a meaningless None across the spawn
+    # boundary, so the "did I classify every kwarg" check below is exact.
+    worker_kwargs = {
+        k: v for k, v in worker_kwargs.items() if k not in _LIVE_OBJECT_WORKER_KWARGS
+    }
+    unexpected = set(worker_kwargs) - _PICKLABLE_WORKER_KWARGS
+    if unexpected:
+        raise RuntimeError(
+            f"internal error: unclassified build_agent_app kwargs {sorted(unexpected)} "
+            "-- add them to _PICKLABLE_WORKER_KWARGS or _LIVE_OBJECT_WORKER_KWARGS "
+            "in agent_utilities/server/__init__.py before they can be used with "
+            "the Windows multi-worker spawn path"
+        )
+
+    shared_socket = _bind_gateway_socket(host, port)
+    logger.warning(
+        "GATEWAY_WORKERS=%d: spawning %d additional gateway worker "
+        "processes (multiprocessing, Windows has no os.fork()) on a shared "
+        "listen socket. State is PER-PROCESS: exactly ONE worker wins the "
+        "KG host flock and runs the daemon/ticks (the rest are clients); "
+        "/metrics scrapes sample one worker; GATEWAY_RATE_LIMIT is "
+        "effectively multiplied by the worker count.",
+        workers,
+        workers - 1,
+    )
+    ctx = multiprocessing.get_context("spawn")
+    children = []
+    for _ in range(workers - 1):
+        proc = ctx.Process(
+            target=_gateway_worker_entrypoint,
+            args=(worker_kwargs, shared_socket, host, port, debug),
+            daemon=False,
+        )
+        proc.start()
+        children.append(proc)
+    return shared_socket, children
 
 
 def _serve_on_socket(app: Any, sock: Any, host: str, port: int, debug: bool) -> None:
@@ -278,13 +473,65 @@ def _run_agent_server(
     # Default GATEWAY_WORKERS=1 keeps the historical single-process path.
     workers = _resolve_gateway_workers(is_pytest, enable_terminal_ui)
     shared_socket = None
-    child_pids: list[int] = []
+    # R-07: raw POSIX pids (os.fork path) OR multiprocessing.Process objects
+    # (Windows spawn path) -- see the cleanup `finally:` block below.
+    child_pids: list[int | Any] = []
     if workers > 1:
-        shared_socket, child_pids = _fork_gateway_workers(
-            workers,
-            host or "127.0.0.1",
-            port or 9000,  # nosec B104
-        )
+        if sys.platform == "win32":
+            # R-07: no os.fork() here -- the SAME feature (N processes
+            # serving one shared listen socket) via multiprocessing spawn.
+            # See _spawn_gateway_workers_windows's docstring for the one
+            # genuine capability difference (non-picklable embedding args).
+            worker_kwargs = {
+                "provider": provider,
+                "model_id": model_id,
+                "base_url": base_url,
+                "api_key": api_key,
+                "mcp_url": mcp_url or "",
+                "mcp_config": mcp_config,
+                "custom_skills_directory": custom_skills_directory,
+                "enable_web_ui": enable_web_ui,
+                "custom_web_mount_path": custom_web_mount_path,
+                "web_ui_instructions": web_ui_instructions,
+                "html_source": html_source,
+                "name": name,
+                "system_prompt": system_prompt,
+                "enable_otel": enable_otel,
+                "otel_endpoint": otel_endpoint,
+                "otel_headers": otel_headers,
+                "otel_public_key": otel_public_key,
+                "otel_secret_key": otel_secret_key,
+                "otel_protocol": otel_protocol,
+                "workspace": workspace,
+                "a2a_broker": a2a_broker,
+                "a2a_storage": a2a_storage,
+                "skill_types": skill_types,
+                "enable_acp": enable_acp,
+                "acp_session_root": acp_session_root,
+                "isolate_mcp": isolate_mcp,
+                "a2a_config": a2a_config,
+                # Included (not pre-filtered) so _spawn_gateway_workers_windows
+                # can detect and refuse a live value explicitly, by name,
+                # rather than have it silently vanish.
+                "custom_web_app": custom_web_app,
+                "agent_instance": agent_instance,
+                "graph_bundle": graph_bundle,
+                "mcp_toolsets": mcp_toolsets,
+                "model_registry": model_registry,
+            }
+            shared_socket, child_pids = _spawn_gateway_workers_windows(
+                workers,
+                host or "127.0.0.1",
+                port or 9000,  # nosec B104
+                worker_kwargs,
+                debug=bool(debug),
+            )
+        else:
+            shared_socket, child_pids = _fork_gateway_workers(
+                workers,
+                host or "127.0.0.1",
+                port or 9000,  # nosec B104
+            )
     is_worker_child = shared_socket is not None and not child_pids
 
     app = build_agent_app(
@@ -383,14 +630,29 @@ def _run_agent_server(
         finally:
             if is_worker_child:
                 os._exit(0)  # never fall back into the caller's stack
-            for pid in child_pids:
+            # R-07: child_pids holds raw POSIX pids (os.fork) OR
+            # multiprocessing.Process objects (Windows spawn -- see
+            # _spawn_gateway_workers_windows); each needs its native
+            # terminate+reap call, so branch on which one we were handed.
+            for child in child_pids:
+                if hasattr(child, "terminate"):  # multiprocessing.Process
+                    child.terminate()
+                    continue
                 try:
-                    os.kill(pid, signal.SIGTERM)
+                    os.kill(child, signal.SIGTERM)  # raw pid: os.kill DOES
+                    # terminate on Windows too for a real signal value (only
+                    # signal 0 as a liveness PROBE is the Windows footgun --
+                    # see governance.lanes.is_pid_alive); this path is POSIX
+                    # pids only in practice (Windows always uses Process
+                    # objects, caught above), kept as a defensive fallback.
                 except ProcessLookupError:
                     pass
-            for pid in child_pids:
+            for child in child_pids:
+                if hasattr(child, "join"):  # multiprocessing.Process
+                    child.join(timeout=5)
+                    continue
                 try:
-                    os.waitpid(pid, 0)
+                    os.waitpid(child, 0)
                 except ChildProcessError:
                     pass
         return
