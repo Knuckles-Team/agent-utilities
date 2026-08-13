@@ -83,7 +83,11 @@ def _bumpversion_files(tree: Path) -> set[str]:
 def _check_canonical(scope: lanes.LaneScope, staged: list[str]) -> str | None:
     if not scope.is_canonical or scope.merge_in_progress:
         return None
-    if staged and set(staged) <= _bumpversion_files(scope.tree):
+    # Nothing staged means no commit is being authored here at all (e.g. this
+    # hook ran for a PUSH, which stages nothing) -- there is no uncommitted
+    # work to lose, so there is nothing to refuse. Only non-empty staged
+    # content that isn't purely the bumpversion carve-out is a real risk.
+    if not staged or set(staged) <= _bumpversion_files(scope.tree):
         return None
     listing = "\n      ".join(staged[:10]) or "(nothing staged)"
     return (
