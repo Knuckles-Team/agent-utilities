@@ -4662,10 +4662,7 @@ def mcp_server() -> None:
     try:
         logger.info("Starting graph-os MCP server (transport=%s)", transport)
 
-        from agent_utilities.mcp.server_factory import (
-            mcp_network_run_kwargs,
-            protect_stdio_jsonrpc,
-        )
+        from agent_utilities.mcp.server_factory import mcp_network_run_kwargs
         from agent_utilities.security.request_identity import (
             apply_served_security_profile,
         )
@@ -4679,13 +4676,17 @@ def mcp_server() -> None:
             ),
         )
 
-        # Stdout purity BEFORE any co-service can log a single line. On stdio,
-        # stdout IS the JSON-RPC channel — this monkeypatches builtins.print /
-        # warnings.showwarning process-wide, so it protects every co-service
-        # thread started below too, not just this one. No-op for network
-        # transports (they don't own stdout as a protocol channel).
-        if transport == "stdio":
-            protect_stdio_jsonrpc()
+        # Stdout purity on the stdio transport needs no call here: it is owned
+        # fd-level by the MCP SDK's own ``stdio_server()`` for the scope of the
+        # later stdio-serve call below (see the "Stdio JSON-RPC purity" note in
+        # server_factory.py) — that covers every co-service thread started
+        # below too, since they share this process's file-descriptor table for
+        # as long as serving blocks. The residual window before that call
+        # claims fd 1 (engine bootstrap, co-service startup, this function
+        # itself) is covered by the static "no print() in the served package"
+        # gate (``scripts/check_no_stdout_writes.py``), not a runtime patch.
+        # No-op for network transports either way (they don't own stdout as a
+        # protocol channel).
 
         # Bind the minted process session (+ its verified actor) as ambient
         # authority before engine bootstrap. An explicit client role remains a

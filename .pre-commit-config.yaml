@@ -116,6 +116,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: check-no-stdout-writes
+    name: Stdio JSON-RPC purity (no print()/sys.stdout.write() in the served MCP surface, B-19)
+    entry: python3 scripts/check_no_stdout_writes.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: env-var-drift
     name: Env-var / config drift guard (.env.example matches the code-read surface)
     entry: python3 -m agent_utilities.mcp.check_env_var_drift --check

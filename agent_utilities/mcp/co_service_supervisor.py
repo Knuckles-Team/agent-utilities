@@ -25,12 +25,18 @@ STDIO safety
 ------------
 On the ``stdio`` transport, stdout IS the JSON-RPC channel. Every co-service here
 is driven on its OWN dedicated thread with its OWN asyncio event loop — never
-sharing the FastMCP server's loop — and relies on
-:func:`agent_utilities.mcp.server_factory.protect_stdio_jsonrpc` (already applied
-by ``kg_server.mcp_server()`` before any co-service is started) to keep every
-``print``/warning process-wide pinned to stderr. Co-service loggers use the
-standard library's default ``StreamHandler`` target (stderr), so nothing here
-writes to stdout under either transport.
+sharing the FastMCP server's loop. Purity is owned fd-level, not by a process-wide
+``print``/``warnings`` monkeypatch (see the "Stdio JSON-RPC purity" note in
+``agent_utilities/mcp/server_factory.py``): once ``kg_server.mcp_server()`` calls
+``mcp.run(transport="stdio")``, the MCP SDK's ``stdio_server()`` diverts the
+process's fd 1 to stderr for as long as serving continues, and every co-service
+thread here shares that same file-descriptor table for its whole active
+lifetime (co-services are started moments before ``mcp.run()`` and run for as
+long as it blocks). Co-service loggers use the standard library's default
+``StreamHandler`` target (stderr) regardless. The one thing this module still
+owns is never introducing a stray ``print()`` in the first place — enforced
+statically by ``scripts/check_no_stdout_writes.py`` (fast pre-commit tier) —
+since nothing here runs before ``mcp.run()`` has already claimed fd 1.
 
 Supervision + shutdown
 -----------------------

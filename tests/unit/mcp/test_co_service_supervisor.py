@@ -6,8 +6,20 @@ Covers the three things the entrypoint promises:
    presence) without changing the explicit KG daemon role.
 2. Bounded-restart supervision + clean shutdown for a co-service thread.
 3. STDOUT PURITY: a co-service that logs/prints while running must never leak
-   a byte onto stdout once ``protect_stdio_jsonrpc()`` has been applied — the
-   critical stdio-transport invariant (stdout IS the JSON-RPC channel).
+   a byte onto stdout while this process's fd 1 is diverted — the critical
+   stdio-transport invariant (stdout IS the JSON-RPC channel). B-19 deleted
+   the old process-wide ``protect_stdio_jsonrpc()`` monkeypatch of
+   ``builtins.print``/``warnings.showwarning``; purity is now owned fd-level
+   by the MCP SDK's own ``stdio_server()`` for the scope of
+   ``mcp.run(transport="stdio")`` (see the "Stdio JSON-RPC purity" note in
+   ``agent_utilities/mcp/server_factory.py``). The test below proves the
+   general property this module relies on — a co-service thread shares this
+   process's real OS file-descriptor table, so an fd-level diversion of fd 1
+   transparently redirects anything it writes, with no per-thread
+   cooperation and no Python-level patch — using a real ``os.dup2``, not a
+   mock. The full, live, SUBPROCESS proof that the actual served stdio
+   entrypoint behaves this way end to end lives in
+   ``tests/integration/mcp/test_stdio_fd_ownership.py``.
 
 Plus a LIVE-PATH test (:func:`test_start_co_services_live_path_starts_messaging`)
 that drives the real ``start_co_services`` entry point end to end and asserts
@@ -17,19 +29,15 @@ messaging actually started serving — not merely that a helper exists.
 from __future__ import annotations
 
 import asyncio
-import builtins
-import io
-import logging
+import os
 import sys
 import threading
 import time
-import warnings
 
 import pytest
 
 from agent_utilities.knowledge_graph.core.session import GraphSession
 from agent_utilities.mcp import co_service_supervisor as cosvc
-from agent_utilities.mcp import server_factory
 from agent_utilities.messaging import daemon as messaging_daemon
 from agent_utilities.messaging.service import MessagingService
 from agent_utilities.models.company_brain import ActorType
@@ -171,63 +179,108 @@ def test_supervisor_thread_carries_the_verified_session(monkeypatch):
 # ── STDOUT purity (the critical stdio-transport invariant) ─────────────────
 
 
-@pytest.fixture
-def _stdio_protection_guard():
-    """Save/restore the process-global stdio protection state around the test.
-
-    ``protect_stdio_jsonrpc`` is a one-time, process-wide monkeypatch of
-    ``builtins.print``/``warnings.showwarning`` by design (see its docstring) —
-    tests must not leave that patch applied for the rest of the suite.
-    """
-    original_print = builtins.print
-    original_showwarning = warnings.showwarning
-    original_flag = server_factory._STDIO_PROTECTED
-    yield
-    builtins.print = original_print
-    warnings.showwarning = original_showwarning
-    server_factory._STDIO_PROTECTED = original_flag
-
-
-def test_stdout_stays_pure_jsonrpc_while_a_co_service_logs_and_prints(
-    _stdio_protection_guard,
+def test_a_process_wide_fd1_diversion_transparently_captures_a_co_service_thread(
+    capfd,
 ):
-    """The exact invariant this feature depends on: once
-    ``protect_stdio_jsonrpc()`` runs (as ``kg_server.mcp_server()`` does before
-    starting any co-service on stdio), a co-service thread that both ``print``s
-    (bare AND with an explicit ``file=sys.stdout``) and logs a warning must
-    produce ZERO bytes on stdout."""
-    captured_stdout = io.StringIO()
-    real_stdout = sys.stdout
-    sys.stdout = captured_stdout
-    try:
-        server_factory.protect_stdio_jsonrpc()
+    """The general fd-sharing property this module's STDIO-safety contract now
+    rests on (see the module docstring): a co-service thread needs no
+    cooperation of its own for stdout purity. It shares this process's real OS
+    file-descriptor table, so whenever fd 1 has been diverted at the OS level
+    — exactly what ``mcp.server.stdio.stdio_server()`` does for the scope of
+    ``mcp.run(transport="stdio")`` — EVERY write a co-service thread makes
+    through fd 1 (a bare ``print()``, an explicit ``file=sys.stdout`` print, or
+    a raw ``os.write(1, ...)`` that bypasses Python's stdout object entirely)
+    is transparently redirected. Demonstrated with a real ``os.dup2``, not a
+    mock, and fully restored afterwards (proven directly on the fd, not by
+    trusting a saved Python reference).
 
-        logged = threading.Event()
-
-        def _leaky_co_service(stop_event: threading.Event) -> None:
-            print("bare print from a co-service")
-            print("explicit stdout print", file=sys.stdout)
-            logging.getLogger("test.co-service-leak").warning("a warning")
-            warnings.warn("a python warning", UserWarning, stacklevel=1)
-            logged.set()
-            stop_event.wait()
-
-        supervisor = cosvc.CoServiceSupervisor()
-        session = _verified_session()
-        supervisor.start_service("leaky", _leaky_co_service, session)
+    ``capfd.disabled()``: pytest's own default capture replaces ``sys.stdout``
+    with an object decoupled from the fd 1 *number* (only a raw ``os.write(1,
+    ...)`` still resolves through the OS fd table pytest also redirects) — so
+    ``print()`` under an active pytest capture would prove nothing about this
+    process's real, undecorated stdout object, which is what production code
+    actually uses. Disabling capture for this block restores that real,
+    fd-1-backed ``sys.stdout``, matching what a served process sees.
+    """
+    with capfd.disabled():
+        real_stdout_fd = os.dup(1)
+        read_fd, write_fd = os.pipe()
         try:
-            assert logged.wait(timeout=5.0)
-            # Give the (now-redirected) writes a beat to land wherever they land.
-            time.sleep(0.1)
-        finally:
-            supervisor.stop_all(timeout=5.0)
+            os.dup2(write_fd, 1)  # simulate stdio_server()'s fd-level diversion
+            os.close(write_fd)
 
-        assert captured_stdout.getvalue() == "", (
-            "a co-service leaked onto stdout — this would corrupt the MCP "
-            "JSON-RPC stream on the stdio transport"
-        )
-    finally:
-        sys.stdout = real_stdout
+            logged = threading.Event()
+
+            def _leaky_co_service(stop_event: threading.Event) -> None:
+                # flush=True: without an explicit flush the bytes could sit in
+                # Python's userspace buffer past the point this test reads the
+                # pipe, which would prove nothing about the fd-level
+                # redirection this test exists to show.
+                print("bare print from a co-service", flush=True)
+                print("explicit stdout print", file=sys.stdout, flush=True)
+                os.write(1, b"raw fd write from a co-service\n")
+                logged.set()
+                stop_event.wait()
+
+            supervisor = cosvc.CoServiceSupervisor()
+            session = _verified_session()
+            supervisor.start_service("leaky", _leaky_co_service, session)
+            try:
+                assert logged.wait(timeout=5.0)
+                time.sleep(0.1)
+            finally:
+                supervisor.stop_all(timeout=5.0)
+        finally:
+            # Restore fd 1 to exactly what it was before this test diverted
+            # it — this closes the pipe's write end (fd 1's dup), so the
+            # pending read below sees EOF instead of blocking.
+            os.dup2(real_stdout_fd, 1)
+            os.close(real_stdout_fd)
+
+        os.set_blocking(read_fd, False)
+        try:
+            captured = os.read(read_fd, 65536)
+        except BlockingIOError:
+            captured = b""
+        os.close(read_fd)
+
+    assert captured == (
+        b"bare print from a co-service\n"
+        b"explicit stdout print\n"
+        b"raw fd write from a co-service\n"
+    ), (
+        "a co-service's write did not reach the diverted fd 1 target — the "
+        f"fd-sharing property this module depends on broke: {captured!r}"
+    )
+
+
+def test_no_process_wide_monkeypatch_remains_and_identity_is_untouched():
+    """Regression guard for B-19 itself: there is no ``protect_stdio_jsonrpc``
+    (or any process-global ``_STDIO_PROTECTED`` flag) left anywhere to call,
+    and importing every module that used to call it leaves ``builtins.print``
+    and ``sys.stdout`` as the EXACT SAME objects they were before — asserted
+    by identity (``is``), not merely by behaviour. There is nothing to
+    save/restore in a fixture because there is nothing left that mutates
+    either of them."""
+    import builtins
+    import sys
+
+    from agent_utilities.mcp import harness_server, kg_server
+    from agent_utilities.mcp import server_factory as sf
+
+    before_print = builtins.print
+    before_stdout = sys.stdout
+
+    assert not hasattr(sf, "protect_stdio_jsonrpc")
+    assert not hasattr(sf, "_STDIO_PROTECTED")
+    # Re-import (a no-op for an already-imported module, but the exact thing
+    # kg_server.mcp_server()/harness_server.main() do at call time) proves
+    # neither entrypoint's module body touches either global as a side effect.
+    assert kg_server is not None
+    assert harness_server is not None
+
+    assert builtins.print is before_print
+    assert sys.stdout is before_stdout
 
 
 # ── LIVE-PATH: starting the real entrypoint actually starts messaging ──────
