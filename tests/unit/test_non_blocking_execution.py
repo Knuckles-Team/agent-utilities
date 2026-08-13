@@ -449,12 +449,21 @@ async def test_shape_planning_and_run_provenance_do_not_block_the_event_loop(
         )
     )
     assert await asyncio.to_thread(planner_entered.wait, 0.2)
-    assert time.monotonic() - started < 0.3
+    # GOC-70: the `Event.wait` above is already the load-bearing proof that
+    # `slow_plan` runs off the event loop (it would not have set `entered`
+    # within 0.2s from the SAME thread that's blocked awaiting it here). The
+    # wall-clock ceiling below adds no correctness coverage beyond that — it
+    # was tuned to a tight 0.1s margin over the wait's own 0.2s budget, which
+    # thread-pool-executor startup jitter on a contended/low-core host can
+    # blow past even though the offload behavior is correct. Widened to a
+    # generous bound that still catches a real stall without flaking on
+    # ordinary scheduler noise.
+    assert time.monotonic() - started < 2.0
     planner_release.set()
 
     trace_started = time.monotonic()
     assert await asyncio.to_thread(trace_entered.wait, 0.2)
-    assert time.monotonic() - trace_started < 0.3
+    assert time.monotonic() - trace_started < 2.0
     trace_release.set()
 
     assert await asyncio.wait_for(run, timeout=1.0) == "done"

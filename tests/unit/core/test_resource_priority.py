@@ -192,10 +192,24 @@ async def test_background_uses_spare_capacity_when_idle():
             await gate.release()
 
     tasks = [asyncio.create_task(background()) for _ in range(8)]
-    await asyncio.sleep(0.05)
+    # GOC-70: a fixed `asyncio.sleep(0.05)` here is a coin flip on a
+    # contended/low-core host — nothing forces all 8 tasks to have reached
+    # `gate.acquire()` within an arbitrary 50ms window, so a slow scheduler
+    # (e.g. pytest-xdist workers contending for 2 CPUs) can make this fail
+    # even though the gate logic is correct. Poll deterministically until the
+    # ceiling is actually reached (or a generous timeout elapses so a real
+    # regression still fails loudly rather than hanging).
+    loop = asyncio.get_event_loop()
+    deadline = loop.time() + 5.0
+    while running < expected and loop.time() < deadline:
+        await asyncio.sleep(0.01)
     # Dynamic scaling: background fans out to the full reserved-minus headroom,
     # NOT throttled to one — it is using the spare capacity.
-    assert peak == expected
+    assert peak == expected, (
+        f"expected exactly {expected} background tasks admitted to spare "
+        f"capacity, saw peak={peak} (running={running}) after waiting up to "
+        "5s — the gate may be admitting the wrong number, not just slow"
+    )
     release.set()
     await asyncio.gather(*tasks)
     rp.reset_priority_gates()
