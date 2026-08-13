@@ -5,11 +5,13 @@ registry-graph schema this phase used to build by hand with Python tree-sitter �
 ``file:<path>`` + ``symbol:<sha256>`` nodes joined by ``IMPLEMENTS``, plus ``calls_raw`` /
 ``depends_on_raw`` edges (and richer call-graph + MinHash similarity signals across many
 more languages). Delegating here is what lets agent-utilities drop the Python
-``tree-sitter*`` wheels entirely: the hard base dependency's
-``epistemic_graph.parser.RustASTParser`` is the ONE code-parsing implementation. When
-the engine socket is unavailable, ``RustASTParser`` transparently falls back to
-Python's stdlib ``ast`` (Python sources only). Markdown CONCEPT/SDD extraction is
-regex-based (it never used tree-sitter) and stays here.
+``tree-sitter*`` wheels entirely: ``epistemic_graph.parser.RustASTParser`` (GOC-73:
+shipped via the ``agent-utilities[graphos]`` extra, not a base dependency) is the ONE
+code-parsing implementation. When the engine socket is unavailable, ``RustASTParser``
+transparently falls back to Python's stdlib ``ast`` (Python sources only) — but the
+``epistemic_graph`` package itself, and therefore this phase, still requires
+``[graphos]`` to be installed. Markdown CONCEPT/SDD extraction is regex-based (it
+never used tree-sitter) and stays here.
 """
 
 import logging
@@ -236,8 +238,13 @@ async def execute_parse(
     graph = ctx.graph
     symbols_extracted = 0
 
-    # ``epistemic-graph[full]`` is a hard base dependency. Missing parser bindings are
-    # therefore an invalid installation, not an optional degradation path.
+    # GOC-73: ``epistemic-graph[full]`` is the ``agent-utilities[graphos]`` extra, not
+    # a base dependency, but THIS pipeline phase (code parsing) genuinely requires the
+    # engine's native parser bindings — there is no fallback parser. A caller that
+    # reaches this phase without `[graphos]` installed gets Python's own
+    # ``ModuleNotFoundError: No module named 'epistemic_graph'`` here, which is an
+    # invalid installation for a deployment that runs ingestion, not a supported
+    # degradation path (install with ``pip install agent-utilities[graphos]``).
     from epistemic_graph.parser import RustASTParser
 
     from ...core.session import GraphSession

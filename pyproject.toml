@@ -15,11 +15,20 @@ classifiers = [
     "Programming Language :: Python :: 3"]
 requires-python = ">=3.12,<3.15"
 license = "MIT"
-# CURRENT BASE (the self-contained GraphOS floor). The full Rust engine is mandatory;
-# configuration, envelopes, and transport dependencies used on every path live here.
-# Optional Python application layers such as the agent runtime, document readers,
-# provider SDKs, Kafka, ACP, RSS, and mirror backends remain in named extras. Native
-# code parsing and database compute are delegated to the mandatory engine. See
+# CURRENT BASE (the eg-absent floor). Configuration, envelopes, and transport
+# dependencies used on every path — including paths that never touch the engine —
+# live here. GOC-73: `epistemic-graph[full]` moved OUT of base into the `[graphos]`
+# extra (see `[project.optional-dependencies].graphos` below) because a hard base
+# dependency on an unpublished eg floor (`>=2.23.2`, PyPI's newest is 2.23.0) blocked
+# every consumer that imports `agent_utilities` but never touches the engine (e.g.
+# agent-webui: 151 `agent_utilities` import sites, zero real `epistemic_graph` usage).
+# `[full]`/`[all]`/`[serving]` all still pull `[graphos]` so an existing
+# `pip install agent-utilities[full-or-all-or-serving]` is unaffected; only the
+# BARE `pip install agent-utilities` (no extras) no longer gets the engine — see the
+# `graphos` extra's comment for the full compatibility/blast-radius analysis. Optional
+# Python application layers such as the agent runtime, document readers, provider
+# SDKs, Kafka, ACP, RSS, and mirror backends remain in named extras. Native code
+# parsing and database compute are delegated to the (now optional) engine. See
 # "Dependency discipline" in AGENTS.md.
 dependencies = [
     "pydantic[email]>=2.13.4",
@@ -81,32 +90,6 @@ dependencies = [
     # external fleet manifests still pin `agent-utilities[auth]` and must keep
     # resolving.
     "joserfc>=1.7.4",
-    # CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — the
-    # engine is a HARD base dependency, so a bare `pip install agent-utilities` already
-    # yields a self-contained, FULLY-CAPABLE graph-os when the approved `epistemic-graph`
-    # artifact passes its release gate. The canonical wheel contract builds the whole main
-    # CPU feature set (`MATURIN_FEATURES=full,ast-extended` →
-    # compute/finance/datascience/mining/graphlearn/reasoning + query/cypher +
-    # redb-authoritative durability + security + every wire protocol), and bundles the
-    # `epistemic-graph-server` binary (next to `sys.executable`) that graph-os autostarts +
-    # supervises over a private UDS socket (EngineResolver, OS-5.63) — no external DB/service.
-    # `[full]` is the sole supported engine profile. It includes the compiled
-    # `epistemic_graph.numeric` kernel and the numpy dependency used internally for
-    # rust-numpy zero-copy interop; agent-utilities imports numpy nowhere.
-    #
-    # `[full]` (= `[owl,lmcache,numeric]`) adds the pyoxigraph SPARQL/RDF Python interop +
-    # httpx accel on top of the numeric kernel; package metadata has exposed this extra
-    # since v2.15.0. Consumer CI still imports and executes the folded kernel so metadata
-    # alone cannot satisfy the release. NOT
-    # `[full-extras]`: that is the engine's opt-in GPU (cudarc) + ROS2/DDS cargo layer, which
-    # needs an external CUDA/robotics TOOLCHAIN to run — the opposite of "self-contained, no
-    # external dependency" — and is a wheel BUILD variant, not a pip extra (absent from the
-    # published CPU wheel).
-    #
-    # Floor `>=2.23.2` — the compatibility-matrix release used by this ecosystem workspace;
-    # it includes the published `[full]` extra and the full Surface-A operation set. Never an
-    # exact pin. See docs/guides/numeric-kernel.md.
-    "epistemic-graph[full]>=2.23.2,<3.0.0",
 ]
 
 [[project.authors]]
@@ -114,6 +97,52 @@ name = "Repository Maintainers"
 email = "maintainers@example.invalid"
 
 [project.optional-dependencies]
+# CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — GOC-73:
+# the epistemic-graph engine moved from a hard base dependency to this OPT-IN extra.
+# `pip install agent-utilities[graphos]` yields a self-contained, FULLY-CAPABLE
+# graph-os when the approved `epistemic-graph` artifact passes its release gate. The
+# canonical wheel contract builds the whole main CPU feature set
+# (`MATURIN_FEATURES=full,ast-extended` → compute/finance/datascience/mining/
+# graphlearn/reasoning + query/cypher + redb-authoritative durability + security +
+# every wire protocol), and bundles the `epistemic-graph-server` binary (next to
+# `sys.executable`) that graph-os autostarts + supervises over a private UDS socket
+# (EngineResolver, OS-5.63) — no external DB/service. `[full]` is the sole supported
+# engine profile. It includes the compiled `epistemic_graph.numeric` kernel and the
+# numpy dependency used internally for rust-numpy zero-copy interop; agent-utilities
+# imports numpy nowhere.
+#
+# `[full]` (= `[owl,lmcache,numeric]`) adds the pyoxigraph SPARQL/RDF Python interop +
+# httpx accel on top of the numeric kernel; package metadata has exposed this extra
+# since v2.15.0. Consumer CI still imports and executes the folded kernel so metadata
+# alone cannot satisfy the release. NOT `[full-extras]`: that is the engine's opt-in
+# GPU (cudarc) + ROS2/DDS cargo layer, which needs an external CUDA/robotics
+# TOOLCHAIN to run — the opposite of "self-contained, no external dependency" — and
+# is a wheel BUILD variant, not a pip extra (absent from the published CPU wheel).
+#
+# Floor `>=2.23.2` — the compatibility-matrix release used by this ecosystem
+# workspace; it includes the published `[full]` extra and the full Surface-A
+# operation set. Never an exact pin. See docs/guides/numeric-kernel.md.
+#
+# WHO ACTUALLY NEEDS THIS (see the module-load audit in the GOC-73 report): every
+# direct `import epistemic_graph` / `from epistemic_graph import ...` in this
+# repository is either (a) already a LAZY, function-scoped import (the
+# `knowledge_graph` engine-client call sites in core/graph_compute.py,
+# core/placement_catalog.py, pipeline/phases/parse.py, analytics_worker.py,
+# protocols/a2a_epistemic.py, mcp/tools/engine_tools.py, deployment/production_ops.py
+# — none of these execute at `import agent_utilities.<subpackage>` time) or (b) the
+# ONE genuinely unconditional module-load-time import,
+# `agent_utilities/numeric/__init__.py` (the `xp` numeric-kernel shim), which raises
+# a clear `ImportError` naming this extra instead of failing silently or stubbing.
+# `agent_utilities.numeric` is imported (transitively) by `domains/*` (finance) and a
+# handful of `knowledge_graph` analytics call sites that *use* the kernel-backed `xp`
+# surface — but NOT by importing the `knowledge_graph`, `server`, `core`, `security`,
+# `gateway`, `observability`, `models`, `mcp`, `sdd`, or `orchestration` packages
+# themselves; those only pull `agent_utilities.numeric` inside the specific functions
+# that need array math. Bare `import agent_utilities.<subpackage>` for all ten stays
+# eg-free — see the acceptance-test venv in the GOC-73 report.
+graphos = [
+    "epistemic-graph[full]>=2.23.2,<3.0.0",
+]
 # CONCEPT:ORCH-1.38 — RLM sandbox tiers. `monty` is the default fast/isolated tier
 # (small pure-Rust wheel, no transitive deps; backend import guarded so absence degrades
 # to the local floor); the CPython-WASI/wasm tier needs `wasmtime`. Both kept here so the
@@ -403,9 +432,13 @@ serving = [
     #     it is opt-in via `[graph]`, never shipped on the serving default. neo4j/falkordb stay
     #     because they remain actively-selectable mirrors; ladybug does not.
     #
-    # `epistemic-graph[full]` is a hard base dependency, while `feeds` remains an optional
-    # serving dependency for RSS ingestion. Code parsing is delegated to the engine's native
-    # tree-sitter — no Python tree-sitter is added to the serving plane.
+    # GOC-73: `epistemic-graph[full]` is no longer a hard BASE dependency (see the
+    # `graphos` extra above), but the serving plane (graph-os MCP / host daemon) is
+    # THE engine consumer, so `serving` pulls `graphos` explicitly here — an existing
+    # `pip install agent-utilities[serving]` still gets the engine unchanged. `feeds`
+    # remains an optional serving dependency for RSS ingestion. Code parsing is
+    # delegated to the engine's native tree-sitter — no Python tree-sitter is added
+    # to the serving plane.
     #
     # Full external OWL-DL reasoning (owlready2, the `owl` extra) stays excluded: GraphOS
     # delegates classification to the engine's native RDF/SPARQL/OWL surface. The narrower
@@ -443,7 +476,7 @@ serving = [
     # `hvac` is the only client that satisfies that on the serving plane, and it is a small
     # pure-Python HTTP client (no ML/native weight), so it belongs in `serving`, not a bespoke
     # second OpenBao client.
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,ontology-guardrails]",
+    "agent-utilities[graphos,mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,ontology-guardrails]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
@@ -521,10 +554,12 @@ test = [
     # nowhere (the `xp` shim is kernel-or-raise). scipy is NOT needed — the four scipy ops
     # are native kernel exports (`xp.eigsh`/`spearmanr`/`ks_2samp`/`norm_ppf`/`norm_pdf`).
     "numpy>=2.5.1",
-    # `agent-runtime` already implies mcp+sandbox; the full engine is a hard base
-    # dependency. Add `feeds` (RSS ingestion tests)
-    # and the explicit backend extras the suite exercises.
-    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]"
+    # `agent-runtime` already implies mcp+sandbox. GOC-73: the engine is no longer a
+    # hard base dependency, so `test` must pull `graphos` explicitly — this repo's own
+    # suite (numeric parity, knowledge_graph engine-client tests, etc.) genuinely
+    # exercises epistemic-graph and must not silently run engine-absent. Add `feeds`
+    # (RSS ingestion tests) and the explicit backend extras the suite exercises.
+    "agent-utilities[graphos,agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]"
 ]
 # CONCEPT:KG-2.0 / KG-2.7 — live cross-backend parity + enterprise-profile e2e.
 # Pulls every storage/queue/SPARQL driver plus testcontainers so
@@ -533,8 +568,10 @@ test-backends = [
     "agent-utilities[test,neo4j,falkordb,postgresql,kafka,owl,fuseki]",
     "testcontainers>=4.14.2"
 ]
+# GOC-73: `graphos` is listed first so an existing `pip install agent-utilities[all]`
+# still gets the engine unchanged now that it is no longer a hard base dependency.
 all = [
-    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
+    "agent-utilities[graphos,mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"

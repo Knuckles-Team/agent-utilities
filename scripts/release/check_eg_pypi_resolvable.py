@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Fail-closed check that the required epistemic-graph release is on PyPI.
 
-**The vector this gate defends.** agent-utilities declares a hard base
-dependency on ``epistemic-graph[full]`` with a version floor (see
-``pyproject.toml``). If that floor has never been published to PyPI — e.g.
-because epistemic-graph's own release job failed on something unrelated to
-this repo (a wheel-digest mismatch, a flaky publish step) — a normal
-``pip install``/``uv sync`` of agent-utilities dies deep inside the
-dependency resolver with an opaque backtrace that never says WHY: it just
-reports no version of agent-utilities is installable. This is exactly what
-broke this repo's Pages/Deploy job.
+**The vector this gate defends.** agent-utilities declares a version-floored
+dependency on ``epistemic-graph[full]`` (GOC-73: via the opt-in
+``[graphos]`` extra — see ``pyproject.toml`` — not a base dependency; any
+`pip install`/`uv sync` that requests `[graphos]`/`[serving]`/`[all]`/`[test]`,
+or this repo's own dev/release tooling, still resolves it). If that floor has
+never been published to PyPI — e.g. because epistemic-graph's own release job
+failed on something unrelated to this repo (a wheel-digest mismatch, a flaky
+publish step) — a normal ``pip install``/``uv sync`` of one of those extras
+dies deep inside the dependency resolver with an opaque backtrace that never
+says WHY: it just reports no version of agent-utilities is installable. This
+is exactly what broke this repo's Pages/Deploy job.
 
 **What it does.** Reads the ``epistemic-graph`` entry straight out of
 ``[project.dependencies]`` in ``pyproject.toml`` (no ``packaging`` import —
@@ -80,8 +82,10 @@ def _find_constraint() -> tuple[str, str]:
         if m:
             return "epistemic-graph", m.group("spec").strip()
     raise SystemExit(
-        "::error::check_eg_pypi_resolvable: no 'epistemic-graph' entry found in "
-        f"[project.dependencies] of {PYPROJECT} -- cannot verify cross-repo release order."
+        "::error::check_eg_pypi_resolvable: no 'epistemic-graph' entry found "
+        f"anywhere in {PYPROJECT} (checked [project.dependencies] and every "
+        "[project.optional-dependencies] entry, e.g. GOC-73's `graphos` extra) "
+        "-- cannot verify cross-repo release order."
     )
 
 

@@ -6,7 +6,6 @@ Auto-fixes recoverable issues and logs integrity/quality reports.
 
 from typing import Any
 
-from agent_utilities.knowledge_graph.memory import EvaluationCapture
 from agent_utilities.knowledge_graph.security.graph_validator import GraphValidator
 
 from ..types import (
@@ -29,6 +28,14 @@ async def execute_validate(
     AND the graph is truly unusable (zero nodes).
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    # GOC-73: lazy — ``agent_utilities.knowledge_graph.memory`` eagerly imports
+    # ``optimization_engine``, which imports the kernel-backed
+    # ``agent_utilities.numeric`` shim (an ``agent-utilities[graphos]`` transitive
+    # need) at module scope. Deferred here so importing this pipeline PHASE module
+    # — reached directly by consumers that only walk `PHASES`, not the ingest
+    # engine itself — does not force the numeric kernel to be present.
+    from agent_utilities.knowledge_graph.memory import EvaluationCapture
 
     # Validation shares the process authority; a pipeline must not open a
     # second operational client merely to run a post-ingest read pass.

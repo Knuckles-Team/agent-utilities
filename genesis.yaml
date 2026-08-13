@@ -148,12 +148,14 @@ preflight:
   always:
   - python>=3.11,<3.15
   - uv-or-pip
-  - epistemic-graph[full]>=2.23.2,<3.0.0 — the hard Agent Utilities base dependency; install the approved
-    platform wheel with its bundled server and folded numeric kernel. Runtime installation never compiles.
+  - 'epistemic-graph[full]>=2.23.2,<3.0.0 — pulled in via the `agent-utilities[graphos]` extra (GOC-73:
+    opt-in, not a base dependency), required for every genesis profile since this deploy flow stands up
+    graph-os itself; install the approved platform wheel with its bundled server and folded numeric kernel.
+    Runtime installation never compiles.'
   docker_when: profile != tiny
 engine:
   version: epistemic-graph[full]>=2.23.2,<3.0.0
-  install: pip install agent-utilities (the full engine is a hard base dependency)
+  install: 'pip install agent-utilities[graphos] (GOC-73: opt-in extra, not a base dependency)'
   authority: redb-authoritative durable by default (CONCEPT:AU-KG.backend.backend-modes)
   resolver: CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — remote -> share-running-local ->
     autostart the bundled full binary; refcounted (auto-stops idle) or persistent lifecycle

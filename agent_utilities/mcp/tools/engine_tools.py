@@ -168,7 +168,9 @@ def _discover_domains() -> dict[str, list[str]]:
         logger.warning(
             "engine surface discovery: 'epistemic_graph' client unavailable — "
             "ALL engine_<domain> tools (and their verbose/manifest ops) will be "
-            "absent this run (exception_type=%s: %s)",
+            "absent this run (exception_type=%s: %s). Install the engine with "
+            "`pip install agent-utilities[graphos]` (or `[serving]`/`[all]`, both "
+            "of which pull it) if this MCP process is meant to serve engine tools.",
             type(exc).__name__,
             exc,
         )

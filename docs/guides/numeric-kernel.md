@@ -101,8 +101,15 @@ raises the clean `ImportError` — proving there is no silent numpy fallback.
 - numpy/scipy are **gone from agent-utilities' declared dependencies and source imports**
   (grep for `import numpy` / `import scipy` across `agent_utilities/` + `scripts/` is zero;
   the only direct numpy import is the dev-only parity test, which `pytest.importorskip`s it).
-- The kernel is the **sole numeric backend** and a **hard base dependency**; the shim is
-  **kernel-or-raise** (no fallback).
+- The kernel is the **sole numeric backend** for `agent_utilities.numeric`; the shim is
+  **kernel-or-raise** (no fallback). GOC-73: `epistemic-graph[full]` moved from a
+  base dependency of `agent-utilities` to the opt-in `[graphos]` extra, but that
+  changes nothing about THIS module's contract — `agent_utilities.numeric` still
+  imports the kernel unconditionally at import time and raises a clear `ImportError`
+  naming `agent-utilities[graphos]` when it is absent. Only subpackages that never
+  import `agent_utilities.numeric` (most of `knowledge_graph`, `server`, `core`,
+  `security`, `gateway`, `observability`, `models`, `mcp`, `sdd`, `orchestration`) get
+  to run with the engine absent.
 - numpy persists ONLY as an **internal detail of the kernel** (rust-numpy) — reached through
   the kernel, not through an agent-utilities import — serving the long-tail array ops the
   compiled kernel does not yet expose natively.

@@ -20,8 +20,17 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
-import httpx
-
+# GOC-73: lazy, not module-level. `httpx` is declared only in optional extras
+# (`[mcp]`, `[fuseki]`, …), never agent-utilities' base `dependencies` — before the
+# GOC-73 split this was masked because `epistemic-graph[full]` (then a hard base
+# dependency) pulled httpx transitively via its own `httpx accel` component. Now that
+# the engine is opt-in (`[graphos]`), a bare `pip install agent-utilities` has no
+# httpx at all, and this module is reached unconditionally at import time by
+# `agent_utilities.security.__init__` -> `agent_utilities.core.__init__` -> almost
+# every subpackage. Importing httpx only inside the three functions that actually
+# call it keeps the base install importable; those functions still fail loudly with
+# Python's own clear `ModuleNotFoundError: No module named 'httpx'` if httpx is
+# genuinely absent when OAuth token exchange is attempted.
 from agent_utilities.security.secrets_client import (
     SecretsClient,
     create_secrets_client,
@@ -180,6 +189,8 @@ class BaseBrowserAuthManager:
         if not self.oidc_discovery_url:
             return self.auth_endpoint, self.token_endpoint
 
+        import httpx
+
         try:
             response = httpx.get(
                 self.oidc_discovery_url,
@@ -217,6 +228,8 @@ class BaseBrowserAuthManager:
         }
         if self.extra_token_params:
             data.update(self.extra_token_params)
+
+        import httpx
 
         try:
             response = httpx.post(
@@ -416,6 +429,8 @@ class BaseBrowserAuthManager:
         }
         if self.extra_token_params:
             data.update(self.extra_token_params)
+
+        import httpx
 
         try:
             response = httpx.post(
