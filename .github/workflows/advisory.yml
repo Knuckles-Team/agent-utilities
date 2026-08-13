@@ -444,3 +444,121 @@ jobs:
         run: |
           echo "::warning::pages job could not install agent-utilities -- most likely the same cross-repo epistemic-graph release-order deadlock release.yml's 'gates' job checks for (see scripts/release/check_eg_pypi_resolvable.py). This does not block any release; docs redeploy automatically once installable again."
           exit 0
+
+  # ── Windows coverage (report only, never blocks) ──────────────────────────
+  #
+  # release.yml's numeric-runtime-gate ALREADY runs on windows-latest, but
+  # narrowly: install the built wheel and smoke-import 2 modules
+  # (agent_utilities.observability.langfuse_trust,
+  # agent_utilities.security.persistence_privacy). That is release-critical
+  # and stays put. This job is the broader, non-blocking complement: it
+  # walks EVERY agent_utilities module on a real Windows interpreter (not a
+  # simulation -- see scripts/check_import_safety.py, which also runs this
+  # same walk in the fast pre-commit tier with a POSIX-side simulation of
+  # this exact platform), then runs a bounded, cross-platform-relevant unit
+  # test subset.
+  #
+  # Deliberately excluded, with reasons (not silently skipped):
+  #   * `engine`-marked tests (13 files) -- need the prebuilt native
+  #     epistemic-graph engine binary. The Rust engine itself already falls
+  #     back to TCP on Windows (epistemic-graph/src/main.rs:2135,
+  #     agent_utilities/knowledge_graph/core/shard_topology.py:57) but this
+  #     job does not build/install a Windows engine binary -- that is a
+  #     separate undertaking, not a fundamental blocker, tracked
+  #     separately.
+  #   * `live`-marked tests (13 files) -- require live external services,
+  #     platform-independent exclusion (also excluded on Linux by
+  #     pytest.ini's default addopts).
+  #   * `slow`/`certification`/`quarantine`-marked tests -- long-running
+  #     soak/chaos/known-red, out of scope for a per-push CI job on ANY
+  #     platform, not Windows-specific.
+  #   * AF_UNIX-dependent socket tests, `systemd-run`-based tests, Docker-
+  #     in-CI tests, and anything assuming a specific self-hosted build host -- these
+  #     assume infrastructure that plainly does not exist on a Windows
+  #     GitHub-hosted runner; none are in the selected subset below.
+  #   * The remaining ~90% of tests/unit (1244 files total; this job
+  #     selects 119) is a COST-SCOPING choice for this first Windows job,
+  #     not a "cannot run on Windows" claim -- most of it is plain platform-
+  #     agnostic Python and would likely pass unmodified. Expanding the
+  #     selected subset is the natural next step once this job's signal is
+  #     trusted; see the job summary step below for the exact fraction.
+  windows:
+    name: Windows coverage (report only, never blocks)
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      # Same pattern release.yml's `gates` job uses for its static/test-suite
+      # lane: no native engine (Linux-built binary; not what this job is
+      # proving), test extras + guardrails group only.
+      - name: Sync test environment (no native engine)
+        id: sync
+        continue-on-error: true
+        run: |
+          uv sync --frozen --extra test --group guardrails \
+            --no-install-package epistemic-graph \
+            --no-install-package langfuse-agent
+          echo "$PWD/.venv/Scripts" >> "$GITHUB_PATH"
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      # This IS the highest-value check in this job: on a real Windows
+      # interpreter, POSIX-only stdlib modules are simply absent, so any
+      # module with an unconditional top-level `import fcntl` (etc.) fails
+      # here exactly as it would for a real Windows user -- no simulation
+      # needed (that's only for catching the same class of bug on a Linux
+      # dev machine; see the pre-commit hook of the same script).
+      - name: Cross-platform import safety (real Windows interpreter)
+        if: steps.sync.outcome == 'success'
+        continue-on-error: true
+        run: python3 scripts/check_import_safety.py --package agent_utilities
+
+      # Bounded, cross-platform-relevant subset (see header comment for what
+      # is excluded and why): venv sync/lock, KG single-instance/file locks,
+      # lane arbitration, merge-queue, concept allocator -- every one of
+      # them a fcntl/advisory-lock consumer -- plus tests/unit/core for
+      # general platform-agnostic coverage.
+      - name: Unit tests (cross-platform-relevant subset)
+        if: steps.sync.outcome == 'success'
+        continue-on-error: true
+        run: >-
+          python3 -m pytest
+          tests/unit/deployment
+          tests/unit/knowledge_graph/core
+          tests/unit/core
+          tests/unit/test_lanes.py
+          tests/unit/test_merge_queue.py
+          tests/unit/test_concept_allocator.py
+          -q -p no:cacheprovider -o addopts=""
+          -m "not live and not engine and not slow and not certification and not quarantine"
+
+      - name: Windows coverage summary
+        if: always()
+        run: |
+          echo "## Windows coverage ran in report-only mode" >> "$GITHUB_STEP_SUMMARY"
+          echo "Both steps above use `continue-on-error: true` -- a red step" >> "$GITHUB_STEP_SUMMARY"
+          echo "here is a real Windows regression and never blocks a release;" >> "$GITHUB_STEP_SUMMARY"
+          echo "release-blocking Windows coverage is numeric-runtime-gate in" >> "$GITHUB_STEP_SUMMARY"
+          echo "release.yml. This job's unit-test step selects 119 of 1244" >> "$GITHUB_STEP_SUMMARY"
+          echo "tests/unit test files (~9.6%) -- a deliberately bounded," >> "$GITHUB_STEP_SUMMARY"
+          echo "cross-platform-relevant subset, not the whole suite. See" >> "$GITHUB_STEP_SUMMARY"
+          echo "this file's header comment for exactly what is excluded" >> "$GITHUB_STEP_SUMMARY"
+          echo "and why (engine/live/slow/certification/quarantine markers," >> "$GITHUB_STEP_SUMMARY"
+          echo "AF_UNIX/systemd/Docker/self-hosted-host-dependent tests, and CI-minute" >> "$GITHUB_STEP_SUMMARY"
+          echo "cost-scoping of the remaining ~90%)." >> "$GITHUB_STEP_SUMMARY"

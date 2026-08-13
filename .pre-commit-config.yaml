@@ -110,6 +110,78 @@ repos:
     entry: python3 scripts/check_stubs.py
     language: system
     types: [python]
+  - id: check-import-safety
+    name: Cross-platform import safety (native + simulated-Windows fcntl/termios/pwd/resource)
+    # Walks every agent_utilities module and imports it, with fcntl/termios/
+    # pwd/resource poisoned out of sys.modules first to reproduce a Windows
+    # import failure on this POSIX dev machine (see the script's own
+    # docstring for exactly what --simulate-windows does and does not
+    # model -- it deliberately does NOT flip sys.platform/os.name, which
+    # would corrupt pathlib's WindowsPath/PosixPath dispatch on a live POSIX
+    # host). Catches the whole "unconditional top-level import of a
+    # POSIX-only stdlib module" defect class at commit time, cheaply,
+    # before it ever reaches a human on Windows or Windows CI
+    # (numeric-runtime-gate in release.yml, real Windows runner).
+    #
+    # The --exclude entries below are NOT Windows-related debt hidden here:
+    #   * knowledge_graph.core.file_lock -- ALREADY correctly guards fcntl
+    #     behind `sys.platform == "win32"` (this repo's own canonical
+    #     pattern). This shim blocks the fcntl MODULE but (deliberately, see
+    #     above) does not flip sys.platform, so a correctly-guarded module
+    #     still takes the POSIX arm here and still hits the block -- a known
+    #     false positive of a sys.modules-only shim, not a real defect.
+    #     Verified for real only on the Windows runner in release.yml.
+    #   * __main__, agent.factory, server, mcp.tools, mcp.verbose_tools,
+    #     patterns.* -- all transitively import the third-party `mcp`
+    #     package's MCPToolset, which itself hits `mcp/server/stdio.py`'s
+    #     `if sys.platform != "win32": import fcntl` -- the EXACT SAME
+    #     already-correctly-guarded pattern as file_lock.py above, and the
+    #     exact same shim limitation, one dependency hop removed. Confirmed
+    #     by direct traceback on 2026-08-13 (not assumed): the failure
+    #     bottoms out at that guarded line, not an unconditional import.
+    #   * agent_utilities.agent_utilities, knowledge_graph.adaptation.
+    #     trace_distiller -- two PRE-EXISTING broken imports (missing
+    #     memory_compaction.py / adaptation/synthesis.py modules),
+    #     discovered BY this gate, reproducible on main with NO simulation
+    #     at all (plain `import agent_utilities` fails the same way natively
+    #     -- see `python3 scripts/check_import_safety.py --package
+    #     agent_utilities` with no flag), unrelated to Windows/fcntl. Left
+    #     for separate triage so this gate's signal stays specific to
+    #     cross-platform import safety.
+    #
+    # NOT excluded, and expected to keep this hook RED until
+    # fix/au-cross-platform-locking (or equivalent) merges: the 12 modules
+    # with a genuinely unguarded top-level `import fcntl`/`import resource`
+    # -- agent_utilities.deployment.{venv_sync,venv_autosync},
+    # governance.{concept_allocator,lanes,merge_queue},
+    # knowledge_graph.core.{engine_lock,host_lock}, mcp.{eunomia_principal,
+    # kg_coordinator,middlewares,multiplexer,shared_multiplexer}. A hook
+    # that stayed green through those would not be proving anything.
+    entry: >-
+      python3 scripts/check_import_safety.py --package agent_utilities --simulate-windows
+      --exclude agent_utilities.knowledge_graph.core.file_lock
+      --exclude agent_utilities.__main__
+      --exclude agent_utilities.agent.factory
+      --exclude agent_utilities.server
+      --exclude agent_utilities.mcp.tools
+      --exclude agent_utilities.mcp.verbose_tools
+      --exclude agent_utilities.patterns
+      --exclude agent_utilities.agent_utilities
+      --exclude agent_utilities.knowledge_graph.adaptation.trace_distiller
+    language: system
+    pass_filenames: false
+    # always_run (not types: [python]) deliberately, matching
+    # check-no-env-sprawl/env-var-drift/lane-guard below: this hook does a
+    # full PACKAGE walk regardless of which files changed, so it must not
+    # depend on file-type matching -- this repo's own top-level
+    # `exclude: ^scripts/` (line 4) would otherwise silently skip this
+    # exact hook on any commit whose only .py change is under scripts/
+    # (confirmed: that is exactly what happened while authoring this hook
+    # itself -- `types: [python]` reported "no files to check" for a commit
+    # that added scripts/check_import_safety.py, because scripts/ is
+    # globally excluded from file-type matching). A gate that can be
+    # silently skipped by the shape of its own commit is not a gate.
+    always_run: true
   - id: check-no-env-sprawl
     name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
     entry: python3 scripts/check_no_env_sprawl.py
