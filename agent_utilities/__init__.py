@@ -366,7 +366,7 @@ def __getattr__(name):
         return DistributedCoordinator
     # Semantic Compactor (CONCEPT:AU-KG.query.vendor-agnostic-traversal)
     elif name == "SemanticCompactor":
-        from .knowledge_graph.memory.memory_compaction import SemanticCompactor
+        from .knowledge_graph.memory.agent_context import SemanticCompactor
 
         return SemanticCompactor
     # Replay Engine (CONCEPT:AU-OS.observability.deterministic-replay)
