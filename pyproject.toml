@@ -773,37 +773,58 @@ override-dependencies = [
 searxng = ["pyyaml", "msgspec", "typing-extensions", "setuptools"]
 
 [tool.uv.sources]
-# The ecosystem workspace validates Agent Utilities against the sibling engine
-# checkout at the exact source head. Published consumers still resolve the
-# certified >=2.23,<3 wheel range declared above.
-epistemic-graph = { workspace = true }
-# The workspace release train certifies the current observability provider
-# artifact rather than resolving a same-version package from an index.
-langfuse-agent = { workspace = true }
-# D-75-1/D-CIP-19/D-W3BP-4: langfuse-agent (a workspace member below) depends
-# on plain-versioned `agent-utilities[mcp]>=2.0.0,<3.0.0`. uv requires an
-# explicit source, declared at the workspace ROOT, for any dependency name
-# that collides with a workspace member's own name -- a member cannot source
-# itself from within its own `[tool.uv.sources]`. The ecosystem workspace
-# root resolves the identical edge the identical way (its own repo-relative
-# `pyproject.toml`'s `[tool.uv.sources]`).
-agent-utilities = { workspace = true }
-
-# D-75-1/D-CIP-19/D-W3BP-4 (operator decision, 2026-08-07): this repo is its
-# OWN uv workspace root, self-contained, so the `workspace = true` sources
-# above resolve without depending on the larger, untracked, unshipped
-# ecosystem workspace at the repo root. `.uv-workspace-siblings/<name>` is not
-# tracked: `scripts/uv_workspace.py` symlinks it locally from the ecosystem
-# checkout for dev/lane use (`materialize_own_siblings`); CI's
-# `.github/workflows/security.yml` materializes the same paths with
-# `actions/checkout` for the one job that needs both packages actually
-# installed. Every other workflow sidesteps the requirement entirely with
-# `--no-install-package epistemic-graph --no-install-package langfuse-agent`.
-[tool.uv.workspace]
-members = [
-    ".uv-workspace-siblings/epistemic-graph",
-    ".uv-workspace-siblings/langfuse-agent",
-]
+# D-UVN-1 (supersedes D-75-1/D-CIP-19/D-W3BP-4, operator decision 2026-08-13):
+# both siblings are plain editable PATH sources, NOT `{ workspace = true }`,
+# and this repo declares NO `[tool.uv.workspace]` table of its own. uv
+# unconditionally rejects a workspace member that is itself a workspace root
+# ("Nested workspaces are not supported") -- so the prior D-75-1 design (this
+# repo as its own self-contained workspace root) broke `uv sync` for every
+# member of the larger ecosystem workspace at the repo root (`../../pyproject.toml`,
+# `[tool.uv.workspace] members = ["agent-packages/agent-utilities", ...]`), not
+# just the one langfuse-agent cyclic edge it was written for -- confirmed
+# empirically: `cd agent-packages/geniusbot && uv sync` and
+# `cd agent-packages/agents/langfuse-agent && uv sync` both failed with the
+# identical "Nested workspaces are not supported ... agent-utilities" error,
+# unrelated to either repo's own dependency shape. It also broke this repo's
+# OWN bare `uv sync`: langfuse-agent (pulled in as a self-hosted workspace
+# member via `.uv-workspace-siblings/langfuse-agent`) declares its OWN
+# `agent-utilities = { path = ... }` source in ITS pyproject.toml for its
+# outer-ecosystem/standalone use, and uv rejects that as "agent-utilities is
+# included as a workspace member, but references a path in tool.uv.sources"
+# the moment it is loaded as a member of ANY workspace containing
+# agent-utilities -- the self-referential `agent-utilities = { workspace =
+# true }` this repo declared for itself could not fix that, because the
+# conflicting declaration lives in langfuse-agent's OWN file, not this one.
+# Plain path sources on both sides (this file AND langfuse-agent's) sidestep
+# the whole class: two projects with a mutual editable path dependency, no
+# workspace joining them, so neither uv's cross-workspace-member-name rule nor
+# the nested-workspace rule ever applies. Same pattern already proven for
+# agent-webui (BUG-074) and geniusbot depending on THIS repo (see
+# `agent-packages/geniusbot/pyproject.toml`'s `[tool.uv.sources]` comment).
+# `.uv-workspace-siblings/<name>` is not tracked: `scripts/uv_workspace.py`
+# symlinks it locally from the ecosystem checkout for dev/lane use
+# (`materialize_own_siblings`); CI's `.github/workflows/security.yml`
+# materializes the same paths with `actions/checkout` for the one job that
+# needs both packages actually installed. Every other workflow sidesteps the
+# requirement entirely with `--no-install-package epistemic-graph
+# --no-install-package langfuse-agent`.
+#
+# Known residual limitation: a BARE `uv sync` run with cwd literally inside
+# this repo's canonical checkout at `agent-packages/agent-utilities` (not a
+# worktree) still discovers the outer ecosystem workspace as an ancestor, and
+# uv's per-member-name-collision rule then rejects any OTHER outer-workspace
+# member that ALSO declares an explicit (non-`workspace=true`) source for
+# `agent-utilities` -- e.g. `agent-packages/agent-webui`,
+# `agent-packages/geniusbot`. Members with NO explicit source for
+# `agent-utilities` (the majority of the fleet) resolve it automatically as a
+# same-workspace member and are unaffected. The sanctioned workflow for this
+# repo is a `git worktree add` outside the shared checkout (see this repo's
+# "Branching & isolation"), which sits outside the ecosystem workspace
+# entirely and is unaffected by this limitation -- confirmed empirically
+# against an isolated worktree with `scripts/uv_workspace.py` and bare `uv
+# sync --all-extras` alike.
+epistemic-graph = { path = ".uv-workspace-siblings/epistemic-graph", editable = true }
+langfuse-agent = { path = ".uv-workspace-siblings/langfuse-agent", editable = true }
 
 [dependency-groups]
 guardrails = [

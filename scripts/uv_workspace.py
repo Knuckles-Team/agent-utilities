@@ -812,19 +812,36 @@ def has_own_tracked_lock(worktree: Path) -> bool:
 
 
 def _own_sibling_member_names(worktree: Path) -> list[str]:
-    """Return the sibling package names ``[tool.uv.workspace]`` expects under
-    ``.uv-workspace-siblings/`` in *worktree*'s own, self-hosted workspace."""
-    config = _workspace_config(worktree)
-    if config is None:
+    """Return the sibling package names *worktree*'s own ``[tool.uv.sources]``
+    expects to find under ``.uv-workspace-siblings/``.
+
+    D-UVN-1: this repo no longer declares its own ``[tool.uv.workspace]``
+    table (a workspace member that is itself a workspace root is rejected by
+    uv -- "Nested workspaces are not supported" -- which broke `uv sync` for
+    every member of the larger ecosystem workspace, not just this repo's own
+    cyclic edge with langfuse-agent; see the `[tool.uv.sources]` comment in
+    this repo's `pyproject.toml`). Both siblings (`epistemic-graph`,
+    `langfuse-agent`) are now plain editable PATH sources instead, so the
+    sibling names this function must materialize come from
+    ``[tool.uv.sources].*.path`` entries pointing under
+    ``.uv-workspace-siblings/``, not from a workspace members list.
+    """
+    manifest = worktree / "pyproject.toml"
+    if not manifest.is_file():
         return []
-    members = config.get("members", [])
-    if not isinstance(members, list):
+    with manifest.open("rb") as handle:
+        document = tomllib.load(handle)
+    sources = document.get("tool", {}).get("uv", {}).get("sources", {})
+    if not isinstance(sources, dict):
         return []
     names: list[str] = []
     prefix = f"{_OWN_SIBLINGS_DIRNAME}/"
-    for member in members:
-        if isinstance(member, str) and member.startswith(prefix):
-            names.append(member[len(prefix) :])
+    for name, entry in sources.items():
+        if not isinstance(entry, dict):
+            continue
+        path = entry.get("path")
+        if isinstance(path, str) and path.startswith(prefix):
+            names.append(name)
     return names
 
 
