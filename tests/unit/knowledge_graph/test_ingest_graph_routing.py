@@ -428,7 +428,7 @@ async def test_aggregation_query_merges_not_duplicates(monkeypatch) -> None:
     out = await kg_server._execute_tool(
         "graph_query",
         cypher="MATCH (r:Record) RETURN r.lane AS lane, r.status AS status, count(*) AS n",
-        target="",
+        connection="",
     )
     # graph_query's public contract is the sole typed EvidenceBundle
     # (CONCEPT:evidence-bundle-envelope) — row payloads land in `.claims`,
@@ -459,7 +459,7 @@ async def test_routed_node_query_still_fans_and_dedups_once(monkeypatch) -> None
     out = await kg_server._execute_tool(
         "graph_query",
         cypher="MATCH (f:Function {name:'probe'}) RETURN f.id AS id, f.name AS name",
-        target="",
+        connection="",
     )
     # graph_query's public contract is the sole typed EvidenceBundle
     # (CONCEPT:evidence-bundle-envelope) — row payloads land in `.claims`,

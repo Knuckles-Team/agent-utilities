@@ -337,13 +337,31 @@ def register_query_tools(mcp):
                 "answering 'what was true as of date T'."
             ),
         ),
-        target: str = Field(
+        connection: str = Field(
             default="",
             description=(
-                "CONCEPT:AU-KG.backend.multi-connection-registry — named graph connection to query (default = primary). "
-                "Use a registered connection name (e.g. 'prod-neo4j'), or 'all' (or a "
-                "comma-separated list) to fan out the same query to several backends and "
-                "get per-connection labeled results."
+                "CONCEPT:AU-KG.backend.multi-connection-registry — named BACKEND connection to query "
+                "(default = primary). Use a registered connection name (e.g. "
+                "'prod-neo4j'), or 'all' (or a comma-separated list) to fan out the "
+                "same query to several backends and get per-connection labeled "
+                "results. This selects WHICH BACKEND, never which physical graph "
+                "within it — see `graph` for that."
+            ),
+        ),
+        graph: str = Field(
+            default="",
+            description=(
+                "CONCEPT:AU-KG.backend.explicit-graph-selection — explicit PHYSICAL engine graph to query "
+                "(one of the names `engine_tenants(action='list')`/the engine's own "
+                "ListGraphs returns), independent of `connection`. Empty = the "
+                "caller's own bound graph (unchanged default behavior). Requires "
+                "exactly one resolved `connection` (the default one) — never "
+                "combinable with `connection='all'`/a list. Authorization-checked "
+                "by the engine's own RBAC/RLS on every call; an unknown graph, or "
+                "a `connection` with no physical-graph concept, is a typed error — "
+                "never a silent fallback to a default graph and never a union "
+                "across graphs. Every response echoes the `connection`/`graph` "
+                "actually used."
             ),
         ),
         include_epistemic: bool = Field(
@@ -363,6 +381,13 @@ def register_query_tools(mcp):
         ),
     ) -> str:
         """Execute a read-only Cypher query against the Knowledge Graph. Use this to fetch graph data, explore relationships, and read node properties."""
+        # A direct call bypassing `_execute_tool` (which resolves `Field`
+        # defaults) binds an omitted `graph` to its raw, truthy
+        # `pydantic.fields.FieldInfo` rather than `""` — normalize once here so
+        # every `if graph`/`resolve_explicit_graph`/`bound_to_graph` use below
+        # sees a clean string, mirroring the SAME defensiveness
+        # `ConnectionRegistry.resolve_names` already applies to `connection`.
+        graph = graph if isinstance(graph, str) else ""
         parsed_params = json.loads(params) if params else {}
         include_epistemic_flag = (
             include_epistemic if isinstance(include_epistemic, bool) else False
@@ -372,22 +397,45 @@ def register_query_tools(mcp):
             # CONCEPT:AU-KG.query.read-only-sql-over — read-only SQL over the KG via the engine's
             # DataFusion surface (the same path the pg-wire listener uses). The
             # `cypher` arg carries the SQL string. RLS-governed + read-path-first
-            # (engine.sql refuses non-SELECT). Honors `target` fan-out like Cypher.
+            # (engine.sql refuses non-SELECT). Honors `connection` fan-out like
+            # Cypher; `graph` (CONCEPT:AU-KG.backend.explicit-graph-selection) selects a physical engine
+            # graph, independent of `connection` — see `resolve_explicit_graph`.
             try:
-                entries, errors, fanout = kg_server._resolve_target_engines(target)
+                entries, errors, fanout = kg_server._resolve_target_engines(connection)
+                entries = kg_server.resolve_explicit_graph(
+                    entries, graph, fanout=fanout
+                )
+            except kg_server.GraphNotFoundError as e:
+                return public_error_json(e, code="graph_not_found")
+            except kg_server.GraphSelectionConflictError as e:
+                return public_error_json(e, code="graph_selection_conflict")
             except Exception as e:
                 return public_error_json(e)
             if not fanout:
-                _name, engine = entries[0]
+                name, engine = entries[0]
                 try:
-                    return json.dumps(engine.sql(cypher), default=str)
+                    with kg_server.bound_to_graph(graph):
+                        rows = engine.sql(cypher)
+                    return json.dumps(
+                        {"rows": rows, "connection": name, "graph": graph},
+                        default=str,
+                    )
+                except PermissionError as e:
+                    return public_error_json(
+                        e, code="permission_denied" if graph else "operation_failed"
+                    )
                 except Exception as e:
                     return public_error_json(e)
             results, fan_errors = kg_server.fanout_execute(
                 entries, lambda name, engine: engine.sql(cypher)
             )
             return json.dumps(
-                {"targets": results, "errors": {**errors, **fan_errors}},
+                {
+                    "targets": results,
+                    "errors": {**errors, **fan_errors},
+                    "connection": connection,
+                    "graph": graph,
+                },
                 default=str,
             )
 
@@ -395,22 +443,44 @@ def register_query_tools(mcp):
             # CONCEPT:AU-KG.ingest.mirror-inbound — SPARQL 1.1 (SELECT/ASK/CONSTRUCT/DESCRIBE) over the
             # engine's RDF projection of the live graph. The `cypher` arg carries the
             # SPARQL string. RLS-governed (engine.sparql visibility-filters rows) and
-            # honors `target` fan-out like Cypher/SQL.
+            # honors `connection` fan-out like Cypher/SQL; `graph` selects a physical
+            # engine graph, independent of `connection`.
             try:
-                entries, errors, fanout = kg_server._resolve_target_engines(target)
+                entries, errors, fanout = kg_server._resolve_target_engines(connection)
+                entries = kg_server.resolve_explicit_graph(
+                    entries, graph, fanout=fanout
+                )
+            except kg_server.GraphNotFoundError as e:
+                return public_error_json(e, code="graph_not_found")
+            except kg_server.GraphSelectionConflictError as e:
+                return public_error_json(e, code="graph_selection_conflict")
             except Exception as e:
                 return public_error_json(e)
             if not fanout:
-                _name, engine = entries[0]
+                name, engine = entries[0]
                 try:
-                    return json.dumps(engine.sparql(cypher), default=str)
+                    with kg_server.bound_to_graph(graph):
+                        rows = engine.sparql(cypher)
+                    return json.dumps(
+                        {"rows": rows, "connection": name, "graph": graph},
+                        default=str,
+                    )
+                except PermissionError as e:
+                    return public_error_json(
+                        e, code="permission_denied" if graph else "operation_failed"
+                    )
                 except Exception as e:
                     return public_error_json(e)
             results, fan_errors = kg_server.fanout_execute(
                 entries, lambda name, engine: engine.sparql(cypher)
             )
             return json.dumps(
-                {"targets": results, "errors": {**errors, **fan_errors}},
+                {
+                    "targets": results,
+                    "errors": {**errors, **fan_errors},
+                    "connection": connection,
+                    "graph": graph,
+                },
                 default=str,
             )
 
@@ -432,20 +502,33 @@ def register_query_tools(mcp):
         # The native engine requires an explicit read mode and validates it with
         # the complete parser; external backends without an equivalent contract
         # fail closed. No lexical query filter is an authorization boundary.
-        # CONCEPT:AU-KG.backend.multi-connection-registry — resolve the target connection(s). CONCEPT:AU-KG.ingest.unified-query-routing —
+        # CONCEPT:AU-KG.backend.multi-connection-registry — resolve the connection(s). CONCEPT:AU-KG.ingest.unified-query-routing —
         # with ingestion graph routing on, an implicit-default read fans across the
         # active content-graph set so split content is still queryable as one KG.
+        # CONCEPT:AU-KG.backend.explicit-graph-selection — `graph` (a physical engine graph) is a SEPARATE axis
+        # from `connection` (a backend alias); it requires exactly one resolved
+        # connection, so it fails closed against any fan-out (explicit or the
+        # implicit content-graph union below) rather than silently ignoring the
+        # request or unioning across graphs.
         try:
-            entries, errors, fanout = kg_server._resolve_read_engines(target)
+            entries, errors, fanout = kg_server._resolve_read_engines(connection)
+            entries = kg_server.resolve_explicit_graph(entries, graph, fanout=fanout)
+        except kg_server.GraphNotFoundError as e:
+            return public_error_json(e, code="graph_not_found")
+        except kg_server.GraphSelectionConflictError as e:
+            return public_error_json(e, code="graph_selection_conflict")
         except Exception as e:
             return public_error_json(e)
 
         # Whether this fan-out is the implicit content-graph UNION (no explicit
-        # target). Those rows are merged into the canonical ``rows`` field; an
-        # explicit ``target='all'``/list keeps the per-target map.
+        # connection). Those rows are merged into the canonical ``rows`` field; an
+        # explicit ``connection='all'``/list keeps the per-target map.
         _union_read = fanout and (
-            target is None
-            or (isinstance(target, str) and target.strip().lower() in ("", "default"))
+            connection is None
+            or (
+                isinstance(connection, str)
+                and connection.strip().lower() in ("", "default")
+            )
         )
 
         # CONCEPT:AU-KG.query.query-aggregation — an aggregation (count/sum/group-by) under the implicit
@@ -473,7 +556,10 @@ def register_query_tools(mcp):
                     results = engine.query_cypher(
                         cypher, parsed_params, as_of=as_of or None
                     )
-                return json.dumps({"rows": results}, default=str)
+                return json.dumps(
+                    {"rows": results, "connection": "default", "graph": graph},
+                    default=str,
+                )
             except Exception as e:
                 return public_error_json(e)
 
@@ -487,36 +573,60 @@ def register_query_tools(mcp):
                 include_epistemic if isinstance(include_epistemic, bool) else False
             )
             try:
-                if include_epistemic_flag:
-                    # Only pass the new kwarg when actually requested — keeps the
-                    # default call shape byte-identical for any `query_cypher`
-                    # implementation (real or test double) that predates this
-                    # parameter and doesn't accept it.
+                with kg_server.bound_to_graph(graph):
+                    if include_epistemic_flag:
+                        # Only pass the new kwarg when actually requested — keeps the
+                        # default call shape byte-identical for any `query_cypher`
+                        # implementation (real or test double) that predates this
+                        # parameter and doesn't accept it.
+                        results = engine.query_cypher(
+                            cypher,
+                            parsed_params,
+                            as_of=as_of or None,
+                            include_epistemic=True,
+                        )
+                        # Per-row epistemic envelope takes precedence over `envelope`
+                        # (there is no aggregate-bundle-of-epistemic-rows shape).
+                        return json.dumps(
+                            {
+                                "rows": results,
+                                "connection": _name,
+                                "graph": graph,
+                            },
+                            default=_json_default,
+                        )
                     results = engine.query_cypher(
                         cypher,
                         parsed_params,
                         as_of=as_of or None,
-                        include_epistemic=True,
+                        include_epistemic=include_epistemic_flag,
                     )
-                    # Per-row epistemic envelope takes precedence over `envelope`
-                    # (there is no aggregate-bundle-of-epistemic-rows shape).
-                    return json.dumps(results, default=_json_default)
-                results = engine.query_cypher(
-                    cypher,
-                    parsed_params,
-                    as_of=as_of or None,
-                    include_epistemic=include_epistemic_flag,
-                )
                 if include_epistemic_flag:
-                    return json.dumps({"rows": results}, default=_json_default)
+                    return json.dumps(
+                        {"rows": results, "connection": _name, "graph": graph},
+                        default=_json_default,
+                    )
                 return json.dumps(
                     {
                         "rows": results,
+                        "connection": _name,
+                        "graph": graph,
                         "evidence_bundle": _evidence_bundle_for_rows(
                             engine, results
                         ).model_dump(),
                     },
                     default=str,
+                )
+            except kg_server.GraphSelectionConflictError as e:
+                return public_error_json(e, code="graph_selection_conflict")
+            except PermissionError as e:
+                # Only an EXPLICIT `graph` request classifies its own denial as
+                # `permission_denied` — the pre-existing behavior for a plain
+                # backend-level PermissionError (e.g. a write rejected on the
+                # read-only query path) with no `graph` selection in play is
+                # unchanged (`operation_failed`, BUG-048's ambiguous default).
+                return public_error_json(
+                    e, code="permission_denied" if graph else "operation_failed"
                 )
             except Exception as e:
                 return public_error_json(e)
@@ -602,9 +712,17 @@ def register_query_tools(mcp):
                             continue
                         seen_ids.add(rid)
                     merged.append(row)
-            return json.dumps({"rows": merged}, default=_json_default)
+            return json.dumps(
+                {"rows": merged, "connection": connection, "graph": graph},
+                default=_json_default,
+            )
         return json.dumps(
-            {"targets": results, "errors": {**errors, **fan_errors}},
+            {
+                "targets": results,
+                "errors": {**errors, **fan_errors},
+                "connection": connection,
+                "graph": graph,
+            },
             default=_json_default,
         )
 
@@ -632,9 +750,23 @@ def register_query_tools(mcp):
         as_of: str = Field(
             default="", description="Optional ISO-8601 bitemporal query instant."
         ),
-        target: str = Field(
+        connection: str = Field(
             default="",
-            description="Named graph connection, 'all', or a connection list.",
+            description=(
+                "Named BACKEND connection, 'all', or a connection list. Selects "
+                "WHICH BACKEND, never which physical graph — see `graph`."
+            ),
+        ),
+        graph: str = Field(
+            default="",
+            description=(
+                "CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph (see "
+                "`engine_tenants(action='list')`), independent of `connection`. "
+                "Empty = the caller's own bound graph. Fail-closed: an unknown "
+                "graph or a `connection`/fan-out that has no physical-graph "
+                "concept is a typed error, never a silent default/union. Echoed "
+                "back in the response alongside `connection`."
+            ),
         ),
         include_epistemic: bool = Field(
             default=False,
@@ -647,7 +779,8 @@ def register_query_tools(mcp):
             scope=scope,
             reference_id=reference_id,
             as_of=as_of,
-            target=target,
+            connection=connection,
+            graph=graph,
             include_epistemic=include_epistemic,
         )
         return EvidenceBundle.from_payload(raw, operation="graph_query")
@@ -1193,12 +1326,24 @@ def register_query_tools(mcp):
             default="",
             description="Optional ISO-8601 instant. Pack-driven recency decay is measured relative to this time, enabling knowledge-state-as-of-date-D retrieval such as an academic literature state. Defaults to now (CONCEPT:EG-KG.compute.rust-native-training-loss).",
         ),
-        target: str = Field(
+        connection: str = Field(
             default="",
             description=(
-                "CONCEPT:AU-KG.backend.multi-connection-registry — named graph connection to search (default = primary). "
-                "Use a registered connection name, or 'all' (or a comma-separated list) to "
-                "fan out and get per-connection labeled results."
+                "CONCEPT:AU-KG.backend.multi-connection-registry — named BACKEND connection to search "
+                "(default = primary). Use a registered connection name, or 'all' "
+                "(or a comma-separated list) to fan out and get per-connection "
+                "labeled results. Selects WHICH BACKEND, never which physical "
+                "graph — see `graph`."
+            ),
+        ),
+        graph: str = Field(
+            default="",
+            description=(
+                "CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph, independent of "
+                "`connection`. Empty = the caller's own bound graph. Requires "
+                "exactly one resolved `connection`; fails closed (typed error, "
+                "never a silent default/union) on an unknown graph or a fan-out/"
+                "unsupported-connection combination. Echoed in the response."
             ),
         ),
         token_budget: int = Field(
@@ -1210,6 +1355,10 @@ def register_query_tools(mcp):
         ),
     ) -> str:
         """Search the Knowledge Graph using multiple strategies. Useful for finding context, concepts, memories, and capabilities across the ecosystem."""
+        # See `_run_graph_query`'s identical normalization: a direct call
+        # bypassing `_execute_tool` binds an omitted `graph` to a raw, truthy
+        # `FieldInfo` rather than `""`.
+        graph = graph if isinstance(graph, str) else ""
 
         def _execute() -> str:
             def _run_search(engine: Any) -> str:
@@ -1389,24 +1538,43 @@ def register_query_tools(mcp):
                     )
                 return "\n---\n".join(formatted_results)
 
-            # CONCEPT:AU-KG.backend.multi-connection-registry — resolve target connection(s). CONCEPT:AU-KG.ingest.unified-query-routing — an
+            # CONCEPT:AU-KG.backend.multi-connection-registry — resolve the connection(s). CONCEPT:AU-KG.ingest.unified-query-routing — an
             # implicit-default search fans across the active content-graph set so content
             # routed to ``code:*``/``src:*`` graphs stays findable as one KG.
+            # CONCEPT:AU-KG.backend.explicit-graph-selection — `graph` requires exactly one resolved
+            # connection, so it fails closed against any fan-out (explicit or the
+            # implicit content-graph union) — never a silent ignore or union.
             try:
-                entries, errors, fanout = kg_server._resolve_read_engines(target)
+                entries, errors, fanout = kg_server._resolve_read_engines(connection)
+                entries = kg_server.resolve_explicit_graph(
+                    entries, graph, fanout=fanout
+                )
+            except kg_server.GraphNotFoundError as e:
+                return public_error_text(e, code="graph_not_found")
+            except kg_server.GraphSelectionConflictError as e:
+                return public_error_text(e, code="graph_selection_conflict")
             except Exception as e:
                 return public_error_text(e)
 
             if not fanout:
-                return _run_search(entries[0][1])
+                name, engine = entries[0]
+                try:
+                    with kg_server.bound_to_graph(graph):
+                        text = _run_search(engine)
+                except PermissionError as e:
+                    return public_error_text(
+                        e, code="permission_denied" if graph else "operation_failed"
+                    )
+                return f"{text}\n\n[connection={name} graph={graph or '(default)'}]"
 
-            # CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default target
-            # (no ``target`` passed, or explicitly "default") fans across every active
+            # CONCEPT:AU-KG.ingest.unified-query-routing — an implicit-default connection
+            # (no ``connection`` passed, or explicitly "default") fans across every active
             # content graph, which can be dozens of ``code:<repo>``/``src:<repo>``
-            # connections, often idle/unreachable. An explicit ``target='all'``/list is
+            # connections, often idle/unreachable. An explicit ``connection='all'``/list is
             # a deliberate cross-repo search and keeps the full per-backend budget.
-            is_implicit_target = target is None or (
-                isinstance(target, str) and target.strip().lower() in ("", "default")
+            is_implicit_target = connection is None or (
+                isinstance(connection, str)
+                and connection.strip().lower() in ("", "default")
             )
             if is_implicit_target:
                 # The PRIMARY/``default`` backend must ALWAYS ground: it holds the
@@ -1449,6 +1617,9 @@ def register_query_tools(mcp):
                 f"=== {name} (error) ===\n{err}"
                 for name, err in {**errors, **fan_errors}.items()
             ]
+            out_lines.append(
+                f"[connection={connection or 'default'} graph=(none — fan-out)]"
+            )
             return "\n\n".join(out_lines)
 
         return await run_blocking_ordered(_execute)

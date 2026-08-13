@@ -2315,6 +2315,134 @@ def _resolve_read_engines(
     return entries, errors, True
 
 
+class GraphSelectionError(ValueError):
+    """Base for an explicit ``graph`` selection that cannot be honored.
+
+    CONCEPT:AU-KG.backend.explicit-graph-selection — ``connection`` (a backend
+    alias, CONCEPT:AU-KG.backend.multi-connection-registry, resolved by
+    :class:`~agent_utilities.knowledge_graph.core.connection_registry.ConnectionRegistry`)
+    and ``graph`` (a physical engine graph, the thing ``engine_tenants(action="list")``/
+    the engine's own ``ListGraphs`` returns) are two independent axes. Every raise
+    of this family is FAIL-CLOSED: the caller gets a typed error, never a silent
+    fallback to a default graph and never a union across graphs.
+    """
+
+
+class GraphNotFoundError(GraphSelectionError, LookupError):
+    """The requested ``graph`` is absent from the engine's own catalog."""
+
+
+class GraphSelectionConflictError(GraphSelectionError):
+    """The ``graph``/``connection`` combination is ambiguous or unsupported.
+
+    Raised instead of silently picking one interpretation — e.g. an explicit
+    ``graph`` alongside a fan-out ``connection`` (``'all'``/a list), or an
+    explicit ``graph`` alongside a non-native (external/read-only) connection
+    that has no physical-graph concept of its own.
+    """
+
+
+def resolve_explicit_graph(
+    entries: list[tuple[str, Any]], graph: str, *, fanout: bool
+) -> list[tuple[str, Any]]:
+    """Validate an explicit ``graph`` against the already-resolved connection(s).
+
+    Returns ``entries`` unchanged (no-op) when ``graph`` is empty — existing
+    ``connection``-only behavior is untouched. When ``graph`` is set:
+
+    * a fan-out ``connection`` (``entries`` has more than one, or ``fanout`` is
+      True) is rejected — an explicit graph requires exactly one connection,
+      never a union (CONCEPT:AU-KG.backend.explicit-graph-selection).
+    * a non-``"default"`` connection is rejected — only the native (epistemic-
+      graph) connection has a multi-graph concept; naming a graph for e.g. an
+      external Neo4j connection would otherwise be silently ignored (a silent
+      pick of that connection's own implicit graph), which is exactly the
+      defect this function exists to prevent.
+    * existence is checked, best-effort, against the SAME catalog
+      ``engine_tenants(action="list")``/``ListGraphs`` already exposes
+      (``engine.graph_compute.client.tenants.list()``) — never a parallel
+      authorization mechanism. The actual per-call authorization remains the
+      engine's own RBAC/RLS (``crates/eg-core/src/isolation.rs::check_access``),
+      evaluated server-side on every request this binds into, regardless of
+      whether this probe ran.
+    """
+    graph = graph.strip() if isinstance(graph, str) else ""
+    if not graph:
+        return entries
+    if fanout or len(entries) != 1:
+        raise GraphSelectionConflictError(
+            "an explicit graph requires exactly one resolved connection, "
+            "never a fan-out/union"
+        )
+    name, engine = entries[0]
+    if name != "default":
+        raise GraphSelectionConflictError(
+            f"connection {name!r} has no physical-graph concept; explicit "
+            "graph selection is supported only on the default connection"
+        )
+    tenants = getattr(
+        getattr(getattr(engine, "graph_compute", None), "client", None),
+        "tenants",
+        None,
+    )
+    list_graphs = getattr(tenants, "list", None)
+    if callable(list_graphs):
+        try:
+            catalog = list_graphs() or []
+        except Exception:  # noqa: BLE001 — best-effort probe; the engine's own
+            # RBAC/RLS is the real authorization boundary either way, so a
+            # degraded/unavailable catalog probe must never itself deny or
+            # (worse) silently permit — it just skips the early check and lets
+            # the actual call surface whatever the engine decides.
+            catalog = None
+        if catalog is not None:
+            names = {
+                row.get("name")
+                for row in catalog
+                if isinstance(row, dict) and row.get("name")
+            }
+            if graph not in names:
+                raise GraphNotFoundError(
+                    f"graph {graph!r} is not present in the engine catalog"
+                )
+    return entries
+
+
+@contextlib.contextmanager
+def bound_to_graph(graph: str) -> Any:
+    """Bind an explicit physical graph onto the verified session for one call.
+
+    A no-op when ``graph`` is empty. Otherwise reuses the SAME sanctioned
+    session-retargeting primitive already used by
+    ``agent_utilities.knowledge_graph.pipeline`` and
+    ``agent_utilities.orchestration.approval`` —
+    :meth:`~agent_utilities.knowledge_graph.core.session.GraphSession.with_graph`
+    scoped for the call's duration via
+    :func:`~agent_utilities.knowledge_graph.core.session.use_session`. This
+    introduces no new authority: the engine's own RBAC/RLS
+    (``crates/eg-core/src/isolation.rs::check_access``) evaluates
+    ``(agent_id, graph, action)`` on every RPC issued while bound, independent
+    of what this function does — binding only says which graph the request
+    NAMES, never what it is ALLOWED to touch.
+    """
+    graph = graph.strip() if isinstance(graph, str) else ""
+    if not graph:
+        yield
+        return
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
+    )
+
+    session = current_session()
+    if session is None:
+        raise GraphSelectionConflictError(
+            "a verified session is required to bind an explicit graph"
+        )
+    with use_session(session.with_graph(graph)):
+        yield
+
+
 #: Per-target wall-clock budget (seconds) for a fan-out (``target='all'`` or a
 #: multi-target list). One slow/unreachable backend must not stall the whole set;
 #: override live via ``graph_configure set_config GRAPH_FANOUT_TIMEOUT`` (KG-2.63).

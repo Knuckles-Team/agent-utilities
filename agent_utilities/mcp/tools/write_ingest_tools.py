@@ -99,13 +99,32 @@ def register_write_ingest_tools(mcp):
             default="[]",
             description="JSON-encoded list of nodes or tags for bulk operations.",
         ),
-        target: str = Field(
+        connection: str = Field(
             default="",
             description=(
-                "CONCEPT:AU-KG.backend.multi-connection-registry — named graph connection to write to (default = primary). "
-                "Use a registered connection name, or 'all' (or a comma-separated list) to "
-                "mirror the SAME write to several backends. Fan-out requires an explicit "
-                "multi-target value; the default and a single named target stay single-write."
+                "CONCEPT:AU-KG.backend.multi-connection-registry — named BACKEND connection to write to "
+                "(default = primary). Use a registered connection name, or 'all' "
+                "(or a comma-separated list) to mirror the SAME write to several "
+                "backends. Fan-out requires an explicit multi-connection value; the "
+                "default and a single named connection stay single-write. Selects "
+                "WHICH BACKEND, never which physical graph — see `graph`."
+            ),
+        ),
+        graph: str = Field(
+            default="",
+            description=(
+                "CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph to write to "
+                "(one of the names `engine_tenants(action='list')`/the engine's own "
+                "ListGraphs returns), independent of `connection`. Empty = the "
+                "caller's own bound graph (unchanged default behavior). Requires "
+                "exactly one resolved `connection` (the default one) — never "
+                "combinable with `connection='all'`/a list. Authorization-checked "
+                "by the engine's own RBAC/RLS on every call; an unknown graph, or "
+                "a `connection` with no physical-graph concept, is a typed error — "
+                "never a silent fallback to a default graph and never a union "
+                "across graphs. Echoed back (as `connection`/`graph`) in the "
+                "compare_and_set/recall_media JSON responses and appended to the "
+                "plain-text outcome of the other write actions."
             ),
         ),
         conditions: dict = Field(
@@ -136,6 +155,11 @@ def register_write_ingest_tools(mcp):
         "node_id": ..., "applied": <bool>}`` (``applied=False`` = precondition
         failed / another agent won the race).
         """
+        # A direct call bypassing `_execute_tool` (which resolves `Field`
+        # defaults) binds an omitted `graph` to its raw, truthy
+        # `pydantic.fields.FieldInfo` rather than `""` — normalize once here,
+        # mirroring `query_tools._run_graph_query`'s identical guard.
+        graph = graph if isinstance(graph, str) else ""
 
         def _execute() -> str:
             def _write_with_engine(engine: Any) -> str:
@@ -362,17 +386,67 @@ def register_write_ingest_tools(mcp):
                 except Exception as e:
                     return public_error_text(e)
 
-            # CONCEPT:AU-KG.backend.multi-connection-registry — resolve target connection(s). Writes only fan out on
-            # an EXPLICIT multi-target request ('all' or a list); the default and a
-            # single named target stay single-write to avoid accidental multi-store
-            # writes.
+            def _echo_graph_selection(raw: str, name: str, requested_graph: str) -> str:
+                """Echo the resolved `connection`/`graph` so a caller can always
+                tell what was actually written (CONCEPT:AU-KG.backend.explicit-graph-selection). A JSON
+                success payload gets the two keys merged in (never overriding an
+                existing key); a standardized error envelope (has an `error` key)
+                is left byte-for-byte alone; a plain-text outcome gets a bracketed
+                suffix, unless it is already a plain-text `Error: ...` — an
+                unstructured failure string gains nothing from selection metadata.
+                """
+                try:
+                    parsed = json.loads(raw)
+                except (TypeError, ValueError):
+                    parsed = None
+                if isinstance(parsed, dict):
+                    if "error" in parsed:
+                        return raw
+                    parsed.setdefault("connection", name)
+                    parsed.setdefault("graph", requested_graph)
+                    return json.dumps(parsed, default=str)
+                if raw.startswith("Error:"):
+                    return raw
+                return (
+                    f"{raw} [connection={name} graph={requested_graph or '(default)'}]"
+                )
+
+            def _run_write(name: str, engine: Any) -> str:
+                try:
+                    with kg_server.bound_to_graph(graph):
+                        raw = _write_with_engine(engine)
+                except PermissionError as e:
+                    # `_write_with_engine` already converts any exception the
+                    # underlying write raises into a plain-text error, so this
+                    # only catches a `PermissionError` from `bound_to_graph`
+                    # itself. Same graph-conditional classification as the
+                    # query tools: never reclassify a pre-existing generic
+                    # denial when no explicit `graph` was requested.
+                    return public_error_text(
+                        e, code="permission_denied" if graph else "operation_failed"
+                    )
+                return _echo_graph_selection(raw, name, graph)
+
+            # CONCEPT:AU-KG.backend.multi-connection-registry — resolve the connection(s). Writes only fan out on
+            # an EXPLICIT multi-connection request ('all' or a list); the default
+            # and a single named connection stay single-write to avoid accidental
+            # multi-store writes. CONCEPT:AU-KG.backend.explicit-graph-selection — `graph` (a physical engine
+            # graph) is a separate axis from `connection`; it requires exactly one
+            # resolved connection, so it fails closed against any fan-out.
             try:
-                entries, errors, fanout = kg_server._resolve_target_engines(target)
+                entries, errors, fanout = kg_server._resolve_target_engines(connection)
+                entries = kg_server.resolve_explicit_graph(
+                    entries, graph, fanout=fanout
+                )
+            except kg_server.GraphNotFoundError as e:
+                return public_error_text(e, code="graph_not_found")
+            except kg_server.GraphSelectionConflictError as e:
+                return public_error_text(e, code="graph_selection_conflict")
             except Exception as e:
                 return public_error_text(e)
 
             # CONCEPT:AU-KG.ingest.role-enforcement — role enforcement: a 'read' (data source) or 'mirror'
-            # (fan-out replica) connection rejects direct target= writes. Mirrors are
+            # (fan-out replica) connection rejects direct connection= writes. Mirrors are
             # written only through the fan-out outbox, never here.
             registry = kg_server.get_connection_registry()
             errors = dict(errors)
@@ -388,14 +462,15 @@ def register_write_ingest_tools(mcp):
             if not fanout:
                 if not writable:
                     return json.dumps(
-                        {"error": errors.get(entries[0][0], "target is read-only")},
+                        {"error": errors.get(entries[0][0], "connection is read-only")},
                         default=str,
                     )
-                return _write_with_engine(writable[0][1])
+                write_name, write_engine = writable[0]
+                return _run_write(write_name, write_engine)
 
             # Fan-out — per-target timeout so one slow backend can't stall the set.
             results, fan_errors = kg_server.fanout_execute(
-                writable, lambda name, eng: _write_with_engine(eng)
+                writable, lambda name, eng: _run_write(name, eng)
             )
             return json.dumps(
                 {"targets": results, "errors": {**errors, **fan_errors}}, default=str

@@ -72,7 +72,7 @@ async def test_unknown_target_is_reported_via_registry():
     bundle = await kg_server._execute_tool(
         "graph_query",
         cypher="MATCH (n) RETURN n AS n",
-        target="does-not-exist",
+        connection="does-not-exist",
     )
     payload = bundle.claims[0]
     assert payload["status"] == "failed"
@@ -92,7 +92,7 @@ async def test_fanout_returns_labeled_per_connection_results():
     bundle = await kg_server._execute_tool(
         "graph_query",
         cypher="MATCH (n) RETURN n AS n",
-        target="all",
+        connection="all",
     )
     payload = bundle.claims[0]
     assert set(payload["targets"]) == {"default", "other"}
@@ -254,10 +254,14 @@ async def test_compare_and_set_calls_backend_and_returns_applied_true():
         updates={"status": "claimed", "owner": "agent-7"},
     )
     payload = json.loads(out)
+    # `connection`/`graph` are echoed onto every write response
+    # (CONCEPT:AU-KG.backend.explicit-graph-selection) alongside the action's own fields.
     assert payload == {
         "action": "compare_and_set",
         "node_id": "task-1",
         "applied": True,
+        "connection": "default",
+        "graph": "",
     }
     assert engine.backend.calls == [
         ("task-1", {"status": "pending"}, {"status": "claimed", "owner": "agent-7"})
