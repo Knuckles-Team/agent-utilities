@@ -1031,6 +1031,22 @@ class DataLevelPermissions:
 # ---------------------------------------------------------------------------
 
 
+class GraphForkUnavailableError(RuntimeError):
+    """Raised when ``pre_commit_validate`` needs to fork ``base_graph`` but it exposes no
+    ``fork()`` capability (CONCEPT:AU-KG.backend.company-brain-write-guard, B-20).
+
+    The epistemic-graph engine implements the fork server-side (``Method::Fork`` /
+    ``Method::DiffAgainst``, dispatched in ``epistemic-graph/src/server/handlers/graph_ops.rs``),
+    but the Python client (``epistemic_graph.client.EpistemicGraphClient`` /
+    ``SyncEpistemicGraphClient``) has never bound it — see
+    ``epistemic-graph/tests/protocol_unbound_baseline.txt`` (as of this fix: owner=@genius,
+    review-by=2026-09-12, note=BIND-candidate-2026-08-13-triage). Until that binding lands, no
+    graph object this repo can construct actually supports the copy-on-write fork this validator
+    needs, so we fail loudly and specifically here instead of letting a bare ``AttributeError``
+    surface deep inside SHACL validation.
+    """
+
+
 class CompanyBrain:
     """Unified facade for all Company Brain infrastructure primitives.
 
@@ -1120,7 +1136,21 @@ class CompanyBrain:
         """
         import json
 
-        # 1. Fork the epistemic graph
+        # 1. Fork the epistemic graph. ``base_graph.fork()`` is not an AttributeError
+        # away from working today -- it is a genuinely missing capability (B-20): the
+        # engine dispatches Method::Fork server-side, but the Python client has never
+        # bound it (see GraphForkUnavailableError's docstring). Guard explicitly so a
+        # caller gets a named, actionable failure instead of a bare AttributeError.
+        if not hasattr(base_graph, "fork"):
+            raise GraphForkUnavailableError(
+                "pre_commit_validate() requires base_graph.fork() (engine Method::Fork) "
+                f"to build a validation-only copy of the graph, but {type(base_graph).__name__!r} "
+                "does not implement fork(). Method::Fork is dispatched server-side "
+                "(epistemic-graph/src/server/handlers/graph_ops.rs) but not yet bound on "
+                "the Python client (epistemic-graph/tests/protocol_unbound_baseline.txt, "
+                "owner=@genius review-by=2026-09-12). Bind EpistemicGraphClient.fork() in "
+                "epistemic-graph before calling pre_commit_validate()."
+            )
         forked_graph = base_graph.fork()
 
         # 2. Apply proposed additions
@@ -1213,6 +1243,7 @@ __all__ = [
     "DataLevelPermissions",
     "EventStreamIngester",
     "GraphConcurrencyManager",
+    "GraphForkUnavailableError",
     "ProvenanceTracker",
     "TenancyManager",
 ]
