@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
-# ruff: noqa: I001 -- synchronized across repositories with different import policies
 """Execute bounded repository security hooks and validate their evidence.
+
+This is the **single canonical copy** for the whole fleet (CONCEPT:AU-OS.governance.single-canonical-source-security-contract).
+It previously existed as an identical or near-identical file copy-pasted into ~74
+`agent-packages/*` repos, which let one defect (an unguarded `import resource`,
+Unix-only) replicate 74-fold and drift into several inconsistent variants. Every
+consumer repository now reaches this module through
+`scripts/run_agent_utilities_gate.py --script scripts/security_contract.py -- ...`
+(the same locate-au-and-run pattern already used for `check_no_legacy_markers.py`,
+`mermaid_linter.py`, and `check_stubs.py`) instead of keeping a local copy.
 
 The reusable security workflow calls this module directly from the checked-out
 repository.  A repository contract names argv arrays rather than shell strings,
@@ -8,6 +16,8 @@ so untrusted configuration cannot introduce an extra shell-evaluation layer.
 All paths are relative regular files below the repository root, outputs are
 bounded, hook environments exclude credential-like variables, and missing or
 malformed evidence fails closed.
+
+Usage: python scripts/security_contract.py --contract <path> {validate,run-hook,check-licenses} ...
 """
 
 from __future__ import annotations
@@ -16,12 +26,16 @@ import argparse
 import json
 import os
 import re
-import resource
 import signal
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from typing import Any
+
+if os.name == "nt":
+    import ctypes
+    from ctypes import wintypes
 
 
 MAX_CONTRACT_BYTES = 128 * 1024
@@ -35,6 +49,7 @@ MAX_LICENSE_NESTING = 32
 MAX_ARGV_ITEMS = 64
 MAX_ARGUMENT_BYTES = 4_096
 MAX_HOOK_OUTPUT_BYTES = 4 * 1024 * 1024
+_HOOK_READ_CHUNK_BYTES = 64 * 1024
 HOOK_KINDS = ("fuzz", "authenticated_negative")
 _SENSITIVE_ENV = re.compile(
     r"(?:^|_)(?:AUTHORIZATION|COOKIE|CREDENTIAL|PASSWORD|SECRET|TOKEN|API_KEY|PRIVATE_KEY)(?:_|$)",
@@ -42,6 +57,52 @@ _SENSITIVE_ENV = re.compile(
 )
 _SPDX_IDENTIFIER = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+-]{0,127}$")
 _SPDX_OPERATORS = frozenset({"AND", "OR", "WITH"})
+
+# Windows Job Object constants/structures (CONCEPT:AU-OS.host.windows-job-object-process-tree-bound).
+# A Job Object with KILL_ON_JOB_CLOSE is the Windows analogue of a POSIX process
+# group: assigning the hook process to it, then terminating/closing the job,
+# kills the hook and every descendant it spawned atomically -- the same
+# guarantee `os.killpg(..., SIGKILL)` gives on POSIX.
+if os.name == "nt":
+    _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+    _JOBOBJECT_EXTENDED_LIMIT_INFORMATION_CLASS = 9
+    _PROCESS_SET_QUOTA_AND_TERMINATE = 0x0100 | 0x0001  # SET_QUOTA | TERMINATE
+
+    class _JOBOBJECT_BASIC_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = (
+            ("PerProcessUserTimeLimit", ctypes.c_int64),
+            ("PerJobUserTimeLimit", ctypes.c_int64),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        )
+
+    class _IO_COUNTERS(ctypes.Structure):
+        _fields_ = tuple(
+            (name, ctypes.c_uint64)
+            for name in (
+                "ReadOperationCount",
+                "WriteOperationCount",
+                "OtherOperationCount",
+                "ReadTransferCount",
+                "WriteTransferCount",
+                "OtherTransferCount",
+            )
+        )
+
+    class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
+        _fields_ = (
+            ("BasicLimitInformation", _JOBOBJECT_BASIC_LIMIT_INFORMATION),
+            ("IoInfo", _IO_COUNTERS),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        )
 
 
 class SecurityContractError(RuntimeError):
@@ -365,16 +426,119 @@ def _hook_environment() -> dict[str, str]:
             "RUNNER_ARCH",
             "VIRTUAL_ENV",
             "PYTHONHOME",
+            # Windows subprocess creation and DLL/temp-file resolution needs these
+            # to start at all -- without them the hook process fails to launch,
+            # which is a platform-restricted feature, not a bounded environment.
+            "SYSTEMROOT",
+            "SYSTEMDRIVE",
+            "COMSPEC",
+            "TEMP",
+            "TMP",
+            "PATHEXT",
         }:
             environment[key] = value
     environment["SECURITY_HOOK"] = "1"
     return environment
 
 
-def _limit_hook_output() -> None:
-    resource.setrlimit(
-        resource.RLIMIT_FSIZE, (MAX_HOOK_OUTPUT_BYTES, MAX_HOOK_OUTPUT_BYTES)
+def _hook_session_kwargs() -> dict[str, Any]:
+    """``Popen`` kwargs that put the hook in its own killable process tree.
+
+    POSIX gets a new session (process group); Windows gets a new process group
+    that a bound Job Object (``_bind_hook_job``) can terminate atomically.
+    """
+
+    if os.name == "posix":
+        return {"start_new_session": True}
+    return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+
+
+def _bind_hook_job(pid: int) -> int | None:
+    """Bind *pid* to a new kill-on-close Windows Job Object, or ``None`` on failure.
+
+    This is the Windows analogue of a POSIX process group: every process the
+    hook spawns joins the same job, so one call terminates the whole tree.
+    """
+
+    job = ctypes.windll.kernel32.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    info = _JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
+    info.BasicLimitInformation.LimitFlags = _JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    if not ctypes.windll.kernel32.SetInformationJobObject(
+        job,
+        _JOBOBJECT_EXTENDED_LIMIT_INFORMATION_CLASS,
+        ctypes.byref(info),
+        ctypes.sizeof(info),
+    ):
+        ctypes.windll.kernel32.CloseHandle(job)
+        return None
+    handle = ctypes.windll.kernel32.OpenProcess(
+        _PROCESS_SET_QUOTA_AND_TERMINATE, False, pid
     )
+    if not handle:
+        ctypes.windll.kernel32.CloseHandle(job)
+        return None
+    try:
+        if not ctypes.windll.kernel32.AssignProcessToJobObject(job, handle):
+            ctypes.windll.kernel32.CloseHandle(job)
+            return None
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+    return job
+
+
+def _close_hook_job(job: int) -> None:
+    ctypes.windll.kernel32.TerminateJobObject(job, 1)
+    ctypes.windll.kernel32.CloseHandle(job)
+
+
+def _terminate_hook_tree(process: subprocess.Popen[bytes], job: int | None) -> None:
+    """Kill the hook and every process it spawned, on whichever platform this is.
+
+    Same intent as the POSIX-only ``os.killpg(pid, SIGKILL)`` this replaces;
+    Windows reaches it through the Job Object bound in ``_bind_hook_job``.
+    """
+
+    if os.name == "posix":
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            pass
+        return
+    if job is not None:
+        ctypes.windll.kernel32.TerminateJobObject(job, 1)
+    else:
+        process.kill()
+
+
+def _pump_bounded_output(
+    process: subprocess.Popen[bytes], log: Any, *, maximum_bytes: int
+) -> bool:
+    """Copy the hook's combined stdout/stderr into *log*, capped at *maximum_bytes*.
+
+    Returns ``False`` once the boundary would be exceeded (the caller then
+    terminates the hook tree). Replaces a POSIX ``RLIMIT_FSIZE`` rlimit set via
+    ``preexec_fn`` -- which is unavailable on Windows and only bounds a single
+    file descriptor's writes anyway -- with one mechanism that behaves
+    identically on every platform, so this half of the boundary needs no
+    platform branch at all.
+    """
+
+    assert process.stdout is not None
+    written = 0
+    while True:
+        chunk = process.stdout.read(_HOOK_READ_CHUNK_BYTES)
+        if not chunk:
+            return True
+        remaining = maximum_bytes - written
+        if remaining <= 0:
+            return False
+        if len(chunk) > remaining:
+            log.write(chunk[:remaining])
+            return False
+        log.write(chunk)
+        written += len(chunk)
 
 
 def _validate_hook_evidence(
@@ -429,6 +593,9 @@ def run_hook(root: Path, contract: dict[str, Any], kind: str, result_root: str) 
         ) from exc
     evidence.unlink(missing_ok=True)
     log_path = results.joinpath(f"{kind}.log")
+    timed_out = False
+    within_bound = True
+    return_code: int | None = None
     try:
         with log_path.open("wb") as log:
             process = subprocess.Popen(
@@ -436,24 +603,41 @@ def run_hook(root: Path, contract: dict[str, Any], kind: str, result_root: str) 
                 cwd=root,
                 env=_hook_environment(),
                 stdin=subprocess.DEVNULL,
-                stdout=log,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 shell=False,
-                start_new_session=True,
-                preexec_fn=_limit_hook_output,
+                **_hook_session_kwargs(),
             )
+            job = _bind_hook_job(process.pid) if os.name == "nt" else None
             try:
-                return_code = process.wait(timeout=hook["timeout_seconds"])
-            except subprocess.TimeoutExpired as exc:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
-                raise SecurityContractError(
-                    "security hook exceeded its time boundary"
-                ) from exc
+
+                def _on_timeout() -> None:
+                    nonlocal timed_out
+                    timed_out = True
+                    _terminate_hook_tree(process, job)
+
+                watchdog = threading.Timer(hook["timeout_seconds"], _on_timeout)
+                watchdog.start()
+                try:
+                    within_bound = _pump_bounded_output(
+                        process, log, maximum_bytes=MAX_HOOK_OUTPUT_BYTES
+                    )
+                    if not within_bound:
+                        _terminate_hook_tree(process, job)
+                    return_code = process.wait()
+                finally:
+                    watchdog.cancel()
+            finally:
+                if job is not None:
+                    _close_hook_job(job)
     except SecurityContractError:
         raise
     except Exception as exc:
         raise SecurityContractError("security hook execution failed") from exc
+    if timed_out:
+        raise SecurityContractError("security hook exceeded its time boundary")
+    if not within_bound:
+        raise SecurityContractError("security hook exceeded its output boundary")
     if return_code != 0:
         raise SecurityContractError("security hook returned a failure")
     evidence_file = _relative_file(
