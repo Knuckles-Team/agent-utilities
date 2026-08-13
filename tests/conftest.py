@@ -1,6 +1,8 @@
 #!/usr/bin/python
 
 import os
+import re
+import subprocess
 import sys
 from typing import Any
 
@@ -20,9 +22,29 @@ _DANGEROUS_GIT_ENV_VARS = (
     "GIT_INDEX_FILE",
     "GIT_WORK_TREE",
     "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES",
     "GIT_COMMON_DIR",
     "GIT_NAMESPACE",
 )
+
+#: GOC-71: the narrower env-var leak has a quieter, more damaging sibling --
+#: ``GIT_AUTHOR_*``/``GIT_COMMITTER_*`` silently mis-author whatever commit a
+#: leaked-env subprocess makes, and (as this repo's own history shows: 295
+#: commits authored ``universal-ingestion-proof <proof@test.local>``, the
+#: fixture identity ``tests/integration/knowledge_graph/
+#: test_git_markdown_domain_packs_live_engine.py`` sets) the underlying GIT_DIR
+#: redirect that mis-targets a ``git -C tmp_path config user.name/email`` call
+#: doesn't just mutate an env var -- it writes that identity into the REAL
+#: repo's *persistent* local ``.git/config``, so it keeps mis-authoring every
+#: subsequent commit made without explicit ``GIT_AUTHOR_*`` until someone
+#: notices and fixes the local config by hand. ``core.bare`` corruption breaks
+#: loudly (`fatal: … must be run in a work tree`); this one broke silently for
+#: weeks. ``GIT_CONFIG*`` covers the ``GIT_CONFIG_GLOBAL``/``_SYSTEM``/
+#: ``_NOSYSTEM`` and ``GIT_CONFIG_COUNT``/``_KEY_<n>``/``_VALUE_<n>`` env-based
+#: config-override family (`git help environment`) -- an open-ended set of
+#: names, so it is matched by prefix rather than enumerated.
+_DANGEROUS_GIT_ENV_PREFIXES = ("GIT_AUTHOR_", "GIT_COMMITTER_", "GIT_CONFIG")
 
 
 def _strip_inherited_git_repository_env() -> None:
@@ -51,9 +73,79 @@ def _strip_inherited_git_repository_env() -> None:
     """
     for name in _DANGEROUS_GIT_ENV_VARS:
         os.environ.pop(name, None)
+    for name in list(os.environ):
+        if name.startswith(_DANGEROUS_GIT_ENV_PREFIXES):
+            os.environ.pop(name, None)
 
 
 _strip_inherited_git_repository_env()
+
+
+#: The subset of ``_DANGEROUS_GIT_ENV_VARS`` that can redirect a git
+#: invocation to a *different repository* -- what D-LGI-1's own reproduction
+#: exploits. Deliberately excludes GIT_INDEX_FILE (redirects only which index
+#: file is read/written *within* whatever repo -C/cwd/GIT_DIR resolves to) and
+#: GIT_CEILING_DIRECTORIES (`git help environment`: does not override an
+#: explicit GIT_DIR anyway). Used by the runtime backstop below, independent
+#: of GIT_AUTHOR_*/GIT_COMMITTER_*/GIT_CONFIG*, which corrupt identity/config
+#: rather than redirect the target repository.
+_GIT_POINTER_ENV_NAMES = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+)
+
+
+class LeakedGitPointerEnvError(RuntimeError):
+    """A git subprocess was about to run with a leaked repository-pointer env var.
+
+    Regression backstop for D-LGI-1/GOC-71, independent of the session-wide
+    strip above: it fires even if a test re-introduces one of these vars
+    mid-run (e.g. via ``monkeypatch.setenv``, exactly how the real leak
+    happens), turning what would silently mutate the real repository into an
+    immediate, loud test failure instead. See
+    ``tests/unit/test_conftest_git_env_isolation.py`` for the literal proof.
+    """
+
+
+def _looks_like_git_invocation(args: object) -> bool:
+    """Best-effort: does this ``subprocess.Popen`` ``args`` invoke ``git``?"""
+    if isinstance(args, (str, bytes)):
+        text = args if isinstance(args, str) else args.decode(errors="replace")
+        return re.search(r"(?:^|[\s;&|])git(?:\s|$)", text) is not None
+    if not isinstance(args, (list, tuple)) or not args:
+        return False
+    first = args[0]
+    if not isinstance(first, (str, bytes, os.PathLike)):
+        return False
+    return os.path.basename(str(os.fspath(first))) in ("git", "git.exe")
+
+
+#: The true, unpatched ``Popen.__init__`` -- captured before the patch just
+#: below is applied, so a test can temporarily restore it (via
+#: ``monkeypatch.setattr``, auto-reverted at that test's teardown) to prove
+#: the guard stops a real vulnerability rather than a strawman.
+_TRUE_POPEN_INIT = subprocess.Popen.__init__
+
+
+def _guarded_popen_init(self, *args, **kwargs):
+    invoked = args[0] if args else kwargs.get("args")
+    if _looks_like_git_invocation(invoked):
+        env = kwargs.get("env")
+        effective = env if env is not None else os.environ
+        leaked = [name for name in _GIT_POINTER_ENV_NAMES if effective.get(name)]
+        if leaked:
+            raise LeakedGitPointerEnvError(
+                f"refusing to spawn {invoked!r}: leaked pointer env var(s) "
+                f"{leaked} would silently redirect it to the wrong repository "
+                "(D-LGI-1/GOC-71) -- fix the leak, don't bypass this guard"
+            )
+    return _TRUE_POPEN_INIT(self, *args, **kwargs)
+
+
+subprocess.Popen.__init__ = _guarded_popen_init
 
 
 def _fail_fast_on_wrong_interpreter() -> None:
