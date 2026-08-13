@@ -587,6 +587,28 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: guardrail-removed-symbol-consumers
+    name: Guardrail — no removed/renamed public symbol still imported by the fleet
+    # B-19 (2026-08-13): protect_stdio_jsonrpc was deleted with no consumer
+    # migration and broke agents/systems-manager (ImportError at module
+    # import — the server could not start) and agents/tunnel-manager (stdio
+    # transport). Neither had a control. Compares the public API surface
+    # (agent_utilities/) against origin/main and fails on any symbol still
+    # imported by a repo in the committed fleet consumer index
+    # (scripts/fleet_symbol_consumers.json — regenerate with
+    # `python3 scripts/gen_fleet_symbol_consumers.py --update`, needs the
+    # agent-packages fleet checked out locally). Scans the whole
+    # agent_utilities/ tree plus git history, same heavy/pre-push class as
+    # guardrail-liveness and guardrail-surface-parity above; unlike those,
+    # this one is stdlib-only (see scripts/_symbol_surface.py) so it needs no
+    # managed-venv re-exec. FAILS CLOSED (not skip) if the consumer index is
+    # missing, unparseable, or older than 30 days — see the script's
+    # docstring for why silently skipping was rejected.
+    entry: python3 scripts/check_removed_symbol_consumers.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   - id: guardrail-gate-meta-tests
     name: Guardrail — gate meta-tests (prove every gate can fail)
     # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees
