@@ -216,9 +216,24 @@ class _EmptyGraphCompute:
 
     Any attempt to read ACL material from here (instead of the backend) must
     come back empty, proving the fix no longer reaches into this object.
+
+    ``graph_name`` mirrors whatever GraphSession is ambient (the suite-wide
+    ``isolate_graph_compute_engine`` fixture always scopes one -- there is no
+    "no session" case in this file's tests) so these tests, which are about
+    ACL-hydration SOURCE, not physical-graph selection (R-22/GOC-67's
+    ``_durable_access_rows`` narrowing lives elsewhere -- see
+    ``test_governed_graph_retrieval.py``), never trip the narrowing branch by
+    accident.
     """
 
     client = _EmptyGraphComputeClient()
+
+    @property
+    def graph_name(self) -> str:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        session = current_session()
+        return session.graph if session is not None else ""
 
 
 class _FakeEngine:
@@ -226,6 +241,13 @@ class _FakeEngine:
         self.backend = backend
         self.graph_compute = _EmptyGraphCompute()
         self.graph = self.graph_compute
+
+    def for_graph(self, _graph_name: str) -> "_FakeEngine":
+        """Never narrows to a distinct object -- these tests are about ACL
+        hydration SOURCE (backend vs. compute scratchpad), not multi-graph
+        routing, so a for_graph() call (if the narrowing branch is ever
+        entered) degrades to this SAME engine/backend rather than denying."""
+        return self
 
 
 def test_durable_acl_hydration_reads_the_backend_not_the_compute_scratchpad(
@@ -413,3 +435,209 @@ def test_durable_access_rows_parses_json_and_native_external_access(monkeypatch,
     rows = sr._durable_access_rows(["native-node", "json-node"])
     assert rows["native-node"]["external_access"] == {"is_public": True}
     assert rows["json-node"]["external_access"] == {"is_public": True}
+
+
+# ── R-22/GOC-67 (defect 1): ACL hydration follows the SESSION's selected ────
+# ── physical graph, never the active engine's own default backend ──────────
+
+
+class _NamedGraphCompute:
+    """Mirrors the ``graph_compute.graph_name`` shape ``IntelligenceGraphEngine.
+    for_graph`` compares against to decide whether a view is even needed."""
+
+    def __init__(self, graph_name: str) -> None:
+        self.graph_name = graph_name
+
+
+class _MultiGraphFakeEngine:
+    """A fake ``IntelligenceGraphEngine`` bound to ONE physical graph, with a
+    real ``for_graph()`` returning a lightweight, PRE-BUILT view bound to a
+    different graph's own backend -- exactly the zero-transport,
+    no-new-socket contract ``IntelligenceGraphEngine.for_graph`` documents in
+    production. An unknown graph name has no view and raises, mirroring the
+    real ``for_graph``'s ``RuntimeError`` when the backend exposes no
+    named-graph view.
+    """
+
+    def __init__(
+        self,
+        graph_name: str,
+        backend: _FakeBackendReader,
+        *,
+        views: dict[str, "_MultiGraphFakeEngine"] | None = None,
+    ) -> None:
+        self.backend = backend
+        self.graph_compute = _NamedGraphCompute(graph_name)
+        self._views = views or {}
+
+    def for_graph(self, graph_name: str) -> "_MultiGraphFakeEngine":
+        if graph_name == self.graph_compute.graph_name:
+            return self
+        view = self._views.get(graph_name)
+        if view is None:
+            raise RuntimeError(f"backend has no named-graph view for {graph_name!r}")
+        return view
+
+
+def _graph_session(actor: ActorContext, graph: str) -> "GraphSession":
+    from agent_utilities.knowledge_graph.core.session import GraphSession
+
+    return GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        graph=graph,
+        scopes=frozenset({"kg:read", "kg:write"}),
+        policy_version="test-policy",
+        audience="test-audience",
+    )
+
+
+def test_durable_access_rows_hydrates_from_session_graph_not_active_default(
+    monkeypatch, brain
+):
+    """The core defect-1 proof: the ACTIVE engine's own bound graph is
+    'graph-a' (its backend carries NO acl material for a graph-b node -- this
+    stands in for "the process/default engine backend" the pre-fix code
+    always read from) while the verified session has narrowed to 'graph-b'.
+    ACL hydration must follow the SESSION, landing on graph-b's own backend
+    via ``for_graph`` -- never on graph-a's, which is left untouched.
+    """
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.session import use_session
+
+    backend_a = _FakeBackendReader(rows=[])  # graph-a: no matching ACL rows
+    backend_b = _FakeBackendReader(
+        rows=[
+            {
+                "id": "node-in-graph-b",
+                "tenant_id": "tenant-a",
+                "classification": "public",
+                "external_access": None,
+            }
+        ]
+    )
+    view_b = _MultiGraphFakeEngine("graph-b", backend_b)
+    active = _MultiGraphFakeEngine("graph-a", backend_a, views={"graph-b": view_b})
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", active)
+
+    actor = _actor("kg:read")
+    session = _graph_session(actor, "graph-b")
+    with use_actor(actor), use_session(session):
+        assert sr.permit(["node-in-graph-b"]) == ["node-in-graph-b"]
+
+    # graph-b's own backend served the hydration query...
+    assert backend_b.queries
+    assert backend_b.queries[0][1]["ids"] == ["node-in-graph-b"]
+    # ...and graph-a's ("the process/default engine backend") was NEVER
+    # touched -- pre-fix, EVERY hydration landed here instead and found
+    # nothing, so this node stayed default-denied despite being real,
+    # governed data on graph-b.
+    assert backend_a.queries == []
+
+
+def test_durable_access_rows_no_narrowing_when_session_matches_active_graph(
+    monkeypatch, brain
+):
+    """No session/active mismatch -> no ``for_graph`` detour; hydration reads
+    ``active.backend`` directly, byte-for-byte the pre-existing behavior."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.session import use_session
+
+    backend_a = _FakeBackendReader(
+        rows=[
+            {
+                "id": "node-in-graph-a",
+                "tenant_id": "tenant-a",
+                "classification": "public",
+                "external_access": None,
+            }
+        ]
+    )
+    active = _MultiGraphFakeEngine("graph-a", backend_a)
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", active)
+
+    actor = _actor("kg:read")
+    session = _graph_session(actor, "graph-a")
+    with use_actor(actor), use_session(session):
+        assert sr.permit(["node-in-graph-a"]) == ["node-in-graph-a"]
+    assert backend_a.queries
+
+
+def test_durable_access_rows_no_ambient_session_falls_back_to_active_default(
+    monkeypatch, brain
+):
+    """Backward compatibility: a caller with no ``GraphSession`` at all (only
+    the ambient ``ActorContext``, e.g. legacy call sites this fix must not
+    break) keeps hydrating from the active engine's own backend exactly as
+    before this fix existed. ``suspend_session()`` genuinely clears the
+    ambient GraphSession -- the suite-wide ``isolate_graph_compute_engine``
+    fixture otherwise always scopes one, so a bare ``use_actor`` block alone
+    is not actually session-less in this test suite."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.session import suspend_session
+
+    backend_a = _FakeBackendReader(
+        rows=[
+            {
+                "id": "legacy-node",
+                "tenant_id": "tenant-a",
+                "classification": "public",
+                "external_access": None,
+            }
+        ]
+    )
+    active = _MultiGraphFakeEngine("graph-a", backend_a)
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", active)
+
+    with use_actor(_actor("kg:read")), suspend_session():
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        assert current_session() is None  # genuinely no ambient GraphSession
+        assert sr.permit(["legacy-node"]) == ["legacy-node"]
+    assert backend_a.queries
+
+
+def test_durable_access_rows_unknown_graph_and_hydration_failure_both_deny_closed(
+    monkeypatch, brain
+):
+    """Fail-closed, indistinguishably: a graph absent from the engine's own
+    named-graph views (no ``for_graph`` target -- e.g. unknown/never
+    materialized) and a graph whose view exists but whose backend rejects the
+    hydration query (e.g. an authorization failure at the durable store) both
+    raise the SAME exception type -- never a silent empty-ACL fallback that
+    would look identical to "no rows matched" instead of "denied"."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+    from agent_utilities.knowledge_graph.core.session import use_session
+
+    class _RejectingBackend:
+        def execute_read(self, _query, _params, **_kw):
+            raise RuntimeError("simulated authorization failure at the durable store")
+
+    backend_a = _FakeBackendReader(rows=[])
+    view_denied = _MultiGraphFakeEngine("graph-denied", _RejectingBackend())
+    active = _MultiGraphFakeEngine(
+        "graph-a", backend_a, views={"graph-denied": view_denied}
+    )
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", active)
+    actor = _actor("kg:read")
+
+    # (1) Unknown graph -- no view for it at all.
+    with use_actor(actor), use_session(_graph_session(actor, "graph-unknown")):
+        with pytest.raises(PermissionError) as unknown_exc:
+            sr.permit(["node-x"])
+
+    # (2) Known graph, but its own backend rejects the hydration query.
+    with use_actor(actor), use_session(_graph_session(actor, "graph-denied")):
+        with pytest.raises(PermissionError) as denied_exc:
+            sr.permit(["node-x"])
+
+    assert type(unknown_exc.value) is PermissionError
+    assert type(denied_exc.value) is PermissionError
+    # Indistinguishable denial: ``permit()``'s own outer boundary re-wraps
+    # EVERY internal failure into the identical caller-facing message -- an
+    # unknown graph and a real authorization rejection cannot be told apart
+    # from the outside, which is the point (never leak "does this graph
+    # exist" as a side channel).
+    assert str(unknown_exc.value) == str(denied_exc.value) == (
+        "Node permission evaluation failed"
+    )

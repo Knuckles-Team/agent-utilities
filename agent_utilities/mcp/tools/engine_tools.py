@@ -621,6 +621,17 @@ def _dispatch(
     domain: str, methods: set[str], action: str, params_json: str, graph: str
 ) -> str:
     """Generic dispatch into one engine sub-client method. The ONE engine core."""
+    # A direct call bypassing FastMCP's own Field-default resolution (e.g. a
+    # raw Python call in a test, or another tool module forwarding its own
+    # unfilled ``graph`` Field straight through — see ``epistemic_tools.py``'s
+    # ``graph_epistemic``) binds an omitted ``graph`` to its raw, truthy
+    # ``pydantic.fields.FieldInfo`` rather than ``""`` — mirrors the same
+    # defensive normalization ``query_tools.py`` already applies for the
+    # identical reason. Left un-normalized, the narrowing check below would
+    # compare a real session graph name against a FieldInfo object, which can
+    # never compare equal, making the mismatch permanent and the one-step
+    # recursion unbounded.
+    graph = graph if isinstance(graph, str) else ""
     if not action:
         return json.dumps(
             {
@@ -640,6 +651,36 @@ def _dispatch(
     # JSON error data) so a denial is unambiguous and cannot be masked by a
     # caller pattern-matching on ``{"error": ...}`` engine-degrade payloads.
     _enforce_action_scope(domain, action)
+
+    # R-23/GOC-67 (defect 2): an explicit `graph` narrows the CLIENT
+    # `_client_for` builds below (a `_SessionRoutedAsyncClient` view FIXED to
+    # `graph`) but says nothing about the ambient verified `GraphSession`
+    # this call is authenticated under — that session still names whatever
+    # graph the calling boundary bound it to (commonly the deployment
+    # default). The mismatch between a client fixed to `graph` and a session
+    # still naming the default is caught correctly, but only deep inside the
+    # wire layer's own `_send` ("A graph-scoped view cannot retarget the
+    # verified GraphSession") — by which point a legitimate, RBAC-authorized
+    # `graph=` selection has already been rejected before the engine's own
+    # RBAC/RLS ever got to evaluate the request.
+    #
+    # Fix: narrow the SESSION first — through `kg_server.bound_to_graph`, the
+    # exact `GraphSession.with_graph()` + `use_session()` primitive
+    # `query_tools.py`'s `resolve_explicit_graph`/`bound_to_graph` callers
+    # already use (no second authorization mechanism; the engine's own
+    # RBAC/RLS still evaluates every RPC server-side, identically) — then
+    # re-enter this function once. The recursive leg observes
+    # `current_session().graph == graph` (``with_graph`` makes the two equal
+    # on the very next entry) and this branch is skipped, so recursion
+    # terminates after exactly one narrowing; it is structurally incapable
+    # of recursing a second time.
+    from agent_utilities.knowledge_graph.core.session import current_session
+
+    session = current_session()
+    if graph and session is not None and session.graph != graph:
+        with kg_server.bound_to_graph(graph):
+            return _dispatch(domain, methods, action, params_json, graph)
+
     try:
         params = json.loads(params_json) if params_json else {}
     except (TypeError, ValueError) as exc:
