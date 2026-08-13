@@ -267,6 +267,10 @@ jobs:
         continue-on-error: true
         run: python3 scripts/check_no_env_sprawl.py
 
+      - name: Stdio JSON-RPC purity gate (B-19)
+        continue-on-error: true
+        run: python3 scripts/check_no_stdout_writes.py
+
       - name: Liveness ratchet gate
         continue-on-error: true
         run: python3 scripts/check_liveness.py
