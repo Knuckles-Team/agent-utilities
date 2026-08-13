@@ -53,7 +53,7 @@ _RELEASE_RESOURCE_CATALOG = "deploy/release/release-contract-resources.catalog.j
 # --write for a real source change). Verify with `sha256sum` before bumping;
 # never regenerate this blindly, it is the wheel contract's trusted anchor.
 _RELEASE_RESOURCE_CATALOG_SHA256 = (
-    "f0173c0f8b196f2d4434fa985a1f8be16fc99e058d8144b06cd7789b43e41dd4"
+    "c657fed697c66420b5f76e15834030d3463656b8a3e1713ce2dbf5dcd2a986dc"
 )
 _RELEASE_RESOURCE_PATHS = (
     "deploy/release/certification-campaign.schema.json",
