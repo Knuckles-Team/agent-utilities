@@ -1,4 +1,12 @@
+# Without this, `pre-commit install` wires ONLY the pre-commit hook, so `git push`
+# runs nothing and every hook staged pre-push is silently dead code.
+default_install_hook_types: [pre-commit, pre-push]
 exclude: ^scripts/
+# Phase 0 dev-velocity contract (graph-os-completion-program): a hook with no
+# explicit `stages:` below is commit-only, never both. agent-utilities already
+# staged most HEAVY hooks explicitly (D-ORC-48 etc); this codifies the same
+# intent for the small remainder that still defaulted to commit-only.
+default_stages: [pre-commit]
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
@@ -76,6 +84,7 @@ repos:
   - id: uv-lock
     entry: python3 scripts/uv_workspace.py lock
     args: ["--locked"]
+    stages: [pre-push, manual]
 - repo: local
   hooks:
   - id: dependency-audit
@@ -441,6 +450,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [manual, pre-push]
   # BLOCKING: the anti-sprawl gate (versioned clones, conflict artifacts,
   # botched-merge dividers, oversized tracked binaries). Plan-03 cleared all
   # botched-merge dividers, so this now runs BLOCKING.
@@ -517,6 +527,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [manual, pre-push]
 # ── CI parity: gates that live in a CI workflow but had no pre-commit mirror ──
 # These close the remaining CI<->pre-commit parity gaps so that
 # `pre-commit run --all-files` (default stage) == the union of the non-deploy,
@@ -730,6 +741,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [manual, pre-push]
   # 2. The LIVE behavioral matrix stays available on demand — staged manual only
   #    (needs Docker + a running engine; never on a normal commit/push).
   #    Run it via:  pre-commit run backend-parity --hook-stage manual --all-files
@@ -751,6 +763,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [manual, pre-push]
   # guardrails.yml ENVIRONMENT parity — the highest-value parity closure. The
   # gates above run in the developer's FULL install; CI's "Guardrails" job runs
   # them in a deliberately LEAN install (`pip install -e .` + numpy/pyyaml/pytest/
