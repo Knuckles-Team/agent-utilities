@@ -59,7 +59,6 @@ document under the XDG state directory.
 from __future__ import annotations
 
 import argparse
-import fcntl
 import hashlib
 import json
 import logging
@@ -1080,17 +1079,20 @@ def exclusive_lock(workspace: Workspace, *, blocking: bool = False) -> Iterator[
     reconciler (or the next one) drains it.
     """
 
+    # R-07: routed through the file_lock chokepoint (was a direct
+    # ``import fcntl``, POSIX-only and Windows-import-fatal). Imported here
+    # rather than at module scope to keep this module's existing lazy-import
+    # style for agent_utilities siblings (see e.g. venv_autosync above).
+    from agent_utilities.knowledge_graph.core.file_lock import lock_exclusive, unlock
+
     workspace.state_dir.mkdir(parents=True, exist_ok=True)
     path = workspace.state_dir / "writer.lock"
-    flags = fcntl.LOCK_EX if blocking else fcntl.LOCK_EX | fcntl.LOCK_NB
     handle = path.open("a+", encoding="utf-8")
     try:
-        try:
-            fcntl.flock(handle.fileno(), flags)
-        except BlockingIOError as exc:
+        if not lock_exclusive(handle.fileno(), blocking=blocking):
             raise LockBusyError(
                 f"another reconciler holds {path}; not competing for the shared venv"
-            ) from exc
+            )
         handle.seek(0)
         handle.truncate()
         handle.write(f"{os.getpid()} {datetime.now(UTC).isoformat()}\n")
@@ -1098,7 +1100,7 @@ def exclusive_lock(workspace: Workspace, *, blocking: bool = False) -> Iterator[
         yield path
     finally:
         try:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            unlock(handle.fileno())
         finally:
             handle.close()
 

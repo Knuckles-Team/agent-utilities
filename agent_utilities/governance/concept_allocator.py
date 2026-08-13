@@ -40,7 +40,6 @@ without dragging in heavy deps; ``yaml``/``platformdirs`` load lazily.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import re
@@ -64,6 +63,12 @@ from agent_utilities.governance.lanes import (
     shared_arbitration_dir,
     write_view,
 )
+
+# R-07: file_lock is itself stdlib-only (see its own module docstring), so
+# importing it here keeps this module's "top-level imports are stdlib-only"
+# contract while routing through the chokepoint instead of a direct,
+# POSIX-only `import fcntl`.
+from agent_utilities.knowledge_graph.core.file_lock import lock_exclusive, unlock
 
 MARKER_RE = OKF_MARKER_RE
 LEDGER_FILENAME = "concept_reservations.yaml"
@@ -466,12 +471,12 @@ class _Arbiter:
 
     def __enter__(self) -> _Arbiter:
         self._fd = os.open(str(self._path), os.O_CREAT | os.O_WRONLY, 0o644)
-        fcntl.flock(self._fd, fcntl.LOCK_EX)
+        lock_exclusive(self._fd)
         return self
 
     def __exit__(self, *_exc: object) -> None:
         try:
-            fcntl.flock(self._fd, fcntl.LOCK_UN)
+            unlock(self._fd)
         finally:
             os.close(self._fd)
 

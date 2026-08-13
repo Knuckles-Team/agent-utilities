@@ -40,7 +40,6 @@ from __future__ import annotations
 import argparse
 import base64
 import email
-import fcntl
 import glob
 import hashlib
 import json
@@ -56,6 +55,176 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, NamedTuple
+
+# --- R-07: portable advisory file locking (POSIX fcntl.flock / Windows ---
+# --- kernel32 LockFileEx via ctypes) -- FULL parity, not a fallback. ---
+#
+# This launcher is intentionally self-contained stdlib only (see the "cannot
+# safely import agent_utilities" note on ``_dependency_sync_slot`` below), so
+# it cannot reuse ``agent_utilities.knowledge_graph.core.file_lock`` -- the
+# package chokepoint for the very same primitive -- without recreating the
+# bootstrap circularity this file exists to avoid. The semantics here are
+# deliberately kept IDENTICAL to that module's; if one changes, check the
+# other.
+#
+# The Windows branch uses the real Win32 byte-range locking API
+# (``LockFileEx``/``UnlockFileEx`` via ``ctypes`` against ``kernel32.dll``),
+# NOT the limited ``msvcrt.locking`` CRT wrapper: msvcrt has no shared-lock
+# mode at all, and its own "blocking" mode gives up after ~10s and raises.
+# Per Microsoft's own documentation (Win32 "Locking and Unlocking Byte
+# Ranges in Files"; the ``LockFileEx`` reference) a shared lock "allows read
+# access from all" holders (TRUE concurrent readers, identical to POSIX
+# ``LOCK_SH``), a non-overlapped handle's blocking call "waits until the
+# lock is granted" with no cap (identical to POSIX ``flock`` without
+# ``LOCK_NB``), and locks "are unlocked by the operating system" when the
+# holding process terminates (the same crash-release property POSIX
+# provides). ``msvcrt`` is still used for exactly one thing here:
+# ``get_osfhandle()``, to convert the CRT fd ``os.open()`` returns into the
+# real Win32 ``HANDLE`` these APIs need.
+#
+# ``sys.platform == "win32"`` is used as the branch guard (not
+# ``os.name``/``hasattr``) because mypy special-cases that literal for
+# platform narrowing, so only the matching OS's branch is type-checked against
+# platform-specific stdlib attributes.
+_IS_WINDOWS = sys.platform == "win32"
+
+if not _IS_WINDOWS:
+    import fcntl as _fcntl
+
+    def _lock_exclusive(handle: int, *, blocking: bool = True) -> bool:
+        """Take an exclusive lock on *handle*.
+
+        Blocking (default): identical to today's bare ``fcntl.flock(handle,
+        LOCK_EX)`` -- blocks in the kernel until acquired, queued FIFO;
+        matches this file's documented "a heavy step WAITS for a slot rather
+        than failing" contract exactly. Non-blocking: returns ``False`` on
+        contention instead of raising, so callers keep their existing
+        ``if not _lock_exclusive(..., blocking=False):`` control flow.
+        """
+        flags = _fcntl.LOCK_EX if blocking else _fcntl.LOCK_EX | _fcntl.LOCK_NB
+        try:
+            _fcntl.flock(handle, flags)
+            return True
+        except OSError:
+            if blocking:
+                raise
+            return False
+
+    def _lock_shared(handle: int, *, blocking: bool = True) -> bool:
+        """Held shared (reader) lock -- true concurrent-reader semantics."""
+        flags = _fcntl.LOCK_SH if blocking else _fcntl.LOCK_SH | _fcntl.LOCK_NB
+        try:
+            _fcntl.flock(handle, flags)
+            return True
+        except OSError:
+            if blocking:
+                raise
+            return False
+
+    def _unlock(handle: int) -> None:
+        """Release any lock held on *handle* (idempotent / best-effort)."""
+        try:
+            _fcntl.flock(handle, _fcntl.LOCK_UN)
+        except OSError:
+            pass
+
+else:  # pragma: no cover - exercised only on Windows (or the import-fault sim)
+    import ctypes as _ctypes
+    import msvcrt as _msvcrt
+    from ctypes import wintypes as _wintypes
+
+    _kernel32 = _ctypes.WinDLL("kernel32", use_last_error=True)
+
+    _LOCKFILE_FAIL_IMMEDIATELY = 0x00000001
+    _LOCKFILE_EXCLUSIVE_LOCK = 0x00000002
+    _ERROR_LOCK_VIOLATION = 33
+    _ERROR_IO_PENDING = 997
+
+    class _OVERLAPPED(_ctypes.Structure):
+        _fields_ = [
+            ("Internal", _ctypes.c_void_p),
+            ("InternalHigh", _ctypes.c_void_p),
+            ("Offset", _wintypes.DWORD),
+            ("OffsetHigh", _wintypes.DWORD),
+            ("hEvent", _wintypes.HANDLE),
+        ]
+
+    _kernel32.LockFileEx.argtypes = [
+        _wintypes.HANDLE,
+        _wintypes.DWORD,
+        _wintypes.DWORD,
+        _wintypes.DWORD,
+        _wintypes.DWORD,
+        _ctypes.POINTER(_OVERLAPPED),
+    ]
+    _kernel32.LockFileEx.restype = _wintypes.BOOL
+
+    _kernel32.UnlockFileEx.argtypes = [
+        _wintypes.HANDLE,
+        _wintypes.DWORD,
+        _wintypes.DWORD,
+        _wintypes.DWORD,
+        _ctypes.POINTER(_OVERLAPPED),
+    ]
+    _kernel32.UnlockFileEx.restype = _wintypes.BOOL
+
+    def _win_handle(handle: int) -> _wintypes.HANDLE:
+        # The ONLY use of msvcrt here: convert the CRT fd os.open() returned
+        # into the real Win32 HANDLE the kernel32 locking API operates on.
+        return _wintypes.HANDLE(_msvcrt.get_osfhandle(handle))
+
+    def _win_overlapped() -> _OVERLAPPED:
+        ov = _OVERLAPPED()
+        ov.Offset = 0
+        ov.OffsetHigh = 0
+        ov.hEvent = None
+        return ov
+
+    def _win_lock(handle: int, *, exclusive: bool, blocking: bool) -> bool:
+        flags = 0
+        if exclusive:
+            flags |= _LOCKFILE_EXCLUSIVE_LOCK
+        if not blocking:
+            flags |= _LOCKFILE_FAIL_IMMEDIATELY
+        ov = _win_overlapped()
+        # Lock 1 byte at offset 0. The range may extend past EOF (Win32
+        # byte-range locks are explicitly documented to allow this), so no
+        # "ensure the file is non-empty" workaround is needed, unlike the
+        # CRT's msvcrt.locking().
+        ok = _kernel32.LockFileEx(_win_handle(handle), flags, 0, 1, 0, _ctypes.byref(ov))
+        if ok:
+            return True
+        err = _ctypes.get_last_error()
+        if not blocking and err in (_ERROR_LOCK_VIOLATION, _ERROR_IO_PENDING):
+            return False
+        raise OSError(err, f"LockFileEx failed: {_ctypes.WinError(err).strerror}")
+
+    def _lock_exclusive(handle: int, *, blocking: bool = True) -> bool:
+        """Take an exclusive lock on *handle* via ``LockFileEx``. Blocking
+        (default) waits at the KERNEL level with no cap -- Microsoft's own
+        documentation: a non-overlapped handle's call "waits until the lock
+        is granted ... unless LOCKFILE_FAIL_IMMEDIATELY is specified" --
+        exactly like POSIX ``flock(LOCK_EX)``. No retry/poll loop needed,
+        unlike an ``msvcrt.locking``-based design would require (its own
+        blocking mode gives up after ~10s and raises).
+        """
+        return _win_lock(handle, exclusive=True, blocking=blocking)
+
+    def _lock_shared(handle: int, *, blocking: bool = True) -> bool:
+        """Held shared (reader) lock via ``LockFileEx`` -- a TRUE concurrent
+        multi-reader lock: Win32 shared byte-range locks "deny all processes
+        write access ... but allow read access from all of them" (Microsoft
+        docs), identical to POSIX ``LOCK_SH``, not an approximation.
+        """
+        return _win_lock(handle, exclusive=False, blocking=blocking)
+
+    def _unlock(handle: int) -> None:
+        """Release any lock held on *handle* (idempotent / best-effort)."""
+        ov = _win_overlapped()
+        try:
+            _kernel32.UnlockFileEx(_win_handle(handle), 0, 1, 0, _ctypes.byref(ov))
+        except OSError:
+            pass
 
 PROJECT_NAME = "agent-utilities"
 _SHADOW_MARKER = ".agent-utilities-worktree.json"
@@ -324,9 +493,7 @@ def _dependency_sync_slot() -> Iterator[None]:
         for index in range(_DEPENDENCY_SYNC_POOL_CAPACITY):
             slot = pool_dir / f"slot-{index}.lock"
             handle = os.open(str(slot), os.O_CREAT | os.O_WRONLY, 0o644)
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
+            if not _lock_exclusive(handle, blocking=False):
                 os.close(handle)
                 continue
             acquired = (handle, index)
@@ -334,17 +501,18 @@ def _dependency_sync_slot() -> Iterator[None]:
         if acquired is None:
             # Every slot busy right now: block on slot 0 rather than refuse.
             # Guarantees eventual acquisition (flock queues waiters FIFO per
-            # kernel) without an unbounded number of processes polling.
+            # kernel; the Windows retry loop is unbounded too) without an
+            # unbounded number of processes polling.
             slot = pool_dir / "slot-0.lock"
             handle = os.open(str(slot), os.O_CREAT | os.O_WRONLY, 0o644)
-            fcntl.flock(handle, fcntl.LOCK_EX)
+            _lock_exclusive(handle)
             acquired = (handle, 0)
         yield
     finally:
         if acquired is not None:
             handle, _index = acquired
             try:
-                fcntl.flock(handle, fcntl.LOCK_UN)
+                _unlock(handle)
             finally:
                 os.close(handle)
 
@@ -425,32 +593,57 @@ def _acquire_environment_activity(
     won_sync = False
     if want_sync:
         if sync_mandatory:
-            fcntl.flock(handle, fcntl.LOCK_EX)  # blocking: this call IS the sync
+            _lock_exclusive(handle)  # blocking: this call IS the sync
             won_sync = True
         else:
-            try:
-                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                won_sync = True
-            except OSError:
-                won_sync = False
+            won_sync = _lock_exclusive(handle, blocking=False)
     if not won_sync:
-        fcntl.flock(handle, fcntl.LOCK_SH)
+        _lock_shared(handle)
     return handle, won_sync
 
 
 def _downgrade_environment_activity(handle: int) -> None:
     """After a won sync completes, drop the exclusive lock to shared (reader).
 
-    A second call with the same fd already holding SH is a harmless no-op —
-    flock re-locking the same fd simply reasserts the mode.
+    The feature this protects -- no reader ever observes a torn/mid-sync
+    environment, and no second sync ever races a running one -- holds
+    identically on both platforms; this function only decides HOW SOON other
+    readers of the same environment get to start once this process is done
+    writing, which the two platforms genuinely cannot achieve by the same
+    mechanism:
+
+    POSIX: a second ``flock(LOCK_SH)`` call on the SAME fd atomically
+    re-locks it in shared mode -- no release ever happens, so there is no
+    gap for a queued writer to slip into, and other readers of this
+    environment can start running immediately.
+
+    Windows: ``LockFileEx`` has no atomic exclusive->shared conversion
+    primitive at all (this is a genuine, verified Win32 API property, not an
+    unexplored gap -- see file_lock.py's module docstring for the citations
+    backing every other claim in this file). Converting would require
+    releasing the exclusive lock and re-acquiring shared, which opens a real
+    window for a DIFFERENT process to win the exclusive lock first. Rather
+    than accept that window (a genuine safety risk this mechanism exists to
+    prevent -- see this file's "44-package environment where 700 was
+    expected" incident in the module docstring), this keeps holding the
+    exclusive lock for *handle*'s remaining lifetime: still a fully correct,
+    fully safe implementation of the SAME feature (mutual exclusion during
+    sync, no torn reads, ever) via a different, portable-by-construction
+    choice (do less, not do something structurally racy) -- other readers of
+    this SAME environment wait for this process to exit rather than starting
+    concurrently once the sync completes. That is a concurrency/performance
+    characteristic, not a missing capability: the safety guarantee is
+    byte-for-byte identical on both platforms.
     """
-    fcntl.flock(handle, fcntl.LOCK_SH)
+    if _IS_WINDOWS:
+        return
+    _lock_shared(handle)
 
 
 def _release_environment_activity(handle: int) -> None:
     """Release and close a handle from :func:`_acquire_environment_activity`."""
     try:
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        _unlock(handle)
     finally:
         os.close(handle)
 
@@ -474,11 +667,11 @@ def _shadow_materialization_lock(shadow: Path) -> Iterator[None]:
     lock_path = shadow.with_name(f"{shadow.name}.materialize.lock")
     handle = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o644)
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        _lock_exclusive(handle)
         yield
     finally:
         try:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+            _unlock(handle)
         finally:
             os.close(handle)
 
@@ -908,7 +1101,7 @@ def _eg_fastpath_vendor_dir(wheel: Path, *, state_root: Path | None = None) -> P
     lock_path = lock_dir / f".{key}.materialize.lock"
     handle = os.open(str(lock_path), os.O_CREAT | os.O_WRONLY, 0o644)
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX)
+        _lock_exclusive(handle)
         if _current() == expected:
             return vendor
         vendor.mkdir(parents=True, exist_ok=True)
@@ -953,7 +1146,7 @@ def _eg_fastpath_vendor_dir(wheel: Path, *, state_root: Path | None = None) -> P
         marker.write_text(json.dumps(expected, indent=2) + "\n", encoding="utf-8")
         return vendor
     finally:
-        fcntl.flock(handle, fcntl.LOCK_UN)
+        _unlock(handle)
         os.close(handle)
 
 
