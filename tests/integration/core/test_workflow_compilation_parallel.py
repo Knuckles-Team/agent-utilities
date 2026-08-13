@@ -39,10 +39,48 @@ def get_skills_root() -> Path:
     return root
 
 
+def _installed_universal_skills_version() -> str:
+    import importlib.metadata
+
+    try:
+        return importlib.metadata.version("universal-skills")
+    except importlib.metadata.PackageNotFoundError:
+        return "unknown"
+
+
+def _require_installed_skill(skills_root: Path, category: str, skill_name: str) -> Path:
+    """Resolve a category/skill dir, failing LOUDLY and BY NAME if it is absent.
+
+    CONCEPT B2 (REMAINING-ISSUES-DESIGNS.md): the latest published
+    ``universal-skills`` PyPI release (currently 1.2.1) does not yet ship
+    every category this test suite expects — ``infrastructure-workflows``,
+    ``finance-workflows``, and most of ``development-workflows`` are missing
+    from the installed package. That is an upstream PUBLISHING gap, not a bug
+    in this repo, and not a test bug either — the fix is a real
+    ``universal-skills`` release containing those categories. Until that
+    ships, this must keep failing (never silently skip/xfail/assert-away) so
+    the gap stays visible, but the failure names EXACTLY what is missing from
+    which installed version instead of surfacing as an opaque
+    ``assert None is not None`` deep inside ``SkillCompiler``.
+    """
+    skill_dir = skills_root / category / skill_name
+    if not skill_dir.is_dir():
+        raise AssertionError(
+            f"universal-skills=={_installed_universal_skills_version()} (installed) "
+            f"does not publish {category}/{skill_name} — upstream publishing gap "
+            "(CONCEPT B2), not a defect in agent-utilities. Regenerate/publish a "
+            "universal-skills release containing this category, then this test "
+            "will resolve the real path and exercise it."
+        )
+    return skill_dir
+
+
 def test_deploy_observability_stack_compilation():
     """Verify that deploy_observability_stack workflow compiles into correct parallel DAG."""
     skills_root = get_skills_root()
-    skill_dir = skills_root / "infrastructure-workflows" / "deploy-observability-stack"
+    skill_dir = _require_installed_skill(
+        skills_root, "infrastructure-workflows", "deploy-observability-stack"
+    )
 
     plan = SkillCompiler.compile(skill_dir)
     assert plan is not None
@@ -86,7 +124,9 @@ def test_deploy_observability_stack_compilation():
 def test_alpha_factor_mining_compilation():
     """Verify that alpha_factor_mining workflow compiles into correct parallel DAG."""
     skills_root = get_skills_root()
-    skill_dir = skills_root / "finance-workflows" / "alpha-factor-mining"
+    skill_dir = _require_installed_skill(
+        skills_root, "finance-workflows", "alpha-factor-mining"
+    )
 
     plan = SkillCompiler.compile(skill_dir)
     assert plan is not None
@@ -131,7 +171,9 @@ def test_sdd_full_lifecycle_compilation():
     universal_skills/development-workflows/sdd-full-lifecycle/SKILL.md.
     """
     skills_root = get_skills_root()
-    skill_dir = skills_root / "development-workflows" / "sdd-full-lifecycle"
+    skill_dir = _require_installed_skill(
+        skills_root, "development-workflows", "sdd-full-lifecycle"
+    )
 
     plan = SkillCompiler.compile(skill_dir)
     assert plan is not None
@@ -170,7 +212,9 @@ def test_parallel_engine_wave_scheduling_for_workflows():
 
     # 1. Test deploy_observability_stack scheduling
     observability_plan = SkillCompiler.compile(
-        skills_root / "infrastructure-workflows" / "deploy-observability-stack"
+        _require_installed_skill(
+            skills_root, "infrastructure-workflows", "deploy-observability-stack"
+        )
     )
     assert observability_plan is not None
 
@@ -206,7 +250,9 @@ def test_parallel_engine_wave_scheduling_for_workflows():
 
     # 2. Test sdd_full_lifecycle scheduling
     sdd_plan = SkillCompiler.compile(
-        skills_root / "development-workflows" / "sdd-full-lifecycle"
+        _require_installed_skill(
+            skills_root, "development-workflows", "sdd-full-lifecycle"
+        )
     )
     assert sdd_plan is not None
 
@@ -269,7 +315,13 @@ def test_all_library_workflows_compilation():
     # buffer below that so a handful of workflows moving around doesn't flake
     # this test, while still catching a real catalog regression.
     assert len(workflow_paths) >= 160, (
-        f"Expected at least 160 multi-agent workflows, found {len(workflow_paths)}"
+        f"Expected at least 160 multi-agent workflows, found {len(workflow_paths)} in "
+        f"universal-skills=={_installed_universal_skills_version()} (installed). If "
+        "this is below 160 because whole *-workflows categories are missing "
+        "(infrastructure-workflows, finance-workflows, most of "
+        "development-workflows) that is the known CONCEPT B2 upstream "
+        "publishing gap, not a defect here — see "
+        "_require_installed_skill's docstring above."
     )
 
     for skill_dir in workflow_paths:
