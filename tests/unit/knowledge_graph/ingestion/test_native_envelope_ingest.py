@@ -797,6 +797,70 @@ def test_graph_slice_helper_commits_edge_only_batches_with_governed_marker() -> 
     assert marker["relationship_count"] == 1
 
 
+def test_graph_slice_helper_honors_a_caller_supplied_idempotency_key() -> None:
+    """B-11 — a non-empty ``idempotency_key`` is used EXACTLY as given, not the
+    whole-slice content digest ``ingest_graph_slice`` derives by default."""
+    compute = _Compute("graph-slice-caller-key")
+
+    result = module.ingest_graph_slice(
+        compute,
+        "bulk_ingest",
+        [{"id": "n1", "node_type": "Thing", "value": 1}],
+        [],
+        idempotency_key="caller-owned-key",
+    )
+
+    assert result["status"] == "success"
+    assert result["idempotency_key"] == "caller-owned-key"
+    committed = compute.client.changes.applied[0]
+    assert committed["mutation"]["idempotency_key"] == "caller-owned-key"
+
+
+def test_graph_slice_helper_default_idempotency_key_is_unchanged() -> None:
+    """Empty (the default) preserves the pre-existing whole-slice-digest
+    auto-derivation — every caller that predates the ``idempotency_key`` param
+    keeps byte-identical behavior."""
+    compute = _Compute("graph-slice-default-key")
+
+    result = module.ingest_graph_slice(
+        compute,
+        "bulk_ingest",
+        [{"id": "n1", "node_type": "Thing", "value": 1}],
+        [],
+    )
+
+    assert result["status"] == "success"
+    assert result["idempotency_key"] != ""
+    assert result["idempotency_key"] != "caller-owned-key"
+
+
+def test_graph_slice_helper_caller_key_replay_is_reported_as_skipped() -> None:
+    """A second call with the SAME caller-supplied key is a genuine replay —
+    the engine's own (tenant, graph, idempotency_key)-scoped dedup reports it
+    honestly as 'skipped', not a fresh 'success'."""
+    compute = _Compute("graph-slice-replay")
+
+    first = module.ingest_graph_slice(
+        compute,
+        "bulk_ingest",
+        [{"id": "n1", "node_type": "Thing", "value": 1}],
+        [],
+        idempotency_key="replay-key",
+    )
+    second = module.ingest_graph_slice(
+        compute,
+        "bulk_ingest",
+        # Different content -- but the SAME idempotency key still wins: the
+        # engine's dedup is keyed on (tenant, graph, idempotency_key), not content.
+        [{"id": "n1", "node_type": "Thing", "value": 2}],
+        [],
+        idempotency_key="replay-key",
+    )
+
+    assert first["status"] == "success"
+    assert second["status"] == "skipped"
+
+
 def test_batch_proxy_never_invokes_raw_external_batch_in_native_profile() -> None:
     compute = _Compute("graph-proxy")
     proxy = module.NativeChangeEnvelopeEngineProxy(compute)

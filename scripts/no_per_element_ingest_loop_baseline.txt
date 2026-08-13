@@ -1,0 +1,14 @@
+# Frozen baseline of check_no_per_element_ingest_loop.py candidate sites
+# (ratchet — burn down toward zero, B-11/GOC-68). Format: relpath\tfunc\tlabel.
+# A NEW site not listed here fails the gate — including a deliberately
+# reintroduced per-element ingest loop, which is exactly what this gate
+# exists to catch. Fixing a listed site (route it through batch_typed_mutations/
+# BatchUpdate or ingest_graph_slice/ApplyChangeEnvelopes instead) is always
+# allowed and should be followed by --update-baseline to shrink this file.
+agent_utilities/mcp/agent_manager.py	sync_mcp_agents	per-element ingest call in a loop: engine.add_node
+agent_utilities/mcp/agent_manager.py	sync_mcp_agents	per-element ingest call in a loop: engine.link_nodes
+agent_utilities/mcp/kg_server.py	_ingest_capabilities	per-element ingest call in a loop: engine.add_node
+agent_utilities/mcp/tools/analysis_tools.py	_mine_and_link_coupling	per-element ingest call in a loop: engine.link_nodes
+agent_utilities/mcp/tools/ops_causal_tools.py	_materialize_root_cause_claims	per-element ingest call in a loop: engine.add_node
+agent_utilities/mcp/tools/query_tools.py	_persist_sections	per-element ingest call in a loop: engine.add_edge
+agent_utilities/mcp/tools/query_tools.py	_persist_sections	per-element ingest call in a loop: engine.add_node

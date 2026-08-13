@@ -644,6 +644,23 @@ def register_query_tools(mcp):
                 )
             return engine.query_cypher(cypher, parsed_params, as_of=as_of or None)
 
+        def _content_graph_query(name: str, engine: Any) -> Any:
+            # B-18 fix: within the implicit content-graph UNION fan-out (never
+            # the explicit multi-connection fan-out below, which never calls
+            # this), `name` IS the physical graph `engine` is scoped to (see
+            # `kg_server._resolve_read_engines`'s
+            # `ingest_routing.safe_engine_for_graph(gname)` — a `for_graph()`
+            # view that fixes the outbound wire request's `graph` field but
+            # never rebinds `session.graph` to match). The wire layer's own
+            # mismatch lock (`_SessionRoutedAsyncClient._send`) then rejects
+            # every non-"default" leg with `PermissionError`, degrading the
+            # union to per-target errors. Narrow the verified session to the
+            # SAME graph via the sanctioned `bound_to_graph` primitive
+            # (CONCEPT:AU-KG.backend.explicit-graph-selection) so the request
+            # is self-consistent instead of inventing a second mechanism.
+            with kg_server.bound_to_graph(name):
+                return _fanout_query(name, engine)
+
         if _union_read:
             # CONCEPT:AU-KG.ingest.unified-query-routing — mirror `graph_search`'s
             # primary/supplementary split (see the `graph_search` implementation
@@ -680,7 +697,13 @@ def register_query_tools(mcp):
                 # `fanout_execute`) only to skip its concurrency/timeout
                 # machinery, not its error handling.
                 try:
-                    results[name] = _fanout_query(name, engine)
+                    # B-18: the robustness fallback above can promote a real
+                    # content graph into `primary` when no "default" entry was
+                    # resolved — bind it too, never just the literal-"default"
+                    # entry (which needs no narrowing since it already targets
+                    # the ambient session's own graph).
+                    fn = _fanout_query if name == "default" else _content_graph_query
+                    results[name] = fn(name, engine)
                 except Exception as exc:  # noqa: BLE001 — mirrors fanout_execute's per-target catch below (same non-leaking, BUG-048-classified label): a denied/failed primary must surface as a labeled error, never propagate raw or silently vanish
                     logger.warning(
                         "Graph fan-out primary target failed (exception_type=%s)",
@@ -690,7 +713,7 @@ def register_query_tools(mcp):
             if supplementary:
                 sup_results, sup_errors = kg_server.fanout_execute(
                     supplementary,
-                    _fanout_query,
+                    _content_graph_query,
                     timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
                 )
                 results.update(sup_results)
@@ -1369,6 +1392,25 @@ def register_query_tools(mcp):
                 except Exception as e:
                     return public_error_text(e)
 
+            def _content_graph_search(name: str, engine: Any) -> str:
+                # B-18 fix: mirrors `_run_graph_query`'s `_content_graph_query`
+                # above — within the implicit content-graph UNION fan-out,
+                # `name` is the physical graph `engine` is scoped to
+                # (`ingest_routing.safe_engine_for_graph`'s `for_graph()` view
+                # never rebinds `session.graph`), so the wire layer's mismatch
+                # lock rejected every non-"default" leg. Narrow the verified
+                # session to the same graph via the sanctioned
+                # `bound_to_graph` primitive before running the search.
+                # `_run_search` never raises (it self-catches into an error
+                # string) — match that contract so `bound_to_graph` itself
+                # failing (e.g. no ambient session) degrades the same way
+                # instead of escaping this helper uncaught.
+                try:
+                    with kg_server.bound_to_graph(name):
+                        return _run_search(engine)
+                except Exception as e:
+                    return public_error_text(e)
+
             def _search_with_engine(engine: Any) -> str:
                 # CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval — every served
                 # `graph_search` call already runs inside the middleware-minted
@@ -1597,11 +1639,18 @@ def register_query_tools(mcp):
                 results: dict[str, Any] = {}
                 fan_errors: dict[str, str] = {}
                 for name, engine in primary:
-                    results[name] = _run_search(engine)
+                    # B-18: bind for a real content graph promoted into
+                    # `primary` by the robustness fallback above too — only
+                    # the literal-"default" entry already targets the
+                    # ambient session's own graph and needs no narrowing.
+                    if name == "default":
+                        results[name] = _run_search(engine)
+                    else:
+                        results[name] = _content_graph_search(name, engine)
                 if supplementary:
                     sup_results, sup_errors = kg_server.fanout_execute(
                         supplementary,
-                        lambda name, engine: _run_search(engine),
+                        _content_graph_search,
                         timeout=kg_server.DEFAULT_CONTENT_FANOUT_TIMEOUT_S,
                     )
                     results.update(sup_results)

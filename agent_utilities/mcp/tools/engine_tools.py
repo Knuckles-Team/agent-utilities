@@ -104,6 +104,15 @@ _DOMAIN_CLASSES: dict[str, str] = {
     # cleanly (see ``_discover_domains`` below) until the engine client ships
     # ``VizClient``.
     "viz": "VizClient",
+    # B-12 — the native document/image/audio/video ingest + typed-query +
+    # events surface (16 methods: ingest/ingest_stream/query_image_region/
+    # query_similar_images/query_audio_window/query_video_window/delete/
+    # move_to_cold/restore/events/stats/collect_tombstones/capabilities/…)
+    # had zero au callers anywhere, verified by grep, despite being fully
+    # implemented and bound on the typed client as ``.modalities``. This is
+    # the same generic introspection-driven registration every other domain
+    # gets — no bespoke tool needed.
+    "modalities": "ServedModalityClient",
 }
 
 _DOMAIN_BLURB: dict[str, str] = {
@@ -133,6 +142,7 @@ _DOMAIN_BLURB: dict[str, str] = {
     "admin": "ops/maintenance: online backup + restore (ADMIN)",
     "graphlearn": "KAN graph-learning: fit/predict a learned per-feature edge-function link predictor",
     "viz": "D-VZ-1 native visualization: render/capability_matrix over the eg-viz LOD ColumnStore/export pipeline",
+    "modalities": "native document/image/audio/video ingest, typed region/window query, lifecycle (cold/restore/delete/tombstone), and events (B-12)",
 }
 
 
@@ -333,6 +343,10 @@ _NORMAL_DOMAINS: frozenset[str] = frozenset(
         "broker",
         "graphlearn",
         "viz",
+        # B-12: document/image/audio/video ingest + typed query + events —
+        # ordinary content read/write, same shape as "blob" (content-
+        # addressed media), not a tenant/cluster/identity admin surface.
+        "modalities",
     }
 )
 

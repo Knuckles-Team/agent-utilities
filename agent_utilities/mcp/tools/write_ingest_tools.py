@@ -37,6 +37,309 @@ def _parse_source_specs(raw: str, spec_cls: Any) -> list[Any]:
     return [spec_cls.parse(tok) for tok in raw.split(",") if tok.strip()]
 
 
+# ── bulk_ingest (B-11, CONCEPT:AU-KG.ingest.envelope-atomic-transaction) ─────────────────────────
+#
+# Was: a Python `for` loop calling `engine.add_node()` once per element — nodes
+# only, non-atomic, no idempotency key, N round trips over the engine's
+# MessagePack-on-a-socket transport. Rewritten onto the engine's real atomic
+# primitives: `IntelligenceGraphEngine.batch_typed_mutations` (one native
+# `BatchUpdate` transaction, real `upsert: bool` insert-or-merge) as the light
+# path when the caller supplies no evidence/idempotency key, and
+# `envelope_ingest.ingest_graph_slice` (one `ApplyChangeEnvelope(s)`
+# transaction, durably idempotent by `(tenant, graph, idempotency_key)`,
+# carrying evidence/lineage/policy) when it does. `check_no_per_element_ingest_loop.py`
+# (a fleet-wide ratchet gate over `agent_utilities/mcp/`) enforces that this
+# shape does not silently reappear.
+
+# The engine's own documented `BatchUpdate` bounds
+# (`crates/eg-compute/src/algorithms.rs`: `MAX_BATCH_UPDATE_BYTES`,
+# `MAX_BATCH_OPERATIONS`, `MAX_BATCH_UPDATE_ITEMS`). Chunking below is bounded
+# primarily by op count and byte size; each op decodes to a handful of msgpack
+# items, so the 500,000-item ceiling is not independently binding for ordinary
+# bulk_ingest payloads (documented, not separately tracked).
+_BULK_INGEST_MAX_OPS = 50_000
+_BULK_INGEST_MAX_BYTES = 32 * 1024 * 1024
+# Server-side governance stamping (ownership/classification/bitemporal fields,
+# label normalization — see `IntelligenceGraphEngine.batch_typed_mutations`)
+# adds bytes beyond what this client-side estimate over the caller's raw
+# properties sees, so chunk at a safety margin under the engine's hard 32MiB
+# ceiling rather than flush right up against it.
+_BULK_INGEST_BYTE_SAFETY_MARGIN = 0.75
+
+
+def _chunk_batch_mutations(
+    mutations: list[dict[str, Any]],
+    *,
+    max_ops: int = _BULK_INGEST_MAX_OPS,
+    max_bytes: int = _BULK_INGEST_MAX_BYTES,
+) -> list[list[dict[str, Any]]]:
+    """Deterministically split ``mutations`` at the engine's documented bounds.
+
+    Pure function of input order + limits — the same input always produces the
+    same chunk boundaries. Every input mutation lands in exactly one output
+    chunk, in original order; nothing is ever dropped. Nodes must precede the
+    edges that reference them in ``mutations`` (the caller's job — see
+    ``_run_bulk_ingest``), and chunks are applied SEQUENTIALLY in order so an
+    edge in a later chunk always finds its node already committed.
+    """
+    import msgpack
+
+    budget = int(max_bytes * _BULK_INGEST_BYTE_SAFETY_MARGIN)
+    chunks: list[list[dict[str, Any]]] = []
+    current: list[dict[str, Any]] = []
+    current_bytes = 0
+    for mutation in mutations:
+        try:
+            size = len(msgpack.packb(mutation, use_bin_type=True, default=str))
+        except Exception:  # noqa: BLE001 — conservative fallback estimate
+            size = len(json.dumps(mutation, default=str).encode("utf-8"))
+        if current and (len(current) >= max_ops or current_bytes + size > budget):
+            chunks.append(current)
+            current = []
+            current_bytes = 0
+        current.append(mutation)
+        current_bytes += size
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _parse_bulk_ingest_elements(
+    raw_nodes: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | str:
+    """Parse ``bulk_ingest``'s ``nodes`` JSON into ``(node_mutations, edge_mutations)``.
+
+    Each mutation is shaped for ``IntelligenceGraphEngine.batch_typed_mutations``:
+    ``{"kind": "node", "id", "node_type", "properties"}`` or ``{"kind": "edge",
+    "source", "target", "rel_type", "properties"}``. Returns an error STRING (a
+    ``public_error_json`` payload) instead of raising, matching this module's
+    existing `_write_with_engine` error contract.
+    """
+    try:
+        elements = json.loads(raw_nodes) if raw_nodes else []
+    except (TypeError, ValueError) as e:
+        return public_error_json(e, code="invalid_request")
+    if not isinstance(elements, list):
+        return public_error_json(
+            ValueError("'nodes' must be a JSON list for bulk_ingest"),
+            code="invalid_request",
+        )
+
+    node_mutations: list[dict[str, Any]] = []
+    edge_mutations: list[dict[str, Any]] = []
+    for index, item in enumerate(elements):
+        if not isinstance(item, dict):
+            return public_error_json(
+                ValueError(f"bulk_ingest element[{index}] must be a JSON object"),
+                code="invalid_request",
+            )
+        kind = item.get("kind")
+        is_edge = kind == "edge" or (
+            kind is None and "source_id" in item and "target_id" in item
+        )
+        if is_edge:
+            source = str(item.get("source_id") or "").strip()
+            target = str(item.get("target_id") or "").strip()
+            rel_type = str(item.get("rel_type") or "").strip()
+            if not source or not target or not rel_type:
+                return public_error_json(
+                    ValueError(
+                        f"bulk_ingest edge[{index}] requires source_id, "
+                        "target_id, and rel_type"
+                    ),
+                    code="invalid_request",
+                )
+            properties = item.get("properties") or {}
+            if not isinstance(properties, dict):
+                return public_error_json(
+                    ValueError(
+                        f"bulk_ingest edge[{index}] 'properties' must be an object"
+                    ),
+                    code="invalid_request",
+                )
+            edge_mutations.append(
+                {
+                    "kind": "edge",
+                    "source": source,
+                    "target": target,
+                    "rel_type": rel_type,
+                    "properties": properties,
+                }
+            )
+        else:
+            elem_id = str(item.get("id") or "").strip()
+            if not elem_id:
+                return public_error_json(
+                    ValueError(f"bulk_ingest node[{index}] requires 'id'"),
+                    code="invalid_request",
+                )
+            properties = item.get("properties") or {}
+            if not isinstance(properties, dict):
+                return public_error_json(
+                    ValueError(
+                        f"bulk_ingest node[{index}] 'properties' must be an object"
+                    ),
+                    code="invalid_request",
+                )
+            node_mutations.append(
+                {
+                    "kind": "node",
+                    "id": elem_id,
+                    "node_type": str(
+                        item.get("type") or item.get("node_type") or "Node"
+                    ),
+                    "properties": properties,
+                }
+            )
+    return node_mutations, edge_mutations
+
+
+def _run_bulk_ingest(
+    engine: Any,
+    raw_nodes: str,
+    *,
+    idempotency_key: str,
+    evidence: str,
+    upsert: bool,
+) -> str:
+    """``graph_write(action="bulk_ingest")`` — see the module comment above."""
+    parsed = _parse_bulk_ingest_elements(raw_nodes)
+    if isinstance(parsed, str):
+        return parsed
+    node_mutations, edge_mutations = parsed
+
+    try:
+        evidence_records = json.loads(evidence) if evidence else []
+    except (TypeError, ValueError) as e:
+        return public_error_json(e, code="invalid_request")
+    if not isinstance(evidence_records, list):
+        return public_error_json(
+            ValueError("'evidence' must be a JSON list for bulk_ingest"),
+            code="invalid_request",
+        )
+
+    if not node_mutations and not edge_mutations:
+        return json.dumps(
+            {
+                "action": "bulk_ingest",
+                "mode": "noop",
+                "nodes_ingested": 0,
+                "edges_ingested": 0,
+                "chunks": 0,
+            }
+        )
+
+    # ── heavy path — only ApplyChangeEnvelope(s) carries evidence/lineage/
+    # policy and a genuinely durable per-call idempotency key; BatchUpdate has
+    # neither at the wire level. One atomic transaction either way. ──
+    if evidence_records or idempotency_key:
+        from agent_utilities.knowledge_graph.ingestion import envelope_ingest
+
+        entities = [
+            {"id": m["id"], "node_type": m["node_type"], **m["properties"]}
+            for m in node_mutations
+        ]
+        relationships = [
+            {
+                "source": m["source"],
+                "target": m["target"],
+                "relationship": m["rel_type"],
+                **m["properties"],
+            }
+            for m in edge_mutations
+        ]
+        if entities and evidence_records:
+            # ChangeEnvelope attaches per-row evidence only on the envelope's
+            # PRIMARY object (`envelope_ingest._prepare_node_rows`'s `_evidence`
+            # pop) — the first node in the batch, matching `ingest_graph_slice`'s
+            # own "first entity is primary" contract.
+            entities[0] = {**entities[0], "_evidence": evidence_records}
+        try:
+            result = envelope_ingest.ingest_graph_slice(
+                engine,
+                "bulk_ingest",
+                entities,
+                relationships,
+                idempotency_key=idempotency_key,
+            )
+        except Exception as e:  # noqa: BLE001 — surface as data, not a 500
+            return public_error_json(e, context={"action": "bulk_ingest"})
+        # Surface the engine's own replay outcome honestly — `status` is
+        # "success" (applied) / "skipped" (idempotent replay) / "rejected" /
+        # "failed", never collapsed to a single "ok".
+        return json.dumps(
+            {
+                "action": "bulk_ingest",
+                "mode": "change_envelope",
+                "nodes_ingested": len(node_mutations),
+                "edges_ingested": len(edge_mutations),
+                **result,
+            },
+            default=str,
+        )
+
+    # ── light path — the engine's real BatchUpdate insert-or-merge primitive,
+    # chunked deterministically at its documented bounds. Nodes precede edges
+    # so a chunked edge always finds its node already committed. ──
+    mutations = [*node_mutations, *edge_mutations]
+    # Named module-level lookups (not the helper's own default args) so a test
+    # can tighten the bounds via monkeypatch to exercise multi-chunk behavior.
+    chunks = _chunk_batch_mutations(
+        mutations,
+        max_ops=_BULK_INGEST_MAX_OPS,
+        max_bytes=_BULK_INGEST_MAX_BYTES,
+    )
+    chunk_sizes: list[int] = []
+    applied_ops = 0
+    for chunk_index, chunk in enumerate(chunks):
+        try:
+            applied = engine.batch_typed_mutations(chunk, upsert=upsert)
+        except Exception as e:  # noqa: BLE001 — surface as data, not a 500
+            return public_error_json(
+                e,
+                context={
+                    "action": "bulk_ingest",
+                    "chunk_index": chunk_index,
+                    "chunks_total": len(chunks),
+                    "chunks_applied_before_failure": chunk_index,
+                    "ops_applied_before_failure": applied_ops,
+                },
+            )
+        if not applied:
+            # `batch_typed_mutations` returns False only when the configured
+            # backend has no native typed-batch capability (never a partial
+            # write) — fail loudly rather than silently falling back to the
+            # per-element loop this rewrite exists to remove.
+            return public_error_json(
+                RuntimeError(
+                    "the configured backend has no native typed-batch "
+                    "(BatchUpdate) capability"
+                ),
+                code="dependency_unavailable",
+                context={
+                    "action": "bulk_ingest",
+                    "chunk_index": chunk_index,
+                    "chunks_total": len(chunks),
+                    "chunks_applied_before_failure": chunk_index,
+                    "ops_applied_before_failure": applied_ops,
+                },
+            )
+        chunk_sizes.append(len(chunk))
+        applied_ops += len(chunk)
+    return json.dumps(
+        {
+            "action": "bulk_ingest",
+            "mode": "batch_update",
+            "nodes_ingested": len(node_mutations),
+            "edges_ingested": len(edge_mutations),
+            "upsert": upsert,
+            "chunks": len(chunks),
+            "chunk_sizes": chunk_sizes,
+            "applied_ops": applied_ops,
+        }
+    )
+
+
 def register_write_ingest_tools(mcp):
     """Register the write_ingest_tools group on the given FastMCP server."""
 
@@ -97,7 +400,52 @@ def register_write_ingest_tools(mcp):
         ),
         nodes: str = Field(
             default="[]",
-            description="JSON-encoded list of nodes or tags for bulk operations.",
+            description=(
+                "JSON-encoded list of nodes or tags for bulk operations. For "
+                "action='bulk_ingest' (CONCEPT:AU-KG.ingest.envelope-atomic-transaction, B-11): a list of "
+                "node objects ({'id','type','properties'}, or {'kind':'node',...} "
+                "explicitly) and/or edge objects ({'kind':'edge','source_id',"
+                "'target_id','rel_type','properties'} — 'source_id'+'target_id' "
+                "alone also infers kind='edge'). Every element commits atomically "
+                "in one native engine transaction (chunked deterministically at "
+                "the engine's documented bounds — 32MiB / 50,000 ops / 500,000 "
+                "items per chunk — never silently dropped; the response reports "
+                "'chunks')."
+            ),
+        ),
+        idempotency_key: str = Field(
+            default="",
+            description=(
+                "For action='bulk_ingest': a caller-owned idempotency key for this "
+                "exact batch (CONCEPT:AU-KG.ingest.envelope-atomic-transaction). Non-empty (or a "
+                "non-empty 'evidence') routes the batch onto the engine's atomic "
+                "ApplyChangeEnvelopes path (durably idempotent, scoped by "
+                "(tenant, graph, idempotency_key) — a replay reports "
+                "'status':'skipped', never silently re-reported as fresh 'success'). "
+                "Empty ⇒ the lighter BatchUpdate path, which carries no per-call "
+                "idempotency key at the wire level."
+            ),
+        ),
+        evidence: str = Field(
+            default="[]",
+            description=(
+                "For action='bulk_ingest': JSON list of evidence records "
+                "({'object_id','modality','locus','content_digest'}) attached to "
+                "the FIRST node in 'nodes' (CONCEPT:AU-KG.ingest.envelope-atomic-transaction). Non-empty "
+                "routes the batch onto ApplyChangeEnvelopes (the only primitive "
+                "carrying evidence/policy/lineage) instead of the lighter BatchUpdate."
+            ),
+        ),
+        upsert: bool = Field(
+            default=True,
+            description=(
+                "For action='bulk_ingest' on the BatchUpdate (light) path: real "
+                "engine insert-or-merge semantics (CONCEPT:AU-KG.ingest.envelope-atomic-transaction). True "
+                "(default) MERGEs onto an existing id — idempotent re-application, "
+                "matching every prior add_node-loop caller's behavior. False INSERTs "
+                "(a repeated edge becomes an additional parallel edge rather than "
+                "replacing the prior one)."
+            ),
         ),
         connection: str = Field(
             default="",
@@ -258,14 +606,13 @@ def register_write_ingest_tools(mcp):
                         )
                         return f"Registered external graph at {endpoint_url}"
                     elif action == "bulk_ingest":
-                        nodes_list = json.loads(nodes) if nodes else []
-                        for n in nodes_list:
-                            engine.add_node(
-                                n.get("id"),
-                                n.get("type", "Node"),
-                                n.get("properties", {}),
-                            )
-                        return f"Bulk ingested {len(nodes_list)} nodes."
+                        return _run_bulk_ingest(
+                            engine,
+                            nodes,
+                            idempotency_key=idempotency_key,
+                            evidence=evidence,
+                            upsert=upsert,
+                        )
                     elif action == "compare_and_set":
                         # CONCEPT:AU-KG.ingest.atomic-compare-and-set — atomic compare-and-set as a first-class
                         # agent capability. Applies ``updates`` to the node

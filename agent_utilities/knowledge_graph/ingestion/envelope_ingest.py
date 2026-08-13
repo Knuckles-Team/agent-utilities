@@ -2356,6 +2356,7 @@ def ingest_graph_slice(
     version_field: str = "updatedAt",
     ontology_mapping_version: str = "",
     classification: str = "",
+    idempotency_key: str = "",
 ) -> dict[str, Any]:
     """Commit a connector-produced multi-node graph slice atomically.
 
@@ -2364,6 +2365,15 @@ def ingest_graph_slice(
     source has no explicit version, a deterministic content digest supplies the
     idempotent version without advancing a source cursor. The Epistemic Graph
     authority is resolved from ``engine`` and missing native support fails closed.
+
+    ``idempotency_key`` (B-11, CONCEPT:AU-KG.ingest.envelope-atomic-transaction):
+    a non-empty value is used EXACTLY as given — the caller owns replay
+    detection for this delivery, honestly enforced by the engine's own
+    ``(tenant, graph, idempotency_key)``-scoped ``ApplyChangeEnvelope`` dedup
+    (the result's ``status`` comes back ``"skipped"`` on a genuine replay, never
+    silently reported as a fresh ``"success"``). Defaults to ``""``, which
+    preserves every existing caller's behavior unchanged: the whole-slice
+    content digest below supplies the idempotent version instead.
 
     ``ontology_mapping_version`` (CONCEPT:AU-KG.ingest.domain-pack-framework)
     stamps the resulting envelope's ``ChangeEnvelope.ontology_mapping_version``
@@ -2467,7 +2477,7 @@ def ingest_graph_slice(
     envelope = replace(
         envelope,
         source_version=material_version,
-        idempotency_key="",
+        idempotency_key=idempotency_key,
     )
     result = ingest_envelope(engine, envelope)
     if result.get("status") not in {"success", "skipped"}:

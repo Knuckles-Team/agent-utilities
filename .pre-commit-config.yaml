@@ -184,6 +184,12 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  - id: check-no-per-element-ingest-loop
+    name: No per-element ingest loop on the agent-facing MCP surface (ratchet, B-11/GOC-68)
+    entry: python3 scripts/check_no_per_element_ingest_loop.py
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: check-wire-first
     name: Wire-First — reachable != invoked (ratchet; D-OB-9/13/16)
     # Four sweeps in one report: (1) test files under tests/ that testpaths/CI

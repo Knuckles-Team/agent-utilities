@@ -99,6 +99,10 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "engine_nodes": ("write", "ask"),
         "engine_edges": ("write",),
         "engine_blob": ("write",),
+        # B-12: native document/image/audio/video ingest (write) + typed
+        # region/window query (ask) + events/lifecycle — same read+write shape
+        # as engine_nodes/engine_rdf/engine_timeseries above.
+        "engine_modalities": ("write", "ask"),
         "engine_rdf": ("write", "ask"),
         "engine_timeseries": ("write", "ask"),
         "graph_share": ("write", "manage"),

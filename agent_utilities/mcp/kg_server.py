@@ -2494,8 +2494,22 @@ def fanout_execute(entries, fn, *, timeout=None):
     A raised target is labeled via :func:`fanout_error_label` — ``"target_degraded"``
     for a breaker-open/transport-down failure (retryable), ``"target_operation_failed"``
     for everything else (BUG-048) — never the exception text itself.
+
+    B-18: ``concurrent.futures.ThreadPoolExecutor.submit`` does NOT propagate the
+    calling thread's :mod:`contextvars` context — unlike ``asyncio.to_thread``
+    (which the async tool endpoints above use to reach this synchronous helper
+    in the first place), a plain worker thread starts with a FRESH, empty
+    context. Without this, the ambient authenticated ``GraphSession`` (and any
+    narrowing a caller applies via ``bound_to_graph`` around ``fn``) is
+    invisible inside every fan-out target, and each one fails closed with
+    ``SessionRequiredError`` regardless of which graph it targets. Capturing
+    ``contextvars.copy_context()`` once PER submission (never reused across
+    concurrent ``Context.run`` calls, which is not reentrant) and running
+    ``fn`` inside that copy restores the ambient session per target while
+    keeping each target's own narrowing (if any) isolated from its siblings.
     """
     import concurrent.futures
+    import contextvars
 
     if timeout is None:
         timeout = float(setting("GRAPH_FANOUT_TIMEOUT", DEFAULT_FANOUT_TIMEOUT_S))
@@ -2504,7 +2518,10 @@ def fanout_execute(entries, fn, *, timeout=None):
     if not entries:
         return results, errors
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(entries)))
-    futures = {ex.submit(fn, name, engine): name for name, engine in entries}
+    futures = {
+        ex.submit(contextvars.copy_context().run, fn, name, engine): name
+        for name, engine in entries
+    }
     done, not_done = concurrent.futures.wait(futures, timeout=timeout)
     for fut in done:
         name = futures[fut]
