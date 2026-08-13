@@ -28,16 +28,38 @@ Only handles the two comparison operators this repo's constraint actually
 uses (``>=`` and ``<``); rejects anything else instead of silently
 approximating.
 
+**Opt-in extras scoping (``--extras``).** A consumer that installs only a
+*subset* of this repo's extras -- e.g. agent-webui's Docker image, which
+installs ``agent-utilities[graph,mcp,metrics]`` and pulls in NO
+epistemic-graph reference at all -- can hit a false positive: with no flag,
+this script scans the WHOLE pyproject (base ``[project.dependencies]`` plus
+**every** ``[project.optional-dependencies]`` entry, including the
+`graphos` extra, GOC-73), so it fails even when the extras actually being
+installed never resolve epistemic-graph. Pass ``--extras a,b,c`` to scope
+the scan to the base dependencies plus exactly the transitive closure of
+those named extras (following self-referencing ``agent-utilities[...]``
+entries, e.g. `serving`/`test`/`all`) -- using a real TOML parse
+(``tomllib``, stdlib, no extra dependency) instead of the line-scan used by
+the default path. **Default behaviour with no ``--extras`` flag is
+UNCHANGED** -- it still scans everything, exactly as before, which is the
+correct, maximally-protective behaviour for this repo's OWN release (every
+extra it ships must resolve). Scoping is something only a downstream
+consumer's release gate should opt into, naming the extras it actually
+installs.
+
 Run via::
 
     python3 scripts/release/check_eg_pypi_resolvable.py
+    python3 scripts/release/check_eg_pypi_resolvable.py --extras graph,mcp,metrics
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import sys
+import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -50,6 +72,10 @@ _TIMEOUT_SECS = 30
 _DEP_LINE_RE = re.compile(
     r'^\s*"epistemic-graph(?:\[[^\]]*\])?\s*(?P<spec>[^"]*)"\s*,?\s*$'
 )
+# Same shape as _DEP_LINE_RE but applied to a bare TOML array-item string
+# (already unquoted by tomllib), not a raw source line -- used by the
+# --extras scoped path.
+_DEP_ITEM_RE = re.compile(r"^\s*epistemic-graph(?:\[[^\]]*\])?\s*(?P<spec>.*?)\s*$")
 _CLAUSE_RE = re.compile(r"(>=|<=|==|<|>|!=)\s*([0-9][0-9A-Za-z.\-+]*)")
 
 
@@ -87,6 +113,61 @@ def _find_constraint() -> tuple[str, str]:
         "[project.optional-dependencies] entry, e.g. GOC-73's `graphos` extra) "
         "-- cannot verify cross-repo release order."
     )
+
+
+def _self_ref_extras(item: str, package_name: str) -> list[str] | None:
+    """If `item` is a self-referencing extra (e.g. `"agent-utilities[graphos,mcp]>=1.0.0"`),
+    return the list of extra names inside the brackets; else None."""
+    m = re.match(rf"^\s*{re.escape(package_name)}\s*\[(?P<extras>[^\]]+)\]", item)
+    if not m:
+        return None
+    return [e.strip() for e in m.group("extras").split(",") if e.strip()]
+
+
+def _closure_dependency_strings(pyproject: Path, extras: list[str]) -> list[str]:
+    """Return base dependencies plus the transitive closure of `extras`'
+    dependency strings, resolving self-referencing `<package>[...]` entries
+    against this same pyproject.toml's own optional-dependencies table."""
+    with pyproject.open("rb") as fh:
+        data = tomllib.load(fh)
+    project = data.get("project", {})
+    package_name = project.get("name", "")
+    base_deps: list[str] = list(project.get("dependencies", []))
+    opt_deps: dict[str, list[str]] = project.get("optional-dependencies", {})
+
+    collected: list[str] = list(base_deps)
+    visited: set[str] = set()
+    worklist: list[str] = list(extras)
+    while worklist:
+        extra = worklist.pop()
+        if extra in visited:
+            continue
+        visited.add(extra)
+        if extra not in opt_deps:
+            raise SystemExit(
+                f"::error::check_eg_pypi_resolvable: --extras named '{extra}', "
+                f"which is not an entry in [project.optional-dependencies] of "
+                f"{pyproject}. Available extras: {', '.join(sorted(opt_deps))}."
+            )
+        for item in opt_deps[extra]:
+            collected.append(item)
+            sub_extras = _self_ref_extras(item, package_name)
+            if sub_extras:
+                worklist.extend(e for e in sub_extras if e not in visited)
+    return collected
+
+
+def _find_constraint_scoped(
+    pyproject: Path, extras: list[str]
+) -> tuple[str, str] | None:
+    """Like `_find_constraint`, but scoped to base deps + the transitive
+    closure of `extras`. Returns None if epistemic-graph is not pulled in by
+    that closure at all (nothing to verify)."""
+    for item in _closure_dependency_strings(pyproject, extras):
+        m = _DEP_ITEM_RE.match(item)
+        if m:
+            return "epistemic-graph", m.group("spec").strip()
+    return None
 
 
 def _satisfies(version: str, spec: str) -> bool:
@@ -148,8 +229,43 @@ def _fetch_versions(name: str) -> list[str]:
     return published
 
 
-def main() -> int:
-    name, spec = _find_constraint()
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Fail-closed check that agent-utilities' declared epistemic-graph "
+            "floor is resolvable on PyPI."
+        )
+    )
+    parser.add_argument(
+        "--extras",
+        default=None,
+        help=(
+            "Comma-separated extras to scope the check to (base dependencies "
+            "plus the transitive closure of these extras only). Omit to scan "
+            "everything (base + every optional-dependencies entry) -- the "
+            "default, unchanged behaviour."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(sys.argv[1:] if argv is None else argv)
+
+    if args.extras is not None:
+        extras = [e.strip() for e in args.extras.split(",") if e.strip()]
+        found = _find_constraint_scoped(PYPROJECT, extras)
+        if found is None:
+            print(
+                "check_eg_pypi_resolvable: OK -- none of the requested extras "
+                f"({', '.join(extras)}) pull in 'epistemic-graph'; nothing to "
+                "verify."
+            )
+            return 0
+        name, spec = found
+    else:
+        name, spec = _find_constraint()
+
     if not spec:
         print(
             f"check_eg_pypi_resolvable: OK -- '{name}' has no version constraint; "
