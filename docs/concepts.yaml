@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1167
+total_concepts: 1169
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2035,6 +2035,14 @@ concepts:
   code_paths:
   - agent_utilities/messaging/voice.py
   doc: Voice input → transcript via Whisper
+- id: AU-ECO.multiplexer.catalog-probe-ttl-staleness
+  name: fleet catalog-probe cache TTL
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/core/config.py
+  - agent_utilities/mcp/multiplexer.py
+  doc: fleet catalog-probe cache TTL
 - id: AU-ECO.multiplexer.condensed-server-load
   name: a SERVER-level load exposes only the condensed action
   pillar: AU-ECO
@@ -2425,6 +2433,16 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
   doc: derive the mirror set from connections with role=
+- id: AU-KG.backend.explicit-graph-selection
+  name: explicit physical engine graph, independent of
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/security/error_surface.py
+  doc: explicit physical engine graph, independent of
 - id: AU-KG.backend.fanout-dedup
   name: de-duplicate fan-out targets by the engine
   pillar: AU-KG
@@ -4002,9 +4020,11 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
   - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: shared migration tail for the
 - id: AU-KG.ingest.evidence-spine-artifact
   name: one retrieved source object
@@ -10378,6 +10398,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tool_specs.py
   - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: the unified data-mining surface
 - id: EG-KG.mining.ml-pipeline

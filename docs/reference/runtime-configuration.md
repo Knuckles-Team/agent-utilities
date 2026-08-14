@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-554 typed fields · 359 runtime-only call-site inputs.
+555 typed fields · 360 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -307,6 +307,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 |---|---|---|
 | `MCP_DYNAMIC_TOP_K` | `int` | `8` |
 | `MCP_DYNAMIC_DISCOVERY_TIMEOUT` | `float` | `5.0` |
+| `MCP_CATALOG_PROBE_TTL` | `float` | `300.0` |
 | `MCP_ALWAYS_LOAD` | `list` | `["tunnel-manager-mcp", "systems-manager-mcp", "repository-manager-mcp", "container-manager-mcp"]` |
 | `MCP_ALWAYS_LOAD_TOOLS` | `list` | `["github-mcp:github_issues", "github-mcp:github_pulls", "gitlab-mcp:gitlab_issues", "gitlab-mcp:gitlab_merge_requests"]` |
 
@@ -771,6 +772,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `EMERALD_API_KEY` | 1 |
 | `EMERALD_URL` | 1 |
 | `ENABLE_DELEGATED_IDENTITY` | 1 |
+| `ENGINE_SURFACE_PROMETHEUS_URL` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_ADDR` | 2 |
 | `EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S` | 1 |

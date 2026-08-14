@@ -1004,6 +1004,120 @@ async def test_cached_results_are_labelled_with_age(tmp_path, monkeypatch):
     assert cat["age_s"] == 42.0
 
 
+async def test_probe_entry_past_ttl_is_reported_stale(tmp_path, monkeypatch):
+    """CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness — regression for
+    the 80-hour-old-cache incident: a normally-settled cache entry (never
+    routed through the narrow ``stale`` in-flight flag) must be reported
+    ``stale: true`` once its age exceeds the configured TTL. Before this fix,
+    ``stale`` echoed a flag that is set in exactly one narrow branch
+    (a new probe that itself times out mid-flight) and stayed ``False``
+    forever on a settled entry regardless of ``age_s``.
+
+    Exercises the ``include_tools=False`` metadata-only path specifically,
+    because it reads ``self._probe_cache`` directly and never calls
+    ``probe_catalog`` at all -- the exact path where the dead flag hid
+    staleness in production."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
+    mux._kg_call = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    fixed_now = 1_000_000.0
+    mux._probe_cache[CNT] = {
+        "tools": [{"name": CNT_TOOL, "description": "containers", "inputSchema": {}}],
+        "error": None,
+        "probed_at": fixed_now,
+    }
+    monkeypatch.setattr(
+        "agent_utilities.core.config.config.mcp_catalog_probe_ttl", 10.0
+    )
+
+    # Inside the TTL: honestly fresh.
+    monkeypatch.setattr(time, "time", lambda: fixed_now + 5.0)
+    fresh = await mux.list_catalog(include_tools=False)
+    fresh_entry = next(s for s in fresh["servers"] if s["server"] == CNT)
+    assert fresh_entry["stale"] is False
+
+    # 80 hours later (and well past the 10s TTL): must flip to stale, with
+    # the real age reported alongside it -- not silently absent, not a bare
+    # echo of the dead flag.
+    eighty_hours = 80 * 3600.0
+    monkeypatch.setattr(time, "time", lambda: fixed_now + eighty_hours)
+    stale = await mux.list_catalog(include_tools=False)
+    stale_entry = next(s for s in stale["servers"] if s["server"] == CNT)
+    assert stale_entry["age_s"] == eighty_hours
+    assert stale_entry["stale"] is True
+
+
+async def test_probe_catalog_retargets_ttl_expired_cache_entries(tmp_path, monkeypatch):
+    """CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness — the other half
+    of the fix: a TTL-expired cache entry must actually be RE-PROBED, not
+    merely relabelled, so it is refreshed rather than served forever. Before
+    this fix ``probe_catalog`` only ever targeted a server completely absent
+    from ``_probe_cache``; a settled entry was cached until process exit."""
+    mux = _mux_with_children(tmp_path, {CNT: [(CNT_TOOL, "containers")]})
+    fixed_now = 1_000_000.0
+    mux._probe_cache[CNT] = {
+        "tools": [{"name": CNT_TOOL, "description": "containers v1"}],
+        "error": None,
+        "probed_at": fixed_now,
+    }
+    monkeypatch.setattr(
+        "agent_utilities.core.config.config.mcp_catalog_probe_ttl", 10.0
+    )
+
+    calls = 0
+
+    async def refreshed_probe(server, **_kwargs):
+        nonlocal calls
+        calls += 1
+        info = {
+            "tools": [{"name": CNT_TOOL, "description": "containers v2"}],
+            "error": None,
+        }
+        return mux._cache_probe(server, info)
+
+    mux.probe_server = AsyncMock(side_effect=refreshed_probe)  # type: ignore[method-assign]
+
+    # Still inside the TTL: served as-is, no re-probe triggered.
+    monkeypatch.setattr(time, "time", lambda: fixed_now + 5.0)
+    fresh = await mux.probe_catalog()
+    assert calls == 0
+    assert fresh[CNT]["tools"][0]["description"] == "containers v1"
+
+    # Past the TTL: re-targeted for a background-style refresh (this call has
+    # no budget, so it awaits the refresh directly) and the cache is updated
+    # -- proving the stale entry does not sit there forever.
+    monkeypatch.setattr(time, "time", lambda: fixed_now + 11.0)
+    refreshed = await mux.probe_catalog()
+    assert calls == 1
+    assert refreshed[CNT]["tools"][0]["description"] == "containers v2"
+
+    # A caller mid-refresh (budget expires before the re-probe lands) still
+    # gets an honest, immediately-available answer -- the last known result,
+    # correctly labelled stale -- rather than blocking on the refresh.
+    calls = 0
+    release = asyncio.Event()
+
+    async def slow_refresh(server, **_kwargs):
+        nonlocal calls
+        calls += 1
+        await release.wait()
+        info = {
+            "tools": [{"name": CNT_TOOL, "description": "containers v3"}],
+            "error": None,
+        }
+        return mux._cache_probe(server, info)
+
+    mux.probe_server = AsyncMock(side_effect=slow_refresh)  # type: ignore[method-assign]
+    monkeypatch.setattr(time, "time", lambda: fixed_now + 22.0)  # past the TTL again
+    budgeted = await mux.probe_catalog(budget=0.01)
+    assert budgeted[CNT]["stale"] is True
+    assert (
+        budgeted[CNT]["tools"][0]["description"] == "containers v2"
+    )  # last known, not blocked
+
+    release.set()
+    await mux.aclose()  # let the still-running background refresh be cancelled cleanly
+
+
 async def test_concurrent_probes_honor_their_own_per_server_deadline(tmp_path):
     """Two servers probed concurrently must each fail/succeed on THEIR OWN
     configured timeout, not a shared ceiling -- and truly concurrently, not
