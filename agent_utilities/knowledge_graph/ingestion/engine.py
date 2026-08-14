@@ -2679,6 +2679,20 @@ class IngestionEngine:
                 "source_kind": "web-document",
                 "fetch_backend": page.backend,
                 "fetched_at": _now(),
+                # Open Graph / Twitter Card enrichment (CONCEPT:AU-KG.ingest.og-metadata-enrichment)
+                # — populated when the fetch backend saw raw HTML; "" otherwise.
+                # ``page.title`` was previously extracted by web_fetch and
+                # silently discarded here.
+                **{
+                    k: v
+                    for k, v in {
+                        "web_title": page.title,
+                        "web_description": page.description,
+                        "web_image": page.image,
+                        "web_site_name": page.site_name,
+                    }.items()
+                    if v
+                },
             },
             force=manifest.force,
         )
@@ -2784,11 +2798,27 @@ class IngestionEngine:
         if source_kind == "web-document":
             stamp_source(prov_props, "web")
 
+        # Open Graph / Twitter Card enrichment (CONCEPT:AU-KG.ingest.og-metadata-enrichment):
+        # web_fetch's requests-floor backend reads these straight off the page's
+        # own <meta> tags — a deterministic, zero-LLM URL-entity enrichment.
+        # Prefer the page's own declared title over the synthetic
+        # first-non-empty-line fallback ``extract_document`` computed.
+        og_title = str(manifest.metadata.get("web_title") or "").strip()
+        doc_name = og_title or doc.title
+        for meta_key, prop in (
+            ("web_description", "og_description"),
+            ("web_image", "og_image"),
+            ("web_site_name", "og_site_name"),
+        ):
+            val = manifest.metadata.get(meta_key)
+            if val:
+                prov_props[prop] = val
+
         entities: list[dict[str, Any]] = [
             {
                 "id": document_id,
                 "node_type": "Document",
-                "name": doc.title,
+                "name": doc_name,
                 "doc_type": doc.doc_type,
                 "ast_hash": doc.content_hash,
                 "content": doc.content,

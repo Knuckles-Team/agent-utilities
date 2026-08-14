@@ -35,12 +35,22 @@ _UA = (
 
 @dataclass
 class FetchedPage:
-    """One fetched web page normalized to markdown/text, with provenance."""
+    """One fetched web page normalized to markdown/text, with provenance.
+
+    ``description``/``image``/``site_name`` are Open Graph / Twitter Card
+    metadata (CONCEPT:AU-KG.ingest.og-metadata-enrichment) — populated only by
+    backends that see raw HTML (the ``requests`` floor today); ``""`` when the
+    backend has no head-tag access (e.g. ArchiveBox/crawl4ai return
+    already-extracted text).
+    """
 
     url: str
     markdown: str
     title: str = ""
     backend: str = ""  # "archivebox" | "crawl4ai" | "requests"
+    description: str = ""
+    image: str = ""
+    site_name: str = ""
 
 
 def archivebox_configured() -> bool:
@@ -242,6 +252,58 @@ def _fetch_via_crawl4ai(url: str, timeout: float) -> FetchedPage | None:
 
 # ── requests + markitdown (zero-dependency floor) ───────────────────────────────
 
+_META_ENTITY_RE = re.compile(r"&(#39|#x27|quot|apos|amp|lt|gt);")
+_META_ENTITY_MAP = {
+    "#39": "'",
+    "#x27": "'",
+    "quot": '"',
+    "apos": "'",
+    "lt": "<",
+    "gt": ">",
+    "amp": "&",  # must decode last so "&amp;lt;" doesn't double-unescape
+}
+
+
+def _decode_entities(text: str) -> str:
+    return _META_ENTITY_RE.sub(lambda m: _META_ENTITY_MAP[m.group(1)], text)
+
+
+def _meta_content(html: str, *patterns: str) -> str:
+    """First non-empty ``<meta ... content="...">`` match across ``patterns``.
+
+    Each pattern is a ``property``/``name`` value (e.g. ``"og:title"``); the
+    regex tolerates attribute order (``content`` before or after
+    ``property``/``name``), matching how Siftly's own OG scraper handles it.
+    """
+    for key in patterns:
+        for attr in ("property", "name"):
+            for order in (
+                rf'<meta[^>]+{attr}=["\']{re.escape(key)}["\'][^>]+content=["\']([^"\']+)["\']',
+                rf'<meta[^>]+content=["\']([^"\']+)["\'][^>]+{attr}=["\']{re.escape(key)}["\']',
+            ):
+                m = re.search(order, html, re.IGNORECASE)
+                if m and m.group(1).strip():
+                    return _decode_entities(m.group(1).strip())
+    return ""
+
+
+def extract_og_metadata(html: str) -> dict[str, str]:
+    """Open Graph / Twitter Card metadata from raw HTML (CONCEPT:AU-KG.ingest.og-metadata-enrichment).
+
+    Zero-dependency (stdlib regex, no HTML parser) URL-entity enrichment: turns
+    a bare link into a title/description/preview-image/site-name without an
+    LLM call. Falls back across the OG, Twitter Card, and plain ``description``
+    meta-tag families; returns ``""`` for any field not present.
+    """
+    return {
+        "title": _meta_content(html, "og:title", "twitter:title"),
+        "description": _meta_content(
+            html, "og:description", "twitter:description", "description"
+        ),
+        "image": _meta_content(html, "og:image", "twitter:image"),
+        "site_name": _meta_content(html, "og:site_name"),
+    }
+
 
 def _fetch_via_requests(url: str, timeout: float) -> FetchedPage | None:
     """Plain HTTP GET → markdown via markitdown, falling back to a light tag strip."""
@@ -282,8 +344,18 @@ def _fetch_via_requests(url: str, timeout: float) -> FetchedPage | None:
     except Exception:  # noqa: BLE001 — degrade to a light tag strip
         text = re.sub(r"<[^>]+>", " ", raw)
 
+    og = extract_og_metadata(raw)
     title_m = re.search(r"<title[^>]*>(.*?)</title>", raw, re.IGNORECASE | re.DOTALL)
-    title = (title_m.group(1).strip() if title_m else "")[:200]
+    title = og["title"] or (title_m.group(1).strip() if title_m else "")
+    title = title[:200]
     if not text.strip():
         return None
-    return FetchedPage(url=url, markdown=text, title=title, backend="requests")
+    return FetchedPage(
+        url=url,
+        markdown=text,
+        title=title,
+        backend="requests",
+        description=og["description"][:500],
+        image=og["image"],
+        site_name=og["site_name"],
+    )

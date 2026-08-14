@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1167
+total_concepts: 1170
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2425,6 +2425,16 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/__init__.py
   doc: derive the mirror set from connections with role=
+- id: AU-KG.backend.explicit-graph-selection
+  name: explicit physical engine graph, independent of
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/query_tools.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  - agent_utilities/security/error_surface.py
+  doc: explicit physical engine graph, independent of
 - id: AU-KG.backend.fanout-dedup
   name: de-duplicate fan-out targets by the engine
   pillar: AU-KG
@@ -3848,6 +3858,13 @@ concepts:
   - agent_utilities/knowledge_graph/kb/entity_claim_extractor.py
   - agent_utilities/models/knowledge_graph.py
   doc: the extractor
+- id: AU-KG.ingest.deterministic-social-entity-mining
+  name: AU-KG.ingest.deterministic-social-entity-mining
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/extractors/social.py
+  doc: AU-KG.ingest.deterministic-social-entity-mining
 - id: AU-KG.ingest.domain-pack-framework
   name: a pack author states its
   pillar: AU-KG
@@ -4002,9 +4019,11 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
   - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: shared migration tail for the
 - id: AU-KG.ingest.evidence-spine-artifact
   name: one retrieved source object
@@ -4260,6 +4279,14 @@ concepts:
   - agent_utilities/knowledge_graph/extraction/fact_extractor.py
   - agent_utilities/mcp/tools/analyze_suite.py
   doc: the observability queries Opik CANNOT do
+- id: AU-KG.ingest.og-metadata-enrichment
+  name: populated only by
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/ingestion/web_fetch.py
+  doc: populated only by
 - id: AU-KG.ingest.okf-type-mapping
   name: Resolution order
   pillar: AU-KG
@@ -10378,6 +10405,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tool_specs.py
   - agent_utilities/mcp/tools/engine_surface_tools.py
   doc: the unified data-mining surface
 - id: EG-KG.mining.ml-pipeline

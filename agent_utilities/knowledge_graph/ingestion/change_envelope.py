@@ -479,6 +479,12 @@ class ChangeEnvelope:
         row["source_instance"] = self.source_instance
         row["retention"] = self.retention
         row["legal_hold"] = self.legal_hold
+        # Confidence is validated (__post_init__) but was previously dropped
+        # here, so a below-1.0 extraction confidence never reached the
+        # materialized row — every row silently read as fully-confident
+        # regardless of what the connector reported. setdefault: a typed
+        # payload that already computed its own per-row confidence wins.
+        row.setdefault("confidence", self.confidence)
         return row
 
     # ------------------------------------------------------------------
