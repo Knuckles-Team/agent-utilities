@@ -59,6 +59,11 @@ def test_catalog_contains_exact_current_schema_set() -> None:
         "resource_reservation",
         "resource_reservation_status",
         "resource_host_update",
+        # RMDD-28 added the development_lane schema, deliberately growing the
+        # catalog 15 -> 16 (the handoff records the bump explicitly). This is an
+        # exact-set assertion, so a legitimate addition has to be reflected here
+        # rather than the assertion being loosened -- the exactness is the point.
+        "development_lane",
     ]
     assert [entry["version"] for entry in catalog["schemas"]] == [
         "2",
@@ -75,6 +80,8 @@ def test_catalog_contains_exact_current_schema_set() -> None:
         "1",
         "1",
         "1",
+        "1",
+        # development_lane (RMDD-28), v1
         "1",
     ]
 
