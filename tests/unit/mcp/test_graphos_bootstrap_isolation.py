@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import builtins
 import contextlib
 import inspect
 import json
 import threading
 import time
-import warnings
 from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -31,7 +29,6 @@ from agent_utilities.knowledge_graph.core.session import (
     suspend_session,
     use_session,
 )
-from agent_utilities.mcp import server_factory
 from agent_utilities.mcp.multiplexer import MCPMultiplexer
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import (
@@ -42,30 +39,15 @@ from agent_utilities.security.brain_context import (
 )
 
 
-@pytest.fixture(autouse=True)
-def _restore_stdio_protection_state():
-    """Save/restore ``protect_stdio_jsonrpc``'s process-global state around
-    every test in this file.
-
-    Several tests here (``test_graphos_startup_failure_releases_process_authority``,
-    ``test_mcp_server_selects_local_engine_path_for_both_transports``) drive the
-    REAL ``kg_server.mcp_server()`` entrypoint with ``transport="stdio"`` and do
-    NOT mock ``protect_stdio_jsonrpc`` — so it runs for real and permanently
-    monkeypatches process-global ``builtins.print``/``warnings.showwarning`` (by
-    its own documented, one-time, idempotent design — see its docstring in
-    ``server_factory.py``). Left unrestored, this silently redirects every
-    later test's bare ``print()`` to stderr for the rest of the suite, which
-    corrupts unrelated tests asserting on ``capsys``-captured stdout (the empty
-    ``out == ""`` symptom in ``tests/unit/scripts``). Mirrors the same guard
-    already used in ``test_co_service_supervisor.py``.
-    """
-    original_print = builtins.print
-    original_showwarning = warnings.showwarning
-    original_flag = server_factory._STDIO_PROTECTED
-    yield
-    builtins.print = original_print
-    warnings.showwarning = original_showwarning
-    server_factory._STDIO_PROTECTED = original_flag
+# NOTE: this file used to carry an autouse ``_restore_stdio_protection_state``
+# fixture here, saving/restoring ``server_factory._STDIO_PROTECTED`` and the
+# process-global ``builtins.print``/``warnings.showwarning`` monkeypatches that
+# ``protect_stdio_jsonrpc()`` used to apply. Both the flag and the function were
+# deleted in 7d83cd42 (B-19): stdio purity is now owned fd-level by the vendored
+# MCP SDK's ``stdio_server()`` (see the "Stdio JSON-RPC purity" block in
+# ``server_factory.py``), which needs no Python-object save/restore. There is
+# nothing left in this module for that fixture to protect — see the identical
+# fix already landed for ``test_co_service_supervisor.py`` in the same commit.
 
 
 def _verified_session(actor_id: str = "runtime-agent") -> GraphSession:
