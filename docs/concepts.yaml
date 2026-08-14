@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1169
+total_concepts: 1171
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3866,6 +3866,13 @@ concepts:
   - agent_utilities/knowledge_graph/kb/entity_claim_extractor.py
   - agent_utilities/models/knowledge_graph.py
   doc: the extractor
+- id: AU-KG.ingest.deterministic-social-entity-mining
+  name: AU-KG.ingest.deterministic-social-entity-mining
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/extractors/social.py
+  doc: AU-KG.ingest.deterministic-social-entity-mining
 - id: AU-KG.ingest.domain-pack-framework
   name: a pack author states its
   pillar: AU-KG
@@ -4280,6 +4287,14 @@ concepts:
   - agent_utilities/knowledge_graph/extraction/fact_extractor.py
   - agent_utilities/mcp/tools/analyze_suite.py
   doc: the observability queries Opik CANNOT do
+- id: AU-KG.ingest.og-metadata-enrichment
+  name: populated only by
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  - agent_utilities/knowledge_graph/ingestion/web_fetch.py
+  doc: populated only by
 - id: AU-KG.ingest.okf-type-mapping
   name: Resolution order
   pillar: AU-KG
