@@ -677,6 +677,41 @@ _TEST_ENGINE_AVAILABLE = False
 #: ``tiny_engine`` fixture returns this; ``engine_graph`` re-asserts it per test.
 _SESSION_ENGINE_SOCKET: "str | None" = None
 
+#: Does THIS worker need a real engine? ``_session_engine`` is autouse and
+#: session-scoped, so under xdist every worker was starting its own
+#: epistemic-graph process — 12 engines for a run where most workers touch none.
+#:
+#: Defaults to True and is only ever narrowed by
+#: :func:`pytest_collection_modifyitems`, so an unclassifiable run keeps the old
+#: always-on behaviour. Narrowing is deliberately conservative: the engine still
+#: starts for ANY test outside ``tests/unit`` and for any test requesting the
+#: engine fixtures, because tests elsewhere rely on the ambient
+#: ``GRAPH_SERVICE_ENDPOINTS`` wiring this fixture exports. Getting that wrong
+#: would not fail loudly — ``pytest_runtest_makereport`` turns an unreachable
+#: engine into a SKIP, so over-narrowing would quietly delete coverage instead of
+#: reporting it.
+_WORKER_NEEDS_ENGINE = True
+
+
+def pytest_collection_modifyitems(session, config, items):
+    """Decide once, per worker, whether this run needs a real engine started.
+
+    Pure classification of the already-collected set — it reorders nothing and
+    deselects nothing.
+    """
+    global _WORKER_NEEDS_ENGINE
+    for item in items:
+        fixtures = getattr(item, "fixturenames", ())
+        if "tiny_engine" in fixtures or "engine_graph" in fixtures:
+            _WORKER_NEEDS_ENGINE = True
+            return
+        path = str(getattr(item, "fspath", "") or "")
+        if f"{os.sep}tests{os.sep}unit{os.sep}" not in path:
+            _WORKER_NEEDS_ENGINE = True
+            return
+    # Every collected test is a tests/unit test that never asks for the engine.
+    _WORKER_NEEDS_ENGINE = False
+
 #: Generous headroom above the longest full-suite run observed (~37 minutes) —
 #: see :func:`_acquire_engine_daemon_lease`. The default ``hold_lease`` TTL
 #: (30 minutes) would let the lease be reclaimed as "dead" out from under a
@@ -747,6 +782,15 @@ def _session_engine():
     (e.g. a shared host engine) is reused verbatim and never torn down here.
     """
     global _TEST_ENGINE_AVAILABLE, _SESSION_ENGINE_SOCKET
+
+    if not _WORKER_NEEDS_ENGINE:
+        # Nothing this worker collected can reach the engine, so starting one
+        # would cost a process (and, under xdist, one per worker) to serve zero
+        # tests. Degrade to exactly the same no-engine state the fixture already
+        # yields when no binary is available.
+        yield None
+        return
+
     from _test_engine import (
         TEST_AUTH_SECRET,
         EngineUnavailable,
