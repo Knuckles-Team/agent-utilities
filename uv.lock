@@ -3204,7 +3204,7 @@ wheels = [
 
 [[package]]
 name = "langfuse-agent"
-version = "2.0.0"
+version = "2.1.0"
 source = { editable = ".uv-workspace-siblings/langfuse-agent" }
 dependencies = [
     { name = "agent-utilities", extra = ["mcp"] },
