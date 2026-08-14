@@ -331,17 +331,45 @@ def canonical_repository(worktree: Path) -> Path:
 
 
 def _workspace_config(root: Path) -> dict[str, Any] | None:
+    """Return the ecosystem sibling manifest declared at *root*, if any.
+
+    D-EGSFT-1 (2026-08-14): this used to read `[tool.uv.workspace]` — the
+    ecosystem root pyproject.toml really was a live `uv` workspace, and every
+    repo below it was a declared member. That forced UNIFIED, workspace-wide
+    resolution on top of ~75 repos that each already carry their own tracked
+    `uv.lock`, and real `uv` enforces rules that only make sense for one
+    shared workspace (a member may not declare a `path =` source for another
+    member; a member may not itself declare `[tool.uv.workspace]`) — those
+    fired the moment two independently-maintained members disagreed about
+    which shape to use, most recently "epistemic-graph is included as a
+    workspace member, but references a path in tool.uv.sources", blocking
+    `uv sync` and every pre-commit gate that shells out to agent-utilities
+    fleet-wide.
+
+    The root manifest now lives at `[tool.ecosystem]` instead — same
+    `members`/`exclude` glob shape, but a table `uv` itself never parses (it
+    only ever reads `[tool.uv.*]`), so the real `uv` binary no longer treats
+    any of these repos as workspace members at all: each one resolves fully
+    independently against its own tracked lock. This function, and everything
+    built on it (`workspace_root`, `materialize_own_siblings`,
+    `shadow_workspace`), still needs *some* manifest to locate the real
+    sibling checkouts a repo's `.uv-workspace-siblings/<name>` editable path
+    source points at (see `materialize_own_siblings`) — `[tool.ecosystem]` is
+    that manifest, consulted by this script only, never by `uv` itself.
+    """
     manifest = root / "pyproject.toml"
     if not manifest.is_file():
         return None
     with manifest.open("rb") as handle:
         document = tomllib.load(handle)
-    workspace = document.get("tool", {}).get("uv", {}).get("workspace")
-    return workspace if isinstance(workspace, dict) else None
+    ecosystem = document.get("tool", {}).get("ecosystem")
+    return ecosystem if isinstance(ecosystem, dict) else None
 
 
 def workspace_root(canonical: Path) -> Path:
-    """Find the nearest uv workspace that contains the canonical checkout."""
+    """Find the nearest ecosystem sibling manifest that lists the canonical
+    checkout as a member (see :func:`_workspace_config` — no longer a live
+    `uv` workspace root, just where `.uv-workspace-siblings/` targets live)."""
     for candidate in (canonical, *canonical.parents):
         config = _workspace_config(candidate)
         if config is None:
@@ -353,7 +381,9 @@ def workspace_root(canonical: Path) -> Path:
         if canonical in _workspace_members(candidate, config):
             return candidate
     raise RuntimeError(
-        f"no uv workspace containing canonical repository {canonical} was found"
+        f"no ecosystem sibling manifest containing canonical repository {canonical} "
+        "was found (expected a [tool.ecosystem] members table in an ancestor "
+        "pyproject.toml)"
     )
 
 
