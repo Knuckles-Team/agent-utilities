@@ -22,6 +22,20 @@ from agent_utilities.governance import concept_allocator as ca
 from agent_utilities.governance import lanes
 
 
+def _load_check_lane_guard():
+    """Import ``scripts/check_lane_guard.py`` as a module (it is a script, not
+    a package member, so every repo's pre-commit hook `exec`s it directly)."""
+    import importlib.util
+
+    repo_root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "check_lane_guard", repo_root / "scripts" / "check_lane_guard.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _run(args: list[str], cwd: Path) -> str:
     proc = subprocess.run(
         args, cwd=str(cwd), capture_output=True, text=True, check=True
@@ -79,6 +93,38 @@ def test_guard_refuses_to_edit_the_canonical_checkout(canonical: Path) -> None:
 def test_guard_allows_a_linked_worktree(canonical: Path) -> None:
     lane = _add_worktree(canonical, "lane-b")
     assert lanes.require_mutable_tree(lane, operation="edit").lane == "lane-b"
+
+
+# ---------------------------------------------------------------------------
+# check_lane_guard.py — the pre-commit hook every repo's `.pre-commit-config.yaml`
+# `exec`s directly. Regression: a PUSH stages nothing, and the hook's
+# `always_run: true` lane-guard check fired for every repo's pre-push gate too
+# -- an empty `staged` list fell through the old `if staged and ...:` carve-out
+# straight into REFUSED, blocking pushes fleet-wide from every canonical
+# checkout even though nothing was being committed.
+# ---------------------------------------------------------------------------
+def test_lane_guard_allows_a_canonical_push_with_nothing_staged(
+    canonical: Path,
+) -> None:
+    clg = _load_check_lane_guard()
+    scope = lanes.lane_scope(canonical)
+    assert scope.is_canonical is True
+    assert clg._check_canonical(scope, staged=[]) is None
+
+
+def test_lane_guard_still_refuses_a_real_canonical_commit(canonical: Path) -> None:
+    clg = _load_check_lane_guard()
+    scope = lanes.lane_scope(canonical)
+    assert clg._check_canonical(scope, staged=["some/real/file.py"]) is not None
+
+
+def test_lane_guard_allows_a_pure_bumpversion_commit(canonical: Path) -> None:
+    (canonical / ".bumpversion.cfg").write_text(
+        "[bumpversion:file:pyproject.toml]\n", encoding="utf-8"
+    )
+    clg = _load_check_lane_guard()
+    scope = lanes.lane_scope(canonical)
+    assert clg._check_canonical(scope, staged=["pyproject.toml"]) is None
 
 
 def test_guard_allows_the_canonical_merge_back(canonical: Path) -> None:
