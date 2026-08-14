@@ -24,6 +24,30 @@ import pytest
 from agent_utilities.governance import lanes
 
 
+@pytest.fixture(autouse=True)
+def _isolate_workspace_arbitration_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Route the ``epistemic-graph-daemon`` lease into an isolated ``tmp_path``
+    instead of the REAL host-wide arbitration directory (see the identical
+    fixture + rationale in ``tests/unit/test_lanes.py``). These tests call
+    ``lanes.hold_lease("epistemic-graph-daemon", ...)`` with no ``path=`` at
+    all, so without this they take the SAME real, host-wide lease that a
+    genuinely concurrent full-suite run elsewhere on this host may be holding
+    right now (spurious ``LeaseUnavailable``) -- or briefly hold it themselves
+    and defer that real run.
+    """
+    workspace_dir = tmp_path / "workspace-arbitration"
+
+    def _fake_workspace_arbitration_dir() -> Path:
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        return workspace_dir
+
+    monkeypatch.setattr(
+        lanes, "workspace_arbitration_dir", _fake_workspace_arbitration_dir
+    )
+
+
 def _conftest_module():
     """Find the loaded tests/conftest.py module regardless of its import name.
 

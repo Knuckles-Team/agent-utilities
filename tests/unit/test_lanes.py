@@ -46,6 +46,41 @@ def _init_repo(root: Path) -> Path:
     return root
 
 
+@pytest.fixture(autouse=True)
+def _isolate_workspace_arbitration_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Route "workspace"-scoped leases into an isolated ``tmp_path`` instead of
+    the REAL host-wide ``~/.local/state/agent-utilities/arbitration`` directory
+    that live lane orchestration on this host actually uses for
+    ``dependency-lock``/``epistemic-graph-daemon``/``workspace-scripts``
+    (``lanes.workspace_arbitration_dir()`` — see ``lane_resources.yaml``:
+    those three names are deliberately host-wide, not per-repo, because the
+    shared venv/uv.lock and the shared local epistemic-graph daemon really are
+    contended across every worktree of every repo on the host).
+
+    Passing ``path=canonical`` to ``hold_lease``/``lease_status`` does NOT
+    isolate these tests from that real directory -- ``_lease_dir`` ignores
+    ``path`` for workspace-scoped resources by design (that is the behaviour
+    under test). Without this fixture these tests take a REAL lease that a
+    genuinely concurrent lane/agent on this host could be holding (a spurious
+    ``LeaseUnavailable`` unrelated to the code under test) or that this test
+    process could itself briefly hold, deferring a real concurrent full-suite
+    run or ``uv sync`` elsewhere on the host. It also makes every one of these
+    tests race every OTHER worker under ``pytest-xdist -n auto`` on the same
+    real lease file, since they all pass through the same un-isolated function.
+    """
+    workspace_dir = tmp_path / "workspace-arbitration"
+
+    def _fake_workspace_arbitration_dir() -> Path:
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        return workspace_dir
+
+    monkeypatch.setattr(
+        lanes, "workspace_arbitration_dir", _fake_workspace_arbitration_dir
+    )
+
+
 @pytest.fixture
 def canonical(tmp_path: Path) -> Path:
     return _init_repo(tmp_path / "canonical")
