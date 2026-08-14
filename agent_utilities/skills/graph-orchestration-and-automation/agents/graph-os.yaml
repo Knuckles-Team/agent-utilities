@@ -6,6 +6,7 @@ claims:
     - graph_agents
     - graph_broker
     - graph_bus
+    - graph_durable
     - graph_fork
     - graph_goals
     - graph_jobs
