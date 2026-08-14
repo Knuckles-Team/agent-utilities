@@ -838,21 +838,15 @@ guardrails = [
 ]
 
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-pythonpath = "."
-timeout = 30
-testpaths = ["tests/unit", "tests/integration"]
-markers = [
-    "integration: Integration tests using subprocess/TestClient (no external services)",
-    "live: Tests requiring live external services (LLM endpoints, real networks)",
-    "slow: Slow / real-resource timing tests excluded from the fast pre-commit gate (run in full/nightly)",
-    "concept(id): Mark test as validating a specific documentation concept (e.g., CONCEPT:ORCH-1.2)"
-]
-env = [
-    "AGENT_UTILITIES_TESTING=true",
-    "VALIDATION_MODE=true"
-]
+# Pytest configuration lives in pytest.ini, not here. Both files used to carry
+# a [tool.pytest.ini_options]/[pytest] block that silently disagreed (timeout
+# 30 vs 300, testpaths tests/unit+tests/integration vs the whole tests/ tree)
+# -- pytest's own config-file precedence (pytest.ini > pyproject.toml) means
+# pytest.ini always won and this block was dead weight that only misled
+# readers. Removed 2026-08-13; see pytest.ini for the effective config.
+# (VALIDATION_MODE=true here was also redundant even when live: DEFAULT_
+# VALIDATION_MODE in agent_utilities/core/config.py already ORs in
+# AGENT_UTILITIES_TESTING, which pytest.ini sets unconditionally.)
 
 [tool.coverage.run]
 source = ["agent_utilities"]

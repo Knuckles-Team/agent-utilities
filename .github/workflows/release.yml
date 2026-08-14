@@ -144,8 +144,22 @@ jobs:
       # isolation, ...). Consolidating onto pytest.ini's own testpaths is
       # what makes the async-drift fix (above) apply uniformly instead of
       # needing to be replicated at N call sites.
+      #
+      # `-n auto` (pytest-xdist, already a declared dependency) is the
+      # dominant lever on the suite's 36-47min serial wall-clock: this job
+      # already runs with no real engine installed above, so it is pure
+      # per-worker-process Python test execution with no shared engine
+      # binary/socket contention. `--dist loadgroup` is required, not
+      # optional, alongside it: it is a superset of the default `load`
+      # distribution that ADDITIONALLY honours `@pytest.mark.xdist_group`,
+      # which pins the handful of tests with real cross-worker/cross-host
+      # shared state (module-scoped fixtures that start a second real engine
+      # binary; anything sharing a resource-name-scoped lease directory) onto
+      # one worker instead of letting `load`'s item-level balancing split
+      # them. See perf/au-test-runtime for the serial-vs-parallel failure-set
+      # comparison this change was validated against before landing.
       - name: Test suite
-        run: python3 -m pytest -q
+        run: python3 -m pytest -q -n auto --dist loadgroup
 
   # ── STAGE 2: build the release wheel. Needs: gates. ─────────────────────
   # This is release-critical item #3: wheel build + reproducibility +
