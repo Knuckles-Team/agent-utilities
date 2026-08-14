@@ -880,15 +880,16 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual, pre-push]
-  # guardrails.yml ENVIRONMENT parity — the highest-value parity closure. The
-  # gates above run in the developer's FULL install; CI's "Guardrails" job runs
-  # them in a deliberately LEAN install (`pip install -e .` + numpy/pyyaml/pytest/
-  # rdflib==7.6.0/pyshacl/owlrl — NO [agent-runtime]/[all] extras). A gate that transitively
+  # release.yml `gates` job ENVIRONMENT parity — the highest-value parity closure.
+  # The gates above run in the developer's FULL install; CI's release.yml `gates`
+  # job runs them in a deliberately LEAN install (`uv sync --frozen --extra test
+  # --group guardrails --no-install-package epistemic-graph --no-install-package
+  # langfuse-agent` — NO [agent-runtime]/[all] extras). A gate that transitively
   # imports an extra-only dep (pydantic_ai, httpx, fastmcp, …) passes locally but
   # dies in CI. This hook reproduces CI's lean env in a throwaway venv and runs
-  # EVERY guardrail gate inside it (install + gate list both derived from
-  # guardrails.yml, so it can't drift). It builds a venv → staged manual/pre-push,
-  # too slow for every commit. Run it via:
+  # EVERY blocking gate inside it (install + gate list both derived from
+  # release.yml's `gates` job, so it can't drift). It builds a venv → staged
+  # manual/pre-push, too slow for every commit. Run it via:
   #   pre-commit run guardrails-lean-parity --hook-stage manual --all-files
   - id: guardrails-lean-parity
     name: CI parity — guardrail gates in a CI-equivalent LEAN venv
