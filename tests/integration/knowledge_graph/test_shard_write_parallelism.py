@@ -233,7 +233,7 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
                 await asyncio.sleep(0.2)
             raise RuntimeError(f"engine did not become ready: {last!r}")
 
-        async def _write_concurrent(graphs: list[str], n: int) -> int:
+        async def _write_concurrent(graphs: list[str], n: int, expected_touched: int) -> int:
             # Snapshot BEFORE creating the per-graph tenants so a shard file that is
             # newly created by this phase counts as touched even if the filesystem
             # mtime granularity is too coarse to see the subsequent commit.
@@ -265,17 +265,35 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
             )
             for c in conns:
                 await c.close()
-            # Give the authoritative writer a beat to land the commit on disk.
-            time.sleep(1.1)
+            # GOC-70: poll for the durable commit to land instead of a fixed
+            # sleep. A flat 1.1s wait assumed every shard writer would flush a
+            # 20,000-node batch to disk within an arbitrary window -- not
+            # guaranteed on a loaded/low-core CI host, where the same durable
+            # commit can legitimately take longer. Poll with a generous 10s
+            # budget (40 * 0.25s); `_shard_commit_marks`/`_touched` are
+            # already the deterministic, timing-independent signal (mtime +
+            # size deltas), so re-snapshotting on each attempt costs nothing
+            # extra in correctness. If `expected_touched` is never reached the
+            # loop still exits at the deadline and returns the actual count,
+            # so the assertions below fail LOUDLY with real numbers rather
+            # than this helper silently reporting a stale zero-progress
+            # snapshot as if the write had finished.
+            deadline = time.monotonic() + 10.0
             after = _shard_commit_marks(str(persist))
+            while (
+                _touched(before, after) < expected_touched
+                and time.monotonic() < deadline
+            ):
+                await asyncio.sleep(0.25)
+                after = _shard_commit_marks(str(persist))
             return _touched(before, after)
 
         async def _run() -> tuple[int, int]:
             await _wait_ready()
             await _bootstrap_identity()
             distinct, same = _names_for_shards()
-            cross_active = await _write_concurrent(distinct, 20000)
-            same_active = await _write_concurrent(same, 20000)
+            cross_active = await _write_concurrent(distinct, 20000, _K)
+            same_active = await _write_concurrent(same, 20000, 1)
             return cross_active, same_active
 
         cross_active, same_active = asyncio.run(_run())

@@ -331,6 +331,16 @@ repos:
     # program's pre-commit data-loss incidents (one lane emptied its own working
     # tree today and recovered only via `git fsck`).
     stages: [manual, pre-push]
+  - id: constrained-parallelism
+    name: pytest concurrency-sensitive tests under 2-core CPU affinity (GOC-70)
+    # See scripts/constrained_parallelism_gate.sh's header for the full
+    # rationale (epistemic-graph 2.25.0 shipped green-on-64-cores, red in
+    # 2-core CI) and why this is a curated file list, not the full suite.
+    entry: bash -c 'if [ -f "scripts/constrained_parallelism_gate.sh" ]; then bash scripts/constrained_parallelism_gate.sh; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   - id: check-agent-standards
     name: check agent standards
     entry: |-

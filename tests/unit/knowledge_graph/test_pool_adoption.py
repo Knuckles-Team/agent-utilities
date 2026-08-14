@@ -101,7 +101,17 @@ def test_batch_update_concurrent_pipelines_on_one_transport() -> None:
 
     assert probe.max_inflight > 1
     assert len(probe.transport_ids) == 1
-    assert elapsed < op_delay * batch_count * 0.75
+    # GOC-70: `probe.max_inflight > 1` above is the real, scheduling-independent
+    # proof that RPCs actually overlapped (it counts concurrent in-flight ops
+    # directly, not wall clock). This elapsed-time check is a secondary, weaker
+    # corroboration and was tuned tight (0.75x of fully-sequential) — on a
+    # contended/low-core host, thread hand-off latency to the background event
+    # loop (GIL swaps, scheduler jitter) can eat a 25% margin even though the
+    # pipelining itself is correct, the same "timing asserted as an invariant"
+    # shape as the eg `ops==400` bug. Loosened to 0.9x: still fails a genuine
+    # regression to fully-serial execution (which would land at ~1.0x), while
+    # leaving ~130ms of slack above the "ideally overlapped" ~50ms case.
+    assert elapsed < op_delay * batch_count * 0.9
     assert [result["order"][0] for result in results] == [
         f"b{batch}_n0" for batch in range(batch_count)
     ]
