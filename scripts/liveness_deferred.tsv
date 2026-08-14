@@ -1,0 +1,63 @@
+# liveness_deferred.tsv — corrected liveness findings accepted onto
+# .liveness_baseline.json past their first triage, with an owner and a
+# review-by date (or PERMANENT with justification). Enforced by
+# scripts/check_liveness.py / scripts/liveness_deferred.py, format and
+# enforcement mirroring epistemic-graph/tests/protocol_unbound_baseline.txt's
+# proven pattern (fixed 2026-08-13) — the SAME defect GOC-68 names as missing
+# ("a bare ratchet lets deferral become permanent"), now fixed here too. This
+# is the THIRD instance of the defect found in this program; the fourth,
+# scripts/surface_parity_baseline.txt, is still rotting and deliberately left
+# untouched by this change — see AGENTS.md / DEAD-CODE-INTENT-RECOVERY.md
+# Section 6.4 for why the two ratchets stay separate rather than merging.
+#
+# Format, TAB-separated:
+#   <category>\t<pattern>\t# owner=<@handle> review-by=<YYYY-MM-DD> [note=...]
+#   <category>\t<pattern>\t# owner=<@handle> PERMANENT reason=<text>
+# category is one of: orphan_modules | dead_definitions | excluded_generated
+# (excluded_generated = a finding removed from the ratchet target entirely,
+# not merely deferred — see the PERMANENT entry below).
+# A NEW entry with neither owner+review-by nor owner+PERMANENT+reason fails
+# `check_liveness.py` immediately (test_liveness_deferred.py proves this). An
+# entry past its review-by date ALSO fails the gate, forcing an active
+# renew-or-resolve decision instead of silent rot.
+
+# Generated protocol-completeness surface (DEAD-CODE-INTENT-RECOVERY.md
+# Section 3.7): the file's own header states "Regenerate with the protocol
+# gate; do not edit" — reconciler mechanism `excluded_generated`, not a
+# disposition to act on. Individual DevelopmentLane*Request/Result symbols go
+# live as AU adopts each operation; deleting them is undone by the next
+# regenerate.
+excluded_generated	agent_utilities/protocols/epistemic_operations/_generated.py	# owner=@genius PERMANENT reason=generated-from-authoritative-json-schema-do-not-edit-see-DEAD-CODE-INTENT-RECOVERY-3.7
+
+# Mathematical/reasoning primitive toolkit built ahead of consumers
+# (DEAD-CODE-INTENT-RECOVERY.md Section 3.5): the MODULE is live (5 real call
+# sites + referenced by module-path string in
+# core/registry/service_adapter.py's capability registry), but 23 of its
+# ~40+ public functions have zero callers anywhere. Each is a distinct,
+# citation-backed (MIT 6.042J) implementation, not a duplicate — wire
+# opportunistically as reasoning pipelines mature.
+dead_definitions	agent_utilities/knowledge_graph/core/formal_reasoning_core.py	# owner=@genius review-by=2026-10-01 note=toolkit-ahead-of-consumers-see-DEAD-CODE-INTENT-RECOVERY-3.5
+
+# Ontology node models scaffolded ahead of ingestion demand
+# (DEAD-CODE-INTENT-RECOVERY.md Section 3.6): ~84 Pydantic *Node/*Record
+# classes with zero references anywhere else in the repo. Needs a real
+# PRODUCER decision per node kind, not a wiring line.
+dead_definitions	agent_utilities/models/knowledge_graph.py	# owner=@genius review-by=2026-10-01 note=ontology-scaffolded-ahead-of-ingestion-see-DEAD-CODE-INTENT-RECOVERY-3.6
+
+# Memory-retrieval-strategy benchmarking harness — already fully surveyed by
+# MEMORY-CAPABILITY-COLLAPSE.md Section 3.3/1.4 (zero production callers,
+# corroborated by surface_parity_baseline.txt, its one test lives outside
+# pytest.ini's testpaths). Reused here, not re-derived, per
+# DEAD-CODE-INTENT-RECOVERY.md Section 3.8's own "cite, don't re-derive" rule.
+orphan_modules	agent_utilities/harness/memorydata/*	# owner=@genius review-by=2026-09-15 note=wire-as-bakeoff-console-script-or-delete-see-MEMORY-CAPABILITY-COLLAPSE-3.3
+
+# Genuinely-unreferenced modules found by THIS task's own corrected-detector
+# audit (2026-08-13) — no static import (production or test), no
+# pyproject.toml entry-point, no getattr registry, no __getattr__ lazy-import
+# map, and no genuinely-dynamic (non-literal) import_module()/__import__()
+# call in the owning package. Kept on the baseline (not deleted — this task's
+# constraint is measurement-only) pending an owning decision.
+orphan_modules	agent_utilities/api/sparql_server.py	# owner=@genius review-by=2026-09-15 note=self-documented-in-surface_manifest-py-as-unwired-dormant-no-importer
+orphan_modules	agent_utilities/protocols/dataflows.py	# owner=@genius review-by=2026-09-15 note=zero-references-anywhere-production-or-test
+orphan_modules	agent_utilities/protocols/quant_agent.py	# owner=@genius review-by=2026-09-15 note=only-textual-hit-is-an-unrelated-string-literal-author-quant_agent-in-a-test-not-an-import
+orphan_modules	agent_utilities/ecosystem/agent_manager_dashboard.py	# owner=@genius review-by=2026-09-15 note=only-mentioned-in-a-docstring-listing-not-imported
