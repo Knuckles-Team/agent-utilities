@@ -87,6 +87,13 @@ repos:
     stages: [pre-push, manual]
 - repo: local
   hooks:
+  - id: dependency-readiness
+    name: Dependency readiness — every declared intra-fleet constraint is installable
+    entry: bash -c 'uv run --with repository-manager python -m repository_manager.dependency_readiness .'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   - id: dependency-audit
     name: audit dependencies for known CVEs (OSV)
     entry: python3 scripts/audit_dependencies.py uv.lock

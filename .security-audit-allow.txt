@@ -1,4 +1,0 @@
-# Packages with an OSV advisory but NO released upstream fix — risk-accepted.
-# Format: ADVISORY-ID package expires=YYYY-MM-DD # justification (reviewed periodically,
-# max 90-day horizon). scripts/audit_dependencies.py skips exactly these advisory/package
-# pairs; remove an entry once a fix ships so the audit re-flags it and the floor is raised.
