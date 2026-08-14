@@ -145,7 +145,7 @@ def _guarded_popen_init(self, *args, **kwargs):
     return _TRUE_POPEN_INIT(self, *args, **kwargs)
 
 
-subprocess.Popen.__init__ = _guarded_popen_init
+subprocess.Popen.__init__ = _guarded_popen_init  # type: ignore[method-assign]
 
 
 def _fail_fast_on_wrong_interpreter() -> None:
