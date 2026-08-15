@@ -558,9 +558,14 @@ async def test_graph_agents_reason_live_path_drives_real_cot_topology(
     assert props["version_hash"] == COT_SPEC.digest
 
     assert engine.backend.calls, "record_topology_outcome never reached the backend"
+    # ``record_topology_outcome`` (D-W2C-5) issues a bounded READ then a
+    # literal-only SET write -- it never persists the raw ``quality_score`` as
+    # a ``score`` param. It folds it into an EMA'd ``reward`` (alpha=0.15,
+    # defaulting the prior reward to 0.5 on a fresh node) plus ``task_count``.
     _query, params = engine.backend.calls[-1]
     assert params["tid"] == COT_SPEC.topology_id
-    assert params["score"] == 0.8
+    assert params["reward"] == pytest.approx(0.5 * (1 - 0.15) + 0.15 * 0.8)
+    assert params["task_count"] == 1
 
 
 @pytest.mark.asyncio

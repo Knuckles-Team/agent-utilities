@@ -557,7 +557,18 @@ def _cfg(**overrides):
     return SimpleNamespace(**base)
 
 
-def test_resolve_auto_with_nothing_configured_returns_none() -> None:
+def test_resolve_auto_with_nothing_configured_returns_none(monkeypatch) -> None:
+    """``nothing configured`` means no reachable engine broker either — simulate
+    that deterministically (mirrors ``test_resolve_explicit_engine_unreachable_raises``'s
+    idiom) rather than relying on the ambient test process having no live engine,
+    which the suite's autouse ``isolate_graph_compute_engine`` fixture does not
+    guarantee (a sibling test file may have already started one)."""
+    from agent_utilities.mcp.tools import engine_tools
+
+    def _boom(graph):
+        raise ConnectionError("no engine")
+
+    monkeypatch.setattr(engine_tools, "_client_for", _boom)
     assert resolve_bus_log_backend(config=_cfg()) is None
 
 
@@ -572,10 +583,19 @@ def test_resolve_rejects_unknown_value():
         resolve_bus_log_backend(config=_cfg(agent_bus_log_backend="rabbitmq"))
 
 
-def test_resolve_auto_prefers_kafka_when_bootstrap_configured():
+def test_resolve_auto_prefers_kafka_when_bootstrap_configured(monkeypatch):
     """Auto mode never raises: an unreachable Kafka broker degrades to no
     configured backend (``None``), same contract as ``TASK_QUEUE_BACKEND``'s
-    auto mode."""
+    auto mode. The passed ``engine`` has no ``.broker`` of its own, so pin the
+    ambient engine-broker discovery to unreachable too (same idiom as
+    ``test_resolve_explicit_engine_unreachable_raises``) — otherwise this is at
+    the mercy of whether some other test already stood up a live engine."""
+    from agent_utilities.mcp.tools import engine_tools
+
+    def _boom(graph):
+        raise ConnectionError("no engine")
+
+    monkeypatch.setattr(engine_tools, "_client_for", _boom)
     result = resolve_bus_log_backend(
         engine=SimpleNamespace(),
         config=_cfg(kafka_bootstrap_servers="nowhere.invalid:9092"),
@@ -586,8 +606,13 @@ def test_resolve_auto_prefers_kafka_when_bootstrap_configured():
 def test_resolve_auto_kafka_construction_succeeds_uses_kafka(monkeypatch):
     """When Kafka construction succeeds (broker reachable / provisioned), auto mode
     picks it over no backend at all."""
+    from agent_utilities.mcp.tools import engine_tools
     from agent_utilities.messaging import bus_log as bus_log_mod
 
+    def _boom(graph):
+        raise ConnectionError("no engine")
+
+    monkeypatch.setattr(engine_tools, "_client_for", _boom)
     sentinel = object()
     monkeypatch.setattr(bus_log_mod, "KafkaBusLog", lambda **kw: sentinel)
     result = resolve_bus_log_backend(

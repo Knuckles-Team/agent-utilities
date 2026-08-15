@@ -21,16 +21,38 @@ def registered():
 
 
 @pytest.fixture
-def isolated_secrets(monkeypatch):
-    """Pin the tool's ``create_secrets_client`` to a unique throwaway-graph
-    engine-backed client, so the CRUD test is isolated from the shared
-    ``__secrets__`` graph (the tool imports the symbol at call time)."""
-    import uuid
+def isolated_secrets(monkeypatch, isolate_graph_compute_engine):
+    """Pin the tool's ``create_secrets_client`` to an engine-backed client on
+    THIS test's isolated per-test graph, so the CRUD test is isolated from
+    the shared ``__secrets__`` graph (the tool imports the symbol at call
+    time).
 
+    Two pitfalls this must avoid, both proven by a real run:
+
+    1. **Do not invent a separate throwaway graph name.** A bare
+       ``GraphComputeEngine``'s writes are routed by the ambient, immutable
+       ``GraphSession.graph`` (``core/graph_compute.py``'s
+       ``_SessionRoutedAsyncClient._send`` — the ``graph_name`` passed to the
+       constructor is bookkeeping only, not the wire target), and the suite's
+       autouse ``isolate_graph_compute_engine`` fixture (tests/conftest.py)
+       already scopes that session to ONE unique per-test graph. A second,
+       independently-named graph is simply never the write target — it would
+       be created but never touched, while every write actually lands on (or
+       404s against) the session's own graph. Request that fixture and reuse
+       its yielded name so the engine's bookkeeping and the session's real
+       wire target agree.
+    2. **Do not wrap the name in leading/trailing double underscores.** That
+       is the informal "system graph" naming convention
+       (``shard_topology.is_system_graph`` — a documented Phase-1 stopgap
+       heuristic, GOC-61) which routes writes through
+       ``check_system_graph_write`` and requires ``kg:admin`` authority.
+       ``isolate_graph_compute_engine``'s own ``test_<uuid>`` names already
+       avoid this.
+    """
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
     from agent_utilities.security import secrets_client as sc
 
-    graph = GraphComputeEngine(graph_name=f"__secrets_test_{uuid.uuid4().hex[:12]}__")
+    graph = GraphComputeEngine(graph_name=isolate_graph_compute_engine)
     client = sc.SecretsClient(backend=sc.InEpistemicGraphBackend(graph=graph))
     monkeypatch.setattr(sc, "create_secrets_client", lambda config=None: client)
     return client
