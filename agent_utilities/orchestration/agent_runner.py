@@ -2451,8 +2451,17 @@ def _resolve_agent_from_kg(
     # the USES_PROMPT edge so the persona actually drives the run. Toolset binding
     # of ``toolset_ids`` into live MCP toolsets is the run_agent execution seam.
     try:
+        # D-GS7-2 (engine.py `_upsert_node`): the native typed-add path
+        # PRESERVES the caller's own `node_type` -- every `_serialize_node`
+        # caller (including `seed_builtin_agent_templates`) folds
+        # `RegistryNodeType.value` (lowercase snake_case, e.g.
+        # 'agent_template') into it rather than the PascalCase schema label
+        # ('AgentTemplate') `_upsert_node` was called with. The native
+        # engine's label match is case-sensitive against the stored
+        # `node_type` property, so the label token here must match the
+        # lowercase value actually written, not the PascalCase table name.
         tmpl_rows = engine.backend.execute(
-            "MATCH (at:AgentTemplate) WHERE at.name = $name OR at.id = $tid "
+            "MATCH (at:agent_template) WHERE at.name = $name OR at.id = $tid "
             "RETURN at.id AS tid, at.system_prompt_id AS spid, "
             "at.toolset_ids AS toolsets, at.model_preference AS model",
             {"name": agent_name, "tid": f"at:{agent_name}"},
