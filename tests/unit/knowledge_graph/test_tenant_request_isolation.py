@@ -58,7 +58,22 @@ def _scoped(tid, aid):
 
 
 @pytest.fixture
-def guarded_engine(monkeypatch):
+def guarded_engine(monkeypatch, tiny_engine):
+    # ``tiny_engine`` is depended on (its value unused) purely so this
+    # fixture's real-engine need is visible in ``item.fixturenames`` --
+    # ``tests/conftest.py``'s ``pytest_collection_modifyitems`` decides once
+    # per xdist worker whether to pay for a real session engine by scanning
+    # for exactly that fixture name (or ``engine_graph``). This file builds
+    # its own ``GraphComputeEngine``/``BrainGuardedBackend`` directly instead
+    # of using ``tiny_engine``'s return value, so without this explicit
+    # dependency the worker-needs-engine classifier never saw it: run this
+    # file alone (or grouped only with other non-engine tests/unit files)
+    # and no session engine started, so ``GraphComputeEngine()`` below failed
+    # to connect and the makereport hook turned that into a SKIP -- while the
+    # exact same tests, grouped with an engine-requesting file, got a live
+    # engine and genuinely FAILED. Same test, two different verdicts, purely
+    # from incidental file/worker grouping. Depending on ``tiny_engine`` here
+    # makes the real-engine need deterministic regardless of grouping.
     from agent_utilities.knowledge_graph.backends.brain_guarded_backend import (
         BrainGuardedBackend,
     )
