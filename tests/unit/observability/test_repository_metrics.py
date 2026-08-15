@@ -36,7 +36,7 @@ def test_instruments_are_callable_with_their_declared_labels() -> None:
         "repo": "repository-manager",
         "priority_class": "default",
         "resource_class": "light-check",
-        "host_alias": "r710",
+        "host_alias": "build-host-a",
         "outcome": "hit",
         "stage": "feedback",
         "retry_class": "transient",

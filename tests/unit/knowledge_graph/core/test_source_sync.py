@@ -579,7 +579,7 @@ def test_source_sync_all_mode_delta_returns_durable_job_handle_immediately(
     monkeypatch.setattr(HydrationManager, "get_status", lambda self: {})
     monkeypatch.setattr(
         "agent_utilities.protocols.source_connectors.connectors.mcp_package._load_mcp_config",
-        lambda: {"github-mcp": {"url": "http://github-mcp.arpa/mcp"}},
+        lambda: {"github-mcp": {"url": "http://github-mcp.example.invalid/mcp"}},
     )
 
     def _must_not_run_inline(*_args, **_kwargs):
