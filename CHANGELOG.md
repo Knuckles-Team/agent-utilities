@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-08-14 — Fleet-wide phased minor bump
+
 ### Added
 - **KV-cache checkpoint intelligence — checkpoint at *good moments*, chosen by the
   agent, the user, or the system.** `agent_utilities/kvcache/checkpoint.py` already knew
