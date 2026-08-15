@@ -579,7 +579,7 @@ def _synthetic_release_wheel(
                 "Metadata-Version: 2.4\n"
                 "Name: agent-utilities\n"
                 "Version: 1.0.0\n"
-                "Requires-Dist: epistemic-graph[full]>=2.23.2,<3.0.0\n\n"
+                'Requires-Dist: epistemic-graph[full]<3.0.0,>=2.23.2; extra == "graphos"\n\n'
             ),
         )
         archive.writestr(
