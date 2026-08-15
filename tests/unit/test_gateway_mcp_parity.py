@@ -11,11 +11,36 @@ preventing the two surfaces from drifting.
 
 from __future__ import annotations
 
+import pytest
+
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tool_specs import (
     INTENT_VERBS,
     TOOL_SPECS_BY_NAME,
     canonical_tool_names,
+)
+from agent_utilities.mcp.tools import engine_tools
+
+# The 21 ``engine_<domain>`` tool families are declared as REQUIRED
+# (``feature=None``) in the distribution-owned ``ToolSpec`` manifest -- a real
+# deployment always ships them (they are not deployment-configurable like the
+# ``quant``/``finance`` optional feature). They are registered at runtime only
+# when the real ``epistemic_graph`` client package is importable
+# (``engine_tools.ENGINE_DOMAINS``, via ``engine_tools._discover_domains``).
+# In the lean CI `gates` lane (`uv sync --no-install-package epistemic-graph`,
+# documented in tests/conftest.py's ``_is_engine_unreachable_error``) that
+# package is deliberately absent, so the two runtime-vs-canonical parity
+# checks below see a real, environment-caused mismatch rather than a
+# registration bug -- skip only those two, not the other four checks in this
+# file (mounted-routes/prefix/skill-coverage), which hold regardless.
+_NEEDS_ENGINE_DOMAINS = pytest.mark.skipif(
+    not engine_tools.ENGINE_DOMAINS,
+    reason=(
+        "epistemic_graph package not installed in this environment -- the "
+        "required engine_<domain> tool families cannot be registered, so "
+        "REGISTERED_TOOLS vs. the canonical ToolSpec universe legitimately "
+        "diverge by exactly those families."
+    ),
 )
 
 
@@ -51,6 +76,7 @@ def _canonical_runtime_names() -> frozenset[str]:
     return canonical_tool_names(features=features, include_intent=include_intent)
 
 
+@_NEEDS_ENGINE_DOMAINS
 def test_every_mcp_tool_has_a_rest_route():
     kg_server.ensure_tools_registered()
     tools = set(kg_server.REGISTERED_TOOLS)
@@ -65,6 +91,7 @@ def test_every_mcp_tool_has_a_rest_route():
     )
 
 
+@_NEEDS_ENGINE_DOMAINS
 def test_no_phantom_routes_for_missing_tools():
     kg_server.ensure_tools_registered()
     tools = set(kg_server.REGISTERED_TOOLS)

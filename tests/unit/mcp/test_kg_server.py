@@ -14,6 +14,26 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+# The SAI factory's specialize action imports ``agent_utilities.numeric``
+# (the compiled ``epistemic_graph.numeric`` kernel) transitively -- when the
+# kernel is absent the resulting ImportError is caught inside the tool
+# dispatch and surfaces as an EvidenceBundle claim with status "failed"
+# rather than a raised exception, so the conftest exception-chain auto-skip
+# can't see it. Matches the same "package genuinely absent" contract used
+# elsewhere (e.g. tests/unit/test_engine_api_coverage.py).
+try:
+    import epistemic_graph.numeric as _numeric_kernel  # noqa: F401
+except ImportError:
+    _numeric_kernel = None
+
+_NEEDS_NUMERIC_KERNEL = pytest.mark.skipif(
+    _numeric_kernel is None,
+    reason=(
+        "epistemic_graph.numeric kernel not installed in this environment -- "
+        "the specialize action's SAI factory cycle imports agent_utilities.numeric."
+    ),
+)
+
 
 class MockMCP:
     def __init__(self):
@@ -428,6 +448,7 @@ class _FakeSpecializeEngine:
 
 
 @pytest.mark.asyncio
+@_NEEDS_NUMERIC_KERNEL
 async def test_graph_analyze_specialize_action_is_gateway_reachable(
     server_tools, monkeypatch
 ):

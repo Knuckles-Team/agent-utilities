@@ -24,6 +24,24 @@ from agent_utilities.mcp.tools import engine_surface_tools
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
+# The two tests below compare against ``engine_surface_tools._mining_actions()``,
+# which -- exactly like ``engine_tools.ENGINE_DOMAINS`` (see
+# tests/unit/test_engine_api_coverage.py) -- introspects the real
+# ``epistemic_graph.client.MiningClient`` and degrades to an empty set when the
+# package is absent. In the lean CI `gates` lane that empty set is real (not a
+# registration bug), and the second test's assertion failure additionally
+# routes through ``_dispatch``'s own caught-and-JSON-ified
+# ``ModuleNotFoundError`` (``public_error_json`` / "dependency_unavailable"),
+# not a raw exception, so the conftest exception-chain auto-skip can't see it
+# either -- skip explicitly.
+_NEEDS_ENGINE_DOMAINS = pytest.mark.skipif(
+    not engine_surface_tools._mining_actions(),
+    reason=(
+        "epistemic_graph package not installed in this environment -- "
+        "engine_surface_tools._mining_actions() is empty."
+    ),
+)
+
 
 class _CollectingMCP:
     """Minimal FastMCP stand-in that captures ``@mcp.tool``-registered functions."""
@@ -924,6 +942,7 @@ def test_graph_mine_description_enumerates_all_18_actions():
     assert not missing, f"graph_mine description is missing actions: {missing}"
 
 
+@_NEEDS_ENGINE_DOMAINS
 def test_graph_mine_manifest_matches_introspected_mining_client():
     """CONCEPT:AU-KG.compute.engine-surface-manifest — the SAME manifest
     engine_mining is built from (client-introspected, not hand-maintained) has
@@ -1345,6 +1364,7 @@ def test_graph_mine_alias_hyphenated_variant_resolves(monkeypatch, tools):
     assert calls == [("entity_resolve", {})]
 
 
+@_NEEDS_ENGINE_DOMAINS
 def test_graph_mine_unknown_action_lists_valid_actions_from_the_real_manifest(tools):
     """A genuinely bogus action gets a proper 'unknown action' error listing the
     introspected valid actions — NOT the old silent {"degraded": true} path that

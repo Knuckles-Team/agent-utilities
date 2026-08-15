@@ -24,6 +24,17 @@ from agent_utilities.core import sessions as _sessions
 from agent_utilities.gateway import fleet
 from agent_utilities.models.goal import GoalStatus
 
+# All three tests below drive the real goal loop / fleet-pause handler, which
+# constructs the process-wide engine (``IntelligenceGraphEngine.get_or_create()``)
+# and needs the real ``epistemic_graph`` client package -- in the lean CI
+# `gates` lane it is genuinely absent, and the resulting ``ModuleNotFoundError``
+# is caught inside the goal loop/handler and surfaces as a "failed"/"error"
+# status rather than a raised exception (so the conftest exception-chain
+# auto-skip can't see it). Skip explicitly, matching the same "package
+# genuinely absent" contract used elsewhere (e.g.
+# tests/unit/test_engine_api_coverage.py).
+pytest.importorskip("epistemic_graph.client")
+
 pytestmark = pytest.mark.integration
 
 

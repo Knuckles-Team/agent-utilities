@@ -9,8 +9,21 @@ from dataclasses import replace
 import pytest
 
 from agent_utilities.mcp import kg_server
-from agent_utilities.mcp.tools import intent_tools
+from agent_utilities.mcp.tools import engine_tools, intent_tools
 from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+# ``engine_placement`` is one of the ``engine_<domain>`` MCP tools, registered
+# only when the real ``epistemic_graph.client`` package is importable (see
+# tests/unit/test_engine_api_coverage.py). In the lean CI `gates` lane it is
+# genuinely absent from ``REGISTERED_TOOLS`` -- not the D-03-class incident
+# this regression test guards against.
+_NEEDS_ENGINE_DOMAINS = pytest.mark.skipif(
+    not engine_tools.ENGINE_DOMAINS,
+    reason=(
+        "epistemic_graph package not installed in this environment -- "
+        "engine_placement is not registered to assert against."
+    ),
+)
 
 
 @pytest.fixture(autouse=True)
@@ -1155,6 +1168,7 @@ def test_every_registered_non_intent_verb_tool_has_a_cpd():
     assert not missing, f"Tools with no packaged CPD: {sorted(missing)}"
 
 
+@_NEEDS_ENGINE_DOMAINS
 def test_engine_placement_resolves_under_manage_without_failing_closed():
     """Direct regression test for the incident itself: calling any intent
     verb used to raise ``RuntimeError: GraphOS capability descriptors are

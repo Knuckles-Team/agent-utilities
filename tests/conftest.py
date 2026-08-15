@@ -541,6 +541,8 @@ def isolate_graph_compute_engine(monkeypatch):
     # PermissionError once one test's write lands on another's read).
     from agent_utilities.knowledge_graph.core.shard_topology import (
         default_graph_name as _default_graph_name,
+    )
+    from agent_utilities.knowledge_graph.core.shard_topology import (
         tenant_graph_name as _tenant_graph_name,
     )
 
@@ -952,9 +954,80 @@ import sys
 from unittest.mock import MagicMock
 
 
+def _is_none_numeric_shim_attribute_error(exc: BaseException) -> bool:
+    """True if ``exc`` is an ``AttributeError`` raised by calling into
+    ``agent_utilities.numeric``'s ``xp``/``np`` shim while the compiled
+    ``epistemic_graph.numeric`` kernel is absent from THIS environment.
+
+    A THIRD signature of "no real engine/kernel here" (see the two documented
+    on :func:`_is_engine_unreachable_error`): several product modules
+    (``agent_utilities/knowledge_graph/retrieval/capability_index.py``,
+    ``agent_utilities/knowledge_graph/core/hypergraph.py``, and others) do
+    ``try: from agent_utilities.numeric import xp as np / except ImportError:
+    np = None`` at import time specifically so they stay importable in the
+    lean CI ``gates`` lane -- by that module's own documented design, the
+    numeric/vector code paths then "raise a clear error at call time if
+    invoked without it, rather than trapping every importer at module load".
+    In practice that call-time error is a bare
+    ``AttributeError: 'NoneType' object has no attribute 'asarray'`` (or
+    ``'random'``, ``'zeros'``, ...) -- not a message an exception-chain match
+    can key on. Match structurally instead: Python 3.10+ AttributeErrors carry
+    ``.obj`` (the object that lacked the attribute); confirm it really is
+    ``None`` (not some unrelated null), then walk the traceback for a product
+    (non-test) frame binding a local/global literally named ``np`` or ``xp``
+    to that same ``None`` -- the exact shim variable, not a coincidental
+    unrelated ``None.attr`` bug elsewhere. Both conditions must hold, so this
+    can never mask a real defect that merely happens to also be an
+    ``AttributeError`` on ``None``.
+    """
+    if not isinstance(exc, AttributeError):
+        return False
+    obj = getattr(exc, "obj", "sentinel-not-python-3.10+")
+    if obj is not None:
+        return False
+    tb = exc.__traceback__
+    while tb is not None:
+        frame = tb.tb_frame
+        filename = frame.f_code.co_filename
+        if "agent_utilities" in filename and "/tests/" not in filename:
+            for name in ("np", "xp"):
+                if name in frame.f_locals and frame.f_locals[name] is None:
+                    return True
+                if name in frame.f_globals and frame.f_globals[name] is None:
+                    return True
+        tb = tb.tb_next
+    return False
+
+
+def _is_missing_engine_domain_tool_error(exc: BaseException) -> bool:
+    """True if ``exc`` is a ``KeyError``/``ValueError`` caused by an
+    ``engine_<domain>`` MCP tool not being registered because
+    ``engine_tools.ENGINE_DOMAINS`` is empty (the ``epistemic_graph`` client
+    package absent) -- a FOURTH signature of the same "no real engine/kernel
+    here" condition documented on :func:`_is_engine_unreachable_error`,
+    reached through a ``kg_server.REGISTERED_TOOLS["engine_<domain>"]``
+    lookup or ``kg_server._execute_tool``'s own "Tool ... not registered"
+    guard instead of a raw ``ModuleNotFoundError``. Gated on ``ENGINE_DOMAINS``
+    actually being empty right now (not a stale assumption) plus the
+    exception naming a REAL domain from ``_DOMAIN_CLASSES``, so a genuine
+    KeyError/ValueError elsewhere -- including one that happens to be about a
+    real, present engine tool -- is never masked.
+    """
+    if not isinstance(exc, (KeyError, ValueError)):
+        return False
+    try:
+        from agent_utilities.mcp.tools import engine_tools
+    except Exception:  # noqa: BLE001 — can't classify without it; not this signature
+        return False
+    if engine_tools.ENGINE_DOMAINS:
+        return False  # kernel IS present -- a real KeyError/ValueError, never mask
+    message = str(exc)
+    return any(f"engine_{domain}" in message for domain in engine_tools._DOMAIN_CLASSES)
+
+
 def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
     """True if ``exc`` (or its cause chain) is the epistemic-graph engine being
-    unavailable in THIS environment -- either of two distinct signatures:
+    unavailable in THIS environment -- three distinct signatures:
 
     1. Unreachable daemon: the message raised by ``GraphComputeEngine`` / the
        client when no engine daemon answers. Matched by message (the client
@@ -973,6 +1046,15 @@ def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
        actually failed to find, so matching on it (rather than the message
        text) is exact regardless of which submodule the failing ``import``
        or ``from ... import ...`` statement named.
+    3. Absent numeric kernel: see :func:`_is_none_numeric_shim_attribute_error`
+       -- the same absent-package condition, reached through
+       ``agent_utilities.numeric``'s own None-shim degrade instead of a raw
+       ``ModuleNotFoundError``.
+    4. Missing ``engine_<domain>`` MCP tool registration: see
+       :func:`_is_missing_engine_domain_tool_error` -- the same
+       absent-package condition, reached through a
+       ``REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES`` lookup instead of a raw
+       ``ModuleNotFoundError``.
     """
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen:
@@ -989,6 +1071,10 @@ def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
             missing = exc.name or ""
             if missing == "epistemic_graph" or missing.startswith("epistemic_graph."):
                 return True
+        if _is_none_numeric_shim_attribute_error(exc):
+            return True
+        if _is_missing_engine_domain_tool_error(exc):
+            return True
         exc = exc.__cause__ or exc.__context__
     return False
 

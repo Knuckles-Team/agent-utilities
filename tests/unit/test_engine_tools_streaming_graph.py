@@ -20,6 +20,15 @@ import json
 
 import pytest
 
+# Every test in this file dispatches through the REAL, REGISTERED
+# ``engine_streaming`` MCP tool (``kg_server.REGISTERED_TOOLS["engine_streaming"]``),
+# which only exists when ``engine_tools.ENGINE_DOMAINS`` was discovered from the
+# real ``epistemic_graph.client`` package (see the identical rationale in
+# tests/unit/test_engine_api_coverage.py). Skip cleanly, matching that
+# established "package genuinely absent" contract, rather than a bare
+# ``KeyError``.
+pytest.importorskip("epistemic_graph.client")
+
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import engine_tools
 from agent_utilities.models.company_brain import ActorType
