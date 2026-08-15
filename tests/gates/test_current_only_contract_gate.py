@@ -47,10 +47,6 @@ def test_gate_rejects_retired_graphos_launcher_keys(tmp_path: Path) -> None:
     [
         "GRAPH_" + "BACKEND",
         "GRAPH_" + "AUTHORITY",
-        "DURABLE_" + "EXECUTION_DB",
-        "DurableExecution" + "Manager",
-        "PostgresCheckpoint" + "Store",
-        "SQLiteCheckpoint" + "Store",
     ],
 )
 def test_gate_rejects_retired_authority_surfaces(tmp_path: Path, retired: str) -> None:
@@ -63,18 +59,23 @@ def test_gate_rejects_retired_authority_surfaces(tmp_path: Path, retired: str) -
     assert retired in violations[0]
 
 
-def test_gate_rejects_retired_checkpoint_module(tmp_path: Path) -> None:
-    source = (
-        tmp_path / "agent_utilities" / "orchestration" / ("durable_" + "execution.py")
-    )
-    source.parent.mkdir(parents=True)
-    source.write_text("pass\n", encoding="utf-8")
-
-    assert check(tmp_path, paths=[source]) == [
-        "agent_utilities/orchestration/"
-        + "durable_"
-        + "execution.py: retired path exists"
-    ]
+# NOTE: there is deliberately no "retired checkpoint module"/"retired durable
+# execution authority" test here. `agent_utilities/orchestration/
+# durable_execution.py` (`DurableExecutionManager`, `SQLiteCheckpointStore`,
+# `PostgresCheckpointStore`, the `DURABLE_EXECUTION_DB` setting) is the LIVE,
+# current, exactly-once durable-execution backend -- imported by
+# `knowledge_graph/durable_execution_kg.py`, `knowledge_graph/research/
+# loop_controller.py`, `harness/agentic_evolution_engine.py`, and
+# `orchestration/durable_tool_surface.py`, and documented as authoritative by
+# durable_execution_kg.py's own module docstring ("a PROVENANCE MIRROR of an
+# already-real, already-durable backend row" -- the backend it mirrors IS this
+# module). A prior version of this test suite asserted these names/this path
+# were retired; verified false against the live tree (all four names are
+# read/imported by current, non-test code) and removed rather than encoding a
+# retirement that was never made -- adding them to
+# scripts/check_current_only_contract.py's RETIRED_IDENTIFIERS/RETIRED_PATHS
+# to satisfy the old assertions would have made that gate flag this repo's
+# own current infrastructure as retired debt.
 
 
 @pytest.mark.parametrize(
