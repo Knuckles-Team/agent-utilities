@@ -76,7 +76,7 @@ filesystem:
   read_only_mounts:
     - /au
     - /skills
-    - /home/apps/workspace
+    - /workspace
     - /etc/ssl/homelab
   runtime_paths:
     - env_var: HOME
@@ -104,7 +104,7 @@ configuration:
   env:
     KG_LOOP: "1"
     KG_LOOP_INTERVAL: "1800"
-    KG_FUSEKI_ENDPOINT: http://fuseki.apps.svc.cluster.local:80
+    KG_FUSEKI_ENDPOINT: http://fuseki.example.invalid:80
 
 secrets:
   required:

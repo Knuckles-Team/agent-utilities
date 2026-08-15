@@ -56,7 +56,7 @@ filesystem:
   read_only_mounts:
     - /au
     - /skills
-    - /home/apps/workspace
+    - /workspace
   runtime_paths:
     - env_var: HOME
       path: /tmp
@@ -82,7 +82,7 @@ configuration:
     - graph-os-env
   env:
     KG_LOOP: "1"
-    KG_FUSEKI_ENDPOINT: http://fuseki.apps.svc.cluster.local:80
+    KG_FUSEKI_ENDPOINT: http://fuseki.example.invalid:80
 
 secrets:
   required:
