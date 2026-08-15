@@ -211,9 +211,7 @@ class KGCoordinator:
                         close_fds=True,
                     )
             except Exception as e:
-                logger.error(
-                    f"Failed to spawn background centralized KG server: {type(e).__name__}"
-                )
+                logger.error(f"Failed to spawn background centralized KG server: {e}")
                 return False
 
             # Poll port until active and healthy (up to 5 seconds)

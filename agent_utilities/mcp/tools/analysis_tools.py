@@ -4026,9 +4026,7 @@ def register_analysis_tools(mcp):
             # not successful MCP payloads.  Preserve fail-closed dispatch.
             raise PermissionError("configuration operation denied") from None
         except Exception as exc:
-            logger.warning(
-                "graph_configure operation failed: %s", type(exc).__name__
-            )
+            logger.warning("graph_configure operation failed: %s", exc)
             return json.dumps(
                 {
                     "error": "configuration operation failed",
