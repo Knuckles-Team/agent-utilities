@@ -104,3 +104,35 @@ def _isolate_model_circuit_breakers():
         yield
     finally:
         reset_circuit_breakers()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_content_graph_routing():
+    """Reset the process-wide active-content-graph registry around every test.
+
+    ``knowledge_graph.core.ingest_routing._active_graphs`` is a module-level
+    ``set()`` that any write touching a routed content graph (``code:*`` /
+    ``src:*`` / ``chat:*`` / ``research:*``) permanently adds to
+    (``register_content_graph``, called from ``graph_compute.py`` and
+    ``ingestion/engine.py``) -- for the rest of the WORKER PROCESS, not just
+    the test that wrote it. The read path (``kg_server._resolve_read_engines``)
+    treats a non-empty set as "routing is on" and fans an implicit/default
+    query across ``{default, *_active_graphs}``, so once any test in a worker
+    registers even one content graph, every later test in that worker whose
+    implicit-default read expects the fast single-graph path instead gets a
+    multi-entry fan-out -- observed as a spurious ``graph_selection_conflict``
+    in ``test_graph_explicit_selection.py`` depending only on pytest-xdist's
+    (nondeterministic) file-to-worker assignment. ``test_ingest_graph_routing.py``
+    already calls the module's own ``_reset_for_tests()`` hook around its own
+    content-graph tests, but only for itself and only when those tests don't
+    raise before reaching the cleanup call. Make it unconditional for the
+    whole unit suite, before AND after, the same shape as
+    ``_isolate_model_circuit_breakers`` above.
+    """
+    from agent_utilities.knowledge_graph.core import ingest_routing
+
+    ingest_routing._reset_for_tests()
+    try:
+        yield
+    finally:
+        ingest_routing._reset_for_tests()

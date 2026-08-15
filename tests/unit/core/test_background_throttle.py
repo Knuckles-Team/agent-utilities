@@ -347,45 +347,78 @@ def test_long_enrichment_tick_does_not_block_other_background_task():
     This is the fairness regression the MUST-FIX targets: under the old
     per-tick outer hold (cap=1), the other background task could only run AFTER
     the entire 1024-symbol tick finished.
+
+    This does NOT time a real gap against a background task racing to land
+    inside it — under the parallel suite's `-n auto` CPU contention (and,
+    worse, host-level swapping) a fixed-duration gap is itself a real
+    wall-clock assumption that can lose to OS scheduler jitter regardless of
+    how generous the duration is (widening it from ~10ms to ~50ms here still
+    left the *tick's total* runtime blowing past a 10s join budget on a
+    loaded box — the exact "just raise it further" trap, on a different
+    knob). Instead: release the permit after the first batch like the real
+    tick does, then PARK the enrichment thread on an event with no fixed
+    duration — held open until the test has *observed* the other task
+    acquire the freed permit. The proof (the permit is released between
+    batches, not held for the whole tick) is unconditional; only the upper
+    safety bound is a wall-clock timeout, not the interleaving itself.
     """
     t = BackgroundThrottle(max_concurrent=1)
     other_acquired = threading.Event()
     enrichment_done = threading.Event()
+    resume_after_first_batch = threading.Event()
     enrichment_progress: list[int] = []
 
     def long_enrichment():
-        # A "long" tick: many batches with per-batch work + a yield gap between.
-        _enrichment_tick(
-            t,
-            batches=20,
-            batch_work=0.01,
-            progress=enrichment_progress,
-            hold_between=0.01,
-        )
+        # Batch 1: acquire + release exactly like a real tick batch, so the
+        # permit is genuinely free afterward (not synthetically withheld).
+        with t.background_slot(acquire_timeout=15.0) as ok:
+            assert ok, "enrichment's first batch should acquire a free slot"
+            enrichment_progress.append(1)
+        # Park here — between batches, exactly where the real tick yields —
+        # until the test has proven the other task got in. No sleep, no
+        # guessed duration: this either unblocks the instant `other_acquired`
+        # is observed, or the 15s safety bound fires (a real bug, not a slow
+        # scheduler, at that point).
+        resume_after_first_batch.wait(timeout=15.0)
+        # The remaining batches, back to the normal per-batch acquire/release
+        # shape — proves the tick as a whole still completes ALL its work.
+        for _ in range(19):
+            with t.background_slot(acquire_timeout=15.0) as ok:
+                assert ok, "enrichment batch should eventually get a slot"
+                enrichment_progress.append(1)
         enrichment_done.set()
 
     def other_background():
         # A different background task wanting a single slot.
-        with t.background_slot(acquire_timeout=5.0) as ok:
+        with t.background_slot(acquire_timeout=15.0) as ok:
             if ok:
                 other_acquired.set()
 
     th_enrich = threading.Thread(target=long_enrichment)
     th_enrich.start()
-    # Let the enrichment tick get going (a few batches in).
-    time.sleep(0.05)
+    # Wait for the enrichment tick to have genuinely landed its first batch
+    # (not a guessed sleep) before starting the other task.
+    deadline = time.monotonic() + 15.0
+    while not enrichment_progress and time.monotonic() < deadline:
+        time.sleep(0.005)
+    assert enrichment_progress, "enrichment tick did not start in time"
+
     th_other = threading.Thread(target=other_background)
     th_other.start()
-    # The other background task must acquire its slot WELL BEFORE the long
-    # enrichment tick finishes — proving the permit is yielded between batches.
-    assert other_acquired.wait(timeout=2.0), (
+    # The other background task acquires its slot while the enrichment tick
+    # is deliberately parked between batches — proving the permit is yielded,
+    # not held for the tick's whole duration. Bounded only by a generous
+    # safety timeout, never by racing a fixed sleep window.
+    assert other_acquired.wait(timeout=15.0), (
         "other background task was starved by the enrichment tick "
         "(permit not released between batches)"
     )
     assert not enrichment_done.is_set(), (
         "enrichment tick already finished — test did not exercise mid-tick interleaving"
     )
-    th_enrich.join(timeout=10)
-    th_other.join(timeout=10)
+    resume_after_first_batch.set()  # let the enrichment tick continue
+
+    th_enrich.join(timeout=20)
+    th_other.join(timeout=20)
     assert not th_enrich.is_alive() and not th_other.is_alive()
     assert sum(enrichment_progress) == 20
