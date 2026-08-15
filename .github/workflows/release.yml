@@ -217,7 +217,7 @@ jobs:
       # metadata, not the engine itself.
       - name: Sync immutable wheel-build environment (no runtime engine)
         run: |
-          uv sync --frozen --group guardrails \
+          uv sync --frozen --group guardrails --group build \
             --no-install-package epistemic-graph \
             --no-install-package langfuse-agent
       - name: Build primary wheel from the validated source revision
