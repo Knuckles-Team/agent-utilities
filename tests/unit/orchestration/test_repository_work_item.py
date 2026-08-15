@@ -1123,7 +1123,7 @@ def test_multiple_dependency_interleave_reconciles_missed_parent_before_indexed_
         engine,
         indexed_parent.job_id,
         tenant="tenant-a",
-        token="worker-indexed-parent",
+        token="worker-indexed-parent",  # sanitizer:ignore — worker IDENTIFIER, not a credential
         now=100.0,
     )
     assert indexed_claim is not None
@@ -1132,7 +1132,7 @@ def test_multiple_dependency_interleave_reconciles_missed_parent_before_indexed_
         missed_claim = wi.claim_specific(
             engine,
             missed_parent.work_item_id,
-            token="worker-missed-parent",
+            token="worker-missed-parent",  # sanitizer:ignore — worker IDENTIFIER, not a credential
             now=100.0,
         )
         assert missed_claim is not None
@@ -1203,7 +1203,7 @@ def test_dependency_reconciliation_retries_after_competing_count_cas() -> None:
         parent_claim = wi.claim_specific(
             engine,
             parent.work_item_id,
-            token="worker-cas-parent",
+            token="worker-cas-parent",  # sanitizer:ignore — worker IDENTIFIER, not a credential
             now=100.0,
         )
         assert parent_claim is not None

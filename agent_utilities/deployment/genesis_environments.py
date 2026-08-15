@@ -26,8 +26,8 @@ record. Summary:
   (``HOME``, the three XDG dirs, ``XDG_STATE_HOME``, and
   ``AGENT_UTILITIES_DATA_DIR``) to an explicit path anchored under a declared
   ``filesystem.writable_paths`` mount — the fix for BUG-ROFS-1, where the
-  served process's real home (``/tmp``, not ``/home/app``) had to be
-  rediscovered by reading a live container's ``/etc/passwd``. See
+  served process's real home (``/tmp``, not the image's nominal ``app`` user
+  home) had to be rediscovered by reading a live container's ``/etc/passwd``. See
   :class:`RuntimePathBinding`.
 
 This module only defines, discovers, loads, and validates the schema. Rendering a
@@ -175,12 +175,13 @@ class RuntimePathBinding:
     reviewable profile inputs instead of an image-baked default or a literal
     hand-typed into a k8s manifest's ``env:`` list — the exact gap that forced
     BUG-ROFS-1's fix to be discovered empirically (reading a live container's
-    ``/etc/passwd`` to learn the image's real home is ``/tmp``, not
-    ``/home/app``). ``env_var`` must be one of :data:`RUNTIME_PATH_ENV_VARS`;
-    ``writable_path_ref`` must name a ``filesystem.writable_paths[].mount_path``
-    this profile already declared and justified, and ``path`` must fall under
-    it — a runtime path can only point somewhere the filesystem section already
-    reviewed as writable, never an unreviewed location.
+    ``/etc/passwd`` to learn the image's real home is ``/tmp``, not its
+    nominal ``app`` user home). ``env_var`` must be one of
+    :data:`RUNTIME_PATH_ENV_VARS`; ``writable_path_ref`` must name a
+    ``filesystem.writable_paths[].mount_path`` this profile already declared
+    and justified, and ``path`` must fall under it — a runtime path can only
+    point somewhere the filesystem section already reviewed as writable,
+    never an unreviewed location.
     """
 
     env_var: str
