@@ -242,10 +242,15 @@ class TestReceiveEndpoint:
         assert len(fleet_nodes) == 2
         assert fleet_nodes[0]["triage_status"] == "pending"
         assert "raw" not in fleet_nodes[0]
-        assert "subject" not in fleet_nodes[0]
         assert "summary" not in fleet_nodes[0]
         assert fleet_nodes[0]["subject_ref"].startswith("pref_")
-        assert "kg-gateway" not in repr(fleet_nodes)
+        # ``subject`` (a resource/service identifier, e.g. an alert's
+        # "service" label) is kept RAW, unlike free-text "summary" -- it is
+        # the exact-match key GET /api/fleet/touched?resource=<id> queries
+        # against (fleet_events.py's persist_event docstring), and hashing
+        # it per-source-type would make cross-source blast-radius lookups
+        # impossible for a caller who already knows the resource's name.
+        assert fleet_nodes[0]["subject"] == "kg-gateway"
         assert "error rate above" not in repr(fleet_nodes)
         assert {t["task_type"] for t in engine.submitted} == {"fleet_event_triage"}
         # the queued target is the persisted FleetEvent node id

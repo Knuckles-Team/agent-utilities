@@ -140,7 +140,10 @@ def test_fanout_execute_propagates_ambient_session_into_worker_threads():
     assert errors == {}
     assert results == {"a": "a", "b": "b", "c": "c"}
     # Every worker thread saw the SAME ambient authenticated actor — not "".
-    assert seen == [
+    # Thread-pool completion order is not guaranteed, so compare sorted by
+    # name rather than assuming submission order == completion order (the
+    # content per thread, not the interleaving, is what this test guards).
+    assert sorted(seen) == [
         ("a", "agent:fanout-ctx-test"),
         ("b", "agent:fanout-ctx-test"),
         ("c", "agent:fanout-ctx-test"),
