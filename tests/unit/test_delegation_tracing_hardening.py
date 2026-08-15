@@ -43,6 +43,30 @@ def _create_engine():
     return IntelligenceGraphEngine(db_path=":memory:")
 
 
+def _ensure_standard_model_class(monkeypatch) -> None:
+    """Configure a 'normal'-tier chat model so run_agent's default
+    ``model_class="standard"`` resolves (_configured_model_for_class maps
+    "standard" -> intelligence_level "normal"). This test environment carries
+    no configured chat models at all, so without this every run_agent() call
+    fails before ever reaching the mocked execution path a test is actually
+    exercising. Same idiom as ``tests/unit/knowledge_graph/test_mcp_orchestrate.py``.
+    """
+    from agent_utilities.core.config import ChatModelConfig
+    from agent_utilities.core.config import config as agent_config
+
+    monkeypatch.setattr(
+        agent_config,
+        "chat_models",
+        [
+            ChatModelConfig(
+                id="test-standard-model",
+                provider="openai",
+                intelligence_level="normal",
+            )
+        ],
+    )
+
+
 class _FakeMCP:
     """Captures the tool coroutines ``register_analysis_tools`` registers — the same minimal
     FastMCP double used in ``tests/unit/test_assurance_gate_surfaces.py`` — so we exercise the
@@ -67,7 +91,7 @@ class _FakeMCP:
 
 
 @pytest.mark.asyncio
-async def test_focused_tools_failure_fails_closed_regardless_of_agent_name():
+async def test_focused_tools_failure_fails_closed_regardless_of_agent_name(monkeypatch):
     """A server-name delegation whose real tools cannot be reached must FAIL —
     never silently fall through to the toolless multi-agent graph — even when the
     top-level ``agent_name`` itself is a generic/unresolved identity (the common
@@ -81,6 +105,7 @@ async def test_focused_tools_failure_fails_closed_regardless_of_agent_name():
     from agent_utilities.orchestration.agent_runner import run_agent
     from agent_utilities.orchestration.execution_profile import ExecutionProfile
 
+    _ensure_standard_model_class(monkeypatch)
     engine = _create_engine()
 
     # A FOCUSED-TOOLS shape naming a concrete (unreachable/never-registered) fleet
@@ -130,19 +155,30 @@ async def test_focused_tools_failure_fails_closed_regardless_of_agent_name():
     # RunTrace must be truthfully "degraded" (fed back as a negative outcome),
     # never a rubber-stamped "completed".
     trace_nodes = [
-        n for n, d in engine.graph.nodes(data=True) if d.get("type") == "RunTrace"
+        n for n, d in engine.graph.nodes(data=True) if d.get("node_type") == "RunTrace"
     ]
     assert len(trace_nodes) == 1
     assert engine.graph.nodes[trace_nodes[0]]["status"] == "degraded"
 
 
 @pytest.mark.asyncio
-async def test_focused_tools_failure_fails_closed_even_when_agent_name_resolves_as_server():
+async def test_focused_tools_failure_fails_closed_even_when_agent_name_resolves_as_server(
+    monkeypatch,
+):
     """Same fail-closed guarantee holds in the case the OLD code already handled
     (agent_name itself resolves as a KG :Server) — a non-regression pin."""
     from agent_utilities.orchestration.agent_runner import run_agent
     from agent_utilities.orchestration.execution_profile import ExecutionProfile
 
+    _ensure_standard_model_class(monkeypatch)
+    # _build_execution_config resolves a live toolset for a "server" agent via
+    # _fleet_server_url(toolset_id), which reads FLEET_MCP_URL_TEMPLATE straight
+    # from the environment (a live os.environ read, not an AgentConfig attribute)
+    # rather than the mocked _resolve_agent_from_kg's "url" field -- unset, it
+    # falls through to this SANDBOX's real MCP_CONFIG catalog, which is
+    # environment-dependent. Same idiom as
+    # tests/unit/knowledge_graph/test_orchestrate_mcp.py::test_build_execution_config.
+    monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.mcp.test")
     engine = _create_engine()
     fake_shape = ExecutionProfile(
         name="task",
@@ -205,6 +241,11 @@ async def test_status_action_surfaces_real_run_trace_and_tool_calls(monkeypatch)
     from agent_utilities.mcp.tools.analysis_tools import register_analysis_tools
     from agent_utilities.mcp.tools.job_tools import register_job_tools
 
+    _ensure_standard_model_class(monkeypatch)
+    # See test_focused_tools_failure_fails_closed_even_when_agent_name_resolves_as_server
+    # for why this is required: "container-manager-mcp" resolves against this
+    # sandbox's real MCP_CONFIG catalog otherwise (an environment-dependent URL).
+    monkeypatch.setenv("FLEET_MCP_URL_TEMPLATE", "https://{server}.mcp.test")
     engine = _create_engine()
     register_analysis_tools(_FakeMCP())
     register_job_tools(_FakeMCP())
@@ -218,8 +259,16 @@ async def test_status_action_surfaces_real_run_trace_and_tool_calls(monkeypatch)
         }
     ]
 
+    # "container-manager-mcp" resolves as a KG :Server (``_resolve_agent_from_kg``)
+    # even against this bare in-memory engine, and the lexical ontology gate finds
+    # no ``shape.tool_servers`` match for this task text, so
+    # ``_is_single_server_agent`` is what routes this run -- to
+    # ``_execute_single_server`` (route "resolved as a single configured MCP
+    # server"), not the toolless multi-agent graph (``_execute_graph``) or the
+    # FOCUSED-TOOLS path (``_execute_focused_tools``, only entered when the
+    # lexical gate itself names a server). Mock the seam this run actually reaches.
     with patch(
-        "agent_utilities.orchestration.agent_runner._execute_graph",
+        "agent_utilities.orchestration.agent_runner._execute_single_server",
         new_callable=AsyncMock,
     ) as mock_exec:
         mock_exec.return_value = {
@@ -240,12 +289,28 @@ async def test_status_action_surfaces_real_run_trace_and_tool_calls(monkeypatch)
     status_result = await kg._execute_tool("graph_jobs", action="status", job_id=run_id)
     status = json.loads(status_result)
 
+    # RunTrace deliberately never stores agent_name in plaintext -- trace_properties
+    # (observability/trace_ontology.py) pseudonymizes it into attribution_ref via
+    # persistence_reference("agent", agent_name, namespace="execution-trace"), the
+    # SAME contract tests/unit/knowledge_graph/test_orchestrate_mcp.py's
+    # test_record_execution_trace pins. There is no literal "agent_name" key.
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
     assert status["status"] == "completed"
     assert status["run_id"] == run_id
-    assert status["agent_name"] == "container-manager-mcp"
+    assert status["attribution_ref"] == persistence_reference(
+        "agent", "container-manager-mcp", namespace="execution-trace"
+    )
+    # ``tool_call_properties`` (observability/trace_ontology.py) never persists a
+    # tool's raw result text either -- ``result``/``result_preview`` are always
+    # written empty (only a keyed ``result_digest``, not projected by
+    # ``get_run_trace``'s ToolCall query, proves what ran) -- the same privacy
+    # contract ``attribution_ref`` enforces above. So "not an empty shell" is
+    # proven by the un-redacted tool_name/status fields, not literal result text.
     assert status["tool_call_count"] == 1
     assert status["tool_calls"][0]["tool_name"] == "cm_docker_ps"
-    assert "web, db, cache" in status["tool_calls"][0]["result_preview"]
+    assert status["tool_calls"][0]["status"] == "ok"
+    assert status["tool_calls"][0]["result_preview"] == ""
 
 
 def test_run_trace_status_surfaces_execution_mode() -> None:
@@ -390,7 +455,15 @@ async def test_graph_jobs_status_returns_durable_graph_execution_evidence(
 
 @pytest.mark.asyncio
 async def test_status_action_serves_dispatched_work_item_lookup(monkeypatch):
-    """Status for a dispatch-created id reads its durable task record."""
+    """Status for a dispatch-created id reads its durable task record.
+
+    A freshly dispatched WorkItem with no unresolved dependencies is created
+    with status "ready" (never "pending" — see
+    ``submit_orchestrator_work_item``, ``work_item.py``:
+    ``status = "submitted" if dep_count else "ready"``), matching the
+    established WorkItem status contract pinned throughout
+    ``tests/unit/orchestration/test_work_item.py`` (e.g. line 482).
+    """
     import agent_utilities.mcp.kg_server as kg
     from agent_utilities.mcp.tools.job_tools import register_job_tools
 
@@ -404,7 +477,7 @@ async def test_status_action_serves_dispatched_work_item_lookup(monkeypatch):
     job_id = json.loads(dispatch_result)["job_id"]
 
     status_result = await kg._execute_tool("graph_jobs", action="status", job_id=job_id)
-    assert "pending" in status_result
+    assert "ready" in status_result
 
 
 @pytest.mark.asyncio
