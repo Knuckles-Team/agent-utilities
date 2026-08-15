@@ -1,0 +1,880 @@
+domain: AU-OS.identity
+generated_at: '2026-08-14T23:57:26+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
+clusters:
+  AU-OS.identity.native-multi-realm-jwt:
+  - AU-OS.identity.native-multi-realm-jwt
+  - AU-OS.identity.protected-resource-metadata
+  - AU-OS.identity.resolve-token-endpoint-from
+  - AU-OS.identity.rotating-file-bearer
+concepts:
+  AU-OS.identity.ard-datapoint-signing:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/security/ard_signing.py
+      test_files:
+      - tests/unit/ecosystem/test_ard_signing.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/security/ard_signing.py:1
+      - tests/unit/ecosystem/test_ard_signing.py:1
+  AU-OS.identity.auth-flow:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files: []
+      doc_files:
+      - docs/examples/graph-os-mcp-examples.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - docs/examples/graph-os-mcp-examples.md:59
+  AU-OS.identity.authenticated-identity-enforcement:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (16 source
+      file(s), 78 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/chat_persistence.py
+      - agent_utilities/core/config.py
+      - agent_utilities/core/sessions.py
+      - agent_utilities/gateway/graph_api.py
+      - agent_utilities/knowledge_graph/__main__.py
+      - agent_utilities/knowledge_graph/core/graph_compute.py
+      - agent_utilities/knowledge_graph/ingest_worker.py
+      - agent_utilities/knowledge_graph/ingestion/__main__.py
+      - agent_utilities/knowledge_graph/memory/cli.py
+      - agent_utilities/knowledge_graph/ontology/permissioning.py
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/messaging/daemon.py
+      - agent_utilities/observability/correlation.py
+      - agent_utilities/orchestration/agent_dispatch_worker.py
+      - agent_utilities/security/request_identity.py
+      - agent_utilities/server/app.py
+      test_files:
+      - tests/_test_engine.py
+      - tests/integration/core/test_api_endpoints.py
+      - tests/integration/core/test_models_endpoint.py
+      - tests/integration/mcp/test_kg_server_streamable_http_live.py
+      - tests/integration/profiles/test_profile_tiny_zero_dep.py
+      - tests/unit/core/test_config.py
+      - tests/unit/core/test_request_identity.py
+      - tests/unit/knowledge_graph/test_engine_secret.py
+      - tests/unit/test_correlation.py
+      - tests/unit/test_gateway_metrics.py
+      - tests/unit/test_self_ingest.py
+      doc_files:
+      - docs/architecture/configuration.md
+      - docs/architecture/engine_sharding.md
+      - docs/architecture/identity-inheritance.md
+      - docs/examples/identity-jwt.md
+      - docs/examples/ontology-to-workflow.md
+      - docs/guides/deployment-configurations.md
+      - docs/pillars/5_agent_os_infrastructure.md
+      - docs/reference/runtime-configuration.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.identity.encrypted-secret-store
+      - AU-OS.identity.identity-policy-check
+      - AU-OS.identity.native-multi-realm-jwt
+      - AU-OS.identity.permissions-kernel
+      - AU-OS.identity.resolve-token-endpoint-from
+      - AU-OS.identity.so-jwt-protected-children
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/chat_persistence.py:40
+      - agent_utilities/core/config.py:3006
+      - agent_utilities/core/config.py:4718
+      - agent_utilities/core/sessions.py:1111
+      - agent_utilities/gateway/graph_api.py:144
+      - agent_utilities/knowledge_graph/__main__.py:66
+      - agent_utilities/knowledge_graph/core/graph_compute.py:875
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1143
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1697
+      - agent_utilities/knowledge_graph/core/graph_compute.py:1762
+      - agent_utilities/knowledge_graph/ingest_worker.py:384
+      - agent_utilities/knowledge_graph/ingest_worker.py:400
+      - agent_utilities/knowledge_graph/ingestion/__main__.py:45
+      - agent_utilities/knowledge_graph/memory/cli.py:430
+      - agent_utilities/knowledge_graph/ontology/permissioning.py:128
+      - agent_utilities/mcp/kg_server.py:4671
+      - agent_utilities/messaging/daemon.py:165
+      - agent_utilities/observability/correlation.py:38
+      - agent_utilities/observability/correlation.py:153
+      - agent_utilities/orchestration/agent_dispatch_worker.py:31
+      - agent_utilities/orchestration/agent_dispatch_worker.py:1839
+      - agent_utilities/orchestration/agent_dispatch_worker.py:1857
+      - agent_utilities/security/request_identity.py:4
+      - agent_utilities/security/request_identity.py:96
+      - agent_utilities/security/request_identity.py:244
+      - agent_utilities/security/request_identity.py:265
+      - agent_utilities/security/request_identity.py:284
+      - agent_utilities/security/request_identity.py:403
+      - agent_utilities/security/request_identity.py:571
+      - agent_utilities/server/app.py:471
+      - docs/architecture/configuration.md:74
+      - docs/architecture/configuration.md:75
+      - docs/architecture/configuration.md:76
+      - docs/architecture/configuration.md:77
+      - docs/architecture/configuration.md:79
+      - docs/architecture/engine_sharding.md:19
+      - docs/architecture/engine_sharding.md:60
+      - docs/architecture/identity-inheritance.md:10
+      - docs/architecture/identity-inheritance.md:285
+      - docs/examples/identity-jwt.md:3
+      - docs/examples/ontology-to-workflow.md:177
+      - docs/guides/deployment-configurations.md:162
+      - docs/guides/deployment-configurations.md:192
+      - docs/pillars/5_agent_os_infrastructure.md:353
+      - docs/reference/runtime-configuration.md:259
+      - tests/_test_engine.py:43
+      - tests/integration/core/test_api_endpoints.py:30
+      - tests/integration/core/test_models_endpoint.py:47
+      - tests/integration/mcp/test_kg_server_streamable_http_live.py:13
+      - tests/integration/profiles/test_profile_tiny_zero_dep.py:135
+      - tests/unit/core/test_config.py:730
+      - tests/unit/core/test_request_identity.py:1
+      - tests/unit/core/test_request_identity.py:126
+      - tests/unit/core/test_request_identity.py:176
+      - tests/unit/core/test_request_identity.py:184
+      - tests/unit/core/test_request_identity.py:189
+      - tests/unit/core/test_request_identity.py:267
+      - tests/unit/core/test_request_identity.py:319
+      - tests/unit/core/test_request_identity.py:349
+      - tests/unit/core/test_request_identity.py:383
+      - tests/unit/core/test_request_identity.py:580
+      - tests/unit/core/test_request_identity.py:589
+      - tests/unit/core/test_request_identity.py:610
+      - tests/unit/core/test_request_identity.py:619
+      - tests/unit/core/test_request_identity.py:676
+      - tests/unit/core/test_request_identity.py:714
+      - tests/unit/core/test_request_identity.py:723
+      - tests/unit/core/test_request_identity.py:744
+      - tests/unit/core/test_request_identity.py:775
+      - tests/unit/knowledge_graph/test_engine_secret.py:1
+      - tests/unit/knowledge_graph/test_engine_secret.py:33
+      - tests/unit/knowledge_graph/test_engine_secret.py:43
+      - tests/unit/knowledge_graph/test_engine_secret.py:50
+      - tests/unit/knowledge_graph/test_engine_secret.py:56
+      - tests/unit/knowledge_graph/test_engine_secret.py:64
+      - tests/unit/test_correlation.py:84
+      - tests/unit/test_gateway_metrics.py:239
+      - tests/unit/test_self_ingest.py:399
+  AU-OS.identity.encrypted-secret-store:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 44 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/mcp/tools/secret_tools.py
+      - agent_utilities/orchestration/action_policy.py
+      - agent_utilities/security/permissions_kernel.py
+      - agent_utilities/security/secrets_client.py
+      - scripts/gen_genesis_manifest.py
+      test_files:
+      - tests/unit/core/test_secrets_client.py
+      - tests/unit/mcp/test_secret_tools.py
+      doc_files:
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      - docs/guides/secrets-auth.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.identity.authenticated-identity-enforcement
+      - AU-OS.identity.identity-policy-check
+      - AU-OS.identity.native-multi-realm-jwt
+      - AU-OS.identity.permissions-kernel
+      - AU-OS.identity.resolve-token-endpoint-from
+      - AU-OS.identity.so-jwt-protected-children
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:22482
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:22622
+      - agent_utilities/mcp/tools/secret_tools.py:1
+      - agent_utilities/mcp/tools/secret_tools.py:16
+      - agent_utilities/mcp/tools/secret_tools.py:29
+      - agent_utilities/mcp/tools/secret_tools.py:53
+      - agent_utilities/mcp/tools/secret_tools.py:58
+      - agent_utilities/orchestration/action_policy.py:184
+      - agent_utilities/security/permissions_kernel.py:972
+      - agent_utilities/security/permissions_kernel.py:999
+      - agent_utilities/security/secrets_client.py:7
+      - agent_utilities/security/secrets_client.py:227
+      - agent_utilities/security/secrets_client.py:286
+      - agent_utilities/security/secrets_client.py:852
+      - agent_utilities/security/secrets_client.py:906
+      - docs/capabilities-power.json:22482
+      - docs/capabilities-power.json:22622
+      - docs/capabilities-power.md:102
+      - docs/capabilities-power.md:3893
+      - docs/guides/secrets-auth.md:15
+      - scripts/gen_genesis_manifest.py:58
+      - scripts/gen_genesis_manifest.py:164
+      - scripts/gen_genesis_manifest.py:382
+      - tests/unit/core/test_secrets_client.py:4
+      - tests/unit/core/test_secrets_client.py:45
+      - tests/unit/core/test_secrets_client.py:52
+      - tests/unit/core/test_secrets_client.py:57
+      - tests/unit/core/test_secrets_client.py:61
+      - tests/unit/core/test_secrets_client.py:67
+      - tests/unit/core/test_secrets_client.py:71
+      - tests/unit/core/test_secrets_client.py:77
+      - tests/unit/core/test_secrets_client.py:83
+      - tests/unit/core/test_secrets_client.py:96
+      - tests/unit/core/test_secrets_client.py:107
+      - tests/unit/core/test_secrets_client.py:115
+      - tests/unit/core/test_secrets_client.py:260
+      - tests/unit/core/test_secrets_client.py:262
+      - tests/unit/core/test_secrets_client.py:268
+      - tests/unit/core/test_secrets_client.py:274
+      - tests/unit/mcp/test_secret_tools.py:1
+      - tests/unit/mcp/test_secret_tools.py:39
+      - tests/unit/mcp/test_secret_tools.py:45
+      - tests/unit/mcp/test_secret_tools.py:87
+      - tests/unit/mcp/test_secret_tools.py:115
+  AU-OS.identity.engine-rbac-admission:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/security/engine_rbac_admission.py
+      test_files: []
+      doc_files:
+      - .specify/design/os-identity-engine-rbac-conformance/design.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/os-identity-engine-rbac-conformance/design.md:3
+      - agent_utilities/security/engine_rbac_admission.py:7
+  AU-OS.identity.engine-rbac-admission-deploy-bridge:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/security/tier2_admission_cli.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/security/tier2_admission_cli.py:11
+  AU-OS.identity.identity-policy-check:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 6 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/tools/governance_tools.py
+      - agent_utilities/security/tool_guard.py
+      test_files:
+      - tests/unit/mcp/test_governance_tools.py
+      - tests/unit/security/test_tool_guard_permission_policy.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.identity.authenticated-identity-enforcement
+      - AU-OS.identity.encrypted-secret-store
+      - AU-OS.identity.native-multi-realm-jwt
+      - AU-OS.identity.permissions-kernel
+      - AU-OS.identity.resolve-token-endpoint-from
+      - AU-OS.identity.so-jwt-protected-children
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/tools/governance_tools.py:425
+      - agent_utilities/security/tool_guard.py:23
+      - agent_utilities/security/tool_guard.py:332
+      - agent_utilities/security/tool_guard.py:400
+      - tests/unit/mcp/test_governance_tools.py:6
+      - tests/unit/security/test_tool_guard_permission_policy.py:3
+  AU-OS.identity.identity-scoped-resource-autoload:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 15 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/security/entitlements.py
+      test_files:
+      - tests/unit/security/test_entitlements.py
+      doc_files:
+      - docs/architecture/identity-inheritance.md
+      - docs/examples/identity-jwt.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/security/entitlements.py:4
+      - docs/architecture/identity-inheritance.md:4
+      - docs/examples/identity-jwt.md:20
+      - tests/unit/security/test_entitlements.py:1
+      - tests/unit/security/test_entitlements.py:25
+      - tests/unit/security/test_entitlements.py:33
+      - tests/unit/security/test_entitlements.py:39
+      - tests/unit/security/test_entitlements.py:43
+      - tests/unit/security/test_entitlements.py:47
+      - tests/unit/security/test_entitlements.py:51
+      - tests/unit/security/test_entitlements.py:57
+      - tests/unit/security/test_entitlements.py:63
+      - tests/unit/security/test_entitlements.py:76
+      - tests/unit/security/test_entitlements.py:105
+      - tests/unit/security/test_entitlements.py:118
+  AU-OS.identity.idp-agnostic-role-inheritance:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 20 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/mcp/server_factory.py
+      - agent_utilities/security/brain_context.py
+      - agent_utilities/security/identity.py
+      - agent_utilities/security/request_identity.py
+      test_files:
+      - tests/integration/mcp/test_kg_server_streamable_http_live.py
+      - tests/unit/mcp/test_actor_context_middleware.py
+      - tests/unit/security/test_identity.py
+      doc_files:
+      - docs/architecture/identity-inheritance.md
+      - docs/examples/identity-jwt.md
+      introduced: 274d4c37 2026-07-20 Reconstruct advanced agent-utilities 1.27.1 tree (pre-merge base)
+      cohort:
+      - AU-OS.identity.authenticated-identity-enforcement
+      - AU-OS.identity.identity-policy-check
+      - AU-OS.identity.resolve-token-endpoint-from
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:3032
+      - agent_utilities/mcp/server_factory.py:1210
+      - agent_utilities/security/brain_context.py:75
+      - agent_utilities/security/identity.py:4
+      - agent_utilities/security/request_identity.py:295
+      - docs/architecture/identity-inheritance.md:3
+      - docs/examples/identity-jwt.md:16
+      - tests/integration/mcp/test_kg_server_streamable_http_live.py:159
+      - tests/unit/mcp/test_actor_context_middleware.py:5
+      - tests/unit/mcp/test_actor_context_middleware.py:29
+      - tests/unit/mcp/test_actor_context_middleware.py:78
+      - tests/unit/security/test_identity.py:1
+      - tests/unit/security/test_identity.py:22
+      - tests/unit/security/test_identity.py:52
+      - tests/unit/security/test_identity.py:65
+      - tests/unit/security/test_identity.py:75
+      - tests/unit/security/test_identity.py:80
+      - tests/unit/security/test_identity.py:85
+      - tests/unit/security/test_identity.py:95
+      - tests/unit/security/test_identity.py:100
+  AU-OS.identity.idp-role-to-engine-capability-bridge:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/core/placement_catalog.py
+      test_files: []
+      doc_files: []
+      introduced: 'a1a9f173 2026-08-08 fix(webui-data): placement catalog + engine-surface tools so the
+        UI reads real data (RCA)'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:3058
+      - agent_utilities/knowledge_graph/core/placement_catalog.py:324
+  AU-OS.identity.multisig-cryptographic-mutation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/protocols/a2a.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/protocols/a2a.py:289
+  AU-OS.identity.native-multi-realm-jwt:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.identity.rotating-file-bearer
+    suggestion_why: clusters with 3 sibling(s) around AU-OS.identity.rotating-file-bearer; the candidate
+      parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/server_factory.py
+      test_files:
+      - tests/unit/mcp/test_multi_realm_jwt.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.identity.authenticated-identity-enforcement
+      - AU-OS.identity.encrypted-secret-store
+      - AU-OS.identity.identity-policy-check
+      - AU-OS.identity.permissions-kernel
+      - AU-OS.identity.resolve-token-endpoint-from
+      - AU-OS.identity.so-jwt-protected-children
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/server_factory.py:1087
+      - agent_utilities/mcp/server_factory.py:1112
+      - tests/unit/mcp/test_multi_realm_jwt.py:1
+  AU-OS.identity.oauth2-client-credentials-lifecycle:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 13 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/core/embedding_utilities.py
+      - agent_utilities/core/model_factory.py
+      - agent_utilities/models/model_registry.py
+      - agent_utilities/security/oauth_client_credentials.py
+      - agent_utilities/server/dependencies.py
+      test_files:
+      - tests/unit/security/test_oauth_client_credentials.py
+      doc_files: []
+      introduced: 6d99a9a1 2026-07-09 Add OAuth2 client-credentials token lifecycle for outbound LLM +
+        embedding auth (C7)
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:1246
+      - agent_utilities/core/config.py:1279
+      - agent_utilities/core/config.py:1377
+      - agent_utilities/core/embedding_utilities.py:100
+      - agent_utilities/core/embedding_utilities.py:274
+      - agent_utilities/core/model_factory.py:267
+      - agent_utilities/core/model_factory.py:574
+      - agent_utilities/models/model_registry.py:226
+      - agent_utilities/models/model_registry.py:277
+      - agent_utilities/security/oauth_client_credentials.py:6
+      - agent_utilities/security/oauth_client_credentials.py:175
+      - agent_utilities/server/dependencies.py:141
+      - tests/unit/security/test_oauth_client_credentials.py:3
+  AU-OS.identity.per-agent-on-behalf-delegation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (9 source
+      file(s), 17 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/gateway/daemon.py
+      - agent_utilities/graph/executor.py
+      - agent_utilities/graph/state.py
+      - agent_utilities/knowledge_graph/core/session.py
+      - agent_utilities/mcp/delegated_auth.py
+      - agent_utilities/orchestration/agent_runner.py
+      - agent_utilities/orchestration/engine.py
+      - agent_utilities/orchestration/work_item.py
+      - agent_utilities/security/delegation.py
+      test_files: []
+      doc_files:
+      - CHANGELOG.md
+      - docs/architecture/per-agent-delegation.md
+      introduced: 'df3b69b9 2026-07-24 feat(identity): per-agent on-behalf-of delegation — connect the
+        three primitives (W2.1)'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - CHANGELOG.md:377
+      - agent_utilities/gateway/daemon.py:239
+      - agent_utilities/graph/executor.py:611
+      - agent_utilities/graph/state.py:280
+      - agent_utilities/knowledge_graph/core/session.py:286
+      - agent_utilities/mcp/delegated_auth.py:311
+      - agent_utilities/orchestration/agent_runner.py:505
+      - agent_utilities/orchestration/agent_runner.py:1081
+      - agent_utilities/orchestration/agent_runner.py:1526
+      - agent_utilities/orchestration/agent_runner.py:3807
+      - agent_utilities/orchestration/engine.py:525
+      - agent_utilities/orchestration/engine.py:1154
+      - agent_utilities/orchestration/engine.py:1442
+      - agent_utilities/orchestration/work_item.py:388
+      - agent_utilities/orchestration/work_item.py:1212
+      - agent_utilities/security/delegation.py:1
+      - docs/architecture/per-agent-delegation.md:3
+  AU-OS.identity.permissions-kernel:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/security/permissions_kernel.py
+      - agent_utilities/security/tool_guard.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.identity.authenticated-identity-enforcement
+      - AU-OS.identity.encrypted-secret-store
+      - AU-OS.identity.identity-policy-check
+      - AU-OS.identity.native-multi-realm-jwt
+      - AU-OS.identity.resolve-token-endpoint-from
+      - AU-OS.identity.so-jwt-protected-children
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:5318
+      - agent_utilities/core/config.py:5325
+      - agent_utilities/security/permissions_kernel.py:4
+      - agent_utilities/security/permissions_kernel.py:24
+      - agent_utilities/security/permissions_kernel.py:58
+      - agent_utilities/security/permissions_kernel.py:256
+      - agent_utilities/security/tool_guard.py:347
+  AU-OS.identity.process-identity:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in test files — nothing in the shipped tree realises it, which
+      is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files:
+      - tests/unit/core/test_config.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - tests/unit/core/test_config.py:855
+  AU-OS.identity.protected-resource-metadata:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.identity.rotating-file-bearer
+    suggestion_why: clusters with 3 sibling(s) around AU-OS.identity.rotating-file-bearer; the candidate
+      parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/server_factory.py
+      test_files:
+      - tests/unit/mcp/test_jwt_resource_metadata.py
+      doc_files:
+      - CHANGELOG.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - CHANGELOG.md:864
+      - agent_utilities/mcp/server_factory.py:226
+      - tests/unit/mcp/test_jwt_resource_metadata.py:2
+  AU-OS.identity.resolve-token-endpoint-from:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id reads as a slugified prose fragment (resolve-token-endpoint-from)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/client_credentials.py
+      - agent_utilities/mcp/server_factory.py
+      test_files:
+      - tests/unit/mcp/test_oidc_discovery.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.identity.authenticated-identity-enforcement
+      - AU-OS.identity.encrypted-secret-store
+      - AU-OS.identity.identity-policy-check
+      - AU-OS.identity.native-multi-realm-jwt
+      - AU-OS.identity.permissions-kernel
+      - AU-OS.identity.so-jwt-protected-children
+      artifact_id: reads as a slugified prose fragment (resolve-token-endpoint-from)
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/client_credentials.py:157
+      - agent_utilities/mcp/server_factory.py:995
+      - tests/unit/mcp/test_oidc_discovery.py:1
+  AU-OS.identity.rotating-file-bearer:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 4-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/mcp/client_credentials.py
+      test_files: []
+      doc_files:
+      - .specify/design/os-identity-outbound-mcp-child-auth/design.md
+      - docs/architecture/mcp_auth.md
+      introduced: '6618c642 2026-08-09 fix(BUG-050,BUG-051): stop MCP surface fields from claiming guarantees
+        they can''t back up'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/os-identity-outbound-mcp-child-auth/design.md:4
+      - .specify/design/os-identity-outbound-mcp-child-auth/design.md:23
+      - agent_utilities/mcp/client_credentials.py:22
+      - agent_utilities/mcp/client_credentials.py:301
+      - docs/architecture/mcp_auth.md:75
+  AU-OS.identity.run-scoped-tool-token:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/security/run_token.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/security/run_token.py:1
+  AU-OS.identity.so-jwt-protected-children:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id reads as a slugified prose fragment (so-jwt-protected-children)
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/mcp/child_resilience.py
+      - agent_utilities/mcp/client_credentials.py
+      - agent_utilities/mcp/multiplexer.py
+      - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+      test_files:
+      - tests/unit/mcp/test_multiplexer_resilience.py
+      doc_files:
+      - .specify/design/os-identity-outbound-mcp-child-auth/design.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.identity.authenticated-identity-enforcement
+      - AU-OS.identity.encrypted-secret-store
+      - AU-OS.identity.identity-policy-check
+      - AU-OS.identity.native-multi-realm-jwt
+      - AU-OS.identity.permissions-kernel
+      - AU-OS.identity.resolve-token-endpoint-from
+      artifact_id: reads as a slugified prose fragment (so-jwt-protected-children)
+      truncated_marker: ''
+      sites:
+      - .specify/design/os-identity-outbound-mcp-child-auth/design.md:3
+      - agent_utilities/mcp/child_resilience.py:414
+      - agent_utilities/mcp/client_credentials.py:2
+      - agent_utilities/mcp/multiplexer.py:2020
+      - agent_utilities/mcp/multiplexer.py:2026
+      - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py:1689
+      - tests/unit/mcp/test_multiplexer_resilience.py:819
+  AU-OS.identity.stack-wide-auth-conformance:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 6 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/security/conformance/__init__.py
+      - agent_utilities/security/conformance/surface_inventory.py
+      - agent_utilities/security/conformance/surface_manifest.py
+      test_files:
+      - tests/unit/security/conformance/test_known_fail_opens.py
+      - tests/unit/security/conformance/test_surface_enumeration_drift.py
+      doc_files:
+      - .specify/design/os-identity-engine-rbac-conformance/design.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/os-identity-engine-rbac-conformance/design.md:4
+      - agent_utilities/security/conformance/__init__.py:6
+      - agent_utilities/security/conformance/surface_inventory.py:6
+      - agent_utilities/security/conformance/surface_manifest.py:7
+      - tests/unit/security/conformance/test_known_fail_opens.py:3
+      - tests/unit/security/conformance/test_surface_enumeration_drift.py:3

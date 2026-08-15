@@ -1,9 +1,10 @@
 domain: AU-KG.ingest
-generated_at: '2026-08-01T18:03:57+00:00'
+generated_at: '2026-08-14T23:50:01+00:00'
 generator: scripts/concept_domain_triage.py
-how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
-  `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
-  and `apply --write`.'
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
 clusters:
   AU-KG.ingest.agent-utilities-checkout:
   - AU-KG.ingest.agent-utilities-checkout
@@ -12,10 +13,12 @@ clusters:
   - AU-KG.ingest.deterministic-classifier
   - AU-KG.ingest.generalized-cross-lane-parallelization
   - AU-KG.ingest.normal-codebase-ingest-also
+  - AU-KG.ingest.og-metadata-enrichment
   - AU-KG.ingest.over-same-tree-fan
   - AU-KG.ingest.self-tool-surface
   - AU-KG.ingest.staged
   - AU-KG.ingest.subtask-routing-key
+  - AU-KG.ingest.web-fetch-front-door
   - AU-KG.ingest.writes-go
   AU-KG.ingest.ambient-connector-provenance:
   - AU-KG.ingest.ambient-connector-provenance
@@ -26,6 +29,10 @@ clusters:
   - AU-KG.ingest.fleet-sync-rejected-row-cache
   - AU-KG.ingest.research-connector-presets
   - AU-KG.ingest.source-sync-canonical
+  AU-KG.ingest.applying-agents-md-batch:
+  - AU-KG.ingest.applying-agents-md-batch
+  - AU-KG.ingest.entity-embedding-at-write
+  - AU-KG.ingest.keys-off
   AU-KG.ingest.atomic-compare-and-set:
   - AU-KG.ingest.atomic-compare-and-set
   - AU-KG.ingest.batch-research-cohort
@@ -66,20 +73,22 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: parent
-    suggested_parent: AU-KG.ingest.self-tool-surface
-    suggestion_why: clusters with 10 sibling(s) around AU-KG.ingest.self-tool-surface; shares agent_utilities/knowledge_graph/ingestion/engine.py;
-      the candidate parent already has a design document
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 13-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files:
       - tests/unit/knowledge_graph/test_breadth_preskip.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-codebase-task-scoping/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.applying-agents-md-batch
@@ -133,23 +142,26 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-codebase-task-scoping/design.md:3
+      - .specify/design/kgi-codebase-task-scoping/design.md:87
       - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py:319
       - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py:332
       - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py:377
       - agent_utilities/knowledge_graph/assimilation/breadth_ingest.py:381
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4779
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1900
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1948
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4995
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1921
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1969
       - tests/unit/knowledge_graph/test_breadth_preskip.py:78
   AU-KG.ingest.ambient-connector-provenance:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: document
-    suggested_parent: ''
-    suggestion_why: the head of a 8-concept cluster — the siblings are proposed as pointers at this one,
-      so this is the decision that has to be written down
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.envelope-atomic-transaction
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.envelope-atomic-transaction; shares
+      agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -165,30 +177,33 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/knowledge_graph/core/source_sync.py:40
-      - agent_utilities/knowledge_graph/core/source_sync.py:2593
+      - agent_utilities/knowledge_graph/core/source_sync.py:2614
       - agent_utilities/knowledge_graph/etl/lineage.py:5
       - agent_utilities/knowledge_graph/etl/lineage.py:177
       - agent_utilities/knowledge_graph/etl/lineage.py:238
-      - tests/unit/knowledge_graph/core/test_source_sync.py:1642
+      - tests/unit/knowledge_graph/core/test_source_sync.py:1686
   AU-KG.ingest.applying-agents-md-batch:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('(`CONCEPT·AU-KG.ingest.normal-codebase-ingest-also/2.283`),
       batch+concurrent embedding thr') — the id itself reads like a real name, so the marker text needs
       cleaning either way; decide whether the concept survives that cleanup
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/enrichment/semantic.py
       - agent_utilities/knowledge_graph/pipeline/phases/embedding.py
       test_files:
+      - tests/unit/knowledge_graph/ingestion/test_native_envelope_ingest.py
       - tests/unit/knowledge_graph/test_embed_throughput.py
       doc_files:
+      - .specify/design/kgi-embedding-batch-fanout/design.md
       - docs/architecture/intelligent-ingestion.md
       - docs/architecture/north-star-architecture.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -245,26 +260,30 @@ concepts:
       truncated_marker: (`CONCEPT·AU-KG.ingest.normal-codebase-ingest-also/2.283`), batch+concurrent embedding
         throughput (`CONCEPT·AU-KG.ingest.applying-agents-md-batch/2.281`),
       sites:
-      - agent_utilities/knowledge_graph/enrichment/semantic.py:29
-      - agent_utilities/knowledge_graph/enrichment/semantic.py:42
-      - agent_utilities/knowledge_graph/enrichment/semantic.py:112
-      - agent_utilities/knowledge_graph/enrichment/semantic.py:126
+      - .specify/design/kgi-embedding-batch-fanout/design.md:3
+      - .specify/design/kgi-embedding-batch-fanout/design.md:37
+      - agent_utilities/knowledge_graph/enrichment/semantic.py:30
+      - agent_utilities/knowledge_graph/enrichment/semantic.py:222
+      - agent_utilities/knowledge_graph/enrichment/semantic.py:292
+      - agent_utilities/knowledge_graph/enrichment/semantic.py:306
       - agent_utilities/knowledge_graph/pipeline/phases/embedding.py:81
       - docs/architecture/intelligent-ingestion.md:130
       - docs/architecture/north-star-architecture.md:78
+      - tests/unit/knowledge_graph/ingestion/test_native_envelope_ingest.py:1869
       - tests/unit/knowledge_graph/test_embed_throughput.py:1
   AU-KG.ingest.arxiv-feed-connector:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+    suggested_parent: AU-KG.ingest.envelope-atomic-transaction
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.envelope-atomic-transaction; shares
       agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/core/config.py
       - agent_utilities/core/schedule_engine.py
@@ -274,7 +293,8 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/test_arxiv_and_scholarx_research_feeds.py
       - tests/unit/protocols/test_source_connectors.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-research-feed-convergence/design.md
       introduced: 'cee2a6e9 2026-07-30 feat(connectors): wire FreshRSS/ScholarX/arXiv research feeds into
         source_sync (7.3)'
       cohort:
@@ -283,11 +303,13 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/config.py:3586
-      - agent_utilities/core/schedule_engine.py:756
-      - agent_utilities/knowledge_graph/core/source_sync.py:1747
-      - agent_utilities/knowledge_graph/research/loop_controller.py:343
-      - agent_utilities/knowledge_graph/research/loop_controller.py:3151
+      - .specify/design/kgi-research-feed-convergence/design.md:7
+      - .specify/design/kgi-research-feed-convergence/design.md:13
+      - agent_utilities/core/config.py:3749
+      - agent_utilities/core/schedule_engine.py:761
+      - agent_utilities/knowledge_graph/core/source_sync.py:1768
+      - agent_utilities/knowledge_graph/research/loop_controller.py:347
+      - agent_utilities/knowledge_graph/research/loop_controller.py:3155
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py:3
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py:20
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py:115
@@ -298,17 +320,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.gotcha-feedback-capture
     suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.gotcha-feedback-capture; shares agent_utilities/mcp/tools/write_ingest_tools.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/tools/write_ingest_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-atomic-compare-and-set/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -362,20 +387,22 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/mcp/tools/write_ingest_tools.py:131
-      - agent_utilities/mcp/tools/write_ingest_tools.py:189
+      - .specify/design/kgi-atomic-compare-and-set/design.md:6
+      - agent_utilities/mcp/tools/write_ingest_tools.py:498
+      - agent_utilities/mcp/tools/write_ingest_tools.py:617
   AU-KG.ingest.attaching-this-root-logger:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 7 marker site(s))'
+      file(s), 8 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/__main__.py
       - agent_utilities/gateway/daemon.py
@@ -383,7 +410,8 @@ concepts:
       - agent_utilities/orchestration/engine.py
       test_files:
       - tests/unit/test_self_ingest.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-self-ingest-telemetry/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -437,6 +465,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-self-ingest-telemetry/design.md:5
       - agent_utilities/__main__.py:28
       - agent_utilities/gateway/daemon.py:425
       - agent_utilities/observability/self_ingest.py:4
@@ -449,19 +478,21 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.gotcha-feedback-capture
     suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.gotcha-feedback-capture; shares agent_utilities/knowledge_graph/retrieval/capabilities-power.json,
       agent_utilities/mcp/tools/write_ingest_tools.py; both introduced by c5f21018 (OKF-CIS atomic cutover
-      on agent-utilities (AU-OS.governance.)
+      on agent-utilities (AU-OS.governance.); the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
       - agent_utilities/mcp/tools/write_ingest_tools.py
       test_files: []
       doc_files:
+      - .specify/design/kgi-research-cohort-batch-ingest/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -517,25 +548,27 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:15090
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:15155
-      - agent_utilities/mcp/tools/write_ingest_tools.py:448
-      - agent_utilities/mcp/tools/write_ingest_tools.py:786
-      - docs/capabilities-power.json:15090
-      - docs/capabilities-power.json:15155
-      - docs/capabilities-power.md:2591
+      - .specify/design/kgi-research-cohort-batch-ingest/design.md:6
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:16016
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:16081
+      - agent_utilities/mcp/tools/write_ingest_tools.py:927
+      - agent_utilities/mcp/tools/write_ingest_tools.py:1265
+      - docs/capabilities-power.json:16016
+      - docs/capabilities-power.json:16081
+      - docs/capabilities-power.md:2745
   AU-KG.ingest.batched-cross-graph-writer:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 9 marker site(s))'
+      file(s), 11 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/core/config.py
       - agent_utilities/knowledge_graph/core/graph_compute.py
@@ -544,6 +577,7 @@ concepts:
       - tests/unit/knowledge_graph/test_ingest_graph_routing.py
       - tests/unit/knowledge_graph/test_multi_graph_batch_facade.py
       doc_files:
+      - .specify/design/kgi-content-graph-shard-routing/design.md
       - docs/architecture/ingestion_throughput.md
       introduced: 'a9f54dd2 2026-07-05 feat(kg): two-pool ingestion + write-lock levers'
       cohort:
@@ -551,8 +585,10 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/config.py:4512
-      - agent_utilities/knowledge_graph/core/graph_compute.py:3827
+      - .specify/design/kgi-content-graph-shard-routing/design.md:3
+      - .specify/design/kgi-content-graph-shard-routing/design.md:69
+      - agent_utilities/core/config.py:4694
+      - agent_utilities/knowledge_graph/core/graph_compute.py:4031
       - agent_utilities/knowledge_graph/core/ingest_routing.py:95
       - agent_utilities/knowledge_graph/core/ingest_routing.py:103
       - agent_utilities/knowledge_graph/core/ingest_routing.py:112
@@ -565,17 +601,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 2 marker site(s))'
+      file(s), 4 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/repo_split.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-codebase-task-scoping/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -629,6 +667,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-codebase-task-scoping/design.md:3
+      - .specify/design/kgi-codebase-task-scoping/design.md:37
       - agent_utilities/knowledge_graph/ingestion/repo_split.py:1
       - agent_utilities/knowledge_graph/ingestion/repo_split.py:2
   AU-KG.ingest.broken-link-tolerance:
@@ -636,10 +676,11 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: document
-    suggested_parent: ''
-    suggestion_why: the head of a 5-concept cluster — the siblings are proposed as pointers at this one,
-      so this is the decision that has to be written down
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.structure-verify
+    suggestion_why: clusters with 4 sibling(s) around AU-KG.ingest.structure-verify; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
+      the candidate parent already has a design document
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -665,10 +706,12 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.self-tool-surface
-    suggestion_why: clusters with 10 sibling(s) around AU-KG.ingest.self-tool-surface; shares agent_utilities/knowledge_graph/ingestion/engine.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ingest.agent-utilities-checkout
+    suggestion_why: clusters with 12 sibling(s) around AU-KG.ingest.agent-utilities-checkout; shares agent_utilities/knowledge_graph/ingestion/engine.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -736,22 +779,23 @@ concepts:
       - agent_utilities/knowledge_graph/ingestion/engine.py:722
       - agent_utilities/knowledge_graph/ingestion/engine.py:1166
       - agent_utilities/knowledge_graph/ingestion/engine.py:1214
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1735
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1833
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1756
       - agent_utilities/knowledge_graph/ingestion/engine.py:1854
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1883
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1875
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1904
   AU-KG.ingest.change-envelope:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
-      file(s), 8 marker site(s))'
+      file(s), 10 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/worldmodel_pipeline.py
       - agent_utilities/knowledge_graph/argumentation/aif.py
@@ -761,18 +805,21 @@ concepts:
       - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
       test_files:
       - tests/unit/knowledge_graph/test_change_envelope.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-change-envelope-atomic/design.md
       introduced: '2307948b 2026-07-11 feat(kg): mandatory connector manifests for 12 named connectors
         + ChangeEnvelope (AU-P1-6)'
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-change-envelope-atomic/design.md:7
+      - .specify/design/kgi-change-envelope-atomic/design.md:13
       - agent_utilities/automation/worldmodel_pipeline.py:376
       - agent_utilities/knowledge_graph/argumentation/aif.py:444
       - agent_utilities/knowledge_graph/ingestion/change_envelope.py:3
       - agent_utilities/knowledge_graph/ingestion/change_envelope.py:114
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1695
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1716
       - agent_utilities/knowledge_graph/ingestion/external_graph.py:14
       - agent_utilities/knowledge_graph/ingestion/graphql_connection.py:21
       - tests/unit/knowledge_graph/test_change_envelope.py:1
@@ -781,13 +828,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (8 source
-      file(s), 25 marker site(s))'
+      file(s), 26 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/knowledge_graph/core/owl_bridge.py
@@ -800,6 +848,7 @@ concepts:
       test_files:
       - tests/ontology/test_document_processing.py
       doc_files:
+      - .specify/design/kgi-chunk-overlap-pipeline/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       - docs/pillars/2_epistemic_knowledge_graph.md
@@ -856,9 +905,10 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4480
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:343
-      - agent_utilities/knowledge_graph/facade.py:336
+      - .specify/design/kgi-chunk-overlap-pipeline/design.md:5
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4696
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:368
+      - agent_utilities/knowledge_graph/facade.py:337
       - agent_utilities/knowledge_graph/ontology/__init__.py:530
       - agent_utilities/knowledge_graph/ontology/document_processing.py:6
       - agent_utilities/knowledge_graph/ontology/document_processing.py:78
@@ -870,15 +920,15 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/document_processing.py:427
       - agent_utilities/knowledge_graph/ontology/document_processing.py:437
       - agent_utilities/knowledge_graph/ontology/document_processing.py:508
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:2080
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:2117
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:552
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:682
-      - agent_utilities/mcp/tools/ontology_tools.py:2174
-      - agent_utilities/mcp/tools/write_ingest_tools.py:588
+      - agent_utilities/mcp/tools/ontology_tools.py:2175
+      - agent_utilities/mcp/tools/write_ingest_tools.py:1067
       - docs/capabilities-power.json:552
       - docs/capabilities-power.json:682
       - docs/capabilities-power.md:15
-      - docs/capabilities-power.md:266
+      - docs/capabilities-power.md:270
       - docs/pillars/2_epistemic_knowledge_graph.md:124
       - tests/ontology/test_document_processing.py:2
   AU-KG.ingest.claude-memory-connector:
@@ -886,45 +936,50 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+    suggested_parent: AU-KG.ingest.envelope-atomic-transaction
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.envelope-atomic-transaction; shares
       agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/source_sync.py
       test_files:
       - tests/unit/knowledge_graph/test_claude_memory_source.py
       doc_files:
+      - .specify/design/kgi-claude-memory-connector/design.md
       - CHANGELOG.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - CHANGELOG.md:1586
-      - agent_utilities/knowledge_graph/core/source_sync.py:4361
+      - .specify/design/kgi-claude-memory-connector/design.md:5
+      - CHANGELOG.md:1610
+      - agent_utilities/knowledge_graph/core/source_sync.py:4382
       - tests/unit/knowledge_graph/test_claude_memory_source.py:1
   AU-KG.ingest.code-source-partition:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.self-tool-surface
-    suggestion_why: clusters with 10 sibling(s) around AU-KG.ingest.self-tool-surface; shares agent_utilities/knowledge_graph/ingestion/engine.py;
+    suggested_parent: AU-KG.ingest.agent-utilities-checkout
+    suggestion_why: clusters with 12 sibling(s) around AU-KG.ingest.agent-utilities-checkout; shares agent_utilities/knowledge_graph/ingestion/engine.py;
       the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/enrichment/pipeline.py
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files:
       - tests/unit/knowledge_graph/enrichment/test_batched_backend.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-codebase-task-scoping/design.md
       introduced: 274d4c37 2026-07-20 Reconstruct advanced agent-utilities 1.27.1 tree (pre-merge base)
       cohort:
       - AU-KG.ingest.batched-cross-graph-writer
@@ -942,52 +997,59 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-codebase-task-scoping/design.md:3
+      - .specify/design/kgi-codebase-task-scoping/design.md:37
       - agent_utilities/knowledge_graph/enrichment/pipeline.py:179
-      - agent_utilities/knowledge_graph/enrichment/pipeline.py:364
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1856
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2083
+      - agent_utilities/knowledge_graph/enrichment/pipeline.py:384
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1877
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2104
       - tests/unit/knowledge_graph/enrichment/test_batched_backend.py:52
   AU-KG.ingest.content-acquisition:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/research_acquisition.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-research-paper-acquisition/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-research-paper-acquisition/design.md:3
       - agent_utilities/knowledge_graph/ingestion/research_acquisition.py:3
   AU-KG.ingest.cross-host-safe-kg:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 5 marker site(s))'
+      file(s), 6 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/core/leadership.py
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/knowledge_graph/core/postgres_queue_backend.py
       test_files:
       - tests/unit/test_durable_state_postgres.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-cross-host-ingest-queue/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -1041,8 +1103,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-cross-host-ingest-queue/design.md:3
       - agent_utilities/core/leadership.py:32
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:1778
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1871
       - agent_utilities/knowledge_graph/core/postgres_queue_backend.py:3
       - tests/unit/test_durable_state_postgres.py:4
       - tests/unit/test_durable_state_postgres.py:29
@@ -1051,12 +1114,13 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/dead_letter.py
@@ -1065,6 +1129,7 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/ingestion/test_promotion.py
       doc_files:
+      - .specify/design/kgi-dead-letter-supersession/design.md
       - docs/architecture/kg_connectors_and_ingestion.md
       introduced: 'bd8391f6 2026-07-31 feat(mcp): add graph_claims(action=evaluate) — a live entrypoint
         for governed promotion'
@@ -1074,23 +1139,25 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-dead-letter-supersession/design.md:9
       - agent_utilities/knowledge_graph/ingestion/dead_letter.py:4
       - agent_utilities/mcp/tools/job_tools.py:27
-      - agent_utilities/models/knowledge_graph.py:730
-      - docs/architecture/kg_connectors_and_ingestion.md:304
+      - agent_utilities/models/knowledge_graph.py:732
+      - docs/architecture/kg_connectors_and_ingestion.md:347
       - tests/unit/knowledge_graph/ingestion/test_promotion.py:7
   AU-KG.ingest.decoupled-kg-ingest-consumer:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
-      file(s), 16 marker site(s))'
+      file(s), 17 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
@@ -1099,6 +1166,7 @@ concepts:
       - agent_utilities/observability/gateway_metrics.py
       test_files: []
       doc_files:
+      - .specify/design/kgi-decoupled-ingest-consumer-group/design.md
       - docs/reference/metrics.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -1153,27 +1221,29 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:310
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:1739
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:1809
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:3233
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:3342
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4086
+      - .specify/design/kgi-decoupled-ingest-consumer-group/design.md:3
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:336
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1832
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1902
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:3385
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:3494
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4302
       - agent_utilities/knowledge_graph/core/kafka_queue_backend.py:29
       - agent_utilities/knowledge_graph/core/kafka_queue_backend.py:51
-      - agent_utilities/knowledge_graph/core/kafka_queue_backend.py:493
+      - agent_utilities/knowledge_graph/core/kafka_queue_backend.py:531
       - agent_utilities/knowledge_graph/ingest_worker.py:6
-      - agent_utilities/knowledge_graph/ingest_worker.py:70
-      - agent_utilities/knowledge_graph/ingest_worker.py:191
-      - agent_utilities/knowledge_graph/ingest_worker.py:243
+      - agent_utilities/knowledge_graph/ingest_worker.py:86
+      - agent_utilities/knowledge_graph/ingest_worker.py:259
+      - agent_utilities/knowledge_graph/ingest_worker.py:340
       - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py:91
-      - agent_utilities/observability/gateway_metrics.py:242
+      - agent_utilities/observability/gateway_metrics.py:255
       - docs/reference/metrics.md:68
   AU-KG.ingest.default-graph-leak-guard:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
@@ -1193,24 +1263,27 @@ concepts:
       sites:
       - agent_utilities/knowledge_graph/backends/sparql/source_partition.py:183
       - agent_utilities/knowledge_graph/backends/sparql/source_partition.py:298
-      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:548
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:553
   AU-KG.ingest.deterministic-classifier:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.self-tool-surface
-    suggestion_why: clusters with 10 sibling(s) around AU-KG.ingest.self-tool-surface; shares agent_utilities/knowledge_graph/ingestion/engine.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ingest.agent-utilities-checkout
+    suggestion_why: clusters with 12 sibling(s) around AU-KG.ingest.agent-utilities-checkout; shares agent_utilities/knowledge_graph/ingestion/engine.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files:
       - tests/unit/knowledge_graph/test_repo_classification.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-codebase-artifact-classification/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -1264,21 +1337,24 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1772
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2054
+      - .specify/design/kgi-codebase-artifact-classification/design.md:3
+      - .specify/design/kgi-codebase-artifact-classification/design.md:33
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1793
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2075
       - tests/unit/knowledge_graph/test_repo_classification.py:181
   AU-KG.ingest.deterministic-extraction-default:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 8 marker site(s))'
+      file(s), 9 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       - agent_utilities/knowledge_graph/kb/entity_claim_extractor.py
@@ -1286,32 +1362,66 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/test_extraction_run.py
       - tests/unit/knowledge_graph/test_ingestion_enrich.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-default-entity-claim-extraction/design.md
       introduced: 'a353043f 2026-07-30 feat(kg): wire deterministic entity/claim extraction into generic
         ingestion'
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1384
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1464
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1555
+      - .specify/design/kgi-default-entity-claim-extraction/design.md:3
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1405
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1485
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1576
       - agent_utilities/knowledge_graph/kb/entity_claim_extractor.py:293
-      - agent_utilities/models/knowledge_graph.py:2105
+      - agent_utilities/models/knowledge_graph.py:2146
       - tests/unit/knowledge_graph/test_extraction_run.py:2
       - tests/unit/knowledge_graph/test_extraction_run.py:350
       - tests/unit/knowledge_graph/test_ingestion_enrich.py:270
+  AU-KG.ingest.deterministic-social-entity-mining:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/enrichment/extractors/social.py
+      - agent_utilities/knowledge_graph/ontology.ttl
+      test_files:
+      - tests/unit/knowledge_graph/enrichment/test_social_extractor.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/enrichment/extractors/social.py:3
+      - agent_utilities/knowledge_graph/ontology.ttl:242
+      - agent_utilities/knowledge_graph/ontology.ttl:284
+      - agent_utilities/knowledge_graph/ontology.ttl:640
+      - agent_utilities/knowledge_graph/ontology.ttl:780
+      - agent_utilities/knowledge_graph/ontology.ttl:786
+      - tests/unit/knowledge_graph/enrichment/test_social_extractor.py:3
   AU-KG.ingest.domain-pack-framework:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/core/config.py
@@ -1325,21 +1435,23 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/domain_packs/test_pack_loader.py
       - tests/unit/knowledge_graph/domain_packs/test_wiring_ingest.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-domain-pack-claim-promotion/design.md
       introduced: '24b84021 2026-07-31 feat(kg): domain-pack framework + declarative mapping DSL'
       cohort:
       - AU-KG.ingest.mapping-dsl
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/config.py:4502
+      - .specify/design/kgi-domain-pack-claim-promotion/design.md:7
+      - agent_utilities/core/config.py:4684
       - agent_utilities/knowledge_graph/domain_packs/__init__.py:1
       - agent_utilities/knowledge_graph/domain_packs/domain_pack.py:1
       - agent_utilities/knowledge_graph/domain_packs/envelope_bridge.py:2
       - agent_utilities/knowledge_graph/domain_packs/pack_loader.py:2
       - agent_utilities/knowledge_graph/domain_packs/pack_loader.py:396
-      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:1933
-      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:1940
+      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:2378
+      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:2385
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:148
       - agent_utilities/knowledge_graph/ingestion/promotion.py:221
       - tests/unit/knowledge_graph/domain_packs/test_pack_loader.py:2
@@ -1349,20 +1461,23 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.gotcha-feedback-capture
     suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.gotcha-feedback-capture; shares agent_utilities/mcp/tools/write_ingest_tools.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/knowledge_graph/core/task_lanes.py
       - agent_utilities/mcp/tools/write_ingest_tools.py
       test_files:
       - tests/unit/test_ingest_sessions_upload.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-drain-session-bundle-async/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -1416,24 +1531,26 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4139
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4272
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:5039
+      - .specify/design/kgi-drain-session-bundle-async/design.md:6
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4355
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4488
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:5255
       - agent_utilities/knowledge_graph/core/task_lanes.py:42
-      - agent_utilities/mcp/tools/write_ingest_tools.py:1651
+      - agent_utilities/mcp/tools/write_ingest_tools.py:2130
       - tests/unit/test_ingest_sessions_upload.py:1
   AU-KG.ingest.engineering-rules:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (16 source
-      file(s), 94 marker site(s))'
+      file(s), 95 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/research_pipeline.py
       - agent_utilities/knowledge_graph/backends/owl/stardog_backend.py
@@ -1465,6 +1582,7 @@ concepts:
       - tests/unit/test_policy_ingestor.py
       - tests/unit/test_schema_packs.py
       doc_files:
+      - .specify/design/kgi-engineering-rules-ingestor/design.md
       - agent_utilities/prompts/README.md
       - docs/guides/conductor-orchestration.md
       - docs/guides/features.md
@@ -1529,6 +1647,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-engineering-rules-ingestor/design.md:8
       - agent_utilities/automation/research_pipeline.py:24
       - agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:6
       - agent_utilities/knowledge_graph/core/engine_ingestion.py:481
@@ -1541,41 +1660,41 @@ concepts:
       - agent_utilities/knowledge_graph/core/engine_ingestion.py:714
       - agent_utilities/knowledge_graph/core/inference_engine.py:6
       - agent_utilities/knowledge_graph/core/model_display.py:17
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:228
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:489
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:705
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1120
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:253
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:514
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:730
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1151
       - agent_utilities/knowledge_graph/id_management/ontological_identifier.py:3
       - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:7
-      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:141
-      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:174
-      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:501
-      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:694
-      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:905
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:160
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:193
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:636
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:829
+      - agent_utilities/knowledge_graph/retrieval/hybrid_retriever.py:1043
       - agent_utilities/knowledge_graph/security/policy_ingestor.py:5
       - agent_utilities/knowledge_graph/security/policy_ingestor.py:251
       - agent_utilities/knowledge_graph/security/rule_ingestor.py:5
       - agent_utilities/knowledge_graph/security/rule_ingestor.py:302
       - agent_utilities/models/imodel.py:25
-      - agent_utilities/models/knowledge_graph.py:200
       - agent_utilities/models/knowledge_graph.py:202
-      - agent_utilities/models/knowledge_graph.py:242
-      - agent_utilities/models/knowledge_graph.py:258
-      - agent_utilities/models/knowledge_graph.py:522
-      - agent_utilities/models/knowledge_graph.py:698
+      - agent_utilities/models/knowledge_graph.py:204
+      - agent_utilities/models/knowledge_graph.py:244
+      - agent_utilities/models/knowledge_graph.py:260
+      - agent_utilities/models/knowledge_graph.py:524
       - agent_utilities/models/knowledge_graph.py:700
-      - agent_utilities/models/knowledge_graph.py:744
-      - agent_utilities/models/knowledge_graph.py:759
-      - agent_utilities/models/knowledge_graph.py:1411
-      - agent_utilities/models/knowledge_graph.py:2065
-      - agent_utilities/models/knowledge_graph.py:2307
-      - agent_utilities/models/knowledge_graph.py:2981
-      - agent_utilities/models/knowledge_graph.py:3063
-      - agent_utilities/models/knowledge_graph.py:4832
-      - agent_utilities/models/knowledge_graph.py:5340
-      - agent_utilities/models/knowledge_graph.py:5346
-      - agent_utilities/models/knowledge_graph.py:5360
-      - agent_utilities/models/knowledge_graph.py:5394
+      - agent_utilities/models/knowledge_graph.py:702
+      - agent_utilities/models/knowledge_graph.py:746
+      - agent_utilities/models/knowledge_graph.py:761
+      - agent_utilities/models/knowledge_graph.py:1452
+      - agent_utilities/models/knowledge_graph.py:2106
+      - agent_utilities/models/knowledge_graph.py:2348
+      - agent_utilities/models/knowledge_graph.py:3022
+      - agent_utilities/models/knowledge_graph.py:3104
+      - agent_utilities/models/knowledge_graph.py:4873
+      - agent_utilities/models/knowledge_graph.py:5381
+      - agent_utilities/models/knowledge_graph.py:5387
+      - agent_utilities/models/knowledge_graph.py:5401
+      - agent_utilities/models/knowledge_graph.py:5435
       - agent_utilities/policies/__init__.py:3
       - agent_utilities/prompting/prompt.schema.json:5
       - agent_utilities/prompting/provider_adapter.py:57
@@ -1592,8 +1711,8 @@ concepts:
       - docs/guides/features.md:472
       - docs/guides/features.md:480
       - docs/guides/features.md:483
-      - docs/guides/features.md:506
-      - docs/guides/features.md:521
+      - docs/guides/features.md:505
+      - docs/guides/features.md:520
       - docs/guides/knowledge-graph.md:190
       - docs/guides/knowledge-graph.md:610
       - docs/guides/knowledge-graph.md:665
@@ -1609,7 +1728,7 @@ concepts:
       - docs/pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md:1
       - docs/pillars/5_agent_os_infrastructure.md:315
       - docs/pillars/memory_architecture.md:10
-      - docs/reference/documentation-catalog.md:297
+      - docs/reference/documentation-catalog.md:302
       - tests/unit/knowledge_graph/test_backlink_boost.py:5
       - tests/unit/knowledge_graph/test_distillation.py:3
       - tests/unit/knowledge_graph/test_entity_claim_extractor.py:2
@@ -1628,17 +1747,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/ingestion/collector.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-async-batch-enqueue-drain/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -1692,12 +1813,14 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-async-batch-enqueue-drain/design.md:3
       - agent_utilities/ingestion/collector.py:204
   AU-KG.ingest.enterprise-source-extractor:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('"""Live end-to-end test of the Camunda
@@ -1897,30 +2020,30 @@ concepts:
       truncated_marker: '"""Live end-to-end test of the Camunda inbound path (CONCEPT·AU-KG.ingest.enterprise-source-extractor/KG-2.53).'
       sites:
       - .specify/design/incident-brain/design.md:18
-      - agent_utilities/core/config.py:3298
+      - agent_utilities/core/config.py:3461
       - agent_utilities/ecosystem/ea_clients.py:1
       - agent_utilities/gateway/ontology_api.py:480
-      - agent_utilities/knowledge_graph/backends/base.py:53
+      - agent_utilities/knowledge_graph/backends/base.py:75
       - agent_utilities/knowledge_graph/backends/cypher_transpiler.py:122
       - agent_utilities/knowledge_graph/backends/cypher_transpiler.py:526
-      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:148
-      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:358
-      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:377
-      - agent_utilities/knowledge_graph/core/engine.py:427
-      - agent_utilities/knowledge_graph/core/engine.py:563
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:150
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:360
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:379
+      - agent_utilities/knowledge_graph/core/engine.py:461
+      - agent_utilities/knowledge_graph/core/engine.py:612
       - agent_utilities/knowledge_graph/core/hydration.py:514
       - agent_utilities/knowledge_graph/core/materialization.py:1
-      - agent_utilities/knowledge_graph/core/materialization.py:236
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:60
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:91
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:103
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:124
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:412
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:425
+      - agent_utilities/knowledge_graph/core/materialization.py:234
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:85
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:116
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:128
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:149
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:437
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:450
       - agent_utilities/knowledge_graph/core/source_sync.py:1
-      - agent_utilities/knowledge_graph/core/source_sync.py:4635
-      - agent_utilities/knowledge_graph/core/source_sync.py:4662
-      - agent_utilities/knowledge_graph/core/source_sync.py:4720
+      - agent_utilities/knowledge_graph/core/source_sync.py:4656
+      - agent_utilities/knowledge_graph/core/source_sync.py:4683
+      - agent_utilities/knowledge_graph/core/source_sync.py:4741
       - agent_utilities/knowledge_graph/enrichment/extractors/ansible.py:1
       - agent_utilities/knowledge_graph/enrichment/extractors/archer.py:1
       - agent_utilities/knowledge_graph/enrichment/extractors/archimate.py:1
@@ -1981,20 +2104,20 @@ concepts:
       - agent_utilities/knowledge_graph/infra/__init__.py:4
       - agent_utilities/knowledge_graph/infra/inventory_collector.py:4
       - agent_utilities/knowledge_graph/infra/placement_optimizer.py:4
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2746
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2781
       - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py:47
       - agent_utilities/knowledge_graph/memory/native_ingest.py:3
       - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py:1
       - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py:253
       - agent_utilities/knowledge_graph/ontology/leanix_metamodel.py:261
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26232
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26354
-      - agent_utilities/mcp/tools/analysis_tools.py:891
-      - agent_utilities/mcp/tools/analysis_tools.py:898
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:27458
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:27580
+      - agent_utilities/mcp/tools/analysis_tools.py:805
+      - agent_utilities/mcp/tools/analysis_tools.py:812
       - agent_utilities/mcp/tools/ontology_tools.py:546
       - agent_utilities/mcp/tools/ontology_tools.py:1099
-      - agent_utilities/mcp/tools/ontology_tools.py:1264
-      - agent_utilities/mcp/tools/write_ingest_tools.py:928
+      - agent_utilities/mcp/tools/ontology_tools.py:1265
+      - agent_utilities/mcp/tools/write_ingest_tools.py:1407
       - agent_utilities/observability/health_ingest.py:6
       - agent_utilities/protocols/source_connectors/connectors/database.py:8
       - agent_utilities/tools/db_tools.py:8
@@ -2002,11 +2125,11 @@ concepts:
       - docs/architecture/chunked-async-drain.md:99
       - docs/architecture/graph_backends_architecture.md:134
       - docs/architecture/kg_connectors_and_ingestion.md:6
-      - docs/capabilities-power.json:26232
-      - docs/capabilities-power.json:26354
-      - docs/capabilities-power.md:125
-      - docs/capabilities-power.md:4698
-      - docs/capabilities-power.md:4729
+      - docs/capabilities-power.json:27458
+      - docs/capabilities-power.json:27580
+      - docs/capabilities-power.md:129
+      - docs/capabilities-power.md:4903
+      - docs/capabilities-power.md:4934
       - docs/guides/cmdb-bidirectional-integration.md:1
       - docs/guides/leanix-integration.md:1
       - docs/journey.md:245
@@ -2017,7 +2140,7 @@ concepts:
       - docs/reference/documentation-catalog.md:83
       - scripts/generate_connector_map.py:2
       - tests/integration/test_camunda_live.py:1
-      - tests/kg_recording_backend.py:21
+      - tests/kg_recording_backend.py:22
       - tests/knowledge_graph/test_native_ingest.py:4
       - tests/unit/ecosystem/test_ea_clients.py:1
       - tests/unit/finance/test_calibration_tracker.py:37
@@ -2058,45 +2181,81 @@ concepts:
       - tests/unit/protocols/test_universal_connector.py:1
       - tests/unit/test_cypher_transpiler.py:58
       - tests/unit/test_postgresql_backend.py:27
+  AU-KG.ingest.entity-embedding-at-write:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.applying-agents-md-batch
+    suggestion_why: clusters with 2 sibling(s) around AU-KG.ingest.applying-agents-md-batch; shares agent_utilities/knowledge_graph/enrichment/semantic.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/enrichment/semantic.py
+      test_files: []
+      doc_files:
+      - .specify/design/kgo-kg-entity-embedding-at-write/design.md
+      introduced: 'a210607b 2026-08-01 feat(kg): embed entities at ingest chokepoint + name sparse-index
+        gate failures'
+      cohort:
+      - AU-KG.ingest.applying-agents-md-batch
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kgo-kg-entity-embedding-at-write/design.md:3
+      - agent_utilities/knowledge_graph/enrichment/semantic.py:507
   AU-KG.ingest.entropy-dedup:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
-    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
-      which is usually a retirement but occasionally a real decision recorded only in prose
+    suggestion_why: the marker text is truncated by the grammar ('text = "CONCEPT·AU-KG.ingest.entropy-dedup/2.15"')
+      — the id itself reads like a real name, so the marker text needs cleaning either way; decide whether
+      the concept survives that cleanup
     evidence:
       has_design_doc: false
       in_baseline: true
       source_files: []
-      test_files: []
+      test_files:
+      - tests/unit/test_okf_cis_grammar.py
       doc_files:
       - docs/architecture/concept-hierarchy.md
       introduced: 'b85896f6 2026-07-04 OKF-CIS: fix AU drift + migration/usage guide for parallel sessions
         (AU-OS.governance.okf-cis-standard)'
       cohort: []
       artifact_id: ''
-      truncated_marker: ''
+      truncated_marker: text = "CONCEPT·AU-KG.ingest.entropy-dedup/2.15"
       sites:
-      - docs/architecture/concept-hierarchy.md:46
+      - docs/architecture/concept-hierarchy.md:66
+      - tests/unit/test_okf_cis_grammar.py:105
+      - tests/unit/test_okf_cis_grammar.py:116
+      - tests/unit/test_okf_cis_grammar.py:129
   AU-KG.ingest.envelope-atomic:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
-      agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
+    suggested_parent: AU-KG.ingest.envelope-atomic-transaction
+    suggestion_why: 'clusters with 7 sibling(s) around AU-KG.ingest.envelope-atomic-transaction; shares
+      agent_utilities/knowledge_graph/core/source_sync.py; both introduced by ad23c532 (feat(kg): ChangeEnvelope
+      ingestion consolidation + L27 ops-c); the candidate parent already has a design document'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/source_sync.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-change-envelope-atomic/design.md
       introduced: 'ad23c532 2026-07-11 feat(kg): ChangeEnvelope ingestion consolidation + L27 ops-connector
         gate (AU-P1-5)'
       cohort:
@@ -2104,29 +2263,36 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-change-envelope-atomic/design.md:8
+      - .specify/design/kgi-change-envelope-atomic/design.md:47
       - agent_utilities/knowledge_graph/core/source_sync.py:22
   AU-KG.ingest.envelope-atomic-transaction:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: parent
-    suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
-      agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 8-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
+      - agent_utilities/knowledge_graph/core/engine.py
       - agent_utilities/knowledge_graph/core/source_sync.py
       - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
       - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
+      - agent_utilities/mcp/tools/write_ingest_tools.py
+      - scripts/check_no_per_element_ingest_loop.py
       test_files:
       - tests/unit/knowledge_graph/core/test_source_sync.py
       - tests/unit/knowledge_graph/core/test_tracker_connectors.py
       - tests/unit/knowledge_graph/test_claude_memory_source.py
       - tests/unit/protocols/test_ard_connector.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-change-envelope-atomic/design.md
       introduced: 'ad23c532 2026-07-11 feat(kg): ChangeEnvelope ingestion consolidation + L27 ops-connector
         gate (AU-P1-5)'
       cohort:
@@ -2134,32 +2300,42 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/source_sync.py:834
-      - agent_utilities/knowledge_graph/core/source_sync.py:1222
-      - agent_utilities/knowledge_graph/core/source_sync.py:2084
-      - agent_utilities/knowledge_graph/core/source_sync.py:2180
-      - agent_utilities/knowledge_graph/core/source_sync.py:2239
-      - agent_utilities/knowledge_graph/core/source_sync.py:2301
-      - agent_utilities/knowledge_graph/core/source_sync.py:2570
-      - agent_utilities/knowledge_graph/core/source_sync.py:2627
-      - agent_utilities/knowledge_graph/core/source_sync.py:2702
-      - agent_utilities/knowledge_graph/core/source_sync.py:2814
-      - agent_utilities/knowledge_graph/core/source_sync.py:2898
-      - agent_utilities/knowledge_graph/core/source_sync.py:3021
-      - agent_utilities/knowledge_graph/core/source_sync.py:3108
-      - agent_utilities/knowledge_graph/core/source_sync.py:3217
-      - agent_utilities/knowledge_graph/core/source_sync.py:3302
-      - agent_utilities/knowledge_graph/core/source_sync.py:3444
-      - agent_utilities/knowledge_graph/core/source_sync.py:3614
-      - agent_utilities/knowledge_graph/core/source_sync.py:3857
-      - agent_utilities/knowledge_graph/core/source_sync.py:4150
-      - agent_utilities/knowledge_graph/core/source_sync.py:4242
-      - agent_utilities/knowledge_graph/core/source_sync.py:4376
-      - agent_utilities/knowledge_graph/core/source_sync.py:4506
-      - agent_utilities/knowledge_graph/core/source_sync.py:4515
+      - .specify/design/kgi-change-envelope-atomic/design.md:9
+      - .specify/design/kgi-change-envelope-atomic/design.md:47
+      - agent_utilities/knowledge_graph/core/engine.py:1157
+      - agent_utilities/knowledge_graph/core/source_sync.py:855
+      - agent_utilities/knowledge_graph/core/source_sync.py:1243
+      - agent_utilities/knowledge_graph/core/source_sync.py:2105
+      - agent_utilities/knowledge_graph/core/source_sync.py:2201
+      - agent_utilities/knowledge_graph/core/source_sync.py:2260
+      - agent_utilities/knowledge_graph/core/source_sync.py:2322
+      - agent_utilities/knowledge_graph/core/source_sync.py:2591
+      - agent_utilities/knowledge_graph/core/source_sync.py:2648
+      - agent_utilities/knowledge_graph/core/source_sync.py:2723
+      - agent_utilities/knowledge_graph/core/source_sync.py:2835
+      - agent_utilities/knowledge_graph/core/source_sync.py:2919
+      - agent_utilities/knowledge_graph/core/source_sync.py:3042
+      - agent_utilities/knowledge_graph/core/source_sync.py:3129
+      - agent_utilities/knowledge_graph/core/source_sync.py:3238
+      - agent_utilities/knowledge_graph/core/source_sync.py:3323
+      - agent_utilities/knowledge_graph/core/source_sync.py:3465
+      - agent_utilities/knowledge_graph/core/source_sync.py:3635
+      - agent_utilities/knowledge_graph/core/source_sync.py:3878
+      - agent_utilities/knowledge_graph/core/source_sync.py:4171
+      - agent_utilities/knowledge_graph/core/source_sync.py:4263
+      - agent_utilities/knowledge_graph/core/source_sync.py:4397
+      - agent_utilities/knowledge_graph/core/source_sync.py:4527
+      - agent_utilities/knowledge_graph/core/source_sync.py:4536
       - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:3
+      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:2369
       - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:453
-      - tests/unit/knowledge_graph/core/test_source_sync.py:698
+      - agent_utilities/mcp/tools/write_ingest_tools.py:40
+      - agent_utilities/mcp/tools/write_ingest_tools.py:405
+      - agent_utilities/mcp/tools/write_ingest_tools.py:420
+      - agent_utilities/mcp/tools/write_ingest_tools.py:434
+      - agent_utilities/mcp/tools/write_ingest_tools.py:443
+      - scripts/check_no_per_element_ingest_loop.py:11
+      - tests/unit/knowledge_graph/core/test_source_sync.py:742
       - tests/unit/knowledge_graph/core/test_tracker_connectors.py:114
       - tests/unit/knowledge_graph/test_claude_memory_source.py:6
       - tests/unit/protocols/test_ard_connector.py:140
@@ -2168,13 +2344,15 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.stable-fragment-address
     suggestion_why: 'clusters with 1 sibling(s) around AU-KG.ingest.stable-fragment-address; shares agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py,
       agent_utilities/knowledge_graph/ingestion/evidence_spine.py, agent_utilities/knowledge_graph/ontology.ttl;
-      both introduced by 961698b8 (feat(ingest): Artifact -> Fragment evidence-spine contract)'
+      both introduced by 961698b8 (feat(ingest): Artifact -> Fragment evidence-spine contract); the candidate
+      parent already has a design document'
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
@@ -2188,6 +2366,7 @@ concepts:
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine.py
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine_wiring.py
       doc_files:
+      - .specify/design/kgi-evidence-spine-contract/design.md
       - docs/architecture/evidence-spine.md
       introduced: '961698b8 2026-07-31 feat(ingest): Artifact -> Fragment evidence-spine contract'
       cohort:
@@ -2195,13 +2374,15 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-evidence-spine-contract/design.md:5
+      - .specify/design/kgi-evidence-spine-contract/design.md:34
       - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py:100
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:3
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:433
-      - agent_utilities/knowledge_graph/ontology.ttl:465
-      - agent_utilities/knowledge_graph/ontology.ttl:746
-      - agent_utilities/knowledge_graph/ontology.ttl:752
-      - agent_utilities/knowledge_graph/ontology.ttl:970
+      - agent_utilities/knowledge_graph/ontology.ttl:469
+      - agent_utilities/knowledge_graph/ontology.ttl:762
+      - agent_utilities/knowledge_graph/ontology.ttl:768
+      - agent_utilities/knowledge_graph/ontology.ttl:998
       - agent_utilities/knowledge_graph/ontology/document_processing.py:402
       - agent_utilities/knowledge_graph/ontology/document_processing.py:581
       - agent_utilities/knowledge_graph/ontology/document_processing.py:674
@@ -2217,20 +2398,22 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 4 marker site(s))'
+      file(s), 5 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/external_graph.py
       - agent_utilities/knowledge_graph/orchestration/engine_federation.py
       - agent_utilities/knowledge_graph/pipeline/phases/external_graphs.py
       - agent_utilities/protocols/source_connectors/connectors/graphql_document.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-external-graph-federation/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -2284,6 +2467,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-external-graph-federation/design.md:10
       - agent_utilities/knowledge_graph/ingestion/external_graph.py:13
       - agent_utilities/knowledge_graph/orchestration/engine_federation.py:46
       - agent_utilities/knowledge_graph/pipeline/phases/external_graphs.py:6
@@ -2293,23 +2477,26 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/external_graph_schema.py
       - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-external-graph-mapping-approval/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-external-graph-mapping-approval/design.md:7
       - agent_utilities/knowledge_graph/ingestion/external_graph_schema.py:14
       - agent_utilities/knowledge_graph/ingestion/graphql_connection.py:20
   AU-KG.ingest.external-graph-universal-discovery:
@@ -2317,23 +2504,27 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.external-graph-mapping-approval
     suggestion_why: clusters with 1 sibling(s) around AU-KG.ingest.external-graph-mapping-approval; shares
-      agent_utilities/knowledge_graph/ingestion/external_graph_schema.py, agent_utilities/knowledge_graph/ingestion/graphql_connection.py
+      agent_utilities/knowledge_graph/ingestion/external_graph_schema.py, agent_utilities/knowledge_graph/ingestion/graphql_connection.py;
+      the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/external_graph_schema.py
       - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-external-graph-mapping-approval/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-external-graph-mapping-approval/design.md:8
       - agent_utilities/knowledge_graph/ingestion/external_graph_schema.py:13
       - agent_utilities/knowledge_graph/ingestion/graphql_connection.py:19
   AU-KG.ingest.external-tracker-ids:
@@ -2341,17 +2532,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/models/sdd.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-external-tracker-ids/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -2405,24 +2598,28 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-external-tracker-ids/design.md:5
       - agent_utilities/models/sdd.py:31
   AU-KG.ingest.fact-supersession:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.dead-letter-drain
     suggestion_why: 'clusters with 1 sibling(s) around AU-KG.ingest.dead-letter-drain; both introduced
-      by bd8391f6 (feat(mcp): add graph_claims(action=evaluate) — a live entryp)'
+      by bd8391f6 (feat(mcp): add graph_claims(action=evaluate) — a live entryp); the candidate parent
+      already has a design document'
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/supersession.py
       test_files:
       - tests/unit/knowledge_graph/ingestion/test_promotion.py
       doc_files:
+      - .specify/design/kgi-dead-letter-supersession/design.md
       - docs/architecture/kg_connectors_and_ingestion.md
       introduced: 'bd8391f6 2026-07-31 feat(mcp): add graph_claims(action=evaluate) — a live entrypoint
         for governed promotion'
@@ -2432,21 +2629,24 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-dead-letter-supersession/design.md:10
+      - .specify/design/kgi-dead-letter-supersession/design.md:36
       - agent_utilities/knowledge_graph/ingestion/supersession.py:4
-      - docs/architecture/kg_connectors_and_ingestion.md:304
+      - docs/architecture/kg_connectors_and_ingestion.md:347
       - tests/unit/knowledge_graph/ingestion/test_promotion.py:6
   AU-KG.ingest.fetch-only-requested-ids:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (7 source
-      file(s), 19 marker site(s))'
+      file(s), 20 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/research_pipeline.py
       - agent_utilities/knowledge_graph/assimilation/concept_matcher.py
@@ -2457,7 +2657,8 @@ concepts:
       - agent_utilities/knowledge_graph/research/loop_controller.py
       test_files:
       - tests/unit/knowledge_graph/test_assimilation_feature_matrix.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-scoped-cohort-reads/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -2511,6 +2712,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-scoped-cohort-reads/design.md:3
       - agent_utilities/automation/research_pipeline.py:774
       - agent_utilities/knowledge_graph/assimilation/concept_matcher.py:219
       - agent_utilities/knowledge_graph/assimilation/concept_matcher.py:289
@@ -2525,9 +2727,9 @@ concepts:
       - agent_utilities/knowledge_graph/assimilation/synergy.py:277
       - agent_utilities/knowledge_graph/research/cohort.py:264
       - agent_utilities/knowledge_graph/research/cohort.py:311
-      - agent_utilities/knowledge_graph/research/loop_controller.py:738
-      - agent_utilities/knowledge_graph/research/loop_controller.py:764
-      - agent_utilities/knowledge_graph/research/loop_controller.py:774
+      - agent_utilities/knowledge_graph/research/loop_controller.py:742
+      - agent_utilities/knowledge_graph/research/loop_controller.py:768
+      - agent_utilities/knowledge_graph/research/loop_controller.py:778
       - tests/unit/knowledge_graph/test_assimilation_feature_matrix.py:30
       - tests/unit/knowledge_graph/test_assimilation_feature_matrix.py:277
   AU-KG.ingest.fleet-sync-rejected-row-cache:
@@ -2535,29 +2737,34 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+    suggested_parent: AU-KG.ingest.envelope-atomic-transaction
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.envelope-atomic-transaction; shares
       agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/source_sync.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-source-sync-misc-decisions/design.md
       introduced: 'c9fdf6f9 2026-07-31 fix(kg): D-SH-2 — persist rejected fleet-catalog rows, skip re-bisecting
         known offenders'
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/source_sync.py:541
+      - .specify/design/kgi-source-sync-misc-decisions/design.md:7
+      - .specify/design/kgi-source-sync-misc-decisions/design.md:12
+      - agent_utilities/knowledge_graph/core/source_sync.py:547
   AU-KG.ingest.floor-codebase-admission-cap:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('"""The engine\'s durable K-way redb
@@ -2639,18 +2846,21 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.self-tool-surface
-    suggestion_why: clusters with 10 sibling(s) around AU-KG.ingest.self-tool-surface; shares agent_utilities/knowledge_graph/ingestion/engine.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ingest.agent-utilities-checkout
+    suggestion_why: clusters with 12 sibling(s) around AU-KG.ingest.agent-utilities-checkout; shares agent_utilities/knowledge_graph/ingestion/engine.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/research_pipeline.py
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-generalized-cross-lane-parallelization/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -2704,21 +2914,24 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-generalized-cross-lane-parallelization/design.md:3
+      - .specify/design/kgi-generalized-cross-lane-parallelization/design.md:36
       - agent_utilities/automation/research_pipeline.py:1092
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1494
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2490
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1515
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2511
   AU-KG.ingest.gotcha-feedback-capture:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 8-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/adaptation/feedback.py
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
@@ -2727,6 +2940,7 @@ concepts:
       test_files:
       - tests/unit/test_operator_phase4_dx.py
       doc_files:
+      - .specify/design/kgi-gotcha-feedback-capture/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -2782,24 +2996,27 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/adaptation/feedback.py:579
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:13585
+      - .specify/design/kgi-gotcha-feedback-capture/design.md:6
+      - agent_utilities/knowledge_graph/adaptation/feedback.py:599
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:14451
       - agent_utilities/knowledge_graph/retrieval/code_context.py:315
-      - agent_utilities/mcp/tools/write_ingest_tools.py:366
-      - docs/capabilities-power.json:13585
-      - docs/capabilities-power.md:2277
+      - agent_utilities/mcp/tools/write_ingest_tools.py:845
+      - docs/capabilities-power.json:14451
+      - docs/capabilities-power.md:2426
       - tests/unit/test_operator_phase4_dx.py:3
   AU-KG.ingest.governed-claim-promotion:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.domain-pack-framework
     suggestion_why: clusters with 2 sibling(s) around AU-KG.ingest.domain-pack-framework; shares agent_utilities/core/config.py,
-      agent_utilities/knowledge_graph/domain_packs/domain_pack.py, agent_utilities/knowledge_graph/ingestion/envelope_ingest.py
+      agent_utilities/knowledge_graph/domain_packs/domain_pack.py, agent_utilities/knowledge_graph/ingestion/envelope_ingest.py;
+      the candidate parent already has a design document
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/core/config.py
@@ -2810,6 +3027,7 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/ingestion/test_promotion.py
       doc_files:
+      - .specify/design/kgi-domain-pack-claim-promotion/design.md
       - docs/architecture/configuration.md
       - docs/architecture/kg_connectors_and_ingestion.md
       introduced: '7ffe4a14 2026-07-31 feat(ingest): governed candidate-claim promotion + fact supersession
@@ -2818,28 +3036,31 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/config.py:2842
+      - .specify/design/kgi-domain-pack-claim-promotion/design.md:9
+      - .specify/design/kgi-domain-pack-claim-promotion/design.md:51
+      - agent_utilities/core/config.py:2882
       - agent_utilities/knowledge_graph/domain_packs/domain_pack.py:326
-      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:289
-      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:380
+      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:290
+      - agent_utilities/knowledge_graph/ingestion/envelope_ingest.py:381
       - agent_utilities/knowledge_graph/ingestion/promotion.py:4
       - agent_utilities/mcp/tools/claim_tools.py:188
       - agent_utilities/mcp/tools/claim_tools.py:285
-      - docs/architecture/configuration.md:91
-      - docs/architecture/kg_connectors_and_ingestion.md:303
+      - docs/architecture/configuration.md:85
+      - docs/architecture/kg_connectors_and_ingestion.md:346
       - tests/unit/knowledge_graph/ingestion/test_promotion.py:5
   AU-KG.ingest.hardened-priority-scheduled-task:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 14 marker site(s))'
+      file(s), 15 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/knowledge_graph/research/loops.py
@@ -2847,6 +3068,7 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/test_ingest_tail_optimization.py
       doc_files:
+      - .specify/design/kgi-unified-priority-task-queue/design.md
       - docs/architecture/chunked-async-drain.md
       - docs/architecture/gateway_daemon.md
       - docs/recipes/unified-scheduling.md
@@ -2903,10 +3125,11 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:419
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:2991
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:5176
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:6295
+      - .specify/design/kgi-unified-priority-task-queue/design.md:3
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:453
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:3141
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:5392
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:6511
       - agent_utilities/knowledge_graph/research/loops.py:529
       - agent_utilities/knowledge_graph/research/loops.py:584
       - agent_utilities/knowledge_graph/research/loops.py:621
@@ -2922,45 +3145,53 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/__init__.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-ingestion-engine-single-entrypoint/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-ingestion-engine-single-entrypoint/design.md:3
       - agent_utilities/knowledge_graph/ingestion/__init__.py:3
   AU-KG.ingest.instead:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: retire
     suggested_parent: ''
     suggestion_why: the id is a single generic noun — it names a subject area, not a choice
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/worldmodel_pipeline.py
       test_files:
       - tests/unit/knowledge_graph/test_freshrss_worldmodel.py
       doc_files:
+      - .specify/design/kgi-batch-known-ids-dedup/design.md
       - docs/architecture/ingestion_throughput.md
       introduced: ''
       cohort: []
       artifact_id: is a single generic noun — it names a subject area, not a choice
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-batch-known-ids-dedup/design.md:6
+      - .specify/design/kgi-batch-known-ids-dedup/design.md:10
+      - .specify/design/kgi-batch-known-ids-dedup/design.md:11
       - agent_utilities/automation/worldmodel_pipeline.py:91
       - agent_utilities/automation/worldmodel_pipeline.py:268
       - docs/architecture/ingestion_throughput.md:91
@@ -2970,18 +3201,21 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: document
-    suggested_parent: ''
-    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 3 marker site(s))'
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.applying-agents-md-batch
+    suggestion_why: clusters with 2 sibling(s) around AU-KG.ingest.applying-agents-md-batch; shares agent_utilities/knowledge_graph/enrichment/semantic.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/core/config.py
       - agent_utilities/knowledge_graph/enrichment/semantic.py
       test_files: []
       doc_files:
+      - .specify/design/kgi-failover-capacity-guard-keying/design.md
       - docs/architecture/intelligent-ingestion.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -3036,33 +3270,37 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/config.py:2591
-      - agent_utilities/knowledge_graph/enrichment/semantic.py:75
+      - .specify/design/kgi-failover-capacity-guard-keying/design.md:3
+      - agent_utilities/core/config.py:2631
+      - agent_utilities/knowledge_graph/enrichment/semantic.py:255
       - docs/architecture/intelligent-ingestion.md:148
   AU-KG.ingest.knowledge-distillation:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 4 marker site(s))'
+      file(s), 5 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/distillation/__init__.py
       - agent_utilities/knowledge_graph/distillation/deduplicator.py
       - agent_utilities/knowledge_graph/distillation/distillation_engine.py
       - agent_utilities/knowledge_graph/distillation/lsh_index.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-knowledge-distillation/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-knowledge-distillation/design.md:6
       - agent_utilities/knowledge_graph/distillation/__init__.py:3
       - agent_utilities/knowledge_graph/distillation/deduplicator.py:6
       - agent_utilities/knowledge_graph/distillation/distillation_engine.py:6
@@ -3072,18 +3310,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
       file(s), 11 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/memory/media_store.py
       - agent_utilities/messaging/router.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-durable-media-blob-store/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -3137,12 +3377,12 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-durable-media-blob-store/design.md:3
       - agent_utilities/knowledge_graph/memory/media_store.py:1
       - agent_utilities/knowledge_graph/memory/media_store.py:290
-      - agent_utilities/knowledge_graph/memory/media_store.py:557
-      - agent_utilities/knowledge_graph/memory/media_store.py:1810
-      - agent_utilities/knowledge_graph/memory/media_store.py:1825
-      - agent_utilities/knowledge_graph/memory/media_store.py:1850
+      - agent_utilities/knowledge_graph/memory/media_store.py:578
+      - agent_utilities/knowledge_graph/memory/media_store.py:1882
+      - agent_utilities/knowledge_graph/memory/media_store.py:1900
       - agent_utilities/messaging/router.py:768
       - agent_utilities/messaging/router.py:776
       - agent_utilities/messaging/router.py:826
@@ -3153,13 +3393,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.domain-pack-framework
     suggestion_why: 'clusters with 2 sibling(s) around AU-KG.ingest.domain-pack-framework; shares agent_utilities/knowledge_graph/domain_packs/__init__.py,
       agent_utilities/knowledge_graph/domain_packs/domain_pack.py; both introduced by 24b84021 (feat(kg):
-      domain-pack framework + declarative mapping DSL)'
+      domain-pack framework + declarative mapping DSL); the candidate parent already has a design document'
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/domain_packs/__init__.py
@@ -3170,13 +3411,16 @@ concepts:
       - tests/unit/knowledge_graph/domain_packs/test_dsl.py
       - tests/unit/knowledge_graph/domain_packs/test_markdown_fragmenter.py
       - tests/unit/knowledge_graph/domain_packs/test_wiring_ingest.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-domain-pack-claim-promotion/design.md
       introduced: '24b84021 2026-07-31 feat(kg): domain-pack framework + declarative mapping DSL'
       cohort:
       - AU-KG.ingest.domain-pack-framework
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-domain-pack-claim-promotion/design.md:8
+      - .specify/design/kgi-domain-pack-claim-promotion/design.md:38
       - agent_utilities/knowledge_graph/domain_packs/__init__.py:2
       - agent_utilities/knowledge_graph/domain_packs/domain_pack.py:269
       - agent_utilities/knowledge_graph/domain_packs/dsl.py:1
@@ -3189,13 +3433,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
-      file(s), 20 marker site(s))'
+      file(s), 21 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/extraction/second_brain_sync.py
       - agent_utilities/knowledge_graph/ontology/connector_manifest.py
@@ -3206,6 +3451,7 @@ concepts:
       - tests/integration/protocols/test_mcp_tool_connector_live_path.py
       - tests/unit/protocols/test_mcp_tool_source_connector.py
       doc_files:
+      - .specify/design/kgi-mcp-tool-source-connector/design.md
       - AGENTS.head.md
       - AGENTS.md
       - docs/pillars/2_epistemic_knowledge_graph/KG-2.59-MCP_Tool_Source_Connector.md
@@ -3263,8 +3509,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - AGENTS.head.md:388
-      - AGENTS.md:388
+      - .specify/design/kgi-mcp-tool-source-connector/design.md:6
+      - AGENTS.head.md:387
+      - AGENTS.md:387
       - agent_utilities/knowledge_graph/extraction/second_brain_sync.py:51
       - agent_utilities/knowledge_graph/ontology/connector_manifest.py:8
       - agent_utilities/protocols/source_connectors/connectors/__init__.py:21
@@ -3279,7 +3526,7 @@ concepts:
       - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py:2082
       - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py:2159
       - docs/pillars/2_epistemic_knowledge_graph/KG-2.59-MCP_Tool_Source_Connector.md:1
-      - docs/reference/documentation-catalog.md:309
+      - docs/reference/documentation-catalog.md:314
       - tests/integration/protocols/test_mcp_tool_connector_live_path.py:1
       - tests/unit/protocols/test_mcp_tool_source_connector.py:1
       - tests/unit/protocols/test_mcp_tool_source_connector.py:815
@@ -3288,13 +3535,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (7 source
-      file(s), 16 marker site(s))'
+      file(s), 17 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/etl/lineage.py
       - agent_utilities/mcp/tools/media_sidecar_tools.py
@@ -3310,6 +3558,7 @@ concepts:
       - tests/unit/media/test_sidecar_contract.py
       - tests/unit/media/test_sidecar_delegate.py
       doc_files:
+      - .specify/design/kgi-media-sidecar-delegate-pattern/design.md
       - docs/architecture/evidence_spine_convergence.md
       introduced: '1c11cfc0 2026-07-24 feat(media): standardize the sidecar delegate pattern, ship PDF+JPEG
         (W4.6)'
@@ -3317,6 +3566,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-media-sidecar-delegate-pattern/design.md:3
       - agent_utilities/knowledge_graph/etl/lineage.py:37
       - agent_utilities/knowledge_graph/etl/lineage.py:305
       - agent_utilities/knowledge_graph/etl/lineage.py:369
@@ -3338,19 +3588,21 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 5 marker site(s))'
+      file(s), 7 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/enrichment/git_coupling.py
       - agent_utilities/mcp/kg_server.py
       - agent_utilities/mcp/tools/analysis_tools.py
       test_files: []
       doc_files:
+      - .specify/design/kgi-git-history-mining/design.md
       - docs/architecture/intelligent-ingestion.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -3405,23 +3657,26 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-git-history-mining/design.md:3
+      - .specify/design/kgi-git-history-mining/design.md:33
       - agent_utilities/knowledge_graph/enrichment/git_coupling.py:1
       - agent_utilities/knowledge_graph/enrichment/git_coupling.py:31
-      - agent_utilities/mcp/kg_server.py:1739
-      - agent_utilities/mcp/tools/analysis_tools.py:2014
+      - agent_utilities/mcp/kg_server.py:1740
+      - agent_utilities/mcp/tools/analysis_tools.py:1928
       - docs/architecture/intelligent-ingestion.md:105
   AU-KG.ingest.mirror-inbound:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
-      file(s), 17 marker site(s))'
+      file(s), 18 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/nl_query.py
       - agent_utilities/knowledge_graph/core/table_ingest.py
@@ -3435,7 +3690,8 @@ concepts:
       - tests/unit/knowledge_graph/ontology/test_lifecycle_retract.py
       - tests/unit/knowledge_graph/test_graph_compute_rdf_ops.py
       - tests/unit/mcp/test_graph_query_sparql.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-multi-dialect-query-mirror/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -3489,16 +3745,17 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-multi-dialect-query-mirror/design.md:3
       - agent_utilities/knowledge_graph/core/nl_query.py:4
       - agent_utilities/knowledge_graph/core/table_ingest.py:4
       - agent_utilities/knowledge_graph/etl/pipeline.py:114
-      - agent_utilities/mcp/tools/ontology_tools.py:1358
+      - agent_utilities/mcp/tools/ontology_tools.py:1359
       - agent_utilities/mcp/tools/query_tools.py:324
-      - agent_utilities/mcp/tools/query_tools.py:395
-      - agent_utilities/mcp/tools/query_tools.py:658
-      - agent_utilities/mcp/tools/query_tools.py:663
-      - agent_utilities/mcp/tools/query_tools.py:849
-      - agent_utilities/mcp/tools/query_tools.py:854
+      - agent_utilities/mcp/tools/query_tools.py:443
+      - agent_utilities/mcp/tools/query_tools.py:814
+      - agent_utilities/mcp/tools/query_tools.py:819
+      - agent_utilities/mcp/tools/query_tools.py:1005
+      - agent_utilities/mcp/tools/query_tools.py:1010
       - tests/unit/knowledge_graph/core/test_nl_query.py:1
       - tests/unit/knowledge_graph/core/test_table_ingest.py:1
       - tests/unit/knowledge_graph/etl/test_etl_table_sink.py:1
@@ -3511,13 +3768,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
-      file(s), 10 marker site(s))'
+      file(s), 11 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/capabilities/teams.py
       - agent_utilities/knowledge_graph/core/bounded_read.py
@@ -3528,7 +3786,8 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/test_bounded_read.py
       - tests/unit/mcp/test_graph_analyze_inspect.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-bounded-node-reads/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -3582,13 +3841,14 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-bounded-node-reads/design.md:3
       - agent_utilities/capabilities/teams.py:317
       - agent_utilities/knowledge_graph/core/bounded_read.py:2
       - agent_utilities/knowledge_graph/core/bounded_read.py:43
       - agent_utilities/knowledge_graph/kb/ingestion.py:351
       - agent_utilities/knowledge_graph/kb/ingestion.py:418
       - agent_utilities/knowledge_graph/research/fleet_relevance.py:159
-      - agent_utilities/knowledge_graph/security/policy_ingestor.py:637
+      - agent_utilities/knowledge_graph/security/policy_ingestor.py:635
       - agent_utilities/knowledge_graph/security/rule_ingestor.py:656
       - tests/unit/knowledge_graph/test_bounded_read.py:1
       - tests/unit/mcp/test_graph_analyze_inspect.py:12
@@ -3597,13 +3857,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/research_pipeline.py
       - agent_utilities/automation/worldmodel_pipeline.py
@@ -3611,6 +3872,7 @@ concepts:
       - agent_utilities/knowledge_graph/research/loop_controller.py
       test_files: []
       doc_files:
+      - .specify/design/kgi-worldmodel-research-gate/design.md
       - docs/architecture/chunked-async-drain.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -3665,31 +3927,35 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-worldmodel-research-gate/design.md:9
+      - .specify/design/kgi-worldmodel-research-gate/design.md:37
       - agent_utilities/automation/research_pipeline.py:209
       - agent_utilities/automation/research_pipeline.py:324
       - agent_utilities/automation/research_pipeline.py:338
       - agent_utilities/automation/research_pipeline.py:374
       - agent_utilities/automation/worldmodel_pipeline.py:1
       - agent_utilities/automation/worldmodel_pipeline.py:40
-      - agent_utilities/knowledge_graph/core/source_sync.py:1513
-      - agent_utilities/knowledge_graph/research/loop_controller.py:3138
+      - agent_utilities/knowledge_graph/core/source_sync.py:1534
+      - agent_utilities/knowledge_graph/research/loop_controller.py:3142
       - docs/architecture/chunked-async-drain.md:134
   AU-KG.ingest.non-blocking-graph-validation:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 2 marker site(s))'
+      file(s), 3 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/pipeline/phases/validate.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-non-blocking-graph-validation/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -3743,27 +4009,30 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-non-blocking-graph-validation/design.md:5
       - agent_utilities/knowledge_graph/pipeline/phases/validate.py:1
-      - agent_utilities/knowledge_graph/pipeline/phases/validate.py:24
+      - agent_utilities/knowledge_graph/pipeline/phases/validate.py:23
   AU-KG.ingest.normal-codebase-ingest-also:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('(`CONCEPT·AU-KG.ingest.normal-codebase-ingest-also/2.283`),
       batch+concurrent embedding thr') — the id itself reads like a real name, so the marker text needs
       cleaning either way; decide whether the concept survives that cleanup
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/enrichment/git_history.py
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files:
       - tests/unit/knowledge_graph/enrichment/test_git_history.py
       doc_files:
+      - .specify/design/kgi-git-history-mining/design.md
       - docs/architecture/intelligent-ingestion.md
       - docs/architecture/north-star-architecture.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -3820,9 +4089,11 @@ concepts:
       truncated_marker: (`CONCEPT·AU-KG.ingest.normal-codebase-ingest-also/2.283`), batch+concurrent embedding
         throughput (`CONCEPT·AU-KG.ingest.applying-agents-md-batch/2.281`),
       sites:
+      - .specify/design/kgi-git-history-mining/design.md:3
+      - .specify/design/kgi-git-history-mining/design.md:33
       - agent_utilities/knowledge_graph/enrichment/git_history.py:1
       - agent_utilities/knowledge_graph/enrichment/git_history.py:266
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1966
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1987
       - docs/architecture/intelligent-ingestion.md:91
       - docs/architecture/north-star-architecture.md:78
       - tests/unit/knowledge_graph/enrichment/test_git_history.py:1
@@ -3831,13 +4102,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 10 marker site(s))'
+      file(s), 11 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/harness/trace_analytics.py
       - agent_utilities/knowledge_graph/extraction/fact_extractor.py
@@ -3847,6 +4119,7 @@ concepts:
       - tests/harness/test_trace_analytics.py
       - tests/unit/knowledge_graph/test_ingestion_enrich.py
       doc_files:
+      - .specify/design/kgi-graph-native-queries/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: ''
@@ -3854,26 +4127,58 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-graph-native-queries/design.md:9
       - agent_utilities/harness/trace_analytics.py:4
       - agent_utilities/knowledge_graph/extraction/fact_extractor.py:591
       - agent_utilities/knowledge_graph/extraction/fact_extractor.py:608
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:17701
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18861
       - agent_utilities/mcp/tools/analyze_suite.py:11
       - agent_utilities/mcp/tools/analyze_suite.py:249
-      - docs/capabilities-power.json:17701
-      - docs/capabilities-power.md:3024
+      - docs/capabilities-power.json:18861
+      - docs/capabilities-power.md:3219
       - tests/harness/test_trace_analytics.py:1
       - tests/unit/knowledge_graph/test_ingestion_enrich.py:199
+  AU-KG.ingest.og-metadata-enrichment:
+    decision: parent
+    parent: AU-KG.ingest.web-fetch-front-door
+    rationale: Open Graph/Twitter Card metadata (description/image/site_name on FetchedPage) is populated
+      by the requests-floor backend of the SAME pluggable web-fetch resolver documented at
+      .specify/design/kgi-web-fetch-backend-precedence/design.md (web_fetch.py's own docstring names it
+      directly above this marker) -- a backend-capability detail of that resolver, not an independent
+      architectural decision.
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.agent-utilities-checkout
+    suggestion_why: clusters with 12 sibling(s) around AU-KG.ingest.agent-utilities-checkout; shares agent_utilities/knowledge_graph/ingestion/engine.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/ingestion/engine.py
+      - agent_utilities/knowledge_graph/ingestion/web_fetch.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2682
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2801
+      - agent_utilities/knowledge_graph/ingestion/web_fetch.py:41
+      - agent_utilities/knowledge_graph/ingestion/web_fetch.py:291
   AU-KG.ingest.okf-type-mapping:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.broken-link-tolerance
-    suggestion_why: 'clusters with 4 sibling(s) around AU-KG.ingest.broken-link-tolerance; both introduced
-      by f111ac42 (feat(kg): OKF round-trip + openwiki on skill-graph standard); the candidate parent
-      already has a design document'
+    suggested_parent: AU-KG.ingest.structure-verify
+    suggestion_why: clusters with 4 sibling(s) around AU-KG.ingest.structure-verify; the candidate parent
+      already has a design document
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -3896,17 +4201,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 2 marker site(s))'
+      file(s), 3 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/pipeline/phases/owl_reasoning.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-ontology-bootstrap-ingest/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -3960,6 +4267,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-ontology-bootstrap-ingest/design.md:5
       - agent_utilities/knowledge_graph/pipeline/phases/owl_reasoning.py:33
       - agent_utilities/knowledge_graph/pipeline/phases/owl_reasoning.py:86
   AU-KG.ingest.over-same-tree-fan:
@@ -3967,20 +4275,22 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('# classifier (CONCEPT·AU-KG.ingest.over-same-tree-fan/2.283)
       over this tree AFTER the stru') — the id itself reads like a real name, so the marker text needs
       cleaning either way; decide whether the concept survives that cleanup
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       - agent_utilities/knowledge_graph/ingestion/repo_classifier.py
       test_files:
       - tests/unit/knowledge_graph/test_repo_classification.py
       doc_files:
+      - .specify/design/kgi-codebase-artifact-classification/design.md
       - docs/architecture/intelligent-ingestion.md
       - docs/architecture/north-star-architecture.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -4037,9 +4347,11 @@ concepts:
       truncated_marker: '# classifier (CONCEPT·AU-KG.ingest.over-same-tree-fan/2.283) over this tree AFTER
         the structural'
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1773
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2015
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2054
+      - .specify/design/kgi-codebase-artifact-classification/design.md:3
+      - .specify/design/kgi-codebase-artifact-classification/design.md:33
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1794
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2036
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2075
       - agent_utilities/knowledge_graph/ingestion/repo_classifier.py:3
       - agent_utilities/knowledge_graph/ingestion/repo_classifier.py:218
       - docs/architecture/intelligent-ingestion.md:43
@@ -4051,30 +4363,35 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 7 marker site(s))'
+      file(s), 9 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/knowledge_graph/core/source_sync.py
       - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py
       test_files:
       - tests/unit/knowledge_graph/test_package_install_ingest.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-package-install-kg-autoextend/design.md
+      - .specify/triage/AU-KG.ingest.yaml
       introduced: d29c66d2 2026-07-12 Auto-extend the KG when a package is installed (CONCEPT:AU-KG.ingest.package-install-autoingest)
       cohort:
       - AU-KG.ingest.enterprise-source-extractor
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:387
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:1372
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:1419
-      - agent_utilities/knowledge_graph/core/source_sync.py:4342
+      - .specify/design/kgi-package-install-kg-autoextend/design.md:3
+      - .specify/triage/AU-KG.ingest.yaml:4068
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:413
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1465
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1512
+      - agent_utilities/knowledge_graph/core/source_sync.py:4363
       - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py:1
       - agent_utilities/knowledge_graph/ingestion/package_install_ingest.py:158
       - tests/unit/knowledge_graph/test_package_install_ingest.py:1
@@ -4083,39 +4400,47 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker exists only in test files — nothing in the shipped tree realises it, which
       is usually a retirement but occasionally a real decision recorded only in prose
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files: []
       test_files:
       - tests/unit/knowledge_graph/test_ingest_task_workitem_lifecycle.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-lazy-materialization-defer/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - tests/unit/knowledge_graph/test_ingest_task_workitem_lifecycle.py:167
+      - .specify/design/kgi-lazy-materialization-defer/design.md:3
+      - .specify/design/kgi-lazy-materialization-defer/design.md:10
+      - .specify/design/kgi-lazy-materialization-defer/design.md:71
+      - tests/unit/knowledge_graph/test_ingest_task_workitem_lifecycle.py:173
   AU-KG.ingest.per-agent-token-usage:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.gotcha-feedback-capture
     suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.gotcha-feedback-capture; shares agent_utilities/mcp/tools/write_ingest_tools.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/tools/write_ingest_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-per-agent-token-usage-series/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -4169,48 +4494,54 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/mcp/tools/write_ingest_tools.py:1575
+      - .specify/design/kgi-per-agent-token-usage-series/design.md:6
+      - agent_utilities/mcp/tools/write_ingest_tools.py:2054
   AU-KG.ingest.process-boundary-entrypoint:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/__main__.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-ingestion-cli-process-boundary/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-ingestion-cli-process-boundary/design.md:3
       - agent_utilities/knowledge_graph/ingestion/__main__.py:4
   AU-KG.ingest.research-connector-presets:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ("fleet's scholarx MCP server is reachable
       (CONCEPT·AU-KG.ingest.research-connector-presets/") — the id itself reads like a real name, so the
       marker text needs cleaning either way; decide whether the concept survives that cleanup
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/feed_sources.py
       - agent_utilities/knowledge_graph/core/source_sync.py
       test_files:
       - tests/unit/knowledge_graph/test_arxiv_and_scholarx_research_feeds.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-research-feed-convergence/design.md
       introduced: 'cee2a6e9 2026-07-30 feat(connectors): wire FreshRSS/ScholarX/arXiv research feeds into
         source_sync (7.3)'
       cohort:
@@ -4220,27 +4551,32 @@ concepts:
       truncated_marker: fleet's scholarx MCP server is reachable (CONCEPT·AU-KG.ingest.research-connector-presets/7.3)
         —
       sites:
+      - .specify/design/kgi-research-feed-convergence/design.md:8
+      - .specify/design/kgi-research-feed-convergence/design.md:41
       - agent_utilities/automation/feed_sources.py:69
       - agent_utilities/automation/feed_sources.py:143
-      - agent_utilities/knowledge_graph/core/source_sync.py:1668
-      - agent_utilities/knowledge_graph/core/source_sync.py:4677
+      - agent_utilities/knowledge_graph/core/source_sync.py:1689
+      - agent_utilities/knowledge_graph/core/source_sync.py:4698
       - tests/unit/knowledge_graph/test_arxiv_and_scholarx_research_feeds.py:91
   AU-KG.ingest.role-enforcement:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.gotcha-feedback-capture
     suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.gotcha-feedback-capture; shares agent_utilities/mcp/tools/write_ingest_tools.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/tools/write_ingest_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-role-enforcement-readonly-mirror/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -4294,20 +4630,22 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/mcp/tools/write_ingest_tools.py:317
+      - .specify/design/kgi-role-enforcement-readonly-mirror/design.md:5
+      - agent_utilities/mcp/tools/write_ingest_tools.py:795
   AU-KG.ingest.rss-feed-connector:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('"""Unified feed-source bridge + first-class
       feed registry (CONCEPT·AU-KG.ingest.rss-feed-c') — the id itself reads like a real name, so the
       marker text needs cleaning either way; decide whether the concept survives that cleanup
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/feed_sources.py
       - agent_utilities/automation/worldmodel_pipeline.py
@@ -4321,6 +4659,7 @@ concepts:
       - tests/unit/knowledge_graph/test_feed_sources.py
       - tests/unit/protocols/test_source_connectors.py
       doc_files:
+      - .specify/design/kgi-research-feed-convergence/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       - docs/recipes/unified-feeds.md
@@ -4377,14 +4716,16 @@ concepts:
       artifact_id: ''
       truncated_marker: '"""Unified feed-source bridge + first-class feed registry (CONCEPT·AU-KG.ingest.rss-feed-connector/2.122).'
       sites:
+      - .specify/design/kgi-research-feed-convergence/design.md:9
+      - .specify/design/kgi-research-feed-convergence/design.md:57
       - agent_utilities/automation/feed_sources.py:1
       - agent_utilities/automation/feed_sources.py:139
       - agent_utilities/automation/worldmodel_pipeline.py:232
-      - agent_utilities/core/config.py:3581
-      - agent_utilities/core/schedule_engine.py:754
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4515
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4595
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:13760
+      - agent_utilities/core/config.py:3744
+      - agent_utilities/core/schedule_engine.py:759
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4731
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4811
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:14626
       - agent_utilities/mcp/tools/state_tools.py:1031
       - agent_utilities/mcp/tools/state_tools.py:1146
       - agent_utilities/protocols/source_connectors/connectors/rss.py:5
@@ -4392,9 +4733,9 @@ concepts:
       - agent_utilities/protocols/source_connectors/connectors/rss.py:88
       - agent_utilities/protocols/source_connectors/connectors/rss.py:204
       - agent_utilities/protocols/source_connectors/connectors/rss.py:230
-      - docs/capabilities-power.json:13760
-      - docs/capabilities-power.md:65
-      - docs/capabilities-power.md:2312
+      - docs/capabilities-power.json:14626
+      - docs/capabilities-power.md:68
+      - docs/capabilities-power.md:2461
       - docs/recipes/unified-feeds.md:3
       - tests/unit/knowledge_graph/test_feed_sources.py:1
       - tests/unit/protocols/test_source_connectors.py:819
@@ -4403,17 +4744,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/observability/self_ingest.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-self-ingest-telemetry/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -4467,16 +4810,18 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-self-ingest-telemetry/design.md:6
       - agent_utilities/observability/self_ingest.py:9
   AU-KG.ingest.self-tool-surface:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: document
-    suggested_parent: ''
-    suggestion_why: the head of a 11-concept cluster — the siblings are proposed as pointers at this one,
-      so this is the decision that has to be written down
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.agent-utilities-checkout
+    suggestion_why: clusters with 12 sibling(s) around AU-KG.ingest.agent-utilities-checkout; shares agent_utilities/knowledge_graph/ingestion/engine.py;
+      the candidate parent already has a design document
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -4496,23 +4841,24 @@ concepts:
       sites:
       - .specify/design/graphos-self-tool-surface-ingestion/design.md:24
       - agent_utilities/knowledge_graph/ingestion/engine.py:388
-      - agent_utilities/knowledge_graph/ingestion/engine.py:3765
-      - agent_utilities/mcp/kg_server.py:3062
-      - agent_utilities/mcp/kg_server.py:3082
+      - agent_utilities/knowledge_graph/ingestion/engine.py:3816
+      - agent_utilities/mcp/kg_server.py:3232
+      - agent_utilities/mcp/kg_server.py:3252
       - tests/unit/knowledge_graph/test_unified_ingestion.py:483
-      - tests/unit/mcp/test_graphos_bootstrap_isolation.py:1211
+      - tests/unit/mcp/test_graphos_bootstrap_isolation.py:1222
   AU-KG.ingest.semantic-event-contract:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
-      file(s), 6 marker site(s))'
+      file(s), 7 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/ocel_adapter.py
       - agent_utilities/knowledge_graph/ingestion/semantic_event_model.py
@@ -4521,16 +4867,18 @@ concepts:
       - agent_utilities/knowledge_graph/shapes/process_intelligence.shapes.ttl
       test_files:
       - tests/unit/knowledge_graph/test_loop_controller.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-semantic-event-contract/design.md
       introduced: '70e2d569 2026-07-29 feat(knowledge-graph): add semantic event contracts'
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-semantic-event-contract/design.md:7
       - agent_utilities/knowledge_graph/ingestion/ocel_adapter.py:3
       - agent_utilities/knowledge_graph/ingestion/semantic_event_model.py:3
       - agent_utilities/knowledge_graph/ontology_process_intelligence.ttl:131
-      - agent_utilities/knowledge_graph/research/loop_controller.py:1191
+      - agent_utilities/knowledge_graph/research/loop_controller.py:1195
       - agent_utilities/knowledge_graph/shapes/process_intelligence.shapes.ttl:5
       - tests/unit/knowledge_graph/test_loop_controller.py:262
   AU-KG.ingest.skill-workflow-corpus:
@@ -4538,19 +4886,22 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.gotcha-feedback-capture
     suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.gotcha-feedback-capture; shares agent_utilities/mcp/tools/write_ingest_tools.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/mcp/tools/write_ingest_tools.py
       test_files:
       - tests/unit/knowledge_graph/test_skill_workflow_ingest.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-skill-workflow-corpus-ingestion/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -4604,31 +4955,36 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4625
-      - agent_utilities/mcp/tools/write_ingest_tools.py:964
+      - .specify/design/kgi-skill-workflow-corpus-ingestion/design.md:7
+      - .specify/design/kgi-skill-workflow-corpus-ingestion/design.md:36
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4841
+      - agent_utilities/mcp/tools/write_ingest_tools.py:1443
       - tests/unit/knowledge_graph/test_skill_workflow_ingest.py:1
-      - tests/unit/knowledge_graph/test_skill_workflow_ingest.py:561
+      - tests/unit/knowledge_graph/test_skill_workflow_ingest.py:562
   AU-KG.ingest.skill-workflow-ingestion:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 2 marker site(s))'
+      file(s), 3 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-skill-workflow-corpus-ingestion/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-skill-workflow-corpus-ingestion/design.md:8
       - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py:3
       - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py:709
   AU-KG.ingest.source-id-naming-schema:
@@ -4636,23 +4992,26 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.default-graph-leak-guard
     suggestion_why: clusters with 1 sibling(s) around AU-KG.ingest.default-graph-leak-guard; shares agent_utilities/knowledge_graph/backends/sparql/source_partition.py;
       the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/backends/sparql/source_partition.py
       test_files:
       - tests/unit/knowledge_graph/backends/test_source_partition.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-source-id-naming-schema/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-source-id-naming-schema/design.md:6
       - agent_utilities/knowledge_graph/backends/sparql/source_partition.py:41
       - agent_utilities/knowledge_graph/backends/sparql/source_partition.py:128
       - tests/unit/knowledge_graph/backends/test_source_partition.py:3
@@ -4661,17 +5020,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.ambient-connector-provenance
-    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.ambient-connector-provenance; shares
+    suggested_parent: AU-KG.ingest.envelope-atomic-transaction
+    suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.envelope-atomic-transaction; shares
       agent_utilities/knowledge_graph/core/source_sync.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/source_sync.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-source-sync-misc-decisions/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -4725,25 +5086,29 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/source_sync.py:4111
-      - agent_utilities/knowledge_graph/core/source_sync.py:4234
+      - .specify/design/kgi-source-sync-misc-decisions/design.md:8
+      - .specify/design/kgi-source-sync-misc-decisions/design.md:30
+      - agent_utilities/knowledge_graph/core/source_sync.py:4132
+      - agent_utilities/knowledge_graph/core/source_sync.py:4255
   AU-KG.ingest.stable-fragment-address:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py
       - agent_utilities/knowledge_graph/ontology.ttl
       - agent_utilities/knowledge_graph/ontology/document_processing.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
       - agent_utilities/knowledge_graph/shapes/governance.shapes.ttl
       - agent_utilities/mcp/tools/query_tools.py
       - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
@@ -4754,34 +5119,42 @@ concepts:
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine_contract.py
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine_wiring.py
       doc_files:
+      - .specify/design/kgi-evidence-spine-contract/design.md
       - docs/architecture/evidence-spine.md
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
       introduced: '961698b8 2026-07-31 feat(ingest): Artifact -> Fragment evidence-spine contract'
       cohort:
       - AU-KG.ingest.evidence-spine-artifact
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-evidence-spine-contract/design.md:6
+      - .specify/design/kgi-evidence-spine-contract/design.md:37
       - agent_utilities/knowledge_graph/domain_packs/markdown_fragmenter.py:23
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:4
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:254
       - agent_utilities/knowledge_graph/ingestion/evidence_spine.py:761
-      - agent_utilities/knowledge_graph/ontology.ttl:505
-      - agent_utilities/knowledge_graph/ontology.ttl:537
-      - agent_utilities/knowledge_graph/ontology.ttl:543
-      - agent_utilities/knowledge_graph/ontology.ttl:549
-      - agent_utilities/knowledge_graph/ontology.ttl:556
-      - agent_utilities/knowledge_graph/ontology.ttl:562
-      - agent_utilities/knowledge_graph/ontology.ttl:611
-      - agent_utilities/knowledge_graph/ontology.ttl:623
-      - agent_utilities/knowledge_graph/ontology.ttl:1049
+      - agent_utilities/knowledge_graph/ontology.ttl:509
+      - agent_utilities/knowledge_graph/ontology.ttl:535
+      - agent_utilities/knowledge_graph/ontology.ttl:541
+      - agent_utilities/knowledge_graph/ontology.ttl:547
+      - agent_utilities/knowledge_graph/ontology.ttl:554
+      - agent_utilities/knowledge_graph/ontology.ttl:560
+      - agent_utilities/knowledge_graph/ontology.ttl:609
+      - agent_utilities/knowledge_graph/ontology.ttl:621
+      - agent_utilities/knowledge_graph/ontology.ttl:1077
       - agent_utilities/knowledge_graph/ontology/document_processing.py:361
       - agent_utilities/knowledge_graph/ontology/document_processing.py:567
       - agent_utilities/knowledge_graph/ontology/document_processing.py:896
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:12101
       - agent_utilities/knowledge_graph/shapes/governance.shapes.ttl:180
-      - agent_utilities/mcp/tools/query_tools.py:1669
-      - agent_utilities/mcp/tools/query_tools.py:1837
+      - agent_utilities/mcp/tools/query_tools.py:1889
+      - agent_utilities/mcp/tools/query_tools.py:2057
       - agent_utilities/protocols/source_connectors/connectors/git_markdown.py:296
       - docs/architecture/evidence-spine.md:3
+      - docs/capabilities-power.json:12101
+      - docs/capabilities-power.md:2008
       - tests/integration/knowledge_graph/test_evidence_spine_live_commit.py:3
       - tests/unit/knowledge_graph/domain_packs/test_markdown_fragmenter.py:3
       - tests/unit/knowledge_graph/ingestion/test_evidence_spine.py:4
@@ -4792,18 +5165,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: retire
     suggested_parent: ''
     suggestion_why: the id is a single generic noun — it names a subject area, not a choice
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       - agent_utilities/knowledge_graph/ingestion/staged_pipeline.py
       test_files:
       - tests/unit/knowledge_graph/test_staged_pipeline.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-staged-ingestion-pipeline/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -4857,6 +5232,8 @@ concepts:
       artifact_id: is a single generic noun — it names a subject area, not a choice
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-staged-ingestion-pipeline/design.md:3
+      - .specify/design/kgi-staged-ingestion-pipeline/design.md:34
       - agent_utilities/knowledge_graph/ingestion/engine.py:861
       - agent_utilities/knowledge_graph/ingestion/engine.py:912
       - agent_utilities/knowledge_graph/ingestion/engine.py:947
@@ -4870,67 +5247,77 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/enrichment/models.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-verbatim-document-content-field/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-verbatim-document-content-field/design.md:3
       - agent_utilities/knowledge_graph/enrichment/models.py:165
   AU-KG.ingest.structure-verify:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: parent
-    suggested_parent: AU-KG.ingest.broken-link-tolerance
-    suggestion_why: clusters with 4 sibling(s) around AU-KG.ingest.broken-link-tolerance; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
-      the candidate parent already has a design document
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 5-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/document_processing.py
       - agent_utilities/knowledge_graph/pipeline/document_ingestion.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-pageindex-section-tree/design.md
       introduced: 'b0ba7833 2026-07-05 feat(kg): PageIndex reasoning-tree retrieval (section tree + tree-navigation)'
       cohort:
       - AU-KG.ingest.toc-detection
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-pageindex-section-tree/design.md:8
+      - .specify/design/kgi-pageindex-section-tree/design.md:37
       - agent_utilities/knowledge_graph/ontology/document_processing.py:715
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1914
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1951
       - agent_utilities/knowledge_graph/pipeline/document_ingestion.py:60
   AU-KG.ingest.subtask-routing-key:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.self-tool-surface
-    suggestion_why: clusters with 10 sibling(s) around AU-KG.ingest.self-tool-surface; shares agent_utilities/knowledge_graph/ingestion/engine.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ingest.agent-utilities-checkout
+    suggestion_why: clusters with 12 sibling(s) around AU-KG.ingest.agent-utilities-checkout; shares agent_utilities/knowledge_graph/core/engine_tasks.py,
+      agent_utilities/knowledge_graph/ingestion/engine.py; both introduced by c5f21018 (OKF-CIS atomic
+      cutover on agent-utilities (AU-OS.governance.); the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine_tasks.py
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files:
       - tests/unit/knowledge_graph/test_ingest_tail_optimization.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-codebase-task-scoping/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -4984,27 +5371,31 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:3121
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4785
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4799
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1805
+      - .specify/design/kgi-codebase-task-scoping/design.md:3
+      - .specify/design/kgi-codebase-task-scoping/design.md:37
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:3273
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:5001
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:5015
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1826
       - tests/unit/knowledge_graph/test_ingest_tail_optimization.py:7
   AU-KG.ingest.then-by-its-node:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: retire
     suggested_parent: ''
     suggestion_why: the id reads as a slugified prose fragment (then-by-its-node)
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/standardization/standards.py
       test_files:
       - tests/unit/knowledge_graph/test_assimilation_breadth.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-capability-then-type-routing/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -5058,6 +5449,7 @@ concepts:
       artifact_id: reads as a slugified prose fragment (then-by-its-node)
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-capability-then-type-routing/design.md:3
       - agent_utilities/knowledge_graph/standardization/standards.py:53
       - tests/unit/knowledge_graph/test_assimilation_breadth.py:157
   AU-KG.ingest.toc-detection:
@@ -5065,37 +5457,43 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.broken-link-tolerance
-    suggestion_why: clusters with 4 sibling(s) around AU-KG.ingest.broken-link-tolerance; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ingest.structure-verify
+    suggestion_why: 'clusters with 4 sibling(s) around AU-KG.ingest.structure-verify; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
+      both introduced by b0ba7833 (feat(kg): PageIndex reasoning-tree retrieval (section tree +); the
+      candidate parent already has a design document'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/document_processing.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-pageindex-section-tree/design.md
       introduced: 'b0ba7833 2026-07-05 feat(kg): PageIndex reasoning-tree retrieval (section tree + tree-navigation)'
       cohort:
       - AU-KG.ingest.structure-verify
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1403
-      - agent_utilities/knowledge_graph/ontology/document_processing.py:1741
+      - .specify/design/kgi-pageindex-section-tree/design.md:9
+      - .specify/design/kgi-pageindex-section-tree/design.md:49
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1440
+      - agent_utilities/knowledge_graph/ontology/document_processing.py:1778
   AU-KG.ingest.unified-query-routing:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
-      file(s), 22 marker site(s))'
+      file(s), 24 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/graph_compute.py
       - agent_utilities/knowledge_graph/core/ingest_routing.py
@@ -5108,7 +5506,8 @@ concepts:
       - tests/unit/knowledge_graph/test_repo_classification.py
       - tests/unit/mcp/test_graph_query_fanout_timeout.py
       - tests/unit/mcp/test_graph_search_fanout_timeout.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-content-graph-shard-routing/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -5162,25 +5561,27 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/graph_compute.py:3835
-      - agent_utilities/knowledge_graph/core/graph_compute.py:3859
+      - .specify/design/kgi-content-graph-shard-routing/design.md:3
+      - .specify/design/kgi-content-graph-shard-routing/design.md:27
+      - agent_utilities/knowledge_graph/core/graph_compute.py:4039
+      - agent_utilities/knowledge_graph/core/graph_compute.py:4063
       - agent_utilities/knowledge_graph/core/ingest_routing.py:1
       - agent_utilities/knowledge_graph/core/ingest_routing.py:2
       - agent_utilities/knowledge_graph/core/ingest_routing.py:300
       - agent_utilities/knowledge_graph/core/worker_scheduler.py:156
       - agent_utilities/knowledge_graph/ingestion/engine.py:728
       - agent_utilities/knowledge_graph/ingestion/engine.py:739
-      - agent_utilities/knowledge_graph/ingestion/engine.py:1799
-      - agent_utilities/mcp/kg_server.py:2259
-      - agent_utilities/mcp/kg_server.py:2324
-      - agent_utilities/mcp/tools/query_tools.py:435
-      - agent_utilities/mcp/tools/query_tools.py:538
-      - agent_utilities/mcp/tools/query_tools.py:1392
-      - agent_utilities/mcp/tools/query_tools.py:1403
+      - agent_utilities/knowledge_graph/ingestion/engine.py:1820
+      - agent_utilities/mcp/kg_server.py:2260
+      - agent_utilities/mcp/kg_server.py:2453
+      - agent_utilities/mcp/tools/query_tools.py:505
+      - agent_utilities/mcp/tools/query_tools.py:665
+      - agent_utilities/mcp/tools/query_tools.py:1583
+      - agent_utilities/mcp/tools/query_tools.py:1612
       - tests/unit/knowledge_graph/test_ingest_graph_routing.py:1
-      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:184
-      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:230
-      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:441
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:186
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:232
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:443
       - tests/unit/knowledge_graph/test_repo_classification.py:160
       - tests/unit/mcp/test_graph_query_fanout_timeout.py:1
       - tests/unit/mcp/test_graph_search_fanout_timeout.py:1
@@ -5189,18 +5590,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 3 marker site(s))'
+      file(s), 4 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/protocols/source_connectors/connectors/graphql_document.py
       - agent_utilities/protocols/universal_connector.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-universal-data-connector/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -5254,6 +5657,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-universal-data-connector/design.md:7
       - agent_utilities/protocols/source_connectors/connectors/graphql_document.py:11
       - agent_utilities/protocols/universal_connector.py:5
       - agent_utilities/protocols/universal_connector.py:121
@@ -5262,63 +5666,72 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.broken-link-tolerance
-    suggestion_why: clusters with 4 sibling(s) around AU-KG.ingest.broken-link-tolerance; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
+    suggested_parent: AU-KG.ingest.structure-verify
+    suggestion_why: clusters with 4 sibling(s) around AU-KG.ingest.structure-verify; shares agent_utilities/knowledge_graph/ontology/document_processing.py;
       the candidate parent already has a design document
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/document_processing.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-verbatim-extraction-before-fragmenting/design.md
       introduced: '9874c6ff 2026-07-31 fix(kg): D-ES-1 — file-sourced markdown was structure-flattened
         before fragmenting'
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-verbatim-extraction-before-fragmenting/design.md:6
       - agent_utilities/knowledge_graph/ontology/document_processing.py:849
   AU-KG.ingest.web-fetch-front-door:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: document
-    suggested_parent: ''
-    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ingest.agent-utilities-checkout
+    suggestion_why: clusters with 12 sibling(s) around AU-KG.ingest.agent-utilities-checkout; the candidate
+      parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/web_fetch.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-web-fetch-backend-precedence/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-web-fetch-backend-precedence/design.md:3
       - agent_utilities/knowledge_graph/ingestion/web_fetch.py:3
   AU-KG.ingest.wiki-delta-ingest:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ingest.gotcha-feedback-capture
     suggestion_why: clusters with 7 sibling(s) around AU-KG.ingest.gotcha-feedback-capture; shares agent_utilities/mcp/tools/write_ingest_tools.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/wiki_curator.py
       - agent_utilities/mcp/tools/write_ingest_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-wiki-delta-curation/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -5372,22 +5785,24 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-wiki-delta-curation/design.md:7
       - agent_utilities/knowledge_graph/ingestion/wiki_curator.py:1
       - agent_utilities/knowledge_graph/ingestion/wiki_curator.py:28
       - agent_utilities/knowledge_graph/ingestion/wiki_curator.py:112
-      - agent_utilities/mcp/tools/write_ingest_tools.py:1000
+      - agent_utilities/mcp/tools/write_ingest_tools.py:1479
   AU-KG.ingest.world-model-gate:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
-      file(s), 10 marker site(s))'
+      file(s), 12 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/research_pipeline.py
       - agent_utilities/knowledge_graph/assimilation/concept_matcher.py
@@ -5397,7 +5812,8 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/test_concept_matcher.py
       - tests/unit/test_research_pipeline.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-worldmodel-research-gate/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -5451,14 +5867,16 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-worldmodel-research-gate/design.md:8
+      - .specify/design/kgi-worldmodel-research-gate/design.md:14
       - agent_utilities/automation/research_pipeline.py:374
       - agent_utilities/automation/research_pipeline.py:761
       - agent_utilities/automation/research_pipeline.py:1121
       - agent_utilities/knowledge_graph/assimilation/concept_matcher.py:4
       - agent_utilities/knowledge_graph/assimilation/concept_matcher.py:187
       - agent_utilities/knowledge_graph/assimilation/ingest.py:218
-      - agent_utilities/knowledge_graph/research/loop_controller.py:772
-      - agent_utilities/models/knowledge_graph.py:782
+      - agent_utilities/knowledge_graph/research/loop_controller.py:776
+      - agent_utilities/models/knowledge_graph.py:784
       - tests/unit/knowledge_graph/test_concept_matcher.py:1
       - tests/unit/test_research_pipeline.py:398
   AU-KG.ingest.worldmodel-gated-ingestion:
@@ -5466,20 +5884,22 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('"""Route a Research/arXiv item to the
       unified research path (CONCEPT·AU-KG.ingest.worldmod') — the id itself reads like a real name, so
       the marker text needs cleaning either way; decide whether the concept survives that cleanup
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/automation/worldmodel_pipeline.py
       - agent_utilities/knowledge_graph/core/source_sync.py
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-worldmodel-research-gate/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -5533,26 +5953,30 @@ concepts:
       artifact_id: ''
       truncated_marker: '"""Route a Research/arXiv item to the unified research path (CONCEPT·AU-KG.ingest.worldmodel-gated-ingestion/2.121).'
       sites:
+      - .specify/design/kgi-worldmodel-research-gate/design.md:10
+      - .specify/design/kgi-worldmodel-research-gate/design.md:53
       - agent_utilities/automation/worldmodel_pipeline.py:18
       - agent_utilities/automation/worldmodel_pipeline.py:446
-      - agent_utilities/knowledge_graph/core/source_sync.py:1516
+      - agent_utilities/knowledge_graph/core/source_sync.py:1537
       - agent_utilities/protocols/source_connectors/connectors/arxiv.py:16
   AU-KG.ingest.worldview-stream:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/task_lanes.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgi-worldview-feed-lane/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ingest.agent-utilities-checkout
@@ -5606,24 +6030,28 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgi-worldview-feed-lane/design.md:3
       - agent_utilities/knowledge_graph/core/task_lanes.py:89
   AU-KG.ingest.writes-go:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ingest.self-tool-surface
-    suggestion_why: clusters with 10 sibling(s) around AU-KG.ingest.self-tool-surface; shares agent_utilities/knowledge_graph/ingestion/engine.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ingest.agent-utilities-checkout
+    suggestion_why: clusters with 12 sibling(s) around AU-KG.ingest.agent-utilities-checkout; shares agent_utilities/knowledge_graph/ingestion/engine.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ingestion/engine.py
       test_files:
       - tests/unit/knowledge_graph/test_repo_classification.py
       doc_files:
+      - .specify/design/kgi-codebase-artifact-classification/design.md
       - docs/architecture/north-star-architecture.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -5678,6 +6106,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ingestion/engine.py:2280
+      - .specify/design/kgi-codebase-artifact-classification/design.md:3
+      - .specify/design/kgi-codebase-artifact-classification/design.md:82
+      - agent_utilities/knowledge_graph/ingestion/engine.py:2301
       - docs/architecture/north-star-architecture.md:81
       - tests/unit/knowledge_graph/test_repo_classification.py:168

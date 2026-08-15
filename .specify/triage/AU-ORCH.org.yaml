@@ -1,0 +1,90 @@
+domain: AU-ORCH.org
+generated_at: '2026-08-14T23:50:17+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
+clusters:
+  AU-ORCH.org.recruiter:
+  - AU-ORCH.org.recruiter
+  - AU-ORCH.org.work-item-dag
+concepts:
+  AU-ORCH.org.recruiter:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id is a single generic noun — it names a subject area, not a choice
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/orchestration/org_runtime.py
+      test_files:
+      - tests/orchestration/test_org_runtime.py
+      doc_files: []
+      introduced: '9890ca37 2026-07-05 feat(orch): runtime org dynamics — recruiter, work-item DAG, self-grown
+        staff'
+      cohort:
+      - AU-ORCH.org.work-item-dag
+      artifact_id: is a single generic noun — it names a subject area, not a choice
+      truncated_marker: ''
+      sites:
+      - agent_utilities/orchestration/org_runtime.py:13
+      - agent_utilities/orchestration/org_runtime.py:412
+      - agent_utilities/orchestration/org_runtime.py:467
+      - tests/orchestration/test_org_runtime.py:1
+  AU-ORCH.org.repository-workitem-authority:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/orchestration/repository_work_item.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/orchestration/repository_work_item.py:3
+  AU-ORCH.org.work-item-dag:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/orchestration/org_runtime.py
+      test_files: []
+      doc_files: []
+      introduced: '9890ca37 2026-07-05 feat(orch): runtime org dynamics — recruiter, work-item DAG, self-grown
+        staff'
+      cohort:
+      - AU-ORCH.org.recruiter
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/orchestration/org_runtime.py:18
+      - agent_utilities/orchestration/org_runtime.py:62
+      - agent_utilities/orchestration/org_runtime.py:644

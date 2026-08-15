@@ -1,0 +1,202 @@
+domain: AU-ECO.multiplexer
+generated_at: '2026-08-14T23:49:13+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
+clusters:
+  AU-ECO.multiplexer.catalog-probe-ttl-staleness:
+  - AU-ECO.multiplexer.catalog-probe-ttl-staleness
+  - AU-ECO.multiplexer.condensed-server-load
+  - AU-ECO.multiplexer.running-vs-dispatchable-metrics
+  - AU-ECO.multiplexer.tool-gateway-catalog
+concepts:
+  AU-ECO.multiplexer.catalog-probe-ttl-staleness:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.multiplexer.running-vs-dispatchable-metrics
+    suggestion_why: clusters with 3 sibling(s) around AU-ECO.multiplexer.running-vs-dispatchable-metrics;
+      shares agent_utilities/mcp/multiplexer.py; the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/mcp/multiplexer.py
+      test_files:
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py
+      doc_files:
+      - docs/architecture/configuration.md
+      introduced: '30c00433 2026-08-14 fix(mcp): make the fleet catalog probe cache''s staleness honest
+        and self-refreshing'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:3218
+      - agent_utilities/mcp/multiplexer.py:3240
+      - agent_utilities/mcp/multiplexer.py:3253
+      - agent_utilities/mcp/multiplexer.py:3268
+      - agent_utilities/mcp/multiplexer.py:3290
+      - agent_utilities/mcp/multiplexer.py:3761
+      - agent_utilities/mcp/multiplexer.py:3809
+      - agent_utilities/mcp/multiplexer.py:4019
+      - agent_utilities/mcp/multiplexer.py:4141
+      - agent_utilities/mcp/multiplexer.py:4214
+      - docs/architecture/configuration.md:104
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:1008
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:1050
+  AU-ECO.multiplexer.condensed-server-load:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.multiplexer.running-vs-dispatchable-metrics
+    suggestion_why: clusters with 3 sibling(s) around AU-ECO.multiplexer.running-vs-dispatchable-metrics;
+      shares agent_utilities/mcp/multiplexer.py; the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/multiplexer.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.multiplexer.tool-gateway-catalog
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/multiplexer.py:4297
+      - agent_utilities/mcp/multiplexer.py:4662
+  AU-ECO.multiplexer.running-vs-dispatchable-metrics:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 4-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/mcp/multiplexer.py
+      - agent_utilities/observability/gateway_metrics.py
+      test_files:
+      - tests/unit/observability/test_graphos_metrics_wiring.py
+      doc_files:
+      - .specify/design/graphos-observability-exposition/design.md
+      introduced: 'daa26dec 2026-07-30 feat(observability): expose graph-os metrics, delegation + child-health
+        series, OTLP traces'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/graphos-observability-exposition/design.md:16
+      - agent_utilities/mcp/multiplexer.py:175
+      - agent_utilities/mcp/multiplexer.py:4478
+      - agent_utilities/observability/gateway_metrics.py:323
+      - agent_utilities/observability/gateway_metrics.py:782
+      - tests/unit/observability/test_graphos_metrics_wiring.py:19
+  AU-ECO.multiplexer.tool-gateway-catalog:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-ECO.multiplexer.running-vs-dispatchable-metrics
+    suggestion_why: clusters with 3 sibling(s) around AU-ECO.multiplexer.running-vs-dispatchable-metrics;
+      shares agent_utilities/mcp/multiplexer.py; the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/capabilities/fleet_tool_search.py
+      - agent_utilities/core/config.py
+      - agent_utilities/mcp/multiplexer.py
+      - agent_utilities/mcp/tools/config_tools.py
+      - scripts/validate_mcp_config.py
+      test_files:
+      - tests/unit/capabilities/test_fleet_tool_search.py
+      - tests/unit/mcp/test_multiplexer_always_load.py
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py
+      - tests/unit/mcp/test_validate_mcp_config.py
+      doc_files:
+      - docs/architecture/configuration.md
+      - docs/reference/runtime-configuration.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-ECO.multiplexer.condensed-server-load
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/capabilities/fleet_tool_search.py:6
+      - agent_utilities/core/config.py:1817
+      - agent_utilities/core/config.py:3188
+      - agent_utilities/core/config.py:3242
+      - agent_utilities/core/config.py:3264
+      - agent_utilities/core/config.py:3290
+      - agent_utilities/mcp/multiplexer.py:142
+      - agent_utilities/mcp/multiplexer.py:964
+      - agent_utilities/mcp/multiplexer.py:1273
+      - agent_utilities/mcp/multiplexer.py:1281
+      - agent_utilities/mcp/multiplexer.py:1289
+      - agent_utilities/mcp/multiplexer.py:1295
+      - agent_utilities/mcp/multiplexer.py:1331
+      - agent_utilities/mcp/multiplexer.py:1352
+      - agent_utilities/mcp/multiplexer.py:2325
+      - agent_utilities/mcp/multiplexer.py:2571
+      - agent_utilities/mcp/multiplexer.py:2606
+      - agent_utilities/mcp/multiplexer.py:2999
+      - agent_utilities/mcp/multiplexer.py:3135
+      - agent_utilities/mcp/multiplexer.py:3180
+      - agent_utilities/mcp/multiplexer.py:3229
+      - agent_utilities/mcp/multiplexer.py:3283
+      - agent_utilities/mcp/multiplexer.py:3738
+      - agent_utilities/mcp/multiplexer.py:3947
+      - agent_utilities/mcp/multiplexer.py:3979
+      - agent_utilities/mcp/multiplexer.py:3989
+      - agent_utilities/mcp/multiplexer.py:4015
+      - agent_utilities/mcp/multiplexer.py:4154
+      - agent_utilities/mcp/multiplexer.py:4173
+      - agent_utilities/mcp/multiplexer.py:4233
+      - agent_utilities/mcp/multiplexer.py:4356
+      - agent_utilities/mcp/multiplexer.py:4532
+      - agent_utilities/mcp/multiplexer.py:4743
+      - agent_utilities/mcp/multiplexer.py:4784
+      - agent_utilities/mcp/multiplexer.py:4900
+      - agent_utilities/mcp/multiplexer.py:4922
+      - agent_utilities/mcp/multiplexer.py:5020
+      - agent_utilities/mcp/multiplexer.py:5082
+      - agent_utilities/mcp/multiplexer.py:5127
+      - agent_utilities/mcp/multiplexer.py:5163
+      - agent_utilities/mcp/multiplexer.py:5292
+      - agent_utilities/mcp/multiplexer.py:5385
+      - agent_utilities/mcp/multiplexer.py:5654
+      - agent_utilities/mcp/multiplexer.py:5721
+      - agent_utilities/mcp/multiplexer.py:5769
+      - agent_utilities/mcp/tools/config_tools.py:12
+      - docs/architecture/configuration.md:101
+      - docs/architecture/configuration.md:102
+      - docs/architecture/configuration.md:103
+      - docs/reference/runtime-configuration.md:304
+      - scripts/validate_mcp_config.py:16
+      - tests/unit/capabilities/test_fleet_tool_search.py:4
+      - tests/unit/mcp/test_multiplexer_always_load.py:1
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:1
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:907
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:915
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:945
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:1124
+      - tests/unit/mcp/test_validate_mcp_config.py:1

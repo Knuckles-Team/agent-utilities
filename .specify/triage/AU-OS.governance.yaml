@@ -1,0 +1,1644 @@
+domain: AU-OS.governance
+generated_at: '2026-08-14T23:50:32+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
+clusters:
+  AU-OS.governance.action-policy-rule:
+  - AU-OS.governance.action-policy-rule
+  - AU-OS.governance.assurance-state-machine-verifier
+  - AU-OS.governance.fail-closed-claim-check
+  - AU-OS.governance.precondition-invariants
+  AU-OS.governance.append-only-fragment-fold:
+  - AU-OS.governance.append-only-fragment-fold
+  - AU-OS.governance.canonical-checkout-immutable
+  - AU-OS.governance.lane-arbitration-classes
+  - AU-OS.governance.lane-partitioned-resources
+  - AU-OS.governance.shared-scope-lease
+  AU-OS.governance.authority-derived-persistence-eligibility:
+  - AU-OS.governance.authority-derived-persistence-eligibility
+  - AU-OS.governance.checkpoint-persistence-eligibility
+  AU-OS.governance.concept-id-canonicalization:
+  - AU-OS.governance.concept-id-canonicalization
+  - AU-OS.governance.cross-branch-duplicate-symbol
+  - AU-OS.governance.merge-deploy-decoupling
+  - AU-OS.governance.merge-queue-regenerate-on-land
+  - AU-OS.governance.merged-tree-verification
+  - AU-OS.governance.serialized-merge-queue
+  - AU-OS.governance.test-regression-baseline
+  - AU-OS.governance.tiered-merge-gate
+  AU-OS.governance.concept-lineage-parent-doc:
+  - AU-OS.governance.concept-lineage-parent-doc
+  - AU-OS.governance.concept-lineage-rename
+  - AU-OS.governance.merged-concept-visibility-audit
+  AU-OS.governance.fail-closed-degraded-read:
+  - AU-OS.governance.fail-closed-degraded-read
+  - AU-OS.governance.precommit-all-files-safety
+  - AU-OS.governance.verified-write-state-advance
+concepts:
+  AU-OS.governance.action-policy-decision-point:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/tools/compliance_tools.py
+      - agent_utilities/observability/incidents.py
+      - agent_utilities/orchestration/action_policy.py
+      test_files:
+      - tests/unit/test_action_policy.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/tools/compliance_tools.py:113
+      - agent_utilities/observability/incidents.py:728
+      - agent_utilities/orchestration/action_policy.py:6
+      - agent_utilities/orchestration/action_policy.py:895
+      - tests/unit/test_action_policy.py:572
+  AU-OS.governance.action-policy-rule:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.fail-closed-claim-check
+    suggestion_why: clusters with 3 sibling(s) around AU-OS.governance.fail-closed-claim-check; shares
+      agent_utilities/orchestration/action_policy.py; the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/orchestration/action_policy.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/orchestration/action_policy.py:123
+  AU-OS.governance.agents-md-reflector:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/ecosystem/agents_md_reflector.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/ecosystem/agents_md_reflector.py:6
+      - agent_utilities/ecosystem/agents_md_reflector.py:99
+      - agent_utilities/ecosystem/agents_md_reflector.py:246
+  AU-OS.governance.append-only-fragment-fold:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.lane-arbitration-classes
+    suggestion_why: 'clusters with 4 sibling(s) around AU-OS.governance.lane-arbitration-classes; shares
+      agent_utilities/governance/lanes.py; both introduced by 40bbf95b (feat(governance): four-class lane
+      arbitration for concurrent); the candidate parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/lanes.py
+      test_files: []
+      doc_files: []
+      introduced: '40bbf95b 2026-07-31 feat(governance): four-class lane arbitration for concurrent development'
+      cohort:
+      - AU-OS.governance.canonical-checkout-immutable
+      - AU-OS.governance.lane-arbitration-classes
+      - AU-OS.governance.lane-partitioned-resources
+      - AU-OS.governance.shared-scope-lease
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/governance/lanes.py:26
+  AU-OS.governance.assurance-state-machine-verifier:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.fail-closed-claim-check
+    suggestion_why: 'clusters with 3 sibling(s) around AU-OS.governance.fail-closed-claim-check; shares
+      agent_utilities/orchestration/action_policy.py, agent_utilities/orchestration/assurance_verifier.py;
+      both introduced by 325aa03e (feat(governance): deterministic pre-execution assurance veri); the
+      candidate parent already has a design document'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/gateway/fleet.py
+      - agent_utilities/orchestration/action_policy.py
+      - agent_utilities/orchestration/assurance_verifier.py
+      test_files:
+      - tests/unit/test_action_policy.py
+      - tests/unit/test_assurance_gate_surfaces.py
+      - tests/unit/test_assurance_verifier.py
+      doc_files: []
+      introduced: '325aa03e 2026-07-09 feat(governance): deterministic pre-execution assurance verifier
+        for ActionPolicy'
+      cohort:
+      - AU-OS.governance.fail-closed-claim-check
+      - AU-OS.governance.precondition-invariants
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/gateway/fleet.py:481
+      - agent_utilities/orchestration/action_policy.py:284
+      - agent_utilities/orchestration/action_policy.py:553
+      - agent_utilities/orchestration/action_policy.py:665
+      - agent_utilities/orchestration/action_policy.py:717
+      - agent_utilities/orchestration/assurance_verifier.py:6
+      - agent_utilities/orchestration/assurance_verifier.py:17
+      - tests/unit/test_action_policy.py:387
+      - tests/unit/test_assurance_gate_surfaces.py:1
+      - tests/unit/test_assurance_verifier.py:1
+  AU-OS.governance.atomic-concept-id-reservation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/cli/__init__.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/mcp/tools/ontology_tools.py
+      test_files: []
+      doc_files:
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/cli/__init__.py:179
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:378
+      - agent_utilities/mcp/tools/ontology_tools.py:1168
+      - docs/capabilities-power.json:378
+      - docs/capabilities-power.md:235
+  AU-OS.governance.authority-derived-persistence-eligibility:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - .env.example
+      - agent_utilities/kvcache/eligibility.py
+      - agent_utilities/kvcache/tiering.py
+      - agent_utilities/mcp/tools/engine_surface_tools.py
+      - agent_utilities/models/company_brain.py
+      test_files:
+      - tests/unit/kvcache/test_persistence_authority.py
+      doc_files:
+      - .specify/design/au-kv-persistence-authority/design.md
+      - CHANGELOG.md
+      - docs/architecture/configuration.md
+      - docs/architecture/kv-checkpoint-intelligence.md
+      introduced: '530d2de2 2026-07-31 feat(kvcache): derive persistence eligibility from the caller''s
+        own authority'
+      cohort:
+      - AU-OS.governance.checkpoint-persistence-eligibility
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .env.example:1490
+      - .specify/design/au-kv-persistence-authority/design.md:8
+      - .specify/design/au-kv-persistence-authority/design.md:40
+      - CHANGELOG.md:45
+      - agent_utilities/kvcache/eligibility.py:10
+      - agent_utilities/kvcache/eligibility.py:745
+      - agent_utilities/kvcache/eligibility.py:1079
+      - agent_utilities/kvcache/tiering.py:37
+      - agent_utilities/mcp/tools/engine_surface_tools.py:321
+      - agent_utilities/mcp/tools/engine_surface_tools.py:352
+      - agent_utilities/mcp/tools/engine_surface_tools.py:438
+      - agent_utilities/mcp/tools/engine_surface_tools.py:1653
+      - agent_utilities/models/company_brain.py:658
+      - docs/architecture/configuration.md:78
+      - docs/architecture/kv-checkpoint-intelligence.md:148
+      - tests/unit/kvcache/test_persistence_authority.py:3
+  AU-OS.governance.autonomy-change-proposer:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 5 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/adaptation/feedback.py
+      - agent_utilities/orchestration/action_policy.py
+      - agent_utilities/orchestration/autonomy_ramp.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/adaptation/feedback.py:405
+      - agent_utilities/orchestration/action_policy.py:246
+      - agent_utilities/orchestration/action_policy.py:630
+      - agent_utilities/orchestration/action_policy.py:677
+      - agent_utilities/orchestration/autonomy_ramp.py:4
+  AU-OS.governance.canonical-checkout-immutable:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.lane-arbitration-classes
+    suggestion_why: 'clusters with 4 sibling(s) around AU-OS.governance.lane-arbitration-classes; shares
+      agent_utilities/governance/lanes.py; both introduced by 40bbf95b (feat(governance): four-class lane
+      arbitration for concurrent); the candidate parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/lanes.py
+      test_files: []
+      doc_files: []
+      introduced: '40bbf95b 2026-07-31 feat(governance): four-class lane arbitration for concurrent development'
+      cohort:
+      - AU-OS.governance.append-only-fragment-fold
+      - AU-OS.governance.lane-arbitration-classes
+      - AU-OS.governance.lane-partitioned-resources
+      - AU-OS.governance.shared-scope-lease
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/governance/lanes.py:37
+  AU-OS.governance.checkpoint-persistence-eligibility:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.authority-derived-persistence-eligibility
+    suggestion_why: clusters with 1 sibling(s) around AU-OS.governance.authority-derived-persistence-eligibility;
+      shares agent_utilities/kvcache/eligibility.py, agent_utilities/kvcache/tiering.py, agent_utilities/mcp/tools/engine_surface_tools.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/kvcache/eligibility.py
+      - agent_utilities/kvcache/tiering.py
+      - agent_utilities/mcp/tools/engine_surface_tools.py
+      test_files:
+      - tests/unit/kvcache/test_checkpoint_intelligence.py
+      doc_files:
+      - .specify/design/au-kv-checkpoint-intelligence/design.md
+      - .specify/design/au-kv-persistence-authority/design.md
+      - CHANGELOG.md
+      - docs/architecture/kv-checkpoint-intelligence.md
+      introduced: '0fe852a0 2026-07-31 feat(kvcache): add the shared recomputation-cost estimator + persistence
+        eligibility gate'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/au-kv-checkpoint-intelligence/design.md:7
+      - .specify/design/au-kv-checkpoint-intelligence/design.md:55
+      - .specify/design/au-kv-persistence-authority/design.md:27
+      - CHANGELOG.md:44
+      - agent_utilities/kvcache/eligibility.py:3
+      - agent_utilities/kvcache/eligibility.py:1167
+      - agent_utilities/kvcache/tiering.py:681
+      - agent_utilities/kvcache/tiering.py:729
+      - agent_utilities/mcp/tools/engine_surface_tools.py:1652
+      - docs/architecture/kv-checkpoint-intelligence.md:4
+      - tests/unit/kvcache/test_checkpoint_intelligence.py:4
+  AU-OS.governance.concept-2:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 9 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/cli/__init__.py
+      - agent_utilities/core/paths.py
+      - agent_utilities/knowledge_graph/ontology_concepts.ttl
+      - scripts/build_concept_rdf.py
+      - scripts/check_domain_vocab.py
+      - scripts/check_no_legacy_markers.py
+      test_files:
+      - tests/unit/test_okf_cis_grammar.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/cli/__init__.py:101
+      - agent_utilities/cli/__init__.py:364
+      - agent_utilities/core/paths.py:151
+      - agent_utilities/knowledge_graph/ontology_concepts.ttl:6860
+      - scripts/build_concept_rdf.py:2
+      - scripts/build_concept_rdf.py:41
+      - scripts/check_domain_vocab.py:2
+      - scripts/check_no_legacy_markers.py:2
+      - tests/unit/test_okf_cis_grammar.py:1
+  AU-OS.governance.concept-domain-triage:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - scripts/concept_domain_triage.py
+      test_files: []
+      doc_files:
+      - .specify/design/concept-lineage-parent-doc/design.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/concept-lineage-parent-doc/design.md:8
+      - scripts/concept_domain_triage.py:4
+  AU-OS.governance.concept-hierarchy-standardization:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/concept_hierarchy.py
+      test_files: []
+      doc_files:
+      - docs/okf-cis.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/governance/concept_hierarchy.py:3
+      - docs/okf-cis.md:14
+  AU-OS.governance.concept-id-allocation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/concept_allocator.py
+      test_files: []
+      doc_files:
+      - .specify/design/lane-concurrency/design.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/lane-concurrency/design.md:14
+      - .specify/design/lane-concurrency/design.md:21
+      - agent_utilities/governance/concept_allocator.py:1
+      - agent_utilities/governance/concept_allocator.py:50
+  AU-OS.governance.concept-id-canonicalization:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.tiered-merge-gate
+    suggestion_why: clusters with 7 sibling(s) around AU-OS.governance.tiered-merge-gate; the candidate
+      parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/cli/__init__.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/cli/__init__.py:483
+  AU-OS.governance.concept-lineage-parent-doc:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/concept_lineage.py
+      - scripts/check_concept_governance.py
+      test_files: []
+      doc_files:
+      - .specify/design/concept-lineage-parent-doc/design.md
+      - .specify/design/kg-change-feed-subscription/design.md
+      - .specify/design/kg-code-intelligence-tools/design.md
+      - .specify/design/kg-concurrency-controller-sizing/design.md
+      - .specify/design/kg-connector-mirroring/design.md
+      - .specify/design/kg-cross-pillar-synergy/design.md
+      - .specify/design/kg-engine-native-compute/design.md
+      - .specify/design/kg-engine-surface-manifest/design.md
+      - .specify/design/kg-epistemic-operations-protocol/design.md
+      - .specify/design/kg-first-class-reasoner-paradigm/design.md
+      - .specify/design/kg-first-class-rss-atom/design.md
+      - .specify/design/kg-ingestion-plane-offload/design.md
+      - .specify/design/kg-model-display-optimization/design.md
+      - .specify/design/kg-numeric-kernel-drop/design.md
+      - .specify/design/kg-spectral-cluster-navigator/design.md
+      - .specify/design/kg-tenant-private-by-default/design.md
+      - .specify/design/kg-user-override-prompt-library/design.md
+      - .specify/design/kgo-os-governance-merge-queue/design.md
+      - .specify/design/orch-eng-execution-seam-closure/design.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/concept-lineage-parent-doc/design.md:7
+      - .specify/design/kg-change-feed-subscription/design.md:3
+      - .specify/design/kg-code-intelligence-tools/design.md:3
+      - .specify/design/kg-concurrency-controller-sizing/design.md:3
+      - .specify/design/kg-connector-mirroring/design.md:7
+      - .specify/design/kg-cross-pillar-synergy/design.md:3
+      - .specify/design/kg-engine-native-compute/design.md:5
+      - .specify/design/kg-engine-surface-manifest/design.md:3
+      - .specify/design/kg-epistemic-operations-protocol/design.md:3
+      - .specify/design/kg-first-class-reasoner-paradigm/design.md:3
+      - .specify/design/kg-first-class-rss-atom/design.md:3
+      - .specify/design/kg-ingestion-plane-offload/design.md:6
+      - .specify/design/kg-model-display-optimization/design.md:3
+      - .specify/design/kg-numeric-kernel-drop/design.md:5
+      - .specify/design/kg-spectral-cluster-navigator/design.md:3
+      - .specify/design/kg-tenant-private-by-default/design.md:3
+      - .specify/design/kg-user-override-prompt-library/design.md:3
+      - .specify/design/kgo-os-governance-merge-queue/design.md:12
+      - .specify/design/orch-eng-execution-seam-closure/design.md:9
+      - agent_utilities/governance/concept_lineage.py:3
+      - scripts/check_concept_governance.py:90
+  AU-OS.governance.concept-lineage-rename:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.concept-lineage-parent-doc
+    suggestion_why: clusters with 2 sibling(s) around AU-OS.governance.concept-lineage-parent-doc; shares
+      agent_utilities/governance/concept_lineage.py; the candidate parent already has a design document
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/concept_lineage.py
+      test_files: []
+      doc_files:
+      - .specify/design/kgo-governance-concept-lineage-rename/design.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kgo-governance-concept-lineage-rename/design.md:3
+      - agent_utilities/governance/concept_lineage.py:4
+  AU-OS.governance.cross-branch-duplicate-symbol:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.tiered-merge-gate
+    suggestion_why: 'clusters with 7 sibling(s) around AU-OS.governance.tiered-merge-gate; shares agent_utilities/governance/merge_queue.py;
+      both introduced by 3e1ec09c (feat(governance): serialized merge queue with a tiered gate ); the
+      candidate parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/merge_queue.py
+      test_files: []
+      doc_files:
+      - .specify/design/kgo-os-governance-merge-queue/design.md
+      - docs/architecture/merge-queue.md
+      introduced: '3e1ec09c 2026-07-31 feat(governance): serialized merge queue with a tiered gate and
+        merged-tree verification'
+      cohort:
+      - AU-OS.governance.merge-deploy-decoupling
+      - AU-OS.governance.merged-tree-verification
+      - AU-OS.governance.serialized-merge-queue
+      - AU-OS.governance.tiered-merge-gate
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kgo-os-governance-merge-queue/design.md:6
+      - agent_utilities/governance/merge_queue.py:627
+      - docs/architecture/merge-queue.md:14
+      - docs/architecture/merge-queue.md:398
+  AU-OS.governance.cross-host-concept-reservation-authority:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/concept_reservation.py
+      test_files: []
+      doc_files:
+      - docs/architecture/concept-reservation-authority.md
+      introduced: 'bbb09765 2026-08-09 feat(governance): add native concept reservation authority'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/governance/concept_reservation.py:3
+      - docs/architecture/concept-reservation-authority.md:3
+  AU-OS.governance.fail-closed-claim-check:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 4-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/orchestration/action_policy.py
+      - agent_utilities/orchestration/assurance_verifier.py
+      test_files: []
+      doc_files: []
+      introduced: '325aa03e 2026-07-09 feat(governance): deterministic pre-execution assurance verifier
+        for ActionPolicy'
+      cohort:
+      - AU-OS.governance.assurance-state-machine-verifier
+      - AU-OS.governance.precondition-invariants
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/orchestration/action_policy.py:561
+      - agent_utilities/orchestration/assurance_verifier.py:42
+  AU-OS.governance.fail-closed-degraded-read:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files: []
+      test_files: []
+      doc_files:
+      - .specify/design/empirical-development-standards/design.md
+      - AGENTS.head.md
+      - AGENTS.md
+      - docs/architecture/empirical-development-standards.md
+      introduced: '6d6bb0e1 2026-07-31 docs(agents): codify the ad-hoc development standards into AGENTS.md'
+      cohort:
+      - AU-OS.governance.precommit-all-files-safety
+      - AU-OS.governance.verified-write-state-advance
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/empirical-development-standards/design.md:49
+      - AGENTS.head.md:594
+      - AGENTS.md:594
+      - docs/architecture/empirical-development-standards.md:126
+  AU-OS.governance.governance-agent:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/ecosystem/governance_agent.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/ecosystem/governance_agent.py:4
+  AU-OS.governance.governance-workflow-pipeline:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/ecosystem/governance_workflow.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/ecosystem/governance_workflow.py:6
+      - agent_utilities/ecosystem/governance_workflow.py:194
+  AU-OS.governance.lane-arbitration-classes:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 5-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/cli/__init__.py
+      - agent_utilities/governance/lane_resources.yaml
+      - agent_utilities/governance/lanes.py
+      test_files: []
+      doc_files:
+      - docs/architecture/lane-concurrency.md
+      introduced: '40bbf95b 2026-07-31 feat(governance): four-class lane arbitration for concurrent development'
+      cohort:
+      - AU-OS.governance.append-only-fragment-fold
+      - AU-OS.governance.canonical-checkout-immutable
+      - AU-OS.governance.lane-partitioned-resources
+      - AU-OS.governance.shared-scope-lease
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/cli/__init__.py:201
+      - agent_utilities/governance/lane_resources.yaml:1
+      - agent_utilities/governance/lanes.py:40
+      - docs/architecture/lane-concurrency.md:17
+  AU-OS.governance.lane-partitioned-resources:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.lane-arbitration-classes
+    suggestion_why: 'clusters with 4 sibling(s) around AU-OS.governance.lane-arbitration-classes; shares
+      agent_utilities/governance/lanes.py; both introduced by 40bbf95b (feat(governance): four-class lane
+      arbitration for concurrent); the candidate parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/lanes.py
+      - scripts/check_lane_guard.py
+      - scripts/uv_workspace.py
+      test_files: []
+      doc_files: []
+      introduced: '40bbf95b 2026-07-31 feat(governance): four-class lane arbitration for concurrent development'
+      cohort:
+      - AU-OS.governance.append-only-fragment-fold
+      - AU-OS.governance.canonical-checkout-immutable
+      - AU-OS.governance.lane-arbitration-classes
+      - AU-OS.governance.shared-scope-lease
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/governance/lanes.py:20
+      - agent_utilities/governance/lanes.py:569
+      - scripts/check_lane_guard.py:28
+      - scripts/check_lane_guard.py:146
+      - scripts/uv_workspace.py:15
+  AU-OS.governance.lint-enforcement-hook:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/ecosystem/lint_enforcement_hook.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/ecosystem/lint_enforcement_hook.py:6
+      - agent_utilities/ecosystem/lint_enforcement_hook.py:116
+  AU-OS.governance.merge-deploy-decoupling:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.tiered-merge-gate
+    suggestion_why: 'clusters with 7 sibling(s) around AU-OS.governance.tiered-merge-gate; shares agent_utilities/governance/merge_queue.py;
+      both introduced by 3e1ec09c (feat(governance): serialized merge queue with a tiered gate ); the
+      candidate parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/merge_queue.py
+      test_files: []
+      doc_files:
+      - .specify/design/kgo-os-governance-merge-queue/design.md
+      - AGENTS.head.md
+      - AGENTS.md
+      - docs/architecture/merge-queue.md
+      introduced: '3e1ec09c 2026-07-31 feat(governance): serialized merge queue with a tiered gate and
+        merged-tree verification'
+      cohort:
+      - AU-OS.governance.cross-branch-duplicate-symbol
+      - AU-OS.governance.merged-tree-verification
+      - AU-OS.governance.serialized-merge-queue
+      - AU-OS.governance.tiered-merge-gate
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kgo-os-governance-merge-queue/design.md:7
+      - AGENTS.head.md:1231
+      - AGENTS.md:1231
+      - agent_utilities/governance/merge_queue.py:86
+      - agent_utilities/governance/merge_queue.py:2470
+      - docs/architecture/merge-queue.md:15
+      - docs/architecture/merge-queue.md:448
+  AU-OS.governance.merge-queue-regenerate-on-land:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.tiered-merge-gate
+    suggestion_why: clusters with 7 sibling(s) around AU-OS.governance.tiered-merge-gate; shares agent_utilities/governance/merge_queue.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/merge_queue.py
+      test_files:
+      - tests/unit/test_merge_queue.py
+      doc_files:
+      - .specify/design/kgo-os-governance-merge-queue/design.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kgo-os-governance-merge-queue/design.md:9
+      - agent_utilities/governance/merge_queue.py:2196
+      - tests/unit/test_merge_queue.py:1224
+  AU-OS.governance.merged-concept-visibility-audit:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.concept-lineage-parent-doc
+    suggestion_why: clusters with 2 sibling(s) around AU-OS.governance.concept-lineage-parent-doc; shares
+      scripts/check_concept_governance.py; the candidate parent already has a design document
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - scripts/check_concept_governance.py
+      test_files:
+      - tests/gates/test_concept_governance_gate.py
+      doc_files:
+      - .specify/design/merged-concept-visibility-audit/design.md
+      introduced: 'dcad5b2a 2026-07-31 docs(governance): backfill design docs for 39 merged-but-undocumented
+        concepts (D-RG2-2)'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/merged-concept-visibility-audit/design.md:9
+      - .specify/design/merged-concept-visibility-audit/design.md:40
+      - scripts/check_concept_governance.py:37
+      - tests/gates/test_concept_governance_gate.py:8
+  AU-OS.governance.merged-tree-verification:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.tiered-merge-gate
+    suggestion_why: 'clusters with 7 sibling(s) around AU-OS.governance.tiered-merge-gate; shares agent_utilities/governance/merge_queue.py;
+      both introduced by 3e1ec09c (feat(governance): serialized merge queue with a tiered gate ); the
+      candidate parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/merge_queue.py
+      test_files: []
+      doc_files:
+      - .specify/design/kgo-os-governance-merge-queue/design.md
+      - docs/architecture/merge-queue.md
+      introduced: '3e1ec09c 2026-07-31 feat(governance): serialized merge queue with a tiered gate and
+        merged-tree verification'
+      cohort:
+      - AU-OS.governance.cross-branch-duplicate-symbol
+      - AU-OS.governance.merge-deploy-decoupling
+      - AU-OS.governance.serialized-merge-queue
+      - AU-OS.governance.tiered-merge-gate
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kgo-os-governance-merge-queue/design.md:5
+      - agent_utilities/governance/merge_queue.py:43
+      - agent_utilities/governance/merge_queue.py:709
+      - docs/architecture/merge-queue.md:13
+      - docs/architecture/merge-queue.md:162
+  AU-OS.governance.okf-cis-standard:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/harness/citation_tracker.py
+      test_files: []
+      doc_files: []
+      introduced: '45cb4377 2026-07-23 fix(harness): CitationTracker''s CONCEPT: regex never matched OKF-CIS
+        ids'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/harness/citation_tracker.py:25
+  AU-OS.governance.permission-policy:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/ecosystem/permission_policy.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.reactive-multi-axis-budget
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/ecosystem/permission_policy.py:6
+      - agent_utilities/ecosystem/permission_policy.py:69
+      - agent_utilities/ecosystem/permission_policy.py:121
+  AU-OS.governance.policy-prompt-governance:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/policies/__init__.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/policies/__init__.py:4
+  AU-OS.governance.precommit-all-files-safety:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - scripts/safe_precommit_all_files.py
+      test_files: []
+      doc_files:
+      - .specify/design/precommit-all-files-safety/design.md
+      - AGENTS.head.md
+      - AGENTS.md
+      - docs/architecture/lane-concurrency.md
+      introduced: '6d6bb0e1 2026-07-31 docs(agents): codify the ad-hoc development standards into AGENTS.md'
+      cohort:
+      - AU-OS.governance.fail-closed-degraded-read
+      - AU-OS.governance.verified-write-state-advance
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/precommit-all-files-safety/design.md:12
+      - .specify/design/precommit-all-files-safety/design.md:33
+      - AGENTS.head.md:1188
+      - AGENTS.md:1188
+      - docs/architecture/lane-concurrency.md:90
+      - scripts/safe_precommit_all_files.py:4
+  AU-OS.governance.precondition-invariants:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.fail-closed-claim-check
+    suggestion_why: 'clusters with 3 sibling(s) around AU-OS.governance.fail-closed-claim-check; shares
+      agent_utilities/orchestration/assurance_verifier.py; both introduced by 325aa03e (feat(governance):
+      deterministic pre-execution assurance veri); the candidate parent already has a design document'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/orchestration/assurance_verifier.py
+      test_files: []
+      doc_files: []
+      introduced: '325aa03e 2026-07-09 feat(governance): deterministic pre-execution assurance verifier
+        for ActionPolicy'
+      cohort:
+      - AU-OS.governance.assurance-state-machine-verifier
+      - AU-OS.governance.fail-closed-claim-check
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/orchestration/assurance_verifier.py:25
+      - agent_utilities/orchestration/assurance_verifier.py:28
+  AU-OS.governance.premise-revalidation:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files: []
+      test_files: []
+      doc_files:
+      - .specify/design/empirical-development-standards/design.md
+      - docs/architecture/empirical-development-standards.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/empirical-development-standards/design.md:63
+      - docs/architecture/empirical-development-standards.md:229
+  AU-OS.governance.reactive-multi-axis-budget:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/graph/reactive/budget.py
+      test_files: []
+      doc_files:
+      - docs/journey.md
+      - docs/pillars/5_agent_os_infrastructure.md
+      - docs/pillars/5_agent_os_infrastructure/OS-5.5-Reactive_Budget_Guardrails.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.wasm-micro-agent-sandbox
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/graph/reactive/budget.py:4
+      - docs/journey.md:40
+      - docs/journey.md:42
+      - docs/journey.md:46
+      - docs/pillars/5_agent_os_infrastructure.md:292
+      - docs/pillars/5_agent_os_infrastructure/OS-5.5-Reactive_Budget_Guardrails.md:1
+      - docs/reference/documentation-catalog.md:359
+  AU-OS.governance.reserve-concepts-hook:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files: []
+      test_files: []
+      doc_files:
+      - .specify/design/lane-concurrency/design.md
+      introduced: '10953bb9 2026-07-31 docs(governance): codify the lane protocol in AGENTS.md + architecture
+        doc'
+      cohort:
+      - AU-OS.governance.concept-id-allocation
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/lane-concurrency/design.md:15
+  AU-OS.governance.serialized-merge-queue:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.tiered-merge-gate
+    suggestion_why: 'clusters with 7 sibling(s) around AU-OS.governance.tiered-merge-gate; shares agent_utilities/governance/merge_queue.py;
+      both introduced by 3e1ec09c (feat(governance): serialized merge queue with a tiered gate ); the
+      candidate parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/cli/__init__.py
+      - agent_utilities/governance/merge_queue.py
+      test_files: []
+      doc_files:
+      - .specify/design/kgo-os-governance-merge-queue/design.md
+      - AGENTS.head.md
+      - AGENTS.md
+      - docs/architecture/merge-queue.md
+      introduced: '3e1ec09c 2026-07-31 feat(governance): serialized merge queue with a tiered gate and
+        merged-tree verification'
+      cohort:
+      - AU-OS.governance.cross-branch-duplicate-symbol
+      - AU-OS.governance.merge-deploy-decoupling
+      - AU-OS.governance.merged-tree-verification
+      - AU-OS.governance.tiered-merge-gate
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kgo-os-governance-merge-queue/design.md:3
+      - AGENTS.head.md:1199
+      - AGENTS.md:1199
+      - agent_utilities/cli/__init__.py:259
+      - agent_utilities/governance/merge_queue.py:3
+      - docs/architecture/merge-queue.md:11
+  AU-OS.governance.shared-scope-lease:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.lane-arbitration-classes
+    suggestion_why: 'clusters with 4 sibling(s) around AU-OS.governance.lane-arbitration-classes; shares
+      agent_utilities/governance/lanes.py; both introduced by 40bbf95b (feat(governance): four-class lane
+      arbitration for concurrent); the candidate parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/lanes.py
+      test_files:
+      - tests/conftest.py
+      - tests/unit/test_engine_daemon_lease_wiring.py
+      doc_files: []
+      introduced: '40bbf95b 2026-07-31 feat(governance): four-class lane arbitration for concurrent development'
+      cohort:
+      - AU-OS.governance.append-only-fragment-fold
+      - AU-OS.governance.canonical-checkout-immutable
+      - AU-OS.governance.lane-arbitration-classes
+      - AU-OS.governance.lane-partitioned-resources
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/governance/lanes.py:32
+      - tests/conftest.py:725
+      - tests/conftest.py:803
+      - tests/unit/test_engine_daemon_lease_wiring.py:3
+  AU-OS.governance.single-canonical-source-security-contract:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - scripts/security_contract.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - scripts/security_contract.py:4
+  AU-OS.governance.test-regression-baseline:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.tiered-merge-gate
+    suggestion_why: clusters with 7 sibling(s) around AU-OS.governance.tiered-merge-gate; shares agent_utilities/governance/merge_queue.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/merge_queue.py
+      test_files:
+      - tests/unit/test_merge_queue.py
+      doc_files:
+      - .specify/design/kgo-os-governance-merge-queue/design.md
+      introduced: '33a368ec 2026-07-31 fix(governance): differential (regression) gating for merge-queue
+        targeted-tests'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kgo-os-governance-merge-queue/design.md:8
+      - agent_utilities/governance/merge_queue.py:183
+      - agent_utilities/governance/merge_queue.py:1371
+      - agent_utilities/governance/merge_queue.py:1811
+      - agent_utilities/governance/merge_queue.py:1886
+      - tests/unit/test_merge_queue.py:841
+  AU-OS.governance.tiered-merge-gate:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 8-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/governance/merge_queue.py
+      - scripts/release/check_wheel_build_reproducibility.py
+      - scripts/security/_fast_tier_forward.py
+      - scripts/security/check_ci_environment_contract.py
+      - scripts/security/check_secret_history.py
+      test_files: []
+      doc_files:
+      - .specify/design/kgo-os-governance-merge-queue/design.md
+      - docs/architecture/merge-queue.md
+      introduced: '3e1ec09c 2026-07-31 feat(governance): serialized merge queue with a tiered gate and
+        merged-tree verification'
+      cohort:
+      - AU-OS.governance.cross-branch-duplicate-symbol
+      - AU-OS.governance.merge-deploy-decoupling
+      - AU-OS.governance.merged-tree-verification
+      - AU-OS.governance.serialized-merge-queue
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kgo-os-governance-merge-queue/design.md:4
+      - agent_utilities/governance/merge_queue.py:52
+      - agent_utilities/governance/merge_queue.py:119
+      - docs/architecture/merge-queue.md:12
+      - scripts/release/check_wheel_build_reproducibility.py:4
+      - scripts/security/_fast_tier_forward.py:3
+      - scripts/security/check_ci_environment_contract.py:4
+      - scripts/security/check_secret_history.py:4
+  AU-OS.governance.truthful-state-invariant:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files: []
+      test_files: []
+      doc_files:
+      - .specify/design/truthful-state-invariant/design.md
+      - docs/architecture/rca-mcp-tool-state-desync.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/truthful-state-invariant/design.md:11
+      - .specify/design/truthful-state-invariant/design.md:34
+      - docs/architecture/rca-mcp-tool-state-desync.md:3
+  AU-OS.governance.verified-write-state-advance:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.governance.precommit-all-files-safety
+    suggestion_why: 'clusters with 2 sibling(s) around AU-OS.governance.precommit-all-files-safety; both
+      introduced by 6d6bb0e1 (docs(agents): codify the ad-hoc development standards into A); the candidate
+      parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/orchestration/agent_dispatch_worker.py
+      test_files: []
+      doc_files:
+      - .specify/design/empirical-development-standards/design.md
+      - AGENTS.head.md
+      - AGENTS.md
+      - docs/architecture/empirical-development-standards.md
+      introduced: '6d6bb0e1 2026-07-31 docs(agents): codify the ad-hoc development standards into AGENTS.md'
+      cohort:
+      - AU-OS.governance.fail-closed-degraded-read
+      - AU-OS.governance.precommit-all-files-safety
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/empirical-development-standards/design.md:57
+      - AGENTS.head.md:602
+      - AGENTS.md:602
+      - agent_utilities/orchestration/agent_dispatch_worker.py:1403
+      - docs/architecture/empirical-development-standards.md:159
+  AU-OS.governance.wasm-micro-agent-sandbox:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 11 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/__init__.py
+      - agent_utilities/core/__init__.py
+      - agent_utilities/core/wasm_runner.py
+      test_files: []
+      doc_files:
+      - docs/journey.md
+      - docs/pillars/5_agent_os_infrastructure.md
+      - docs/pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md
+      - docs/pillars/5_agent_os_infrastructure/OS-5.7-Hardened_WASM_Executor.md
+      - docs/reference/documentation-catalog.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.governance.action-policy-decision-point
+      - AU-OS.governance.action-policy-rule
+      - AU-OS.governance.agents-md-reflector
+      - AU-OS.governance.atomic-concept-id-reservation
+      - AU-OS.governance.autonomy-change-proposer
+      - AU-OS.governance.concept-2
+      - AU-OS.governance.concept-hierarchy-standardization
+      - AU-OS.governance.concept-id-allocation
+      - AU-OS.governance.concept-id-canonicalization
+      - AU-OS.governance.governance-workflow-pipeline
+      - AU-OS.governance.lint-enforcement-hook
+      - AU-OS.governance.permission-policy
+      - AU-OS.governance.reactive-multi-axis-budget
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/__init__.py:352
+      - agent_utilities/__init__.py:530
+      - agent_utilities/core/__init__.py:4
+      - agent_utilities/core/wasm_runner.py:1
+      - docs/journey.md:40
+      - docs/pillars/5_agent_os_infrastructure.md:214
+      - docs/pillars/5_agent_os_infrastructure.md:308
+      - docs/pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md:1
+      - docs/pillars/5_agent_os_infrastructure/OS-5.7-Hardened_WASM_Executor.md:1
+      - docs/reference/documentation-catalog.md:358
+      - docs/reference/documentation-catalog.md:361

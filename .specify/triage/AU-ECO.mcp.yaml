@@ -1,15 +1,16 @@
 domain: AU-ECO.mcp
-generated_at: '2026-08-02T16:09:28+00:00'
+generated_at: '2026-08-14T23:48:58+00:00'
 generator: scripts/concept_domain_triage.py
-how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
-  `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
-  and `apply --write`.'
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
 clusters:
   AU-ECO.mcp.client-side-chat-session:
   - AU-ECO.mcp.client-side-chat-session
   - AU-ECO.mcp.usage-cost-observability-surface
-  AU-ECO.mcp.cross-process-skill-harvest:
-  - AU-ECO.mcp.cross-process-skill-harvest
+  AU-ECO.mcp.cross-process-prompt-harvest:
+  - AU-ECO.mcp.cross-process-prompt-harvest
   - AU-ECO.mcp.skills-over-mcp-provider
   AU-ECO.mcp.fleet-meta-tools-always-on:
   - AU-ECO.mcp.fleet-meta-tools-always-on
@@ -26,18 +27,48 @@ clusters:
   - AU-ECO.mcp.fleet-wide-verbose-auto
   - AU-ECO.mcp.verbose-auto-wire
 concepts:
+  AU-ECO.mcp.catalog-rest-surface:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/server/routers/mcp_catalog.py
+      test_files:
+      - tests/unit/server/test_mcp_catalog_routes.py
+      doc_files:
+      - .specify/design/eco-mcp-catalog-rest-surface/design.md
+      - .specify/design/eco-mcp-shared-multiplexer-singleton/design.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/eco-mcp-catalog-rest-surface/design.md:3
+      - .specify/design/eco-mcp-shared-multiplexer-singleton/design.md:14
+      - agent_utilities/server/routers/mcp_catalog.py:3
+      - tests/unit/server/test_mcp_catalog_routes.py:3
   AU-ECO.mcp.client-side-chat-session:
     decision: document
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/cli/__init__.py
       - agent_utilities/gateway/usage_api.py
@@ -46,6 +77,7 @@ concepts:
       - agent_utilities/mcp/tools/write_ingest_tools.py
       test_files: []
       doc_files:
+      - .specify/design/eco-mcp-client-side-chat-session/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -65,29 +97,78 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-client-side-chat-session/design.md:3
       - agent_utilities/cli/__init__.py:155
       - agent_utilities/cli/__init__.py:442
       - agent_utilities/gateway/usage_api.py:7
       - agent_utilities/gateway/usage_api.py:327
       - agent_utilities/ingestion/collector.py:173
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23534
-      - agent_utilities/mcp/tools/write_ingest_tools.py:1610
-      - docs/capabilities-power.json:23534
-      - docs/capabilities-power.md:4085
-  AU-ECO.mcp.cross-process-skill-harvest:
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24028
+      - agent_utilities/mcp/tools/write_ingest_tools.py:2089
+      - docs/capabilities-power.json:24028
+      - docs/capabilities-power.md:4172
+  AU-ECO.mcp.cross-process-prompt-harvest:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/agent/registry_builder.py
+      - agent_utilities/knowledge_graph/core/source_sync.py
+      - agent_utilities/knowledge_graph/ingestion/fleet_prompt_harvest.py
+      - agent_utilities/mcp/multiplexer.py
+      - agent_utilities/mcp/server_factory.py
+      test_files:
+      - tests/integration/mcp/test_prompt_provider_live_path.py
+      - tests/unit/knowledge_graph/test_fleet_prompt_harvest.py
+      - tests/unit/mcp/test_prompt_body_harvest.py
+      - tests/unit/mcp/test_prompt_provider_wiring.py
+      doc_files: []
+      introduced: '1007e428 2026-08-06 feat(kg): cross-process fleet prompt harvest + WorkItem node_type
+        casing convergence'
+      cohort:
+      - AU-ECO.mcp.cross-process-skill-harvest
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/agent/registry_builder.py:157
+      - agent_utilities/knowledge_graph/core/source_sync.py:507
+      - agent_utilities/knowledge_graph/ingestion/fleet_prompt_harvest.py:3
+      - agent_utilities/mcp/multiplexer.py:129
+      - agent_utilities/mcp/multiplexer.py:580
+      - agent_utilities/mcp/multiplexer.py:2986
+      - agent_utilities/mcp/multiplexer.py:3501
+      - agent_utilities/mcp/multiplexer.py:3544
+      - agent_utilities/mcp/server_factory.py:2178
+      - tests/integration/mcp/test_prompt_provider_live_path.py:1
+      - tests/unit/knowledge_graph/test_fleet_prompt_harvest.py:3
+      - tests/unit/mcp/test_prompt_body_harvest.py:3
+      - tests/unit/mcp/test_prompt_provider_wiring.py:1
+  AU-ECO.mcp.cross-process-skill-harvest:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 13 marker site(s))'
+    evidence:
       has_design_doc: true
       in_baseline: false
       source_files:
+      - agent_utilities/governance/concept_lineage.yaml
       - agent_utilities/knowledge_graph/core/source_sync.py
+      - agent_utilities/knowledge_graph/ingestion/fleet_prompt_harvest.py
       - agent_utilities/knowledge_graph/ingestion/fleet_skill_harvest.py
       - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py
       - agent_utilities/mcp/multiplexer.py
@@ -104,13 +185,15 @@ concepts:
       truncated_marker: ''
       sites:
       - .specify/design/cross-process-skill-harvest/design.md:8
+      - agent_utilities/governance/concept_lineage.yaml:25
       - agent_utilities/knowledge_graph/core/source_sync.py:465
       - agent_utilities/knowledge_graph/core/source_sync.py:497
+      - agent_utilities/knowledge_graph/ingestion/fleet_prompt_harvest.py:4
       - agent_utilities/knowledge_graph/ingestion/fleet_skill_harvest.py:3
       - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py:124
       - agent_utilities/mcp/multiplexer.py:112
-      - agent_utilities/mcp/multiplexer.py:567
-      - agent_utilities/mcp/multiplexer.py:2795
+      - agent_utilities/mcp/multiplexer.py:635
+      - agent_utilities/mcp/multiplexer.py:3417
       - tests/unit/knowledge_graph/test_fleet_skill_harvest.py:3
       - tests/unit/mcp/test_multiplexer_skills_over_mcp.py:49
       - tests/unit/mcp/test_skill_body_harvest.py:3
@@ -119,21 +202,23 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('# ARD registry surface (CONCEPT·AU-ECO.mcp.eco-serves-two-ard/ECO-4.97)
       — the graph-os twi') — the id itself reads like a real name, so the marker text needs cleaning either
       way; decide whether the concept survives that cleanup
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/ecosystem/ard_registry.py
       - agent_utilities/mcp/kg_server.py
       - agent_utilities/server/routers/ard.py
       test_files:
       - tests/unit/ecosystem/test_ard_registry.py
-      doc_files: []
+      doc_files:
+      - .specify/design/eco-mcp-ard-registry-publish/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-ECO.mcp.client-side-chat-session
@@ -152,10 +237,11 @@ concepts:
       truncated_marker: '# ARD registry surface (CONCEPT·AU-ECO.mcp.eco-serves-two-ard/ECO-4.97) — the
         graph-os twin of the'
       sites:
+      - .specify/design/eco-mcp-ard-registry-publish/design.md:3
       - agent_utilities/ecosystem/ard_registry.py:1
       - agent_utilities/ecosystem/ard_registry.py:225
       - agent_utilities/ecosystem/ard_registry.py:255
-      - agent_utilities/mcp/kg_server.py:3843
+      - agent_utilities/mcp/kg_server.py:4012
       - agent_utilities/server/routers/ard.py:3
       - tests/unit/ecosystem/test_ard_registry.py:1
   AU-ECO.mcp.fastmcp-middleware:
@@ -163,19 +249,21 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 4 marker site(s))'
+      file(s), 5 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/middlewares.py
       test_files:
       - tests/unit/knowledge_graph/test_agent_toolkit_ingestion.py
       - tests/unit/mcp/test_kg_server.py
       doc_files:
+      - .specify/design/eco-mcp-fastmcp-middleware-assimilation/design.md
       - docs/journey.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -194,7 +282,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/mcp/middlewares.py:177
+      - .specify/design/eco-mcp-fastmcp-middleware-assimilation/design.md:3
+      - agent_utilities/mcp/middlewares.py:230
       - docs/journey.md:151
       - tests/unit/knowledge_graph/test_agent_toolkit_ingestion.py:4
       - tests/unit/mcp/test_kg_server.py:3
@@ -203,6 +292,7 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: retire
     suggested_parent: ''
     suggestion_why: the id reads as a slugified prose fragment (fleet-meta-tools-always-on)
@@ -223,24 +313,26 @@ concepts:
       sites:
       - .specify/design/fleet-meta-tools-always-on/design.md:3
       - .specify/design/fleet-meta-tools-always-on/design.md:25
-      - agent_utilities/mcp/kg_server.py:4463
+      - agent_utilities/mcp/kg_server.py:4634
       - tests/unit/mcp/test_served_tool_surface.py:3
   AU-ECO.mcp.fleet-wide-verbose-auto:
     decision: document
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/verbose_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/eco-mcp-fleet-wide-verbose-auto-wire/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-ECO.mcp.client-side-chat-session
@@ -258,6 +350,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-fleet-wide-verbose-auto-wire/design.md:3
       - agent_utilities/mcp/verbose_tools.py:621
       - agent_utilities/mcp/verbose_tools.py:794
   AU-ECO.mcp.full-api-mcp-surface:
@@ -265,13 +358,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
       file(s), 7 marker site(s))'
     evidence:
       has_design_doc: true
-      in_baseline: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/kg_server.py
       - agent_utilities/mcp/tools/engine_tools.py
@@ -297,10 +391,10 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/mcp/kg_server.py:4002
+      - agent_utilities/mcp/kg_server.py:4173
       - agent_utilities/mcp/tools/engine_tools.py:45
-      - agent_utilities/mcp/tools/engine_tools.py:759
-      - agent_utilities/mcp/tools/engine_tools.py:779
+      - agent_utilities/mcp/tools/engine_tools.py:823
+      - agent_utilities/mcp/tools/engine_tools.py:843
       - docs/architecture/north-star-architecture.md:141
       - scripts/gen_graphos_manifest.py:189
       - tests/unit/test_engine_api_coverage.py:2
@@ -309,17 +403,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.intent-surface-condensed-collapse
     suggestion_why: clusters with 9 sibling(s) around AU-ECO.mcp.intent-surface-condensed-collapse; shares
       agent_utilities/mcp/kg_server.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/kg_server.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/eco-mcp-gateway-dispatch-isolation/design.md
       introduced: 274d4c37 2026-07-20 Reconstruct advanced agent-utilities 1.27.1 tree (pre-merge base)
       cohort:
       - AU-ECO.mcp.intent-surface-condensed-collapse
@@ -334,6 +430,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-gateway-dispatch-isolation/design.md:3
       - agent_utilities/mcp/kg_server.py:207
       - agent_utilities/mcp/kg_server.py:217
   AU-ECO.mcp.graph-reach-mcp-tool:
@@ -341,17 +438,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 4 marker site(s))'
+      file(s), 5 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/tools/reach_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/eco-mcp-graph-reach-tool/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-ECO.mcp.client-side-chat-session
@@ -369,6 +468,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-graph-reach-tool/design.md:3
       - agent_utilities/mcp/tools/reach_tools.py:1
       - agent_utilities/mcp/tools/reach_tools.py:8
       - agent_utilities/mcp/tools/reach_tools.py:21
@@ -378,28 +478,32 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/harness_server.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/eco-mcp-harness-server-separation/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-harness-server-separation/design.md:3
       - agent_utilities/mcp/harness_server.py:4
   AU-ECO.mcp.intent-surface-condensed-collapse:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 10-concept cluster — the siblings are proposed as pointers at this one,
@@ -430,14 +534,14 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/mcp/kg_server.py:3961
-      - agent_utilities/mcp/multiplexer.py:1179
-      - agent_utilities/mcp/multiplexer.py:4198
-      - agent_utilities/mcp/multiplexer.py:4850
-      - agent_utilities/mcp/multiplexer.py:4859
+      - agent_utilities/mcp/kg_server.py:4132
+      - agent_utilities/mcp/multiplexer.py:1337
+      - agent_utilities/mcp/multiplexer.py:5058
+      - agent_utilities/mcp/multiplexer.py:5787
+      - agent_utilities/mcp/multiplexer.py:5813
       - agent_utilities/mcp/skill_coverage.py:54
       - agent_utilities/mcp/tools/intent_tools.py:1
-      - agent_utilities/mcp/tools/intent_tools.py:1643
+      - agent_utilities/mcp/tools/intent_tools.py:1669
       - agent_utilities/mcp/verbose_tools.py:56
       - agent_utilities/mcp/verbose_tools.py:67
       - agent_utilities/mcp/verbose_tools.py:70
@@ -447,7 +551,7 @@ concepts:
       - agent_utilities/skills/skill_graphs/agent-utilities/SKILL.md:72
       - agent_utilities/skills/skill_graphs/agent-utilities/tools/SKILL.md:17
       - docs/architecture/intent-surface.md:9
-      - tests/conftest.py:161
+      - tests/conftest.py:294
       - tests/unit/mcp/test_intent_surface_gating.py:1
       - tests/unit/mcp/test_served_tool_surface.py:62
       - tests/unit/mcp/test_verbose_tools.py:420
@@ -459,13 +563,14 @@ concepts:
       resolver-ranking phase of the same six-verb intent surface documented there; realised at intent_tools.py:343,
       not an independent decision.
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.intent-surface-condensed-collapse
     suggestion_why: clusters with 9 sibling(s) around AU-ECO.mcp.intent-surface-condensed-collapse; shares
       agent_utilities/mcp/tools/intent_tools.py; the candidate parent already has a design document
     evidence:
       has_design_doc: false
-      in_baseline: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/tools/intent_tools.py
       test_files:
@@ -482,7 +587,7 @@ concepts:
       sites:
       - agent_utilities/mcp/tools/intent_tools.py:343
       - docs/architecture/intent-surface.md:11
-      - tests/unit/test_intent_surface.py:1054
+      - tests/unit/test_intent_surface.py:1197
   AU-ECO.mcp.intent-surface-delegation-shape:
     decision: parent
     parent: AU-ECO.mcp.intent-surface-condensed-collapse
@@ -490,6 +595,7 @@ concepts:
       explicit skill-delegation phrasing; part of the intent-surface resolver's routing logic documented
       in docs/architecture/intent-surface.md, not a separate architectural choice.
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.intent-surface-condensed-collapse
     suggestion_why: clusters with 9 sibling(s) around AU-ECO.mcp.intent-surface-condensed-collapse; shares
@@ -514,13 +620,14 @@ concepts:
       program in docs/architecture/intent-surface.md's concept list; realised inside intent_tools.py alongside
       the resolver it learns from.
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.intent-surface-condensed-collapse
     suggestion_why: clusters with 9 sibling(s) around AU-ECO.mcp.intent-surface-condensed-collapse; shares
       agent_utilities/mcp/tools/intent_tools.py; the candidate parent already has a design document
     evidence:
       has_design_doc: false
-      in_baseline: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/tools/intent_tools.py
       test_files:
@@ -543,7 +650,7 @@ concepts:
       - docs/architecture/intent-surface.md:12
       - docs/architecture/intent-surface.md:118
       - docs/architecture/intent-surface.md:333
-      - tests/conftest.py:211
+      - tests/conftest.py:344
   AU-ECO.mcp.intent-surface-resolution-cache:
     decision: parent
     parent: AU-ECO.mcp.intent-surface-condensed-collapse
@@ -551,13 +658,14 @@ concepts:
       in docs/architecture/intent-surface.md's own list; implemented at intent_tools.py:164-293 as an
       optimisation of the SAME resolver dispatch path.
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.intent-surface-condensed-collapse
     suggestion_why: clusters with 9 sibling(s) around AU-ECO.mcp.intent-surface-condensed-collapse; shares
       agent_utilities/mcp/tools/intent_tools.py; the candidate parent already has a design document
     evidence:
       has_design_doc: false
-      in_baseline: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/tools/intent_tools.py
       test_files:
@@ -581,26 +689,28 @@ concepts:
       - docs/architecture/intent-surface.md:13
       - docs/architecture/intent-surface.md:127
       - docs/architecture/intent-surface.md:340
-      - tests/conftest.py:212
-      - tests/unit/test_intent_surface.py:1504
+      - tests/conftest.py:345
+      - tests/unit/test_intent_surface.py:1647
   AU-ECO.mcp.intent-surface-selection-accuracy:
     decision: document
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 6 marker site(s))'
+      file(s), 7 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py
       - scripts/measure_intent_routing_accuracy.py
       test_files:
       - tests/unit/test_intent_selection_accuracy.py
       doc_files:
+      - .specify/design/eco-mcp-intent-selection-accuracy-harness/design.md
       - docs/architecture/intent-surface.md
       introduced: '5da1cd6b 2026-07-11 Seam 8 completion: resolver→CPD + intent-selection accuracy harness
         + kg-intent skill'
@@ -608,6 +718,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-intent-selection-accuracy-harness/design.md:3
       - agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py:4
       - agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py:51
       - agent_utilities/knowledge_graph/retrieval/intent_selection_accuracy.py:175
@@ -621,6 +732,7 @@ concepts:
       mechanism that reveals the granular tools the SAME intent resolver dispatches to; documented as
       one concept in docs/architecture/intent-surface.md.
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.intent-surface-condensed-collapse
     suggestion_why: 'clusters with 9 sibling(s) around AU-ECO.mcp.intent-surface-condensed-collapse; shares
@@ -629,7 +741,7 @@ concepts:
       has a design document'
     evidence:
       has_design_doc: false
-      in_baseline: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/multiplexer.py
       - agent_utilities/mcp/tools/intent_tools.py
@@ -644,15 +756,15 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/mcp/multiplexer.py:1187
-      - agent_utilities/mcp/multiplexer.py:4145
-      - agent_utilities/mcp/multiplexer.py:4165
-      - agent_utilities/mcp/multiplexer.py:4190
-      - agent_utilities/mcp/multiplexer.py:4445
-      - agent_utilities/mcp/multiplexer.py:4482
-      - agent_utilities/mcp/multiplexer.py:4677
-      - agent_utilities/mcp/tools/intent_tools.py:1526
-      - agent_utilities/mcp/tools/intent_tools.py:1714
+      - agent_utilities/mcp/multiplexer.py:1345
+      - agent_utilities/mcp/multiplexer.py:4976
+      - agent_utilities/mcp/multiplexer.py:4996
+      - agent_utilities/mcp/multiplexer.py:5021
+      - agent_utilities/mcp/multiplexer.py:5346
+      - agent_utilities/mcp/multiplexer.py:5389
+      - agent_utilities/mcp/multiplexer.py:5605
+      - agent_utilities/mcp/tools/intent_tools.py:1552
+      - agent_utilities/mcp/tools/intent_tools.py:1740
       - docs/architecture/intent-surface.md:10
       - docs/architecture/intent-surface.md:92
       - tests/unit/mcp/test_intent_surface_gating.py:1
@@ -663,19 +775,21 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 4 marker site(s))'
+      file(s), 5 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - .pre-commit-config.yaml
       - agent_utilities/mcp/skill_coverage.py
       test_files:
       - tests/unit/test_gateway_mcp_parity.py
       doc_files:
+      - .specify/design/eco-mcp-kg-skill-verb-coverage/design.md
       - CHANGELOG.md
       introduced: '25817878 2026-07-04 chore(concepts): adopt OKF-CIS ids (AU-ECO.mcp.kg-skill-verb-coverage,
         AU-KG.ontology.package-federation-migration) + regen concepts.yaml'
@@ -683,8 +797,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - .pre-commit-config.yaml:346
-      - CHANGELOG.md:705
+      - .pre-commit-config.yaml:482
+      - .specify/design/eco-mcp-kg-skill-verb-coverage/design.md:3
+      - CHANGELOG.md:729
       - agent_utilities/mcp/skill_coverage.py:2
       - tests/unit/test_gateway_mcp_parity.py:97
   AU-ECO.mcp.knowledge-graph-exposure:
@@ -692,18 +807,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.intent-surface-condensed-collapse
     suggestion_why: clusters with 9 sibling(s) around AU-ECO.mcp.intent-surface-condensed-collapse; shares
       agent_utilities/mcp/kg_server.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/graph_api.py
       - agent_utilities/mcp/kg_server.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/eco-mcp-knowledge-graph-gateway-exposure/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-ECO.mcp.client-side-chat-session
@@ -721,6 +838,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-knowledge-graph-gateway-exposure/design.md:3
       - agent_utilities/gateway/graph_api.py:3
       - agent_utilities/mcp/kg_server.py:4
   AU-ECO.mcp.live-server-metadata-cache:
@@ -728,17 +846,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 3 marker site(s))'
+      file(s), 4 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine_mcp_discovery.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/eco-mcp-live-server-metadata-discovery/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-ECO.mcp.client-side-chat-session
@@ -756,6 +876,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-live-server-metadata-discovery/design.md:3
       - agent_utilities/knowledge_graph/core/engine_mcp_discovery.py:3
       - agent_utilities/knowledge_graph/core/engine_mcp_discovery.py:51
       - agent_utilities/knowledge_graph/core/engine_mcp_discovery.py:222
@@ -764,13 +885,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
-      file(s), 20 marker site(s))'
+      file(s), 21 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/core/config.py
       - agent_utilities/graph/parallel_engine.py
@@ -782,6 +904,7 @@ concepts:
       - tests/unit/graph/test_parallel_engine_breaker.py
       - tests/unit/mcp/test_multiplexer_resilience.py
       doc_files:
+      - .specify/design/eco-mcp-child-resilience-hardening/design.md
       - docs/architecture/configuration.md
       - docs/reference/metrics.md
       - docs/reference/runtime-configuration.md
@@ -802,24 +925,25 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/config.py:3101
+      - .specify/design/eco-mcp-child-resilience-hardening/design.md:3
+      - agent_utilities/core/config.py:3130
       - agent_utilities/graph/parallel_engine.py:103
       - agent_utilities/knowledge_graph/core/engine_breaker.py:67
       - agent_utilities/mcp/child_resilience.py:3
-      - agent_utilities/mcp/multiplexer.py:1080
-      - agent_utilities/mcp/multiplexer.py:1772
-      - agent_utilities/mcp/multiplexer.py:2485
-      - agent_utilities/mcp/multiplexer.py:3877
-      - agent_utilities/observability/gateway_metrics.py:282
+      - agent_utilities/mcp/multiplexer.py:1231
+      - agent_utilities/mcp/multiplexer.py:2219
+      - agent_utilities/mcp/multiplexer.py:2946
+      - agent_utilities/mcp/multiplexer.py:4699
+      - agent_utilities/observability/gateway_metrics.py:295
+      - docs/architecture/configuration.md:94
+      - docs/architecture/configuration.md:95
+      - docs/architecture/configuration.md:96
+      - docs/architecture/configuration.md:97
+      - docs/architecture/configuration.md:98
+      - docs/architecture/configuration.md:99
       - docs/architecture/configuration.md:100
-      - docs/architecture/configuration.md:101
-      - docs/architecture/configuration.md:102
-      - docs/architecture/configuration.md:103
-      - docs/architecture/configuration.md:104
-      - docs/architecture/configuration.md:105
-      - docs/architecture/configuration.md:106
       - docs/reference/metrics.md:83
-      - docs/reference/runtime-configuration.md:291
+      - docs/reference/runtime-configuration.md:292
       - tests/unit/graph/test_parallel_engine_breaker.py:6
       - tests/unit/mcp/test_multiplexer_resilience.py:1
   AU-ECO.mcp.protocol-compat-bridge:
@@ -827,13 +951,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 17 marker site(s))'
+      file(s), 18 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/httpx_boundary.py
       - agent_utilities/mcp/kg_server.py
@@ -845,6 +970,7 @@ concepts:
       - tests/unit/mcp/test_multiplexer_remote_transport_contract.py
       - tests/unit/test_mcp_tasks_extension_compatibility.py
       doc_files:
+      - .specify/design/eco-mcp-fastmcp4-protocol-compat-bridge/design.md
       - docs/architecture/fastmcp4-default.md
       - docs/guides/installation.md
       - docs/reference/documentation-catalog.md
@@ -855,8 +981,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-fastmcp4-protocol-compat-bridge/design.md:3
       - agent_utilities/mcp/httpx_boundary.py:6
-      - agent_utilities/mcp/kg_server.py:4386
+      - agent_utilities/mcp/kg_server.py:4557
       - agent_utilities/mcp/protocol_compat.py:6
       - agent_utilities/mcp/protocol_compat.py:86
       - agent_utilities/mcp/protocol_compat.py:136
@@ -864,14 +991,41 @@ concepts:
       - agent_utilities/mcp/protocol_compat.py:494
       - docs/architecture/fastmcp4-default.md:1
       - docs/guides/installation.md:69
-      - docs/reference/documentation-catalog.md:187
+      - docs/reference/documentation-catalog.md:189
       - overrides.txt:14
-      - pyproject.toml:162
-      - pyproject.toml:676
+      - pyproject.toml:195
+      - pyproject.toml:736
       - tests/integration/mcp/test_fastmcp_cross_version.py:2
       - tests/integration/mcp/test_multiplexer_remote_transport_live.py:3
       - tests/unit/mcp/test_multiplexer_remote_transport_contract.py:3
-      - tests/unit/test_mcp_tasks_extension_compatibility.py:18
+      - tests/unit/test_mcp_tasks_extension_compatibility.py:19
+  AU-ECO.mcp.shared-multiplexer-singleton:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/mcp/shared_multiplexer.py
+      test_files: []
+      doc_files:
+      - .specify/design/eco-mcp-catalog-rest-surface/design.md
+      - .specify/design/eco-mcp-shared-multiplexer-singleton/design.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/eco-mcp-catalog-rest-surface/design.md:18
+      - .specify/design/eco-mcp-shared-multiplexer-singleton/design.md:3
+      - agent_utilities/mcp/shared_multiplexer.py:3
   AU-ECO.mcp.skills-over-mcp-provider:
     decision: parent
     parent: AU-ECO.mcp.cross-process-skill-harvest
@@ -879,13 +1033,14 @@ concepts:
       capabilities; multiplexer.py:106,2509 consume the SAME harvest pipeline change_publisher and source_sync.py:497
       already document at .specify/design/cross-process-skill-harvest/design.md.
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-ECO.mcp.cross-process-skill-harvest
-    suggestion_why: clusters with 1 sibling(s) around AU-ECO.mcp.cross-process-skill-harvest; shares agent_utilities/knowledge_graph/core/source_sync.py,
-      agent_utilities/mcp/multiplexer.py; the candidate parent already has a design document
+    suggested_parent: AU-ECO.mcp.cross-process-prompt-harvest
+    suggestion_why: clusters with 1 sibling(s) around AU-ECO.mcp.cross-process-prompt-harvest; shares
+      agent_utilities/knowledge_graph/core/source_sync.py, agent_utilities/mcp/multiplexer.py, agent_utilities/mcp/server_factory.py
     evidence:
       has_design_doc: false
-      in_baseline: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/source_sync.py
       - agent_utilities/mcp/multiplexer.py
@@ -904,9 +1059,9 @@ concepts:
       sites:
       - agent_utilities/knowledge_graph/core/source_sync.py:362
       - agent_utilities/mcp/multiplexer.py:106
-      - agent_utilities/mcp/multiplexer.py:2509
-      - agent_utilities/mcp/multiplexer.py:2754
-      - agent_utilities/mcp/server_factory.py:2104
+      - agent_utilities/mcp/multiplexer.py:2968
+      - agent_utilities/mcp/multiplexer.py:3376
+      - agent_utilities/mcp/server_factory.py:2125
       - tests/integration/mcp/test_skill_provider_live_path.py:3
       - tests/unit/knowledge_graph/core/test_fleet_capabilities.py:179
       - tests/unit/mcp/test_multiplexer_skills_over_mcp.py:1
@@ -916,13 +1071,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (8 source
-      file(s), 9 marker site(s))'
+      file(s), 10 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/__init__.py
       - agent_utilities/mcp/action_dispatch.py
@@ -933,13 +1089,15 @@ concepts:
       - agent_utilities/mcp/server_factory.py
       - agent_utilities/mcp_utilities.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/eco-mcp-standardized-tool-handler-interfaces/design.md
       introduced: '6ff3dba4 2026-07-11 fix(mcp): self-heal data-dict dispatch so LLM-driven create/update
         works'
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-standardized-tool-handler-interfaces/design.md:3
       - agent_utilities/mcp/__init__.py:3
       - agent_utilities/mcp/action_dispatch.py:25
       - agent_utilities/mcp/concurrency.py:16
@@ -949,15 +1107,39 @@ concepts:
       - agent_utilities/mcp/multiplexer.py:16
       - agent_utilities/mcp/server_factory.py:8
       - agent_utilities/mcp_utilities.py:10
+  AU-ECO.mcp.stdio-static-purity-gate:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/mcp/server_factory.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/server_factory.py:1304
   AU-ECO.mcp.tasks-workitem-bridge:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 7 marker site(s))'
+      file(s), 9 marker site(s))'
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -970,6 +1152,8 @@ concepts:
       - tests/unit/test_mcp_tasks_extension_compatibility.py
       doc_files:
       - .specify/design/mcp-apps-and-tasks-bridge/design.md
+      - docs/architecture/fastmcp4-default.md
+      - docs/architecture/mcp-2026-protocol-surface.md
       introduced: 'b80961a7 2026-07-30 feat(mcp): map the Tasks extension onto native WorkItem, gateway
         + native server (2.5)'
       cohort: []
@@ -977,17 +1161,20 @@ concepts:
       truncated_marker: ''
       sites:
       - .specify/design/mcp-apps-and-tasks-bridge/design.md:10
-      - agent_utilities/mcp/server_factory.py:1614
+      - agent_utilities/mcp/server_factory.py:1627
       - agent_utilities/mcp/tasks_extension.py:3
-      - agent_utilities/mcp/tasks_extension.py:52
-      - agent_utilities/mcp/tools/mcp_apps.py:16
-      - agent_utilities/orchestration/work_item.py:1337
+      - agent_utilities/mcp/tasks_extension.py:62
+      - agent_utilities/mcp/tools/mcp_apps.py:31
+      - agent_utilities/orchestration/work_item.py:1531
+      - docs/architecture/fastmcp4-default.md:186
+      - docs/architecture/mcp-2026-protocol-surface.md:82
       - tests/unit/test_mcp_tasks_extension_compatibility.py:5
   AU-ECO.mcp.tool-mode-standardization:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
@@ -1024,21 +1211,22 @@ concepts:
       truncated_marker: ''
       sites:
       - agent_utilities/mcp/_graphos_action_manifest.py:3
-      - agent_utilities/mcp/kg_server.py:3982
+      - agent_utilities/mcp/kg_server.py:4153
       - agent_utilities/mcp/readme_tools.py:1
       - agent_utilities/mcp/verbose_tools.py:29
       - agent_utilities/mcp/verbose_tools.py:796
-      - docs/architecture/configuration.md:110
+      - docs/architecture/configuration.md:105
       - docs/guides/mcp-tool-modes.md:129
       - scripts/gen_graphos_manifest.py:2
       - scripts/gen_graphos_manifest.py:375
-      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:1604
-      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:1649
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:1768
+      - tests/unit/mcp/test_multiplexer_dynamic_gateway.py:1813
   AU-ECO.mcp.toolkit-live-discovery:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
@@ -1067,13 +1255,14 @@ concepts:
       loop, exactly like every other tool the intent-surface diagram in docs/architecture/intent-surface.md
       depicts converging on the same _execute_tool core and REST gateway.
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.intent-surface-condensed-collapse
     suggestion_why: clusters with 9 sibling(s) around AU-ECO.mcp.intent-surface-condensed-collapse; shares
       agent_utilities/mcp/tools/intent_tools.py; the candidate parent already has a design document
     evidence:
       has_design_doc: false
-      in_baseline: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/tools/intent_tools.py
       test_files: []
@@ -1092,23 +1281,25 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/mcp/tools/intent_tools.py:1735
+      - agent_utilities/mcp/tools/intent_tools.py:1761
   AU-ECO.mcp.unified-mcp-skill-a2a-ingest:
     decision: document
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 2 marker site(s))'
+      file(s), 3 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine_ingestion.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/eco-mcp-unified-toolkit-ingestion/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-ECO.mcp.client-side-chat-session
@@ -1126,6 +1317,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-unified-toolkit-ingestion/design.md:3
       - agent_utilities/knowledge_graph/core/engine_ingestion.py:775
       - agent_utilities/knowledge_graph/core/engine_ingestion.py:785
   AU-ECO.mcp.usage-cost-observability-surface:
@@ -1135,14 +1327,16 @@ concepts:
       the session/turn/tool-call rows client-side chat ingestion writes; it is the read side of the same
       ingestion pipeline, not an independent choice.
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.client-side-chat-session
     suggestion_why: clusters with 1 sibling(s) around AU-ECO.mcp.client-side-chat-session; shares agent_utilities/gateway/usage_api.py,
       agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/write_ingest_tools.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
       has_design_doc: false
-      in_baseline: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/usage_api.py
       - agent_utilities/gateway_client/client.py
@@ -1173,48 +1367,40 @@ concepts:
       sites:
       - agent_utilities/gateway/usage_api.py:1
       - agent_utilities/gateway_client/client.py:148
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:27296
-      - agent_utilities/mcp/tools/write_ingest_tools.py:1469
-      - agent_utilities/server/app.py:714
-      - docs/capabilities-power.json:27296
-      - docs/capabilities-power.md:129
-      - docs/capabilities-power.md:4885
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:27790
+      - agent_utilities/mcp/tools/write_ingest_tools.py:1948
+      - agent_utilities/server/app.py:738
+      - docs/capabilities-power.json:27790
+      - docs/capabilities-power.md:131
+      - docs/capabilities-power.md:4972
       - tests/unit/test_usage_api.py:1
   AU-ECO.mcp.v2-gateway-otel-tracing:
     decision: retire
     parent: ''
     rationale: ''
-    reason: 'BUG-069: mcp_v2_gateway/ (the isolated MCP 2026-07-28 sidecar this concept
-      instrumented) was retired -- its mcp<2/FastMCP isolation premise expired once
-      agent-utilities moved to fastmcp>=4.0.0b1 / mcp==2.0.0 in-process, and the SDK
-      now serves 2026-07-28 natively on graph-os''s own /mcp endpoint. See
-      docs/architecture/mcp-2026-protocol-surface.md.'
-    suggestion: document
+    reason: 'BUG-069: mcp_v2_gateway/ (the isolated MCP 2026-07-28 sidecar this concept instrumented)
+      was retired -- its mcp<2/FastMCP isolation premise expired once agent-utilities moved to fastmcp>=4.0.0b1
+      / mcp==2.0.0 in-process, and the SDK now serves 2026-07-28 natively on graph-os''s own /mcp endpoint.
+      See docs/architecture/mcp-2026-protocol-surface.md.'
+    rename_to: ''
+    suggestion: review
     suggested_parent: ''
-    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 6 marker site(s))'
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
     evidence:
       has_design_doc: true
       in_baseline: false
-      source_files:
-      - mcp_v2_gateway/pyproject.toml
-      - mcp_v2_gateway/tracing.py
-      test_files:
-      - tests/mcp_v2_gateway/test_tracing.py
+      source_files: []
+      test_files: []
       doc_files:
       - .specify/design/v2-gateway-otel-tracing/design.md
-      - docs/architecture/mcp_v2_gateway.md
       introduced: '4844681e 2026-07-30 feat(mcp-v2-gateway): add OTel tracing + structured logging (2.8)'
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
       - .specify/design/v2-gateway-otel-tracing/design.md:3
-      - .specify/design/v2-gateway-otel-tracing/design.md:23
-      - docs/architecture/mcp_v2_gateway.md:74
-      - mcp_v2_gateway/pyproject.toml:8
-      - mcp_v2_gateway/tracing.py:3
-      - tests/mcp_v2_gateway/test_tracing.py:3
+      - .specify/design/v2-gateway-otel-tracing/design.md:33
   AU-ECO.mcp.verbose-auto-wire:
     decision: parent
     parent: AU-ECO.mcp.fleet-wide-verbose-auto
@@ -1222,13 +1408,15 @@ concepts:
       that fleet-wide-verbose-auto's document covers end to end -- one function, two concept ids on its
       docstring.
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-ECO.mcp.fleet-wide-verbose-auto
     suggestion_why: clusters with 1 sibling(s) around AU-ECO.mcp.fleet-wide-verbose-auto; shares agent_utilities/mcp/verbose_tools.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/mcp/verbose_tools.py
       test_files:
@@ -1260,10 +1448,11 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 5 marker site(s))'
+      file(s), 6 marker site(s))'
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -1273,6 +1462,7 @@ concepts:
       test_files:
       - tests/unit/server/test_webui_mcp_delegation.py
       doc_files:
+      - .specify/design/eco-mcp-shared-multiplexer-singleton/design.md
       - .specify/design/webui-governed-mcp-delegation/design.md
       introduced: '5e3424b0 2026-07-31 fix(webui): inject the governed MCP delegation the WebUI backend
         requires'
@@ -1280,8 +1470,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/eco-mcp-shared-multiplexer-singleton/design.md:16
       - .specify/design/webui-governed-mcp-delegation/design.md:3
       - .specify/design/webui-governed-mcp-delegation/design.md:23
-      - agent_utilities/server/app.py:828
+      - agent_utilities/server/app.py:852
       - agent_utilities/server/webui_mcp_delegation.py:3
       - tests/unit/server/test_webui_mcp_delegation.py:3
