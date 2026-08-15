@@ -149,17 +149,40 @@ jobs:
       # dominant lever on the suite's 36-47min serial wall-clock: this job
       # already runs with no real engine installed above, so it is pure
       # per-worker-process Python test execution with no shared engine
-      # binary/socket contention. `--dist loadgroup` is required, not
-      # optional, alongside it: it is a superset of the default `load`
-      # distribution that ADDITIONALLY honours `@pytest.mark.xdist_group`,
-      # which pins the handful of tests with real cross-worker/cross-host
-      # shared state (module-scoped fixtures that start a second real engine
-      # binary; anything sharing a resource-name-scoped lease directory) onto
-      # one worker instead of letting `load`'s item-level balancing split
-      # them. See perf/au-test-runtime for the serial-vs-parallel failure-set
-      # comparison this change was validated against before landing.
+      # binary/socket contention.
+      #
+      # `--dist loadfile` here (not `loadgroup`) is deliberate, and matches
+      # pytest.ini's addopts exactly -- CLI args win over addopts (pytest's
+      # own precedence), so a prior version of this line that passed
+      # `--dist loadgroup` silently overrode pytest.ini's `loadfile` and made
+      # CI run under a DIFFERENT distribution than every local/pre-push run.
+      # That is precisely the class of bug pytest.ini's own comment warns
+      # about: order-dependent module state turning into flakes once tests
+      # are split across workers.
+      #
+      # Why loadfile is the correct mode, not loadgroup: `loadgroup` is a
+      # superset of `load` (dynamic item-level balancing) that ADDITIONALLY
+      # colocates tests explicitly marked `@pytest.mark.xdist_group` -- but
+      # as of this fix only ONE file in the whole 17k+-test suite
+      # (tests/integration/protocols/test_a2a_epistemic_live.py) carries that
+      # mark. Every other file's order-dependent module state (e.g. the
+      # process-wide intent-surface-resolution-cache in tests/conftest.py)
+      # had NO protection under `loadgroup` -- `load`'s item-level balancing
+      # is free to split a file's tests across workers and interleave them
+      # with unrelated tests, which is exactly what pytest.ini's `loadfile`
+      # comment says must not happen. `loadfile` keeps every test in a file
+      # on one worker, in collection order, for the WHOLE suite -- a strictly
+      # stronger, already-proven-green guarantee (it's what every local and
+      # pre-push run has used) -- and it does so without needing per-test
+      # `xdist_group` marks: a module-scoped fixture (e.g. the real-engine
+      # binary in test_a2a_epistemic_live.py, the original reason
+      # `loadgroup` was chosen) only pays its startup cost once per worker
+      # under `loadfile` too, since all of that file's tests already land on
+      # the same worker. The `xdist_group` mark on that file is therefore
+      # redundant under `loadfile` (inert, harmless to leave in place) rather
+      # than load-bearing.
       - name: Test suite
-        run: python3 -m pytest -q -n auto --dist loadgroup
+        run: python3 -m pytest -q -n auto --dist loadfile
 
   # ── STAGE 2: build the release wheel. Needs: gates. ─────────────────────
   # This is release-critical item #3: wheel build + reproducibility +

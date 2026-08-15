@@ -183,18 +183,21 @@ repos:
       --exclude agent_utilities.knowledge_graph.adaptation.trace_distiller
     language: system
     pass_filenames: false
-    # always_run (not types: [python]) deliberately, matching
-    # check-no-env-sprawl/env-var-drift/lane-guard below: this hook does a
-    # full PACKAGE walk regardless of which files changed, so it must not
-    # depend on file-type matching -- this repo's own top-level
-    # `exclude: ^scripts/` (line 4) would otherwise silently skip this
-    # exact hook on any commit whose only .py change is under scripts/
-    # (confirmed: that is exactly what happened while authoring this hook
-    # itself -- `types: [python]` reported "no files to check" for a commit
-    # that added scripts/check_import_safety.py, because scripts/ is
-    # globally excluded from file-type matching). A gate that can be
-    # silently skipped by the shape of its own commit is not a gate.
-    always_run: true
+    # NOT `types: [python]` (this repo's own top-level `exclude: ^scripts/`,
+    # line 4, would silently skip this exact hook on a commit whose only
+    # .py change is under scripts/ -- confirmed: that is exactly what
+    # happened while authoring this hook itself). Uses an explicit `files:`
+    # regex instead so top-level `exclude:` cannot apply, while still
+    # scoping the INVOCATION (not the internal check, which still walks the
+    # whole `agent_utilities` package every time it runs) to commits that
+    # could actually change the result: source under `agent_utilities/`
+    # itself, or a dependency change (a new/updated dep can introduce an
+    # unconditional platform-only import just as easily as new source can).
+    # Measured 2026-08-15: ~12s standalone -- real cost, worth scoping;
+    # skipping is provably safe because if none of these paths changed, the
+    # whole-package Windows-import-safety result cannot have changed either
+    # (it was already checked, always_run, on every prior commit).
+    files: ^(agent_utilities/.*|pyproject\.toml|uv\.lock)$
   - id: check-no-env-sprawl
     name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
     entry: python3 scripts/check_no_env_sprawl.py
@@ -212,7 +215,13 @@ repos:
     entry: python3 -m agent_utilities.mcp.check_env_var_drift --check
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped, not always_run: the script's own `_NON_RUNTIME_SOURCE_DIRS`
+    # (docs/examples/reports/scripts/test/tests) already declares those
+    # trees irrelevant to its os.environ-read scan -- it only walks runtime
+    # source (agent_utilities/, deploy/, docker/) plus .env.example itself.
+    # A commit outside those paths cannot change this hook's verdict.
+    # Measured 2026-08-15: ~13s standalone.
+    files: ^(agent_utilities/.*|deploy/.*|docker/.*|\.env\.example|pyproject\.toml)$
   - id: lane-guard
     name: Lane guard — canonical checkout is read-only; generated views stay generated
     # Two rules that were documented and violated anyway, now mechanical:
@@ -256,19 +265,35 @@ repos:
     entry: python3 scripts/check_ontology.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: every *.ttl in this repo lives under agent_utilities/knowledge_
+    # graph/ (verified: `find . -name '*.ttl'` has no hits outside it), and
+    # the gate's own 7th rule cross-references docs/architecture/
+    # ontology_library.md. The graph-connectivity/SHACL checks themselves
+    # still scan the WHOLE ontology library every time this runs (unchanged
+    # -- adding/removing one file can only break connectivity if a .ttl
+    # actually changed); only the invocation is scoped. If neither a .ttl
+    # nor that one doc changed, the ontology library's validity/connectivity
+    # cannot have changed either. Measured 2026-08-15: ~38s standalone --
+    # the single most expensive per-file-scopable hook after the two
+    # rejected below.
+    files: \.ttl$|^docs/architecture/ontology_library\.md$
   - id: check-identifier-interpolation
     name: Identifier interpolation — every label/table/rel-type f-string is validated
     entry: python3 scripts/check_identifier_interpolation.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: scans agent_utilities/**.py only (pkg_root = ROOT/"agent_utilities"
+    # in the script). ~19s standalone.
+    files: ^agent_utilities/.*\.py$
   - id: check-swallowed-errors
     name: Swallowed errors — no NEW cause-dropping exception handler (ratchet)
     entry: python3 scripts/check_swallowed_errors.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: scans agent_utilities/**.py only (PKG = ROOT/"agent_utilities"
+    # in the script) plus its own ratchet baseline file -- included so
+    # editing the baseline itself still re-triggers the check. ~12s standalone.
+    files: ^(agent_utilities/.*\.py|scripts/swallowed_error_baseline\.txt)$
   - id: check-event-loop-blocking
     name: Event-loop blocking heuristic (ratchet — no new candidate sites)
     entry: python3 scripts/check_event_loop_blocking.py
@@ -298,12 +323,26 @@ repos:
     entry: python3 scripts/check_wiring.py --wire-first-report
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: cross-references agent_utilities/**.py (the reachable surface)
+    # against tests/**.py (what's invoked from tests) plus its own ratchet
+    # baseline file. If none of those changed, neither side of the
+    # reachable-vs-invoked comparison could have moved. ~23s standalone.
+    files: ^(agent_utilities/.*\.py|tests/.*\.py|scripts/wire_first_baseline\.json)$
   - id: check-release-catalogs
     name: Release catalogs match the checked-in connector manifests (D-35-9)
     entry: python3 scripts/release/check_release_catalogs.py
     language: system
     pass_filenames: false
+    # NOT scoped, despite being expensive (~42s standalone, measured
+    # 2026-08-15): its inputs cross a repo boundary this diff cannot see.
+    # generate_connector_bundle_catalog.py's DEFAULT_AGENTS_ROOT resolves to
+    # the SIBLING agent-packages/agents/ fleet checkout, outside this repo
+    # entirely -- a connector added/changed there can drift this repo's
+    # catalog with ZERO staged files here. always_run is already the only
+    # thing giving that drift a chance to be caught (on whatever commit
+    # happens next in this repo); a `files:` filter would only narrow that
+    # window further with no corresponding safety proof, so left alone per
+    # "only scope when scoping cannot make it miss a violation."
     always_run: true
   - id: check-skill-name-collision
     name: Skill names globally unique across the fleet (install-all, no overlap)
@@ -413,6 +452,11 @@ repos:
     entry: python scripts/security_sanitizer.py
     language: python
     pass_filenames: false
+    # NOT scoped, despite measurable cost (~8s standalone, measured
+    # 2026-08-15): secret/garbage-pattern scanning is exactly the class of
+    # whole-repo invariant a `files:` filter cannot safely narrow -- an
+    # unmasked secret can land in any tracked file type. Whole-repo by
+    # design, same reasoning as guardrail-tracked-privacy below.
     always_run: true
 # Plan 10 guardrail gates. Each defends a specific failure vector and has a
 # meta-test in tests/gates/ proving it trips on a broken fixture. BLOCKING gates
@@ -458,24 +502,47 @@ repos:
     entry: python3 scripts/check_surface_parity.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: this gate imports the live agent_utilities package and
+    # introspects the runtime gateway/MCP tool registry (reflection, not a
+    # static text scan of some other tree) -- its verdict is a pure function
+    # of agent_utilities/ source. ~14s standalone.
+    files: ^agent_utilities/.*
   - id: guardrail-cpd-drift
     name: Guardrail — Capability Power Descriptors stay in sync (Seam 8 CPD)
     entry: python3 scripts/check_cpd.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: regenerates the CPD set from the live tool registry (reflection
+    # over agent_utilities/) and diffs it against the packaged
+    # agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+    # catalog -- both sides of the comparison live under agent_utilities/,
+    # so a single prefix pattern covers source and packaged-catalog drift
+    # alike. ~8s standalone.
+    files: ^agent_utilities/.*
   - id: guardrail-docs-contract
     name: Guardrail — docs catalog, links, nav, and generated inventories
     entry: python3 scripts/docs_contract.py --check
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: nav/link/catalog checks target docs/, mkdocs.yml, and README.md
+    # directly; the "generated inventories" leg (capabilities-power.md/json
+    # etc.) is derived from the live agent_utilities/ surface, so source
+    # changes there are included too -- a commit touching neither docs/config
+    # nor agent_utilities/ source cannot move either side of this contract.
+    # ~18s standalone.
+    files: ^(docs/.*|README\.md|mkdocs\.yml|agent_utilities/.*\.py)$
   - id: guardrail-tracked-privacy
     name: Guardrail — tracked public artifacts contain no host-specific data or local identities
     entry: python3 scripts/check_tracked_privacy.py
     language: system
     pass_filenames: false
+    # NOT scoped, despite being expensive (~19s standalone, measured
+    # 2026-08-15): same class as security-sanitizer/secret scanning below --
+    # a privacy leak (hostname, local path, identity) can land in ANY
+    # tracked file type (docs, config, fixtures, notebooks), not just
+    # agent_utilities/**.py, so no `files:` regex narrower than "everything
+    # tracked" can be proven not to miss one. Left whole-repo per the
+    # explicit carve-out for security/privacy-critical invariant checks.
     always_run: true
   - id: guardrail-kg-skill-coverage
     name: Guardrail — every Graph-OS verb has domain-skill coverage
@@ -609,6 +676,16 @@ repos:
     entry: python3 scripts/check_liveness.py
     language: system
     pass_filenames: false
+    # NOT scoped, despite being the single most expensive default-stage
+    # local hook measured (~65s standalone, 2026-08-15): its own docstring
+    # names a TIME-based invariant a file diff cannot detect -- "a past-due
+    # deferred entry also fails the gate" (scripts/liveness_deferred.tsv's
+    # owner + review-by expiry). A deferred item can cross its review-by
+    # date with zero files changed in this repo, so a `files:` filter would
+    # let that regression go undetected past its expiry until some unrelated
+    # future commit happens to touch a matched path. Left always_run per
+    # "only scope when scoping cannot make it miss a violation" -- this is
+    # exactly that case, not a rationalization to avoid the work.
     always_run: true
   - id: guardrail-removed-symbol-consumers
     name: Guardrail — no removed/renamed public symbol still imported by the fleet
