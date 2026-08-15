@@ -496,6 +496,69 @@ def _cas(
     return bool(fn(node_id, conditions, updates))
 
 
+def _cas_work_item_metadata(
+    engine: Any,
+    *,
+    tenant: str,
+    item_id: str,
+    expected_status: list[str],
+    now: float,
+    expected_lease: dict[str, Any] | None = None,
+    expected_checkpoint_id: str | None = None,
+    set_checkpoint_id: str | None = None,
+    expected_metadata: dict[str, Any] | None = None,
+    set_metadata: dict[str, Any] | None = None,
+    expected_prio_bucket: int | None = None,
+    set_prio_bucket: int | None = None,
+) -> bool:
+    """Native atomic CAS on one WorkItem's non-authority SCHEDULING METADATA
+    (checkpoint_id / metadata / prio_bucket) -- BUG-111's closed capability gap.
+
+    Replaces a raw :func:`_cas` (generic ``CompareAndSetNodeFields``) call on
+    an already-claimed WorkItem row, which the engine's native-WorkItem-
+    authority guard unconditionally refuses (RMDD-29). This goes through the
+    engine-native ``CasWorkItemMetadata`` RPC instead -- the SAME durable
+    WorkItem mutation authority ``ClaimWorkItem``/``RenewWorkItemLease`` use
+    (commit-before-ack), never a side path -- which distinguishes three
+    outcomes: ``"applied"``, ``"conflict"`` (a genuine lost race -- the row
+    exists but status/lease/the field's own expected prior value no longer
+    matches), and ``"not_found"`` (no such WorkItem row).
+
+    This wrapper still returns a plain ``bool`` (``True`` only for
+    ``"applied"``) to match every call site's existing ``bool`` contract --
+    conflict and not-found both read as ``False`` here, exactly as a stale-
+    condition CAS mismatch always has in this module (:func:`heartbeat`,
+    :func:`mark_running`, and the raw :func:`_cas` sites all collapse "lost
+    the race" to ``False`` for the same reason: the caller re-reads and
+    decides whether to retry). The three-way distinction is not lost -- it
+    lives at the wire/client layer (:meth:`WorkItemClient.cas_metadata`),
+    which is what actually cannot be collapsed. What this function does NOT
+    tolerate silently is a genuine CAPABILITY gap or a malformed engine
+    response: those still raise :class:`WorkItemBackendUnavailable` /
+    :class:`NativeWorkItemRequired`, never a silent ``False``.
+    """
+    request = {
+        "tenant": tenant,
+        "work_item_id": item_id,
+        "expected_status": list(expected_status),
+        "now_ms": max(0, int(now * 1000)),
+        "expected_lease": expected_lease,
+        "expected_checkpoint_id": expected_checkpoint_id,
+        "set_checkpoint_id": set_checkpoint_id,
+        "expected_metadata": expected_metadata,
+        "set_metadata": set_metadata,
+        "expected_prio_bucket": expected_prio_bucket,
+        "set_prio_bucket": set_prio_bucket,
+    }
+    answer = _native_call(engine, "cas_work_item_metadata", request)
+    outcome = answer.get("outcome") if isinstance(answer, dict) else None
+    if outcome not in {"applied", "conflict", "not_found"}:
+        raise WorkItemBackendUnavailable(
+            f"native CasWorkItemMetadata returned an invalid result for {item_id!r}"
+        )
+    return outcome == "applied"
+
+
 def _is_native_authority_refusal(exc: BaseException) -> bool:
     """True when ``exc`` is the engine's native WorkItem-authority guard
     (``epistemic-graph``'s ``work_item_capability`` module, RMDD-29) refusing a
@@ -1353,18 +1416,20 @@ def checkpoint_work_item(
         return False
     epoch = claim.get("lease_epoch", claim.get("fence_token"))
     fencing_token = claim.get("fencing_token", claim.get("fence_token"))
-    conditions = {
-        "status": item.get("status"),
-        "tenant": item.get("tenant"),
-        "lease_owner": claim.get("lease_owner") or _default_token(),
-        "lease_epoch": epoch,
-        "fencing_token": fencing_token,
-    }
-    return _cas(
+    lease_owner = claim.get("lease_owner") or _default_token()
+    return _cas_work_item_metadata(
         engine,
-        item_id,
-        conditions,
-        {"checkpoint_id": checkpoint_id, "updated_at": now},
+        tenant=str(item.get("tenant") or ""),
+        item_id=item_id,
+        expected_status=[str(item.get("status"))],
+        now=now,
+        expected_lease={
+            "worker_ref": lease_owner,
+            "lease_epoch": epoch,
+            "fencing_token": fencing_token,
+        },
+        expected_checkpoint_id=item.get("checkpoint_id"),
+        set_checkpoint_id=checkpoint_id,
     )
 
 
@@ -1643,16 +1708,20 @@ def request_work_item_input(
     new_metadata = dict(old_metadata)
     new_metadata["pending_input_request"] = clean_request
     new_metadata.pop("pending_input_response", None)
-    conditions = {
-        "status": item.get("status"),
-        "tenant": item.get("tenant"),
-        "lease_owner": claim.get("lease_owner") or _default_token(),
-        "lease_epoch": epoch,
-        "fencing_token": fencing_token,
-        "metadata": old_metadata,
-    }
-    return _cas(
-        engine, item_id, conditions, {"metadata": new_metadata, "updated_at": now}
+    lease_owner = claim.get("lease_owner") or _default_token()
+    return _cas_work_item_metadata(
+        engine,
+        tenant=str(item.get("tenant") or ""),
+        item_id=item_id,
+        expected_status=[str(item.get("status"))],
+        now=now,
+        expected_lease={
+            "worker_ref": lease_owner,
+            "lease_epoch": epoch,
+            "fencing_token": fencing_token,
+        },
+        expected_metadata=old_metadata,
+        set_metadata=new_metadata,
     )
 
 
@@ -1692,9 +1761,14 @@ def submit_work_item_input(
     new_metadata = dict(old_metadata)
     new_metadata["pending_input_response"] = clean_response
     new_metadata.pop("pending_input_request", None)
-    conditions = {"tenant": tenant, "metadata": old_metadata}
-    return _cas(
-        engine, item_id, conditions, {"metadata": new_metadata, "updated_at": now}
+    return _cas_work_item_metadata(
+        engine,
+        tenant=tenant,
+        item_id=item_id,
+        expected_status=["leased", "running"],
+        now=now,
+        expected_metadata=old_metadata,
+        set_metadata=new_metadata,
     )
 
 
@@ -2518,14 +2592,14 @@ def set_work_item_priority(
         if item is None or item.get("status") in TERMINAL_WORK_ITEM_STATUSES:
             return False
         current = int(item.get("prio_bucket") or 0)
-        if _cas(
+        if _cas_work_item_metadata(
             engine,
-            item_id,
-            {"prio_bucket": current, "status": item.get("status")},
-            {
-                "prio_bucket": _coerce_prio_bucket(priority),
-                "updated_at": now,
-            },
+            tenant=str(item.get("tenant") or ""),
+            item_id=item_id,
+            expected_status=[str(item.get("status"))],
+            now=now,
+            expected_prio_bucket=current,
+            set_prio_bucket=_coerce_prio_bucket(priority),
         ):
             return True
     return False
