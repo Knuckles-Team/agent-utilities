@@ -63,18 +63,29 @@ DEFAULT_DB_PATH = str(
 # the correct universal default (config discipline — no flag for a one-correct-value).
 RESERVED_INTERACTIVE_INSTANCES = 1
 
+# D-PERF-2 (test-suite acceleration program): this module is imported by ~420
+# other modules across the codebase (near-universal — most tests transitively
+# import it), so an eager `import logfire` here pays logfire's full import
+# chain (logfire._internal.* + the whole opentelemetry SDK/OTLP-exporter
+# stack + pydantic_core + requests/urllib3) on every one of those imports,
+# even though this module only ever needs a yes/no "is logfire installed"
+# answer, never the `logfire` module object itself (nothing here or anywhere
+# downstream does `from agent_utilities.core.config import logfire`).
+# `importlib.util.find_spec` answers that without executing the package's
+# `__init__.py` (or any of its submodules), so it is orders of magnitude
+# cheaper than a real import while HAS_LOGFIRE keeps IDENTICAL semantics for
+# every consumer. Call sites that need the real API (e.g.
+# agent_utilities/observability/custom_observability.py) still import
+# `logfire` themselves, lazily, at the point of use.
+import importlib.util
+
 from agent_utilities.base_utilities import (
     to_boolean,
     to_dict,
     to_list,
 )
 
-try:
-    import logfire  # noqa: F401
-
-    HAS_LOGFIRE = True
-except ImportError:
-    HAS_LOGFIRE = False
+HAS_LOGFIRE = importlib.util.find_spec("logfire") is not None
 
 os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "false")
 
