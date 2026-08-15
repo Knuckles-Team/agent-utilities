@@ -60,6 +60,27 @@ def _isolate_correlation_id():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_resource_priority():
+    """Reset the ambient resource-priority contextvar around every test.
+
+    Same leak shape as ``_isolate_correlation_id`` above:
+    ``resource_priority.bind_priority()`` calls ``_priority.set(value)`` with
+    no token/reset of its own (correct for production: it should persist for
+    the whole request/call scope), but a pytest-xdist worker reuses one
+    thread/context across many test items, so any test that reaches that
+    path leaves the priority contextvar set for every later test in the same
+    worker regardless of file/collection order.
+    """
+    from agent_utilities.core import resource_priority
+
+    token = resource_priority._priority.set(None)
+    try:
+        yield
+    finally:
+        resource_priority._priority.reset(token)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_model_circuit_breakers():
     """Reset the process-wide model circuit-breaker registry around every test.
 

@@ -77,6 +77,21 @@ def test_camelcase_read_genuinely_warns_before_the_patch() -> None:
     """Sanity check: proves the deprecation warning this item reports is real,
     not a false positive — so a passing patched-path test below is meaningful."""
     import mcp_types
+    from fastmcp import _compat
+
+    # fastmcp._compat.install() bridges each camelCase property with a
+    # warn-ONCE-per-(class, name) closure flag ("warned" in _make_property) --
+    # process-lifetime state with no public reset, entirely independent of
+    # Python's own warnings-filter machinery (which warnings.catch_warnings/
+    # simplefilter("always") only controls). Any other test in the same
+    # pytest-xdist worker that already read `Tool.inputSchema` once leaves
+    # that closure's `warned` flag permanently True, so this test's own read
+    # silently stops warning depending on run order. Force a fresh install
+    # (install() itself is a no-op once `_installed` is True) so this test
+    # observes the real, first-read warning behavior regardless of what ran
+    # before it in this worker.
+    _compat._installed = False
+    _compat.install()
 
     tool = mcp_types.Tool(name="t1", input_schema={"type": "object"})
     with warnings.catch_warnings(record=True) as caught:
