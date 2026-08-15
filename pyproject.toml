@@ -836,6 +836,25 @@ guardrails = [
     "pyyaml>=6.0.3",
     "rdflib>=7.6.0",
 ]
+# Build-backend tooling only: `build_backend.py` imports `setuptools` and
+# `packaging` at module scope (`wheel` is required transitively — setuptools's
+# `bdist_wheel` command is implemented by the `wheel` distribution and
+# discovered via its entry points). The release job builds with
+# `--no-build-isolation`, which deliberately skips installing
+# `[build-system] requires` and instead reuses whatever is already synced —
+# so these three MUST be present in the synced environment or the backend
+# import fails (`ModuleNotFoundError: setuptools`). Kept as its own group
+# (not folded into `guardrails`, which is guardrail-domain tooling and
+# unrelated to packaging) and synced ONLY by the `build` job — mirrors
+# `[build-system] requires` so the pinned floors stay one source of truth in
+# spirit. `[tool.uv.extra-build-dependencies]` was considered and rejected:
+# that mechanism only supplements an *isolated* build env and is a no-op
+# under `--no-build-isolation`, which this job uses on purpose.
+build = [
+    "setuptools>=83.0.0",
+    "wheel>=0.47.0",
+    "packaging>=26.2.0",
+]
 
 
 # Pytest configuration lives in pytest.ini, not here. Both files used to carry
