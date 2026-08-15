@@ -69,6 +69,7 @@ class _ClaimHarness:
         return self._tok
 
     _control = TaskManagerMixin._control
+    _control_session_scope = TaskManagerMixin._control_session_scope
     _control_cypher = TaskManagerMixin._control_cypher
     _work_item_engine = TaskManagerMixin._work_item_engine
     _remember_work_item_claim = TaskManagerMixin._remember_work_item_claim

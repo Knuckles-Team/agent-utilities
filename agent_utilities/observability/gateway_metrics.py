@@ -292,6 +292,37 @@ LANE_IN_FLIGHT = _gauge(
     "In-flight (currently claimed/running) KG tasks by functional lane.",
     ("lane",),
 )
+# WorkItem claim/admission contention observability (U-65/U-73/BUG-111): a live
+# 1.5-CPU/4-GiB pod ran 69 host-sized workers that produced 2,278 claim calls +
+# 344 admission-denied defers in a 5-minute window with no visibility into why.
+# These are sampled directly from the poll loop (agent_utilities.knowledge_graph
+# .core.engine_tasks.TaskManagerMixin._task_worker_loop), not a periodic
+# scheduler tick, so they reflect live contention rather than a point sample.
+WORK_ITEM_ACTIVE_WORKERS = _gauge(
+    "agent_utilities_work_item_active_workers",
+    "Ingest task workers started by this process (compute_ingest_worker_count()).",
+)
+WORK_ITEM_CLAIM_IN_FLIGHT = _gauge(
+    "agent_utilities_work_item_claim_in_flight",
+    "1 while a worker holds the process-local claim/admission gate, else 0.",
+)
+WORK_ITEM_POLL_OUTCOMES = _counter(
+    "agent_utilities_work_item_poll_outcomes_total",
+    "WorkItem poll results by outcome (claimed|idle|gate_skipped) -- bounded label set.",
+    ("outcome",),
+)
+WORK_ITEM_CLAIM_LATENCY = _histogram(
+    "agent_utilities_work_item_claim_latency_seconds",
+    "Wall time of one native claim_next + admission-decide round trip.",
+)
+WORK_ITEM_IDLE_BACKOFF_SECONDS = _histogram(
+    "agent_utilities_work_item_idle_backoff_seconds",
+    "Sleep duration chosen by the idle-poll backoff (bounded exponential + jitter).",
+)
+WORK_ITEM_ADMISSION_DEFERRALS = _counter(
+    "agent_utilities_work_item_admission_deferrals_total",
+    "Claims released back to the queue because AdmissionPolicy denied them.",
+)
 # MCP multiplexer per-child resilience (CONCEPT:AU-ECO.mcp.profile-differences-from-client): one series per
 # aggregated child server (~50, bounded by mcp_config.json). The multiplexer
 # runs standalone; like every metric here these degrade to no-ops when

@@ -31,11 +31,10 @@ from agent_utilities.security.brain_context import ActorContext
 def _create_engine():
     """Create a minimal IntelligenceGraphEngine for testing."""
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,
     )
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     compute = GraphComputeEngine(backend_type="rust")
     # Bind both the NX-style ``.graph`` facade AND ``.backend``'s Cypher path to
@@ -48,6 +47,24 @@ def _create_engine():
     backend = EpistemicGraphBackend()
     backend._graph = compute
     engine = IntelligenceGraphEngine(backend=backend)
+    # U-16/BUG-113: IntelligenceGraphEngine._build_control_backend now binds
+    # the WorkItem control authority to the fixed shard_topology.
+    # CONTROL_GRAPH_NAME ("__control__") graph regardless of what content
+    # graph this engine's own backend happens to be scoped to -- matching
+    # every other non-default named graph this suite's isolated-graph
+    # fixture pre-creates (``client.tenants.create(...)``, see
+    # ``tests/conftest.py``'s ``_isolated_init``). ``__control__`` is not one
+    # of that fixture's redirect sentinels (only ``__commons__``/
+    # ``__secrets__`` are), so it is never auto-created for a hand-built
+    # engine like this one; ensure it here, once, the same idempotent way.
+    try:
+        compute._client.tenants.create(
+            engine.control_backend.graph_name, "Agent"
+        )
+    except Exception:  # noqa: BLE001 — already exists (a prior test's engine
+        # created it first) is the expected steady state; anything else
+        # surfaces the next time the control graph is actually used.
+        pass
     return engine
 
 

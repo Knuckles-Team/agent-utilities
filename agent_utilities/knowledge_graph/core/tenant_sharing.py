@@ -202,7 +202,18 @@ def stamp_ownership(
       KG-2.58 named-graph/sharded mode.
     * **Private-by-default ownership** (``_owner_id`` + ``_shared_scope``) is
       added only for a real, non-privileged actor; privileged/system writes are
-      left **unowned** so platform data stays visible to everyone in the tenant.
+      left **unowned** (no ``_owner_id``) so platform data stays visible to
+      everyone in the tenant, but they still get an explicit
+      ``_shared_scope="org"`` marker (U-77 / GOC-61): the native engine's
+      row-level guard denies any row that carries neither a recognized owner
+      marker (``_owner_id``/``_owner``) nor a recognized visibility marker
+      (``_shared_scope``/``_visibility``) — an unowned row with no scope marker
+      at all reads back as zero rows through native Cypher even though it is
+      present on disk and readable through the raw node/property API. Stamping
+      ``_shared_scope="org"`` (via ``setdefault``, so a caller-supplied
+      narrower scope such as an explicit ``"private"`` share is preserved) is
+      what makes a privileged write visible to the native query plan without
+      granting it a personal owner.
 
     Existing markers are never overwritten (a re-write or an explicit share is
     not silently reset to private).
@@ -211,8 +222,10 @@ def stamp_ownership(
     if actor.tenant_id:
         properties.setdefault(TENANT_KEY, actor.tenant_id)
     if is_privileged(actor):
+        properties.setdefault(SCOPE_KEY, SCOPE_ORG)
         return
     if not actor.actor_id or actor.actor_id == "system":
+        properties.setdefault(SCOPE_KEY, SCOPE_ORG)
         return
     properties.setdefault(OWNER_KEY, actor.actor_id)
     properties.setdefault(SCOPE_KEY, SCOPE_PRIVATE)

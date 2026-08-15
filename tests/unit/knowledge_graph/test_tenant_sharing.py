@@ -45,6 +45,45 @@ def test_stamp_ownership_skips_privileged():
     assert props[ts.TENANT_KEY] == "acme"  # but still tenant-attributed
 
 
+def test_stamp_ownership_privileged_still_gets_shared_scope_marker():
+    """U-77: an unowned privileged write must still carry a native-recognized
+    visibility marker (``_shared_scope``), or the engine's row-level guard
+    (which denies any row with neither an owner nor a scope marker) makes the
+    row invisible to native Cypher after a process restart even though it is
+    present on disk and visible through the raw node/property API."""
+    props: dict = {}
+    ts.stamp_ownership(props, _user("root", "acme", roles=("kg:admin",)))
+    assert ts.OWNER_KEY not in props  # still unowned -- no personal owner
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG  # but now natively visible
+
+
+def test_stamp_ownership_privileged_preserves_narrower_caller_scope():
+    """A caller-supplied narrower scope (e.g. an explicit private share) must
+    survive privileged stamping -- the ``org`` default is only a ``setdefault``,
+    never an overwrite."""
+    props: dict = {ts.SCOPE_KEY: ts.SCOPE_PRIVATE}
+    ts.stamp_ownership(props, _user("root", "acme", roles=("kg:admin",)))
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_PRIVATE
+    assert ts.OWNER_KEY not in props
+
+
+def test_stamp_ownership_system_actor_still_gets_shared_scope_marker():
+    """The ``actor_id == "system"`` early-return path is the same intentional
+    "unowned platform write" case as ``is_privileged`` -- see the module
+    docstring's "privileged/system writes are left unowned" -- so it must get
+    the same native-visibility marker."""
+    props: dict = {}
+    actor = ActorContext(
+        actor_id="system",
+        actor_type=ActorType.SYSTEM,
+        tenant_id="acme",
+        authenticated=True,
+    )
+    ts.stamp_ownership(props, actor)
+    assert ts.OWNER_KEY not in props
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG
+
+
 def test_stamp_ownership_rejects_unverified_system_actor():
     props: dict = {}
     with pytest.raises(PermissionError):
