@@ -559,7 +559,39 @@ test = [
     # suite (numeric parity, knowledge_graph engine-client tests, etc.) genuinely
     # exercises epistemic-graph and must not silently run engine-absent. Add `feeds`
     # (RSS ingestion tests) and the explicit backend extras the suite exercises.
-    "agent-utilities[graphos,agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]"
+    "agent-utilities[graphos,agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]",
+    # DEV/TEST-ONLY — a hermetic in-memory comparator, never imported by runtime code.
+    # tests/knowledge_graph/test_pack_owl_closure.py, tests/unit/knowledge_graph/
+    # test_owl_closure.py and tests/unit/knowledge_graph/test_federation.py build a
+    # plain networkx graph at module scope as the ground-truth LPG to assert the
+    # engine's OWL/RDFS+ transitive closure and federation semantics against, without
+    # standing up a real backend. Pure Python, no native/ML weight — does not fall
+    # under the torch/transformers "Dependency discipline" ban.
+    "networkx>=3.6.1",
+    # DEV/TEST-ONLY. `agent_utilities/core/event_loop.py` already lazy-imports
+    # nest_asyncio (try/except ImportError, inside `allow_nested_run_sync()`, only
+    # when a loop is already running) so it is correctly absent from runtime/core
+    # deps. tests/unit/core/test_event_loop.py must import it directly at module
+    # scope to `monkeypatch.setattr(nest_asyncio, "apply", ...)` and prove the shim
+    # never patches process-wide asyncio state outside that one scoped case.
+    "nest_asyncio>=1.6.0",
+    # `agent_utilities/messaging/alert_intake.py` (the opt-in HTTP alert-intake
+    # server, only imported by messaging/daemon.py when MESSAGING_ALERT_INTAKE_PORT
+    # is set — never on the default import path) needs aiohttp.web unconditionally
+    # the moment IT is imported. tests/unit/messaging/test_alert_intake_security.py
+    # exercises that module directly. aiohttp is already a floor-pinned dependency
+    # of this project (see the `documents` extra, CVE-2026-50269/54274/54275) but
+    # that extra is not part of `test`'s selection, so pin the same floor here too
+    # rather than dragging in the unrelated llama-index/nltk/pypdf stack.
+    "aiohttp>=3.14.1",
+    # DEV/TEST-ONLY. setuptools is already a `[build-system] requires` floor
+    # (>=83.0.0) for this project's own PEP 517 backend (`build_backend.py`, which
+    # wraps `setuptools.build_meta` to embed a deterministic CycloneDX SBOM) — build
+    # requirements are installed only into an ephemeral build environment, not the
+    # runtime venv. tests/unit/release/test_release_evidence_tooling.py imports
+    # `build_backend` directly to unit-test that SBOM logic, so the same floor must
+    # also be reachable at test time.
+    "setuptools>=83.0.0"
 ]
 # CONCEPT:KG-2.0 / KG-2.7 — live cross-backend parity + enterprise-profile e2e.
 # Pulls every storage/queue/SPARQL driver plus testcontainers so
