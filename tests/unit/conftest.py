@@ -57,3 +57,29 @@ def _isolate_correlation_id():
         yield
     finally:
         correlation._correlation_id.reset(token)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_model_circuit_breakers():
+    """Reset the process-wide model circuit-breaker registry around every test.
+
+    ``core.model_circuit_breaker._breakers`` is a module-level cache keyed by
+    endpoint, shared by every caller in the process (embeds, enrichment,
+    orchestration, the context compiler's governed model invocation). A test
+    that trips a breaker OPEN (a real connection failure, an intentionally
+    exercised error path, ...) leaves it open for every later test in the
+    same pytest-xdist worker that happens to route through the same model
+    key, regardless of which file/test actually caused the failure --
+    surfacing as an unrelated ``GroundingUnavailableError:
+    ...circuit_breaker_open`` in a test that never touched a breaker itself.
+    The module already ships ``reset_circuit_breakers()`` "for test isolation"
+    (its own docstring) but nothing was calling it. Reset before AND after so
+    a test that trips it deliberately doesn't leak the open state forward.
+    """
+    from agent_utilities.core.model_circuit_breaker import reset_circuit_breakers
+
+    reset_circuit_breakers()
+    try:
+        yield
+    finally:
+        reset_circuit_breakers()
