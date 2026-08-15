@@ -1984,6 +1984,7 @@ dependencies = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.24.0" },
     { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.24.0" },
+    { name = "maturin", marker = "extra == 'test'", specifier = ">=1.0,<2.0" },
     { name = "msgpack", specifier = ">=1.2.1" },
     { name = "numpy", specifier = ">=1.22.0" },
     { name = "numpy", marker = "extra == 'quant'", specifier = ">=1.22.0" },
@@ -1994,6 +1995,7 @@ requires-dist = [
     { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=4.0.0" },
     { name = "pytest-timeout", marker = "extra == 'test'", specifier = ">=2.1.0" },
     { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.0.0" },
+    { name = "pyyaml", marker = "extra == 'test'", specifier = ">=6.0.3" },
 ]
 provides-extras = ["all", "ast", "datascience", "finance", "full", "lake-parity", "lmcache", "numeric", "owl", "quant", "reasoning", "server", "test"]
 
