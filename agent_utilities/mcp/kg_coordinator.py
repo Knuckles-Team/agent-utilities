@@ -48,7 +48,7 @@ class KGCoordinator:
             # Any HTTP status code (including 404 Not Found) means the web server is alive and responding!
             return True
         except Exception as e:  # noqa: BLE001 — health probe, a failed probe already returns False to the caller
-            logger.debug(f"KG server health check failed: {e}")
+            logger.debug(f"KG server health check failed: {type(e).__name__}")
             return False
 
     @classmethod
@@ -83,7 +83,7 @@ class KGCoordinator:
                         except Exception:
                             pass
         except Exception as e:  # noqa: BLE001 — best-effort process-listing lookup, another fallback method follows
-            logger.debug(f"psutil.net_connections lookup failed: {e}")
+            logger.debug(f"psutil.net_connections lookup failed: {type(e).__name__}")
 
         # 2. Terminate any lingering kg_server.py processes
         for proc in psutil.process_iter(["pid", "name", "cmdline"]):
@@ -211,7 +211,9 @@ class KGCoordinator:
                         close_fds=True,
                     )
             except Exception as e:
-                logger.error(f"Failed to spawn background centralized KG server: {e}")
+                logger.error(
+                    f"Failed to spawn background centralized KG server: {type(e).__name__}"
+                )
                 return False
 
             # Poll port until active and healthy (up to 5 seconds)

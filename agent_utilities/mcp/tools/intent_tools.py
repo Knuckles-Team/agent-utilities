@@ -1119,7 +1119,7 @@ async def dispatch_intent(
     try:
         raw_hints = _normalize_documented_hint_aliases(dict(hints or {}))
     except ValueError as exc:
-        return {"error": str(exc), "executed": False}
+        return {"error": type(exc).__name__, "executed": False}
     if verb not in _DISPATCH_VERBS:
         return {
             "error": "Unsupported GraphOS intent verb.",
@@ -1251,7 +1251,7 @@ async def dispatch_intent(
                 {**raw_hints, "tool": chosen_tool}
             )
         except ValueError as exc:
-            return {"error": str(exc), "executed": False}
+            return {"error": type(exc).__name__, "executed": False}
     available_actions = _actions_by_tool().get(chosen_tool, [])
     if explicit_action is not None and explicit_action not in available_actions:
         return {

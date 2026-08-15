@@ -1477,7 +1477,7 @@ async def _register_and_heartbeat_forever(name: str, url: str, ttl_secs: int) ->
         except Exception as exc:  # noqa: BLE001 — self-registration retry loop, will retry next iteration
             logger.debug(
                 "Fleet self-registration attempt failed, will retry: %s",
-                exc,
+                type(exc).__name__,
             )
         await asyncio.sleep(interval)
 
@@ -2158,10 +2158,12 @@ def _register_skill_providers(mcp: Any) -> None:
                 mcp.add_provider(SkillProvider(root_dir))
                 registered += 1
             except Exception as exc:  # noqa: BLE001 - one unreadable provider
-                # directory must not sink the whole sweep. The cause IS logged
-                # so a systematically broken provider is diagnosable.
+                # directory must not sink the whole sweep. The exception TYPE
+                # is logged so a systematically broken provider is diagnosable.
                 logger.warning(
-                    "Could not register skill provider %s: %s", provider_name, exc
+                    "Could not register skill provider %s: %s",
+                    provider_name,
+                    type(exc).__name__,
                 )
         logger.info(
             "Registered %d skill-over-MCP provider(s) as skill:// resources",
@@ -2169,8 +2171,10 @@ def _register_skill_providers(mcp: Any) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - server-side skill:// support is
         # optional (see the INERT note above); its absence must never stop a
-        # server being built. The cause IS logged.
-        logger.warning("Could not register skill-over-MCP providers: %s", exc)
+        # server being built. The exception TYPE is logged.
+        logger.warning(
+            "Could not register skill-over-MCP providers: %s", type(exc).__name__
+        )
 
 
 def _register_prompt_providers(mcp: Any) -> None:
@@ -2210,10 +2214,12 @@ def _register_prompt_providers(mcp: Any) -> None:
             try:
                 json_files = sorted(root_dir.glob("*.json"))
             except OSError as exc:  # noqa: BLE001 - one unreadable provider
-                # directory must not sink the whole sweep. The cause IS
-                # logged so a systematically broken provider is diagnosable.
+                # directory must not sink the whole sweep. The exception TYPE
+                # is logged so a systematically broken provider is diagnosable.
                 logger.warning(
-                    "Could not list prompt provider %s: %s", provider_name, exc
+                    "Could not list prompt provider %s: %s",
+                    provider_name,
+                    type(exc).__name__,
                 )
                 continue
             for json_file in json_files:
@@ -2230,13 +2236,14 @@ def _register_prompt_providers(mcp: Any) -> None:
                     )
                     registered += 1
                 except Exception as exc:  # noqa: BLE001 - one unreadable
-                    # prompt file must not sink the whole sweep. The cause IS
-                    # logged so a systematically broken file is diagnosable.
+                    # prompt file must not sink the whole sweep. The exception
+                    # TYPE is logged so a systematically broken file is
+                    # diagnosable.
                     logger.warning(
                         "Could not register prompt resource %s/%s: %s",
                         provider_name,
                         json_file.stem,
-                        exc,
+                        type(exc).__name__,
                     )
         logger.info(
             "Registered %d prompt-over-MCP resource(s) as prompt:// resources",
@@ -2244,5 +2251,7 @@ def _register_prompt_providers(mcp: Any) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - server-side prompt:// support
         # is optional; its absence must never stop a server being built. The
-        # cause IS logged.
-        logger.warning("Could not register prompt-over-MCP providers: %s", exc)
+        # exception TYPE is logged.
+        logger.warning(
+            "Could not register prompt-over-MCP providers: %s", type(exc).__name__
+        )

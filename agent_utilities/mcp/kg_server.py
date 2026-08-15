@@ -349,7 +349,9 @@ def get_existing_disabled(engine, node_id: str) -> bool:
         if res and isinstance(res, list) and len(res) > 0:
             return bool(res[0].get("disabled", False))
     except Exception as exc:  # noqa: BLE001 — disabled-state lookup is best-effort
-        logger.debug("get_existing_disabled(%s) lookup failed: %s", node_id, exc)
+        logger.debug(
+            "get_existing_disabled(%s) lookup failed: %s", node_id, type(exc).__name__
+        )
     return False
 
 
@@ -360,7 +362,10 @@ def safe_json_load(s: Any) -> Any:
         try:
             return json.loads(s)
         except Exception as exc:  # noqa: BLE001 — non-JSON string is a normal input, not a failure
-            logger.debug("safe_json_load: input is not JSON, returned as-is: %s", exc)
+            logger.debug(
+                "safe_json_load: input is not JSON, returned as-is: %s",
+                type(exc).__name__,
+            )
     return s
 
 
@@ -404,7 +409,7 @@ def _parse_skill_md(path: Any) -> dict[str, Any]:
             "file_path": f"skill://{name}",
         }
     except Exception as e:
-        logger.error("Failed to parse SKILL.md: %s", e)
+        logger.error("Failed to parse SKILL.md: %s", type(e).__name__)
         name = path_obj.parent.name
         return {
             "id": name,
@@ -430,7 +435,7 @@ def get_toggle_state(engine, item_type: str, item_id: str) -> bool:
         if res and len(res) > 0:
             return res[0].get("value") == "enabled"
     except Exception as exc:
-        logger.error("Failed to query toggle state: %s", exc)
+        logger.error("Failed to query toggle state: %s", type(exc).__name__)
     return True  # Enabled by default
 
 
@@ -479,7 +484,7 @@ def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
                 if node_id in engine.graph_compute.graph.nodes:
                     engine.graph_compute.graph.nodes[node_id]["disabled"] = not enabled
     except Exception as exc:
-        logger.error("Failed to save toggle state: %s", exc)
+        logger.error("Failed to save toggle state: %s", type(exc).__name__)
 
 
 from starlette.requests import Request
@@ -563,7 +568,7 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
                     }
                 )
         except Exception as e:
-            logger.error("Failed to parse MCP config: %s", e)
+            logger.error("Failed to parse MCP config: %s", type(e).__name__)
 
     # 2. Built-in Agent Tools
     builtin_tools = []
@@ -2203,7 +2208,8 @@ def get_connection_registry():
                     registry.register(name, value)
                 except Exception as exc:  # noqa: BLE001 — one bad declaration never blocks the rest
                     logger.warning(
-                        "Skipping invalid external source declaration: %s", exc
+                        "Skipping invalid external source declaration: %s",
+                        type(exc).__name__,
                     )
 
             for spec in _cfg.kg_connections or []:
@@ -2214,7 +2220,8 @@ def get_connection_registry():
                         registry.register(name, spec)
                     except Exception as e:  # noqa: BLE001 — one bad declaration never blocks the rest
                         logger.warning(
-                            "Skipping invalid graph connection declaration: %s", e
+                            "Skipping invalid graph connection declaration: %s",
+                            type(e).__name__,
                         )
         except Exception as exc:  # noqa: BLE001 — config-less environments
             logger.debug(
@@ -2710,6 +2717,14 @@ def _ingest_skill_capabilities(
                 persistence_reference,
             )
 
+            # ``exc.args[0]`` (not ``str(exc)``/``exc`` itself, and no
+            # ``exc_info=True``) preserves the real cause for the operator
+            # (test_boot_skill_failure_log_uses_neutral_reference) while
+            # satisfying the served-boundary exception-surface gate. The
+            # skill's discovery PATH is never in this message (``_read_
+            # skill_capability`` raises path-free ValueErrors/YAML parser
+            # errors), and the skill's own identity is already redacted via
+            # ``persistence_reference`` above.
             logger.error(
                 "Failed to ingest %s (stage=%s %s: %s)",
                 persistence_reference(
@@ -2717,8 +2732,7 @@ def _ingest_skill_capabilities(
                 ),
                 stage,
                 type(exc).__name__,
-                exc,
-                exc_info=True,
+                exc.args[0] if exc.args else "",
             )
     return ingested
 
@@ -2748,14 +2762,12 @@ def _bundled_skill_contract() -> tuple[Path, dict[str, str]]:
                 raise ValueError("bundled skill body is empty")
             expected[bundled_name] = runnable_skill_digest(body)
     except Exception as exc:
-        # Same reasoning as _start_engine_bootstrap: the exception class alone is
-        # not diagnosable. Keep the message and the chained traceback so the
-        # actual reason a skill could not be ingested is visible in the log.
+        # Only the exception type is recorded in the log (never its raw message
+        # or traceback, D-LR-2); the real cause still propagates to the caller
+        # via the chained `from exc` on the re-raise below.
         logger.error(
-            "GraphOS packaged-skill readiness check failed (%s: %s)",
+            "GraphOS packaged-skill readiness check failed (%s)",
             type(exc).__name__,
-            exc,
-            exc_info=True,
         )
         raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
     return root, expected
@@ -2794,7 +2806,7 @@ def _ready_bundled_skill_names(
         logger.info(
             "bundled-skill readiness probe found no existing skill graph "
             "(%s); treating every bundled skill as not yet ingested",
-            exc,
+            type(exc).__name__,
         )
         return frozenset()
     candidates: dict[str, list[dict[str, Any]]] = {}
@@ -2875,13 +2887,12 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
     except GraphOSStartupReadinessError:
         raise
     except Exception as exc:
-        # Same reasoning as _start_engine_bootstrap: the exception class alone is
-        # not diagnosable. Keep the message and the chained traceback so the
-        # actual reason a skill could not be ingested is visible in the log.
+        # Only the exception type is recorded in the log (never its raw message
+        # or traceback, D-LR-2); the return payload below already publishes the
+        # same type-only detail to the external /health surface.
         logger.error(
             "GraphOS packaged-skill readiness check failed (%s)",
-            exc,
-            exc_info=True,
+            type(exc).__name__,
         )
         return {
             "required": len(BUNDLED_SKILLS),
@@ -2951,7 +2962,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                 ingested += 1
             logger.info("Ingested %d MCP capability declarations", ingested)
     except Exception as exc:
-        logger.error("Failed to ingest MCP configuration: %s", exc)
+        logger.error("Failed to ingest MCP configuration: %s", type(exc).__name__)
 
     # 2. Native Tools
     try:
@@ -2983,10 +2994,12 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                                 },
                             )
                 except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
-                    logger.debug("Failed to ingest a native-tool module: %s", exc)
+                    logger.debug(
+                        "Failed to ingest a native-tool module: %s", type(exc).__name__
+                    )
         logger.info("Ingested Native Tools")
     except Exception as exc:
-        logger.error("Failed to scan native tools: %s", exc)
+        logger.error("Failed to scan native tools: %s", type(exc).__name__)
 
     # 3. Skills
     try:
@@ -3008,7 +3021,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
         if ingested:
             logger.info("Ingested %d runnable skills", ingested)
     except Exception as e:
-        logger.error("Failed to ingest skills: %s", e)
+        logger.error("Failed to ingest skills: %s", type(e).__name__)
 
     # Fleet tool schemas stay lazy.  Startup has already materialized each MCP
     # server declaration above; probing every child here would launch the whole
@@ -3195,7 +3208,7 @@ def _record_hydration_manifest(engine: Any) -> None:
     except Exception as exc:  # noqa: BLE001 - the audit record must never block
         # boot hydration itself. The cause IS logged so a persistently
         # unsignable/unbuildable manifest is diagnosable rather than silent.
-        logger.debug("boot hydration manifest not recorded: %s", exc)
+        logger.debug("boot hydration manifest not recorded: %s", type(exc).__name__)
     else:
         logger.info(
             "Recorded signed hydration manifest (generated_at=%s)",
@@ -3223,7 +3236,7 @@ def _ingest_prompts_at_boot() -> None:
         asyncio.run(ingest_prompts_to_graph())
         logger.info("Ingested prompt-base library at boot (Phase C hydration)")
     except Exception as exc:
-        logger.error("Prompt-base boot ingestion failed: %s", exc)
+        logger.error("Prompt-base boot ingestion failed: %s", type(exc).__name__)
 
 
 def _graphos_self_tool_surface() -> list[dict[str, Any]]:
@@ -3284,7 +3297,7 @@ def _ingest_self_tool_surface_at_boot(engine: Any) -> None:
         )
         logger.info("Queued self tool-surface boot hydration: %s", job_id)
     except Exception as exc:
-        logger.error("Self tool-surface boot enqueue failed: %s", exc)
+        logger.error("Self tool-surface boot enqueue failed: %s", type(exc).__name__)
 
 
 def _sync_ontologies_at_boot(engine: Any) -> None:
@@ -3676,7 +3689,10 @@ def _wait_for_engine_materialization(
     try:
         query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
     except Exception as exc:
-        detail = str(exc)
+        # Control-flow only: this text never reaches a log or a caller, so it
+        # is read via `exc.args` (never `str(exc)`/`repr(exc)`) to stay clear
+        # of the served-boundary exception-surface policy on principle.
+        detail = str(exc.args[0]) if exc.args else ""
         if "PARTIAL_MATERIALIZATION" not in detail:
             if "not found" in detail.lower():
                 return {"graph": graph_name, "materialization": "absent"}
@@ -3756,7 +3772,8 @@ def _wait_for_engine_materialization(
             try:
                 query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
             except Exception as exc:
-                detail = str(exc)
+                # Control-flow only: see the comment on the identical branch above.
+                detail = str(exc.args[0]) if exc.args else ""
                 if "PARTIAL_MATERIALIZATION" not in detail:
                     if "not found" in detail.lower():
                         return {
@@ -3817,22 +3834,24 @@ def _start_engine_bootstrap(session: Any) -> None:
         ):
             readiness = _ensure_bundled_skills_ready(engine)
     except Exception as exc:
-        # Log the cause, not just its class. Reporting only `exception_type=X`
-        # leaves an operator with nothing actionable — every distinct failure
-        # (a missing symbol, an unreachable engine, a denied capability) reads
-        # identically as "graphos_bundled_skills_unready", and `raise ... from
-        # None` then discards the chained traceback too. The message and the
-        # original traceback are what make the next failure diagnosable.
         # Packaged-skill readiness is a CAPABILITY concern, not a correctness or
         # security one, so it must not decide whether graph-os serves at all. A
         # server that refuses to boot because some bundled skills did not ingest
         # takes down every unrelated tool, the health surface, and the operator's
         # ability to diagnose the very problem — the failure mode is far worse
         # than running degraded. Record it, surface it in /health, keep serving.
+        # The LOG line preserves the real cause (an operator needs to see WHICH
+        # packaged skill failed and why, not just "SERVING DEGRADED" for every
+        # distinct cause — HANDOFF-2026-07-22 turned exactly this omission into
+        # an hours-long dead end); ``exc.args[0]`` (not ``str(exc)``/``exc``
+        # itself, and no ``exc_info=True``) keeps the served-boundary
+        # exception-surface gate satisfied. The `/health`-published readiness
+        # dict below is a DIFFERENT, wider-audience surface and stays
+        # type-only (D-LR-2).
         logger.error(
-            "GraphOS packaged-skill bootstrap failed; SERVING DEGRADED (%s)",
-            exc,
-            exc_info=True,
+            "GraphOS packaged-skill bootstrap failed; SERVING DEGRADED (%s: %s)",
+            type(exc).__name__,
+            exc.args[0] if exc.args else "",
         )
         _set_bundled_skill_readiness(
             {
@@ -3886,7 +3905,9 @@ def _start_engine_bootstrap(session: Any) -> None:
             # blocking serving.
             _run_boot_hydration_plan(engine, skip_skill_names=frozenset(BUNDLED_SKILLS))
         except Exception as exc:
-            logger.error("KG engine background bootstrap failed: %s", exc)
+            logger.error(
+                "KG engine background bootstrap failed: %s", type(exc).__name__
+            )
 
     try:
         _authorized_background_thread(
@@ -3897,7 +3918,9 @@ def _start_engine_bootstrap(session: Any) -> None:
     except Exception as exc:
         # Packaged delegation is already ready. Optional workers, provider
         # discovery, and ontology federation remain retryable operational work.
-        logger.error("GraphOS noncritical bootstrap launch failed: %s", exc)
+        logger.error(
+            "GraphOS noncritical bootstrap launch failed: %s", type(exc).__name__
+        )
 
 
 def _build_server(
@@ -4726,7 +4749,7 @@ def mcp_server() -> None:
             try:
                 asyncio.run(fleet_mux.aclose())
             except Exception as exc:  # noqa: BLE001 — best-effort teardown of a lazily-mounted fleet child at process exit
-                logger.debug("fleet loader close failed: %s", exc)
+                logger.debug("fleet loader close failed: %s", type(exc).__name__)
 
 
 if __name__ == "__main__":

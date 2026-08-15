@@ -499,7 +499,9 @@ def register_state_tools(mcp):
                     provenance["specified_by_spec_id"] = row.get("spec_id")
                     provenance["resolved_by_loop_id"] = row.get("loop_id")
                 except Exception as e:  # noqa: BLE001 — provenance is best-effort
-                    logger.debug("graph_loops gap provenance query failed: %s", e)
+                    logger.debug(
+                        "graph_loops gap provenance query failed: %s", type(e).__name__
+                    )
                 return _json.dumps(
                     {"action": "gap", "gap": gap, "provenance": provenance},
                     default=str,

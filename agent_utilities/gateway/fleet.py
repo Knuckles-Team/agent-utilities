@@ -456,11 +456,11 @@ async def fleet_grant_approval(request: Request) -> JSONResponse:
             )
         except LookupError as exc:
             return JSONResponse(
-                {"status": "error", "message": str(exc)}, status_code=409
+                {"status": "error", "message": type(exc).__name__}, status_code=409
             )
         except ValueError as exc:
             return JSONResponse(
-                {"status": "error", "message": str(exc)}, status_code=400
+                {"status": "error", "message": type(exc).__name__}, status_code=400
             )
         except Exception as exc:
             return JSONResponse(

@@ -147,7 +147,7 @@ def register_durable_tools(mcp: Any) -> None:
                 return json.dumps(durable_call(engine, session_id, name), default=str)
             return f"Error: unknown action {action!r}"
         except DurableCallNotBacked as exc:
-            return f"Error: {exc}"
+            return f"Error: {type(exc).__name__}"
 
     # Matches register_job_tools's own pattern (mcp/tools/job_tools.py): an
     # explicit REGISTERED_TOOLS entry (belt-and-suspenders alongside the

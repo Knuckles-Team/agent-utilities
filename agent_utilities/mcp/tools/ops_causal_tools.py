@@ -173,7 +173,7 @@ def _materialize_root_cause_claims(
                 },
             )
         except Exception as e:  # noqa: BLE001 — persistence is best-effort
-            errors.append(f"ops_causal:persist {claim.id}: {e}")
+            errors.append(f"ops_causal:persist {claim.id}: {type(e).__name__}")
             continue
         claim_ids.append(claim.id)
         register_claim_materialization(engine, claim, errors, context="ops_causal")
@@ -182,7 +182,7 @@ def _materialize_root_cause_claims(
         try:
             flywheel.propose(claim.id, reason=reason)
         except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-            errors.append(f"ops_causal:flywheel_propose {claim.id}: {e}")
+            errors.append(f"ops_causal:flywheel_propose {claim.id}: {type(e).__name__}")
 
         verdict = promote_gate(
             engine,
@@ -219,7 +219,7 @@ def _materialize_root_cause_claims(
                     action_decision=verdict.decision,
                 )
             except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                errors.append(f"ops_causal:flywheel_reject {claim.id}: {e}")
+                errors.append(f"ops_causal:flywheel_reject {claim.id}: {type(e).__name__}")
     return claim_ids, errors, governance
 
 
@@ -436,7 +436,7 @@ def _propose_ops_causal_claim(
             },
         )
     except Exception as e:  # noqa: BLE001 — persistence is best-effort
-        errors.append(f"ops_causal_as_claim:persist {claim.id}: {e}")
+        errors.append(f"ops_causal_as_claim:persist {claim.id}: {type(e).__name__}")
         return {"claim_id": claim.id, "claim_write_errors": errors}
 
     register_claim_materialization(engine, claim, errors, context="ops_causal_as_claim")
@@ -685,7 +685,7 @@ def register_ops_causal_tools(mcp: Any) -> None:
                                     finding=finding,
                                 )
                             except Exception as e:  # noqa: BLE001 — never blocks the read-only answer
-                                as_claim_fields = {"claim_error": str(e)}
+                                as_claim_fields = {"claim_error": type(e).__name__}
                 elif action == "blast_radius":
                     if not node_id:
                         raise ValueError("node_id required for blast_radius")
@@ -703,7 +703,7 @@ def register_ops_causal_tools(mcp: Any) -> None:
                                     finding=finding,
                                 )
                             except Exception as e:  # noqa: BLE001 — never blocks the read-only answer
-                                as_claim_fields = {"claim_error": str(e)}
+                                as_claim_fields = {"claim_error": type(e).__name__}
                 elif action == "change_risk":
                     if not node_id:
                         raise ValueError("node_id required for change_risk")

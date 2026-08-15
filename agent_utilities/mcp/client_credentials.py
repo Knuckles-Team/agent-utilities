@@ -329,7 +329,7 @@ class RotatingFileBearerAuth(httpx.Auth):
                     "rotating bearer token re-read failed after a 401 for %s; "
                     "degrading to the original 401 response: %s",
                     self._token_path,
-                    exc,
+                    type(exc).__name__,
                 )
                 return
             request.headers["Authorization"] = f"Bearer {fresh}"
@@ -357,7 +357,7 @@ class RotatingFileBearerAuth(httpx.Auth):
                     "rotating bearer token re-read failed after a 401 for %s; "
                     "degrading to the original 401 response: %s",
                     self._token_path,
-                    exc,
+                    type(exc).__name__,
                 )
                 return
             request.headers["Authorization"] = f"Bearer {fresh}"

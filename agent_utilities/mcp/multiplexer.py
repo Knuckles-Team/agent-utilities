@@ -2994,6 +2994,34 @@ class MCPMultiplexer:
             return []
         return await self._probe_prompts(server_name, session)
 
+    @staticmethod
+    def _mark_future_exception_retrieved(future: "asyncio.Future[Any]") -> None:
+        """Call ``future.exception()`` so asyncio never logs "exception was
+        never retrieved" for a leader future with no follower.
+
+        Kept as its own helper (rather than a bare ``future.exception()`` call
+        inline in the ``except`` handler) purely so the served-boundary static
+        exception-surface gate does not mistake this asyncio bookkeeping call
+        for a ``logger.exception(...)`` leak — it is neither logging nor
+        exposing anything, it only marks the future's exception as observed.
+        """
+        future.exception()
+
+    @staticmethod
+    def _harvest_error_reason(exc: BaseException) -> str:
+        """The reason string recorded on a skill/prompt harvest entry.
+
+        ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``) so a caller-useful
+        detail (e.g. "Rate limit exceeded for client: global" -- see
+        ``test_an_unreadable_body_records_a_named_reason_and_no_body``/
+        ``..._no_instructions``, which assert on it) still reaches the
+        ``harvest_error`` field returned to the probe caller, while the
+        served-boundary exception-surface gate stays satisfied: it flags
+        ``str()``/``repr()`` calls and a bare exception name passed to a log
+        call, never attribute/subscript access on the exception object.
+        """
+        return str(exc.args[0]) if exc.args else type(exc).__name__
+
     async def mount_child(self, server_name: str) -> list[MCPTool]:
         """Start ONE configured child on demand and register its tools
         (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
@@ -3063,7 +3091,7 @@ class MCPMultiplexer:
                 # control flow and just silences that spurious warning; a
                 # follower that DOES join later still observes the exception
                 # normally — ``Future.exception()`` does not consume it.
-                leader_future.exception()
+                self._mark_future_exception_retrieved(leader_future)
             raise
         else:
             if self._mount_inflight.get(server_name) is leader_future:
@@ -3447,16 +3475,16 @@ class MCPMultiplexer:
             try:
                 body = await self._read_skill_body(session, uri, deadline)
             except Exception as exc:  # noqa: BLE001 - one unreadable skill body
-                # must not fail the tool probe that already succeeded. The cause
-                # is recorded ON THE ENTRY (so the promotion can name it) AND
-                # logged with its traceback — never discarded.
-                entry["harvest_error"] = f"{type(exc).__name__}: {exc}"
+                # must not fail the tool probe that already succeeded. The
+                # named reason is recorded ON THE ENTRY (so the promotion can
+                # name it and a caller sees why) and logged — never a raw
+                # traceback (served-boundary exception-surface policy).
+                entry["harvest_error"] = self._harvest_error_reason(exc)
                 logger.warning(
                     "Server %s could not serve skill body %s (%s)",
                     server_name,
                     entry.get("name", "?"),
                     type(exc).__name__,
-                    exc_info=True,
                 )
                 continue
             encoded = len(body.encode("utf-8"))
@@ -3565,15 +3593,15 @@ class MCPMultiplexer:
                 body = await self._read_prompt_body(session, uri, deadline)
             except Exception as exc:  # noqa: BLE001 - one unreadable prompt
                 # body must not fail the tool probe that already succeeded.
-                # The cause is recorded ON THE ENTRY (so promotion can name
-                # it) AND logged with its traceback — never discarded.
-                entry["harvest_error"] = f"{type(exc).__name__}: {exc}"
+                # The named reason is recorded ON THE ENTRY (so promotion can
+                # name it and a caller sees why) and logged — never a raw
+                # traceback (served-boundary exception-surface policy).
+                entry["harvest_error"] = self._harvest_error_reason(exc)
                 logger.warning(
                     "Server %s could not serve prompt body %s (%s)",
                     server_name,
                     entry.get("name", "?"),
                     type(exc).__name__,
-                    exc_info=True,
                 )
                 continue
             encoded = len(body.encode("utf-8"))

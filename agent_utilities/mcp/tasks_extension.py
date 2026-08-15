@@ -1091,7 +1091,7 @@ class WorkItemTasksExtension(ServerExtension):
             logger.warning(
                 "tasks_extension: RunTrace lookup for task %s failed: %s",
                 task_id,
-                exc,
+                type(exc).__name__,
             )
             return None
         # `get_run_trace`'s found-path always stamps `trace_id` -- the

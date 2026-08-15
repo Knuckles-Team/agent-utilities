@@ -168,11 +168,10 @@ def _discover_domains() -> dict[str, list[str]]:
         logger.warning(
             "engine surface discovery: 'epistemic_graph' client unavailable — "
             "ALL engine_<domain> tools (and their verbose/manifest ops) will be "
-            "absent this run (exception_type=%s: %s). Install the engine with "
+            "absent this run (exception_type=%s). Install the engine with "
             "`pip install agent-utilities[graphos]` (or `[serving]`/`[all]`, both "
             "of which pull it) if this MCP process is meant to serve engine tools.",
             type(exc).__name__,
-            exc,
         )
         return {}
 
@@ -595,7 +594,7 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
             "has none bound (the engine's 'no embedder bound op' state) and "
             "pre-embedding it client-side "
             "(agent_utilities.core.embedding_utilities.create_embedding_model) failed "
-            f"too: {exc}"
+            f"too: {type(exc).__name__}"
         ) from exc
     return [list(v) for v in vectors]
 

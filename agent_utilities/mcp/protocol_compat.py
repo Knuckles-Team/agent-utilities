@@ -470,7 +470,7 @@ def _source_shadow_floor(package: str, extra: str) -> tuple[Any | None, str | No
     except (OSError, tomllib.TOMLDecodeError) as exc:
         warnings.warn(
             f"agent-utilities: could not read the source manifest {manifest} to "
-            f"cross-check the declared '{package}' floor: {exc}",
+            f"cross-check the declared '{package}' floor: {type(exc).__name__}",
             RuntimeWarning,
             stacklevel=2,
         )
