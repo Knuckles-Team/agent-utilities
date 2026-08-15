@@ -162,7 +162,7 @@ class _FakeTenantsSubClient:
     def list(self):
         return [{"name": g} for g in self._created_graphs]
 
-    def create(self, name, graph_type="Ontology"):
+    def create(self, name, graph_type="Global"):
         self._created_graphs.add(name)
 
 

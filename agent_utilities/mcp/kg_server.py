@@ -119,6 +119,50 @@ def _reject_caller_authority(kwargs: dict[str, Any]) -> None:
         raise PermissionError("Caller-supplied graph authority is forbidden")
 
 
+class UnsupportedToolFieldError(ValueError):
+    """U-74: a caller (generically the REST twin, which forwards the raw JSON
+    body as kwargs with no schema validation) supplied a field the target
+    tool's signature does not accept.
+
+    ``POST /engine/tenants`` with ``{"action": "list", "connection":
+    "default"}`` used to reach ``_engine_domain_tool(action, params_json,
+    graph)`` as an unfiltered ``**body`` call, raise a raw ``TypeError:
+    _engine_domain_tool() got an unexpected keyword argument 'connection'``,
+    and surface as an opaque HTTP 500 — indistinguishable from a real server
+    fault. This is a distinct exception type (rather than reusing the
+    existing ``_missing_required`` ``ValueError``) so the generic REST
+    endpoint factory below can map it to a deterministic 4xx instead of the
+    default 500, without changing behavior for any other error class."""
+
+
+def _validate_tool_kwargs_against_signature(
+    tool_name: str, tool_func: Any, kwargs: dict
+) -> None:
+    """Fail closed on a field the tool's own signature does not declare,
+    instead of forwarding it into the call and letting a bare ``TypeError``
+    surface as an internal error (U-74). A tool that declares ``**kwargs`` is
+    exempted — it explicitly accepts arbitrary fields."""
+    import inspect
+
+    try:
+        parameters = inspect.signature(tool_func).parameters
+    except (TypeError, ValueError):  # noqa: BLE001 — signature introspection
+        # failing (e.g. a builtin/C-implemented callable with no inspectable
+        # signature) is not this guard's problem to solve: this validation is
+        # purely an ADDITIONAL fail-fast check layered in front of the real
+        # call, so skipping it here only forgoes the nicer 4xx and falls back
+        # to today's behavior (any real failure still surfaces normally from
+        # the call itself, e.g. as the existing bare-TypeError-to-500 path).
+        return
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+        return
+    unknown = sorted(set(kwargs) - set(parameters))
+    if unknown:
+        raise UnsupportedToolFieldError(
+            f"Tool {tool_name!r} does not accept field(s): {', '.join(unknown)}."
+        )
+
+
 @contextlib.contextmanager
 def verified_tool_session_scope():
     """Scope one served tool call to middleware/process-minted authority.
@@ -166,6 +210,11 @@ async def _execute_tool(tool_name: str, **kwargs) -> Any:
     import inspect
 
     _reject_caller_authority(kwargs)
+    # U-74: fail closed on a field the tool's signature does not declare
+    # (e.g. a caller reusing the query/write `connection` selector against a
+    # lifecycle tool that is action-only) BEFORE invocation, rather than
+    # forwarding it and letting a raw TypeError surface as an opaque 500.
+    _validate_tool_kwargs_against_signature(tool_name, tool_func, kwargs)
 
     # Tool functions declare params as ``name: T = Field(default=...)``. When the tool is
     # invoked through FastMCP, the schema layer resolves those defaults. Calling the raw
@@ -768,6 +817,11 @@ def _make_tool_endpoint(tool_name: str):
         try:
             res = await _execute_tool(tool_name, **body)
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        except UnsupportedToolFieldError as e:
+            # U-74: a caller-supplied field the tool doesn't accept is a
+            # client-side schema mismatch, not a server fault — deterministic
+            # 4xx instead of the generic 500 every other exception maps to.
+            return _external_error_response(e, status_code=400, code="invalid_request")
         except Exception as e:
             return _external_error_response(e)
 

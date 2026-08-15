@@ -48,6 +48,7 @@ CONCEPT:AU-KG.compute.engine-surface-manifest — Engine surface manifest (clien
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import inspect
 import json
@@ -809,7 +810,24 @@ def _make_domain_tool(domain: str, methods: list[str]):
             description="Target graph name (empty ⇒ the deployment default graph).",
         ),
     ) -> str:
-        return _dispatch(domain, method_set, action, params_json, graph)
+        # U-86: `_dispatch` performs synchronous native engine I/O (blocking
+        # socket round-trips, including retries on a slow lifecycle op like
+        # CreateGraph). Calling it inline from this `async def` — even though
+        # the surface is declared async — ran that blocking I/O directly ON
+        # the server event loop: `inspect.iscoroutinefunction` sees a real
+        # coroutine function here, so the central dispatcher's own
+        # offload-synchronous-tools protection never applied to this
+        # generated surface. A slow admin/lifecycle call then froze
+        # liveness/health for every other MCP/REST client on the same
+        # process. `asyncio.to_thread` offloads the blocking call to a worker
+        # thread while keeping the event loop schedulable, and — per its
+        # documented contract — runs the call inside a COPY of the calling
+        # task's `contextvars.Context`, so the verified actor/session
+        # context (`current_session()` et al.) still resolves correctly off
+        # the event loop thread.
+        return await asyncio.to_thread(
+            _dispatch, domain, method_set, action, params_json, graph
+        )
 
     return _engine_domain_tool
 
