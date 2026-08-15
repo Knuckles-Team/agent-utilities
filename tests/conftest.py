@@ -954,9 +954,26 @@ from unittest.mock import MagicMock
 
 def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
     """True if ``exc`` (or its cause chain) is the epistemic-graph engine being
-    unreachable — the message raised by ``GraphComputeEngine`` / the client when
-    no engine daemon answers. Matched by message (the client raises a builtin
-    ``ConnectionError``/``ConnectionRefusedError``, not a typed exception)."""
+    unavailable in THIS environment -- either of two distinct signatures:
+
+    1. Unreachable daemon: the message raised by ``GraphComputeEngine`` / the
+       client when no engine daemon answers. Matched by message (the client
+       raises a builtin ``ConnectionError``/``ConnectionRefusedError``, not a
+       typed exception).
+    2. Absent package: the ``epistemic_graph`` distribution itself is not
+       installed in this environment (the lean CI ``gates`` lane runs
+       ``uv sync --no-install-package epistemic-graph``). Fixtures that go
+       through ``tiny_engine``/``_session_engine`` already degrade gracefully
+       for this case (see that fixture's own ``except ImportError`` branch),
+       but tests with their OWN local ``engine``-style fixture construct
+       ``GraphComputeEngine``/the client directly and hit a bare
+       ``ModuleNotFoundError: No module named 'epistemic_graph'`` instead --
+       the same "no real engine here" condition, just a different exception
+       shape. ``ModuleNotFoundError.name`` is the dotted module Python
+       actually failed to find, so matching on it (rather than the message
+       text) is exact regardless of which submodule the failing ``import``
+       or ``from ... import ...`` statement named.
+    """
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen:
         seen.add(id(exc))
@@ -967,6 +984,10 @@ def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
                 or "Tokio service" in msg
                 or "Connection refused" in msg
             ):
+                return True
+        if isinstance(exc, ModuleNotFoundError):
+            missing = exc.name or ""
+            if missing == "epistemic_graph" or missing.startswith("epistemic_graph."):
                 return True
         exc = exc.__cause__ or exc.__context__
     return False
@@ -991,8 +1012,11 @@ def pytest_runtest_makereport(item, call):
             report.longrepr = (
                 str(getattr(item, "location", ("", 0, item.name))[0]),
                 int(getattr(item, "location", ("", 0, item.name))[1] or 0),
-                "Skipped: epistemic-graph engine not reachable in this "
-                "environment (no isolated test engine started). Set "
+                "Skipped: epistemic-graph engine not available in this "
+                "environment -- either unreachable (no isolated test engine "
+                "started) or the epistemic_graph package itself is not "
+                "installed (e.g. the lean CI `gates` lane, which runs "
+                "--no-install-package epistemic-graph). Set "
                 "AGENT_UTILITIES_TESTING=true with the epistemic-graph source "
                 "present, or export GRAPH_SERVICE_ENDPOINTS, to run engine-backed "
                 "tests.",

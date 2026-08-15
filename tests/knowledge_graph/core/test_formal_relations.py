@@ -1,5 +1,10 @@
 """CONCEPT:AU-KG.compute.cross-pillar-synergy"""
 
+import pytest
+
+# The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
+pytest.importorskip("epistemic_graph.numeric")
+
 from agent_utilities.knowledge_graph.core.formal_reasoning_core import (
     equivalence_classes,
     hasse_diagram,
