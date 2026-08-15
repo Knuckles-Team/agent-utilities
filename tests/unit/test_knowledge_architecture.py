@@ -138,7 +138,7 @@ class TestSPARQL:
         independent and deterministic.
         """
         pytest.importorskip("rdflib")
-        import networkx as nx
+        nx = pytest.importorskip("networkx")
 
         from agent_utilities.knowledge_graph.core.owl_bridge import OWLBridge
 

@@ -184,7 +184,7 @@ def test_no_engine_fallback_still_works():
     last-resort (rdflib), NOT a SQLite path — it stays as a graceful degradation.
     """
     pytest.importorskip("rdflib")
-    import networkx as nx
+    nx = pytest.importorskip("networkx")
 
     g = nx.MultiDiGraph()
     g.add_node("a", node_type="symbol")
