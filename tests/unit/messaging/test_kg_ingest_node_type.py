@@ -85,7 +85,11 @@ def test_store_memory_emits_node_type_not_the_retired_type_property() -> None:
     node_id, props = backend.nodes[0]
     assert node_id == memory_id
     assert "type" not in props, f"retired 'type' property leaked through: {props}"
-    assert props["node_type"] == "Memory"
+    # RegistryNode.to_graph_properties() writes node_type as the enum's own
+    # .value; RegistryNodeType.MEMORY = "memory" (every RegistryNodeType member
+    # is lowercase snake_case, not Title-Case) -- assert the real projected
+    # value rather than a capitalized literal.
+    assert props["node_type"] == "memory"
 
 
 @pytest.mark.asyncio
