@@ -32,7 +32,7 @@ DOCS = (
     ROOT / "docs/architecture/universal-external-graph-connectors.md",
     ROOT / "docs/architecture/privacy-safe-external-ingestion.md",
 )
-CI = ROOT / ".github/workflows/guardrails.yml"
+CI = ROOT / ".github/workflows/advisory.yml"
 
 REQUIRED_BACKENDS = frozenset(
     {
