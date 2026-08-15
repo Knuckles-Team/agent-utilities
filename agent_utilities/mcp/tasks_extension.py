@@ -686,7 +686,7 @@ class WorkItemTasksExtension(ServerExtension):
 
         try:
             return resolve_session(required_scope=scope)
-        except SessionRequiredError:
+        except SessionRequiredError:  # noqa: BLE001 — falls through to mint from the access token
             pass
 
         try:

@@ -325,7 +325,7 @@ def _mutation_attribution(args: tuple[Any, ...]) -> dict[str, Any]:
         from agent_utilities.observability.correlation import get_correlation_id
 
         info["correlation_id"] = get_correlation_id()
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 — never let attribution break the RPC
         pass
     try:
         from agent_utilities.orchestration.work_item_context import (
@@ -338,7 +338,7 @@ def _mutation_attribution(args: tuple[Any, ...]) -> dict[str, Any]:
             info["work_item_agent_id"] = work_item.get("agent_id") or None
             info["work_item_lease_id"] = work_item.get("lease_id") or None
             info["work_item_capability"] = work_item.get("capability") or None
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 — never let attribution break the RPC
         pass
     return info
 
