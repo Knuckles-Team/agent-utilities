@@ -201,9 +201,9 @@ class ContainerForkSandbox(ForkableSandbox):
                 runner_data_dir=guest_data,  # injected script (container can't import the pkg)
             )
             server = await _bridge.start_bridge(sock_path, env.helpers, bridge_token)
-            os.chmod(run_dir, 0o777)  # nosec B103 — container uid may differ
-            with contextlib.suppress(FileNotFoundError):
-                os.chmod(sock_path, 0o777)  # nosec B103 — bridge socket must accept container uid
+            # nosec B103 — container uid may differ (rootless/userns); the bridge token,
+            # not filesystem permission, is the real access control (see docstring).
+            _bridge.relax_permissions_for_foreign_uid(run_dir, sock_path)
 
             # CONCEPT:AU-ORCH.sandbox.stateless-reaper-backstop — the forked child carries its OWN in-container hard timeout, so it
             # self-kills even if this host process (the only other thing that would kill it via the

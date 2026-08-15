@@ -7,8 +7,10 @@ ONLY for the ones you activate. So the load-bearing, in-process-provable propert
     activating M of N dormant instances is O(M), independent of N.
 
 These tests register N dormant instances and activate M of them through a stateless
-worker POOL (the ADR-6 loop), then assert exactly M were touched (M ``:RunTrace`` nodes,
-N-M instances still purely dormant) and log the RSS / throughput curve. The instance count
+worker POOL (the ADR-6 loop), then assert exactly M were touched (M ``:ActivationReceipt``
+nodes — the proof runs the receipt-only BUG-001 diagnostic path, which never writes
+``:RunTrace``; see :func:`run_scale_proof`), N-M instances still purely dormant, and log
+the RSS / throughput curve. The instance count
 is a PARAMETER: the default is CI-fast; ``AGENT_ACTIVATION_SCALE_INSTANCES`` /
 ``AGENT_ACTIVATION_SCALE_ACTIVATIONS`` / ``AGENT_ACTIVATION_SCALE_WORKERS`` scale it up, and
 ``python -m tests.unit.orchestration.test_agent_activation_scale`` runs the full
@@ -272,7 +274,7 @@ def run_scale_proof(
     m.completed_activations = _count_terminal_activations(engine)
 
     # ── The core-thesis assertions: activation touched ONLY the M activated instances.
-    m.touched_instances = len(engine.by_label(aa._RUNTRACE_LABEL))
+    m.touched_instances = len(engine.by_label(aa._RECEIPT_LABEL))
     m.dormant_after = len(
         aa.list_agent_instances(
             engine, lifecycle_state=aa.STATE_DORMANT, limit=instances + 1

@@ -178,6 +178,30 @@ def write_inputs(
         )
 
 
+def relax_permissions_for_foreign_uid(
+    run_dir: Path, sock_path: Path | None = None
+) -> None:
+    """Loosen the just-written run dir / inputs / bridge socket for a container/guest child.
+
+    :func:`write_inputs` deliberately writes ``0o700``/``0o600`` (owner-only) by default — the
+    right posture for a same-uid child (:func:`run_child` via ``forkserver``). A **container**
+    child runs as a different uid (rootful docker: container root = host uid 0, but the run dir
+    is owned by the invoking host user) with ``--cap-drop ALL``, so it has neither DAC_OVERRIDE
+    nor the matching uid to open owner-only files — every read/connect fails ``EACCES`` even
+    though the bind mount itself succeeded. The bridge token (not filesystem permission) is the
+    real access control here, so widening these to world-rw/world-r is safe: call this AFTER
+    :func:`write_inputs` (and, if the socket already exists, after :func:`start_bridge`) from any
+    backend whose child is a container. Same-uid backends (forkserver) must NOT call this.
+    """
+    os.chmod(run_dir, 0o777)
+    for name in ("context.json", "usercode.py", "runner.py"):
+        with contextlib.suppress(FileNotFoundError):
+            os.chmod(run_dir / name, 0o644)
+    if sock_path is not None:
+        with contextlib.suppress(FileNotFoundError):
+            os.chmod(sock_path, 0o777)
+
+
 def read_result(run_dir: Path) -> tuple[str, str | None, bool]:
     """Read the child's ``result.json`` → ``(stdout, error, wrote_result)``.
 
@@ -581,8 +605,10 @@ def main():
     result_path = DATA + "/result.json"
     _write_private(result_path, payload)
     try:
-        owner = os.stat(DATA)
-        os.chown(result_path, owner.st_uid, owner.st_gid)
+        # container uid may differ from the host uid reading this back (rootless/userns);
+        # chmod (needs only ownership) works where chown (needs CAP_CHOWN, dropped by
+        # --cap-drop ALL) would silently no-op and leave the host unable to read it back.
+        os.chmod(result_path, 0o644)
     except OSError:
         pass
 

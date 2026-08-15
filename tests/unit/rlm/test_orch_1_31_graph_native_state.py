@@ -56,7 +56,28 @@ def test_frontier_snapshot_roundtrip():
 
 @pytest.mark.concept(id="AU-ORCH.optimization.graph-native-optimization-state")
 @pytest.mark.asyncio
-async def test_persist_and_resume_are_best_effort_without_backend():
+async def test_persist_and_resume_are_best_effort_without_backend(monkeypatch):
+    """``persist_frontier``/``resume_frontier`` degrade gracefully with no backend.
+
+    Both reach the ONE process-wide ``IntelligenceGraphEngine`` singleton
+    (``agent_utilities/graph/client.py``). That singleton, once constructed by
+    ANY earlier test in this worker's session (e.g. one requesting
+    ``tiny_engine``/``engine_graph``), stays alive for the rest of the session —
+    unlike ``GraphComputeEngine``, whose singleton ``tests/conftest.py``'s
+    autouse ``isolate_graph_compute_engine`` resets per-test. So "no backend" is
+    not something this test can rely on the ambient environment to provide (it
+    depends on pytest-xdist's file-to-worker grouping); force it explicitly so
+    the assertion is deterministic regardless of test order.
+    """
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    def _no_backend(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("The process graph engine has no active backend")
+
+    monkeypatch.setattr(
+        IntelligenceGraphEngine, "get_or_create", classmethod(_no_backend)
+    )
+
     opt = GEPAOptimizer(signature_class=_Sig, base_prompt="p", evaluator_fn=_evaluator)
     # No live graph backend under test → both return falsy, never raise.
     persisted = await opt.persist_frontier("run-xyz")
