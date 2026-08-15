@@ -107,6 +107,52 @@ def _isolate_model_circuit_breakers():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_context_compile_breaker():
+    """Reset the process-wide context-COMPILE circuit breaker around every test.
+
+    ``core.contextual_model._ctx_compile_degradation_streak`` /
+    ``_ctx_compile_breaker_reopen_at`` are module-level counters
+    (CONCEPT:AU-KG.retrieval.context-compile-circuit-breaker) guarding the mandatory
+    evidence-compilation boundary every ``create_context_agent`` model call goes
+    through — a SEPARATE breaker from ``core.model_circuit_breaker``'s per-endpoint
+    registry already reset by ``_isolate_model_circuit_breakers`` above (that one
+    guards real model connections; this one guards the KG evidence *compile* step
+    itself). Nothing resets it process-wide: two files
+    (``test_contextual_model_bounded.py``, ``test_contextual_model_isolated_compile.py``)
+    each carry their own file-local autouse reset, but that only protects their
+    OWN tests — any other test that reaches three consecutive real compile
+    degradations (timeout/error) through the production path trips the breaker
+    OPEN for ``_CTX_COMPILE_BREAKER_COOLDOWN_S`` (30s) and leaves it open for
+    whichever test in the same pytest-xdist worker happens to run next,
+    regardless of file/collection order.
+
+    Reproduced live (D-TIL-3): forcing the breaker open before
+    ``tests/unit/graph/test_planning_facade.py`` runs makes exactly its three
+    tests that exercise a real (wrapped) ``agent.run()`` --
+    ``test_decompose_with_injected_model``, ``test_decompose_model_from_ctx``,
+    ``test_refine_single_shot`` -- fail: ``Planner.decompose``/``.refine``
+    catch the resulting ``GroundingUnavailableError`` broadly and silently
+    substitute a fallback plan, so the visible symptom is a wrong plan/step id,
+    not the breaker error itself. Those tests already scope
+    ``use_context_compiler_engine(...)`` correctly (guards a DIFFERENT piece of
+    state, the compiler engine); this is the piece they had no way to guard
+    themselves. Reset before AND after, matching
+    ``_isolate_model_circuit_breakers``'s shape, so a test that trips it
+    deliberately (or via a real degradation) never leaks the open state
+    forward.
+    """
+    from agent_utilities.core import contextual_model
+
+    contextual_model._ctx_compile_degradation_streak = 0
+    contextual_model._ctx_compile_breaker_reopen_at = 0.0
+    try:
+        yield
+    finally:
+        contextual_model._ctx_compile_degradation_streak = 0
+        contextual_model._ctx_compile_breaker_reopen_at = 0.0
+
+
+@pytest.fixture(autouse=True)
 def _isolate_content_graph_routing():
     """Reset the process-wide active-content-graph registry around every test.
 
