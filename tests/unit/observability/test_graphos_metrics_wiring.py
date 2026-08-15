@@ -418,6 +418,12 @@ class TestRunningVsDispatchable:
             tool_to_server = {"sampled-mcp__probe": ("sampled-mcp", "probe")}
             _exposed = {"sampled-mcp__probe"}
             _child_catalog_fingerprints: dict = {}
+            # status_snapshot also reads _child_schema_revisions (per-child
+            # catalog revision counter) and _child_schema_refresh_errors --
+            # both real MCPMultiplexer.__init__ attributes this fake must
+            # mirror for the real (unmocked) status_snapshot to run.
+            _child_schema_revisions: dict = {}
+            _child_schema_refresh_errors: dict = {}
 
             _mounted_tool_counts = mux_mod.MCPMultiplexer._mounted_tool_counts
             status_snapshot = mux_mod.MCPMultiplexer.status_snapshot
