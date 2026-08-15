@@ -24,8 +24,19 @@ Example::
 import logging
 from typing import Any
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+try:
+    # Guarded, same convention as capability_index.py/hypergraph.py/
+    # deduplicator.py (see tests/conftest.py's
+    # ``_is_none_numeric_shim_attribute_error``): the compiled epistemic-graph
+    # numeric kernel is genuinely absent in the lean CI ``gates`` lane
+    # (``--no-install-package epistemic-graph``), and this module is imported
+    # eagerly by ``distillation/__init__.py``. Hashing/similarity below still
+    # raise a clear error at call time if invoked without the kernel.
+    from agent_utilities.numeric import NDArray
+    from agent_utilities.numeric import xp as np
+except ImportError:
+    NDArray = Any  # type: ignore[assignment,misc]
+    np = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
