@@ -28,6 +28,7 @@ claims:
     - engine_tenants
     - engine_timeseries
     - engine_txn
+    - engine_viz
     - graph_domain_ops
     - graph_pipeline
   features:

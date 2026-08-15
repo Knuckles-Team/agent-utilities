@@ -75,6 +75,11 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_learn": ("act", "ask"),
         "graph_pipeline": ("act", "ask"),
         "engine_graphlearn": ("act", "ask"),
+        # D-VZ-1: renders a ViewSpec through the eg-viz LOD ColumnStore/export
+        # pipeline (`render`) or inspects what's renderable (`capability_matrix`)
+        # -- the same act(produces an artifact)/ask(inspect) split as
+        # engine_graphlearn just above.
+        "engine_viz": ("act", "ask"),
         "graph_ops_causal": ("why", "ask"),
         "graph_traces": ("ask", "why"),
         "graph_audit": ("why", "ask"),
