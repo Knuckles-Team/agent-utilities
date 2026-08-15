@@ -309,6 +309,20 @@ def test_main_bootstraps_verified_actor_and_session_before_first_engine_call(
     class _FakeSession:
         actor = SimpleNamespace(authenticated=True)
 
+        def __post_init__(self) -> None:
+            # ``set_session``/``use_session`` unconditionally re-validate at
+            # the ambient boundary (session.py's own docstring: "Revalidate
+            # at the ambient boundary even if a caller bypassed normal
+            # dataclass construction") -- a real ``GraphSession`` is a
+            # dataclass with this hook; this fake stands in for an
+            # already-verified session, so it's a no-op here.
+            pass
+
+        def ensure_authority_current(self) -> None:
+            # set_session() also re-checks lease currency on every real
+            # GraphSession; this fake's authority never expires.
+            pass
+
         def engine_verified_context(self):
             calls.append("engine_verified_context")
             return {}
