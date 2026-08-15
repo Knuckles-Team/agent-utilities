@@ -206,7 +206,7 @@
       "properties": {
         "epistemic-operations-protocol": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}}}]},
         "epistemic-graph": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "2.23.2"}, "kind": {"const": "oci"}}}]},
-        "agent-utilities": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "2.1.1"}, "kind": {"const": "oci"}}}]},
+        "agent-utilities": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "2.4.0"}, "kind": {"const": "oci"}}}]},
         "langfuse-agent": {"allOf": [{"$ref": "#/$defs/component"}, {"properties": {"version": {"const": "1.0.3"}, "kind": {"const": "oci"}}}]},
         "connector-bundles": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 68}}}]},
         "prebundled-skills": {"allOf": [{"$ref": "#/$defs/component"}, {"required": ["entryCount"], "properties": {"version": {"const": "1"}, "kind": {"const": "catalog"}, "entryCount": {"const": 13}}}]},
