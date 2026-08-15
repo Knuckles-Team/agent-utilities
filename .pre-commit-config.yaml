@@ -797,21 +797,25 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual, pre-push]
-  # D-CIP-7: pipeline.yml's build-wheel job builds TWICE, requires
-  # byte-identical sha256 digests, and runs check_release_wheel.py +
-  # check_wheel_privacy.py against BOTH candidates before publishing. The
-  # plain `uv build` above only proves the package builds at all — it does
-  # not catch a non-reproducible build, a release-surface contract drift, or
-  # a privacy leak baked into the wheel, all of which are CI-detectable and
-  # were previously locally invisible. Run it via:
-  #   pre-commit run wheel-build-reproducibility --hook-stage manual --all-files
-  - id: wheel-build-reproducibility
-    name: CI parity — wheel reproducibility + release contract + privacy (pipeline.yml)
-    entry: python3 scripts/release/check_wheel_build_reproducibility.py
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [manual, pre-push]
+  # perf/gate-dedup (2026-08-15): the standalone `wheel-build-reproducibility`
+  # hook that used to live here ran scripts/release/check_wheel_build_
+  # reproducibility.py — build the wheel TWICE with `uv build --wheel
+  # --no-build-isolation`, run check_release_wheel.py + check_wheel_privacy.py
+  # against both, require byte-identical digests — on every push. That is the
+  # exact same sequence, in the same order, as release.yml's `build` job
+  # ("Sync immutable wheel-build environment" / "Build primary wheel from the
+  # validated source revision" / "Build reproduction wheel from the same
+  # source revision" / "Validate both packaged release candidates" / "Require
+  # byte-identical wheels and stage the sole candidate"), which
+  # `ci-gate-replica` (below) now executes verbatim by parsing release.yml at
+  # run time — AU's ci-gate-replica covers BOTH the `gates` AND `build` jobs
+  # (unlike epistemic-graph's, which only replays `gates`). ci-gate-replica's
+  # replay is a strict superset: it additionally runs
+  # tests/gates/test_exact_local_release_contract.py, which this hook never
+  # did. Verified via `scripts/ci_gate_replica.py --dry-run`. Removed from the
+  # automatic pre-push stage so a push does not build the release wheel twice
+  # over (once here, once inside ci-gate-replica). To run it standalone:
+  #   python3 scripts/release/check_wheel_build_reproducibility.py
   # ci-gate-replica: the individual CI-parity hooks above (wheel-build,
   # wheel-build-reproducibility, check-secret-history, contract-checks, ...)
   # are each a hand-derived mirror of ONE release.yml/pipeline.yml step,
@@ -1017,10 +1021,30 @@ repos:
   # release.yml's `gates` job, so it can't drift). It builds a venv → staged
   # manual/pre-push, too slow for every commit. Run it via:
   #   pre-commit run guardrails-lean-parity --hook-stage manual --all-files
-  - id: guardrails-lean-parity
-    name: CI parity — guardrail gates in a CI-equivalent LEAN venv
-    entry: python3 scripts/run_guardrails_lean.py
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [manual, pre-push]
+  # perf/gate-dedup (2026-08-15): the standalone `guardrails-lean-parity` hook
+  # that used to live here (scripts/run_guardrails_lean.py) ALSO parses
+  # .github/workflows/release.yml's `gates` job at run time (its own module
+  # docstring: "The install package list and the gate command list are both
+  # parsed out of the gates job... at runtime") and executes every run-step
+  # that invokes a gate script or pytest — the identical `_WORKFLOW_JOB =
+  # "gates"` this repo's `ci-gate-replica` (below) also replays. The only
+  # difference was venv isolation: this hook built a fresh throwaway lean venv
+  # per run (`tempfile.mkdtemp(prefix="guardrails-lean-")`) instead of syncing
+  # in-place, matching the CI env more cautiously — but it verified nothing
+  # ci-gate-replica's own execution of the `gates` job's "Sync test
+  # environment (no runtime engine)" step (the literal `uv sync --frozen
+  # --extra test --group guardrails --no-install-package epistemic-graph
+  # --no-install-package langfuse-agent`) does not already verify, since both
+  # scripts parse the SAME job from the SAME file. ci-gate-replica additionally
+  # covers the `build` job, which this hook never touched. Verified via
+  # `scripts/ci_gate_replica.py --dry-run` and reading run_guardrails_lean.py's
+  # `_parse_gates`/`_parse_sync_command`. Removed from the automatic pre-push
+  # stage so the whole `gates` job does not run twice (once in a throwaway
+  # venv here, once in-place inside ci-gate-replica). NOTE (found, not fixed,
+  # by this dedup pass): ci-gate-replica's in-place `uv sync --frozen` DOES
+  # mutate this worktree's real .venv down to the lean CI set for the
+  # remainder of the push — a pre-existing property of ci-gate-replica.py
+  # (REPO_ROOT-cwd subprocess, no venv snapshot/restore), not introduced by
+  # this change; scripts/run_guardrails_lean.py stays on disk, unwired, if a
+  # throwaway-venv-isolated run is ever needed again:
+  #   python3 scripts/run_guardrails_lean.py
