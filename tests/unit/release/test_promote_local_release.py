@@ -534,6 +534,19 @@ def test_existing_evidence_without_committed_journal_fails_before_toolchain(
         "_verify_toolchain",
         lambda _spec: pytest.fail("toolchain must not run for an occupied destination"),
     )
+    # ``promote()`` calls ``_require_supported_platform()`` before the
+    # evidence-destination check this test exercises, and that gate
+    # legitimately fails under uv's pinned CPython 3.14.4: its build reports
+    # ``HAVE_MEMFD_CREATE=0`` (no ``os.memfd_create``/``fcntl.F_ADD_SEALS`` et
+    # al.), unlike the distro interpreter on the SAME host/kernel — a build
+    # artifact of that one interpreter, not a real platform limitation
+    # (``test_native_promoter_rejects_unsupported_platform`` already covers
+    # the gate itself, via a genuinely-unsupported ``sys.platform``). This
+    # test is about the destination-occupied rejection firing before
+    # ``_verify_toolchain`` ever runs, not about platform support, so the
+    # irrelevant precondition is mocked out exactly like ``_verify_toolchain``
+    # above.
+    monkeypatch.setattr(promoter, "_require_supported_platform", lambda: None)
 
     status, evidence = promoter.promote(
         spec_path=spec_path,
@@ -704,6 +717,15 @@ def test_promote_rolls_back_failed_doctor_and_clears_journal(
     }
 
     monkeypatch.setattr(promoter, "load_spec", lambda *_a, **_k: spec)
+    # See test_existing_evidence_without_committed_journal_fails_before_toolchain's
+    # comment: uv's pinned CPython 3.14.4 build has no ``os.memfd_create``/
+    # ``fcntl.F_ADD_SEALS`` et al. (``HAVE_MEMFD_CREATE=0``, unlike the distro
+    # interpreter on the same host/kernel), so ``_require_supported_platform()``
+    # otherwise fails before this test ever reaches the doctor-rollback logic
+    # under test. ``_verify_toolchain`` below is already faked out (real
+    # ``/dev/null`` fds, not a real memfd-bound tool), so the platform gate
+    # protects nothing this test actually exercises either.
+    monkeypatch.setattr(promoter, "_require_supported_platform", lambda: None)
 
     def bound_tools(_spec):
         source = Path("/dev/null")
