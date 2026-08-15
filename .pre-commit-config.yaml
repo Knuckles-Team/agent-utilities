@@ -311,6 +311,16 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+  # Anti-drift check for the ci-gate-replica hook (pre-push/manual, below) —
+  # pure YAML parse, no venv sync/build, <1s, so it runs on EVERY commit
+  # rather than waiting for a push to discover release.yml grew a job
+  # ci_gate_replica.py doesn't know how to classify.
+  - id: ci-gate-replica-consistency
+    name: CI gate replica — anti-drift check (release.yml jobs all classified)
+    entry: python3 scripts/ci_gate_replica.py --consistency-check
+    language: system
+    pass_filenames: false
+    always_run: true
   - id: pytest
     name: pytest
     # test_target intentionally left unquoted below: once the tests/unit-style
@@ -721,6 +731,32 @@ repos:
   - id: wheel-build-reproducibility
     name: CI parity — wheel reproducibility + release contract + privacy (pipeline.yml)
     entry: python3 scripts/release/check_wheel_build_reproducibility.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
+  # ci-gate-replica: the individual CI-parity hooks above (wheel-build,
+  # wheel-build-reproducibility, check-secret-history, contract-checks, ...)
+  # are each a hand-derived mirror of ONE release.yml/pipeline.yml step,
+  # added one lane at a time — real coverage, but not provably COMPLETE, and
+  # each one can silently drift the moment release.yml changes and nobody
+  # updates its local twin. This hook instead PARSES
+  # .github/workflows/release.yml at run time (scripts/ci_gate_replica.py)
+  # and executes every step of its `gates` + `build` jobs verbatim — a step
+  # added there is run here with NO change to this file. Its own
+  # --consistency-check fails loudly if release.yml grows a job this script
+  # doesn't know how to classify (see the meta-tests in
+  # tests/unit/scripts/test_ci_gate_replica_consistency_check.py).
+  # `numeric-runtime-gate` (installs the published wheel's declared
+  # epistemic-graph[full] FROM PyPI — currently unpublishable, see
+  # scripts/release/check_eg_pypi_resolvable.py) and the tag-gated publish
+  # jobs are NOT executable locally and are reported "NOT VALIDATED LOCALLY"
+  # with a reason in the run's summary rather than omitted — run
+  # `scripts/ci_gate_replica.sh --dry-run` to see the full plan without
+  # executing anything.
+  - id: ci-gate-replica
+    name: CI gate replica — parses release.yml, runs its gates+build jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — pre-push/manual)
+    entry: bash -c 'bash scripts/ci_gate_replica.sh'
     language: system
     pass_filenames: false
     always_run: true
