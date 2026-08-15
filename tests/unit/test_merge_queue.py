@@ -646,7 +646,11 @@ def test_status_warns_when_the_oldest_candidate_is_stale(
     report = mq.queue_report(canonical)
     assert report["stale_queue_warning"] is not None
     assert "lane-a" in report["stale_queue_warning"]
-    assert "D-ORC-20" in report["stale_queue_warning"]
+    # D-MQR-7: the warning no longer cites D-ORC-20 -- that reference claimed
+    # "nothing drives the queue automatically," which became false once
+    # merge-queue-runner.timer started draining it (see queue_report's own
+    # docstring). The warning now points at the runner instead.
+    assert "merge-queue-runner.timer" in report["stale_queue_warning"]
 
 
 def test_status_does_not_warn_for_a_freshly_queued_candidate(canonical: Path) -> None:
