@@ -162,7 +162,17 @@ def _properties(
         # it must match the verified GraphSession for native claim fencing.
         tenant=tenant,
         kind="bus_message",
-        status="succeeded" if audit_sink else "ready",
+        # CONCEPT:EG-KG.backend.work-item-capability — the engine's native WorkItem
+        # authority guard only allows a generic (non-native) write to CREATE a
+        # WorkItem in "submitted"/"ready" state; every other status (including a
+        # pre-completed "succeeded") is refused as a generic write manufacturing
+        # native authority ("native WorkItem authority required for active lease
+        # fields"). This module deliberately never claims/transitions a WorkItem
+        # (see the docstring below) so it cannot legally mint one pre-terminal
+        # either — an audit-sink message's WorkItem record is materialized
+        # "ready" like every other one; ``BusDeliveryOutcome.outcome`` already
+        # distinguishes "topic_audit_committed" from "inbox_committed".
+        status="ready",
         payload_ref=inbox_id,
         idempotency_key=digest,
         depends_on=[],
@@ -182,8 +192,10 @@ def _properties(
         created_at=now,
         updated_at=now,
         submitted_at=now,
-        completed_at=now if audit_sink else None,
-        result_ref=outcome_id if audit_sink else None,
+        # Never pre-completed for the same reason ``status`` is always "ready"
+        # above — a generic write cannot mint a terminal WorkItem.
+        completed_at=None,
+        result_ref=None,
         # Consent/expiry (CONCEPT:AU-ORCH.dispatch.workitem-consent-gate, D-25-3):
         # populated from the already-privacy-sanitized `clean_meta`, same pattern
         # as `deadline_unix`/`budget` above. This module only MATERIALIZES the
