@@ -93,6 +93,7 @@ import ast
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -1091,19 +1092,103 @@ def _merge_contract_baseline_cache(
 
 
 def _contract_check_argv(
-    script: Path, rel: Path, *, interpreter: str, tree: Path
+    script: Path,
+    rel: Path,
+    *,
+    interpreter: str,
+    tree: Path,
+    base_sha: str | None = None,
 ) -> list[str]:
+    """The invocation the fast tier runs a discovered ``check_*.py`` with.
+
+    ``--repository-root`` and ``--base`` are each forwarded only when the
+    script's own source declares support for the flag (grepped literally, not
+    probed with a throwaway subprocess) — the same detection convention this
+    function already used for ``--repository-root`` extends verbatim to
+    ``--base``.
+
+    **Why ``--base`` matters as much as ``--repository-root`` (found reproducing
+    a false-reject, D-MQ-FP-1).** A script that answers a question about "the
+    range not yet pushed" — ``check_secret_history.py``'s own docstring — needs
+    to know what range that is. Left to its own default, such a script picks
+    its OWN idea of the base (``origin/main``, or whatever ``git`` resolves),
+    which is not necessarily ``base_sha``: this repo's push is deliberately
+    deferred, so ``origin/main`` sits over a hundred commits behind local
+    ``main`` at any given time. Two consequences, both observed reproducing
+    the incident this parameter fixes:
+
+    1. The base-tree run and the merged-tree run each independently resolve
+       "their own" default base, and since the merged tree's ``HEAD`` differs
+       from the base tree's ``HEAD``, a script whose report embeds anything
+       about the scanned range (a line count, the range boundaries) prints
+       DIFFERENT text on the two runs even when the candidate contributes
+       nothing new — a raw line-diff (:func:`_output_lines`) then reads that
+       incidental drift as a "new" violation and rejects a candidate that
+       introduced no defect at all.
+    2. Worse, the range silently balloons to cover the ENTIRE unpushed
+       backlog instead of just the candidate's own commits, so the script can
+       exit non-zero for a hit that has nothing to do with the candidate
+       being judged — the actual reason ``run_contract_checks``' ``if
+       proc.returncode == 0: continue`` fast path was skipped for a script a
+       manual ``--base main`` invocation showed clean.
+
+    Passing the SAME ``base_sha`` — the exact commit :func:`compute_contract_baseline`
+    already anchors the base-tree run to — to both the base-tree and the
+    merged-tree invocation closes both holes: the base-tree run's range
+    collapses to ``base_sha..base_sha`` (always empty, always clean, always
+    skipped), and the merged-tree run's range becomes ``base_sha..merged_sha``
+    — exactly the candidate's own contribution, nothing more.
+    """
     argv = [interpreter, str(rel)]
-    if "--repository-root" in script.read_text(encoding="utf-8", errors="replace"):
+    src = script.read_text(encoding="utf-8", errors="replace")
+    if "--repository-root" in src:
         argv += ["--repository-root", str(tree)]
+    if base_sha and "--base" in src:
+        argv += ["--base", base_sha]
     return argv
+
+
+_VOLATILE_JSON_SCALAR_RE = re.compile(r'^"[^"]+"\s*:\s*-?\d+(?:\.\d+)?,?$')
+
+
+def _is_volatile_report_metadata(line: str) -> bool:
+    """True for an output line that is purely a JSON object member with a bare
+    numeric value — e.g. ``"addedLines": 33,`` — and therefore incidental
+    report metadata rather than the identity of a violation.
+
+    **Why this exists (D-MQ-FP-1, defense in depth alongside the ``--base``
+    fix above).** ``run_contract_checks`` diffs a script's RAW OUTPUT LINES
+    against its base-ref baseline because contract scripts are discovered
+    dynamically (``CONTRACT_CHECK_GLOB``) and report their findings in
+    whatever shape their author chose — some itemize one violation per line,
+    some print a single JSON blob. A script that reports a count, a duration,
+    or any other scalar statistic derived from the SIZE of what it scanned
+    will legitimately print a different number on the base-tree run than on
+    the merged-tree run even when the actual violations are byte-for-byte
+    identical (or absent on both) — that number is a description of the scan,
+    not a finding. Comparing it as if it were a violation makes every such
+    script reject candidates that changed nothing it actually checks for.
+
+    This is scoped narrowly on purpose: a line must be an ENTIRE, otherwise
+    plain ``"key": <number>`` JSON member — a per-violation line that merely
+    happens to end in digits (a file path, a line number embedded in
+    ``path/to/file.py:42: message`` text, an itemized ``"file": "..."``
+    string value) does not match, so real violation content is never
+    dropped from the comparison. A future script's volatile COUNT is
+    absorbed automatically without editing this function or that script;
+    a future script's volatile non-numeric text (a timestamp string, an
+    unordered list) is not — that residual class still wants the
+    differential ``--base`` fix above (or, for a script this codebase owns,
+    printing violations on a stable, minimal channel).
+    """
+    return bool(_VOLATILE_JSON_SCALAR_RE.match(line))
 
 
 def _output_lines(proc: subprocess.CompletedProcess) -> frozenset[str]:
     return frozenset(
         line.strip()
         for line in (proc.stdout + "\n" + proc.stderr).splitlines()
-        if line.strip()
+        if line.strip() and not _is_volatile_report_metadata(line.strip())
     )
 
 
@@ -1165,6 +1250,7 @@ def compute_contract_baseline(
                     script.relative_to(base_tree),
                     interpreter=interpreter,
                     tree=base_tree,
+                    base_sha=base_sha,
                 ),
                 base_tree,
                 CONTRACT_BASELINE_BUDGET_SECONDS,
@@ -1271,10 +1357,15 @@ def run_contract_checks(
                 "the merged tree — a genuine empty, not a degraded read"
             ),
         )
+    merged_base_sha = output_baseline.base_sha if output_baseline is not None else None
     jobs = {
         script.name: (
             _contract_check_argv(
-                script, script.relative_to(tree), interpreter=interpreter, tree=tree
+                script,
+                script.relative_to(tree),
+                interpreter=interpreter,
+                tree=tree,
+                base_sha=merged_base_sha,
             ),
             tree,
             CONTRACT_CHECK_BUDGET_SECONDS,

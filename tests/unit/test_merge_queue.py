@@ -1223,6 +1223,223 @@ def test_pre_existing_contract_debt_does_not_block_an_unrelated_candidate(
 
 
 # ---------------------------------------------------------------------------
+# D-MQ-FP-1: a contract script's own INCIDENTAL report text (a count, a
+# range boundary — anything derived from the size/shape of what it scanned
+# rather than from a violation's identity) must never be diffed as if it
+# were a violation, and the differential baseline run must be anchored to
+# the SAME base_sha the queue itself is using, not whatever a script
+# defaults to on its own. Reproduces the false-reject a release.yml-only
+# candidate hit in production: `contract-checks: ...: NEW violation(s) not
+# present on the base ref:` with the actual violation list empty — the
+# ONLY thing that differed between the base-tree and merged-tree runs was
+# incidental report metadata, not a real finding.
+# ---------------------------------------------------------------------------
+
+
+def test_output_lines_excludes_bare_numeric_json_fields() -> None:
+    """Unit-level pin on the exact shape :func:`mq._is_volatile_report_metadata`
+    strips: a standalone ``"key": <number>`` JSON member, with or without a
+    trailing comma, is incidental report metadata, not a violation."""
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=1,
+        stdout=('{\n  "ok": false,\n  "addedLines": 33,\n  "seconds": 0.42\n}\n'),
+        stderr="",
+    )
+    lines = mq._output_lines(proc)
+    assert '"addedLines": 33,' not in lines
+    assert '"seconds": 0.42' not in lines
+    # Genuine content survives: the boolean field, and anything that is not a
+    # bare "key": number member (a quoted string value, a per-violation
+    # free-text line) must never be dropped from the comparison.
+    assert '"ok": false,' in lines
+
+
+def test_output_lines_keeps_violation_shaped_lines_that_end_in_digits() -> None:
+    """The narrowness guarantee: a real per-violation line that merely
+    contains digits (a file:line locator, a string value with a numeric
+    suffix) must NOT be mistaken for volatile metadata — only an entire line
+    that is nothing but ``"key": <number>`` is excluded."""
+    proc = subprocess.CompletedProcess(
+        args=[],
+        returncode=1,
+        stdout='- pkg/core.py:42: BAD_thing_v2\n"file": "pkg/core42.py",\n',
+        stderr="",
+    )
+    lines = mq._output_lines(proc)
+    assert "- pkg/core.py:42: BAD_thing_v2" in lines
+    assert '"file": "pkg/core42.py",' in lines
+
+
+def test_contract_check_argv_forwards_base_only_when_declared(tmp_path: Path) -> None:
+    """Unit-level pin on :func:`mq._contract_check_argv`'s detection rule —
+    identical in shape to the pre-existing ``--repository-root`` rule it is
+    modeled on."""
+    declares = tmp_path / "declares.py"
+    declares.write_text("import argparse\np.add_argument('--base')\n")
+    silent = tmp_path / "silent.py"
+    silent.write_text("import sys\nsys.exit(0)\n")
+
+    argv = mq._contract_check_argv(
+        declares,
+        Path("declares.py"),
+        interpreter="python3",
+        tree=tmp_path,
+        base_sha="deadbeef",
+    )
+    assert argv[-2:] == ["--base", "deadbeef"]
+
+    argv_silent = mq._contract_check_argv(
+        silent,
+        Path("silent.py"),
+        interpreter="python3",
+        tree=tmp_path,
+        base_sha="deadbeef",
+    )
+    assert "--base" not in argv_silent
+
+    # No base_sha available (e.g. output_baseline is None) — never forwarded,
+    # even for a script that declares support.
+    argv_no_sha = mq._contract_check_argv(
+        declares,
+        Path("declares.py"),
+        interpreter="python3",
+        tree=tmp_path,
+    )
+    assert "--base" not in argv_no_sha
+
+
+# Like ITEMIZED_CONTRACT, but also prints a volatile line ahead of the
+# violation list — a bare count derived from the tree it was invoked
+# against (here, total commit count, exactly the shape `addedLines` in
+# check_secret_history.py's JSON report has: a number that legitimately
+# differs between "run on the base tree" and "run on the merged tree"
+# even when the violations themselves are identical, because the merged
+# tree simply has one more commit).
+VOLATILE_ITEMIZED_CONTRACT = """\
+import pathlib, subprocess, sys
+root = pathlib.Path(sys.argv[sys.argv.index("--repository-root") + 1])
+count = subprocess.run(
+    ["git", "rev-list", "--count", "HEAD"], cwd=str(root),
+    capture_output=True, text=True, check=True,
+).stdout.strip()
+print(f'"commitCount": {count},')
+src = (root / "pkg" / "core.py").read_text()
+violations = sorted(line.strip() for line in src.splitlines() if line.strip().startswith("BAD_"))
+if violations:
+    print("itemized gate failed:")
+    for v in violations:
+        print(f"- {v}")
+    sys.exit(1)
+sys.exit(0)
+"""
+
+
+def _with_volatile_itemized_contract(canonical: Path) -> None:
+    """Same pre-existing-debt shape as :func:`_with_itemized_contract`, but the
+    contract script also emits a volatile per-run count."""
+    _write(canonical, "pkg/core.py", "VALUE = 1\nBAD_existing = 1\n")
+    _write(
+        canonical,
+        "scripts/security/check_volatile_contract.py",
+        VOLATILE_ITEMIZED_CONTRACT,
+    )
+    _commit(canonical, "main: a contract with pre-existing debt AND volatile output")
+
+
+def test_volatile_report_metadata_does_not_block_an_unrelated_candidate(
+    canonical: Path,
+) -> None:
+    """The false-reject reproduction: main already carries contract debt, and a
+    candidate that never touches the offending file adds exactly one commit —
+    which, pre-fix, changed the script's ``commitCount`` line between the
+    base-tree run and the merged-tree run and was misread as a NEW violation
+    even though the violation SET (``BAD_existing`` only) never changed. This
+    must land, with the debt reported but not blocking — the same escape this
+    module already proves for itemized text (see
+    ``test_pre_existing_contract_debt_does_not_block_an_unrelated_candidate``),
+    now proven for a script whose report also carries an incidental number."""
+    _with_volatile_itemized_contract(canonical)
+    lane = _branch(canonical, "lane-unrelated", {"pkg/elsewhere.py": "UNRELATED = 1\n"})
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 1 and result["rejected"] == 0, result
+    gate = result["outcomes"][0]["gate"]
+    check = next(c for c in gate["checks"] if c["name"] == "contract-checks")
+    assert check["ok"] is True
+    assert "BAD_existing" in check["detail"]
+    assert "pre-existing" in check["detail"]
+    # The volatile count itself must never surface as a blocking "NEW
+    # violation" line — proving it was excluded from the diff, not merely
+    # that this particular run happened not to trip on it.
+    assert "NEW violation" not in check["detail"]
+
+
+def test_a_genuinely_new_violation_still_blocks_alongside_volatile_output(
+    canonical: Path,
+) -> None:
+    """The critical other half: stripping volatile report metadata from the
+    comparison must never mask a REAL new violation printed by the same
+    script. A candidate that adds a second, distinct violation to the
+    already-red file must still be rejected, with the new violation
+    (not the pre-existing one) named in the reason."""
+    _with_volatile_itemized_contract(canonical)
+    lane = _branch(
+        canonical,
+        "lane-adds-new-violation",
+        {"pkg/core.py": "VALUE = 1\nBAD_existing = 1\nBAD_new = 2\n"},
+    )
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+    assert result["landed"] == 0 and result["rejected"] == 1
+    gate = result["outcomes"][0]["gate"]
+    check = next(c for c in gate["checks"] if c["name"] == "contract-checks")
+    assert check["ok"] is False
+    assert "NEW violation" in check["detail"]
+    assert "BAD_new = 2" in check["detail"]
+
+
+# A script that logs the literal ``--base`` value it was invoked with, to a
+# path named by an env var the test controls — proves the fast tier forwards
+# ``--base <base_sha>`` (the SAME commit anchoring the differential baseline)
+# to a script that declares support for it, exactly as it already does for
+# ``--repository-root``.
+BASE_LOGGING_CONTRACT = """\
+import os, pathlib, sys
+if "--base" in sys.argv:
+    value = sys.argv[sys.argv.index("--base") + 1]
+    pathlib.Path(os.environ["MQ_TEST_BASE_LOG"]).write_text(value)
+sys.exit(0)
+"""
+
+
+def test_base_sha_is_forwarded_to_a_script_that_declares_it(
+    canonical: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """D-MQ-FP-1 root cause, closed: a script that scans "the range not yet
+    merged" needs to be told what that range is anchored to. Left undeclared,
+    such a script silently falls back to its OWN idea of the base (measured
+    in production as ``origin/main`` sitting 100+ commits behind local
+    ``main``), scanning an entirely different — and volatile — range on the
+    base-tree run vs. the merged-tree run. The fast tier must instead forward
+    the SAME base_sha :func:`compute_contract_baseline` already anchors its
+    own baseline run to."""
+    log = tmp_path / "base_seen.txt"
+    monkeypatch.setenv("MQ_TEST_BASE_LOG", str(log))
+    _write(canonical, "scripts/security/check_base_logging.py", BASE_LOGGING_CONTRACT)
+    _commit(canonical, "main: a contract that logs the --base it receives")
+    expected_base_sha = _run(["git", "rev-parse", "main"], canonical)
+
+    lane = _branch(canonical, "lane-x", {"pkg/other.py": "X = 1\n"})
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+
+    assert result["landed"] == 1, result
+    assert log.is_file(), "the script never saw --base at all"
+    assert log.read_text() == expected_base_sha
+
+
+# ---------------------------------------------------------------------------
 # Regenerate-on-land — a conflict confined to GENERATED_FILES is resolved by
 # regenerating them from the merged truth, never by rejecting the candidate
 # or picking a side (CONCEPT:AU-OS.governance.merge-queue-regenerate-on-land)

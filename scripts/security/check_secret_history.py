@@ -65,6 +65,19 @@ and the baseline file resolve from it, so a merge-queue run always reads the
 baseline that ships WITH the merged tree it is checking, not a stale one from
 wherever the interpreter happens to have been launched.
 
+``--base`` is discovered and forwarded the identical way (D-MQ-FP-1): the fast
+tier greps this script's own source for the literal string ``--base`` and,
+only when present, appends ``--base <base_sha>`` — the SAME commit anchoring
+its differential baseline run — to both the base-tree and the merged-tree
+invocation. Without this, the script silently fell back to its own default
+(``origin/main``), which this repo's deliberately-deferred push leaves
+**far** behind local ``main``; the base-tree and merged-tree runs then each
+resolved a different, backlog-sized range instead of the one the queue
+actually means to compare (``base_sha..merged_sha``), producing both a
+false-reject (incidental report fields like ``addedLines`` drift between the
+two runs even when nothing new is added) and a spurious non-clean exit driven
+by pre-existing history far outside the candidate's own diff.
+
 ``--self-check`` proves the credential-pattern half actually catches a
 planted secret (AWS-shaped key, GitHub PAT, private-key block) in a throwaway
 git repo, and that the ``sanitizer:ignore`` marker exempts it — i.e. it would
@@ -79,7 +92,6 @@ import math
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
