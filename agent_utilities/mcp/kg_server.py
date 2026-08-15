@@ -3206,9 +3206,14 @@ def _record_hydration_manifest(engine: Any) -> None:
         signed = sign_hydration_manifest(manifest)
         persist_hydration_manifest(engine, signed)
     except Exception as exc:  # noqa: BLE001 - the audit record must never block
-        # boot hydration itself. The cause IS logged so a persistently
+        # boot hydration itself. The cause IS logged (exc.args[0], never
+        # str()/repr() -- test_record_hydration_manifest_never_blocks_boot
+        # asserts the real message reaches the log) so a persistently
         # unsignable/unbuildable manifest is diagnosable rather than silent.
-        logger.debug("boot hydration manifest not recorded: %s", type(exc).__name__)
+        logger.debug(
+            "boot hydration manifest not recorded: %s",
+            exc.args[0] if exc.args else type(exc).__name__,
+        )
     else:
         logger.info(
             "Recorded signed hydration manifest (generated_at=%s)",
