@@ -17,19 +17,22 @@ import pytest
 
 from agent_utilities.core import sessions as _sessions
 from agent_utilities.orchestration.work_item import loop_work_item_id
+from tests.unit.orchestration.test_work_item import NativeEngine
 
 
-class _GoalEngine:
-    """Fake KG engine: the goal Loop-node store (add_node + goal queries)."""
+class _GoalEngine(NativeEngine):
+    """Fake KG engine: the goal Loop-node store (add_node + goal queries) ON TOP
+    of :class:`NativeEngine`'s real native WorkItem/``.statechart`` double.
 
-    def __init__(self):
-        self.nodes: dict[str, dict] = {}
-        self.work_items: dict[str, dict] = {}
-
-    def add_node(self, nid, ntype, properties=None):
-        cur = self.nodes.get(nid, {})
-        cur.update({"type": ntype, **(properties or {})})
-        self.nodes[nid] = cur
+    A goal's WorkItem and its definition Concept node are both plain graph
+    nodes in the real engine, so both live in the SAME ``self.nodes`` store
+    here too (inherited from ``NativeEngine``) — a goal-loop test that drives
+    ``run_goal_loop`` end-to-end (honoring a pause/kill request) exercises the
+    identical claim/checkpoint/statechart contract ``test_loop_durable.py`` and
+    friends already validate this double against, rather than a second,
+    parallel WorkItem store that can silently drift from what
+    ``ensure_loop_work_item``/``claim_loop_work_item`` actually write.
+    """
 
     def _row(self, nid, n):
         return {
@@ -50,9 +53,6 @@ class _GoalEngine:
 
     def query_cypher(self, q, params=None):
         params = params or {}
-        if "MATCH (w:WorkItem" in q:
-            item = self.work_items.get(params.get("id"))
-            return [dict(item)] if item else []
         if "c.id = $id" in q:
             n = self.nodes.get(params.get("id"))
             return [self._row(params.get("id"), n)] if n else []
@@ -62,7 +62,7 @@ class _GoalEngine:
                 for i, n in self.nodes.items()
                 if n.get("loop_kind") == "develop"
             ]
-        return []
+        return super().query_cypher(q, params)
 
 
 @pytest.fixture
@@ -117,12 +117,16 @@ def _add_goal(eng, goal_id, status, owner, iterations=None):
             "updated_at": time.time(),
         },
     )
-    eng.work_items[loop_work_item_id(goal_id)] = {
-        "id": loop_work_item_id(goal_id),
-        "kind": "goal_loop",
-        "status": status,
-        "lease_expires_at": 0.0,
-    }
+    eng.add_node(
+        loop_work_item_id(goal_id),
+        "WorkItem",
+        properties={
+            "kind": "goal_loop",
+            "status": status,
+            "lease_expires_at": 0.0,
+            "tenant": "tenant-a",
+        },
+    )
 
 
 def test_rehydrate_preserves_exact_work_item_status(goal_db):
@@ -132,8 +136,8 @@ def test_rehydrate_preserves_exact_work_item_status(goal_db):
     stranded = _sessions.rehydrate_goals()
     assert stranded == 1
 
-    assert goal_db.work_items[loop_work_item_id("dead")]["status"] == "running"
-    assert goal_db.work_items[loop_work_item_id("done")]["status"] == "succeeded"
+    assert goal_db.nodes[loop_work_item_id("dead")]["status"] == "running"
+    assert goal_db.nodes[loop_work_item_id("done")]["status"] == "succeeded"
 
     # Visible in the in-memory cache (and therefore in /goals lists).
     assert "dead" in _sessions.active_goals
@@ -148,7 +152,7 @@ def test_rehydrate_skips_live_runs(goal_db):
     _add_goal(goal_db, "live", "running", "worker")
     _sessions.background_goal_runs["live"] = {"session_id": "sess-live"}
     assert _sessions.rehydrate_goals() == 0
-    assert goal_db.nodes["live"]["status"] == "running"
+    assert goal_db.nodes[loop_work_item_id("live")]["status"] == "running"
 
 
 async def test_list_goals_includes_durable_goals(goal_db):
@@ -210,7 +214,7 @@ async def test_goal_loop_honors_kill_request(goal_db):
     ]
     conn.close()
     assert status == "cancelled"
-    assert goal_db.nodes["g-kill"]["status"] == "cancelled"
+    assert goal_db.nodes[loop_work_item_id("g-kill")]["status"] == "cancelled"
 
 
 async def test_goal_loop_honors_pause_request(goal_db):
