@@ -53,7 +53,7 @@ _RELEASE_RESOURCE_CATALOG = "deploy/release/release-contract-resources.catalog.j
 # --write for a real source change). Verify with `sha256sum` before bumping;
 # never regenerate this blindly, it is the wheel contract's trusted anchor.
 _RELEASE_RESOURCE_CATALOG_SHA256 = (
-    "c657fed697c66420b5f76e15834030d3463656b8a3e1713ce2dbf5dcd2a986dc"
+    "24307f7d2f2072b7ca64b660102c836505a02a219aad37ebe290de929ead9ea2"
 )
 _RELEASE_RESOURCE_PATHS = (
     "deploy/release/certification-campaign.schema.json",
@@ -442,7 +442,14 @@ def check_wheel(path: Path) -> None:
                 len(engine_requirements) != 1
                 or engine_requirements[0].extras != {"full"}
                 or engine_requirements[0].url is not None
-                or engine_requirements[0].marker is not None
+                # GOC-73: epistemic-graph[full] moved from a hard base dependency to
+                # the opt-in `graphos` extra (pyproject.toml's `[project.
+                # optional-dependencies].graphos`), so the wheel's own Requires-Dist
+                # now legitimately carries `; extra == "graphos"` rather than no
+                # marker at all -- a wheel built with `[graphos]` (the canonical
+                # wheel-contract profile, see the extra's own docstring) still
+                # resolves this dependency unconditionally for that install.
+                or str(engine_requirements[0].marker) != 'extra == "graphos"'
                 or engine_requirements[0].specifier != SpecifierSet(">=2.23.2,<3.0.0")
             ):
                 raise WheelContractError("full-engine-requirement-invalid")
