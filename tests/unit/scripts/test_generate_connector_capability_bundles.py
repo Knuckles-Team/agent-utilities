@@ -153,13 +153,17 @@ def test_source_attestation_never_claims_live_execution(
         "manifest_integrity": "passed",
     }
     # CONCEPT:AU-KG.ontology.derived-compatibility-band — the band is a MINOR
-    # floor (>=MAJOR.MINOR.0,<MAJOR+1), derived from the pinned engine version,
-    # not restated as its literal patch.
-    assert attestation["compatibility"] == {
-        "agent_utilities": ">=2.2.0,<3",
-        "epistemic_graph": ">=2.23.0,<3",
-        "bundle_schema": "2",
-    }
+    # floor (>=MAJOR.MINOR.0,<MAJOR+1), derived from the pinned engine AND
+    # runtime versions, not restated as a literal patch here (a hardcoded
+    # literal drifts every time agent_utilities._version.__version__ bumps —
+    # it was found stale at ">=2.2.0,<3" against the current 2.4.0).
+    from agent_utilities.knowledge_graph.integrations.connector_source_attestation import (
+        source_compatibility,
+    )
+
+    expected_compatibility = dict(source_compatibility())
+    expected_compatibility["bundle_schema"] = "2"
+    assert attestation["compatibility"] == expected_compatibility
     assert ontology_integrity.verify_release_signature(
         ontology_integrity.canonical_signed_document_hash(attestation),
         attestation["signature"],
