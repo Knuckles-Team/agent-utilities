@@ -278,6 +278,10 @@ def _enabled_maintenance_names() -> set[str]:
 
     inst = TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
     inst.backend = EpistemicGraphBackend()
+    # schedule_engine._control_backend() requires engine.control_backend to be
+    # set explicitly -- the real engine's __init__ sets it via
+    # _build_control_backend(), but __new__ bypasses __init__ here.
+    inst.control_backend = inst.backend
     inst._register_maintenance_schedules()
     return {s.name for s in _se._load_all(inst) if s.enabled}
 
