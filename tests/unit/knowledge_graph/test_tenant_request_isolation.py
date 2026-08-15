@@ -124,19 +124,26 @@ def test_query_cypher_isolates_tenants(guarded_engine):
 
     # acme sees only its own node; globex sees only its own (cross-org isolation).
     #
-    # KNOWN BLOCKED (reported, not weakened): even with the read correctly
-    # scoped to a matching (actor, session) pair via _scoped(...), the native
-    # engine's own fail-closed guard now rejects this call outright with
-    # RuntimeError("request context tenant does not match graph tenant") —
-    # confirmed by direct reproduction against compute.query_cypher(...)
-    # bypassing every test/guarded-backend layer. The engine enforces ONE
-    # tenant per physical graph; it does not support this test's premise of
-    # several tenants sharing one graph, isolated only by query_cypher's
-    # row-level scope() predicate. Making this assertion pass would require
-    # either loosening that engine-level tenant/graph binding guard (a real
-    # authority boundary — explicitly out of bounds) or restructuring this
-    # test onto one physical graph per tenant (a genuine redesign, not a
-    # fix, and out of this slice's scope). Left failing and reported.
+    # KNOWN BLOCKED (reported, not weakened; re-confirmed and CORRECTED by a
+    # deeper investigation): even with the read correctly scoped to a
+    # matching (actor, session) pair via _scoped(...), the native engine's
+    # own fail-closed guard rejects this call with RuntimeError("request
+    # context tenant does not match graph tenant"). That guard is minted in
+    # the Rust engine at epistemic-graph/src/server/auth.rs
+    # (validate_context_claims / RequestContextPolicy::from_env) as a
+    # **one-tenant-per-ENGINE-PROCESS** deployment identity pin, fixed once
+    # at spawn from EPISTEMIC_GRAPH_TENANT (whatever tenant is ambient when
+    # graph_compute.py's _autostart_engine spawns the child) — it never
+    # inspects the target graph at all, so it is stricter than "one tenant
+    # per physical graph": rerouting the writes onto separate
+    # session.with_graph(...) graphs (the pattern test_ingest_graph_routing.py
+    # uses) would NOT help, because that pattern only ever changes the graph,
+    # never the tenant claim sent to the process. The only way to legitimately
+    # present two different tenant claims to a live query_cypher call is two
+    # separate engine PROCESSES, each spawned under its own tenant's ambient
+    # session — a genuine fixture redesign, not a fix, and out of this
+    # slice's scope. Loosening the guard itself is a real security-boundary
+    # change and explicitly out of bounds. Left failing and reported.
     with _scoped(ORG_A, "alice"):
         acme_ids = _ids(engine.query_cypher("MATCH (n:Doc) RETURN n.id AS id"))
     with _scoped(ORG_B, "bob"):
@@ -157,7 +164,8 @@ def test_within_org_private_then_shared(guarded_engine):
 
     # Project owner/scope so the visibility filter (KG-2.60) can apply.
     # KNOWN BLOCKED — see the identical, fully-diagnosed engine-level
-    # "request context tenant does not match graph tenant" guard documented
+    # "request context tenant does not match graph tenant" guard (a
+    # one-tenant-per-engine-process deployment pin, not per-graph) documented
     # in test_query_cypher_isolates_tenants above; same root cause here.
     q = "MATCH (n:Doc) RETURN n.id AS id, n._owner_id AS _owner_id, n._shared_scope AS _shared_scope"
     with _scoped(org, "bob"):
