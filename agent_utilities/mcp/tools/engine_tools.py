@@ -48,6 +48,7 @@ CONCEPT:AU-KG.compute.engine-surface-manifest — Engine surface manifest (clien
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import inspect
 import json
@@ -809,7 +810,34 @@ def _make_domain_tool(domain: str, methods: list[str]):
             description="Target graph name (empty ⇒ the deployment default graph).",
         ),
     ) -> str:
-        return _dispatch(domain, method_set, action, params_json, graph)
+        # U-86/U-91/BUG-171: this coroutine's body used to call the SYNCHRONOUS
+        # ``_dispatch`` inline (``return _dispatch(...)``). ``_dispatch`` does
+        # blocking native engine I/O (a real socket RPC, sometimes a
+        # multi-attempt retry loop tens of seconds long for a slow admin/
+        # lifecycle call like ``tenants.create``). Because this function is
+        # declared ``async def``, kg_server._execute_tool's dispatch-isolation
+        # check (``inspect.iscoroutinefunction(tool_func)``) treats it as
+        # "already async" and awaits it INLINE on the gateway's one asyncio
+        # event-loop thread instead of routing it through
+        # ``asyncio.to_thread`` the way it does for plain synchronous tool
+        # functions — so a slow engine_* call froze the entire event loop:
+        # every other coroutine on the same loop (including /health and
+        # /health/ready, which must stay schedulable so kubelet's liveness
+        # probe does not restart an otherwise-healthy process — see
+        # ``observability/runtime_health.py``) starved until this call
+        # returned. Confirmed live: r21 was OOM-killed by kubelet during
+        # exactly this scenario.
+        #
+        # Fix: execute ``_dispatch`` in a worker thread via
+        # ``asyncio.to_thread``, which propagates the calling task's
+        # contextvars (actor/session — ``contextvars.copy_context()``) into
+        # the thread, exactly like kg_server._execute_tool already does for
+        # ordinary synchronous tools. This keeps the uniform "every
+        # ``engine_*`` tool is declared ``async def``" surface while making
+        # the actual blocking I/O yield the loop instead of monopolizing it.
+        return await asyncio.to_thread(
+            _dispatch, domain, method_set, action, params_json, graph
+        )
 
     return _engine_domain_tool
 

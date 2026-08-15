@@ -495,6 +495,47 @@ def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
     }.get(status, "unknown")
 
 
+def _record_workitem_claim_outcome(outcome: str) -> None:
+    """Publish one native WorkItem claim-poll outcome (U-66/U-92/BUG-171).
+
+    Module-level (not a :class:`TaskManagerMixin` method) on purpose: it
+    touches only the process-wide gateway metrics registry, never ``self``,
+    so every lightweight ``_claim_next_task`` test double across this
+    package's test suite (none of which subclass ``TaskManagerMixin``) calls
+    the SAME real ``_claim_next_task`` body without each needing to bind a
+    metrics-recording method it has no other reason to know about.
+
+    No-op-cheap: without ``prometheus_client`` the counter is a shared
+    no-op, same convention as :meth:`TaskManagerMixin._record_queue_telemetry`.
+    ``outcome`` is always exactly ``"claimed"`` or ``"empty"`` (bounded
+    cardinality); never a WorkItem id, job id, or path.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import WORKITEM_CLAIMS
+
+        WORKITEM_CLAIMS.labels(queue="ingest_task", outcome=outcome).inc()
+    except Exception:  # noqa: BLE001 — telemetry must never break the claim path
+        pass
+
+
+def _record_workitem_admission_deferral(task_type: str) -> None:
+    """Publish one reserved-worker AdmissionPolicy deferral (U-66/U-92/BUG-171).
+
+    Fires only for the general/unrestricted claim path's admission denial
+    (:meth:`TaskManagerMixin._claim_next_task`) — never for the
+    hydration-priority floor, which is never second-guessed by admission.
+    Module-level for the same reason as :func:`_record_workitem_claim_outcome`.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            WORKITEM_ADMISSION_DEFERRALS,
+        )
+
+        WORKITEM_ADMISSION_DEFERRALS.labels(task_type=task_type).inc()
+    except Exception:  # noqa: BLE001 — telemetry must never break the claim path
+        pass
+
+
 def _retryable_partial_materialization(error: BaseException) -> dict[str, Any] | None:
     """Return the engine's typed hydration signal, never a text lookalike.
 
@@ -4009,9 +4050,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                 lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
             )
         if claim is None:
+            _record_workitem_claim_outcome("empty")
             return None  # authoritative negative; no secondary scan/fallback
         if not _wi.mark_running(self._work_item_engine, claim["work_item_id"], claim):
             return None
+        _record_workitem_claim_outcome("claimed")
 
         job_id = str(
             claim.get("payload_ref")
@@ -4116,6 +4159,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         decision.reason,
                     )
                     self._defer_task_for_admission(job_id)
+                    _record_workitem_admission_deferral(tkind)
                     return None
             self._worker_registry().start(worker_id, lane, tkind)
         return job_id, meta

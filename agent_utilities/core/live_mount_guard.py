@@ -41,10 +41,34 @@ mount such as ``/usr`` or ``/usr/local`` must not validate stale code.
 independent of *why* the intended mount missed (version drift is the known
 cause; a typo'd hostPath or a removed source directory would look identical
 from here, and this check catches those too).
+
+U-26/BUG-172 -- a THIRD deployment shape broke the guard's founding premise.
+The docstring above says "every consumer live-mounts" -- that was true of the
+apps-namespace ``*-mcp`` fleet this module was written for, but the
+self-contained ``docker/graphos-unified.Dockerfile`` image installs
+``agent_utilities`` EDITABLE from local source *at build time*
+(``pip install -e /opt/agent-utilities``) and ships with no hostPath/source
+volume at all by design -- "editable" here only means a deployer MAY choose to
+bind-mount fresher source over it later, not that one is expected. Naively
+applying the old rule ("no active mount ⇒ CRITICAL stale-code drift") to that
+pod is a false positive: the exact code that was reviewed, built, and shipped
+IS what is running: there is no live mount to have drifted FROM. The fix is
+provenance, not mount topology -- ``docker/graphos-unified.Dockerfile`` writes
+a ``SOURCE_REVISION`` build ARG into a non-secret
+``agent_utilities/.source-revision`` marker file (see
+:func:`_installed_source_revision`) beside this package at build time. Its
+PRESENCE is what distinguishes "an image that was deliberately built without
+an intended live mount" from "a mount that was intended but missed" -- the
+latter still has no marker (older images predate this fix) and keeps the
+original fail-loud CRITICAL behavior unchanged. See :class:`LiveMountStatus`
+and :func:`check_live_mount_status` for the typed, four-state result this
+now feeds into ``observability.runtime_health``'s capability-health model
+(CONCEPT:AU-OS.observability.co-service-visibility) instead of a bare log line.
 """
 
 from __future__ import annotations
 
+import enum
 import logging
 import os
 from pathlib import Path
@@ -52,6 +76,43 @@ from pathlib import Path
 from agent_utilities.core._env import setting
 
 logger = logging.getLogger("agent_utilities.live_mount_guard")
+
+#: Filename of the non-secret build-provenance marker
+#: ``docker/graphos-unified.Dockerfile`` writes beside this package at image
+#: build time (``agent_utilities/.source-revision``, containing only a short
+#: git revision or ``"unknown"`` -- never a credential or path). Read from
+#: ``package_dir`` at runtime by :func:`_installed_source_revision`.
+SOURCE_REVISION_MARKER = ".source-revision"
+
+
+class LiveMountStatus(enum.StrEnum):
+    """Typed outcome of the source-layout guard (U-26/R-24/BUG-172).
+
+    Four states so "no active mount" is never conflated with "unhealthy" --
+    exactly the R-24 rule: a capability/deployment shape that is
+    INTENTIONALLY disabled (here: no live mount, by an immutable-image
+    design) must report as such, distinctly from a genuine failure.
+
+    * ``ACTIVE_MOUNT``       -- this package IS being read from a live
+      source mount right now. Always healthy, regardless of any marker.
+    * ``IMMUTABLE_VERIFIED`` -- no active mount, but the build-time
+      ``.source-revision`` marker proves this image was deliberately built
+      without one. Healthy; not a drift.
+    * ``DRIFT``              -- no active mount AND no provenance marker.
+      Ambiguous by construction (indistinguishable from real D-EGK-1 drift
+      from here), so this is the ONLY state that fails loud (CRITICAL) --
+      the historical, still-correct behavior for the apps-namespace fleet
+      this guard was originally written for.
+    * ``NOT_APPLICABLE``     -- the check does not apply here (skip env var
+      set, not running under Kubernetes, or ``/proc/self/mountinfo``
+      unreadable/undeterminable). Never treated as evidence either way.
+    """
+
+    ACTIVE_MOUNT = "active_mount"
+    IMMUTABLE_VERIFIED = "immutable_verified"
+    DRIFT = "drift"
+    NOT_APPLICABLE = "not_applicable"
+
 
 #: Set to skip the check entirely -- for environments that intentionally run
 #: this package from a plain pip/wheel install inside a pod (none exist in
@@ -124,18 +185,47 @@ def _has_active_source_mount(
     return deepest_mount == path or deepest_mount in source_roots
 
 
-def check_live_mount(*, package_dir: Path | None = None) -> bool | None:
-    """Verify this package was imported from a live hostPath mount.
+def _installed_source_revision(package_dir: Path) -> str | None:
+    """Read the build-time provenance marker beside *package_dir*, if any.
 
-    Returns ``True`` (mounted), ``False`` (drifted -- logged at CRITICAL),
-    or ``None`` (not applicable / undeterminable). Never raises: a false
-    positive that crashes the whole MCP fleet would be strictly worse than
-    the silent-staleness defect it is meant to catch.
+    Returns the marker's (stripped, single-line) content -- typically a short
+    git revision, or the literal ``"unknown"`` if the build could not resolve
+    one -- or ``None`` if no marker file exists at all. Presence alone (not
+    the specific value) is what proves "this image was deliberately built
+    without an intended live mount"; the value is carried through only for
+    diagnostics (:func:`check_live_mount_status`'s detail payload). Never
+    raises -- an unreadable marker is treated the same as an absent one.
+    """
+    try:
+        marker = package_dir / SOURCE_REVISION_MARKER
+        content = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    return content or None
+
+
+def check_live_mount_status(
+    *, package_dir: Path | None = None
+) -> tuple[LiveMountStatus, dict[str, object]]:
+    """Typed, provenance-aware evaluation of the source-layout guard.
+
+    Returns ``(status, detail)``. ``detail`` never contains secrets or raw
+    filesystem paths beyond the package's own resolved directory -- only
+    booleans/short strings, matching ``observability.runtime_health``'s
+    redaction convention (that module is this function's primary caller,
+    reporting it as one more typed capability check rather than a bare log
+    line -- CONCEPT:AU-OS.observability.co-service-visibility).
+
+    Never raises: a false positive that crashes the whole MCP fleet would be
+    strictly worse than the silent-staleness defect this guard exists to
+    catch, so any internal failure degrades to ``NOT_APPLICABLE``.
     """
     if setting(_SKIP_ENV_VAR, False, cast=bool):
-        return None
+        return LiveMountStatus.NOT_APPLICABLE, {"reason": "check skipped by env var"}
     if not setting(_IN_POD_ENV_VAR, ""):
-        return None
+        return LiveMountStatus.NOT_APPLICABLE, {
+            "reason": "not running under Kubernetes"
+        }
 
     try:
         resolved = (package_dir or Path(__file__).parent.parent).resolve()
@@ -145,29 +235,64 @@ def check_live_mount(*, package_dir: Path | None = None) -> bool | None:
         )
     except Exception:  # noqa: BLE001 - this check must never break startup
         logger.debug("live-mount check could not introspect mount state", exc_info=True)
-        return None
+        return LiveMountStatus.NOT_APPLICABLE, {"reason": "mount state undeterminable"}
 
     if mounted is None:
-        return None
+        return LiveMountStatus.NOT_APPLICABLE, {"reason": "mount state undeterminable"}
 
-    if not mounted:
-        logger.critical(
-            "agent_utilities.live_mount_guard: this package was imported from a "
-            "directory that is NOT under an active source mount inside this pod. "
-            "If this "
-            "Deployment declares an agent_utilities hostPath live-mount volume, "
-            "its mountPath pythonX.Y does not match this image's actual "
-            "interpreter version -- the mount landed on a path nothing reads, "
-            "and this pod is running the STALE agent_utilities baked into the "
-            "image at build time. Every fix merged to agent-utilities since "
-            "this image was built is NOT present in this process. "
-            "See D-EGK-1 (python3 scripts/deferred_registry.py show D-EGK-1) "
-            "and run scripts/check_python_mount_parity.py against this "
-            "Deployment's manifest."
+    if mounted:
+        return LiveMountStatus.ACTIVE_MOUNT, {"active_source_mount": True}
+
+    revision = _installed_source_revision(resolved)
+    if revision is not None:
+        # U-26: no live mount, but the build wrote its own provenance marker
+        # -- this is a deliberately immutable image, not a missed mount.
+        # Informational only; never the CRITICAL drift warning below.
+        logger.info(
+            "agent_utilities.live_mount_guard: no active source mount, but this "
+            "image carries a build-time provenance marker (source_revision=%s) "
+            "-- running the exact code baked in at build time, as intended for "
+            "an immutable image. Not a drift.",
+            revision,
         )
-        return False
+        return LiveMountStatus.IMMUTABLE_VERIFIED, {
+            "active_source_mount": False,
+            "source_revision": revision,
+        }
 
-    return True
+    logger.critical(
+        "agent_utilities.live_mount_guard: this package was imported from a "
+        "directory that is NOT under an active source mount inside this pod, "
+        "and no build-time provenance marker (%s) is present to prove this is "
+        "an intentionally immutable image. If this "
+        "Deployment declares an agent_utilities hostPath live-mount volume, "
+        "its mountPath pythonX.Y does not match this image's actual "
+        "interpreter version -- the mount landed on a path nothing reads, "
+        "and this pod is running the STALE agent_utilities baked into the "
+        "image at build time. Every fix merged to agent-utilities since "
+        "this image was built is NOT present in this process. "
+        "See D-EGK-1 (python3 scripts/deferred_registry.py show D-EGK-1) "
+        "and run scripts/check_python_mount_parity.py against this "
+        "Deployment's manifest.",
+        SOURCE_REVISION_MARKER,
+    )
+    return LiveMountStatus.DRIFT, {"active_source_mount": False}
+
+
+def check_live_mount(*, package_dir: Path | None = None) -> bool | None:
+    """Verify this package was imported from a live hostPath mount.
+
+    Backward-compatible boolean view of :func:`check_live_mount_status`.
+    Returns ``True`` for ``ACTIVE_MOUNT``/``IMMUTABLE_VERIFIED`` (both are
+    healthy -- U-26: an immutable image without an intended mount is not a
+    drift), ``False`` only for ``DRIFT`` (logged at CRITICAL inside
+    :func:`check_live_mount_status`), or ``None`` for ``NOT_APPLICABLE``.
+    Never raises, for the same reason :func:`check_live_mount_status` never does.
+    """
+    status, _detail = check_live_mount_status(package_dir=package_dir)
+    if status is LiveMountStatus.NOT_APPLICABLE:
+        return None
+    return status is not LiveMountStatus.DRIFT
 
 
 # Run at import time -- this module is imported exactly once, from
