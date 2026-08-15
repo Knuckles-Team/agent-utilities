@@ -239,6 +239,7 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
         current_session,
         use_session,
     )
+    from agent_utilities.knowledge_graph.core.tenant_sharing import stamp_ownership
 
     ingest_routing._reset_for_tests()
 
@@ -256,6 +257,23 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
     # graphs; it just needs to exercise that authority through the sanctioned
     # API instead of relying on the unscoped view alone. `for_graph()` also
     # never auto-provisions a tenant, so it must be created explicitly too.
+    #
+    # `EpistemicGraphBackend.add_node` is the low-level typed-mutation seam
+    # (`batch_update`/`upsert_node`) -- by established convention (mirrored at
+    # ~15 other direct `backend.add_node(...)` call sites across the codebase,
+    # e.g. `enrichment/pipeline.py`, `adaptation/feedback.py`) it does NOT stamp
+    # tenant/ownership governance properties itself; only the higher-level
+    # `IntelligenceGraphEngine._upsert_node` chokepoint does that before
+    # delegating down to this same typed seam. The unified read path this test
+    # exercises (`IntelligenceGraphEngine.query_cypher`, reached via the fanned-out
+    # `entries`) unconditionally tenant-scopes every read
+    # (`secured_reads.scope`/`tenancy.scope_cypher_query` -- `n.tenant_id =
+    # $_tenant_scope_id`), even for a privileged actor. A node written without a
+    # stamped `tenant_id` is therefore correctly invisible to that governed read
+    # path -- this is the mandatory tenant-isolation boundary working as
+    # designed, not a routing bug. Stamp the same governance properties the
+    # production write chokepoint would, so this test's write is representative
+    # of a real ingested node.
     routed = f"code:routetest-{uuid.uuid4().hex[:10]}"
     node_id = f"RouteProbe::{uuid.uuid4().hex[:12]}"
     backend = EpistemicGraphBackend(graph_name=routed)
@@ -268,7 +286,9 @@ def test_node_in_routed_graph_found_by_unified_query(engine_graph, monkeypatch) 
                     client.tenants.create(routed)
                 except Exception:
                     pass
-            backend.add_node(node_id, label="RouteProbe", name="route-probe")
+            probe_props: dict[str, Any] = {"name": "route-probe"}
+            stamp_ownership(probe_props)
+            backend.add_node(node_id, label="RouteProbe", **probe_props)
         ingest_routing.register_content_graph(routed)
 
         # The unified read resolver must fan across the content-graph set.
