@@ -1109,11 +1109,13 @@ def execute_agent_task_turn(
         lease.close()
     if finalization in {"fenced", "missing", "conflict", None}:
         return "fenced"
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
     logger.debug(
         "AgentTask %s turn finished: %s (agent=%s, result=%s)",
         task_id,
         status,
-        agent_id,
+        persistence_reference("agent", agent_id, namespace="agent-dispatch-worker"),
         result,
     )
     return status

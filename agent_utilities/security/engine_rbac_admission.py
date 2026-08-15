@@ -478,10 +478,14 @@ def provision_tier2_admission(
                 signer_key=bootstrap_authority.signer_key,
             )
             bootstrap_succeeded = True
+            from .persistence_privacy import persistence_reference
+
             logger.info(
-                "engine RBAC admission: bootstrapped first System identity %r "
+                "engine RBAC admission: bootstrapped first System identity %s "
                 "(fresh store)",
-                bootstrap_authority.agent_id,
+                persistence_reference(
+                    "agent", bootstrap_authority.agent_id, namespace="rbac-admission"
+                ),
             )
         except EngineAdmissionError as exc:
             if "not pending" in str(exc):
