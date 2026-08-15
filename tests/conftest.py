@@ -367,6 +367,64 @@ def _isolate_intent_outcome_learning():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_config_module_lazy_attrs():
+    """Undo any test's ``monkeypatch.setattr("agent_utilities.core.config.<name>",
+    ...)`` that permanently shadowed a PEP 562 module ``__getattr__``-synthesized
+    attribute (``config``, ``SENSITIVE_TOOL_PATTERNS``, ``TOOL_GUARD_MODE``,
+    ``DEFAULT_EMBEDDING_BASE_URL``, ``DEFAULT_EMBEDDING_MODEL_ID``,
+    ``DEFAULT_KG_ANALYSIS_MAX_DEPTH``, ``DEFAULT_HOST``, ``DEFAULT_PORT``).
+
+    None of these names are real module globals — ``config.py`` deliberately
+    keeps them out of its top-level namespace (see its own ``TYPE_CHECKING``
+    block: "materialized at runtime via module ``__getattr__`` (PEP 562) from
+    the lazy cache") so every access re-resolves through ``_LAZY_CACHE`` /
+    ``load_config(reload=True)``. ``monkeypatch.setattr`` cannot tell a
+    PEP-562-synthesized attribute from a real one: capturing "the current
+    value" to restore later does a plain ``getattr`` (which materializes and
+    caches a real snapshot as a side effect — ``config.py``'s own
+    ``__getattr__`` runs ``_init_lazy_config()`` and returns the cached
+    result), then does a REAL ``setattr``, and at teardown restores that
+    captured value with ANOTHER real ``setattr`` — permanently writing a
+    literal entry into ``config.__dict__``. From that point on, ordinary
+    attribute lookup finds the stale dict entry directly and never falls
+    through to ``__getattr__`` again for the rest of the worker process,
+    silently defeating ``load_config(reload=True)`` for every later test
+    (reproduced live, D-TIL-2: ``tests/unit/core/test_gpu_group_budget.py``'s
+    ``monkeypatch.setattr("agent_utilities.core.config.config", cfg,
+    raising=False)`` — used across ~10 files/20+ call sites to stub the typed
+    config singleton — left a stale ``config`` entry that made
+    ``tests/unit/core/test_load_config.py::
+    test_save_config_atomically_updates_stable_typed_proxy`` raise
+    ``KeyError: '_config'`` after a freshly cleared ``_LAZY_CACHE``, purely
+    depending on run order). Deleting whatever of these specific names
+    materialized as a real ``__dict__`` entry during the test restores the
+    dynamic ``__getattr__`` resolution regardless of which test created the
+    shadow or whether it raised — there is no legitimate reason a normal test
+    needs one of these exact names to survive as a literal module attribute
+    past its own teardown.
+    """
+    import agent_utilities.core.config as _config_mod
+
+    _LAZY_ATTR_NAMES = (
+        "config",
+        "SENSITIVE_TOOL_PATTERNS",
+        "TOOL_GUARD_MODE",
+        "DEFAULT_EMBEDDING_BASE_URL",
+        "DEFAULT_EMBEDDING_MODEL_ID",
+        "DEFAULT_KG_ANALYSIS_MAX_DEPTH",
+        "DEFAULT_HOST",
+        "DEFAULT_PORT",
+    )
+    before = {name: name in vars(_config_mod) for name in _LAZY_ATTR_NAMES}
+    try:
+        yield
+    finally:
+        for name, existed in before.items():
+            if not existed and name in vars(_config_mod):
+                delattr(_config_mod, name)
+
+
+@pytest.fixture(autouse=True)
 def clean_graph_globals(monkeypatch, tmp_path):
     try:
         from agent_utilities.knowledge_graph.backends import get_active_backend
