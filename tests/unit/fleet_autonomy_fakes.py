@@ -175,6 +175,34 @@ class FakeEngine:
         return {"metadata": dict(node.get("metadata") or {})}
 
 
+def in_memory_writer(engine: FakeEngine):
+    """Explicit test adapter for the production ChangeEnvelope boundary.
+
+    ``file_gap_topic``/``_commit_graph_slice`` (used by ``FailureAnalyzer``,
+    ``consume_anomalies``, and ``fleet_event_triage.default_playbook``) no
+    longer has a legacy per-node fallback when no native ChangeEnvelope
+    authority is available — a test's fake engine must supply this adapter
+    explicitly. Mirrors ``tests/unit/knowledge_graph/test_failure_analyzer.py``
+    and ``tests/unit/test_anomaly_consumer.py``'s identically-named helpers.
+    """
+
+    def _write(entities, relationships):
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            node_type = row.pop("node_type")
+            engine.add_node(node_id, node_type, properties=row)
+        for relationship in relationships:
+            row = dict(relationship)
+            source = row.pop("source")
+            target = row.pop("target")
+            rel_type = row.pop("relationship")
+            engine.link_nodes(source, target, rel_type, properties=row)
+        return {"status": "success"}
+
+    return _write
+
+
 class FakeObserver:
     """Scriptable FleetObserver double."""
 

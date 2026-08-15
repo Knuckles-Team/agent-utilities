@@ -10,11 +10,11 @@
     },
     {
       "path": "deploy/release/compatibility-matrix.schema.json",
-      "sha256": "22ceaeaf30f20e30860428d22aaf2014689478a16b6e6491080136d56e80f963"
+      "sha256": "3945e5a40a72f54ec6ddef68a3a4dc8fe36e33fc68171447e57463485a62bcee"
     },
     {
       "path": "deploy/release/compatibility-matrix.yml",
-      "sha256": "d654f49e3ad8cb31a7b1f1db840a922c3426e6b7c42bd2f16936eee65c4bf0c1"
+      "sha256": "bb3f465e52cf1ed6527e768e2106749fd6ea5c5e9676ad8e44b13cd809625571"
     },
     {
       "path": "deploy/release/component-provenance.schema.json",
@@ -90,7 +90,7 @@
     },
     {
       "path": "deploy/release/prebundled-skills.catalog.json",
-      "sha256": "6366e8d500a82bba8385476f281ff7204fb225bb9315ff68d09cf557018ccd72"
+      "sha256": "9a6d80c51f8b6e6f6d91c6a0aba8ef0258a10986092a17d61f6dcf8efc3dcac8"
     },
     {
       "path": "deploy/release/release-assembly.schema.json",
@@ -102,7 +102,7 @@
     },
     {
       "path": "deploy/release/release-manifest.schema.json",
-      "sha256": "f7dbc454cfc567c24984061d11857bd068747ffe14c92d0bde8f9cf0eb5ab4c2"
+      "sha256": "14c04ee26d93be7d60a3581e6e54ee8b6a7b6c21b519e0b894ff0a8f298d72e7"
     },
     {
       "path": "deploy/release/release-migration-plan.schema.json",

@@ -95,6 +95,32 @@ class _Engine:
         return job_id
 
 
+def _in_memory_writer(engine):
+    """Explicit test adapter for the production ChangeEnvelope boundary.
+
+    Mirrors ``tests/unit/test_anomaly_consumer.py``'s helper of the same name
+    for the identical ``file_gap_topic``/``_commit_graph_slice`` seam: with no
+    native ChangeEnvelope authority available, gap-filing needs this adapter
+    passed explicitly through ``triage_fleet_event``.
+    """
+
+    def _write(entities, relationships):
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            node_type = row.pop("node_type")
+            engine.add_node(node_id, node_type, properties=row)
+        for relationship in relationships:
+            row = dict(relationship)
+            source = row.pop("source")
+            target = row.pop("target")
+            rel_type = row.pop("relationship")
+            engine.link_nodes(source, target, rel_type, properties=row)
+        return {"status": "success"}
+
+    return _write
+
+
 @pytest.fixture
 def engine(monkeypatch):
     eng = _Engine()
@@ -317,7 +343,9 @@ class TestTriage:
     def test_critical_event_files_failure_gap(self):
         engine = _Engine()
         eid = _seed_event(engine)
-        report = fleet_event_triage.triage_fleet_event(engine, eid)
+        report = fleet_event_triage.triage_fleet_event(
+            engine, eid, graph_writer=_in_memory_writer(engine)
+        )
         assert report["triaged"] is True
         gaps = [
             n

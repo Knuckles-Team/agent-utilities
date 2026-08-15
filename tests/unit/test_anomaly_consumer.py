@@ -95,11 +95,39 @@ def _gaps(engine):
     ]
 
 
+def _in_memory_writer(engine):
+    """Explicit test adapter for the production ChangeEnvelope boundary.
+
+    Mirrors ``tests/unit/knowledge_graph/test_failure_analyzer.py``'s helper
+    of the same name for the identical ``_commit_graph_slice`` seam:
+    ``file_gap_topic`` (used by both ``FailureAnalyzer`` and
+    ``consume_anomalies``) no longer has a legacy per-node fallback when no
+    native ChangeEnvelope authority is available, so a unit test's fake
+    engine must supply this adapter explicitly.
+    """
+
+    def _write(entities, relationships):
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            node_type = row.pop("node_type")
+            engine.add_node(node_id, node_type, properties=row)
+        for relationship in relationships:
+            row = dict(relationship)
+            source = row.pop("source")
+            target = row.pop("target")
+            rel_type = row.pop("relationship")
+            engine.link_nodes(source, target, rel_type, properties=row)
+        return {"status": "success"}
+
+    return _write
+
+
 class TestConsumeAnomalies:
     def test_files_gap_and_marks_consumed(self):
         engine = _Engine()
         _seed_anomaly(engine, "pa:1")
-        report = consume_anomalies(engine)
+        report = consume_anomalies(engine, graph_writer=_in_memory_writer(engine))
         assert report["scanned"] == 1
         assert report["gaps_filed"] == 1
         assert report["consumed"] == 1
@@ -113,11 +141,16 @@ class TestConsumeAnomalies:
         _seed_anomaly(engine, "pa:1")
         _seed_anomaly(engine, "pa:2")
         _seed_anomaly(engine, "pa:3", target="wf_beta", anomaly_type="ERROR_RATE")
-        report = consume_anomalies(engine)
+        report = consume_anomalies(engine, graph_writer=_in_memory_writer(engine))
         assert report["gaps_filed"] == 2  # one per (target, type) cluster
         gaps = _gaps(engine)
-        cluster_gap = next(g for g in gaps if "wf_alpha" in g["name"])
-        assert cluster_gap["occurrences"] == 2
+        # The gap's persisted ``name`` carries only the anomaly type (see
+        # FailurePattern.label) -- the target itself is pseudonymized before
+        # crossing the durable boundary (_safe_pattern), so identify the
+        # wf_alpha/TIMEOUT cluster's gap by its occurrence count instead: it
+        # is the only cluster with 2 anomalies (pa:1, pa:2); wf_beta/
+        # ERROR_RATE has exactly 1 (pa:3).
+        cluster_gap = next(g for g in gaps if g["occurrences"] == 2)
         # every clustered anomaly evidences the shared gap
         assert ("pa:1", cluster_gap["id"], "EVIDENCES") in engine.edges
         assert ("pa:2", cluster_gap["id"], "EVIDENCES") in engine.edges
@@ -125,8 +158,8 @@ class TestConsumeAnomalies:
     def test_second_pass_is_idempotent(self):
         engine = _Engine()
         _seed_anomaly(engine, "pa:1")
-        consume_anomalies(engine)
-        second = consume_anomalies(engine)
+        consume_anomalies(engine, graph_writer=_in_memory_writer(engine))
+        second = consume_anomalies(engine, graph_writer=_in_memory_writer(engine))
         assert second["scanned"] == 0
         assert len(_gaps(engine)) == 1
 
@@ -137,7 +170,7 @@ class TestConsumeAnomalies:
         engine.add_node("failure_gap:x", "Concept", properties={"kind": "failure_gap"})
         engine.link_nodes("pa:fa", "failure_gap:x", "EVIDENCES")
         before = len(_gaps(engine))
-        report = consume_anomalies(engine)
+        report = consume_anomalies(engine, graph_writer=_in_memory_writer(engine))
         assert report["already_evidenced"] == 1
         assert report["gaps_filed"] == 0
         assert len(_gaps(engine)) == before
@@ -148,7 +181,9 @@ class TestConsumeAnomalies:
         engine = _Engine()
         for i in range(5):
             _seed_anomaly(engine, f"pa:{i}", target=f"wf_{i}")
-        report = consume_anomalies(engine, limit=2)
+        report = consume_anomalies(
+            engine, limit=2, graph_writer=_in_memory_writer(engine)
+        )
         assert report["scanned"] == 2
 
     def test_gap_topic_reaches_loop_intake(self):
@@ -170,7 +205,7 @@ class TestConsumeAnomalies:
 
         engine = _IntakeEngine()
         _seed_anomaly(engine, "pa:1")
-        consume_anomalies(engine)
+        consume_anomalies(engine, graph_writer=_in_memory_writer(engine))
         topics = unresolved_topics(engine)
         assert any(t["id"].startswith("failure_gap:") for t in topics)
 
@@ -189,6 +224,11 @@ class TestDaemonRegistration:
         monkeypatch.setattr(cfg, "kg_anomaly_consumer", enabled)
         inst = TaskManagerMixin.__new__(TaskManagerMixin)  # type: ignore[type-abstract]
         inst.backend = EpistemicGraphBackend()
+        # The real engine's __init__ sets control_backend via
+        # _build_control_backend() (engine.py); this hand-built instance
+        # bypasses __init__, so wire it directly -- same pattern as
+        # tests/unit/core/test_schedule_engine.py's fakes.
+        inst.control_backend = inst.backend
         inst._register_maintenance_schedules()
         return {s.name for s in _se._load_all(inst) if s.enabled}
 
