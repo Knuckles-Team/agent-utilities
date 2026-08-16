@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-555 typed fields · 360 runtime-only call-site inputs.
+555 typed fields · 364 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -711,6 +711,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `AGENT_RESEARCH_DIR` | 1 |
 | `AGENT_THINKING_EFFORT` | 1 |
 | `AGENT_USER_MAP` | 1 |
+| `AGENT_UTILITIES_A2A_CALL_DEADLINE_MARGIN_SECONDS` | 1 |
 | `AGENT_UTILITIES_GWT_STRICT` | 1 |
 | `AGENT_UTILITIES_MEMORY_DIR` | 1 |
 | `AGENT_UTILITIES_RUNTIME_DIR` | 3 |
@@ -824,7 +825,10 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `GRAPH_PG_AGE` | 1 |
 | `GRAPH_SCHEMA_AUDIT_DIR` | 1 |
 | `GRAPH_SCHEMA_AUDIT_VERBOSE` | 1 |
+| `GRAPH_SERVICE_CONNECT_TIMEOUT` | 1 |
+| `GRAPH_SERVICE_HEAVY_RPC_TIMEOUT` | 1 |
 | `GRAPH_SERVICE_PERSIST_DIR` | 1 |
+| `GRAPH_SERVICE_WRITE_TIMEOUT` | 1 |
 | `HERMES_HOME` | 1 |
 | `HF_HOME` | 1 |
 | `HITL_ESCALATION_TIMEOUT` | 1 |
@@ -856,7 +860,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_DAEMON_METRICS` | 1 |
 | `KG_DAEMON_METRICS_HOST` | 1 |
 | `KG_DAEMON_METRICS_PORT` | 1 |
-| `KG_DAEMON_ROLE` | 5 |
+| `KG_DAEMON_ROLE` | 4 |
 | `KG_EA_WRITEBACK` | 1 |
 | `KG_EMBED_TIMEOUT` | 1 |
 | `KG_ENABLE_HARD_NEGATIVE_MINING` | 1 |
@@ -882,8 +886,6 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `KG_RESEARCH_EXTERNAL` | 1 |
 | `KG_RETRIEVAL_QUALITY_GATE` | 1 |
 | `KG_SCHED_CODEBASE_CAP` | 1 |
-| `KG_SERVER_HOST` | 1 |
-| `KG_SERVER_PORT` | 1 |
 | `KG_STAGED_PIPELINE` | 1 |
 | `KG_STRICT_SOURCE_PARTITION` | 1 |
 | `KG_TRUST_HIERARCHY` | 1 |
@@ -1046,6 +1048,8 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `USAGE_DUCKDB_PATH` | 1 |
 | `USAGE_GATEWAY_URL` | 1 |
 | `USAGE_TENANT_ID` | 1 |
+| `USERDOMAIN` | 1 |
+| `USERNAME` | 1 |
 | `VAULT_K8S_SA_TOKEN_PATH` | 1 |
 | `VAULT_ROLE_ID` | 1 |
 | `VAULT_SECRET_ID` | 1 |

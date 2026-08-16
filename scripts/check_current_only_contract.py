@@ -24,6 +24,11 @@ violation silenced -- without a documented reason.
 
 from __future__ import annotations
 
+<<<<<<< HEAD
+=======
+import subprocess
+import argparse
+>>>>>>> 4c0d900a910fc1f8f1339df8f68d44570efeb858
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -731,28 +736,45 @@ def check(root: Path = ROOT, *, paths: Iterable[Path] | None = None) -> list[str
     return check_report(root, paths=paths).new
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="check-current-only-contract")
+    parser.add_argument(
+        "--new-only",
+        action="store_true",
+        help=(
+            "Emit ONLY blocking (new) violations. Suppresses the accepted-residual "
+            "listing and the summary line entirely. This is the machine-readable "
+            "mode the merge queue's differential contract gate consumes: that gate "
+            "diffs the check's COMBINED output between the base ref and the "
+            "candidate, so any carried-residual text -- even though it is "
+            "non-blocking and goes to stderr -- makes a candidate that legitimately "
+            "regenerates a file (e.g. docs/concepts.yaml) look like it introduced a "
+            "NEW violation. Humans running the gate directly still see everything."
+        ),
+    )
+    args = parser.parse_args(argv)
     report = check_report()
-    if report.accepted:
-        print(
-            f"Current-only contract: {len(report.accepted)} accepted residual(s) "
-            "carried (documented rationale + owner; non-blocking):",
-            file=sys.stderr,
-        )
-        for item in report.accepted:
-            print(f"  - {item}", file=sys.stderr)
+    if not args.new_only:
+        if report.accepted:
+            print(
+                f"Current-only contract: {len(report.accepted)} accepted residual(s) "
+                "carried (documented rationale + owner; non-blocking):",
+                file=sys.stderr,
+            )
+            for item in report.accepted:
+                print(f"  - {item}", file=sys.stderr)
     if report.new:
         print("Current-only contract violations:", file=sys.stderr)
         for violation in report.new:
             print(f"  - {violation}", file=sys.stderr)
-    print(
-        f"Current-only contract: {len(report.accepted)} accepted residual(s) "
-        f"carried; {len(report.new)} new violation(s)"
-    )
+    if not args.new_only:
+        print(
+            f"Current-only contract: {len(report.accepted)} accepted residual(s) "
+            f"carried; {len(report.new)} new violation(s)"
+        )
     if report.new:
         return 1
     return 0
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
