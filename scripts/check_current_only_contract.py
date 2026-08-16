@@ -24,11 +24,8 @@ violation silenced -- without a documented reason.
 
 from __future__ import annotations
 
-<<<<<<< HEAD
-=======
 import subprocess
 import argparse
->>>>>>> 4c0d900a910fc1f8f1339df8f68d44570efeb858
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -36,9 +33,6 @@ from pathlib import Path
 from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-from scripts._git_scan import tracked_or_walked  # noqa: E402
-
 SCAN_ROOTS = (
     ROOT / "agent_utilities",
     ROOT / "scripts",
@@ -637,7 +631,23 @@ _SKIP_DIR_NAMES = frozenset(
 
 
 def _tracked_or_walked(scan_root: Path) -> list[Path]:
-    return tracked_or_walked(scan_root, root=ROOT)
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(scan_root), "ls-files"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        tracked = [scan_root / line for line in out.splitlines() if line]
+        if tracked:
+            return [p for p in tracked if p.is_file()]
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pass
+    return [
+        p
+        for p in scan_root.rglob("*")
+        if p.is_file() and not any(part in _SKIP_DIR_NAMES for part in p.parts)
+    ]
 
 
 def _iter_files() -> list[Path]:
