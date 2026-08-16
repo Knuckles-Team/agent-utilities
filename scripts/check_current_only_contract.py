@@ -32,6 +32,18 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import NamedTuple
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _git_subprocess_env import strip_inherited_git_repository_env  # noqa: E402
+
+# BUG-180: `_tracked_or_walked`'s `git -C <scan_root> ls-files` call below
+# inherits a real `git commit`/`git push`'s GIT_DIR/GIT_INDEX_FILE otherwise,
+# which win over `-C`'s path and silently redirect it to the wrong
+# repository/index -- the same class as D-LGI-1, but in a script invoked
+# directly as its own git hook rather than under pytest (where
+# tests/conftest.py already protects the session). Strip once, at import
+# time, before any subprocess call in this process.
+strip_inherited_git_repository_env()
+
 ROOT = Path(__file__).resolve().parents[1]
 SCAN_ROOTS = (
     ROOT / "agent_utilities",
