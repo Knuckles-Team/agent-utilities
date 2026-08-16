@@ -29,6 +29,7 @@ capabilities:
   storage: {action: use-existing, provider_ref: <reference>}
   observability: {action: use-existing, provider_ref: <reference>}
   gitops: {action: skip, provider_ref: null}
+  data_plane: [] # optional named services — see below and data-plane-substrate.md
 topology:
   engine: unified-in-process
   high_availability: false
@@ -45,6 +46,26 @@ Each selected component expands into a dependency-closed record with `action`,
 `provider`, immutable artifact, resources, placement, health gate, rollback, and
 idempotency key. Record a stable digest of the resolved plan.
 
+`capabilities.data_plane` is a list, not a single provider reference, because it
+names independently optional services rather than one substrate axis — each entry
+takes the same `action: deploy | use-existing | skip` plus a `provider_ref`:
+
+```yaml
+capabilities:
+  data_plane:
+    - {name: object-store, action: skip, provider_ref: null}
+    - {name: catalog, action: skip, provider_ref: null}
+    - {name: query-engine, action: skip, provider_ref: null}
+    - {name: compute, action: skip, provider_ref: null}
+    - {name: streaming, action: use-existing, provider_ref: <reference>}
+    - {name: triple-store, action: use-existing, provider_ref: <reference>}
+```
+
+Default every entry to `skip`; a minimal/laptop profile must resolve with an empty
+or all-`skip` list. See
+[data-plane-substrate.md](data-plane-substrate.md) for the concrete service
+catalog, discovery, deploy, and connect procedure.
+
 ## Infrastructure handoff
 
 The handoff to `agent-utilities-deployment` contains:
@@ -54,6 +75,7 @@ The handoff to `agent-utilities-deployment` contains:
 - namespace or service account;
 - registry, storage class, ingress class, DNS zone, and trust-bundle references;
 - identity issuer/client references and secret-store references;
+- resolved data-plane service endpoint/auth references, when any are selected;
 - selected component names;
 - resource ceilings and topology;
 - rendered artifact locations;
