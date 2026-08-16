@@ -11,6 +11,8 @@ metrics that remain in Python — all offline-deterministic.
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from agent_utilities.harness.program_optimization import (
@@ -217,3 +219,108 @@ def test_daemon_tick_calls_sweep(monkeypatch):
     # invoke the unbound tick with a sentinel self — it must dispatch to the sweep
     engine_tasks.TaskManagerMixin._tick_optimize_components(sentinel)
     assert called["engine"] is sentinel
+
+
+# ── U-103/U-135 — idle-vs-failure classification and bounded retry ──────────
+
+
+class _MustNotCallEngine:
+    """A native authority present (so the capability check passes) that fails the
+    test outright if actually invoked — used to prove a no-data sweep never
+    reaches the native optimizer."""
+
+    def optimize_program(self, request):
+        pytest.fail("native optimizer must not be invoked when there is no data")
+
+
+class _FailingNativeEngine:
+    """Has real governed data for ``extraction`` (via ``query_cypher``) but its
+    native optimizer always raises — a transient native execution failure."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def query_cypher(self, cypher):
+        if "Document" in cypher:
+            return [{"content": "governed doc one"}]
+        return []
+
+    def optimize_program(self, request):
+        self.calls += 1
+        raise RuntimeError("transient native failure")
+
+
+def test_run_component_optimization_treats_empty_corpus_as_idle():
+    report = run_component_optimization("extraction", {}, engine=_MustNotCallEngine())
+
+    assert report["status"] == "no_data"
+    assert "error_code" not in report
+
+
+def test_repeated_idle_sweep_produces_no_warnings_and_never_promotes(caplog):
+    from agent_utilities.harness.program_optimization import (
+        reset_target_backoff,
+        run_optimization_sweep,
+    )
+
+    reset_target_backoff()
+    caplog.set_level(logging.INFO)
+
+    engine = _MustNotCallEngine()  # no query_cypher → every target degrades to {}
+    for _ in range(5):
+        report = run_optimization_sweep(engine)
+        assert report["failed"] == []
+        assert report["optimized"] == []  # no data ⇒ never a promoted change
+
+    warnings_and_errors = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings_and_errors == []
+
+
+def test_repeated_execution_failures_get_bounded_backoff_and_no_immediate_retry(
+    monkeypatch,
+):
+    from agent_utilities.harness import program_optimization as po
+
+    po.reset_target_backoff()
+    fake_now = {"t": 0.0}
+    monkeypatch.setattr(po.time, "monotonic", lambda: fake_now["t"])
+    monkeypatch.setattr(po._JITTER_RNG, "uniform", lambda a, b: 0.0)  # deterministic
+
+    engine = _FailingNativeEngine()
+
+    # Tick 1 (t=0): the target is actually attempted and fails.
+    report1 = po.run_optimization_sweep(engine, targets=["extraction"])
+    assert report1["failed"] == ["extraction"]
+    assert report1["optimized"] == []
+    assert engine.calls == 1
+
+    # Tick 2, same instant: bounded backoff must suppress the immediate retry —
+    # zero additional native calls, and the target is not reported as a fresh
+    # failure (no warning amplification for a deferred target).
+    report2 = po.run_optimization_sweep(engine, targets=["extraction"])
+    assert engine.calls == 1
+    assert report2["failed"] == []
+    assert report2.get("deferred") == ["extraction"]
+
+    # Advance past the first backoff window — the retry is now allowed, and it
+    # fails again, growing (bounded) backoff rather than resetting it.
+    fake_now["t"] = po._BACKOFF_BASE_S
+    report3 = po.run_optimization_sweep(engine, targets=["extraction"])
+    assert engine.calls == 2
+    assert report3["failed"] == ["extraction"]
+    assert report3["optimized"] == []
+
+
+def test_backoff_delay_is_bounded_and_jittered():
+    from agent_utilities.harness.program_optimization import (
+        _BACKOFF_MAX_S,
+        _backoff_delay_s,
+    )
+
+    samples = {round(_backoff_delay_s(1), 6) for _ in range(20)}
+    assert len(samples) > 1  # jitter varies the delay across calls
+    assert all(0.0 <= value <= _BACKOFF_MAX_S * 1.5 for value in samples)
+
+    # Growth saturates at the cap instead of growing unboundedly.
+    huge = _backoff_delay_s(1000)
+    assert huge <= _BACKOFF_MAX_S * 1.5
