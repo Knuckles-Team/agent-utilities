@@ -81,6 +81,26 @@ _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _MARKDOWN_DECORATION_RE = re.compile(r"[*_~]")
 
 
+_GIT_ENV_LEAK_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")
+
+
+def _git_subprocess_env() -> dict[str, str]:
+    """Environment for a ``git -C <subdir>`` call, scrubbed of inherited GIT_* vars.
+
+    ``git commit`` exports ``GIT_DIR``/``GIT_WORK_TREE``/``GIT_INDEX_FILE`` (pinned to
+    this worktree) for every hook it runs. A child ``git -C <subdir> ls-files``
+    subprocess that inherits those vars stops computing the ``-C``-relative path
+    prefix and instead emits repo-root-relative paths -- silently breaking every
+    caller that joins them back onto ``root`` (``root / line`` no longer resolves,
+    so ``.is_file()`` filters the tracked set down to nearly nothing). Reproduced
+    directly: with ``GIT_DIR`` set, ``git -C docs ls-files -- "*.md"`` returns
+    paths like ``.specify/design/README.md`` instead of ``CONTEXT.md``. Stripping
+    these keys forces fresh, ``-C``-relative discovery regardless of the parent
+    process's hook context.
+    """
+    return {k: v for k, v in os.environ.items() if k not in _GIT_ENV_LEAK_KEYS}
+
+
 def _tracked_or_walked(root: Path, pattern: str) -> list[Path]:
     """Files matching ``pattern`` under ``root``, preferring git-tracked (BUG-043).
 
@@ -96,6 +116,7 @@ def _tracked_or_walked(root: Path, pattern: str) -> list[Path]:
             capture_output=True,
             text=True,
             check=True,
+            env=_git_subprocess_env(),
         ).stdout
         tracked = [root / line for line in out.splitlines() if line]
         if tracked:
