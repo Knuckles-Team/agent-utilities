@@ -14,6 +14,25 @@ import json
 
 import pytest
 
+# Every test below needs the real ``epistemic_graph`` client package to be
+# importable: ``engine_tools.ENGINE_DOMAINS`` is discovered by introspecting
+# ``epistemic_graph.client``'s sub-client classes at import time
+# (``engine_tools._discover_domains``), and when the package is absent that
+# discovery degrades to an empty dict with a logged warning rather than
+# raising -- so a downstream ``ENGINE_DOMAINS``/``REGISTERED_TOOLS["engine_*"]``
+# failure here is an ``AssertionError``/``KeyError`` with no causal link back
+# to the original ``ModuleNotFoundError``, which is exactly why the session's
+# ``pytest_runtest_makereport`` exception-chain auto-skip (tests/conftest.py)
+# cannot classify it. Skip explicitly and up front instead, matching the same
+# "package genuinely absent" contract already used the same way elsewhere
+# (e.g. tests/knowledge_graph/core/test_company_brain.py,
+# tests/ontology/test_indexing.py) -- this is precisely the lean CI ``gates``
+# lane's ``uv sync --no-install-package epistemic-graph`` environment
+# (documented in tests/conftest.py's ``_is_engine_unreachable_error``). No
+# live engine/kernel is required (the client is monkeypatched throughout this
+# file) -- only the package itself, for its class shapes to introspect.
+pytest.importorskip("epistemic_graph.client")
+
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import engine_tools
 

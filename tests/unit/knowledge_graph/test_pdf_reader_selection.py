@@ -5,7 +5,22 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent_utilities.knowledge_graph.core import engine_tasks
-from agent_utilities.knowledge_graph.extraction.pdf import read_pdf_pages, read_pdf_text
+from agent_utilities.knowledge_graph.extraction.pdf import (
+    MAX_PDF_WALL_SECONDS,
+    read_pdf_pages,
+    read_pdf_text,
+)
+
+# ``_extract_pdf_raw`` spawns a real child process (``multiprocessing.get_context
+# ("spawn")`` — a fresh interpreter, not a fork) and ``parent.poll(timeout_seconds)``
+# is a genuine wall-clock wait for it. The 3 tests below assert a SUCCESSFUL
+# extraction, so a short budget here doesn't buy speed (poll returns the instant
+# the trivial fake worker replies) — it only adds risk: under the parallel suite's
+# `-n auto` CPU contention a slow-but-working spawn can blow a tight deadline and
+# return "" instead of the expected text (this was observed intermittently with
+# `timeout_seconds=5`). Use the same generous ceiling production defaults to
+# (``MAX_PDF_WALL_SECONDS``) so only a genuinely hung worker times out.
+_SUCCESS_TIMEOUT_SECONDS = MAX_PDF_WALL_SECONDS
 
 
 def _fake_pypdf(
@@ -39,7 +54,10 @@ class PdfReader:
     )
     pdf = tmp_path / "document.pdf"
     pdf.write_bytes(b"%PDF fixture")
-    assert read_pdf_text(pdf, max_chars=8, timeout_seconds=5) == "first\nse"
+    assert (
+        read_pdf_text(pdf, max_chars=8, timeout_seconds=_SUCCESS_TIMEOUT_SECONDS)
+        == "first\nse"
+    )
 
 
 def test_read_pdf_pages_preserves_page_boundaries(tmp_path, monkeypatch) -> None:
@@ -66,12 +84,15 @@ class PdfReader:
     pdf = tmp_path / "document.pdf"
     pdf.write_bytes(b"%PDF fixture")
 
-    assert read_pdf_pages(pdf, timeout_seconds=5) == [
+    assert read_pdf_pages(pdf, timeout_seconds=_SUCCESS_TIMEOUT_SECONDS) == [
         "line one\nline two",
         "second page",
     ]
     # read_pdf_text's own contract (join on "\n") is unchanged by the refactor.
-    assert read_pdf_text(pdf, timeout_seconds=5) == "line one\nline two\nsecond page"
+    assert (
+        read_pdf_text(pdf, timeout_seconds=_SUCCESS_TIMEOUT_SECONDS)
+        == "line one\nline two\nsecond page"
+    )
 
 
 def test_read_pdf_pages_fails_closed_like_read_pdf_text(tmp_path, monkeypatch) -> None:

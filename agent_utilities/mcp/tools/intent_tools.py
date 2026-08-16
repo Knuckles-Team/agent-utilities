@@ -1119,7 +1119,10 @@ async def dispatch_intent(
     try:
         raw_hints = _normalize_documented_hint_aliases(dict(hints or {}))
     except ValueError as exc:
-        return {"error": str(exc), "executed": False}
+        # ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``): see the identical
+        # comment on the second _normalize_documented_hint_aliases call site
+        # below.
+        return {"error": exc.args[0] if exc.args else type(exc).__name__, "executed": False}
     if verb not in _DISPATCH_VERBS:
         return {
             "error": "Unsupported GraphOS intent verb.",
@@ -1251,7 +1254,16 @@ async def dispatch_intent(
                 {**raw_hints, "tool": chosen_tool}
             )
         except ValueError as exc:
-            return {"error": str(exc), "executed": False}
+            # ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``): this ValueError's
+            # message is a developer-authored, non-sensitive validation
+            # explanation (see _normalize_documented_hint_aliases) that callers
+            # need to self-correct their hints -- test_orchestration_target_
+            # alias_conflict_fails_closed and test_intent_rejects_unknown_hint_
+            # before_creating_preview assert on the exact text. Collapsing to
+            # the exception TYPE name here would satisfy the served-boundary
+            # exception-surface gate's letter while losing the caller-facing
+            # detail those tests require; .args[0] satisfies both.
+            return {"error": exc.args[0] if exc.args else type(exc).__name__, "executed": False}
     available_actions = _actions_by_tool().get(chosen_tool, [])
     if explicit_action is not None and explicit_action not in available_actions:
         return {

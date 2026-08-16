@@ -175,6 +175,10 @@ class DockerSandbox(Sandbox):
                 runner_data_dir="/data",
             )
             server = await _bridge.start_bridge(sock_path, env.helpers, bridge_token)
+            # The container's uid may differ from the host uid that just wrote these
+            # (rootful docker: container root != the invoking host user) and runs with
+            # --cap-drop ALL (no DAC_OVERRIDE) — widen perms so it can read/connect.
+            _bridge.relax_permissions_for_foreign_uid(tmpdir, sock_path)
 
             stdout, error, wrote_result = await self._run_container(
                 runtime, tmpdir, run_id

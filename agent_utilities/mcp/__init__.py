@@ -10,3 +10,11 @@ This package provides:
 - Config Loader — MCP configuration discovery and environment expansion
 - Agent Manager — Agent lifecycle management over MCP
 """
+
+from agent_utilities.mcp.oauth_log_hygiene import install_oauth_log_hygiene
+
+# U-54: attach OAuth SDK log redaction as soon as anything under this package
+# is imported — before any MCP transport (and therefore before any OAuth
+# logger below could emit a record). Name-only (no mcp/fastmcp import), so
+# this is unconditionally safe even when the `[mcp]` extra isn't installed.
+install_oauth_log_hygiene()

@@ -39,7 +39,7 @@ def workspace_layout(tmp_path: Path) -> tuple[Path, Path, Path]:
         "\n".join(
             (
                 '[project]\nname = "ecosystem"\nversion = "1.0.0"',
-                "[tool.uv.workspace]",
+                "[tool.ecosystem]",
                 'members = ["agent-packages/*"]',
             )
         )

@@ -497,6 +497,7 @@ def test_batched_backend_add_edge_fails_closed_with_no_bound_actor():
 # engine.graph.add_edge there), so both test sets are kept in full. The merge
 # conflict was purely positional -- both appended at end of file.
 
+
 def test_upsert_edge_stamps_governance_on_the_typed_native_path():
     backend = Mock()
     backend.typed_mutation_support = "native"
@@ -629,3 +630,70 @@ def test_batch_typed_mutations_edge_branch_fails_closed_with_no_bound_session():
     with pytest.raises(PermissionError):
         contextvars.Context().run(isolated)
     backend.apply_typed_batch.assert_not_called()
+
+
+# --- IntelligenceGraphEngine.batch_typed_mutations, upsert=False (B-11) -----
+#
+# B-11 threads a real ``upsert: bool`` through to the engine's own BatchUpdate
+# insert-or-merge semantics (``crates/eg-compute/src/algorithms.rs``): the
+# default ``True`` is byte-for-byte the pre-existing "upsert_node"/
+# "upsert_edge" (MERGE) behavior asserted above; ``False`` must select plain
+# INSERT ("add_node"/"add_edge") instead, still fully governance-stamped.
+
+
+def test_batch_typed_mutations_upsert_false_emits_add_node_not_upsert_node():
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+
+    backend = Mock()
+    engine = _bare_engine(backend)
+    engine._compute_is_authority = True
+    actor = _actor()
+    session = GraphSession(
+        actor=actor, tenant=actor.tenant_id, scopes=frozenset({"kg:write"})
+    )
+
+    with use_session(session):
+        ok = engine.batch_typed_mutations(
+            [{"kind": "node", "id": "n1", "node_type": "Thing", "properties": {}}],
+            upsert=False,
+        )
+
+    assert ok is True
+    (operations,), _kwargs = backend.apply_typed_batch.call_args
+    op = operations[0]
+    assert op["op"] == "add_node"
+    # Governance stamping is unaffected by the upsert/insert choice.
+    assert op["properties"]["tenant_id"] == "tenant-a"
+    assert op["properties"]["_owner_id"] == "writer:alice"
+
+
+def test_batch_typed_mutations_upsert_false_emits_add_edge_not_upsert_edge():
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+
+    backend = Mock()
+    engine = _bare_engine(backend)
+    engine._compute_is_authority = True
+    actor = _actor()
+    session = GraphSession(
+        actor=actor, tenant=actor.tenant_id, scopes=frozenset({"kg:write"})
+    )
+
+    with use_session(session):
+        ok = engine.batch_typed_mutations(
+            [
+                {
+                    "kind": "edge",
+                    "source": "a",
+                    "target": "b",
+                    "rel_type": "DEPENDS_ON",
+                    "properties": {},
+                }
+            ],
+            upsert=False,
+        )
+
+    assert ok is True
+    (operations,), _kwargs = backend.apply_typed_batch.call_args
+    op = operations[0]
+    assert op["op"] == "add_edge"
+    assert op["properties"]["tenant_id"] == "tenant-a"

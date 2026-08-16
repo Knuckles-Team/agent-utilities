@@ -583,10 +583,25 @@ class DocumentProcessor:
         # so each chunk can cite the fragment(s) its span overlaps (CONCEPT:AU-KG.retrieval.fragment-cited-chunk).
         # Chunks are the retrieval unit (fixed-size, overlapping, embedded);
         # fragments are the *citation* unit (structural, stably addressed, hashed).
+        # Computed ONCE, here, and reused verbatim below for ``result.fragments``
+        # (previously recomputed a second time, keyed to ``doc_id`` here vs
+        # ``src_label`` there — two different artifact ids for the SAME
+        # document produced two different fragment-id sets, so a chunk's
+        # citation, resolved against the first, never matched a real fragment
+        # in ``result.fragments``, resolved against the second).
         from ..ingestion.evidence_spine import artifact_id_for, fragment_markdown
 
-        artifact_id = artifact_id_for(connector, source_instance, doc_id)
-        fragments = fragment_markdown(raw_text, artifact_id=artifact_id)
+        # The artifact is the SOURCE OBJECT, so it is keyed to the source label
+        # (the path/URL), NOT to ``doc_id`` — which is derived from the content
+        # hash and therefore forks a new identity on every edit.  Keying the
+        # artifact to the object is what lets HAS_FRAGMENT edges, and the
+        # citations that traverse them, survive a revision.
+        artifact_source_id = src_label or doc_id
+        artifact_id = artifact_id_for(connector, source_instance, artifact_source_id)
+        # ``verbatim`` is the untouched source for formats whose bytes ARE the
+        # document; the spine fragments it so a citation addresses the
+        # document the author actually wrote.
+        fragments = fragment_markdown(verbatim, artifact_id=artifact_id)
 
         # CONCEPT:AU-KG.enrichment.contextual-retrieval-enrichment — contextual-retrieval enrichment. Situate each chunk
         # within the whole document and embed ``context + chunk`` (Anthropic
@@ -670,26 +685,6 @@ class DocumentProcessor:
             edges.extend(link_edges)
         if extra_edges:
             edges.extend(dict(edge) for edge in extra_edges)
-
-        # CONCEPT:AU-KG.ingest.evidence-spine-artifact — the addressable evidence
-        # spine rides the SAME extraction, always on.  Chunks are the retrieval
-        # unit (fixed-size, overlapping, embedded); fragments are the *citation*
-        # unit (structural, stably addressed, hashed).  They answer different
-        # questions, so both are materialized from the one extracted text.
-        from ..ingestion.evidence_spine import artifact_id_for, fragment_markdown
-
-        # The artifact is the SOURCE OBJECT, so it is keyed to the source label
-        # (the path/URL), NOT to ``doc_id`` — which is derived from the content
-        # hash and therefore forks a new identity on every edit.  Keying the
-        # artifact to the object is what lets HAS_FRAGMENT edges, and the
-        # citations that traverse them, survive a revision.
-        artifact_source_id = src_label or doc_id
-        artifact_id = artifact_id_for(connector, source_instance, artifact_source_id)
-        # ``verbatim`` (computed above, and now also fed to ``chunk_text`` /
-        # ``_enrich_contexts`` — D-ES-1) is the untouched source for formats
-        # whose bytes ARE the document; the spine fragments it so a citation
-        # addresses the document the author actually wrote.
-        fragments = fragment_markdown(verbatim, artifact_id=artifact_id)
 
         result = ProcessedDocument(
             document_node=document_node,

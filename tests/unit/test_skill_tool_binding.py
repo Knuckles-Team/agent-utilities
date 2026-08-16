@@ -8,8 +8,6 @@ is degraded, not a clean success.
 
 from __future__ import annotations
 
-from pathlib import Path
-
 from agent_utilities.orchestration.agent_runner import (
     _bind_skill_to_owning_server,
     _delegation_degraded,
@@ -64,17 +62,31 @@ def test_skill_binds_to_owning_server_with_mcp_suffix():
         "type": "skill",
         "system_prompt": "You are the 'tunnel-manager-remote-execution' skill. Do X.",
     }
+    # `_bind_skill_to_owning_server`'s 3rd param used to be `skill_code_path`
+    # (a filesystem path, extracted via `re.search(r"/agents/([^/]+)/", ...)`
+    # to recover the package dir "tunnel-manager") -- an intermediate refactor
+    # renamed it to `provider_ref` and changed callers to pass the KG-stored
+    # `provider://`/`mcp:<name>` identity instead (its own docstring now says
+    # "filesystem paths are intentionally not retained"), but this test was
+    # never updated off the old path-based call shape. Pass the bare package
+    # name directly, matching what the old regex extraction used to produce
+    # and what `_fleet_server_candidates`'s `[f"{provider}-mcp", provider]`
+    # fallback is designed to try.
     _bind_skill_to_owning_server(
         eng,
         meta,
-        str(
-            Path(__file__).resolve().parents[4]
-            / "agent-packages/agents/tunnel-manager/tunnel_manager/skills/tunnel-manager-remote-execution/SKILL.md"
-        ),
+        "tunnel-manager",
         "tunnel-manager-remote-execution",
     )
     assert meta["type"] == "server"  # now routes single-server (F1 selection applies)
-    assert meta["url"] == "http://tunnel-manager-mcp.arpa/mcp"
+    # D-DEL-1 ("unify the MCP catalog in agent_runner") replaced the old
+    # direct :Server query (which read s.url) with _lookup_server_identity,
+    # which unifies the :Server/PROVIDES and :MCPServer/SERVES schemas and
+    # deliberately returns only server_id + tools -- KG-sourced "url" is no
+    # longer part of the identity contract anywhere in _resolve_agent_from_kg
+    # (the a2a branch carries "endpoint_ref" instead). Live transport for a
+    # server-bound skill is resolved from AgentConfig via toolset_id
+    # (_toolset_for_id), never from a KG-stored url.
     assert meta["skill_of_server"] == "tunnel-manager-mcp"
     assert len(meta["tools"]) == 2
     # the skill's instructions are preserved as the system prompt

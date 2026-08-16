@@ -117,8 +117,10 @@ def test_focused_analysis_actions_are_declared_in_the_generated_manifest():
         },
         "graph_research": {
             "background_research",
+            "contradictions",
             "deep_extract",
             "evolve_variants",
+            "night_shift",
             "relevance_sweep",
             "research_ingest",
             "spawn_background",
@@ -126,11 +128,13 @@ def test_focused_analysis_actions_are_declared_in_the_generated_manifest():
             "track_citations",
         },
         "graph_evaluate": {
+            "assimilation_benchmark",
             "causal",
             "check_constraints",
             "evaluate",
             "evaluate_alpha",
             "evaluate_harness",
+            "evolve_code",
             "evolve_model",
             "forecast",
             "guard_corpus",
@@ -146,7 +150,7 @@ def test_focused_analysis_actions_are_declared_in_the_generated_manifest():
             "specialize",
             "world_model_rollout",
         },
-        "graph_explain": {"context", "executable_rag", "explain"},
+        "graph_explain": {"context", "executable_rag", "explain", "recommend"},
     }
     actual = {
         tool: {

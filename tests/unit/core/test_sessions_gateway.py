@@ -16,7 +16,20 @@ from agent_utilities.core.sessions import (
 
 
 @pytest.fixture
-def client():
+def client(tiny_engine):
+    # ``tiny_engine`` is depended on (its value unused) purely so this real-
+    # engine need is visible in ``item.fixturenames`` --
+    # ``tests/conftest.py``'s ``pytest_collection_modifyitems`` decides once
+    # per xdist worker whether to pay for a real session engine by scanning
+    # for exactly that fixture name (or ``engine_graph``). ``create_goal``
+    # below reaches the engine through ``sessions.py``'s enqueue path without
+    # going through either fixture directly, so without this explicit
+    # dependency a worker grouped only with other non-engine tests never
+    # started one, and ``POST /goals`` returned a plain 503 (the ConnectionError
+    # is caught and turned into an HTTP response server-side, so it never
+    # reaches pytest's engine-unreachable-to-skip conversion) instead of a
+    # graceful skip or the real 200 the full suite's engine-requesting
+    # grouping happens to give it.
     app = Starlette()
     app.add_route("/sessions", get_all_sessions, methods=["GET"])
     app.add_route("/sessions/{session_id}", get_session_details, methods=["GET"])

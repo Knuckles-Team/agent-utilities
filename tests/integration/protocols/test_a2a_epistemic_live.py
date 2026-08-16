@@ -56,7 +56,18 @@ from agent_utilities.protocols.a2a_epistemic import (
 )
 from agent_utilities.security.brain_context import ActorContext
 
-pytestmark = pytest.mark.integration
+# xdist_group: this module's ``native_a2a_engine`` fixture is module-scoped and
+# starts a REAL, separate epistemic-graph-server binary (its own socket +
+# persist dir, on top of the per-worker session engine every other test file
+# shares) -- not a correctness hazard under -n auto (fully isolated per
+# instantiation), but pytest-xdist's default `load` distribution can split this
+# module's 6 tests across two workers, paying that startup twice. Pinning the
+# group keeps them on one worker so the module fixture is built once. Only
+# takes effect with `--dist loadgroup`; a no-op otherwise.
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.xdist_group(name="a2a-epistemic-live-native-engine"),
+]
 
 _STARTUP_TIMEOUT_SECONDS = 30.0
 _SHUTDOWN_TIMEOUT_SECONDS = 15.0

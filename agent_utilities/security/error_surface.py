@@ -39,6 +39,20 @@ PUBLIC_ERROR_MESSAGES = MappingProxyType(
         "engine_degraded": (
             "The knowledge graph engine is temporarily overloaded; retry shortly."
         ),
+        # CONCEPT:AU-KG.backend.explicit-graph-selection — an explicit `graph`
+        # parameter (a physical engine graph, distinct from `connection`, a
+        # backend alias) that cannot be honored. Fail-closed: never a fallback
+        # to a default graph, never a union. Two distinct codes rather than
+        # collapsing into "invalid_request" so a caller can tell "this graph
+        # does not exist" from "this request's graph+connection selection is
+        # ambiguous/unsupported" apart programmatically.
+        "graph_not_found": (
+            "The requested graph does not exist in the engine's catalog."
+        ),
+        "graph_selection_conflict": (
+            "The requested graph selection is ambiguous or unsupported for the "
+            "resolved connection."
+        ),
     }
 )
 

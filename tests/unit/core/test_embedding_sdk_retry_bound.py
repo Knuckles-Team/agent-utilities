@@ -12,9 +12,13 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from agent_utilities.core import embedding_utilities
 from agent_utilities.core.embedding_utilities import (
     _EMBED_SDK_MAX_RETRIES,
+)
+from agent_utilities.core.embedding_utilities import (
     create_embedding_model as _real_create_embedding_model,
 )
 
@@ -35,6 +39,11 @@ def _stub_config(embed_cfg):
 def test_max_retries_is_explicit_and_bounded(monkeypatch):
     """The constructed OpenAIEmbedding must NOT silently inherit the SDK's
     default of 10 retries — it must receive our small, explicit bound."""
+    # Needs the optional `embeddings-openai` extra (`llama-index-embeddings-openai`)
+    # -- deliberately NOT part of the `test` extra (see
+    # tests/unit/test_serving_embeddings_dependency.py,
+    # test_serving_does_not_rely_on_bare_embeddings_only).
+    pytest.importorskip("llama_index.embeddings.openai")
     assert _EMBED_SDK_MAX_RETRIES < 10  # sanity: we are actually bounding it
 
     captured: dict = {}

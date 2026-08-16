@@ -26,7 +26,20 @@ import uuid
 from collections import defaultdict
 from typing import Any
 
-from agent_utilities.numeric import xp as np
+try:
+    # Guarded, same convention as capability_index.py/hypergraph.py (see
+    # tests/conftest.py's ``_is_none_numeric_shim_attribute_error``): the
+    # compiled epistemic-graph numeric kernel is genuinely absent in the lean
+    # CI ``gates`` lane (``--no-install-package epistemic-graph``). An
+    # unconditional import here made the WHOLE ``distillation`` package
+    # (including e.g. ``distillation_engine.chunk_text``, which never touches
+    # numeric arrays) fail to import in that lane, since ``__init__.py``
+    # eagerly imports this module. Dense/LSH similarity below still raises a
+    # clear error at call time if invoked without the kernel, rather than
+    # trapping every importer at module load.
+    from agent_utilities.numeric import xp as np
+except ImportError:
+    np = None  # type: ignore[assignment]
 from agent_utilities.prompts.canonical import load_canonical_prompt
 
 from .lsh_index import LSHIndex

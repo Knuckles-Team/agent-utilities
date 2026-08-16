@@ -21,12 +21,12 @@
 parents:
   AU-ECO.mcp.cross-process-prompt-harvest:
     parent: AU-ECO.mcp.cross-process-skill-harvest
-    rationale: Named directly in its own module docstring (fleet_prompt_harvest.py) as "the prompt:// sibling of
-      fleet_skill_harvest's CONCEPT:AU-ECO.mcp.cross-process-skill-harvest" -- same D-2.2-2.3-1 rationale
-      (fleet packages are not co-installed into graph-os's venv, AGENTS.md "Dependency discipline") and the same
-      gap documented in .specify/design/cross-process-skill-harvest/design.md, realised as a second
-      prompt://-resource discovery path reusing the multiplexer's existing probe session onto the SAME
-      PromptNode writer, not an independent decision.
+    rationale: Named directly in its own module docstring (fleet_prompt_harvest.py) as "the prompt://
+      sibling of fleet_skill_harvest's CONCEPT:AU-ECO.mcp.cross-process-skill-harvest" -- same D-2.2-2.3-1
+      rationale (fleet packages are not co-installed into graph-os's venv, AGENTS.md "Dependency discipline")
+      and the same gap documented in .specify/design/cross-process-skill-harvest/design.md, realised as
+      a second prompt://-resource discovery path reusing the multiplexer's existing probe session onto
+      the SAME PromptNode writer, not an independent decision.
   AU-ECO.mcp.intent-surface-cpd-ranking:
     parent: AU-ECO.mcp.intent-surface-condensed-collapse
     rationale: Named directly in docs/architecture/intent-surface.md's own concept list as the CPD-backed
@@ -218,6 +218,12 @@ parents:
     parent: AU-KG.compute.first-class-action-conditioned
     rationale: the MCP action that forward-simulates the parent's learned model; an exposure surface,
       not a modelling choice
+  AU-KG.ingest.og-metadata-enrichment:
+    parent: AU-KG.ingest.web-fetch-front-door
+    rationale: Open Graph/Twitter Card metadata (description/image/site_name on FetchedPage) is populated
+      by the requests-floor backend of the SAME pluggable web-fetch resolver documented at .specify/design/kgi-web-fetch-backend-precedence/design.md
+      (web_fetch.py's own docstring names it directly above this marker) -- a backend-capability detail
+      of that resolver, not an independent architectural decision.
   AU-KG.memory.episodic-procedural-memory-distillation:
     parent: AU-KG.memory.drive-one-agent-native
     rationale: 'distillation.py realizes the parent''s agent-native-memory policy rather than deciding
@@ -349,13 +355,6 @@ retired:
   AU-KG.compute.when-exposes-native:
     reason: the same sentence fragment one clause later, on the server-side entity-resolution escalation;
       same decision, same document
-  AU-KG.query.intelligent-routing:
-    reason: 'Named the "Intelligent Query Routing" header comment of agent_utilities/graph/routing/strategies/query_tier.py,
-      deleted whole in GOC-59-W05 (commit 13b1c5c8) as itself-retired dead code: it implemented the
-      retired L0/L1/L2/L3 tiered graph backend architecture that AGENTS.md''s Architecture Reference
-      supersedes with the epistemic-graph engine as the ONE authority (no numeric storage-tier hierarchy),
-      and had zero live callers anywhere in agent_utilities/** (proven by grep in the deletion commit).
-      No successor marker inherits this decision -- the module itself was the retired surface.'
   AU-KG.memory.parammem:
     reason: 'A background-research citation tag, not a decision. Its pre-migration id was the generic
       KG-2.1 (Tiered Memory & Context), reused across ~11 unrelated sites in engine_memory.py (ContextBudgetOptimizer,
@@ -363,6 +362,14 @@ retired:
       literally a paper citation ("Research: MEMO Survey (2504.01990v2), ParamMem (2604.27707v1)"). It
       was never assigned its own numbered concept the way its file-neighbour ingestion-serving-separation
       (KG-2.130) was.'
+  AU-KG.query.intelligent-routing:
+    reason: 'Named the "Intelligent Query Routing" header comment of the now-deleted query-tier routing
+      strategy module (agent_utilities/graph/routing/strategies/, since removed), deleted whole in GOC-59-W05
+      (commit 13b1c5c8) as itself-retired dead code: it implemented the retired four-level (numbered zero
+      through three) tiered graph backend architecture that AGENTS.md''s Architecture Reference supersedes
+      with the epistemic-graph engine as the ONE authority (no numeric storage-tier hierarchy), and had
+      zero live callers anywhere in agent_utilities/** (proven by grep in the deletion commit). No successor
+      marker inherits this decision -- the module itself was the retired surface.'
   AU-ORCH.routing.fallback-logic:
     reason: Names nothing in shipped source. git grep finds it only at docs/examples/graph-os-mcp-examples.md:123,
       as an illustrative "target" placeholder in a graph_analyze deep_extract JSON example, alongside

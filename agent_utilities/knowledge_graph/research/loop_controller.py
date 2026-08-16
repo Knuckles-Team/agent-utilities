@@ -2836,14 +2836,23 @@ class LoopController:
             external_event_fired_flag = event_probe is not None and self._event_fired(
                 event_probe
             )
+            # Key order matters here: the engine verifies this request's MAC against
+            # a canonical re-serialization of the payload with its keys in SORTED
+            # order (it round-trips through a ``serde_json::Value`` map), while the
+            # Python client signs/packs the dict in insertion order. A payload dict
+            # whose literal key order isn't already alphabetical byte-mismatches the
+            # server's recomputed MAC and the whole call fails closed with
+            # "Authentication failed" (reproduced/confirmed empirically — a 1-key or
+            # already-alphabetical payload passes, this exact 3-key combination did
+            # not). Keep these keys alphabetical.
             pre_result = send_loop_statechart_event(
                 self.engine,
                 loop_id,
                 "pretick",
                 payload={
-                    "human_signal": human_signal,
                     "budget_exceeded": bool(budget_exceeded_flag),
                     "external_event_fired": bool(external_event_fired_flag),
+                    "human_signal": human_signal,
                 },
             )
             if pre_result is None:
@@ -2994,19 +3003,23 @@ class LoopController:
                 heartbeat_status.value if not is_terminal(heartbeat_status) else None
             )
 
+            # Key order matters here — see the matching comment on the "pretick"
+            # payload above: the engine's MAC verification round-trips this payload
+            # through a sorted-key re-serialization, so the literal must already be
+            # alphabetical or the call fails closed with "Authentication failed".
             post_result = send_loop_statechart_event(
                 self.engine,
                 loop_id,
                 "posttick",
                 payload={
+                    "callee_terminal": callee_terminal,
+                    "deadline_passed": deadline_flag,
+                    "error_threshold_tripped": error_threshold_tripped,
+                    "heartbeat_target": heartbeat_target,
                     "measured_pass": measured_pass,
                     "retryable_failure": retryable_failure,
-                    "error_threshold_tripped": error_threshold_tripped,
                     "stalled": stalled_flag,
-                    "callee_terminal": callee_terminal,
                     "turn_cap_reached": turn_cap_reached,
-                    "deadline_passed": deadline_flag,
-                    "heartbeat_target": heartbeat_target,
                 },
             )
             if post_result is None:

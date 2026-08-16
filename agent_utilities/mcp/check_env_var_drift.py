@@ -21,11 +21,23 @@ emitting drift findings:
 - ``STALE_EXAMPLE`` — a README ``mcp_config`` example ``env`` key that isn't in the
   code-read surface (a leftover scaffold placeholder). Regenerate the examples.
 
-The code-read set =
+The code-read set (DEAD-suppression) =
   ``setting("VAR", …)`` reads in the package
   ∪ derived tool toggles: ``register_<tag>_tools`` → ``<TAG>TOOL``
+  ∪ compose ``image:``/``command:``/``entrypoint:``/``args:`` ``${VAR}`` substitutions —
+    a genuine read docker compose performs, not just ``environment:`` blocks
+  ∪ dynamic/derived reads a function composes at runtime from a literal argument, declared
+    via the CONCEPT:AU-OS.config.dynamic-env-family ``dynamic_env_prefix_arg`` /
+    ``dynamic_env_suffixes`` attribute convention (see ``transport_security.py``)
+  ∪ the package's own ``scripts/*.py`` — real first-party dev/CI tooling with a genuine
+    read, but excluded from the UNDOCUMENTED-eligible set below (see ``_script_reads``)
   ∪ the inherited agent-utilities surface (``readme_env_vars.INHERITED_ENV`` + framework extras)
   ∪ ``setting("VAR", …)`` reads in agent-utilities core.
+
+The documentable/UNDOCUMENTED-eligible set is narrower: package reads + toggles + compose
+substitutions + dynamic-family reads — NOT ``scripts/`` and NOT the inherited/framework
+surface, so a dev-only gate script's own config never forces an entry into a package's
+public ``.env.example``.
 
 Usage (from an agent repo root)::
 
@@ -151,6 +163,13 @@ RUNTIME_ALLOWLIST: frozenset[str] = frozenset(
         "LOCALAPPDATA",
         "SYSTEMROOT",
         "PROGRAMFILES",
+        # R-07: Windows' own identity vars, read by unified_install.py's
+        # _secure_mkdir() to build a `DOMAIN\user` icacls principal when
+        # expressing a POSIX 0o700 mkdir's owner-only intent via an ACL
+        # instead (Windows has no permission bits) -- the OS sets these,
+        # never a deployer via .env.example, same as USER/HOME above.
+        "USERDOMAIN",
+        "USERNAME",
         "XDG_CONFIG_HOME",
         "XDG_STATE_HOME",
         "XDG_DATA_HOME",
@@ -230,6 +249,12 @@ _WALK_SKIP_DIRS = frozenset(
         "node_modules",
     }
 )
+# Directories whose ``*.py`` is prose/fixture code, not a real runtime read surface:
+# ``docs``/``examples``/``reports`` are documentation snippets and generated output,
+# ``test``/``tests`` are unit-test fixtures (see TEST_FIXTURE_VARS and the
+# ``_derive_toggle_vars`` tests-skip above for the analogous reasoning there). ``scripts`` IS
+# still excluded from this *main* scan — see ``_script_reads`` below for why its reads are
+# handled separately rather than simply un-excluding it here.
 _NON_RUNTIME_SOURCE_DIRS = frozenset(
     {
         "docs",
@@ -445,6 +470,37 @@ def _scan_setting_calls(root: Path) -> set[str]:
     return found
 
 
+def _script_reads(root: Path) -> set[str]:
+    """``setting()``/``getenv()`` literals read inside the package's own ``scripts/*.py`` —
+    real first-party code the checker must not be blind to (e.g.
+    ``scripts/validate_falkordb.py`` genuinely reads ``FALKORDB_URI``/``GRAPHDB_PASSWORD``,
+    so declaring either in ``.env.example`` must not be reported DEAD).
+
+    Deliberately kept SEPARATE from ``pkg_reads`` rather than folded into the main
+    ``_scan_setting_calls`` surface: ``scripts/`` in this fleet is scaffolded, maintainer-only
+    dev/CI tooling (validation harnesses, local gate runners) that reads its config with a
+    hardcoded fallback default at the call site — e.g.
+    ``os.environ.get("A2A_URL", "http://127.0.0.1:9016/a2a/")`` in
+    ``scripts/validate_a2a_agent.py``, or ``AGENT_UTILITIES_ROOT`` in the identical
+    ``scripts/run_agent_utilities_gate.py`` shared byte-for-byte across 60+ packages in this
+    fleet. Folding those reads into the documentable/UNDOCUMENTED surface too (tried first)
+    demanded every package's *public* ``.env.example`` document dev-only gate-script knobs
+    that a deployer of the package never sets — an UNDOCUMENTED false positive identical
+    across the whole fleet, observed directly while fixing this blind spot. So ``script_reads``
+    feeds only DEAD-suppression (``code_read``), never ``documentable``.
+
+    Trade-off — this narrower fix still MISSES the inverse case: a var read ONLY by a script,
+    genuinely undeclared anywhere, stays silently undocumented (no UNDOCUMENTED finding) even
+    though a human running that script would need to discover the var by reading its source.
+    That is judged the lesser risk versus forcing scaffolded dev tooling into every package's
+    public config contract.
+    """
+    scripts_dir = root / "scripts"
+    if not scripts_dir.is_dir():
+        return set()
+    return _scan_setting_calls(scripts_dir)
+
+
 def _derive_toggle_vars(root: Path) -> set[str]:
     """``register_<tag>_tools`` → ``<TAG>TOOL`` (the framework's auto-derived toggle name).
 
@@ -476,6 +532,211 @@ def _agent_utilities_reads() -> frozenset[str]:
 
     au_root = Path(agent_utilities.__file__).resolve().parent
     return frozenset(_scan_setting_calls(au_root))
+
+
+# CONCEPT:AU-OS.config.dynamic-env-family — a general, INSPECTABLE escape hatch for env
+# names a function composes at runtime from a caller-supplied literal (e.g.
+# ``agent_utilities.core.transport_security.resolve_tls_profile(service="mealie")``
+# composes ``MEALIE_TLS_PROFILE``/``MEALIE_TLS_PROFILE_REF`` from ``service`` at runtime —
+# no literal var name ever appears next to a ``setting()``/``getenv()`` call site for a
+# static scan to see). Rather than hardcoding "mealie" (or any other service) into this
+# checker, the COMPOSING function declares its own family via two attributes set right
+# after its ``def`` (see ``transport_security.py`` for the canonical example):
+#   func.dynamic_env_prefix_arg  -- the parameter name whose literal string value (given
+#                                    positionally or by keyword at a call site) seeds the
+#                                    prefix
+#   func.dynamic_env_suffixes    -- the "_SUFFIX" family appended to
+#                                    ``upper(re.sub(r"[^A-Za-z0-9]", "_", prefix)).strip("_")``
+# This scanner discovers any function, anywhere in agent-utilities OR the package under
+# check, that publishes this pair — a new dynamic-name family requires only publishing the
+# declaration next to the function, never a checker change.
+_DYNAMIC_ENV_PREFIX_ATTR = "dynamic_env_prefix_arg"
+_DYNAMIC_ENV_SUFFIXES_ATTR = "dynamic_env_suffixes"
+# func_name -> (prefix_arg_name, prefix_arg_position | None, suffix family)
+_DynamicFamily = tuple[str, "int | None", tuple[str, ...]]
+
+
+def _module_level_string_tuples(tree: ast.AST) -> dict[str, tuple[str, ...]]:
+    """``NAME = ("A", "B")``/``NAME: T = (...)`` module-level string-tuple constants, so a
+    ``dynamic_env_suffixes`` declaration may reference a shared named constant instead of
+    repeating the literal tuple at every function that shares one family."""
+    out: dict[str, tuple[str, ...]] = {}
+    for node in ast.walk(tree):
+        value: ast.expr | None
+        if isinstance(node, ast.Assign):
+            targets: list[ast.expr] = list(node.targets)
+            value = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target] if node.target else []
+            value = node.value
+        else:
+            continue
+        if not isinstance(value, (ast.Tuple, ast.List)):
+            continue
+        strings: list[str] = []
+        for elt in value.elts:
+            literal = _literal_str(elt)
+            if literal is None:
+                strings = []
+                break
+            strings.append(literal)
+        if not strings:
+            continue
+        for target in targets:
+            if isinstance(target, ast.Name):
+                out[target.id] = tuple(strings)
+    return out
+
+
+def _function_param_order(tree: ast.AST) -> dict[str, list[str]]:
+    """func name -> ordered positional-or-keyword parameter names (one module's functions)."""
+    out: dict[str, list[str]] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names = [a.arg for a in node.args.posonlyargs] + [
+                a.arg for a in node.args.args
+            ]
+            out[node.name] = names
+    return out
+
+
+def _literal_str(node: ast.AST | None) -> str | None:
+    """A plain string-constant value (no ``_ENV_NAME`` upper-case restriction — a dynamic
+    family's seed literal, e.g. a lower-case service name like ``"mealie"``, is not itself
+    an env-var name)."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
+
+
+def _dynamic_prefix(literal: str) -> str:
+    """The same sanitizer ``transport_security._service_prefix`` applies: upper-case,
+    non-alphanumeric -> "_", strip leading/trailing "_"."""
+    normalized = "".join(
+        ch if ch.isalnum() else "_" for ch in str(literal or "").strip().upper()
+    ).strip("_")
+    return normalized
+
+
+def _scan_dynamic_families(root: Path) -> dict[str, _DynamicFamily]:
+    """Discover every ``func.dynamic_env_prefix_arg``/``func.dynamic_env_suffixes``
+    declaration under *root* (see CONCEPT:AU-OS.config.dynamic-env-family above)."""
+    families: dict[str, _DynamicFamily] = {}
+    for py in _walk_files(root, suffix=".py"):
+        try:
+            relative_parts = py.relative_to(root).parts
+        except ValueError:
+            relative_parts = py.parts
+        if any(part in _NON_RUNTIME_SOURCE_DIRS for part in relative_parts[:-1]):
+            continue
+        if py.name in _SELF_DOC_FILES:
+            continue
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        named_tuples = _module_level_string_tuples(tree)
+        param_order = _function_param_order(tree)
+        prefix_args: dict[str, str] = {}
+        suffix_sets: dict[str, tuple[str, ...]] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assign):
+                continue
+            for target in node.targets:
+                if not (
+                    isinstance(target, ast.Attribute)
+                    and isinstance(target.value, ast.Name)
+                ):
+                    continue
+                func_name = target.value.id
+                if target.attr == _DYNAMIC_ENV_PREFIX_ATTR:
+                    literal = _literal_str(node.value)
+                    if literal:
+                        prefix_args[func_name] = literal
+                elif target.attr == _DYNAMIC_ENV_SUFFIXES_ATTR:
+                    if (
+                        isinstance(node.value, ast.Name)
+                        and node.value.id in named_tuples
+                    ):
+                        suffix_sets[func_name] = named_tuples[node.value.id]
+                    elif isinstance(node.value, (ast.Tuple, ast.List)):
+                        strings = [
+                            s
+                            for e in node.value.elts
+                            if (s := _literal_str(e)) is not None
+                        ]
+                        if strings:
+                            suffix_sets[func_name] = tuple(strings)
+        for func_name, prefix_arg in prefix_args.items():
+            suffixes = suffix_sets.get(func_name)
+            if not suffixes:
+                continue
+            params = param_order.get(func_name, [])
+            position = params.index(prefix_arg) if prefix_arg in params else None
+            families[func_name] = (prefix_arg, position, suffixes)
+    return families
+
+
+@lru_cache(maxsize=1)
+def _agent_utilities_dynamic_families() -> dict[str, _DynamicFamily]:
+    """Dynamic-env-family declarations published inside the installed agent-utilities
+    core (cached — parsing the whole package on every ``analyze()`` call is wasteful)."""
+    import agent_utilities
+
+    au_root = Path(agent_utilities.__file__).resolve().parent
+    return _scan_dynamic_families(au_root)
+
+
+def _scan_dynamic_family_reads(
+    root: Path, families: dict[str, _DynamicFamily]
+) -> set[str]:
+    """Every concrete var name implied by a call to a declared dynamic-family function
+    with a literal prefix argument, e.g. ``resolve_configured_tls_profile("mealie")`` ->
+    ``{"MEALIE_TLS_PROFILE", "MEALIE_TLS_PROFILE_REF"}``. A non-literal (runtime-computed)
+    prefix argument cannot be resolved statically and is silently skipped — same limit as
+    every other static scan in this module."""
+    if not families:
+        return set()
+    found: set[str] = set()
+    for py in _walk_files(root, suffix=".py"):
+        try:
+            relative_parts = py.relative_to(root).parts
+        except ValueError:
+            relative_parts = py.parts
+        if any(part in _NON_RUNTIME_SOURCE_DIRS for part in relative_parts[:-1]):
+            continue
+        if py.name in _SELF_DOC_FILES:
+            continue
+        try:
+            tree = ast.parse(py.read_text(encoding="utf-8"), filename=str(py))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func_name: str | None = None
+            if isinstance(node.func, ast.Name):
+                func_name = node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                func_name = node.func.attr
+            family = families.get(func_name) if func_name else None
+            if family is None:
+                continue
+            prefix_arg, position, suffixes = family
+            literal: str | None = None
+            for keyword in node.keywords:
+                if keyword.arg == prefix_arg:
+                    literal = _literal_str(keyword.value)
+                    break
+            if literal is None and position is not None and len(node.args) > position:
+                literal = _literal_str(node.args[position])
+            if not literal:
+                continue
+            prefix = _dynamic_prefix(literal)
+            if not prefix:
+                continue
+            found.update(f"{prefix}_{suffix}" for suffix in suffixes)
+    return found
 
 
 def _mcp_config_env_blocks(root: Path) -> list[tuple[Path, dict[str, str]]]:
@@ -596,6 +857,76 @@ def _compose_env_keys(root: Path) -> dict[str, set[str]]:
     return out
 
 
+# Compose keys whose scalar (``image: ${VAR}``) or list (``command:\n  - "${VAR}"``) value
+# may hold a ``${VAR...}`` substitution that docker compose itself resolves from the
+# deployer's shell/``.env`` at ``docker compose up`` time — a genuine read of that var, just
+# not a Python ``setting()``/``getenv()`` call. Previously only ``environment:`` was scanned
+# (see ``_compose_env_keys`` above), so ``image:
+# ${MEDIA_DOWNLOADER_MCP_IMAGE:?set-...-to-image@sha256-digest}`` (pinning the image to an
+# operator-supplied digest — CONCEPT:AU-OS.deployment.mutable-image-refs) was invisible and
+# its var reported DEAD even though every ``docker compose up`` genuinely requires it.
+# Deliberately scoped to these four keys (not e.g. ``labels:``/``volumes:``/``ports:``/
+# resource-limit scalars like ``mem_limit:``/``cpus:``) — the task that surfaced this blind
+# spot named exactly these; widening further is a known, bounded limitation, not a promise
+# this scan makes.
+_COMPOSE_SUBST_KEYS = frozenset({"image", "command", "entrypoint", "args"})
+_COMPOSE_KEY_LINE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.*)$")
+
+
+def _subst_var_names(text: str) -> set[str]:
+    """Every ``${VAR...}`` substitution's leading identifier in *text* (handles the
+    ``${VAR}``/``${VAR:-default}``/``${VAR:?message}``/``${VAR-default}``/``${VAR?message}``
+    forms; a malformed/whitespace-padded one is still a real var reference here even though
+    it is separately flagged ``MALFORMED_VALUE`` for mcp_config env blocks)."""
+    names: set[str] = set()
+    for m in _SUBST.finditer(text):
+        inner = m.group(1).strip()
+        name_m = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)", inner)
+        if name_m and _ENV_NAME.fullmatch(name_m.group(1)):
+            names.add(name_m.group(1))
+    return names
+
+
+def _compose_subst_reads(root: Path) -> set[str]:
+    """Every ``${VAR...}`` substitution inside a compose ``image:``/``command:``/
+    ``entrypoint:``/``args:`` value across ``*compose*.yml`` files (see
+    ``_COMPOSE_SUBST_KEYS`` above). Skips ``_THIRD_PARTY_COMPOSE_FILES`` for the same
+    reason ``_compose_env_keys`` does — a bundled third-party image's own launch
+    configuration is not this package's code-read surface."""
+    found: set[str] = set()
+    candidates = [
+        *root.glob("*compose*.y*ml"),
+        *root.glob("docker/*compose*.y*ml"),
+    ]
+    for comp in candidates:
+        if comp.name in _THIRD_PARTY_COMPOSE_FILES:
+            continue
+        try:
+            lines = comp.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            continue
+        in_block = False
+        block_indent = 0
+        for raw in lines:
+            stripped = raw.strip()
+            key_match = _COMPOSE_KEY_LINE.match(stripped)
+            if key_match and key_match.group(1) in _COMPOSE_SUBST_KEYS:
+                in_block = True
+                block_indent = len(raw) - len(raw.lstrip())
+                inline_value = key_match.group(2)
+                if inline_value:
+                    found.update(_subst_var_names(inline_value))
+                continue
+            if in_block:
+                indent = len(raw) - len(raw.lstrip())
+                if stripped and indent <= block_indent and not stripped.startswith("-"):
+                    in_block = False
+                    continue
+                if stripped:
+                    found.update(_subst_var_names(raw))
+    return found
+
+
 def _is_framework_known(var: str, code_read: set[str]) -> bool:
     return (
         var in code_read
@@ -623,7 +954,28 @@ def analyze(root: Path) -> dict:
         or package_root in resolved_root.parents
         else set(_agent_utilities_reads())
     )
-    code_read = pkg_reads | toggles | framework_reads
+
+    # Dynamic/derived reads (CONCEPT:AU-OS.config.dynamic-env-family) — families may be
+    # declared either in agent-utilities itself (the common case: a shared framework helper
+    # like ``resolve_tls_profile``) or in the package's own code, so both are scanned; call
+    # sites are only ever meaningful inside the package under check.
+    dynamic_families = dict(_agent_utilities_dynamic_families())
+    dynamic_families.update(_scan_dynamic_families(root))
+    dynamic_reads = _scan_dynamic_family_reads(root, dynamic_families)
+
+    # Compose ``image:``/``command:``/``entrypoint:``/``args:`` ``${VAR}`` substitutions —
+    # a genuine read docker compose itself performs, not just ``environment:`` (see
+    # ``_compose_subst_reads`` above). Folded into ``pkg_reads`` (not a separate framework-
+    # only set) because the same "this package's own read surface" reasoning as any other
+    # ``setting()``/``getenv()`` literal applies: it can suppress a false DEAD *and* raise a
+    # genuine UNDOCUMENTED if the var is missing from ``.env.example``.
+    pkg_reads = pkg_reads | _compose_subst_reads(root) | dynamic_reads
+
+    # scripts/ reads (see ``_script_reads`` above) suppress a false DEAD but deliberately do
+    # NOT widen ``pkg_reads``/``documentable`` — kept out of the var that feeds UNDOCUMENTED.
+    script_reads = _script_reads(root)
+
+    code_read = pkg_reads | toggles | framework_reads | script_reads
 
     env_example = root / ".env.example"
     declared_env = (

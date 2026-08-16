@@ -80,7 +80,7 @@ def _mark_consumed(engine: Any, anomaly_id: str) -> bool:
 
 
 def consume_anomalies(
-    engine: Any, *, limit: int = DEFAULT_SCAN_LIMIT
+    engine: Any, *, limit: int = DEFAULT_SCAN_LIMIT, graph_writer: Any = None
 ) -> dict[str, Any]:
     """One consumer pass: scan → cluster → file failure_gap topics → stamp.
 
@@ -88,6 +88,12 @@ def consume_anomalies(
     ``gaps_filed`` / ``consumed`` / ``gap_ids``). Propose-only: the only
     writes are gap ``Concept`` topics, ``EVIDENCES`` edges, and the
     ``consumed`` stamps.
+
+    ``graph_writer`` is threaded straight through to :func:`file_gap_topic`'s
+    own explicit in-memory test adapter (see ``_commit_graph_slice`` /
+    :class:`FailureAnalyzer`, which accepts the same parameter for the
+    identical seam) — the daemon tick never passes it, so production always
+    takes the native ChangeEnvelope path unchanged.
     """
     from .failure_analyzer import FailurePattern, _sig, file_gap_topic
 
@@ -140,6 +146,7 @@ def consume_anomalies(
             cluster["pattern"],
             anomaly_id=anomaly_ids[0],
             source="anomaly_consumer",
+            graph_writer=graph_writer,
         )
         if gap is None:
             unfileable_ids.update(anomaly_ids)

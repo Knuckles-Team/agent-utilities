@@ -346,7 +346,7 @@ def _ensure_writable_dir(setting: str, path: Path) -> None:
             f"{setting} resolves to {path!s}, but this process (uid="
             f"{os.getuid() if hasattr(os, 'getuid') else 'n/a'}) cannot write "
             f"to it: {exc}. Point {setting.split()[0]} at a directory this "
-            "process's uid/gid can actually create files in -- check the "
+            "process's uid/gid actually has write access to -- check the "
             "volume mount, its owning group (Kubernetes fsGroup), and any "
             "intermediate directory a sibling mount may have auto-created "
             "with different ownership (see BUG-ROFS-1)."

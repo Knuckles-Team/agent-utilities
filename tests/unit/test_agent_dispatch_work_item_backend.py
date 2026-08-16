@@ -4,10 +4,14 @@ Exercises ``execute_agent_task_turn`` end to end with the WorkItem state
 machine as the authoritative backend (rather than the KG ``:AgentLease``-only
 path or the raw engine-native probe): a legacy ``:AgentTask`` node is shadowed
 1:1 by a WorkItem
-node, claimed/committed through it, with the legacy ``:AgentTask``/
-``:AgentLease`` nodes mirrored (not read) for unmigrated consumers
-(``fleet_reconciler``), and a real cross-task dependency released atomically
-through WorkItem's own dep_count mechanics.
+node, claimed/committed through it, with the legacy ``:AgentTask.status``
+mirrored (not read) for unmigrated consumers (``fleet_reconciler``), and a
+real cross-task dependency released atomically through WorkItem's own
+dep_count mechanics. ``:AgentLease`` is NOT mirrored -- per
+``docs/architecture/graph-authority-convergence.md`` lease/fencing capability
+is held only by the executing process and never copied into another graph
+node; ``test_no_agentlease_writer_remains`` (test_graph_client_authority.py)
+enforces that no writer exists.
 
 Follows the same minimal-engine-double pattern as
 ``tests/unit/knowledge_graph/test_agentos_gap6_objects.py``'s ``_Gap6Engine``,
@@ -293,9 +297,12 @@ def test_agent_task_completes_via_work_item_backend_and_mirrors_legacy_nodes() -
     )
 
     assert outcome == "completed"
-    # Legacy mirrors, for unmigrated readers (fleet_reconciler / dashboards).
+    # Legacy mirror, for unmigrated readers (fleet_reconciler / dashboards).
+    # No companion `:AgentLease` node is written -- that mirror was
+    # deliberately retired (No-Legacy, graph-authority-convergence); see
+    # `test_no_agentlease_writer_remains` in test_graph_client_authority.py.
     assert engine.nodes["task-1"]["status"] == "completed"
-    assert engine.by_type("AgentLease")
+    assert not engine.by_type("AgentLease")
 
     # WorkItem is authoritative: the shadow is succeeded, with a result_ref.
     item_id = wi.agent_task_work_item_id("task-1")

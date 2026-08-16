@@ -1,6 +1,8 @@
 #!/usr/bin/python
 
 import os
+import re
+import subprocess
 import sys
 from typing import Any
 
@@ -20,9 +22,29 @@ _DANGEROUS_GIT_ENV_VARS = (
     "GIT_INDEX_FILE",
     "GIT_WORK_TREE",
     "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES",
     "GIT_COMMON_DIR",
     "GIT_NAMESPACE",
 )
+
+#: GOC-71: the narrower env-var leak has a quieter, more damaging sibling --
+#: ``GIT_AUTHOR_*``/``GIT_COMMITTER_*`` silently mis-author whatever commit a
+#: leaked-env subprocess makes, and (as this repo's own history shows: 295
+#: commits authored ``universal-ingestion-proof <proof@test.local>``, the
+#: fixture identity ``tests/integration/knowledge_graph/
+#: test_git_markdown_domain_packs_live_engine.py`` sets) the underlying GIT_DIR
+#: redirect that mis-targets a ``git -C tmp_path config user.name/email`` call
+#: doesn't just mutate an env var -- it writes that identity into the REAL
+#: repo's *persistent* local ``.git/config``, so it keeps mis-authoring every
+#: subsequent commit made without explicit ``GIT_AUTHOR_*`` until someone
+#: notices and fixes the local config by hand. ``core.bare`` corruption breaks
+#: loudly (`fatal: … must be run in a work tree`); this one broke silently for
+#: weeks. ``GIT_CONFIG*`` covers the ``GIT_CONFIG_GLOBAL``/``_SYSTEM``/
+#: ``_NOSYSTEM`` and ``GIT_CONFIG_COUNT``/``_KEY_<n>``/``_VALUE_<n>`` env-based
+#: config-override family (`git help environment`) -- an open-ended set of
+#: names, so it is matched by prefix rather than enumerated.
+_DANGEROUS_GIT_ENV_PREFIXES = ("GIT_AUTHOR_", "GIT_COMMITTER_", "GIT_CONFIG")
 
 
 def _strip_inherited_git_repository_env() -> None:
@@ -51,9 +73,79 @@ def _strip_inherited_git_repository_env() -> None:
     """
     for name in _DANGEROUS_GIT_ENV_VARS:
         os.environ.pop(name, None)
+    for name in list(os.environ):
+        if name.startswith(_DANGEROUS_GIT_ENV_PREFIXES):
+            os.environ.pop(name, None)
 
 
 _strip_inherited_git_repository_env()
+
+
+#: The subset of ``_DANGEROUS_GIT_ENV_VARS`` that can redirect a git
+#: invocation to a *different repository* -- what D-LGI-1's own reproduction
+#: exploits. Deliberately excludes GIT_INDEX_FILE (redirects only which index
+#: file is read/written *within* whatever repo -C/cwd/GIT_DIR resolves to) and
+#: GIT_CEILING_DIRECTORIES (`git help environment`: does not override an
+#: explicit GIT_DIR anyway). Used by the runtime backstop below, independent
+#: of GIT_AUTHOR_*/GIT_COMMITTER_*/GIT_CONFIG*, which corrupt identity/config
+#: rather than redirect the target repository.
+_GIT_POINTER_ENV_NAMES = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_COMMON_DIR",
+)
+
+
+class LeakedGitPointerEnvError(RuntimeError):
+    """A git subprocess was about to run with a leaked repository-pointer env var.
+
+    Regression backstop for D-LGI-1/GOC-71, independent of the session-wide
+    strip above: it fires even if a test re-introduces one of these vars
+    mid-run (e.g. via ``monkeypatch.setenv``, exactly how the real leak
+    happens), turning what would silently mutate the real repository into an
+    immediate, loud test failure instead. See
+    ``tests/unit/test_conftest_git_env_isolation.py`` for the literal proof.
+    """
+
+
+def _looks_like_git_invocation(args: object) -> bool:
+    """Best-effort: does this ``subprocess.Popen`` ``args`` invoke ``git``?"""
+    if isinstance(args, (str, bytes)):
+        text = args if isinstance(args, str) else args.decode(errors="replace")
+        return re.search(r"(?:^|[\s;&|])git(?:\s|$)", text) is not None
+    if not isinstance(args, (list, tuple)) or not args:
+        return False
+    first = args[0]
+    if not isinstance(first, (str, bytes, os.PathLike)):
+        return False
+    return os.path.basename(str(os.fspath(first))) in ("git", "git.exe")
+
+
+#: The true, unpatched ``Popen.__init__`` -- captured before the patch just
+#: below is applied, so a test can temporarily restore it (via
+#: ``monkeypatch.setattr``, auto-reverted at that test's teardown) to prove
+#: the guard stops a real vulnerability rather than a strawman.
+_TRUE_POPEN_INIT = subprocess.Popen.__init__
+
+
+def _guarded_popen_init(self, *args, **kwargs):
+    invoked = args[0] if args else kwargs.get("args")
+    if _looks_like_git_invocation(invoked):
+        env = kwargs.get("env")
+        effective = env if env is not None else os.environ
+        leaked = [name for name in _GIT_POINTER_ENV_NAMES if effective.get(name)]
+        if leaked:
+            raise LeakedGitPointerEnvError(
+                f"refusing to spawn {invoked!r}: leaked pointer env var(s) "
+                f"{leaked} would silently redirect it to the wrong repository "
+                "(D-LGI-1/GOC-71) -- fix the leak, don't bypass this guard"
+            )
+    return _TRUE_POPEN_INIT(self, *args, **kwargs)
+
+
+subprocess.Popen.__init__ = _guarded_popen_init  # type: ignore[method-assign]
 
 
 def _fail_fast_on_wrong_interpreter() -> None:
@@ -275,6 +367,64 @@ def _isolate_intent_outcome_learning():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_config_module_lazy_attrs():
+    """Undo any test's ``monkeypatch.setattr("agent_utilities.core.config.<name>",
+    ...)`` that permanently shadowed a PEP 562 module ``__getattr__``-synthesized
+    attribute (``config``, ``SENSITIVE_TOOL_PATTERNS``, ``TOOL_GUARD_MODE``,
+    ``DEFAULT_EMBEDDING_BASE_URL``, ``DEFAULT_EMBEDDING_MODEL_ID``,
+    ``DEFAULT_KG_ANALYSIS_MAX_DEPTH``, ``DEFAULT_HOST``, ``DEFAULT_PORT``).
+
+    None of these names are real module globals — ``config.py`` deliberately
+    keeps them out of its top-level namespace (see its own ``TYPE_CHECKING``
+    block: "materialized at runtime via module ``__getattr__`` (PEP 562) from
+    the lazy cache") so every access re-resolves through ``_LAZY_CACHE`` /
+    ``load_config(reload=True)``. ``monkeypatch.setattr`` cannot tell a
+    PEP-562-synthesized attribute from a real one: capturing "the current
+    value" to restore later does a plain ``getattr`` (which materializes and
+    caches a real snapshot as a side effect — ``config.py``'s own
+    ``__getattr__`` runs ``_init_lazy_config()`` and returns the cached
+    result), then does a REAL ``setattr``, and at teardown restores that
+    captured value with ANOTHER real ``setattr`` — permanently writing a
+    literal entry into ``config.__dict__``. From that point on, ordinary
+    attribute lookup finds the stale dict entry directly and never falls
+    through to ``__getattr__`` again for the rest of the worker process,
+    silently defeating ``load_config(reload=True)`` for every later test
+    (reproduced live, D-TIL-2: ``tests/unit/core/test_gpu_group_budget.py``'s
+    ``monkeypatch.setattr("agent_utilities.core.config.config", cfg,
+    raising=False)`` — used across ~10 files/20+ call sites to stub the typed
+    config singleton — left a stale ``config`` entry that made
+    ``tests/unit/core/test_load_config.py::
+    test_save_config_atomically_updates_stable_typed_proxy`` raise
+    ``KeyError: '_config'`` after a freshly cleared ``_LAZY_CACHE``, purely
+    depending on run order). Deleting whatever of these specific names
+    materialized as a real ``__dict__`` entry during the test restores the
+    dynamic ``__getattr__`` resolution regardless of which test created the
+    shadow or whether it raised — there is no legitimate reason a normal test
+    needs one of these exact names to survive as a literal module attribute
+    past its own teardown.
+    """
+    import agent_utilities.core.config as _config_mod
+
+    _LAZY_ATTR_NAMES = (
+        "config",
+        "SENSITIVE_TOOL_PATTERNS",
+        "TOOL_GUARD_MODE",
+        "DEFAULT_EMBEDDING_BASE_URL",
+        "DEFAULT_EMBEDDING_MODEL_ID",
+        "DEFAULT_KG_ANALYSIS_MAX_DEPTH",
+        "DEFAULT_HOST",
+        "DEFAULT_PORT",
+    )
+    before = {name: name in vars(_config_mod) for name in _LAZY_ATTR_NAMES}
+    try:
+        yield
+    finally:
+        for name, existed in before.items():
+            if not existed and name in vars(_config_mod):
+                delattr(_config_mod, name)
+
+
+@pytest.fixture(autouse=True)
 def clean_graph_globals(monkeypatch, tmp_path):
     try:
         from agent_utilities.knowledge_graph.backends import get_active_backend
@@ -449,6 +599,8 @@ def isolate_graph_compute_engine(monkeypatch):
     # PermissionError once one test's write lands on another's read).
     from agent_utilities.knowledge_graph.core.shard_topology import (
         default_graph_name as _default_graph_name,
+    )
+    from agent_utilities.knowledge_graph.core.shard_topology import (
         tenant_graph_name as _tenant_graph_name,
     )
 
@@ -585,6 +737,41 @@ _TEST_ENGINE_AVAILABLE = False
 #: ``tiny_engine`` fixture returns this; ``engine_graph`` re-asserts it per test.
 _SESSION_ENGINE_SOCKET: "str | None" = None
 
+#: Does THIS worker need a real engine? ``_session_engine`` is autouse and
+#: session-scoped, so under xdist every worker was starting its own
+#: epistemic-graph process — 12 engines for a run where most workers touch none.
+#:
+#: Defaults to True and is only ever narrowed by
+#: :func:`pytest_collection_modifyitems`, so an unclassifiable run keeps the old
+#: always-on behaviour. Narrowing is deliberately conservative: the engine still
+#: starts for ANY test outside ``tests/unit`` and for any test requesting the
+#: engine fixtures, because tests elsewhere rely on the ambient
+#: ``GRAPH_SERVICE_ENDPOINTS`` wiring this fixture exports. Getting that wrong
+#: would not fail loudly — ``pytest_runtest_makereport`` turns an unreachable
+#: engine into a SKIP, so over-narrowing would quietly delete coverage instead of
+#: reporting it.
+_WORKER_NEEDS_ENGINE = True
+
+
+def pytest_collection_modifyitems(session, config, items):
+    """Decide once, per worker, whether this run needs a real engine started.
+
+    Pure classification of the already-collected set — it reorders nothing and
+    deselects nothing.
+    """
+    global _WORKER_NEEDS_ENGINE
+    for item in items:
+        fixtures = getattr(item, "fixturenames", ())
+        if "tiny_engine" in fixtures or "engine_graph" in fixtures:
+            _WORKER_NEEDS_ENGINE = True
+            return
+        path = str(getattr(item, "fspath", "") or "")
+        if f"{os.sep}tests{os.sep}unit{os.sep}" not in path:
+            _WORKER_NEEDS_ENGINE = True
+            return
+    # Every collected test is a tests/unit test that never asks for the engine.
+    _WORKER_NEEDS_ENGINE = False
+
 #: Generous headroom above the longest full-suite run observed (~37 minutes) —
 #: see :func:`_acquire_engine_daemon_lease`. The default ``hold_lease`` TTL
 #: (30 minutes) would let the lease be reclaimed as "dead" out from under a
@@ -655,6 +842,15 @@ def _session_engine():
     (e.g. a shared host engine) is reused verbatim and never torn down here.
     """
     global _TEST_ENGINE_AVAILABLE, _SESSION_ENGINE_SOCKET
+
+    if not _WORKER_NEEDS_ENGINE:
+        # Nothing this worker collected can reach the engine, so starting one
+        # would cost a process (and, under xdist, one per worker) to serve zero
+        # tests. Degrade to exactly the same no-engine state the fixture already
+        # yields when no binary is available.
+        yield None
+        return
+
     from _test_engine import (
         TEST_AUTH_SECRET,
         EngineUnavailable,
@@ -816,11 +1012,108 @@ import sys
 from unittest.mock import MagicMock
 
 
+def _is_none_numeric_shim_attribute_error(exc: BaseException) -> bool:
+    """True if ``exc`` is an ``AttributeError`` raised by calling into
+    ``agent_utilities.numeric``'s ``xp``/``np`` shim while the compiled
+    ``epistemic_graph.numeric`` kernel is absent from THIS environment.
+
+    A THIRD signature of "no real engine/kernel here" (see the two documented
+    on :func:`_is_engine_unreachable_error`): several product modules
+    (``agent_utilities/knowledge_graph/retrieval/capability_index.py``,
+    ``agent_utilities/knowledge_graph/core/hypergraph.py``, and others) do
+    ``try: from agent_utilities.numeric import xp as np / except ImportError:
+    np = None`` at import time specifically so they stay importable in the
+    lean CI ``gates`` lane -- by that module's own documented design, the
+    numeric/vector code paths then "raise a clear error at call time if
+    invoked without it, rather than trapping every importer at module load".
+    In practice that call-time error is a bare
+    ``AttributeError: 'NoneType' object has no attribute 'asarray'`` (or
+    ``'random'``, ``'zeros'``, ...) -- not a message an exception-chain match
+    can key on. Match structurally instead: Python 3.10+ AttributeErrors carry
+    ``.obj`` (the object that lacked the attribute); confirm it really is
+    ``None`` (not some unrelated null), then walk the traceback for a product
+    (non-test) frame binding a local/global literally named ``np`` or ``xp``
+    to that same ``None`` -- the exact shim variable, not a coincidental
+    unrelated ``None.attr`` bug elsewhere. Both conditions must hold, so this
+    can never mask a real defect that merely happens to also be an
+    ``AttributeError`` on ``None``.
+    """
+    if not isinstance(exc, AttributeError):
+        return False
+    obj = getattr(exc, "obj", "sentinel-not-python-3.10+")
+    if obj is not None:
+        return False
+    tb = exc.__traceback__
+    while tb is not None:
+        frame = tb.tb_frame
+        filename = frame.f_code.co_filename
+        if "agent_utilities" in filename and "/tests/" not in filename:
+            for name in ("np", "xp"):
+                if name in frame.f_locals and frame.f_locals[name] is None:
+                    return True
+                if name in frame.f_globals and frame.f_globals[name] is None:
+                    return True
+        tb = tb.tb_next
+    return False
+
+
+def _is_missing_engine_domain_tool_error(exc: BaseException) -> bool:
+    """True if ``exc`` is a ``KeyError``/``ValueError`` caused by an
+    ``engine_<domain>`` MCP tool not being registered because
+    ``engine_tools.ENGINE_DOMAINS`` is empty (the ``epistemic_graph`` client
+    package absent) -- a FOURTH signature of the same "no real engine/kernel
+    here" condition documented on :func:`_is_engine_unreachable_error`,
+    reached through a ``kg_server.REGISTERED_TOOLS["engine_<domain>"]``
+    lookup or ``kg_server._execute_tool``'s own "Tool ... not registered"
+    guard instead of a raw ``ModuleNotFoundError``. Gated on ``ENGINE_DOMAINS``
+    actually being empty right now (not a stale assumption) plus the
+    exception naming a REAL domain from ``_DOMAIN_CLASSES``, so a genuine
+    KeyError/ValueError elsewhere -- including one that happens to be about a
+    real, present engine tool -- is never masked.
+    """
+    if not isinstance(exc, (KeyError, ValueError)):
+        return False
+    try:
+        from agent_utilities.mcp.tools import engine_tools
+    except Exception:  # noqa: BLE001 — can't classify without it; not this signature
+        return False
+    if engine_tools.ENGINE_DOMAINS:
+        return False  # kernel IS present -- a real KeyError/ValueError, never mask
+    message = str(exc)
+    return any(f"engine_{domain}" in message for domain in engine_tools._DOMAIN_CLASSES)
+
+
 def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
     """True if ``exc`` (or its cause chain) is the epistemic-graph engine being
-    unreachable — the message raised by ``GraphComputeEngine`` / the client when
-    no engine daemon answers. Matched by message (the client raises a builtin
-    ``ConnectionError``/``ConnectionRefusedError``, not a typed exception)."""
+    unavailable in THIS environment -- three distinct signatures:
+
+    1. Unreachable daemon: the message raised by ``GraphComputeEngine`` / the
+       client when no engine daemon answers. Matched by message (the client
+       raises a builtin ``ConnectionError``/``ConnectionRefusedError``, not a
+       typed exception).
+    2. Absent package: the ``epistemic_graph`` distribution itself is not
+       installed in this environment (the lean CI ``gates`` lane runs
+       ``uv sync --no-install-package epistemic-graph``). Fixtures that go
+       through ``tiny_engine``/``_session_engine`` already degrade gracefully
+       for this case (see that fixture's own ``except ImportError`` branch),
+       but tests with their OWN local ``engine``-style fixture construct
+       ``GraphComputeEngine``/the client directly and hit a bare
+       ``ModuleNotFoundError: No module named 'epistemic_graph'`` instead --
+       the same "no real engine here" condition, just a different exception
+       shape. ``ModuleNotFoundError.name`` is the dotted module Python
+       actually failed to find, so matching on it (rather than the message
+       text) is exact regardless of which submodule the failing ``import``
+       or ``from ... import ...`` statement named.
+    3. Absent numeric kernel: see :func:`_is_none_numeric_shim_attribute_error`
+       -- the same absent-package condition, reached through
+       ``agent_utilities.numeric``'s own None-shim degrade instead of a raw
+       ``ModuleNotFoundError``.
+    4. Missing ``engine_<domain>`` MCP tool registration: see
+       :func:`_is_missing_engine_domain_tool_error` -- the same
+       absent-package condition, reached through a
+       ``REGISTERED_TOOLS``/``ACTION_TOOL_ROUTES`` lookup instead of a raw
+       ``ModuleNotFoundError``.
+    """
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen:
         seen.add(id(exc))
@@ -832,6 +1125,14 @@ def _is_engine_unreachable_error(exc: BaseException | None) -> bool:
                 or "Connection refused" in msg
             ):
                 return True
+        if isinstance(exc, ModuleNotFoundError):
+            missing = exc.name or ""
+            if missing == "epistemic_graph" or missing.startswith("epistemic_graph."):
+                return True
+        if _is_none_numeric_shim_attribute_error(exc):
+            return True
+        if _is_missing_engine_domain_tool_error(exc):
+            return True
         exc = exc.__cause__ or exc.__context__
     return False
 
@@ -855,8 +1156,11 @@ def pytest_runtest_makereport(item, call):
             report.longrepr = (
                 str(getattr(item, "location", ("", 0, item.name))[0]),
                 int(getattr(item, "location", ("", 0, item.name))[1] or 0),
-                "Skipped: epistemic-graph engine not reachable in this "
-                "environment (no isolated test engine started). Set "
+                "Skipped: epistemic-graph engine not available in this "
+                "environment -- either unreachable (no isolated test engine "
+                "started) or the epistemic_graph package itself is not "
+                "installed (e.g. the lean CI `gates` lane, which runs "
+                "--no-install-package epistemic-graph). Set "
                 "AGENT_UTILITIES_TESTING=true with the epistemic-graph source "
                 "present, or export GRAPH_SERVICE_ENDPOINTS, to run engine-backed "
                 "tests.",

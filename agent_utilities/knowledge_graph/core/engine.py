@@ -1137,6 +1137,7 @@ class IntelligenceGraphEngine(
         mutations: list[dict[str, Any]],
         *,
         session: GraphSession | None = None,
+        upsert: bool = True,
     ) -> bool:
         """Apply prepared typed node/edge mutations through one native batch.
 
@@ -1152,6 +1153,16 @@ class IntelligenceGraphEngine(
         Each mutation is either ``{"kind": "node", "id", "node_type",
         "properties"}`` or ``{"kind": "edge", "source", "target",
         "rel_type", "properties"}``.  The list order is preserved exactly.
+
+        ``upsert`` (B-11, CONCEPT:AU-KG.ingest.envelope-atomic-transaction) selects
+        the engine's real ``BatchUpdate`` insert-or-merge semantics per
+        ``crates/eg-compute/src/algorithms.rs``'s ``BatchOperation`` — the
+        default ``True`` emits ``upsert_node``/``upsert_edge`` (MERGE:
+        idempotent re-application over an existing id, byte-identical to every
+        pre-existing caller of this method). ``False`` emits plain
+        ``add_node``/``add_edge`` (INSERT semantics — an edge with the same
+        source/target is added as an additional parallel edge rather than
+        replacing the prior one; see the engine's own operation docs).
         """
         if not mutations:
             return True
@@ -1208,7 +1219,7 @@ class IntelligenceGraphEngine(
                     stamp_classification(prepared, node_type)
                     operations.append(
                         {
-                            "op": "upsert_node",
+                            "op": "upsert_node" if upsert else "add_node",
                             "id": node_id,
                             "properties": {
                                 **prepared,
@@ -1248,7 +1259,7 @@ class IntelligenceGraphEngine(
                     stamp_classification(props, rel_type)
                     operations.append(
                         {
-                            "op": "upsert_edge",
+                            "op": "upsert_edge" if upsert else "add_edge",
                             "source": source_id,
                             "target": target_id,
                             "properties": {**props, "relationship": rel_type},

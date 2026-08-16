@@ -4,11 +4,13 @@ Covers the offline, dependency-free handler: frontmatter parsing, ``[[link]]`` �
 RELATED_TO edges, MEMORY.md index skipping, ``ids`` narrowing, and the empty-dir skip.
 
 AU-P1-5: the handler is now envelope-native (CONCEPT:AU-KG.ingest.envelope-atomic-transaction)
-— each topic file is ONE ``ChangeEnvelope`` routed through ``ingest_envelope``, which
-still writes via ``engine.ingest_external_batch`` per file (rather than one combined
-batch for every file), so ``engine.calls`` now holds one entry per memory file instead
-of a single all-files batch. The assertions below aggregate across ``engine.calls``
-accordingly; the underlying intent (typed nodes + RELATED_TO links) is unchanged.
+— each topic file is ONE ``ChangeEnvelope`` routed through
+:func:`~agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_envelope`,
+which commits ONLY through the real native ``ApplyChangeEnvelope`` authority —
+there is no ``engine.ingest_external_batch`` fallback anymore. The typed-node
+assertions below therefore run against a real, isolated ``engine_graph`` (the
+session's real epistemic-graph engine) and read back what was actually
+committed, rather than replaying a call log a fake engine recorded.
 """
 
 from __future__ import annotations
@@ -71,11 +73,23 @@ def test_parse_memory_file(tmp_path):
     assert links == ["bar", "baz"]
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-3: native ChangeEnvelope capability unavailable in this sandbox "
-    "(envelope_ingest logs NativeChangeEnvelopeUnavailable)"
-)
-def test_sync_claude_memory_ingests_typed_nodes_and_links(tmp_path, monkeypatch):
+@pytest.mark.engine
+def test_sync_claude_memory_ingests_typed_nodes_and_links(
+    tmp_path, monkeypatch, engine_graph
+) -> None:
+    """AU-P1-5 (envelope-native): ``ingest_envelope`` commits ONLY through the
+    real native ``ApplyChangeEnvelope`` authority (``_resolve_native_authority``,
+    ``envelope_ingest.py``) -- there is no legacy per-node
+    ``engine.ingest_external_batch`` fallback anymore (D-TC-3's own root cause,
+    matching the analogous fail-closed hardening already documented for
+    ``failure_analyzer.file_gap_topic``/``_commit_graph_slice``). A hand-built
+    ``_FakeEngine`` recording calls to ``ingest_external_batch`` can never
+    satisfy that native authority and always fails with
+    ``NativeChangeEnvelopeUnavailable`` -- this now drives the real
+    ``engine_graph`` fixture (a genuine isolated tenant graph on the session's
+    real epistemic-graph engine, CONCEPT:AU-KG.memory.provides-real-ephemeral-one)
+    and asserts against the graph it actually wrote, not a call log.
+    """
     _write(tmp_path, "foo", "Foo", "project", "links to [[bar]].")
     _write(tmp_path, "bar", "Bar", "reference", "no links here.")
     # The MEMORY.md / MEMORY-ARCHIVE.md indexes must NOT be ingested.
@@ -85,41 +99,39 @@ def test_sync_claude_memory_ingests_typed_nodes_and_links(tmp_path, monkeypatch)
     )
     monkeypatch.setenv("CLAUDE_MEMORY_DIR", str(tmp_path))
 
-    engine = _FakeEngine()
-    res = _sync_claude_memory(engine, mode="full", ids=None, client=None)
+    res = _sync_claude_memory(engine_graph, mode="full", ids=None, client=None)
 
     assert res["status"] == "ok"
     assert res["memories_seen"] == 2  # foo + bar, indexes skipped
     assert res["failed"] == 0
-    # One ingest_external_batch call per envelope/file (AU-P1-5) — aggregate.
-    assert all(domain == "claude_memory" for domain, _, _ in engine.calls)
-    entities = [e for _, es, _ in engine.calls for e in es]
-    rels = [r for _, _, rs in engine.calls for r in rs]
-    assert {e["id"] for e in entities} == {"claude_memory:foo", "claude_memory:bar"}
-    assert all(e["type"] == "AgentMemory" for e in entities)
-    foo = next(e for e in entities if e["id"] == "claude_memory:foo")
-    assert foo["memory_type"] == "project"
-    assert foo["description"] == "Foo summary line"
+
+    foo_props = engine_graph._get_node_properties("claude_memory:foo")
+    bar_props = engine_graph._get_node_properties("claude_memory:bar")
+    assert foo_props, "claude_memory:foo was not committed to the real graph"
+    assert bar_props, "claude_memory:bar was not committed to the real graph"
+    # Envelope-native connector records keep their raw `type` key verbatim
+    # (ChangeEnvelope.from_connector_record's documented, intentional
+    # round-trip shape -- `_native_material`'s upsert branch copies `row` as
+    # given, unlike RegistryNode.to_graph_properties()'s node_type rename,
+    # since this path writes AddNode/properties_msgpack directly and never
+    # passes through the add_node() wrapper that rejects a stray `type` key).
+    # Confirmed empirically against the real engine.
+    assert foo_props.get("type") == "AgentMemory"
+    assert bar_props.get("type") == "AgentMemory"
+    assert foo_props.get("memory_type") == "project"
+    assert foo_props.get("description") == "Foo summary line"
     # the [[bar]] link → a RELATED_TO edge foo → bar
-    assert {
-        "source": "claude_memory:foo",
-        "target": "claude_memory:bar",
-        "type": "RELATED_TO",
-    } in rels
+    assert engine_graph.has_edge("claude_memory:foo", "claude_memory:bar")
 
 
-@pytest.mark.quarantine(
-    reason="D-TC-3: native ChangeEnvelope capability unavailable in this sandbox "
-    "(envelope_ingest logs NativeChangeEnvelopeUnavailable)"
-)
-def test_ids_narrows_to_slugs(tmp_path, monkeypatch):
+@pytest.mark.engine
+def test_ids_narrows_to_slugs(tmp_path, monkeypatch, engine_graph) -> None:
     _write(tmp_path, "foo", "Foo", "project", "x")
     _write(tmp_path, "bar", "Bar", "project", "y")
     monkeypatch.setenv("CLAUDE_MEMORY_DIR", str(tmp_path))
-    engine = _FakeEngine()
-    _sync_claude_memory(engine, mode="delta", ids=["foo"], client=None)
-    entities = [e for _, es, _ in engine.calls for e in es]
-    assert [e["id"] for e in entities] == ["claude_memory:foo"]
+    _sync_claude_memory(engine_graph, mode="delta", ids=["foo"], client=None)
+    assert engine_graph._get_node_properties("claude_memory:foo")
+    assert not engine_graph._get_node_properties("claude_memory:bar")
 
 
 def test_empty_dir_skips(tmp_path, monkeypatch):

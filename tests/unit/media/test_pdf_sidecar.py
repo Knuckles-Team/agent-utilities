@@ -213,7 +213,7 @@ def test_pdf_conformance_artifact_bundle_loci_embeddings_queryable(monkeypatch):
     assert result.blob_id is not None
     assert result.blob_id.startswith("blob:")
     occ_props = client.nodes.properties(result.occurrence_id)
-    assert occ_props["type"] == "AssetOccurrence"
+    assert occ_props["node_type"] == "AssetOccurrence"
     assert occ_props["media_type"] == "application/pdf"
     assert occ_props["content_digest"] == _digest(FIXTURE_PDF)
 
@@ -308,7 +308,7 @@ def test_pdf_conformance_artifact_bundle_loci_embeddings_queryable(monkeypatch):
     supports_edges = [
         (s, t)
         for s, t, props in client.edges.edges
-        if props.get("relationship_type") == "SUPPORTS"
+        if props.get("relationship") == "SUPPORTS"
     ]
     assert {t for _s, t in supports_edges} == {result.claim_id}
     assert len(supports_edges) == (

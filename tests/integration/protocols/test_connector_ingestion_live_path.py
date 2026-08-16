@@ -9,6 +9,7 @@ second run is incremental. Fully offline (temp dir + recording backend, no LLM).
 
 from __future__ import annotations
 
+import importlib.util
 from types import SimpleNamespace
 
 import pytest
@@ -25,6 +26,27 @@ from agent_utilities.protocols.source_connectors import (
     ExternalAccess,
     PollConnector,
     SourceDocument,
+)
+
+# The 4 tests below all reach real native-engine capability -- confirmed by
+# direct repro: ``_shacl_validate_rows`` requires ``client.rdf.validate_shacl``
+# (native canonical SHACL validation over the governed ``ChangeEnvelope``),
+# which raises ``NativeChangeEnvelopeUnavailable`` when no real engine client
+# is reachable ("[session-engine] real engine unavailable: no
+# feature-complete epistemic-graph[full] wheel binary is installed"), caught
+# inside ``IngestionEngine.ingest`` and surfaced as ``result.status ==
+# "failed"`` rather than a raised exception -- so the conftest
+# exception-chain auto-skip can't see it. This is the real, documented
+# ``engine`` marker contract (needs the ephemeral test-engine binary,
+# genuinely absent in the lean CI `gates` lane) -- the fifth test in this
+# file (dry-run) never reaches persistence/validation and still runs.
+_NEEDS_ENGINE = pytest.mark.skipif(
+    importlib.util.find_spec("epistemic_graph") is None,
+    reason=(
+        "epistemic_graph package/engine not available in this environment -- "
+        "native SHACL-validated ChangeEnvelope ingestion needs a real engine "
+        "client."
+    ),
 )
 
 
@@ -114,6 +136,7 @@ class _SyntheticDocumentProcessor:
 @pytest.mark.integration
 @pytest.mark.concept("AU-ECO.connector.document-source-framework")
 @pytest.mark.asyncio
+@_NEEDS_ENGINE
 async def test_filesystem_connector_ingestion_live_path(tmp_path):
     (tmp_path / "a.md").write_text(
         "# Title A\nalpha content about graphs and ontologies. " * 6
@@ -155,6 +178,7 @@ async def test_filesystem_connector_ingestion_live_path(tmp_path):
 @pytest.mark.integration
 @pytest.mark.concept("AU-ECO.connector.external-permission-sync")
 @pytest.mark.asyncio
+@_NEEDS_ENGINE
 async def test_connector_ingestion_syncs_external_acl(tmp_path):
     (tmp_path / "secret.md").write_text("restricted content " * 8)
 
@@ -204,6 +228,7 @@ async def test_connector_ingestion_syncs_external_acl(tmp_path):
 @pytest.mark.integration
 @pytest.mark.concept("AU-KG.ingest.change-envelope")
 @pytest.mark.asyncio
+@_NEEDS_ENGINE
 async def test_governed_connector_applies_envelope_before_embedding(
     monkeypatch,
 ):
@@ -252,6 +277,7 @@ async def test_governed_connector_applies_envelope_before_embedding(
 @pytest.mark.integration
 @pytest.mark.concept("AU-KG.ingest.change-envelope")
 @pytest.mark.asyncio
+@_NEEDS_ENGINE
 async def test_governed_connector_failure_blocks_document_and_checkpoint(
     monkeypatch,
 ):

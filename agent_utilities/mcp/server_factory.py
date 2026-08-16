@@ -16,7 +16,6 @@ import ipaddress
 import logging
 import os
 import re
-import sys
 from typing import Any, cast
 from urllib.parse import urlsplit
 
@@ -1269,45 +1268,43 @@ def _configure_middleware(
     return middlewares
 
 
-_STDIO_PROTECTED = False
-
-
-def protect_stdio_jsonrpc() -> None:
-    """Redirect ``print``/warnings to stderr for a process serving MCP over stdio.
-
-    On the stdio transport the JSON-RPC framing IS stdout, so any stray ``print``
-    corrupts the protocol. Call this immediately before ``mcp.run(transport="stdio")``
-    — NOT at server-build time — because it permanently monkeypatches the
-    process-global ``builtins.print``; doing it for a process that does not actually
-    own stdout (tests, embedded/sse/http hosts) silently breaks stdout capture
-    everywhere downstream. Idempotent.
-    """
-    global _STDIO_PROTECTED
-    if _STDIO_PROTECTED:
-        return
-    _STDIO_PROTECTED = True
-
-    import builtins
-    import warnings
-
-    original_print = builtins.print
-
-    def stderr_print(*print_args, **kwargs):
-        if (
-            "file" not in kwargs
-            or kwargs["file"] is None
-            or kwargs["file"] == sys.stdout
-        ):
-            kwargs["file"] = sys.stderr
-        original_print(*print_args, **kwargs)
-
-    builtins.print = stderr_print
-
-    def stderr_showwarning(message, category, filename, lineno, file=None, line=None):
-        sys.stderr.write(f"[{category.__name__}] {message} ({filename}:{lineno})\n")
-        sys.stderr.flush()
-
-    warnings.showwarning = stderr_showwarning
+# ── Stdio JSON-RPC purity ────────────────────────────────────────────────────
+#
+# There used to be a ``protect_stdio_jsonrpc()`` here: a permanent, process-wide
+# monkeypatch of ``builtins.print``/``warnings.showwarning`` applied once and
+# never undone (B-19). It intercepted every caller in the process to protect one
+# file descriptor — global where the concern was local, unscoped, un-nestable,
+# no teardown — and it is the confirmed root cause of a cross-file test-pollution
+# incident: a test that drove the real stdio entrypoint left ``print`` silently
+# redirected for the rest of the session, breaking ~23 unrelated tests in 11
+# files with no plausible causal link.
+#
+# It also turned out to be solving an already-solved problem. On the stdio
+# transport, ``mcp.run(transport="stdio")`` (FastMCP's ``run_stdio_async``, see
+# ``fastmcp/server/mixins/transport.py``) enters ``mcp.server.stdio.stdio_server()``
+# (vendored MCP SDK, ``mcp/server/stdio.py``), which ALREADY gives the protocol
+# writer exclusive, fd-level ownership of real stdout for the scope of serving:
+# it ``os.dup()``s fd 1 to a private descriptor for the JSON-RPC writer, then
+# ``os.dup2()``s a duplicate of stderr onto fd 1 so every OTHER writer in the
+# process — ``print()``, a bare ``sys.stdout.write()``, a C extension writing
+# directly to the fd, a subprocess that inherits it — lands on stderr instead,
+# and restores both descriptors in a ``finally`` on exit. Because the diversion
+# is at the OS file-descriptor level, not a Python-object patch, it needs no
+# teardown bookkeeping here: nothing in this codebase ever touches
+# ``builtins.print`` or ``sys.stdout``, so there is nothing to save or restore,
+# and a second concurrent ``stdio_server()`` in one process raises loudly
+# instead of silently double-diverting (the SDK's own ``_claims`` registry).
+# ``warnings.showwarning`` needed no interception either — its stdlib default
+# already targets ``sys.stderr`` when no explicit ``file=`` is given.
+#
+# What this repo still owns: never introduce a ``print()`` in the served MCP
+# surface in the first place (there is no runtime net for code that runs BEFORE
+# ``mcp.run()`` claims the descriptor, e.g. engine bootstrap or a co-service
+# thread started moments earlier). That is enforced statically, in the fast
+# pre-commit tier, by ``scripts/check_no_stdout_writes.py`` (CONCEPT:AU-ECO.mcp.stdio-static-purity-gate) —
+# catching the offender at authoring time instead of corrupting a frame at 3am.
+# Diagnostics in served code route through the standard ``logging`` module
+# (stderr by default), never ``print``.
 
 
 def mcp_network_run_kwargs(args: argparse.Namespace) -> dict[str, Any]:
@@ -1480,7 +1477,7 @@ async def _register_and_heartbeat_forever(name: str, url: str, ttl_secs: int) ->
         except Exception as exc:  # noqa: BLE001 — self-registration retry loop, will retry next iteration
             logger.debug(
                 "Fleet self-registration attempt failed, will retry: %s",
-                exc,
+                type(exc).__name__,
             )
         await asyncio.sleep(interval)
 
@@ -1561,11 +1558,10 @@ def create_mcp_server(
             f"choose from {', '.join(transport_choices)}"
         )
 
-    # NOTE: the stdout/print → stderr protection is applied by ``protect_stdio_jsonrpc()``
-    # at the actual stdio *serve* sites (mcp.run(transport="stdio")), NOT here at build
-    # time. Building a server does not dedicate the process to stdio, and applying the
-    # permanent ``builtins.print`` override here broke stdout capture for every in-process
-    # caller (tests, embedded/sse/http hosts) created afterwards.
+    # NOTE: stdout purity on the stdio transport needs no code here (or anywhere in
+    # this module) — see the module docstring above ``mcp_network_run_kwargs`` for
+    # why. Building a server does not dedicate the process to stdio in the first
+    # place; the transport that does is claimed, fd-level, by the MCP SDK itself.
 
     if hasattr(args, "help") and args.help:
         parser.print_help()
@@ -2162,10 +2158,12 @@ def _register_skill_providers(mcp: Any) -> None:
                 mcp.add_provider(SkillProvider(root_dir))
                 registered += 1
             except Exception as exc:  # noqa: BLE001 - one unreadable provider
-                # directory must not sink the whole sweep. The cause IS logged
-                # so a systematically broken provider is diagnosable.
+                # directory must not sink the whole sweep. The exception TYPE
+                # is logged so a systematically broken provider is diagnosable.
                 logger.warning(
-                    "Could not register skill provider %s: %s", provider_name, exc
+                    "Could not register skill provider %s: %s",
+                    provider_name,
+                    type(exc).__name__,
                 )
         logger.info(
             "Registered %d skill-over-MCP provider(s) as skill:// resources",
@@ -2173,8 +2171,10 @@ def _register_skill_providers(mcp: Any) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - server-side skill:// support is
         # optional (see the INERT note above); its absence must never stop a
-        # server being built. The cause IS logged.
-        logger.warning("Could not register skill-over-MCP providers: %s", exc)
+        # server being built. The exception TYPE is logged.
+        logger.warning(
+            "Could not register skill-over-MCP providers: %s", type(exc).__name__
+        )
 
 
 def _register_prompt_providers(mcp: Any) -> None:
@@ -2214,10 +2214,12 @@ def _register_prompt_providers(mcp: Any) -> None:
             try:
                 json_files = sorted(root_dir.glob("*.json"))
             except OSError as exc:  # noqa: BLE001 - one unreadable provider
-                # directory must not sink the whole sweep. The cause IS
-                # logged so a systematically broken provider is diagnosable.
+                # directory must not sink the whole sweep. The exception TYPE
+                # is logged so a systematically broken provider is diagnosable.
                 logger.warning(
-                    "Could not list prompt provider %s: %s", provider_name, exc
+                    "Could not list prompt provider %s: %s",
+                    provider_name,
+                    type(exc).__name__,
                 )
                 continue
             for json_file in json_files:
@@ -2234,13 +2236,14 @@ def _register_prompt_providers(mcp: Any) -> None:
                     )
                     registered += 1
                 except Exception as exc:  # noqa: BLE001 - one unreadable
-                    # prompt file must not sink the whole sweep. The cause IS
-                    # logged so a systematically broken file is diagnosable.
+                    # prompt file must not sink the whole sweep. The exception
+                    # TYPE is logged so a systematically broken file is
+                    # diagnosable.
                     logger.warning(
                         "Could not register prompt resource %s/%s: %s",
                         provider_name,
                         json_file.stem,
-                        exc,
+                        type(exc).__name__,
                     )
         logger.info(
             "Registered %d prompt-over-MCP resource(s) as prompt:// resources",
@@ -2248,5 +2251,7 @@ def _register_prompt_providers(mcp: Any) -> None:
         )
     except Exception as exc:  # noqa: BLE001 - server-side prompt:// support
         # is optional; its absence must never stop a server being built. The
-        # cause IS logged.
-        logger.warning("Could not register prompt-over-MCP providers: %s", exc)
+        # exception TYPE is logged.
+        logger.warning(
+            "Could not register prompt-over-MCP providers: %s", type(exc).__name__
+        )

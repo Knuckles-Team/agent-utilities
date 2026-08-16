@@ -4,11 +4,35 @@ from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
 from agent_utilities.knowledge_graph.adaptation.topic_resolver import (
     mark_addressed,
     unresolved_topics,
 )
 from agent_utilities.knowledge_graph.research.loop_controller import LoopController
+
+# The two tests below run a golden-loop cycle whose ``distill_skills`` stage
+# imports ``agent_utilities.numeric`` (the compiled ``epistemic_graph.numeric``
+# kernel) transitively; when the kernel is absent the stage's own ImportError
+# is caught and appended to the cycle's ``errors`` list rather than raised, so
+# ``rep["errors"] == []`` fails with a real, environment-caused non-empty list
+# instead of an exception the conftest auto-skip hook could classify. Matches
+# the same "package genuinely absent" contract used elsewhere (e.g.
+# tests/unit/test_engine_api_coverage.py).
+try:
+    import epistemic_graph.numeric as _numeric_kernel  # noqa: F401
+except ImportError:
+    _numeric_kernel = None
+
+_NEEDS_NUMERIC_KERNEL = pytest.mark.skipif(
+    _numeric_kernel is None,
+    reason=(
+        "epistemic_graph.numeric kernel not installed in this environment -- "
+        "the golden loop's distill_skills stage cannot import "
+        "agent_utilities.numeric."
+    ),
+)
 
 
 class _StubEngine:
@@ -96,6 +120,7 @@ def test_run_breadth_self_configures_from_workspace_yml(monkeypatch):
     assert not rep.get("skipped")
 
 
+@_NEEDS_NUMERIC_KERNEL
 def test_run_one_cycle_intake_only_propose_only(monkeypatch):
     # _acquire_resolve (loop_controller.py) builds one embedder per cycle and
     # pings it via bounded_embed BEFORE the per-topic loop. The hermetic unit
@@ -128,6 +153,7 @@ def test_run_one_cycle_intake_only_propose_only(monkeypatch):
     assert rep["errors"] == []
 
 
+@_NEEDS_NUMERIC_KERNEL
 def test_run_one_cycle_intake_papers_runs_research_pipeline(monkeypatch):
     """Caller-supplied papers trigger the unified intake stage (research-pipeline
     runner) before assimilate (CONCEPT:AU-KG.research.research-intelligence-loop)."""

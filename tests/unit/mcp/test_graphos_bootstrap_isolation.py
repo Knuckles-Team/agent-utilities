@@ -39,6 +39,17 @@ from agent_utilities.security.brain_context import (
 )
 
 
+# NOTE: this file used to carry an autouse ``_restore_stdio_protection_state``
+# fixture here, saving/restoring ``server_factory._STDIO_PROTECTED`` and the
+# process-global ``builtins.print``/``warnings.showwarning`` monkeypatches that
+# ``protect_stdio_jsonrpc()`` used to apply. Both the flag and the function were
+# deleted in 7d83cd42 (B-19): stdio purity is now owned fd-level by the vendored
+# MCP SDK's ``stdio_server()`` (see the "Stdio JSON-RPC purity" block in
+# ``server_factory.py``), which needs no Python-object save/restore. There is
+# nothing left in this module for that fixture to protect — see the identical
+# fix already landed for ``test_co_service_supervisor.py`` in the same commit.
+
+
 def _verified_session(actor_id: str = "runtime-agent") -> GraphSession:
     actor = ActorContext(
         actor_id=actor_id,

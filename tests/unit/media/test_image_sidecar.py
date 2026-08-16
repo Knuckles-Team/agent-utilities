@@ -199,7 +199,7 @@ def test_jpeg_conformance_artifact_phash_regions_embedding_queryable(monkeypatch
     assert result.occurrence_id.startswith("occurrence:")
     assert result.blob_id is not None
     occ_props = client.nodes.properties(result.occurrence_id)
-    assert occ_props["type"] == "AssetOccurrence"
+    assert occ_props["node_type"] == "AssetOccurrence"
     assert occ_props["media_type"] == "image/jpeg"
     assert occ_props["content_digest"] == _digest(FIXTURE_JPEG)
 
@@ -217,7 +217,7 @@ def test_jpeg_conformance_artifact_phash_regions_embedding_queryable(monkeypatch
     assert result.rendition_id is not None
     assert result.rendition_id.startswith("rendition:")
     rendition_props = client.nodes.properties(result.rendition_id)
-    assert rendition_props["type"] == "Rendition"
+    assert rendition_props["node_type"] == "Rendition"
     assert rendition_props["rendition_type"] == "thumbnail"
     assert rendition_props["mime_type"] == "image/png"
     assert rendition_props["derived_from_digest"] == _digest(FIXTURE_JPEG)
@@ -260,7 +260,7 @@ def test_jpeg_conformance_artifact_phash_regions_embedding_queryable(monkeypatch
     supports_edges = [
         (s, t)
         for s, t, props in client.edges.edges
-        if props.get("relationship_type") == "SUPPORTS"
+        if props.get("relationship") == "SUPPORTS"
     ]
     assert {t for _s, t in supports_edges} == {result.claim_id}
     assert len(supports_edges) == len(result.region_evidence_ids)

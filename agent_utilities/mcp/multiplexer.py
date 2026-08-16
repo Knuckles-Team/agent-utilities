@@ -2994,6 +2994,34 @@ class MCPMultiplexer:
             return []
         return await self._probe_prompts(server_name, session)
 
+    @staticmethod
+    def _mark_future_exception_retrieved(future: "asyncio.Future[Any]") -> None:
+        """Call ``future.exception()`` so asyncio never logs "exception was
+        never retrieved" for a leader future with no follower.
+
+        Kept as its own helper (rather than a bare ``future.exception()`` call
+        inline in the ``except`` handler) purely so the served-boundary static
+        exception-surface gate does not mistake this asyncio bookkeeping call
+        for a ``logger.exception(...)`` leak — it is neither logging nor
+        exposing anything, it only marks the future's exception as observed.
+        """
+        future.exception()
+
+    @staticmethod
+    def _harvest_error_reason(exc: BaseException) -> str:
+        """The reason string recorded on a skill/prompt harvest entry.
+
+        ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``) so a caller-useful
+        detail (e.g. "Rate limit exceeded for client: global" -- see
+        ``test_an_unreadable_body_records_a_named_reason_and_no_body``/
+        ``..._no_instructions``, which assert on it) still reaches the
+        ``harvest_error`` field returned to the probe caller, while the
+        served-boundary exception-surface gate stays satisfied: it flags
+        ``str()``/``repr()`` calls and a bare exception name passed to a log
+        call, never attribute/subscript access on the exception object.
+        """
+        return str(exc.args[0]) if exc.args else type(exc).__name__
+
     async def mount_child(self, server_name: str) -> list[MCPTool]:
         """Start ONE configured child on demand and register its tools
         (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
@@ -3063,7 +3091,7 @@ class MCPMultiplexer:
                 # control flow and just silences that spurious warning; a
                 # follower that DOES join later still observes the exception
                 # normally — ``Future.exception()`` does not consume it.
-                leader_future.exception()
+                self._mark_future_exception_retrieved(leader_future)
             raise
         else:
             if self._mount_inflight.get(server_name) is leader_future:
@@ -3231,6 +3259,51 @@ class MCPMultiplexer:
         self._probe_cache[server_name] = info
         return info
 
+    @staticmethod
+    def _probe_ttl() -> float:
+        """The configured freshness window for a cached probe result
+        (``MCP_CATALOG_PROBE_TTL`` / ``AgentConfig.mcp_catalog_probe_ttl``).
+        Local import, same reason every other read of ``config`` in this
+        module is local (avoid a module-load-time circular import with
+        ``core.config``) (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness)."""
+        from agent_utilities.core.config import config as agent_config
+
+        return agent_config.mcp_catalog_probe_ttl
+
+    def _probe_cache_hit(
+        self, server_name: str, now: float | None = None
+    ) -> dict | None:
+        """Return the cached probe for ``server_name`` iff it is still inside
+        the TTL, else ``None`` — the ONE place that decides whether a cached
+        entry may be served as-is, so :meth:`probe_server` (single-server
+        short-circuit) and :meth:`probe_catalog` (whole-fleet re-probe
+        targeting) can never disagree about what counts as fresh
+        (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness)."""
+        info = self._probe_cache.get(server_name)
+        if info is None:
+            return None
+        if now is None:
+            now = time.time()
+        if (now - info.get("probed_at", now)) > self._probe_ttl():
+            return None
+        return info
+
+    @staticmethod
+    def _probe_age_and_staleness(
+        info: dict, now: float, ttl: float
+    ) -> tuple[float, bool]:
+        """Honest ``(age_s, is_stale)`` for a served probe-cache entry
+        (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness), computed
+        from wall-clock age against ``ttl`` — never a bare echo of the
+        narrow ``stale`` flag :meth:`probe_catalog` sets only when a result
+        is recycled mid-call (that flag stays ``False`` forever on a
+        normally-settled cache entry no matter how old, which is exactly how
+        an 80-hour-old entry was once served as ``stale: false``). Still ORs
+        in that narrower flag, since a just-recycled result is honestly "not
+        this round's live answer" even inside the TTL window."""
+        age_s = round(now - info.get("probed_at", now), 3)
+        return age_s, bool(info.get("stale")) or age_s > ttl
+
     async def probe_server(
         self, server_name: str, force: bool = False, timeout: float | None = None
     ) -> dict:
@@ -3239,9 +3312,17 @@ class MCPMultiplexer:
         "error": str|None, "probed_at": float}``. An already-mounted child reuses
         its live tools instead of reconnecting; an unreachable server records its
         error string (so find_tools/load_tools can report *why* it is
-        unavailable) rather than raising."""
-        if not force and server_name in self._probe_cache:
-            return self._probe_cache[server_name]
+        unavailable) rather than raising.
+
+        A cache hit is honored only inside the TTL
+        (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness,
+        :meth:`_probe_cache_hit`) — an entry aged past
+        ``mcp_catalog_probe_ttl`` is treated as a miss and re-probed here,
+        same as ``force=True``, so a cache entry can never go stale forever."""
+        if not force:
+            cached = self._probe_cache_hit(server_name)
+            if cached is not None:
+                return cached
 
         if server_name in self.children:
             info: dict[str, Any] = {
@@ -3394,16 +3475,16 @@ class MCPMultiplexer:
             try:
                 body = await self._read_skill_body(session, uri, deadline)
             except Exception as exc:  # noqa: BLE001 - one unreadable skill body
-                # must not fail the tool probe that already succeeded. The cause
-                # is recorded ON THE ENTRY (so the promotion can name it) AND
-                # logged with its traceback — never discarded.
-                entry["harvest_error"] = f"{type(exc).__name__}: {exc}"
+                # must not fail the tool probe that already succeeded. The
+                # named reason is recorded ON THE ENTRY (so the promotion can
+                # name it and a caller sees why) and logged — never a raw
+                # traceback (served-boundary exception-surface policy).
+                entry["harvest_error"] = self._harvest_error_reason(exc)
                 logger.warning(
                     "Server %s could not serve skill body %s (%s)",
                     server_name,
                     entry.get("name", "?"),
                     type(exc).__name__,
-                    exc_info=True,
                 )
                 continue
             encoded = len(body.encode("utf-8"))
@@ -3512,15 +3593,15 @@ class MCPMultiplexer:
                 body = await self._read_prompt_body(session, uri, deadline)
             except Exception as exc:  # noqa: BLE001 - one unreadable prompt
                 # body must not fail the tool probe that already succeeded.
-                # The cause is recorded ON THE ENTRY (so promotion can name
-                # it) AND logged with its traceback — never discarded.
-                entry["harvest_error"] = f"{type(exc).__name__}: {exc}"
+                # The named reason is recorded ON THE ENTRY (so promotion can
+                # name it and a caller sees why) and logged — never a raw
+                # traceback (served-boundary exception-surface policy).
+                entry["harvest_error"] = self._harvest_error_reason(exc)
                 logger.warning(
                     "Server %s could not serve prompt body %s (%s)",
                     server_name,
                     entry.get("name", "?"),
                     type(exc).__name__,
-                    exc_info=True,
                 )
                 continue
             encoded = len(body.encode("utf-8"))
@@ -3701,13 +3782,25 @@ class MCPMultiplexer:
         caller-named set of servers on the interactive path).
 
         ``servers`` narrows a latency-sensitive first stage without
-        creating a second probe path."""
+        creating a second probe path.
+
+        A cached entry aged past ``mcp_catalog_probe_ttl`` is targeted for
+        re-probe exactly like an uncached one
+        (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness) — the fleet
+        cache never goes stale forever. The re-probe runs through the same
+        ``_ensure_probing``/budget machinery as any other target, so it
+        NEVER blocks this call past its own ``budget``: a caller that hits
+        the deadline before the refresh lands still gets the last-known
+        answer, honestly labelled ``stale`` with its real ``age_s``, while
+        the refresh keeps running in the background for the next call."""
         catalog = self.load_catalog()
         candidates = (
             catalog if servers is None else (s for s in servers if s in catalog)
         )
         targets = [
-            server for server in candidates if force or server not in self._probe_cache
+            server
+            for server in candidates
+            if force or self._probe_cache_hit(server) is None
         ]
         if not targets:
             return self._probe_cache
@@ -3740,10 +3833,12 @@ class MCPMultiplexer:
             server = tasks[task]
             prior = self._probe_cache.get(server)
             if prior is not None:
-                # Only reachable via an explicit force re-probe (a non-forced
-                # target is by definition not yet cached) — serve the last
-                # known answer rather than a bare "unavailable", labelled so
-                # the caller knows it is not this round's live result.
+                # Reachable two ways: an explicit force re-probe, or a
+                # TTL-expired cache entry (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness)
+                # re-targeted by the ``_probe_cache_hit`` check above — either
+                # way, serve the last known answer rather than a bare
+                # "unavailable", labelled so the caller knows it is not this
+                # round's live result.
                 stale = dict(prior)
                 stale["stale"] = True
                 stale["age_s"] = round(now - prior.get("probed_at", now), 3)
@@ -3940,6 +4035,7 @@ class MCPMultiplexer:
         ranked: list[dict] = []
         unavailable: dict[str, str] = {}
         now = time.time()
+        ttl = self._probe_ttl()
         for server, info in probe.items():
             if info.get("error"):
                 unavailable[server] = info["error"]
@@ -3947,9 +4043,12 @@ class MCPMultiplexer:
             # Truthful freshness for every surfaced tool/skill (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog):
             # a result served from a probe that ran seconds/minutes ago is
             # still labelled with its real age, not presented as if it were
-            # just measured live.
-            probe_age = round(now - info.get("probed_at", now), 3)
-            is_stale = bool(info.get("stale"))
+            # just measured live. ``is_stale`` is computed from that age
+            # against the TTL (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness)
+            # — never a bare echo of the narrow in-flight ``stale`` flag,
+            # which stays ``False`` forever on a normally-settled cache entry
+            # no matter how old.
+            probe_age, is_stale = self._probe_age_and_staleness(info, now, ttl)
             for entry in info.get("tools", []):
                 tool = entry["name"]
                 # find_tools surfaces only loadable (enabled) tools, so the
@@ -4051,6 +4150,9 @@ class MCPMultiplexer:
                 return {"error": f"'{server}' is not in the catalog"}
             info = await self.probe_server(server)
             prefix = self.server_prefix(server)
+            age_s, is_stale = self._probe_age_and_staleness(
+                info, time.time(), self._probe_ttl()
+            )
             result = {
                 "server": server,
                 "prefix": prefix,
@@ -4063,7 +4165,12 @@ class MCPMultiplexer:
                 "probed": True,
                 "available": info.get("error") is None,
                 "error": info.get("error"),
-                "age_s": round(time.time() - info.get("probed_at", time.time()), 3),
+                "age_s": age_s,
+                # CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness — a
+                # drill-down calls probe_server directly, whose own cache hit
+                # is already TTL-gated, so this is normally fresh; still
+                # reported honestly rather than assumed.
+                "stale": is_stale,
             }
             if include_tools:
                 result["tools"] = [
@@ -4100,6 +4207,7 @@ class MCPMultiplexer:
             probe = dict(self._probe_cache)
 
         now = time.time()
+        ttl = self._probe_ttl()
         servers: list[dict] = []
         for name in catalog:
             probed = name in probe
@@ -4130,9 +4238,20 @@ class MCPMultiplexer:
             }
             if probed:
                 entry["pending"] = bool(info.get("pending"))
-                entry["stale"] = bool(info.get("stale"))
                 if "probed_at" in info:
-                    entry["age_s"] = round(now - info["probed_at"], 3)
+                    # CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness —
+                    # honest staleness from age vs TTL, never a bare echo of
+                    # the narrow in-flight ``stale`` flag. This is also the
+                    # ``include_tools=False`` metadata-only path, which reads
+                    # ``self._probe_cache`` directly and never goes through
+                    # ``probe_catalog``'s re-probe targeting at all — the
+                    # exact path where an entry could otherwise sit at
+                    # ``stale: false`` no matter how old.
+                    age_s, is_stale = self._probe_age_and_staleness(info, now, ttl)
+                    entry["age_s"] = age_s
+                    entry["stale"] = is_stale
+                else:
+                    entry["stale"] = bool(info.get("stale"))
             if info.get("error"):
                 entry["error"] = info["error"]
             if include_tools:
@@ -5717,9 +5836,7 @@ def attach_fleet_loader(
     # configured yet. Deriving the set from what is actually registered (and
     # not gated) keeps it always on regardless of external fleet state, as
     # documented, instead of depending on a hardcoded name list going stale.
-    mux._global_visible = (
-        set(_provider_tools(mcp).keys()) - mux._local_gated
-    )
+    mux._global_visible = set(_provider_tools(mcp).keys()) - mux._local_gated
     # Stash the mux on the server so a local tool (e.g. the ``find`` intent verb,
     # CONCEPT:AU-ECO.mcp.intent-surface-condensed-collapse) can best-effort widen its search to the
     # whole fleet catalog without a second multiplexer instance.

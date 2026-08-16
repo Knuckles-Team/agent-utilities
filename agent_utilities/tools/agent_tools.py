@@ -178,13 +178,20 @@ async def bus_join(
 async def bus_peers(ctx: RunContext[Any], capability: str = "") -> str:
     """List other agents on the bus and their presence (optionally filtered by capability)."""
     from agent_utilities.messaging.bus import AgentBus
+    from agent_utilities.messaging.bus_log import current_bus_tenant
+    from agent_utilities.messaging.bus_privacy import bus_reference
 
     roster = AgentBus.instance().roster(capability=capability)
     me = _bus_self_id(ctx)
+    # ``roster()`` entries carry the durable, non-reversible ``bus_reference`` form of
+    # ``agent_id`` (CONCEPT:AU-ECO.bus.agent-bus-awareness / bus_privacy.py) — comparing the
+    # caller's raw ``me`` against it always mismatched, so self was never excluded. Hash
+    # ``me`` through the identical reference before comparing.
+    me_ref = bus_reference("agent", me, tenant=current_bus_tenant())
     peers = [
         f"{a['agent_id']} ({a['presence']}; {','.join(a['capabilities']) or '-'})"
         for a in roster
-        if a["agent_id"] != me
+        if a["agent_id"] != me_ref
     ]
     return "peers: " + ("; ".join(peers) if peers else "(none online)")
 

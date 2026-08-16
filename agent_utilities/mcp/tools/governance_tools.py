@@ -258,7 +258,7 @@ def _ownership_report() -> dict[str, Any]:
         return {
             "surface": "governance",
             "action": "ownership_report",
-            "error": str(exc),
+            "error": type(exc).__name__,
         }
     violations = check_invariant(report.dispositions, enforced=False)
     return {
@@ -303,7 +303,11 @@ def _ownership_apply() -> dict[str, Any]:
             source_note="live epistemic-graph engine catalog (graph_governance surface)",
         )
     except EngineUnreachableError as exc:
-        return {"surface": "governance", "action": "ownership_apply", "error": str(exc)}
+        return {
+            "surface": "governance",
+            "action": "ownership_apply",
+            "error": type(exc).__name__,
+        }
 
     # UNAMBIGUOUS + not-already-covered only — the program's auto-apply-UNAMBIGUOUS /
     # hold-ambiguous decision; never ambiguous rows (see plan_grants' own docstring).
@@ -377,7 +381,7 @@ def _claim_ownership(
         return {
             "surface": "governance",
             "action": "claim_ownership",
-            "error": f"kg:admin required: {exc}",
+            "error": f"kg:admin required: {type(exc).__name__}",
         }
 
     with use_actor(session.actor):
@@ -415,7 +419,7 @@ def _claim_ownership(
             return {
                 "surface": "governance",
                 "action": "claim_ownership",
-                "error": str(exc),
+                "error": type(exc).__name__,
             }
 
 

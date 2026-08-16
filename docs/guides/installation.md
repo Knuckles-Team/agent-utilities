@@ -90,7 +90,7 @@ ingestion providers, auth, and metrics. Use ``[mcp]`` only when intentionally bu
 a minimal custom runtime that does not need those capabilities:
 
 ```powershell
-uvx --refresh --from "agent-utilities[serving]>=2.3.0,<3.0.0" graph-os
+uvx --refresh --from "agent-utilities[serving]>=2.4.0,<3.0.0" graph-os
 ```
 
 Current releases use the native epistemic-graph optimizer and do not install a second
@@ -120,7 +120,7 @@ to use the operating-system certificate store:
 
 ```powershell
 $env:UV_NATIVE_TLS = "true"
-uvx --refresh --from "agent-utilities[serving]>=2.3.0,<3.0.0" graph-os
+uvx --refresh --from "agent-utilities[serving]>=2.4.0,<3.0.0" graph-os
 ```
 
 Package bootstrap happens before AgentConfig exists. If a Python build backend must

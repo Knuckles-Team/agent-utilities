@@ -36,10 +36,21 @@ See docs/pillars/3_agentic_harness_engineering/AHE-3.6*.md
 
 import logging
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from agent_utilities.core.config import setting
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+
+# GOC-73: `agent_utilities.numeric` unconditionally imports the compiled eg kernel at
+# module load (it is the `agent-utilities[graphos]` numeric surface). This module is
+# reached from `knowledge_graph/memory/__init__.py`, which 65+ fleet repos import
+# transitively via `knowledge_graph.memory.native_ingest` and similar siblings that
+# have ZERO numeric/eg usage of their own -- a module-level `import ... as np` here
+# would force the kernel onto every one of those consumers. `NDArray` is used only in
+# annotations (this file has `from __future__ import annotations`, so it is never
+# evaluated at runtime) -- safe under TYPE_CHECKING. `np`/`xp` IS used at runtime, so
+# every function/method below that calls it imports it locally instead.
+if TYPE_CHECKING:
+    from agent_utilities.numeric import NDArray
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +155,8 @@ def compute_fisher_diagonal_proxy(
     Returns:
         A list of floats representing the diagonal Fisher proxy.
     """
+    from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
     if len(embeddings_history) < 2:
         dim = len(embeddings_history[0]) if embeddings_history else 1536
         return [0.1] * dim
@@ -178,6 +191,8 @@ def apply_ewc_synthesis(
     Returns:
         The consolidated new embedding.
     """
+    from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
     if not old_embedding or not new_embedding or not fisher_diag:
         return new_embedding
 
@@ -206,6 +221,8 @@ def apply_ewc_synthesis(
 
 def calculate_cosine_distance(vec_a: list[float], vec_b: list[float]) -> float:
     """Calculate the cosine distance between two vectors."""
+    from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
     a = np.array(vec_a)
     b = np.array(vec_b)
     norm_a = np.linalg.norm(a)
@@ -233,6 +250,8 @@ def check_knowledge_drift(
     Returns:
         DriftReport containing the analysis metrics.
     """
+    from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
     if not historical_embeddings or not current_embedding:
         return DriftReport(node_id, 0.0, 0.0, False)
 
@@ -311,6 +330,8 @@ class MemoryOptimizationEngine:
         embeddings: NDArray | list[list[float]],
     ) -> CollapseReport:
         """Full collapse detection combining SVD and SIGReg normality."""
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         arr = np.array(embeddings, dtype=np.float64)
         if arr.ndim != 2 or arr.shape[0] < 3:
             return CollapseReport(recommendation="insufficient_data")
@@ -353,6 +374,8 @@ class MemoryOptimizationEngine:
 
     def _sigreg_normality_test(self, centered: NDArray) -> float:
         """SIGReg normality test via random projections."""
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         n, d = centered.shape
         rng = np.random.default_rng(42)
         min_p = 1.0
@@ -370,6 +393,8 @@ class MemoryOptimizationEngine:
     @staticmethod
     def _simplified_normality_p(data: NDArray) -> float:
         """Simplified normality test using kurtosis-based heuristic."""
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         n = len(data)
         if n < 3:
             return 1.0
@@ -394,6 +419,8 @@ class MemoryOptimizationEngine:
         embeddings: NDArray | list[list[float]],
     ) -> DiversityMetrics:
         """Compute diversity metrics for an embedding space."""
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         arr = np.array(embeddings, dtype=np.float64)
         if arr.ndim != 2 or arr.shape[0] < 2:
             return DiversityMetrics()
@@ -450,6 +477,8 @@ class MemoryOptimizationEngine:
         If ``all_embeddings`` is provided, applies diversity-preserving
         dampening to prevent participation ratio degradation.
         """
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         if all_embeddings is None:
             return apply_ewc_synthesis(
                 old_embedding, new_embedding, fisher_diag, lambda_param
@@ -502,6 +531,8 @@ class MemoryOptimizationEngine:
         Y: NDArray | list[list[float]],
     ) -> CKAResult:
         """Compute linear Centered Kernel Alignment between two embedding spaces."""
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         X_arr = np.array(X, dtype=np.float64)
         Y_arr = np.array(Y, dtype=np.float64)
 
@@ -536,6 +567,8 @@ class MemoryOptimizationEngine:
     @staticmethod
     def _mean_pairwise_cosine(X: NDArray, Y: NDArray) -> float:
         """Mean per-sample cosine similarity between paired rows."""
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         min_d = min(X.shape[1], Y.shape[1])
         X_t = X[:, :min_d]
         Y_t = Y[:, :min_d]
@@ -555,6 +588,8 @@ class MemoryOptimizationEngine:
         sparsity_target: float = 0.3,
     ) -> FusionResult:
         """Fuse multiple embedding layers with performance-adaptive neuron masking."""
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         if not embedding_layers:
             return FusionResult()
 
@@ -610,6 +645,8 @@ class MemoryOptimizationEngine:
         drift_threshold: float = 0.7,
     ) -> EmbeddingHealthReport:
         """Continuous embedding health monitoring."""
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         arr = np.array(current_embeddings, dtype=np.float64)
         if arr.ndim != 2 or arr.shape[0] < 2:
             return EmbeddingHealthReport(recommendation="insufficient_data")
@@ -662,6 +699,8 @@ class MemoryOptimizationEngine:
         observed_states: list[list[float]],
     ) -> float:
         """Measure how well predicted KG states match observations."""
+        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
         if not predicted_states or not observed_states:
             return 1.0
         min_len = min(len(predicted_states), len(observed_states))
@@ -759,6 +798,8 @@ logger = logging.getLogger(__name__)
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
+    from agent_utilities.numeric import xp as np  # GOC-73: lazy
+
     va = np.array(a)
     vb = np.array(b)
     norm_a = np.linalg.norm(va)

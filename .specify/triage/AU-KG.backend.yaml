@@ -1,0 +1,1735 @@
+domain: AU-KG.backend
+generated_at: '2026-08-14T23:49:43+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
+clusters:
+  AU-KG.backend.age-postgresql-tier:
+  - AU-KG.backend.age-postgresql-tier
+  - AU-KG.backend.authority-write-tail
+  - AU-KG.backend.concept-2
+  AU-KG.backend.authority-backend:
+  - AU-KG.backend.authority-backend
+  - AU-KG.backend.derive-mirror-set
+  - AU-KG.backend.mirror-nonempty-default-guard
+  - AU-KG.backend.mirror-target-graph
+  - AU-KG.backend.tolerant-parse
+  AU-KG.backend.cache-lives-as:
+  - AU-KG.backend.cache-lives-as
+  - AU-KG.backend.cache-lives-as-248
+concepts:
+  AU-KG.backend.age-postgresql-tier:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/backends/age_backend.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/age_backend.py:4
+  AU-KG.backend.authority-backend:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.backend.mirror-target-graph
+    suggestion_why: clusters with 4 sibling(s) around AU-KG.backend.mirror-target-graph; shares agent_utilities/knowledge_graph/backends/__init__.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/__init__.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/__init__.py:86
+  AU-KG.backend.authority-has-already-acked:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 13 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py
+      test_files:
+      - tests/unit/knowledge_graph/test_fanout_backend.py
+      doc_files:
+      - docs/recipes/databases.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:18
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:88
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:278
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:377
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:498
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:534
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:1374
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:1454
+      - docs/recipes/databases.md:159
+      - tests/unit/knowledge_graph/test_fanout_backend.py:677
+      - tests/unit/knowledge_graph/test_fanout_backend.py:714
+      - tests/unit/knowledge_graph/test_fanout_backend.py:749
+      - tests/unit/knowledge_graph/test_fanout_backend.py:1004
+  AU-KG.backend.authority-write-tail:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.backend.age-postgresql-tier
+    suggestion_why: clusters with 2 sibling(s) around AU-KG.backend.age-postgresql-tier; shares agent_utilities/knowledge_graph/backends/age_backend.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/age_backend.py
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+      test_files:
+      - tests/unit/knowledge_graph/test_pg_write_tail.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/age_backend.py:181
+      - agent_utilities/knowledge_graph/backends/age_backend.py:266
+      - agent_utilities/knowledge_graph/backends/age_backend.py:372
+      - agent_utilities/knowledge_graph/backends/age_backend.py:402
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:58
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:124
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:183
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:236
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:762
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:786
+      - tests/unit/knowledge_graph/test_pg_write_tail.py:1
+  AU-KG.backend.backend-modes:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('`kill -9`. (`CONCEPT·AU-KG.backend.backend-modes/2.187/2.191`)')
+      — the id itself reads like a real name, so the marker text needs cleaning either way; decide whether
+      the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - genesis.yaml
+      - scripts/gen_genesis_manifest.py
+      test_files: []
+      doc_files:
+      - agent_utilities/skills/skill_graphs/agent-utilities/deployment/SKILL.md
+      - docs/architecture/graph_backends_architecture.md
+      - docs/architecture/north-star-architecture.md
+      - docs/recipes/single-node-prod.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: '`kill -9`. (`CONCEPT·AU-KG.backend.backend-modes/2.187/2.191`)'
+      sites:
+      - agent_utilities/skills/skill_graphs/agent-utilities/deployment/SKILL.md:62
+      - docs/architecture/graph_backends_architecture.md:76
+      - docs/architecture/graph_backends_architecture.md:79
+      - docs/architecture/graph_backends_architecture.md:270
+      - docs/architecture/north-star-architecture.md:45
+      - docs/recipes/single-node-prod.md:54
+      - genesis.yaml:159
+      - scripts/gen_genesis_manifest.py:355
+  AU-KG.backend.cache-lives-as:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id reads as a slugified prose fragment (cache-lives-as)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/base.py
+      - agent_utilities/knowledge_graph/enrichment/cards.py
+      test_files:
+      - tests/unit/knowledge_graph/enrichment/test_cards_optimizations.py
+      - tests/unit/knowledge_graph/test_db_consolidation.py
+      doc_files:
+      - docs/architecture/graph_backends_architecture.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: reads as a slugified prose fragment (cache-lives-as)
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/base.py:118
+      - agent_utilities/knowledge_graph/enrichment/cards.py:219
+      - agent_utilities/knowledge_graph/enrichment/cards.py:228
+      - docs/architecture/graph_backends_architecture.md:111
+      - tests/unit/knowledge_graph/enrichment/test_cards_optimizations.py:18
+      - tests/unit/knowledge_graph/test_db_consolidation.py:3
+  AU-KG.backend.cache-lives-as-248:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/base.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/base.py:89
+      - agent_utilities/knowledge_graph/backends/base.py:102
+  AU-KG.backend.company-brain-write-guard:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (12 source
+      file(s), 30 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/__init__.py
+      - agent_utilities/knowledge_graph/backends/brain_guarded_backend.py
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
+      - agent_utilities/knowledge_graph/core/company_brain.py
+      - agent_utilities/knowledge_graph/core/cypher_scoping.py
+      - agent_utilities/knowledge_graph/core/engine.py
+      - agent_utilities/knowledge_graph/core/graph_compute.py
+      - agent_utilities/knowledge_graph/core/materialization.py
+      - agent_utilities/knowledge_graph/core/secured_reads.py
+      - agent_utilities/knowledge_graph/core/tenant_sharing.py
+      - agent_utilities/knowledge_graph/enrichment/pipeline.py
+      - agent_utilities/server/routers/enhanced.py
+      test_files:
+      - tests/knowledge_graph/core/test_company_brain_fork_guard.py
+      - tests/unit/knowledge_graph/core/test_tenancy_scope_cypher_query.py
+      - tests/unit/knowledge_graph/test_acl_registration_chokepoints.py
+      - tests/unit/knowledge_graph/test_native_typed_ingestion.py
+      - tests/unit/knowledge_graph/test_tenant_sharing.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/__init__.py:828
+      - agent_utilities/knowledge_graph/backends/brain_guarded_backend.py:70
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py:50
+      - agent_utilities/knowledge_graph/core/company_brain.py:64
+      - agent_utilities/knowledge_graph/core/company_brain.py:197
+      - agent_utilities/knowledge_graph/core/company_brain.py:296
+      - agent_utilities/knowledge_graph/core/company_brain.py:377
+      - agent_utilities/knowledge_graph/core/company_brain.py:502
+      - agent_utilities/knowledge_graph/core/company_brain.py:534
+      - agent_utilities/knowledge_graph/core/company_brain.py:753
+      - agent_utilities/knowledge_graph/core/company_brain.py:909
+      - agent_utilities/knowledge_graph/core/company_brain.py:1036
+      - agent_utilities/knowledge_graph/core/company_brain.py:1053
+      - agent_utilities/knowledge_graph/core/cypher_scoping.py:6
+      - agent_utilities/knowledge_graph/core/engine.py:704
+      - agent_utilities/knowledge_graph/core/engine.py:863
+      - agent_utilities/knowledge_graph/core/graph_compute.py:2264
+      - agent_utilities/knowledge_graph/core/graph_compute.py:2347
+      - agent_utilities/knowledge_graph/core/materialization.py:245
+      - agent_utilities/knowledge_graph/core/secured_reads.py:188
+      - agent_utilities/knowledge_graph/core/tenant_sharing.py:247
+      - agent_utilities/knowledge_graph/core/tenant_sharing.py:385
+      - agent_utilities/knowledge_graph/enrichment/pipeline.py:221
+      - agent_utilities/knowledge_graph/enrichment/pipeline.py:259
+      - agent_utilities/server/routers/enhanced.py:124
+      - tests/knowledge_graph/core/test_company_brain_fork_guard.py:1
+      - tests/unit/knowledge_graph/core/test_tenancy_scope_cypher_query.py:89
+      - tests/unit/knowledge_graph/test_acl_registration_chokepoints.py:3
+      - tests/unit/knowledge_graph/test_native_typed_ingestion.py:87
+      - tests/unit/knowledge_graph/test_tenant_sharing.py:360
+  AU-KG.backend.concept-2:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.backend.age-postgresql-tier
+    suggestion_why: clusters with 2 sibling(s) around AU-KG.backend.age-postgresql-tier; both introduced
+      by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the candidate parent
+      already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+      test_files:
+      - tests/unit/test_postgresql_backend.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:504
+      - tests/unit/test_postgresql_backend.py:216
+  AU-KG.backend.connection-registry:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 11 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/deployment/config_generator.py
+      - agent_utilities/knowledge_graph/core/connection_registry.py
+      - agent_utilities/knowledge_graph/setup/database_environment.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files:
+      - tests/unit/knowledge_graph/test_role_aware_registry.py
+      doc_files:
+      - docs/architecture/graph_backends_architecture.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/config_generator.py:234
+      - agent_utilities/deployment/config_generator.py:255
+      - agent_utilities/knowledge_graph/core/connection_registry.py:2
+      - agent_utilities/knowledge_graph/core/connection_registry.py:505
+      - agent_utilities/knowledge_graph/core/connection_registry.py:567
+      - agent_utilities/knowledge_graph/core/connection_registry.py:615
+      - agent_utilities/knowledge_graph/setup/database_environment.py:308
+      - agent_utilities/mcp/tools/analysis_tools.py:2779
+      - agent_utilities/mcp/tools/analysis_tools.py:3726
+      - docs/architecture/graph_backends_architecture.md:341
+      - tests/unit/knowledge_graph/test_role_aware_registry.py:1
+  AU-KG.backend.continuous-stardog-mirror:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:3450
+  AU-KG.backend.declared-columns-so-schema:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('``*_INSTANCES`` multi-instance connector
+      configs (CONCEPT·AU-KG.backend.declared-columns-s') — the id itself reads like a real name, so the
+      marker text needs cleaning either way; decide whether the concept survives that cleanup
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
+      - agent_utilities/knowledge_graph/core/gitlab_indexer.py
+      - agent_utilities/knowledge_graph/core/source_sync.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/mcp/tools/query_tools.py
+      - agent_utilities/models/schema_definition.py
+      - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
+      test_files:
+      - tests/unit/knowledge_graph/core/test_gitlab_indexer.py
+      - tests/unit/knowledge_graph/mcp/test_code_nav_query.py
+      - tests/unit/knowledge_graph/test_l1_code_graph.py
+      doc_files:
+      - docs/architecture/configuration.md
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: '``*_INSTANCES`` multi-instance connector configs (CONCEPT·AU-KG.backend.declared-columns-so-schema/2.123-2.125)."""'
+      sites:
+      - agent_utilities/core/config.py:4099
+      - agent_utilities/core/config.py:4145
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py:846
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py:872
+      - agent_utilities/knowledge_graph/core/gitlab_indexer.py:1
+      - agent_utilities/knowledge_graph/core/gitlab_indexer.py:597
+      - agent_utilities/knowledge_graph/core/source_sync.py:1860
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:11011
+      - agent_utilities/mcp/tools/query_tools.py:105
+      - agent_utilities/mcp/tools/query_tools.py:1776
+      - agent_utilities/mcp/tools/query_tools.py:1784
+      - agent_utilities/models/schema_definition.py:335
+      - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py:288
+      - docs/architecture/configuration.md:58
+      - docs/capabilities-power.json:11011
+      - docs/capabilities-power.md:52
+      - docs/capabilities-power.md:1795
+      - tests/unit/knowledge_graph/core/test_gitlab_indexer.py:1
+      - tests/unit/knowledge_graph/mcp/test_code_nav_query.py:1
+      - tests/unit/knowledge_graph/test_l1_code_graph.py:1
+  AU-KG.backend.derive-mirror-set:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.backend.mirror-target-graph
+    suggestion_why: clusters with 4 sibling(s) around AU-KG.backend.mirror-target-graph; shares agent_utilities/knowledge_graph/backends/__init__.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/__init__.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/__init__.py:339
+  AU-KG.backend.explicit-graph-selection:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 15 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/mcp/tools/query_tools.py
+      - agent_utilities/mcp/tools/write_ingest_tools.py
+      - agent_utilities/security/error_surface.py
+      test_files:
+      - tests/unit/mcp/test_graph_explicit_selection.py
+      - tests/unit/mcp/test_graph_tool_targeting.py
+      doc_files: []
+      introduced: '800c86b1 2026-08-13 fix(kg): separate physical-graph selection from backend-connection
+        routing'
+      cohort:
+      - AU-KG.backend.multi-connection-registry
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/kg_server.py:2321
+      - agent_utilities/mcp/kg_server.py:2355
+      - agent_utilities/mcp/tools/query_tools.py:354
+      - agent_utilities/mcp/tools/query_tools.py:401
+      - agent_utilities/mcp/tools/query_tools.py:508
+      - agent_utilities/mcp/tools/query_tools.py:659
+      - agent_utilities/mcp/tools/query_tools.py:786
+      - agent_utilities/mcp/tools/query_tools.py:1365
+      - agent_utilities/mcp/tools/query_tools.py:1586
+      - agent_utilities/mcp/tools/write_ingest_tools.py:464
+      - agent_utilities/mcp/tools/write_ingest_tools.py:738
+      - agent_utilities/mcp/tools/write_ingest_tools.py:780
+      - agent_utilities/security/error_surface.py:42
+      - tests/unit/mcp/test_graph_explicit_selection.py:2
+      - tests/unit/mcp/test_graph_tool_targeting.py:258
+  AU-KG.backend.fanout-dedup:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/kg_server.py
+      test_files:
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/kg_server.py:2288
+      - tests/unit/knowledge_graph/test_ingest_graph_routing.py:322
+  AU-KG.backend.keyed-ingest-partitions:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 8 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
+      - agent_utilities/knowledge_graph/ingest_worker.py
+      - agent_utilities/messaging/bus_log.py
+      test_files: []
+      doc_files:
+      - docs/architecture/configuration.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/config.py:3480
+      - agent_utilities/knowledge_graph/core/kafka_queue_backend.py:12
+      - agent_utilities/knowledge_graph/core/kafka_queue_backend.py:116
+      - agent_utilities/knowledge_graph/core/kafka_queue_backend.py:265
+      - agent_utilities/knowledge_graph/ingest_worker.py:11
+      - agent_utilities/messaging/bus_log.py:72
+      - agent_utilities/messaging/bus_log.py:568
+      - docs/architecture/configuration.md:66
+  AU-KG.backend.kvcache-vllm-connector:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 33 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/contextual_model.py
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py
+      - agent_utilities/kvcache/__init__.py
+      - agent_utilities/kvcache/config.py
+      - agent_utilities/kvcache/l2_native_connector.py
+      - agent_utilities/kvcache/policy.py
+      test_files:
+      - tests/unit/kvcache/test_remote_backend.py
+      doc_files:
+      - docs/architecture/kv-cache-layering-policy.md
+      - docs/guides/kvcache-vllm-lmcache.md
+      - docs/recipes/kv-caching.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/contextual_model.py:392
+      - agent_utilities/knowledge_graph/retrieval/context_compiler.py:68
+      - agent_utilities/kvcache/__init__.py:3
+      - agent_utilities/kvcache/config.py:3
+      - agent_utilities/kvcache/config.py:55
+      - agent_utilities/kvcache/config.py:95
+      - agent_utilities/kvcache/l2_native_connector.py:4
+      - agent_utilities/kvcache/l2_native_connector.py:57
+      - agent_utilities/kvcache/policy.py:7
+      - docs/architecture/kv-cache-layering-policy.md:8
+      - docs/guides/kvcache-vllm-lmcache.md:7
+      - docs/guides/kvcache-vllm-lmcache.md:173
+      - docs/recipes/kv-caching.md:9
+      - tests/unit/kvcache/test_remote_backend.py:3
+      - tests/unit/kvcache/test_remote_backend.py:29
+      - tests/unit/kvcache/test_remote_backend.py:93
+      - tests/unit/kvcache/test_remote_backend.py:107
+      - tests/unit/kvcache/test_remote_backend.py:116
+      - tests/unit/kvcache/test_remote_backend.py:123
+      - tests/unit/kvcache/test_remote_backend.py:132
+      - tests/unit/kvcache/test_remote_backend.py:151
+      - tests/unit/kvcache/test_remote_backend.py:160
+      - tests/unit/kvcache/test_remote_backend.py:169
+      - tests/unit/kvcache/test_remote_backend.py:185
+      - tests/unit/kvcache/test_remote_backend.py:199
+      - tests/unit/kvcache/test_remote_backend.py:216
+      - tests/unit/kvcache/test_remote_backend.py:227
+      - tests/unit/kvcache/test_remote_backend.py:241
+      - tests/unit/kvcache/test_remote_backend.py:248
+      - tests/unit/kvcache/test_remote_backend.py:271
+      - tests/unit/kvcache/test_remote_backend.py:276
+      - tests/unit/kvcache/test_remote_backend.py:291
+      - tests/unit/kvcache/test_remote_backend.py:299
+  AU-KG.backend.lmcache-native-connector:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 7 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/kvcache/l2_native_connector.py
+      test_files:
+      - tests/unit/kvcache/test_l2_native_connector.py
+      doc_files:
+      - docs/guides/kvcache-vllm-lmcache.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/kvcache/l2_native_connector.py:3
+      - agent_utilities/kvcache/l2_native_connector.py:88
+      - agent_utilities/kvcache/l2_native_connector.py:193
+      - docs/guides/kvcache-vllm-lmcache.md:8
+      - docs/guides/kvcache-vllm-lmcache.md:268
+      - docs/guides/kvcache-vllm-lmcache.md:270
+      - tests/unit/kvcache/test_l2_native_connector.py:1
+  AU-KG.backend.mirror-health-repair:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (15 source
+      file(s), 54 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/backends/__init__.py
+      - agent_utilities/knowledge_graph/backends/base.py
+      - agent_utilities/knowledge_graph/backends/contrib/falkordb_backend.py
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py
+      - agent_utilities/knowledge_graph/backends/mirror_target.py
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
+      - agent_utilities/knowledge_graph/core/engine.py
+      - agent_utilities/knowledge_graph/extraction/ontology_grounding.py
+      - agent_utilities/knowledge_graph/extraction/readers_media.py
+      - agent_utilities/knowledge_graph/extraction/structure_router.py
+      - agent_utilities/knowledge_graph/migration.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      - agent_utilities/observability/runtime_health.py
+      test_files:
+      - tests/integration/backends/test_cross_backend_parity.py
+      - tests/integration/backends/test_fanout_live.py
+      - tests/integration/knowledge_graph/test_knowledge_graph_integration.py
+      - tests/knowledge_graph/extraction/test_ontology_grounding.py
+      - tests/unit/knowledge_graph/backends/test_fanout_mirror_dialect.py
+      - tests/unit/knowledge_graph/test_bulk_ingestion.py
+      - tests/unit/knowledge_graph/test_cypher_property_coercion.py
+      - tests/unit/knowledge_graph/test_fanout_backend.py
+      - tests/unit/knowledge_graph/test_identifier_validation.py
+      - tests/unit/knowledge_graph/test_ladybug_backend.py
+      - tests/unit/knowledge_graph/test_ladybug_edge_binding.py
+      - tests/unit/knowledge_graph/test_migration.py
+      - tests/unit/knowledge_graph/test_mirror_set.py
+      - tests/unit/knowledge_graph/test_readers_media.py
+      - tests/unit/knowledge_graph/test_structure_router.py
+      - tests/unit/observability/test_runtime_health.py
+      doc_files:
+      - .specify/design/kg-mirror-target-graph/design.md
+      - docs/architecture/graph_backends_architecture.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kg-mirror-target-graph/design.md:22
+      - agent_utilities/core/config.py:3440
+      - agent_utilities/core/config.py:4165
+      - agent_utilities/knowledge_graph/backends/__init__.py:47
+      - agent_utilities/knowledge_graph/backends/__init__.py:313
+      - agent_utilities/knowledge_graph/backends/__init__.py:359
+      - agent_utilities/knowledge_graph/backends/__init__.py:749
+      - agent_utilities/knowledge_graph/backends/__init__.py:756
+      - agent_utilities/knowledge_graph/backends/base.py:155
+      - agent_utilities/knowledge_graph/backends/contrib/falkordb_backend.py:119
+      - agent_utilities/knowledge_graph/backends/contrib/falkordb_backend.py:175
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py:83
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py:242
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py:248
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py:507
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py:978
+      - agent_utilities/knowledge_graph/backends/contrib/ladybug_backend.py:1091
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:2
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:5
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:162
+      - agent_utilities/knowledge_graph/backends/mirror_target.py:9
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:10
+      - agent_utilities/knowledge_graph/core/engine.py:567
+      - agent_utilities/knowledge_graph/core/engine.py:927
+      - agent_utilities/knowledge_graph/extraction/ontology_grounding.py:1
+      - agent_utilities/knowledge_graph/extraction/ontology_grounding.py:318
+      - agent_utilities/knowledge_graph/extraction/readers_media.py:1
+      - agent_utilities/knowledge_graph/extraction/structure_router.py:1
+      - agent_utilities/knowledge_graph/migration.py:2
+      - agent_utilities/knowledge_graph/migration.py:5
+      - agent_utilities/mcp/tools/analysis_tools.py:3468
+      - agent_utilities/observability/runtime_health.py:371
+      - docs/architecture/graph_backends_architecture.md:230
+      - docs/architecture/graph_backends_architecture.md:373
+      - docs/architecture/graph_backends_architecture.md:487
+      - tests/integration/backends/test_cross_backend_parity.py:1
+      - tests/integration/backends/test_fanout_live.py:1
+      - tests/integration/knowledge_graph/test_knowledge_graph_integration.py:51
+      - tests/knowledge_graph/extraction/test_ontology_grounding.py:1
+      - tests/unit/knowledge_graph/backends/test_fanout_mirror_dialect.py:1
+      - tests/unit/knowledge_graph/test_bulk_ingestion.py:88
+      - tests/unit/knowledge_graph/test_cypher_property_coercion.py:8
+      - tests/unit/knowledge_graph/test_fanout_backend.py:1
+      - tests/unit/knowledge_graph/test_fanout_backend.py:1093
+      - tests/unit/knowledge_graph/test_identifier_validation.py:1
+      - tests/unit/knowledge_graph/test_ladybug_backend.py:21
+      - tests/unit/knowledge_graph/test_ladybug_backend.py:219
+      - tests/unit/knowledge_graph/test_ladybug_edge_binding.py:1
+      - tests/unit/knowledge_graph/test_migration.py:1
+      - tests/unit/knowledge_graph/test_mirror_set.py:1
+      - tests/unit/knowledge_graph/test_mirror_set.py:39
+      - tests/unit/knowledge_graph/test_readers_media.py:1
+      - tests/unit/knowledge_graph/test_structure_router.py:1
+      - tests/unit/observability/test_runtime_health.py:366
+  AU-KG.backend.mirror-nonempty-default-guard:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.backend.mirror-target-graph
+    suggestion_why: 'clusters with 4 sibling(s) around AU-KG.backend.mirror-target-graph; shares agent_utilities/knowledge_graph/backends/__init__.py,
+      agent_utilities/knowledge_graph/backends/mirror_target.py; both introduced by ff417ea6 (feat(kg):
+      configurable mirror target graph for the external ); the candidate parent already has a design document'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/backends/__init__.py
+      - agent_utilities/knowledge_graph/backends/mirror_target.py
+      test_files:
+      - tests/unit/knowledge_graph/backends/test_mirror_target_graph.py
+      doc_files:
+      - .specify/design/kg-mirror-target-graph/design.md
+      - docs/architecture/graph_backends_architecture.md
+      introduced: 'ff417ea6 2026-07-31 feat(kg): configurable mirror target graph for the external mirror
+        backends'
+      cohort:
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-target-graph
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kg-mirror-target-graph/design.md:45
+      - agent_utilities/knowledge_graph/backends/__init__.py:77
+      - agent_utilities/knowledge_graph/backends/__init__.py:428
+      - agent_utilities/knowledge_graph/backends/__init__.py:431
+      - agent_utilities/knowledge_graph/backends/mirror_target.py:3
+      - agent_utilities/knowledge_graph/backends/mirror_target.py:7
+      - agent_utilities/knowledge_graph/backends/mirror_target.py:118
+      - agent_utilities/knowledge_graph/backends/mirror_target.py:378
+      - agent_utilities/knowledge_graph/backends/mirror_target.py:398
+      - docs/architecture/graph_backends_architecture.md:434
+      - tests/unit/knowledge_graph/backends/test_mirror_target_graph.py:5
+  AU-KG.backend.mirror-outbox:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/outbox.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/outbox.py:2
+      - agent_utilities/knowledge_graph/backends/outbox.py:5
+      - agent_utilities/knowledge_graph/backends/outbox.py:50
+  AU-KG.backend.mirror-target-graph:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 5-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/backends/__init__.py
+      - agent_utilities/knowledge_graph/backends/age_backend.py
+      - agent_utilities/knowledge_graph/backends/contrib/falkordb_backend.py
+      - agent_utilities/knowledge_graph/backends/contrib/neo4j_backend.py
+      - agent_utilities/knowledge_graph/backends/mirror_target.py
+      - agent_utilities/knowledge_graph/backends/owl/stardog_backend.py
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
+      - agent_utilities/knowledge_graph/core/connection_registry.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      test_files:
+      - tests/unit/knowledge_graph/backends/test_mirror_target_graph.py
+      doc_files:
+      - .specify/design/kg-mirror-target-graph/design.md
+      - docs/architecture/graph_backends_architecture.md
+      introduced: 'ff417ea6 2026-07-31 feat(kg): configurable mirror target graph for the external mirror
+        backends'
+      cohort:
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-nonempty-default-guard
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/kg-mirror-target-graph/design.md:36
+      - agent_utilities/core/config.py:4088
+      - agent_utilities/knowledge_graph/backends/__init__.py:293
+      - agent_utilities/knowledge_graph/backends/age_backend.py:331
+      - agent_utilities/knowledge_graph/backends/contrib/falkordb_backend.py:24
+      - agent_utilities/knowledge_graph/backends/contrib/falkordb_backend.py:67
+      - agent_utilities/knowledge_graph/backends/contrib/falkordb_backend.py:83
+      - agent_utilities/knowledge_graph/backends/contrib/neo4j_backend.py:104
+      - agent_utilities/knowledge_graph/backends/contrib/neo4j_backend.py:168
+      - agent_utilities/knowledge_graph/backends/mirror_target.py:2
+      - agent_utilities/knowledge_graph/backends/mirror_target.py:6
+      - agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:68
+      - agent_utilities/knowledge_graph/backends/owl/stardog_backend.py:114
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:34
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:110
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:67
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:131
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:164
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:218
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:467
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:522
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:580
+      - agent_utilities/knowledge_graph/core/connection_registry.py:293
+      - agent_utilities/mcp/tools/analysis_tools.py:3562
+      - docs/architecture/graph_backends_architecture.md:396
+      - tests/unit/knowledge_graph/backends/test_mirror_target_graph.py:4
+  AU-KG.backend.multi-connection-registry:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (12 source
+      file(s), 43 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/backends/age_backend.py
+      - agent_utilities/knowledge_graph/backends/base.py
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py
+      - agent_utilities/knowledge_graph/core/connection_registry.py
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+      - agent_utilities/mcp/kg_server.py
+      - agent_utilities/mcp/tools/analysis_tools.py
+      - agent_utilities/mcp/tools/query_tools.py
+      - agent_utilities/mcp/tools/write_ingest_tools.py
+      test_files:
+      - tests/conftest.py
+      - tests/integration/knowledge_graph/test_multibackend_integration.py
+      - tests/unit/knowledge_graph/test_connection_profiler.py
+      - tests/unit/knowledge_graph/test_connection_registry.py
+      - tests/unit/knowledge_graph/test_epistemic_backend_cypher.py
+      - tests/unit/mcp/test_fanout_timeout.py
+      - tests/unit/mcp/test_graph_tool_targeting.py
+      doc_files:
+      - .specify/reports/deferred-followups.md
+      - docs/architecture/graph_backends_architecture.md
+      - docs/capabilities-power.json
+      - docs/capabilities-power.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/reports/deferred-followups.md:112
+      - agent_utilities/core/config.py:3445
+      - agent_utilities/core/config.py:4077
+      - agent_utilities/core/config.py:4187
+      - agent_utilities/knowledge_graph/backends/age_backend.py:114
+      - agent_utilities/knowledge_graph/backends/base.py:323
+      - agent_utilities/knowledge_graph/backends/base.py:330
+      - agent_utilities/knowledge_graph/backends/fanout_backend.py:48
+      - agent_utilities/knowledge_graph/backends/postgresql_backend.py:91
+      - agent_utilities/knowledge_graph/backends/sparql/stardog_backend.py:11
+      - agent_utilities/knowledge_graph/core/connection_registry.py:1
+      - agent_utilities/knowledge_graph/core/connection_registry.py:5
+      - agent_utilities/knowledge_graph/core/connection_registry.py:824
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:21925
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:21964
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23625
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23701
+      - agent_utilities/mcp/kg_server.py:2163
+      - agent_utilities/mcp/kg_server.py:2322
+      - agent_utilities/mcp/kg_server.py:2489
+      - agent_utilities/mcp/tools/analysis_tools.py:2692
+      - agent_utilities/mcp/tools/analysis_tools.py:2807
+      - agent_utilities/mcp/tools/query_tools.py:343
+      - agent_utilities/mcp/tools/query_tools.py:505
+      - agent_utilities/mcp/tools/query_tools.py:1355
+      - agent_utilities/mcp/tools/query_tools.py:1583
+      - agent_utilities/mcp/tools/write_ingest_tools.py:453
+      - agent_utilities/mcp/tools/write_ingest_tools.py:777
+      - docs/architecture/graph_backends_architecture.md:266
+      - docs/architecture/graph_backends_architecture.md:278
+      - docs/capabilities-power.json:21925
+      - docs/capabilities-power.json:21964
+      - docs/capabilities-power.json:23625
+      - docs/capabilities-power.json:23701
+      - docs/capabilities-power.md:3791
+      - docs/capabilities-power.md:4116
+      - tests/conftest.py:331
+      - tests/integration/knowledge_graph/test_multibackend_integration.py:358
+      - tests/unit/knowledge_graph/test_connection_profiler.py:1
+      - tests/unit/knowledge_graph/test_connection_registry.py:1
+      - tests/unit/knowledge_graph/test_epistemic_backend_cypher.py:272
+      - tests/unit/mcp/test_fanout_timeout.py:1
+      - tests/unit/mcp/test_graph_tool_targeting.py:2
+  AU-KG.backend.remote-kvcache-contract:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 6 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/kvcache/remote_backend.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/kvcache/remote_backend.py:3
+      - agent_utilities/kvcache/remote_backend.py:70
+      - agent_utilities/kvcache/remote_backend.py:129
+      - agent_utilities/kvcache/remote_backend.py:148
+      - agent_utilities/kvcache/remote_backend.py:238
+      - agent_utilities/kvcache/remote_backend.py:245
+  AU-KG.backend.roadmap-f-parallel-cross:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
+      which is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files: []
+      doc_files:
+      - docs/architecture/north-star-architecture.md
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - docs/architecture/north-star-architecture.md:54
+  AU-KG.backend.schedule-on-control-graph:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
+      file(s), 14 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/core/schedule_engine.py
+      - agent_utilities/knowledge_graph/core/engine.py
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py
+      - agent_utilities/orchestration/fleet_autoscaler.py
+      - agent_utilities/security/secrets_client.py
+      test_files:
+      - tests/unit/knowledge_graph/test_task_claim_cas.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/core/schedule_engine.py:155
+      - agent_utilities/core/schedule_engine.py:310
+      - agent_utilities/core/schedule_engine.py:320
+      - agent_utilities/core/schedule_engine.py:344
+      - agent_utilities/knowledge_graph/core/engine.py:166
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:725
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1043
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1073
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:43
+      - agent_utilities/knowledge_graph/orchestration/engine_query.py:273
+      - agent_utilities/orchestration/fleet_autoscaler.py:447
+      - agent_utilities/security/secrets_client.py:54
+      - agent_utilities/security/secrets_client.py:232
+      - tests/unit/knowledge_graph/test_task_claim_cas.py:53
+  AU-KG.backend.selectable-queue-backend:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker text is truncated by the grammar ('already scales on (CONCEPT·AU-KG.backend.selectable-queue-backend/2.56/2.57):')
+      — the id itself reads like a real name, so the marker text needs cleaning either way; decide whether
+      the concept survives that cleanup
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/core/config.py
+      - agent_utilities/knowledge_graph/__main__.py
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      - agent_utilities/knowledge_graph/core/kafka_queue_backend.py
+      - agent_utilities/knowledge_graph/core/queue_backend.py
+      - agent_utilities/knowledge_graph/ingest_worker.py
+      - agent_utilities/orchestration/agent_dispatch.py
+      - agent_utilities/orchestration/scaling_signals.py
+      test_files:
+      - tests/unit/knowledge_graph/test_kafka_ingest_scaleout.py
+      doc_files:
+      - .specify/design/kgi-decoupled-ingest-consumer-group/design.md
+      - docs/architecture/configuration.md
+      - docs/architecture/engine_sharding.md
+      - docs/architecture/event_backbone_architecture.md
+      - docs/guides/deployment-configurations.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.tolerant-parse
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: 'already scales on (CONCEPT·AU-KG.backend.selectable-queue-backend/2.56/2.57):'
+      sites:
+      - .specify/design/kgi-decoupled-ingest-consumer-group/design.md:53
+      - agent_utilities/core/config.py:3472
+      - agent_utilities/knowledge_graph/__main__.py:157
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:929
+      - agent_utilities/knowledge_graph/core/kafka_queue_backend.py:6
+      - agent_utilities/knowledge_graph/core/queue_backend.py:3
+      - agent_utilities/knowledge_graph/core/queue_backend.py:20
+      - agent_utilities/knowledge_graph/core/queue_backend.py:30
+      - agent_utilities/knowledge_graph/core/queue_backend.py:53
+      - agent_utilities/knowledge_graph/ingest_worker.py:9
+      - agent_utilities/orchestration/agent_dispatch.py:14
+      - agent_utilities/orchestration/scaling_signals.py:18
+      - docs/architecture/configuration.md:65
+      - docs/architecture/engine_sharding.md:53
+      - docs/architecture/event_backbone_architecture.md:159
+      - docs/guides/deployment-configurations.md:324
+      - tests/unit/knowledge_graph/test_kafka_ingest_scaleout.py:1
+  AU-KG.backend.tolerant-parse:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.backend.mirror-target-graph
+    suggestion_why: clusters with 4 sibling(s) around AU-KG.backend.mirror-target-graph; shares agent_utilities/knowledge_graph/backends/__init__.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/backends/__init__.py
+      test_files:
+      - tests/unit/knowledge_graph/test_mirror_targets_parser.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.where-clause-carrying
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/backends/__init__.py:182
+      - tests/unit/knowledge_graph/test_mirror_targets_parser.py:1
+  AU-KG.backend.where-clause-carrying:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: review
+    suggested_parent: ''
+    suggestion_why: the marker exists only in test files — nothing in the shipped tree realises it, which
+      is usually a retirement but occasionally a real decision recorded only in prose
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files: []
+      test_files:
+      - tests/unit/test_cypher_transpiler.py
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-KG.backend.age-postgresql-tier
+      - AU-KG.backend.authority-backend
+      - AU-KG.backend.authority-has-already-acked
+      - AU-KG.backend.authority-write-tail
+      - AU-KG.backend.backend-modes
+      - AU-KG.backend.cache-lives-as
+      - AU-KG.backend.cache-lives-as-248
+      - AU-KG.backend.company-brain-write-guard
+      - AU-KG.backend.concept-2
+      - AU-KG.backend.connection-registry
+      - AU-KG.backend.declared-columns-so-schema
+      - AU-KG.backend.derive-mirror-set
+      - AU-KG.backend.fanout-dedup
+      - AU-KG.backend.keyed-ingest-partitions
+      - AU-KG.backend.kvcache-vllm-connector
+      - AU-KG.backend.lmcache-native-connector
+      - AU-KG.backend.mirror-health-repair
+      - AU-KG.backend.mirror-outbox
+      - AU-KG.backend.multi-connection-registry
+      - AU-KG.backend.remote-kvcache-contract
+      - AU-KG.backend.schedule-on-control-graph
+      - AU-KG.backend.selectable-queue-backend
+      - AU-KG.backend.tolerant-parse
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - tests/unit/test_cypher_transpiler.py:194

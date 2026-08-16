@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import re
 import sqlite3
@@ -25,6 +26,18 @@ from agent_utilities.orchestration.agent_dispatch_worker import (
     WorkItemLeaseGuard,
     WorkItemLeaseLost,
     worker_token,
+)
+
+# test_orchestrate_dispatch_queue_mode_returns_job_handle: queue-mode dispatch
+# constructs the process-wide engine (``IntelligenceGraphEngine.get_or_create()``),
+# which needs the real ``epistemic_graph`` package; when absent the resulting
+# ModuleNotFoundError is caught inside ``enqueue_agent_turn`` and the returned
+# handle never gets a "dispatch" key, rather than a raised exception. Matches
+# the same "package genuinely absent" contract used elsewhere (e.g.
+# tests/unit/test_engine_api_coverage.py).
+_NEEDS_ENGINE = pytest.mark.skipif(
+    importlib.util.find_spec("epistemic_graph") is None,
+    reason="epistemic_graph package not installed in this environment.",
 )
 
 
@@ -416,6 +429,7 @@ def orchestrate_tool(monkeypatch):
 
 
 @pytest.mark.asyncio
+@_NEEDS_ENGINE
 async def test_orchestrate_dispatch_queue_mode_returns_job_handle(
     orchestrate_tool, fake_queue, monkeypatch
 ):
@@ -750,9 +764,9 @@ def test_consumer_loop_acks_poison_envelope(dispatch_db, fake_queue):
     logged-and-acked with no durable trace."""
     import threading
 
+    from agent_utilities.core import sessions as _sessions
     from agent_utilities.orchestration import agent_dispatch_worker as worker
     from agent_utilities.orchestration import work_item as _wi
-    from agent_utilities.core import sessions as _sessions
 
     payload = {"job_id": "poison", "kind": "goal_loop"}  # no session_id
     fake_queue.put(payload)

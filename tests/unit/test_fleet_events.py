@@ -95,6 +95,32 @@ class _Engine:
         return job_id
 
 
+def _in_memory_writer(engine):
+    """Explicit test adapter for the production ChangeEnvelope boundary.
+
+    Mirrors ``tests/unit/test_anomaly_consumer.py``'s helper of the same name
+    for the identical ``file_gap_topic``/``_commit_graph_slice`` seam: with no
+    native ChangeEnvelope authority available, gap-filing needs this adapter
+    passed explicitly through ``triage_fleet_event``.
+    """
+
+    def _write(entities, relationships):
+        for entity in entities:
+            row = dict(entity)
+            node_id = row.pop("id")
+            node_type = row.pop("node_type")
+            engine.add_node(node_id, node_type, properties=row)
+        for relationship in relationships:
+            row = dict(relationship)
+            source = row.pop("source")
+            target = row.pop("target")
+            rel_type = row.pop("relationship")
+            engine.link_nodes(source, target, rel_type, properties=row)
+        return {"status": "success"}
+
+    return _write
+
+
 @pytest.fixture
 def engine(monkeypatch):
     eng = _Engine()
@@ -216,10 +242,15 @@ class TestReceiveEndpoint:
         assert len(fleet_nodes) == 2
         assert fleet_nodes[0]["triage_status"] == "pending"
         assert "raw" not in fleet_nodes[0]
-        assert "subject" not in fleet_nodes[0]
         assert "summary" not in fleet_nodes[0]
         assert fleet_nodes[0]["subject_ref"].startswith("pref_")
-        assert "kg-gateway" not in repr(fleet_nodes)
+        # ``subject`` (a resource/service identifier, e.g. an alert's
+        # "service" label) is kept RAW, unlike free-text "summary" -- it is
+        # the exact-match key GET /api/fleet/touched?resource=<id> queries
+        # against (fleet_events.py's persist_event docstring), and hashing
+        # it per-source-type would make cross-source blast-radius lookups
+        # impossible for a caller who already knows the resource's name.
+        assert fleet_nodes[0]["subject"] == "kg-gateway"
         assert "error rate above" not in repr(fleet_nodes)
         assert {t["task_type"] for t in engine.submitted} == {"fleet_event_triage"}
         # the queued target is the persisted FleetEvent node id
@@ -317,7 +348,9 @@ class TestTriage:
     def test_critical_event_files_failure_gap(self):
         engine = _Engine()
         eid = _seed_event(engine)
-        report = fleet_event_triage.triage_fleet_event(engine, eid)
+        report = fleet_event_triage.triage_fleet_event(
+            engine, eid, graph_writer=_in_memory_writer(engine)
+        )
         assert report["triaged"] is True
         gaps = [
             n

@@ -32,11 +32,23 @@ import threading
 import pytest
 
 
-def _stub_workflow_class(monkeypatch, captured: list) -> None:
+def _stub_workflow_class(
+    monkeypatch,
+    captured: list,
+    *,
+    ready: threading.Event | None = None,
+    release: threading.Event | None = None,
+) -> None:
     """Replace ``EpistemicSyncWorkflow`` with a stub that records the actor
-    ambient when its (one-shot) sync cycle would run, and returns
-    immediately instead of looping forever -- so the test thread joins fast
-    and never touches a real engine/backend/SPARQL endpoint."""
+    ambient when its (one-shot) sync cycle would run.
+
+    When ``ready``/``release`` are given, the stub signals ``ready`` right
+    after capturing the actor and then blocks on ``release`` before
+    returning -- this keeps the daemon thread alive on demand instead of
+    letting it race to completion. Without them it returns immediately (the
+    shape ``test_daemon_fails_rather_than_spawn_an_unauthorized_thread``
+    wants: nothing to synchronize on because no thread should exist at all).
+    """
     import agent_utilities.workflows.epistemic_sync as es
     from agent_utilities.security.brain_context import current_actor
 
@@ -46,6 +58,10 @@ def _stub_workflow_class(monkeypatch, captured: list) -> None:
 
         async def run_forever(self, interval_seconds: int = 3600) -> None:
             captured.append(current_actor())
+            if ready is not None:
+                ready.set()
+            if release is not None:
+                release.wait(timeout=5)
 
     monkeypatch.setattr(es, "EpistemicSyncWorkflow", _StubWorkflow)
 
@@ -61,7 +77,9 @@ def test_daemon_thread_binds_the_caller_ambient_session(monkeypatch) -> None:
     import agent_utilities.workflows.epistemic_sync as es
 
     captured: list = []
-    _stub_workflow_class(monkeypatch, captured)
+    ready = threading.Event()
+    release = threading.Event()
+    _stub_workflow_class(monkeypatch, captured, ready=ready, release=release)
 
     actor = ActorContext(
         actor_id="system:epistemic-sync-caller",
@@ -85,8 +103,20 @@ def test_daemon_thread_binds_the_caller_ambient_session(monkeypatch) -> None:
 
     contextvars.Context().run(isolated)
 
+    # ``t.start()`` only guarantees the daemon thread has BEGUN executing, not
+    # that it is still alive by the time this line runs -- the stub's
+    # sync-cycle body is trivial, so under the parallel suite's CPU
+    # contention the thread can finish and be reaped from
+    # ``threading.enumerate()`` before the main thread gets scheduled again
+    # (this raced ~1/2 runs). Waiting on ``ready`` blocks until the daemon
+    # thread has actually reached (and is now parked inside) its stubbed
+    # work, so the thread is deterministically still alive for the
+    # enumeration below.
+    assert ready.wait(timeout=5), "daemon thread did not reach its work body in time"
+
     spawned = [t for t in threading.enumerate() if t.name == "EpistemicSyncWorker"]
     assert len(spawned) == 1
+    release.set()  # let the stub return so the thread can terminate
     spawned[0].join(timeout=5)
     assert not spawned[0].is_alive()
 

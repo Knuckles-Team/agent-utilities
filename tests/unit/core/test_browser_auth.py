@@ -3,6 +3,7 @@
 CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 """
 
+import logging
 import time
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ import pytest
 
 from agent_utilities.security.browser_auth import (
     BaseBrowserAuthManager,
+    BaseLoopbackCallbackHandler,
     generate_pkce,
 )
 from agent_utilities.security.secrets_client import (
@@ -181,3 +183,92 @@ class TestBaseBrowserAuthManager:
                 manager.resolve_credentials(auto_login=True) == "auto_login_token_abc"
             )
             mock_login.assert_called_once()
+
+
+class _FakeCallbackSelf:
+    """Minimal stand-in for a BaseLoopbackCallbackHandler instance.
+
+    Constructing a real BaseHTTPRequestHandler requires a live socket; the
+    logging bug (BUG-140) and its fix live entirely in `log_message`, which
+    only reads `self.path`/`self.command`, so a lightweight double is
+    sufficient and avoids standing up a real loopback server per test.
+    """
+
+    # Colons deliberately embedded in the secret values: `agent_utilities`
+    # already installs a process-wide LogRecord factory
+    # (`core.log_privacy.install_log_privacy_boundary`, active for every
+    # `agent_utilities.*` logger, including this one) that incidentally
+    # masks *path-shaped* text — but its POSIX-path pattern stops at the
+    # first `:`, so anything after one survives untouched. Using that shape
+    # here proves this fix is doing real, additional work and is not merely
+    # restating protection the ambient factory already provides by accident.
+    path = "/callback?code=SUPER:SECRET_AUTH_CODE&state=SUPER:SECRET_CSRF_STATE"
+    command = "GET"
+
+
+def _pre_fix_log_message(self_obj, format: str, *args) -> None:  # noqa: A002
+    """The exact pre-fix implementation, kept only to prove BUG-140 was real."""
+    logging.getLogger("agent_utilities.security.browser_auth").debug(format, *args)
+
+
+class TestLoopbackCallbackHandlerLogHygiene:
+    """BUG-140: the loopback OAuth callback server must never log the raw
+    request line/args — for this handler, the request line IS the OAuth
+    redirect URI, and its query string carries the authorization `code` and
+    CSRF `state` in the clear. The ambient process-wide path-privacy factory
+    (`agent_utilities.core.log_privacy`) masks *some* shapes of this by
+    accident but is not a substitute for not logging the secret at all (see
+    the colon-embedding note on `_FakeCallbackSelf.path` above)."""
+
+    def test_pre_fix_pattern_would_have_leaked_code_and_state(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Failing-without baseline: forwarding BaseHTTPRequestHandler's
+        default log_request() call (`format='"%s" %s %s'`,
+        `args=(self.requestline, code, size)`) straight into `logger.debug`
+        — what this file's `log_message` did before the fix — leaks both
+        secrets the moment DEBUG logging is enabled, even with the ambient
+        path-privacy factory active (proven by running this test the same
+        way the rest of the suite does: `agent_utilities` already imported,
+        factory already installed)."""
+        fake = _FakeCallbackSelf()
+        request_line = f"GET {fake.path} HTTP/1.1"
+        logger_name = "agent_utilities.security.browser_auth"
+        with caplog.at_level(logging.DEBUG, logger=logger_name):
+            _pre_fix_log_message(fake, '"%s" %s %s', request_line, "200", "-")
+        assert "SECRET_AUTH_CODE" in caplog.text
+        assert "SECRET_CSRF_STATE" in caplog.text
+
+    def test_fixed_log_message_does_not_leak_code_or_state(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        fake = _FakeCallbackSelf()
+        request_line = f"GET {fake.path} HTTP/1.1"
+        logger_name = "agent_utilities.security.browser_auth"
+        with caplog.at_level(logging.DEBUG, logger=logger_name):
+            BaseLoopbackCallbackHandler.log_message(
+                fake, '"%s" %s %s', request_line, "200", "-"
+            )
+        assert "SECRET_AUTH_CODE" not in caplog.text
+        assert "SECRET_CSRF_STATE" not in caplog.text
+        # Still useful for local troubleshooting.
+        assert "GET" in caplog.text
+
+    def test_fixed_log_message_survives_an_unparseable_path(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The redaction path must itself fail closed to a safe placeholder,
+        never fall back to logging the raw (possibly still secret-bearing)
+        path on a parse error."""
+
+        class _BadPathSelf:
+            command = "GET"
+
+            @property
+            def path(self) -> str:
+                raise ValueError("simulated unparseable path")
+
+        logger_name = "agent_utilities.security.browser_auth"
+        with caplog.at_level(logging.DEBUG, logger=logger_name):
+            BaseLoopbackCallbackHandler.log_message(_BadPathSelf(), "unused")
+        assert "<unparseable>" in caplog.text

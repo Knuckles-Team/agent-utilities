@@ -73,7 +73,65 @@ class _FakeClient:
         return None
 
 
-def test_camelcase_read_genuinely_warns_before_the_patch() -> None:
+def _reset_camelcase_compat_shim() -> None:
+    """Force a genuinely FRESH ``fastmcp._compat`` warn-once property for every
+    field this test module reads (``Tool.inputSchema``/``.outputSchema``,
+    ``InitializeResult.serverInfo``).
+
+    ``fastmcp._compat.install()`` bridges each camelCase property with a
+    warn-ONCE-per-(class, name) closure flag (``warned`` in ``_make_property``)
+    -- process-lifetime state with no public reset, entirely independent of
+    Python's own warnings-filter machinery (which ``warnings.catch_warnings``/
+    ``simplefilter("always")`` only controls). Confirmed live (D-TIL-1): any
+    OTHER test in the same pytest-xdist ``--dist loadfile`` worker that
+    exercises a REAL, UNPATCHED ``pydantic_ai.mcp.MCPToolset.get_tools()``
+    against a genuine ``mcp_types.Tool`` -- e.g.
+    ``tests/integration/mcp/test_fastmcp_cross_version.py``'s live fastmcp-4
+    round-trip, unpatched here because the installed ``pydantic-ai-slim``
+    rarely matches the D-CDX-69 patch pin -- reads ``Tool.inputSchema`` for
+    real and permanently latches that closure's ``warned`` flag, so this
+    test's own read silently stops warning depending on run order.
+
+    Merely flipping ``_compat._installed`` back to ``False`` and calling
+    ``install()`` again is NOT enough to get a fresh closure once that has
+    happened: ``install()``'s own "never shadow a real attribute" guard
+    (``if camel in cls.__dict__: continue``) skips rebuilding any field
+    already present on the class -- which it is, from the very first
+    ``install()`` call at ``fastmcp`` import time. Deleting the installed
+    attribute from the class first removes that guard's reason to skip, so
+    the next ``install()`` really does rebuild a fresh, un-warned property --
+    regardless of what ran before (or will run after) this test in the same
+    worker process.
+    """
+    import mcp_types
+    from fastmcp import _compat
+
+    for camel in ("inputSchema", "outputSchema"):
+        if camel in mcp_types.Tool.__dict__:
+            delattr(mcp_types.Tool, camel)
+    if "serverInfo" in mcp_types.InitializeResult.__dict__:
+        delattr(mcp_types.InitializeResult, "serverInfo")
+    _compat._installed = False
+    _compat.install()
+
+
+@pytest.fixture
+def fresh_camelcase_compat_shim():
+    """Yield with a genuinely fresh camelCase compat shim installed, and leave
+    one behind at teardown too -- so this test can never be the leak for
+    whatever else shares its xdist worker, matching the isolation contract
+    ``tests/conftest.py``'s own autouse fixtures apply to other process-global
+    registries (D-TIL-1)."""
+    _reset_camelcase_compat_shim()
+    try:
+        yield
+    finally:
+        _reset_camelcase_compat_shim()
+
+
+def test_camelcase_read_genuinely_warns_before_the_patch(
+    fresh_camelcase_compat_shim,
+) -> None:
     """Sanity check: proves the deprecation warning this item reports is real,
     not a false positive — so a passing patched-path test below is meaningful."""
     import mcp_types

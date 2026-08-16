@@ -302,7 +302,7 @@ async def test_child_handler_accepts_only_the_signed_multiplexer_task_proof(
     )
 
     monkeypatch.setenv("AGENT_UTILITIES_TOKEN_SECRET", "handler-delegation-secret")
-    channel_secret = "stdio-generation-secret-0123456789abcdef"
+    channel_secret = "stdio-generation-secret-0123456789abcdef"  # sanitizer:ignore - synthetic test fixture, not a live credential
     monkeypatch.setenv("AGENT_UTILITIES_MCP_TASK_CHANNEL_SECRET", channel_secret)
     caller = {"tenant": "tenant-a", "owner": "owner-a", "scopes": ["kg:read"]}
     unsigned = _GetTaskParams(taskId=TASK_ID)
@@ -469,7 +469,7 @@ async def test_host_handler_forwards_through_bounded_runtime_to_child_handler(
     from agent_utilities.mcp.tasks_extension import _GetTaskResult
 
     monkeypatch.setenv("AGENT_UTILITIES_TOKEN_SECRET", "end-to-end-task-secret")
-    channel_secret = "stdio-generation-secret-abcdef0123456789"
+    channel_secret = "stdio-generation-secret-abcdef0123456789"  # sanitizer:ignore - synthetic test fixture, not a live credential
     monkeypatch.setenv("AGENT_UTILITIES_MCP_TASK_CHANNEL_SECRET", channel_secret)
     view = _view(RepositoryJobState.READY, result_ref=None)
     monkeypatch.setattr(
@@ -548,8 +548,8 @@ async def test_read_retry_rebuilds_stdio_proof_for_the_new_generation(
     )
 
     monkeypatch.setenv("AGENT_UTILITIES_TOKEN_SECRET", "retry-task-secret")
-    old_secret = "old-generation-channel-secret-0123456789"
-    new_secret = "new-generation-channel-secret-0123456789"
+    old_secret = "old-generation-channel-secret-0123456789"  # sanitizer:ignore - synthetic test fixture, not a live credential
+    new_secret = "new-generation-channel-secret-0123456789"  # sanitizer:ignore - synthetic test fixture, not a live credential
     generation_secrets = iter((old_secret, new_secret))
     sessions_seen: list[object] = []
 
@@ -794,7 +794,7 @@ async def test_multiplexer_forwards_exact_revision_route_and_verified_caller(
             self.primary_session = live_session
             self._sessions = [live_session]
             self.generation = 1
-            self._task_generation_secret = "test-task-channel-secret-0123456789"
+            self._task_generation_secret = "test-task-channel-secret-0123456789"  # sanitizer:ignore - synthetic test fixture, not a live credential
 
         async def call_request(
             self,
@@ -864,7 +864,7 @@ async def test_mutating_task_forward_fails_before_retired_epoch_or_generation_se
         def __init__(self) -> None:
             self._sessions = [_Session()]
             self.generation = 1
-            self._task_generation_secret = "mutation-channel-secret-0123456789"
+            self._task_generation_secret = "mutation-channel-secret-0123456789"  # sanitizer:ignore - synthetic test fixture, not a live credential
             self.sent = False
             self.bump_catalog = True
 

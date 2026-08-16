@@ -66,7 +66,7 @@ def test_sql_scope_fans_out(monkeypatch):
     )
 
     out = graph_query(
-        cypher="SELECT id FROM nodes", scope="sql", target="all", params="{}"
+        cypher="SELECT id FROM nodes", scope="sql", connection="all", params="{}"
     ).model_dump()
     payload = out["reasoning_trace"][-1]["payload"]
     assert payload["targets"] == {"k1": [{"id": "a"}], "k2": [{"id": "b"}]}

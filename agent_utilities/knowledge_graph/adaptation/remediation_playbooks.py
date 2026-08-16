@@ -261,13 +261,17 @@ def resource_pressure_playbook(
     }
 
 
-def remediation_playbook(engine: Any, event: dict[str, Any]) -> dict[str, Any]:
+def remediation_playbook(
+    engine: Any, event: dict[str, Any], *, graph_writer: Any = None
+) -> dict[str, Any]:
     """Dispatcher for critical/error events: classify, then run the playbook.
 
     Runs the OS-5.15 default playbook first so correlation + failure-gap
     escalation are preserved, then layers the remediation steps on top.
+    ``graph_writer`` is forwarded to :func:`default_playbook` unchanged — see
+    its docstring (a test-only seam; the daemon task dispatch never passes it).
     """
-    base = default_playbook(engine, event) or {}
+    base = default_playbook(engine, event, graph_writer=graph_writer) or {}
 
     from agent_utilities.orchestration.fleet_observation import get_fleet_observer
 

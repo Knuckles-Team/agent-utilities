@@ -166,9 +166,16 @@ def test_autoscale_subscription_fires_on_work_item_change(engine_graph) -> None:
         "autoscaler must react to a WorkItem change"
     )
 
-    # A subsequent WorkItem mutation is another change-event.
+    # A subsequent WorkItem mutation is another change-event. The engine's
+    # native WorkItem-authority guard (epistemic-graph RMDD-29) only accepts a
+    # generic (non-native) WorkItem write in "submitted"/"ready" state — any
+    # other status (e.g. "leased") can only be reached through the native
+    # ClaimWorkItem transition, so this second synthetic node uses "submitted"
+    # (still a distinct write from workitem:1's "ready") to stay a legal
+    # simulation of "a subsequent WorkItem mutation" for this CDC-delivery
+    # assertion, which does not care which status was written.
     engine_graph.add_node(
-        "workitem:2", {"node_type": WORK_ITEM_LABEL, "status": "leased"}
+        "workitem:2", {"node_type": WORK_ITEM_LABEL, "status": "submitted"}
     )
     sub.poll(block_ms=0)
     assert sub.pending_state["pending"] == 2

@@ -1,4 +1,12 @@
+# Without this, `pre-commit install` wires ONLY the pre-commit hook, so `git push`
+# runs nothing and every hook staged pre-push is silently dead code.
+default_install_hook_types: [pre-commit, pre-push]
 exclude: ^scripts/
+# Phase 0 dev-velocity contract (graph-os-completion-program): a hook with no
+# explicit `stages:` below is commit-only, never both. agent-utilities already
+# staged most HEAVY hooks explicitly (D-ORC-48 etc); this codifies the same
+# intent for the small remainder that still defaulted to commit-only.
+default_stages: [pre-commit]
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
@@ -76,8 +84,22 @@ repos:
   - id: uv-lock
     entry: python3 scripts/uv_workspace.py lock
     args: ["--locked"]
+    stages: [pre-push, manual]
 - repo: local
   hooks:
+  - id: dependency-readiness
+    name: Dependency readiness — every declared intra-fleet constraint is installable
+    # Prefer the local repository-manager checkout, fall back to PyPI (CI).
+    # PyPI still holds 2.0.1, which predates this module entirely, so a plain
+    # `--with repository-manager` can never satisfy the import and the gate
+    # fails everywhere it is declared. --no-project keeps the tool out of this
+    # repo's own env and --prerelease=allow is required because agent-utilities
+    # depends on fastmcp>=4.0.0b1.
+    entry: bash -c 'P=../agents/repository-manager; [ -d "$P" ] || P=repository-manager; uv run --no-project --python 3.12 --prerelease=allow --with "$P" python -m repository_manager.dependency_readiness .'
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   - id: dependency-audit
     name: audit dependencies for known CVEs (OSV)
     entry: python3 scripts/audit_dependencies.py uv.lock
@@ -101,9 +123,133 @@ repos:
     entry: python3 scripts/check_stubs.py
     language: system
     types: [python]
+  - id: check-import-safety
+    name: Cross-platform import safety (native + simulated-Windows fcntl/termios/pwd/resource)
+    # Walks every agent_utilities module and imports it, with fcntl/termios/
+    # pwd/resource poisoned out of sys.modules first to reproduce a Windows
+    # import failure on this POSIX dev machine (see the script's own
+    # docstring for exactly what --simulate-windows does and does not
+    # model -- it deliberately does NOT flip sys.platform/os.name, which
+    # would corrupt pathlib's WindowsPath/PosixPath dispatch on a live POSIX
+    # host). Catches the whole "unconditional top-level import of a
+    # POSIX-only stdlib module" defect class at commit time, cheaply,
+    # before it ever reaches a human on Windows or Windows CI
+    # (numeric-runtime-gate in release.yml, real Windows runner).
+    #
+    # The --exclude entries below are NOT Windows-related debt hidden here:
+    #   * knowledge_graph.core.file_lock -- ALREADY correctly guards fcntl
+    #     behind `sys.platform == "win32"` (this repo's own canonical
+    #     pattern). This shim blocks the fcntl MODULE but (deliberately, see
+    #     above) does not flip sys.platform, so a correctly-guarded module
+    #     still takes the POSIX arm here and still hits the block -- a known
+    #     false positive of a sys.modules-only shim, not a real defect.
+    #     Verified for real only on the Windows runner in release.yml.
+    #   * __main__, agent.factory, server, mcp.tools, mcp.verbose_tools,
+    #     patterns.* -- all transitively import the third-party `mcp`
+    #     package's MCPToolset, which itself hits `mcp/server/stdio.py`'s
+    #     `if sys.platform != "win32": import fcntl` -- the EXACT SAME
+    #     already-correctly-guarded pattern as file_lock.py above, and the
+    #     exact same shim limitation, one dependency hop removed. Confirmed
+    #     by direct traceback on 2026-08-13 (not assumed): the failure
+    #     bottoms out at that guarded line, not an unconditional import.
+    #   * agent_utilities.agent_utilities, knowledge_graph.adaptation.
+    #     trace_distiller -- two PRE-EXISTING broken imports (missing
+    #     memory_compaction.py / adaptation/synthesis.py modules),
+    #     discovered BY this gate, reproducible on main with NO simulation
+    #     at all (plain `import agent_utilities` fails the same way natively
+    #     -- see `python3 scripts/check_import_safety.py --package
+    #     agent_utilities` with no flag), unrelated to Windows/fcntl. Left
+    #     for separate triage so this gate's signal stays specific to
+    #     cross-platform import safety.
+    #
+    # The previous version of this comment listed 12 modules as "genuinely
+    # unguarded, expected RED until fix/au-cross-platform-locking merges" --
+    # that branch merged 2026-08-13 (2df6f6d14, migrating cli/unified_install/
+    # concept_allocator/lanes/merge_queue/engine_lock/host_lock/kg_coordinator
+    # onto file_lock.py's guarded primitive) but this hook's exclude list was
+    # never updated for the new call sites, so it kept failing for a *third*
+    # reason: measuring with the ambient system `python3` instead of the repo
+    # `.venv` (the interpreter pre-commit's `language: system` hooks actually
+    # get depends on PATH at invocation time -- CI's Windows job explicitly
+    # prepends `.venv/bin`/`.venv/Scripts` to $GITHUB_PATH before this exact
+    # script runs; a local run without doing the same silently falls back to
+    # system python3, which has neither this repo's fastmcp>=4.0.0b1 nor
+    # pydantic-ai-harness installed and reports THOSE as failures instead --
+    # a red herring, not a Windows/fcntl finding). Re-verified 2026-08-15
+    # against the repo venv (`.venv/bin` first on PATH) with a full per-module
+    # traceback (not assumed): every one of the 12 modules below bottoms out
+    # at an ALREADY correctly `sys.platform == "win32"`-guarded import, one or
+    # more dependency hops removed -- the same shim limitation as the group
+    # above, just not yet added to this list:
+    #   * cli, core.unified_install, governance.{concept_allocator,lanes,
+    #     merge_queue}, knowledge_graph.core.{engine_lock,host_lock} --
+    #     transitively import knowledge_graph.core.file_lock (already
+    #     excluded above for direct import; these are the same limitation
+    #     one hop removed, exactly like the mcp.tools/mcp.verbose_tools/
+    #     patterns.* group below).
+    #   * mcp.{eunomia_principal,middlewares,multiplexer,shared_multiplexer}
+    #     -- transitively import fastmcp's `server.middleware`/`prompts.base`,
+    #     which (as of the fastmcp 4.0.0b2 upgrade -- not the case under the
+    #     3.3.1 pin this comment was originally written against) now reach
+    #     the third-party `mcp` SDK's own `mcp/server/stdio.py`, which
+    #     guards its `import fcntl` behind the identical pattern (`# POSIX-
+    #     only line, uncovered on Windows runners`) already covered above.
+    #   * mcp.kg_coordinator -- transitively imports `psutil`, whose
+    #     `psutil/__init__.py` platform-dispatches to `psutil/_pslinux.py`
+    #     (real `sys.platform`-gated selection inside psutil itself), which
+    #     imports `resource` -- same shim limitation, third dependency.
+    # None of the 12 are a genuinely unguarded import in agent_utilities' own
+    # code; deployment.venv_sync/venv_autosync (previously listed here) now
+    # import cleanly and needed no entry.
+    entry: >-
+      python3 scripts/check_import_safety.py --package agent_utilities --simulate-windows
+      --exclude agent_utilities.knowledge_graph.core.file_lock
+      --exclude agent_utilities.__main__
+      --exclude agent_utilities.agent.factory
+      --exclude agent_utilities.server
+      --exclude agent_utilities.mcp.tools
+      --exclude agent_utilities.mcp.verbose_tools
+      --exclude agent_utilities.patterns
+      --exclude agent_utilities.agent_utilities
+      --exclude agent_utilities.knowledge_graph.adaptation.trace_distiller
+      --exclude agent_utilities.cli
+      --exclude agent_utilities.core.unified_install
+      --exclude agent_utilities.governance.concept_allocator
+      --exclude agent_utilities.governance.lanes
+      --exclude agent_utilities.governance.merge_queue
+      --exclude agent_utilities.knowledge_graph.core.engine_lock
+      --exclude agent_utilities.knowledge_graph.core.host_lock
+      --exclude agent_utilities.mcp.eunomia_principal
+      --exclude agent_utilities.mcp.middlewares
+      --exclude agent_utilities.mcp.multiplexer
+      --exclude agent_utilities.mcp.shared_multiplexer
+      --exclude agent_utilities.mcp.kg_coordinator
+    language: system
+    pass_filenames: false
+    # NOT `types: [python]` (this repo's own top-level `exclude: ^scripts/`,
+    # line 4, would silently skip this exact hook on a commit whose only
+    # .py change is under scripts/ -- confirmed: that is exactly what
+    # happened while authoring this hook itself). Uses an explicit `files:`
+    # regex instead so top-level `exclude:` cannot apply, while still
+    # scoping the INVOCATION (not the internal check, which still walks the
+    # whole `agent_utilities` package every time it runs) to commits that
+    # could actually change the result: source under `agent_utilities/`
+    # itself, or a dependency change (a new/updated dep can introduce an
+    # unconditional platform-only import just as easily as new source can).
+    # Measured 2026-08-15: ~12s standalone -- real cost, worth scoping;
+    # skipping is provably safe because if none of these paths changed, the
+    # whole-package Windows-import-safety result cannot have changed either
+    # (it was already checked, always_run, on every prior commit).
+    files: ^(agent_utilities/.*|pyproject\.toml|uv\.lock)$
   - id: check-no-env-sprawl
     name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
     entry: python3 scripts/check_no_env_sprawl.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-no-stdout-writes
+    name: Stdio JSON-RPC purity (no print()/sys.stdout.write() in the served MCP surface, B-19)
+    entry: python3 scripts/check_no_stdout_writes.py
     language: system
     pass_filenames: false
     always_run: true
@@ -112,7 +258,13 @@ repos:
     entry: python3 -m agent_utilities.mcp.check_env_var_drift --check
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped, not always_run: the script's own `_NON_RUNTIME_SOURCE_DIRS`
+    # (docs/examples/reports/scripts/test/tests) already declares those
+    # trees irrelevant to its os.environ-read scan -- it only walks runtime
+    # source (agent_utilities/, deploy/, docker/) plus .env.example itself.
+    # A commit outside those paths cannot change this hook's verdict.
+    # Measured 2026-08-15: ~13s standalone.
+    files: ^(agent_utilities/.*|deploy/.*|docker/.*|\.env\.example|pyproject\.toml)$
   - id: lane-guard
     name: Lane guard — canonical checkout is read-only; generated views stay generated
     # Two rules that were documented and violated anyway, now mechanical:
@@ -156,22 +308,44 @@ repos:
     entry: python3 scripts/check_ontology.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: every *.ttl in this repo lives under agent_utilities/knowledge_
+    # graph/ (verified: `find . -name '*.ttl'` has no hits outside it), and
+    # the gate's own 7th rule cross-references docs/architecture/
+    # ontology_library.md. The graph-connectivity/SHACL checks themselves
+    # still scan the WHOLE ontology library every time this runs (unchanged
+    # -- adding/removing one file can only break connectivity if a .ttl
+    # actually changed); only the invocation is scoped. If neither a .ttl
+    # nor that one doc changed, the ontology library's validity/connectivity
+    # cannot have changed either. Measured 2026-08-15: ~38s standalone --
+    # the single most expensive per-file-scopable hook after the two
+    # rejected below.
+    files: \.ttl$|^docs/architecture/ontology_library\.md$
   - id: check-identifier-interpolation
     name: Identifier interpolation — every label/table/rel-type f-string is validated
     entry: python3 scripts/check_identifier_interpolation.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: scans agent_utilities/**.py only (pkg_root = ROOT/"agent_utilities"
+    # in the script). ~19s standalone.
+    files: ^agent_utilities/.*\.py$
   - id: check-swallowed-errors
     name: Swallowed errors — no NEW cause-dropping exception handler (ratchet)
     entry: python3 scripts/check_swallowed_errors.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: scans agent_utilities/**.py only (PKG = ROOT/"agent_utilities"
+    # in the script) plus its own ratchet baseline file -- included so
+    # editing the baseline itself still re-triggers the check. ~12s standalone.
+    files: ^(agent_utilities/.*\.py|scripts/swallowed_error_baseline\.txt)$
   - id: check-event-loop-blocking
     name: Event-loop blocking heuristic (ratchet — no new candidate sites)
     entry: python3 scripts/check_event_loop_blocking.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  - id: check-no-per-element-ingest-loop
+    name: No per-element ingest loop on the agent-facing MCP surface (ratchet, B-11/GOC-68)
+    entry: python3 scripts/check_no_per_element_ingest_loop.py
     language: system
     pass_filenames: false
     always_run: true
@@ -192,16 +366,40 @@ repos:
     entry: python3 scripts/check_wiring.py --wire-first-report
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: cross-references agent_utilities/**.py (the reachable surface)
+    # against tests/**.py (what's invoked from tests) plus its own ratchet
+    # baseline file. If none of those changed, neither side of the
+    # reachable-vs-invoked comparison could have moved. ~23s standalone.
+    files: ^(agent_utilities/.*\.py|tests/.*\.py|scripts/wire_first_baseline\.json)$
   - id: check-release-catalogs
     name: Release catalogs match the checked-in connector manifests (D-35-9)
     entry: python3 scripts/release/check_release_catalogs.py
     language: system
     pass_filenames: false
+    # NOT scoped, despite being expensive (~42s standalone, measured
+    # 2026-08-15): its inputs cross a repo boundary this diff cannot see.
+    # generate_connector_bundle_catalog.py's DEFAULT_AGENTS_ROOT resolves to
+    # the SIBLING agent-packages/agents/ fleet checkout, outside this repo
+    # entirely -- a connector added/changed there can drift this repo's
+    # catalog with ZERO staged files here. always_run is already the only
+    # thing giving that drift a chance to be caught (on whatever commit
+    # happens next in this repo); a `files:` filter would only narrow that
+    # window further with no corresponding safety proof, so left alone per
+    # "only scope when scoping cannot make it miss a violation."
     always_run: true
   - id: check-skill-name-collision
     name: Skill names globally unique across the fleet (install-all, no overlap)
     entry: python3 scripts/check_skill_name_collision.py
+    language: system
+    pass_filenames: false
+    always_run: true
+  # Anti-drift check for the ci-gate-replica hook (pre-push/manual, below) —
+  # pure YAML parse, no venv sync/build, <1s, so it runs on EVERY commit
+  # rather than waiting for a push to discover release.yml grew a job
+  # ci_gate_replica.py doesn't know how to classify.
+  - id: ci-gate-replica-consistency
+    name: CI gate replica — anti-drift check (release.yml jobs all classified)
+    entry: python3 scripts/ci_gate_replica.py --consistency-check
     language: system
     pass_filenames: false
     always_run: true
@@ -237,6 +435,16 @@ repos:
     # staged_files_only patch-file window, which is the mechanism behind this
     # program's pre-commit data-loss incidents (one lane emptied its own working
     # tree today and recovered only via `git fsck`).
+    stages: [manual, pre-push]
+  - id: constrained-parallelism
+    name: pytest concurrency-sensitive tests under 2-core CPU affinity (GOC-70)
+    # See scripts/constrained_parallelism_gate.sh's header for the full
+    # rationale (epistemic-graph 2.25.0 shipped green-on-64-cores, red in
+    # 2-core CI) and why this is a curated file list, not the full suite.
+    entry: bash -c 'if [ -f "scripts/constrained_parallelism_gate.sh" ]; then bash scripts/constrained_parallelism_gate.sh; fi'
+    language: system
+    pass_filenames: false
+    always_run: true
     stages: [manual, pre-push]
   - id: check-agent-standards
     name: check agent standards
@@ -297,6 +505,11 @@ repos:
     entry: python scripts/security_sanitizer.py
     language: python
     pass_filenames: false
+    # NOT scoped, despite measurable cost (~8s standalone, measured
+    # 2026-08-15): secret/garbage-pattern scanning is exactly the class of
+    # whole-repo invariant a `files:` filter cannot safely narrow -- an
+    # unmasked secret can land in any tracked file type. Whole-repo by
+    # design, same reasoning as guardrail-tracked-privacy below.
     always_run: true
 # Plan 10 guardrail gates. Each defends a specific failure vector and has a
 # meta-test in tests/gates/ proving it trips on a broken fixture. BLOCKING gates
@@ -342,24 +555,47 @@ repos:
     entry: python3 scripts/check_surface_parity.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: this gate imports the live agent_utilities package and
+    # introspects the runtime gateway/MCP tool registry (reflection, not a
+    # static text scan of some other tree) -- its verdict is a pure function
+    # of agent_utilities/ source. ~14s standalone.
+    files: ^agent_utilities/.*
   - id: guardrail-cpd-drift
     name: Guardrail — Capability Power Descriptors stay in sync (Seam 8 CPD)
     entry: python3 scripts/check_cpd.py
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: regenerates the CPD set from the live tool registry (reflection
+    # over agent_utilities/) and diffs it against the packaged
+    # agent_utilities/knowledge_graph/retrieval/capabilities-power.json
+    # catalog -- both sides of the comparison live under agent_utilities/,
+    # so a single prefix pattern covers source and packaged-catalog drift
+    # alike. ~8s standalone.
+    files: ^agent_utilities/.*
   - id: guardrail-docs-contract
     name: Guardrail — docs catalog, links, nav, and generated inventories
     entry: python3 scripts/docs_contract.py --check
     language: system
     pass_filenames: false
-    always_run: true
+    # Scoped: nav/link/catalog checks target docs/, mkdocs.yml, and README.md
+    # directly; the "generated inventories" leg (capabilities-power.md/json
+    # etc.) is derived from the live agent_utilities/ surface, so source
+    # changes there are included too -- a commit touching neither docs/config
+    # nor agent_utilities/ source cannot move either side of this contract.
+    # ~18s standalone.
+    files: ^(docs/.*|README\.md|mkdocs\.yml|agent_utilities/.*\.py)$
   - id: guardrail-tracked-privacy
     name: Guardrail — tracked public artifacts contain no host-specific data or local identities
     entry: python3 scripts/check_tracked_privacy.py
     language: system
     pass_filenames: false
+    # NOT scoped, despite being expensive (~19s standalone, measured
+    # 2026-08-15): same class as security-sanitizer/secret scanning below --
+    # a privacy leak (hostname, local path, identity) can land in ANY
+    # tracked file type (docs, config, fixtures, notebooks), not just
+    # agent_utilities/**.py, so no `files:` regex narrower than "everything
+    # tracked" can be proven not to miss one. Left whole-repo per the
+    # explicit carve-out for security/privacy-critical invariant checks.
     always_run: true
   - id: guardrail-kg-skill-coverage
     name: Guardrail — every Graph-OS verb has domain-skill coverage
@@ -441,6 +677,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [manual, pre-push]
   # BLOCKING: the anti-sprawl gate (versioned clones, conflict artifacts,
   # botched-merge dividers, oversized tracked binaries). Plan-03 cleared all
   # botched-merge dividers, so this now runs BLOCKING.
@@ -492,7 +729,39 @@ repos:
     entry: python3 scripts/check_liveness.py
     language: system
     pass_filenames: false
+    # NOT scoped, despite being the single most expensive default-stage
+    # local hook measured (~65s standalone, 2026-08-15): its own docstring
+    # names a TIME-based invariant a file diff cannot detect -- "a past-due
+    # deferred entry also fails the gate" (scripts/liveness_deferred.tsv's
+    # owner + review-by expiry). A deferred item can cross its review-by
+    # date with zero files changed in this repo, so a `files:` filter would
+    # let that regression go undetected past its expiry until some unrelated
+    # future commit happens to touch a matched path. Left always_run per
+    # "only scope when scoping cannot make it miss a violation" -- this is
+    # exactly that case, not a rationalization to avoid the work.
     always_run: true
+  - id: guardrail-removed-symbol-consumers
+    name: Guardrail — no removed/renamed public symbol still imported by the fleet
+    # B-19 (2026-08-13): protect_stdio_jsonrpc was deleted with no consumer
+    # migration and broke agents/systems-manager (ImportError at module
+    # import — the server could not start) and agents/tunnel-manager (stdio
+    # transport). Neither had a control. Compares the public API surface
+    # (agent_utilities/) against origin/main and fails on any symbol still
+    # imported by a repo in the committed fleet consumer index
+    # (scripts/fleet_symbol_consumers.json — regenerate with
+    # `python3 scripts/gen_fleet_symbol_consumers.py --update`, needs the
+    # agent-packages fleet checked out locally). Scans the whole
+    # agent_utilities/ tree plus git history, same heavy/pre-push class as
+    # guardrail-liveness and guardrail-surface-parity above; unlike those,
+    # this one is stdlib-only (see scripts/_symbol_surface.py) so it needs no
+    # managed-venv re-exec. FAILS CLOSED (not skip) if the consumer index is
+    # missing, unparseable, or older than 30 days — see the script's
+    # docstring for why silently skipping was rejected.
+    entry: python3 scripts/check_removed_symbol_consumers.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   - id: guardrail-gate-meta-tests
     name: Guardrail — gate meta-tests (prove every gate can fail)
     # Runs in the repo being committed (pre-commit cwd = repo root) so worktrees
@@ -517,6 +786,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [manual, pre-push]
 # ── CI parity: gates that live in a CI workflow but had no pre-commit mirror ──
 # These close the remaining CI<->pre-commit parity gaps so that
 # `pre-commit run --all-files` (default stage) == the union of the non-deploy,
@@ -570,17 +840,47 @@ repos:
     pass_filenames: false
     always_run: true
     stages: [manual, pre-push]
-  # D-CIP-7: pipeline.yml's build-wheel job builds TWICE, requires
-  # byte-identical sha256 digests, and runs check_release_wheel.py +
-  # check_wheel_privacy.py against BOTH candidates before publishing. The
-  # plain `uv build` above only proves the package builds at all — it does
-  # not catch a non-reproducible build, a release-surface contract drift, or
-  # a privacy leak baked into the wheel, all of which are CI-detectable and
-  # were previously locally invisible. Run it via:
-  #   pre-commit run wheel-build-reproducibility --hook-stage manual --all-files
-  - id: wheel-build-reproducibility
-    name: CI parity — wheel reproducibility + release contract + privacy (pipeline.yml)
-    entry: python3 scripts/release/check_wheel_build_reproducibility.py
+  # perf/gate-dedup (2026-08-15): the standalone `wheel-build-reproducibility`
+  # hook that used to live here ran scripts/release/check_wheel_build_
+  # reproducibility.py — build the wheel TWICE with `uv build --wheel
+  # --no-build-isolation`, run check_release_wheel.py + check_wheel_privacy.py
+  # against both, require byte-identical digests — on every push. That is the
+  # exact same sequence, in the same order, as release.yml's `build` job
+  # ("Sync immutable wheel-build environment" / "Build primary wheel from the
+  # validated source revision" / "Build reproduction wheel from the same
+  # source revision" / "Validate both packaged release candidates" / "Require
+  # byte-identical wheels and stage the sole candidate"), which
+  # `ci-gate-replica` (below) now executes verbatim by parsing release.yml at
+  # run time — AU's ci-gate-replica covers BOTH the `gates` AND `build` jobs
+  # (unlike epistemic-graph's, which only replays `gates`). ci-gate-replica's
+  # replay is a strict superset: it additionally runs
+  # tests/gates/test_exact_local_release_contract.py, which this hook never
+  # did. Verified via `scripts/ci_gate_replica.py --dry-run`. Removed from the
+  # automatic pre-push stage so a push does not build the release wheel twice
+  # over (once here, once inside ci-gate-replica). To run it standalone:
+  #   python3 scripts/release/check_wheel_build_reproducibility.py
+  # ci-gate-replica: the individual CI-parity hooks above (wheel-build,
+  # wheel-build-reproducibility, check-secret-history, contract-checks, ...)
+  # are each a hand-derived mirror of ONE release.yml/pipeline.yml step,
+  # added one lane at a time — real coverage, but not provably COMPLETE, and
+  # each one can silently drift the moment release.yml changes and nobody
+  # updates its local twin. This hook instead PARSES
+  # .github/workflows/release.yml at run time (scripts/ci_gate_replica.py)
+  # and executes every step of its `gates` + `build` jobs verbatim — a step
+  # added there is run here with NO change to this file. Its own
+  # --consistency-check fails loudly if release.yml grows a job this script
+  # doesn't know how to classify (see the meta-tests in
+  # tests/unit/scripts/test_ci_gate_replica_consistency_check.py).
+  # `numeric-runtime-gate` (installs the published wheel's declared
+  # epistemic-graph[full] FROM PyPI — currently unpublishable, see
+  # scripts/release/check_eg_pypi_resolvable.py) and the tag-gated publish
+  # jobs are NOT executable locally and are reported "NOT VALIDATED LOCALLY"
+  # with a reason in the run's summary rather than omitted — run
+  # `scripts/ci_gate_replica.sh --dry-run` to see the full plan without
+  # executing anything.
+  - id: ci-gate-replica
+    name: CI gate replica — parses release.yml, runs its gates+build jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — pre-push/manual)
+    entry: bash -c 'bash scripts/ci_gate_replica.sh'
     language: system
     pass_filenames: false
     always_run: true
@@ -730,6 +1030,7 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
+    stages: [manual, pre-push]
   # 2. The LIVE behavioral matrix stays available on demand — staged manual only
   #    (needs Docker + a running engine; never on a normal commit/push).
   #    Run it via:  pre-commit run backend-parity --hook-stage manual --all-files
@@ -751,20 +1052,42 @@ repos:
     language: system
     pass_filenames: false
     always_run: true
-  # guardrails.yml ENVIRONMENT parity — the highest-value parity closure. The
-  # gates above run in the developer's FULL install; CI's "Guardrails" job runs
-  # them in a deliberately LEAN install (`pip install -e .` + numpy/pyyaml/pytest/
-  # rdflib==7.6.0/pyshacl/owlrl — NO [agent-runtime]/[all] extras). A gate that transitively
+    stages: [manual, pre-push]
+  # release.yml `gates` job ENVIRONMENT parity — the highest-value parity closure.
+  # The gates above run in the developer's FULL install; CI's release.yml `gates`
+  # job runs them in a deliberately LEAN install (`uv sync --frozen --extra test
+  # --group guardrails --no-install-package epistemic-graph --no-install-package
+  # langfuse-agent` — NO [agent-runtime]/[all] extras). A gate that transitively
   # imports an extra-only dep (pydantic_ai, httpx, fastmcp, …) passes locally but
   # dies in CI. This hook reproduces CI's lean env in a throwaway venv and runs
-  # EVERY guardrail gate inside it (install + gate list both derived from
-  # guardrails.yml, so it can't drift). It builds a venv → staged manual/pre-push,
-  # too slow for every commit. Run it via:
+  # EVERY blocking gate inside it (install + gate list both derived from
+  # release.yml's `gates` job, so it can't drift). It builds a venv → staged
+  # manual/pre-push, too slow for every commit. Run it via:
   #   pre-commit run guardrails-lean-parity --hook-stage manual --all-files
-  - id: guardrails-lean-parity
-    name: CI parity — guardrail gates in a CI-equivalent LEAN venv
-    entry: python3 scripts/run_guardrails_lean.py
-    language: system
-    pass_filenames: false
-    always_run: true
-    stages: [manual, pre-push]
+  # perf/gate-dedup (2026-08-15): the standalone `guardrails-lean-parity` hook
+  # that used to live here (scripts/run_guardrails_lean.py) ALSO parses
+  # .github/workflows/release.yml's `gates` job at run time (its own module
+  # docstring: "The install package list and the gate command list are both
+  # parsed out of the gates job... at runtime") and executes every run-step
+  # that invokes a gate script or pytest — the identical `_WORKFLOW_JOB =
+  # "gates"` this repo's `ci-gate-replica` (below) also replays. The only
+  # difference was venv isolation: this hook built a fresh throwaway lean venv
+  # per run (`tempfile.mkdtemp(prefix="guardrails-lean-")`) instead of syncing
+  # in-place, matching the CI env more cautiously — but it verified nothing
+  # ci-gate-replica's own execution of the `gates` job's "Sync test
+  # environment (no runtime engine)" step (the literal `uv sync --frozen
+  # --extra test --group guardrails --no-install-package epistemic-graph
+  # --no-install-package langfuse-agent`) does not already verify, since both
+  # scripts parse the SAME job from the SAME file. ci-gate-replica additionally
+  # covers the `build` job, which this hook never touched. Verified via
+  # `scripts/ci_gate_replica.py --dry-run` and reading run_guardrails_lean.py's
+  # `_parse_gates`/`_parse_sync_command`. Removed from the automatic pre-push
+  # stage so the whole `gates` job does not run twice (once in a throwaway
+  # venv here, once in-place inside ci-gate-replica). NOTE (found, not fixed,
+  # by this dedup pass): ci-gate-replica's in-place `uv sync --frozen` DOES
+  # mutate this worktree's real .venv down to the lean CI set for the
+  # remainder of the push — a pre-existing property of ci-gate-replica.py
+  # (REPO_ROOT-cwd subprocess, no venv snapshot/restore), not introduced by
+  # this change; scripts/run_guardrails_lean.py stays on disk, unwired, if a
+  # throwaway-venv-isolated run is ever needed again:
+  #   python3 scripts/run_guardrails_lean.py

@@ -325,9 +325,14 @@ async def test_service_registry_early_success_uses_public_envelope(monkeypatch):
         return_mermaid=True,
     )
     payload = json.loads(rich)
-    assert set(payload) == {"output", "run_id", "mermaid"}
+    # BUG-015 (GOC-20): provenance_recorded rides the rich envelope whenever it
+    # is not None -- here `engine=object()` is a bare stub with no `.add_node`,
+    # so the RunTrace write genuinely fails and the envelope truthfully reports
+    # provenance_recorded=False rather than omitting the key.
+    assert set(payload) == {"output", "run_id", "mermaid", "provenance_recorded"}
     assert payload["output"] == "service-result"
     assert payload["run_id"].startswith("run:")
+    assert payload["provenance_recorded"] is False
     assert payload["mermaid"] is None
 
     bare = await agent_runner.run_agent(

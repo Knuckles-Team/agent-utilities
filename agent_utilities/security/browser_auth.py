@@ -20,8 +20,17 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
-import httpx
-
+# GOC-73: lazy, not module-level. `httpx` is declared only in optional extras
+# (`[mcp]`, `[fuseki]`, …), never agent-utilities' base `dependencies` — before the
+# GOC-73 split this was masked because `epistemic-graph[full]` (then a hard base
+# dependency) pulled httpx transitively via its own `httpx accel` component. Now that
+# the engine is opt-in (`[graphos]`), a bare `pip install agent-utilities` has no
+# httpx at all, and this module is reached unconditionally at import time by
+# `agent_utilities.security.__init__` -> `agent_utilities.core.__init__` -> almost
+# every subpackage. Importing httpx only inside the three functions that actually
+# call it keeps the base install importable; those functions still fail loudly with
+# Python's own clear `ModuleNotFoundError: No module named 'httpx'` if httpx is
+# genuinely absent when OAuth token exchange is attempted.
 from agent_utilities.security.secrets_client import (
     SecretsClient,
     create_secrets_client,
@@ -89,8 +98,24 @@ class BaseLoopbackCallbackHandler(BaseHTTPRequestHandler):
     )
 
     def log_message(self, format: str, *args: Any) -> None:
-        # Suppress logging request details to standard out to maintain clean CLI
-        logger.debug(format, *args)
+        # BUG-140: BaseHTTPRequestHandler's default log call passes the RAW
+        # request line (`self.requestline`) as an arg — for this handler
+        # that is the OAuth redirect URI, whose query string carries the
+        # authorization `code` and CSRF `state` in the clear
+        # (`GET /callback?code=...&state=... HTTP/1.1`). Forwarding
+        # `format`/`args` verbatim into `logger.debug` (as this previously
+        # did) logs both secrets the moment DEBUG logging is enabled. Never
+        # log the request line/args; log only what we can derive safely
+        # (method + path with the query string stripped).
+        try:
+            safe_path = urlparse(self.path).path
+        except ValueError:
+            safe_path = "<unparseable>"
+        logger.debug(
+            "Loopback OAuth callback request (method=%s path=%s)",
+            self.command,
+            safe_path,
+        )
 
     def do_GET(self) -> None:
         parsed_url = urlparse(self.path)
@@ -180,6 +205,8 @@ class BaseBrowserAuthManager:
         if not self.oidc_discovery_url:
             return self.auth_endpoint, self.token_endpoint
 
+        import httpx
+
         try:
             response = httpx.get(
                 self.oidc_discovery_url,
@@ -217,6 +244,8 @@ class BaseBrowserAuthManager:
         }
         if self.extra_token_params:
             data.update(self.extra_token_params)
+
+        import httpx
 
         try:
             response = httpx.post(
@@ -416,6 +445,8 @@ class BaseBrowserAuthManager:
         }
         if self.extra_token_params:
             data.update(self.extra_token_params)
+
+        import httpx
 
         try:
             response = httpx.post(

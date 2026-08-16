@@ -17,11 +17,43 @@ import pytest
 
 from agent_utilities.graph.routing.enrichers.capability_designation import (
     CapabilityIndexWatcher,
-    build_designation_index,
     designate_specialists,
     explain_capability_eligibility,
     get_designation_index,
     record_capability_outcome,
+)
+
+# The tests below all exercise the bounded in-process ``CapabilityIndex``
+# fallback (``agent_utilities.knowledge_graph.retrieval.capability_index``),
+# whose ``.add()`` calls ``agent_utilities.numeric``'s ``xp.asarray`` -- a hard
+# requirement on the compiled ``epistemic_graph.numeric`` kernel with
+# deliberately NO numpy/pure-Python fallback (see that module's own
+# "numpy/scipy drop" docstring; ``agent_utilities.numeric`` itself raises
+# ImportError -- not degrade -- the moment IT is imported without the kernel,
+# so this file cannot import it directly at module level the way
+# ``capability_index.py`` does internally; probe the same underlying package
+# ``capability_index.py`` probes instead). In the lean CI `gates` lane (`uv
+# sync --no-install-package epistemic-graph`) the kernel is absent, so
+# ``CapabilityIndex.add()`` raises ``AttributeError`` instead of indexing --
+# not a real designation-logic bug (confirmed by direct repro: the same nodes
+# index fine once the kernel is present). Matches the existing
+# ``pytest.importorskip("epistemic_graph.numeric")`` contract used elsewhere
+# (e.g. tests/knowledge_graph/core/test_markov_transitions.py) for the
+# identical condition; only the tests that actually reach
+# ``CapabilityIndex.add()`` (the engine-native-search tests above mock past it
+# entirely) are marked.
+try:
+    import epistemic_graph.numeric as _numeric_kernel  # noqa: F401
+except ImportError:
+    _numeric_kernel = None
+
+_NEEDS_NUMERIC_KERNEL = pytest.mark.skipif(
+    _numeric_kernel is None,
+    reason=(
+        "epistemic_graph.numeric kernel not installed in this environment -- "
+        "agent_utilities.numeric.xp is None, so CapabilityIndex.add() cannot "
+        "vectorize the embedding."
+    ),
 )
 
 NODES = {
@@ -176,6 +208,7 @@ def test_designate_specialists_prefers_the_engine_native_path(monkeypatch):
     assert getattr(engine, "_capability_index_watcher", None) is None
 
 
+@_NEEDS_NUMERIC_KERNEL
 def test_designate_specialists_falls_back_when_engine_search_returns_none(
     monkeypatch,
 ):
@@ -235,6 +268,7 @@ class _CdcCapableGraph:
         return self._nodes.get(nid, {})
 
 
+@_NEEDS_NUMERIC_KERNEL
 def test_cdc_incremental_upsert_does_not_trigger_a_full_rescan():
     streaming = _FakeStreaming()
     graph = _CdcCapableGraph(NODES, streaming)
@@ -267,6 +301,7 @@ def test_cdc_incremental_upsert_does_not_trigger_a_full_rescan():
     assert len(watcher.index) == 3
 
 
+@_NEEDS_NUMERIC_KERNEL
 def test_cdc_delete_event_evicts_the_node_incrementally():
     streaming = _FakeStreaming()
     graph = _CdcCapableGraph(NODES, streaming)
@@ -291,6 +326,7 @@ def test_cdc_delete_event_evicts_the_node_incrementally():
     assert len(watcher.index) == 1
 
 
+@_NEEDS_NUMERIC_KERNEL
 def test_cdc_unavailable_degrades_to_full_rebuild_every_refresh():
     """No engine streaming surface (the common fake-engine case in this suite) —
     ``refresh()`` degrades to the pre-AU-P1-3 always-rebuild behaviour."""
@@ -378,6 +414,7 @@ def test_record_capability_outcome_never_raises_without_a_backend():
 # ---------------------------------------------------------------------------
 # CONCEPT:AU-P1-3 — explainable routing
 # ---------------------------------------------------------------------------
+@_NEEDS_NUMERIC_KERNEL
 def test_explain_capability_eligibility_reports_matched_and_missing_features():
     engine = _make_engine(NODES)
     designate_specialists(engine, "q", embed_fn=lambda q: [1.0, 0.0, 0.0])
@@ -403,6 +440,7 @@ def test_explain_capability_eligibility_returns_none_for_unknown_entity():
     assert explain_capability_eligibility(engine, "no_such_id") is None
 
 
+@_NEEDS_NUMERIC_KERNEL
 def test_get_designation_index_force_refresh_bypasses_cdc_gating():
     """``refresh=True`` still forces a full rebuild (pre-AU-P1-3 semantics kept)."""
     engine = _make_engine(NODES)
@@ -424,6 +462,7 @@ def test_record_outcome_degrades_to_neutral_when_authority_is_unavailable():
     assert record_capability_outcome(engine, "tool:search", success=True) == 0.5
 
 
+@_NEEDS_NUMERIC_KERNEL
 def test_explain_reads_authoritative_node_properties():
     engine = _make_engine()
     report = explain_capability_eligibility(

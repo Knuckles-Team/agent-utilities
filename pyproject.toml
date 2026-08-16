@@ -15,11 +15,20 @@ classifiers = [
     "Programming Language :: Python :: 3"]
 requires-python = ">=3.12,<3.15"
 license = "MIT"
-# CURRENT BASE (the self-contained GraphOS floor). The full Rust engine is mandatory;
-# configuration, envelopes, and transport dependencies used on every path live here.
-# Optional Python application layers such as the agent runtime, document readers,
-# provider SDKs, Kafka, ACP, RSS, and mirror backends remain in named extras. Native
-# code parsing and database compute are delegated to the mandatory engine. See
+# CURRENT BASE (the eg-absent floor). Configuration, envelopes, and transport
+# dependencies used on every path — including paths that never touch the engine —
+# live here. GOC-73: `epistemic-graph[full]` moved OUT of base into the `[graphos]`
+# extra (see `[project.optional-dependencies].graphos` below) because a hard base
+# dependency on an unpublished eg floor (`>=2.23.2`, PyPI's newest is 2.23.0) blocked
+# every consumer that imports `agent_utilities` but never touches the engine (e.g.
+# agent-webui: 151 `agent_utilities` import sites, zero real `epistemic_graph` usage).
+# `[full]`/`[all]`/`[serving]` all still pull `[graphos]` so an existing
+# `pip install agent-utilities[full-or-all-or-serving]` is unaffected; only the
+# BARE `pip install agent-utilities` (no extras) no longer gets the engine — see the
+# `graphos` extra's comment for the full compatibility/blast-radius analysis. Optional
+# Python application layers such as the agent runtime, document readers, provider
+# SDKs, Kafka, ACP, RSS, and mirror backends remain in named extras. Native code
+# parsing and database compute are delegated to the (now optional) engine. See
 # "Dependency discipline" in AGENTS.md.
 dependencies = [
     "pydantic[email]>=2.13.4",
@@ -81,32 +90,6 @@ dependencies = [
     # external fleet manifests still pin `agent-utilities[auth]` and must keep
     # resolving.
     "joserfc>=1.7.4",
-    # CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — the
-    # engine is a HARD base dependency, so a bare `pip install agent-utilities` already
-    # yields a self-contained, FULLY-CAPABLE graph-os when the approved `epistemic-graph`
-    # artifact passes its release gate. The canonical wheel contract builds the whole main
-    # CPU feature set (`MATURIN_FEATURES=full,ast-extended` →
-    # compute/finance/datascience/mining/graphlearn/reasoning + query/cypher +
-    # redb-authoritative durability + security + every wire protocol), and bundles the
-    # `epistemic-graph-server` binary (next to `sys.executable`) that graph-os autostarts +
-    # supervises over a private UDS socket (EngineResolver, OS-5.63) — no external DB/service.
-    # `[full]` is the sole supported engine profile. It includes the compiled
-    # `epistemic_graph.numeric` kernel and the numpy dependency used internally for
-    # rust-numpy zero-copy interop; agent-utilities imports numpy nowhere.
-    #
-    # `[full]` (= `[owl,lmcache,numeric]`) adds the pyoxigraph SPARQL/RDF Python interop +
-    # httpx accel on top of the numeric kernel; package metadata has exposed this extra
-    # since v2.15.0. Consumer CI still imports and executes the folded kernel so metadata
-    # alone cannot satisfy the release. NOT
-    # `[full-extras]`: that is the engine's opt-in GPU (cudarc) + ROS2/DDS cargo layer, which
-    # needs an external CUDA/robotics TOOLCHAIN to run — the opposite of "self-contained, no
-    # external dependency" — and is a wheel BUILD variant, not a pip extra (absent from the
-    # published CPU wheel).
-    #
-    # Floor `>=2.23.2` — the compatibility-matrix release used by this ecosystem workspace;
-    # it includes the published `[full]` extra and the full Surface-A operation set. Never an
-    # exact pin. See docs/guides/numeric-kernel.md.
-    "epistemic-graph[full]>=2.23.2,<3.0.0",
 ]
 
 [[project.authors]]
@@ -114,6 +97,52 @@ name = "Repository Maintainers"
 email = "maintainers@example.invalid"
 
 [project.optional-dependencies]
+# CONCEPT:KG-2.324 / CONCEPT:AU-OS.deployment.engine-resolver-auto-provision — GOC-73:
+# the epistemic-graph engine moved from a hard base dependency to this OPT-IN extra.
+# `pip install agent-utilities[graphos]` yields a self-contained, FULLY-CAPABLE
+# graph-os when the approved `epistemic-graph` artifact passes its release gate. The
+# canonical wheel contract builds the whole main CPU feature set
+# (`MATURIN_FEATURES=full,ast-extended` → compute/finance/datascience/mining/
+# graphlearn/reasoning + query/cypher + redb-authoritative durability + security +
+# every wire protocol), and bundles the `epistemic-graph-server` binary (next to
+# `sys.executable`) that graph-os autostarts + supervises over a private UDS socket
+# (EngineResolver, OS-5.63) — no external DB/service. `[full]` is the sole supported
+# engine profile. It includes the compiled `epistemic_graph.numeric` kernel and the
+# numpy dependency used internally for rust-numpy zero-copy interop; agent-utilities
+# imports numpy nowhere.
+#
+# `[full]` (= `[owl,lmcache,numeric]`) adds the pyoxigraph SPARQL/RDF Python interop +
+# httpx accel on top of the numeric kernel; package metadata has exposed this extra
+# since v2.15.0. Consumer CI still imports and executes the folded kernel so metadata
+# alone cannot satisfy the release. NOT `[full-extras]`: that is the engine's opt-in
+# GPU (cudarc) + ROS2/DDS cargo layer, which needs an external CUDA/robotics
+# TOOLCHAIN to run — the opposite of "self-contained, no external dependency" — and
+# is a wheel BUILD variant, not a pip extra (absent from the published CPU wheel).
+#
+# Floor `>=2.23.2` — the compatibility-matrix release used by this ecosystem
+# workspace; it includes the published `[full]` extra and the full Surface-A
+# operation set. Never an exact pin. See docs/guides/numeric-kernel.md.
+#
+# WHO ACTUALLY NEEDS THIS (see the module-load audit in the GOC-73 report): every
+# direct `import epistemic_graph` / `from epistemic_graph import ...` in this
+# repository is either (a) already a LAZY, function-scoped import (the
+# `knowledge_graph` engine-client call sites in core/graph_compute.py,
+# core/placement_catalog.py, pipeline/phases/parse.py, analytics_worker.py,
+# protocols/a2a_epistemic.py, mcp/tools/engine_tools.py, deployment/production_ops.py
+# — none of these execute at `import agent_utilities.<subpackage>` time) or (b) the
+# ONE genuinely unconditional module-load-time import,
+# `agent_utilities/numeric/__init__.py` (the `xp` numeric-kernel shim), which raises
+# a clear `ImportError` naming this extra instead of failing silently or stubbing.
+# `agent_utilities.numeric` is imported (transitively) by `domains/*` (finance) and a
+# handful of `knowledge_graph` analytics call sites that *use* the kernel-backed `xp`
+# surface — but NOT by importing the `knowledge_graph`, `server`, `core`, `security`,
+# `gateway`, `observability`, `models`, `mcp`, `sdd`, or `orchestration` packages
+# themselves; those only pull `agent_utilities.numeric` inside the specific functions
+# that need array math. Bare `import agent_utilities.<subpackage>` for all ten stays
+# eg-free — see the acceptance-test venv in the GOC-73 report.
+graphos = [
+    "epistemic-graph[full]>=2.23.2,<3.0.0",
+]
 # CONCEPT:ORCH-1.38 — RLM sandbox tiers. `monty` is the default fast/isolated tier
 # (small pure-Rust wheel, no transitive deps; backend import guarded so absence degrades
 # to the local floor); the CPython-WASI/wasm tier needs `wasmtime`. Both kept here so the
@@ -403,9 +432,13 @@ serving = [
     #     it is opt-in via `[graph]`, never shipped on the serving default. neo4j/falkordb stay
     #     because they remain actively-selectable mirrors; ladybug does not.
     #
-    # `epistemic-graph[full]` is a hard base dependency, while `feeds` remains an optional
-    # serving dependency for RSS ingestion. Code parsing is delegated to the engine's native
-    # tree-sitter — no Python tree-sitter is added to the serving plane.
+    # GOC-73: `epistemic-graph[full]` is no longer a hard BASE dependency (see the
+    # `graphos` extra above), but the serving plane (graph-os MCP / host daemon) is
+    # THE engine consumer, so `serving` pulls `graphos` explicitly here — an existing
+    # `pip install agent-utilities[serving]` still gets the engine unchanged. `feeds`
+    # remains an optional serving dependency for RSS ingestion. Code parsing is
+    # delegated to the engine's native tree-sitter — no Python tree-sitter is added
+    # to the serving plane.
     #
     # Full external OWL-DL reasoning (owlready2, the `owl` extra) stays excluded: GraphOS
     # delegates classification to the engine's native RDF/SPARQL/OWL surface. The narrower
@@ -443,7 +476,7 @@ serving = [
     # `hvac` is the only client that satisfies that on the serving plane, and it is a small
     # pure-Python HTTP client (no ML/native weight), so it belongs in `serving`, not a bespoke
     # second OpenBao client.
-    "agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,ontology-guardrails]",
+    "agent-utilities[graphos,mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,ontology-guardrails]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward
@@ -521,10 +554,44 @@ test = [
     # nowhere (the `xp` shim is kernel-or-raise). scipy is NOT needed — the four scipy ops
     # are native kernel exports (`xp.eigsh`/`spearmanr`/`ks_2samp`/`norm_ppf`/`norm_pdf`).
     "numpy>=2.5.1",
-    # `agent-runtime` already implies mcp+sandbox; the full engine is a hard base
-    # dependency. Add `feeds` (RSS ingestion tests)
-    # and the explicit backend extras the suite exercises.
-    "agent-utilities[agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]"
+    # `agent-runtime` already implies mcp+sandbox. GOC-73: the engine is no longer a
+    # hard base dependency, so `test` must pull `graphos` explicitly — this repo's own
+    # suite (numeric parity, knowledge_graph engine-client tests, etc.) genuinely
+    # exercises epistemic-graph and must not silently run engine-absent. Add `feeds`
+    # (RSS ingestion tests) and the explicit backend extras the suite exercises.
+    "agent-utilities[graphos,agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]",
+    # DEV/TEST-ONLY — a hermetic in-memory comparator, never imported by runtime code.
+    # tests/knowledge_graph/test_pack_owl_closure.py, tests/unit/knowledge_graph/
+    # test_owl_closure.py and tests/unit/knowledge_graph/test_federation.py build a
+    # plain networkx graph at module scope as the ground-truth LPG to assert the
+    # engine's OWL/RDFS+ transitive closure and federation semantics against, without
+    # standing up a real backend. Pure Python, no native/ML weight — does not fall
+    # under the torch/transformers "Dependency discipline" ban.
+    "networkx>=3.6.1",
+    # DEV/TEST-ONLY. `agent_utilities/core/event_loop.py` already lazy-imports
+    # nest_asyncio (try/except ImportError, inside `allow_nested_run_sync()`, only
+    # when a loop is already running) so it is correctly absent from runtime/core
+    # deps. tests/unit/core/test_event_loop.py must import it directly at module
+    # scope to `monkeypatch.setattr(nest_asyncio, "apply", ...)` and prove the shim
+    # never patches process-wide asyncio state outside that one scoped case.
+    "nest_asyncio>=1.6.0",
+    # `agent_utilities/messaging/alert_intake.py` (the opt-in HTTP alert-intake
+    # server, only imported by messaging/daemon.py when MESSAGING_ALERT_INTAKE_PORT
+    # is set — never on the default import path) needs aiohttp.web unconditionally
+    # the moment IT is imported. tests/unit/messaging/test_alert_intake_security.py
+    # exercises that module directly. aiohttp is already a floor-pinned dependency
+    # of this project (see the `documents` extra, CVE-2026-50269/54274/54275) but
+    # that extra is not part of `test`'s selection, so pin the same floor here too
+    # rather than dragging in the unrelated llama-index/nltk/pypdf stack.
+    "aiohttp>=3.14.1",
+    # DEV/TEST-ONLY. setuptools is already a `[build-system] requires` floor
+    # (>=83.0.0) for this project's own PEP 517 backend (`build_backend.py`, which
+    # wraps `setuptools.build_meta` to embed a deterministic CycloneDX SBOM) — build
+    # requirements are installed only into an ephemeral build environment, not the
+    # runtime venv. tests/unit/release/test_release_evidence_tooling.py imports
+    # `build_backend` directly to unit-test that SBOM logic, so the same floor must
+    # also be reachable at test time.
+    "setuptools>=83.0.0"
 ]
 # CONCEPT:KG-2.0 / KG-2.7 — live cross-backend parity + enterprise-profile e2e.
 # Pulls every storage/queue/SPARQL driver plus testcontainers so
@@ -533,8 +600,10 @@ test-backends = [
     "agent-utilities[test,neo4j,falkordb,postgresql,kafka,owl,fuseki]",
     "testcontainers>=4.14.2"
 ]
+# GOC-73: `graphos` is listed first so an existing `pip install agent-utilities[all]`
+# still gets the engine unchanged now that it is no longer a hard base dependency.
 all = [
-    "agent-utilities[mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
+    "agent-utilities[graphos,mcp,feeds,agent-runtime,agent-google,agent-groq,agent-mistral,agent-anthropic,agent-huggingface,embeddings-openai,embeddings-huggingface,embeddings-ollama,logfire,langfuse,acp,documents,graph,ann,sandbox,browser,test,owl,stardog,vault,auth,finance,messaging,pyarrow]>=1.0.0"]
 
 [project.scripts]
 graph-os = "agent_utilities.mcp.kg_server:mcp_server"
@@ -736,37 +805,58 @@ override-dependencies = [
 searxng = ["pyyaml", "msgspec", "typing-extensions", "setuptools"]
 
 [tool.uv.sources]
-# The ecosystem workspace validates Agent Utilities against the sibling engine
-# checkout at the exact source head. Published consumers still resolve the
-# certified >=2.23,<3 wheel range declared above.
-epistemic-graph = { workspace = true }
-# The workspace release train certifies the current observability provider
-# artifact rather than resolving a same-version package from an index.
-langfuse-agent = { workspace = true }
-# D-75-1/D-CIP-19/D-W3BP-4: langfuse-agent (a workspace member below) depends
-# on plain-versioned `agent-utilities[mcp]>=2.0.0,<3.0.0`. uv requires an
-# explicit source, declared at the workspace ROOT, for any dependency name
-# that collides with a workspace member's own name -- a member cannot source
-# itself from within its own `[tool.uv.sources]`. The ecosystem workspace
-# root resolves the identical edge the identical way (its own repo-relative
-# `pyproject.toml`'s `[tool.uv.sources]`).
-agent-utilities = { workspace = true }
-
-# D-75-1/D-CIP-19/D-W3BP-4 (operator decision, 2026-08-07): this repo is its
-# OWN uv workspace root, self-contained, so the `workspace = true` sources
-# above resolve without depending on the larger, untracked, unshipped
-# ecosystem workspace at the repo root. `.uv-workspace-siblings/<name>` is not
-# tracked: `scripts/uv_workspace.py` symlinks it locally from the ecosystem
-# checkout for dev/lane use (`materialize_own_siblings`); CI's
-# `.github/workflows/security.yml` materializes the same paths with
-# `actions/checkout` for the one job that needs both packages actually
-# installed. Every other workflow sidesteps the requirement entirely with
-# `--no-install-package epistemic-graph --no-install-package langfuse-agent`.
-[tool.uv.workspace]
-members = [
-    ".uv-workspace-siblings/epistemic-graph",
-    ".uv-workspace-siblings/langfuse-agent",
-]
+# D-UVN-1 (supersedes D-75-1/D-CIP-19/D-W3BP-4, operator decision 2026-08-13):
+# both siblings are plain editable PATH sources, NOT `{ workspace = true }`,
+# and this repo declares NO `[tool.uv.workspace]` table of its own. uv
+# unconditionally rejects a workspace member that is itself a workspace root
+# ("Nested workspaces are not supported") -- so the prior D-75-1 design (this
+# repo as its own self-contained workspace root) broke `uv sync` for every
+# member of the larger ecosystem workspace at the repo root (`../../pyproject.toml`,
+# `[tool.uv.workspace] members = ["agent-packages/agent-utilities", ...]`), not
+# just the one langfuse-agent cyclic edge it was written for -- confirmed
+# empirically: `cd agent-packages/geniusbot && uv sync` and
+# `cd agent-packages/agents/langfuse-agent && uv sync` both failed with the
+# identical "Nested workspaces are not supported ... agent-utilities" error,
+# unrelated to either repo's own dependency shape. It also broke this repo's
+# OWN bare `uv sync`: langfuse-agent (pulled in as a self-hosted workspace
+# member via `.uv-workspace-siblings/langfuse-agent`) declares its OWN
+# `agent-utilities = { path = ... }` source in ITS pyproject.toml for its
+# outer-ecosystem/standalone use, and uv rejects that as "agent-utilities is
+# included as a workspace member, but references a path in tool.uv.sources"
+# the moment it is loaded as a member of ANY workspace containing
+# agent-utilities -- the self-referential `agent-utilities = { workspace =
+# true }` this repo declared for itself could not fix that, because the
+# conflicting declaration lives in langfuse-agent's OWN file, not this one.
+# Plain path sources on both sides (this file AND langfuse-agent's) sidestep
+# the whole class: two projects with a mutual editable path dependency, no
+# workspace joining them, so neither uv's cross-workspace-member-name rule nor
+# the nested-workspace rule ever applies. Same pattern already proven for
+# agent-webui (BUG-074) and geniusbot depending on THIS repo (see
+# `agent-packages/geniusbot/pyproject.toml`'s `[tool.uv.sources]` comment).
+# `.uv-workspace-siblings/<name>` is not tracked: `scripts/uv_workspace.py`
+# symlinks it locally from the ecosystem checkout for dev/lane use
+# (`materialize_own_siblings`); CI's `.github/workflows/security.yml`
+# materializes the same paths with `actions/checkout` for the one job that
+# needs both packages actually installed. Every other workflow sidesteps the
+# requirement entirely with `--no-install-package epistemic-graph
+# --no-install-package langfuse-agent`.
+#
+# Known residual limitation: a BARE `uv sync` run with cwd literally inside
+# this repo's canonical checkout at `agent-packages/agent-utilities` (not a
+# worktree) still discovers the outer ecosystem workspace as an ancestor, and
+# uv's per-member-name-collision rule then rejects any OTHER outer-workspace
+# member that ALSO declares an explicit (non-`workspace=true`) source for
+# `agent-utilities` -- e.g. `agent-packages/agent-webui`,
+# `agent-packages/geniusbot`. Members with NO explicit source for
+# `agent-utilities` (the majority of the fleet) resolve it automatically as a
+# same-workspace member and are unaffected. The sanctioned workflow for this
+# repo is a `git worktree add` outside the shared checkout (see this repo's
+# "Branching & isolation"), which sits outside the ecosystem workspace
+# entirely and is unaffected by this limitation -- confirmed empirically
+# against an isolated worktree with `scripts/uv_workspace.py` and bare `uv
+# sync --all-extras` alike.
+epistemic-graph = { path = ".uv-workspace-siblings/epistemic-graph", editable = true }
+langfuse-agent = { path = ".uv-workspace-siblings/langfuse-agent", editable = true }
 
 [dependency-groups]
 guardrails = [
@@ -778,23 +868,36 @@ guardrails = [
     "pyyaml>=6.0.3",
     "rdflib>=7.6.0",
 ]
+# Build-backend tooling only: `build_backend.py` imports `setuptools` and
+# `packaging` at module scope (`wheel` is required transitively — setuptools's
+# `bdist_wheel` command is implemented by the `wheel` distribution and
+# discovered via its entry points). The release job builds with
+# `--no-build-isolation`, which deliberately skips installing
+# `[build-system] requires` and instead reuses whatever is already synced —
+# so these three MUST be present in the synced environment or the backend
+# import fails (`ModuleNotFoundError: setuptools`). Kept as its own group
+# (not folded into `guardrails`, which is guardrail-domain tooling and
+# unrelated to packaging) and synced ONLY by the `build` job — mirrors
+# `[build-system] requires` so the pinned floors stay one source of truth in
+# spirit. `[tool.uv.extra-build-dependencies]` was considered and rejected:
+# that mechanism only supplements an *isolated* build env and is a no-op
+# under `--no-build-isolation`, which this job uses on purpose.
+build = [
+    "setuptools>=83.0.0",
+    "wheel>=0.47.0",
+    "packaging>=26.2.0",
+]
 
 
-[tool.pytest.ini_options]
-asyncio_mode = "auto"
-pythonpath = "."
-timeout = 30
-testpaths = ["tests/unit", "tests/integration"]
-markers = [
-    "integration: Integration tests using subprocess/TestClient (no external services)",
-    "live: Tests requiring live external services (LLM endpoints, real networks)",
-    "slow: Slow / real-resource timing tests excluded from the fast pre-commit gate (run in full/nightly)",
-    "concept(id): Mark test as validating a specific documentation concept (e.g., CONCEPT:ORCH-1.2)"
-]
-env = [
-    "AGENT_UTILITIES_TESTING=true",
-    "VALIDATION_MODE=true"
-]
+# Pytest configuration lives in pytest.ini, not here. Both files used to carry
+# a [tool.pytest.ini_options]/[pytest] block that silently disagreed (timeout
+# 30 vs 300, testpaths tests/unit+tests/integration vs the whole tests/ tree)
+# -- pytest's own config-file precedence (pytest.ini > pyproject.toml) means
+# pytest.ini always won and this block was dead weight that only misled
+# readers. Removed 2026-08-13; see pytest.ini for the effective config.
+# (VALIDATION_MODE=true here was also redundant even when live: DEFAULT_
+# VALIDATION_MODE in agent_utilities/core/config.py already ORs in
+# AGENT_UTILITIES_TESTING, which pytest.ini sets unconditionally.)
 
 [tool.coverage.run]
 source = ["agent_utilities"]

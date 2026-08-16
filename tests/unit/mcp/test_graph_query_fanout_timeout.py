@@ -143,7 +143,7 @@ def test_graph_query_target_default_string_also_uses_short_timeout(monkeypatch):
 
     asyncio.run(
         kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN n", target="default"
+            "graph_query", cypher="MATCH (n) RETURN n", connection="default"
         )
     )
 
@@ -177,7 +177,7 @@ def test_graph_query_explicit_all_target_keeps_full_fanout_timeout(monkeypatch):
 
     asyncio.run(
         kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN n", target="all"
+            "graph_query", cypher="MATCH (n) RETURN n", connection="all"
         )
     )
 
@@ -381,7 +381,7 @@ def test_graph_query_explicit_target_denial_also_never_crashes(monkeypatch):
 
     out = asyncio.run(
         kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN n", target="all"
+            "graph_query", cypher="MATCH (n) RETURN n", connection="all"
         )
     ).model_dump()
 

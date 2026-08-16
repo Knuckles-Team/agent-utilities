@@ -42,3 +42,17 @@
 # Never hand-add an entry to make a real regression disappear; use
 # --update-baseline only when burning an entry down.
 security.yml	uv sync --frozen --group guardrails --extra agent-runtime
+#
+# UPDATE (2026-08-14): advisory.yml's "Sync full advisory environment" job
+# (.github/workflows/advisory.yml lines 94-114, "D-CIP-2: uv.lock pins
+# epistemic-graph/langfuse-agent as editable workspace siblings ...") carries
+# the EXACT same fix as the security.yml entry above -- two actions/checkout
+# steps materialize Knuckles-Team/epistemic-graph and Knuckles-Team/
+# langfuse-agent into .uv-workspace-siblings/<name> immediately before this
+# sync, so the distribution genuinely exists on the runner. Same reasoning,
+# same false-negative-of-the-local-tool cause (this gate is offline/<2s by
+# design and cannot replay the two checkout steps), same "stays baselined"
+# expectation. Structurally verified against the workflow YAML itself
+# (checkout steps present, correct paths, immediately precede this exact
+# command) rather than a live network resolve.
+advisory.yml	uv sync --frozen --extra test --group guardrails --extra agent-runtime

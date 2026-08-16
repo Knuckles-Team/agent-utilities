@@ -28,6 +28,28 @@ from agent_utilities.mcp.tools import engine_tools
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
+# A subset of tests below resolve a real, REGISTERED ``engine_<domain>`` MCP
+# tool (``kg_server.REGISTERED_TOOLS[f"engine_{domain}"]``) or assert a domain
+# is a member of ``engine_tools.ENGINE_DOMAINS`` directly. Both are populated
+# by introspecting the real ``epistemic_graph.client`` sub-client classes at
+# import time (``engine_tools._discover_domains``) -- when that package is
+# absent (e.g. the lean CI `gates` lane's `uv sync
+# --no-install-package epistemic-graph`), discovery degrades to an empty dict
+# with a logged warning, no engine_<domain> tool gets registered, and these
+# tests' premise cannot be exercised (a bare ``KeyError``, not a real dispatch
+# bug). No live engine/kernel is required otherwise -- the wire client is
+# monkeypatched exactly like ``tests/unit/test_engine_api_coverage.py`` -- so
+# only THIS subset skips; the client-pool/graph-narrowing tests below that
+# never touch ``REGISTERED_TOOLS``/``ENGINE_DOMAINS`` still run for real.
+_NEEDS_ENGINE_DOMAINS = pytest.mark.skipif(
+    not engine_tools.ENGINE_DOMAINS,
+    reason=(
+        "epistemic_graph package not installed in this environment -- "
+        "engine_tools.ENGINE_DOMAINS is empty, so no engine_<domain> MCP tool "
+        "is registered to dispatch through."
+    ),
+)
+
 
 def _fake_client_factory():
     """A fake ``SyncEpistemicGraphClient`` with recording sub-clients for every
@@ -98,6 +120,7 @@ def _session(actor: ActorContext, *scopes: str) -> GraphSession:
         ("admin", "backup", {}),
     ],
 )
+@_NEEDS_ENGINE_DOMAINS
 def test_admin_action_denied_for_non_admin_actor(monkeypatch, domain, action, params):
     kg_server.ensure_tools_registered()
     client, _calls = _fake_client_factory()
@@ -128,6 +151,7 @@ def test_unknown_domain_defaults_to_admin_fail_closed():
         ("graphlearn", "predict", {}),
     ],
 )
+@_NEEDS_ENGINE_DOMAINS
 def test_normal_action_allowed_for_non_admin_actor(monkeypatch, domain, action, params):
     kg_server.ensure_tools_registered()
     client, calls = _fake_client_factory()
@@ -175,6 +199,7 @@ def test_served_profile_enforces_read_write_scope_for_normal_domains(monkeypatch
 
 
 # ── (c) admin actor / admin GraphSession scope IS allowed ────────────────────
+@_NEEDS_ENGINE_DOMAINS
 def test_admin_role_without_admin_scope_is_denied(monkeypatch):
     kg_server.ensure_tools_registered()
     client, calls = _fake_client_factory()
@@ -198,6 +223,7 @@ def test_admin_role_without_admin_scope_is_denied(monkeypatch):
     assert calls == []
 
 
+@_NEEDS_ENGINE_DOMAINS
 def test_admin_action_allowed_via_graph_session_scope(monkeypatch):
     """A non-admin-role actor with an explicit GraphSession ``kg:admin`` scope
     is also let through because GraphSession scopes are the sole authority."""
@@ -216,6 +242,7 @@ def test_admin_action_allowed_via_graph_session_scope(monkeypatch):
 
 
 # ── new namespaces registered (audited gap #3) ───────────────────────────────
+@_NEEDS_ENGINE_DOMAINS
 def test_new_namespaces_registered_and_admin_flagged():
     kg_server.ensure_tools_registered()
     for domain in ("broker", "rbac", "admin", "graphlearn"):

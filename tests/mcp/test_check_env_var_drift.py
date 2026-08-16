@@ -302,6 +302,285 @@ def test_stale_readme_example_flagged(tmp_path: Path) -> None:
     assert "MCP_TOOL_MODE" in _types(report, "MISSING_TOOL_MODE")
 
 
+def test_scripts_read_suppresses_dead(tmp_path: Path) -> None:
+    """Blind spot 1: a var declared in .env.example/mcp_config but read ONLY by the
+    package's own scripts/*.py (not the main package tree) must not be reported DEAD —
+    scripts/ is genuine first-party code, e.g. scripts/validate_falkordb.py reading
+    FALKORDB_URI in the real genius-agent repo."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\nFALKORDB_URI=\n",
+        mcp_config={
+            "mcpServers": {
+                "demo": {
+                    "env": {"DEMO_BASE_URL": "x", "MCP_TOOL_MODE": "condensed"}
+                }
+            }
+        },
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    (root / "scripts").mkdir()
+    (root / "scripts" / "validate_falkordb.py").write_text(
+        'import os\nos.environ.get("FALKORDB_URI", "redis://127.0.0.1:6379")\n',
+        encoding="utf-8",
+    )
+    report = drift.analyze(root)
+    assert "FALKORDB_URI" not in _types(report, "DEAD")
+
+
+def test_scripts_read_does_not_force_undocumented(tmp_path: Path) -> None:
+    """A var read ONLY by a scripts/*.py dev/CI tool — never declared anywhere — is NOT
+    flagged UNDOCUMENTED. scripts/ in this fleet is scaffolded maintainer-only tooling
+    (validation harnesses, local gate runners) shared byte-identical across 60+ packages,
+    each reading it with a hardcoded fallback default at the call site (e.g. AGENT_UTILITIES_
+    ROOT in scripts/run_agent_utilities_gate.py). Folding scripts/ reads into the
+    documentable surface would force every package's PUBLIC .env.example to document
+    dev-only gate-script knobs a deployer never sets — an UNDOCUMENTED false positive
+    observed identically across the fleet while fixing this blind spot."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "intent"}}}},
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    (root / "scripts").mkdir()
+    (root / "scripts" / "run_agent_utilities_gate.py").write_text(
+        'import os\nos.environ.get("AGENT_UTILITIES_ROOT")\n', encoding="utf-8"
+    )
+    report = drift.analyze(root)
+    assert "AGENT_UTILITIES_ROOT" not in _types(report, "UNDOCUMENTED")
+    assert "AGENT_UTILITIES_ROOT" not in _types(report, "DEAD")
+
+
+def test_dynamic_tls_family_read_suppresses_dead(tmp_path: Path) -> None:
+    """Blind spot 2: MEALIE_TLS_PROFILE / MEALIE_TLS_PROFILE_REF are composed at runtime by
+    ``resolve_configured_tls_profile(service="mealie")`` — no literal of either name appears
+    anywhere in the calling package, so a purely static scan cannot see the read. The
+    checker instead reads the CONCEPT:AU-OS.config.dynamic-env-family declaration published
+    on the real ``resolve_configured_tls_profile``/``resolve_tls_profile`` functions in
+    ``agent_utilities.core.transport_security`` (dynamic_env_prefix_arg="service",
+    dynamic_env_suffixes=("TLS_PROFILE", "TLS_PROFILE_REF"))."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\nMEALIE_TLS_PROFILE=\nMEALIE_TLS_PROFILE_REF=\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n"
+            'setting("DEMO_BASE_URL", "")\n'
+            "from agent_utilities.core.transport_security import (\n"
+            "    resolve_configured_tls_profile,\n"
+            ")\n"
+            'resolve_configured_tls_profile("mealie")\n'
+        ),
+    )
+    report = drift.analyze(root)
+    assert "MEALIE_TLS_PROFILE" not in _types(report, "DEAD")
+    assert "MEALIE_TLS_PROFILE_REF" not in _types(report, "DEAD")
+
+
+def test_dynamic_tls_family_read_flags_undocumented(tmp_path: Path) -> None:
+    """The dynamic-family family is narrowly scoped to the two PRIMARY per-service TLS
+    selectors precisely so it is safe to also enforce documentation of them: a service
+    literal used in code but whose derived vars are absent from .env.example is genuinely
+    UNDOCUMENTED, same as any other real code read."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n"
+            'setting("DEMO_BASE_URL", "")\n'
+            "from agent_utilities.core.transport_security import resolve_tls_profile\n"
+            'resolve_tls_profile(service="newsvc")\n'
+        ),
+    )
+    report = drift.analyze(root)
+    undocumented = _types(report, "UNDOCUMENTED")
+    assert "NEWSVC_TLS_PROFILE" in undocumented
+    assert "NEWSVC_TLS_PROFILE_REF" in undocumented
+
+
+def test_dynamic_family_non_literal_prefix_is_silently_skipped(tmp_path: Path) -> None:
+    """A runtime-computed (non-literal) service argument cannot be resolved statically —
+    same limit as every other static scan here — and must not raise or produce a bogus
+    var name."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n"
+            'setting("DEMO_BASE_URL", "")\n'
+            "from agent_utilities.core.transport_security import resolve_tls_profile\n"
+            "svc = compute_service_name()\n"
+            "resolve_tls_profile(svc)\n"
+        ),
+    )
+    report = drift.analyze(root)  # must not raise
+    assert report["drift"] >= 0
+
+
+def test_compose_image_substitution_suppresses_dead(tmp_path: Path) -> None:
+    """Blind spot 3: image: ${VAR:?...} in a compose file is a genuine read (docker compose
+    substitutes it at `docker compose up` time) that only ``environment:`` blocks were
+    previously scanned for."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\nDEMO_MCP_IMAGE=\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    (root / "docker").mkdir()
+    (root / "docker" / "mcp.compose.yml").write_text(
+        "services:\n"
+        "  demo:\n"
+        "    image: ${DEMO_MCP_IMAGE:?set-DEMO_MCP_IMAGE-to-image@sha256-digest}\n",
+        encoding="utf-8",
+    )
+    report = drift.analyze(root)
+    assert "DEMO_MCP_IMAGE" not in _types(report, "DEAD")
+
+
+def test_compose_command_and_entrypoint_substitution_suppresses_dead(
+    tmp_path: Path,
+) -> None:
+    """The same scan covers multi-line YAML list values under command:/entrypoint:/args:,
+    not just an inline scalar like image:."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\nDEMO_FLAG=\nDEMO_ENTRY=\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    (root / "docker").mkdir()
+    (root / "docker" / "mcp.compose.yml").write_text(
+        "services:\n"
+        "  demo:\n"
+        "    entrypoint: [\"${DEMO_ENTRY}\"]\n"
+        "    command:\n"
+        '      - "--flag=${DEMO_FLAG:-default}"\n'
+        '      - "--static"\n'
+        "    ports:\n"
+        '      - "8000:8000"\n',
+        encoding="utf-8",
+    )
+    report = drift.analyze(root)
+    assert "DEMO_FLAG" not in _types(report, "DEAD")
+    assert "DEMO_ENTRY" not in _types(report, "DEAD")
+
+
+def test_compose_image_substitution_flags_undocumented(tmp_path: Path) -> None:
+    """A compose image:/command:/entrypoint:/args: substitution var that is genuinely
+    undeclared anywhere is UNDOCUMENTED, not silently accepted."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    (root / "docker").mkdir()
+    (root / "docker" / "mcp.compose.yml").write_text(
+        "services:\n"
+        "  demo:\n"
+        "    image: ${DEMO_AGENT_IMAGE:?set-DEMO_AGENT_IMAGE-to-image@sha256-digest}\n",
+        encoding="utf-8",
+    )
+    report = drift.analyze(root)
+    assert "DEMO_AGENT_IMAGE" in _types(report, "UNDOCUMENTED")
+
+
+def test_compose_environment_block_still_not_treated_as_subst_read(
+    tmp_path: Path,
+) -> None:
+    """The new image:/command:/entrypoint:/args: substitution scan must not change the
+    pre-existing environment: block handling (a LHS key there is a DECLARATION source,
+    like .env.example — see test_dead_var_flagged — not folded into the read surface)."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
+    )
+    (root / "docker").mkdir()
+    (root / "docker" / "mcp.compose.yml").write_text(
+        "services:\n"
+        "  demo:\n"
+        "    environment:\n"
+        "      - DEMO_ENV_ONLY_VAR=${DEMO_ENV_ONLY_VAR}\n",
+        encoding="utf-8",
+    )
+    report = drift.analyze(root)
+    # declared via the environment: block (as before) -> DEAD, since nothing reads it
+    assert "DEMO_ENV_ONLY_VAR" in _types(report, "DEAD")
+
+
+def test_known_bad_dead_var_still_caught_after_widening(tmp_path: Path) -> None:
+    """PROOF (a): a genuinely DEAD var — declared but read by nothing at all, not by
+    scripts/, not by a compose image/command/entrypoint/args substitution, not by a dynamic
+    TLS family call — is still reported DEAD even with every blind-spot fix from this change
+    present and active in the same package."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\nTOTALLY_ORPHANED_VAR=\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n"
+            'setting("DEMO_BASE_URL", "")\n'
+            "from agent_utilities.core.transport_security import resolve_tls_profile\n"
+            'resolve_tls_profile(service="mealie")\n'
+        ),
+    )
+    (root / "scripts").mkdir()
+    (root / "scripts" / "gate.py").write_text(
+        'import os\nos.environ.get("SCRIPT_ONLY_VAR")\n', encoding="utf-8"
+    )
+    (root / "docker").mkdir()
+    (root / "docker" / "mcp.compose.yml").write_text(
+        "services:\n"
+        "  demo:\n"
+        "    image: ${DEMO_MCP_IMAGE:?set-image}\n",
+        encoding="utf-8",
+    )
+    report = drift.analyze(root)
+    assert "TOTALLY_ORPHANED_VAR" in _types(report, "DEAD")
+
+
+def test_known_bad_undocumented_var_still_caught_after_widening(tmp_path: Path) -> None:
+    """PROOF (b): a genuinely UNDOCUMENTED var — read by ordinary package code, absent from
+    .env.example — is still reported UNDOCUMENTED with every blind-spot fix active in the
+    same package (scripts/, compose substitution, and a dynamic TLS family call all present
+    alongside it, to prove none of the widening accidentally swallows a real finding)."""
+    root = _make_pkg(
+        tmp_path,
+        env_example="DEMO_BASE_URL=http://x\nMEALIE_TLS_PROFILE=\nMEALIE_TLS_PROFILE_REF=\nDEMO_MCP_IMAGE=\n",
+        mcp_config={"mcpServers": {"demo": {"env": {"MCP_TOOL_MODE": "condensed"}}}},
+        code=(
+            "from agent_utilities.core.config import setting\n"
+            'setting("DEMO_BASE_URL", "")\n'
+            'setting("BRAND_NEW_UNDOCUMENTED_VAR", "")\n'
+            "from agent_utilities.core.transport_security import resolve_tls_profile\n"
+            'resolve_tls_profile(service="mealie")\n'
+        ),
+    )
+    (root / "scripts").mkdir()
+    (root / "scripts" / "gate.py").write_text(
+        'import os\nos.environ.get("SCRIPT_ONLY_VAR")\n', encoding="utf-8"
+    )
+    (root / "docker").mkdir()
+    (root / "docker" / "mcp.compose.yml").write_text(
+        "services:\n"
+        "  demo:\n"
+        "    image: ${DEMO_MCP_IMAGE:?set-image}\n",
+        encoding="utf-8",
+    )
+    report = drift.analyze(root)
+    assert "BRAND_NEW_UNDOCUMENTED_VAR" in _types(report, "UNDOCUMENTED")
+    # and the fixes correctly keep the others quiet/clean alongside it
+    assert "MEALIE_TLS_PROFILE" not in _types(report, "DEAD")
+    assert "DEMO_MCP_IMAGE" not in _types(report, "DEAD")
+    assert "SCRIPT_ONLY_VAR" not in _types(report, "UNDOCUMENTED")
+
+
 def test_derived_toggle_undocumented(tmp_path: Path) -> None:
     """A register_<tag>_tools registrar implies <TAG>TOOL; undocumented if absent from .env.example."""
     root = tmp_path / "demo-agent"

@@ -48,21 +48,32 @@ def test_self_id_resolves_from_deps():
 
 @pytest.mark.asyncio
 async def test_native_tools_join_peer_send_check(bus):
+    from agent_utilities.messaging.bus_log import current_bus_tenant
+    from agent_utilities.messaging.bus_privacy import bus_reference
+
     # two agents join via the native tool
     assert "joined the bus as 'alice'" in await at.bus_join(
         _ctx("alice"), capabilities="code"
     )
     await at.bus_join(_ctx("bob"), capabilities="research")
 
+    # Durable roster identifiers are non-reversible privacy references
+    # (bus_privacy.bus_reference / CONCEPT:AU-ECO.bus.agent-bus-awareness) — the
+    # roster never exposes the raw "alice"/"bob" strings, so assert against the
+    # same hashed form the product mints deterministically.
+    tenant = current_bus_tenant()
+    alice_ref = bus_reference("agent", "alice", tenant=tenant)
+    bob_ref = bus_reference("agent", "bob", tenant=tenant)
+
     # discovery excludes self, includes the peer
     peers_for_alice = await at.bus_peers(_ctx("alice"))
-    assert "bob" in peers_for_alice and "alice" not in peers_for_alice
+    assert bob_ref in peers_for_alice and alice_ref not in peers_for_alice
 
     # alice messages bob; bob reads it
     sent = await at.bus_send(_ctx("alice"), "need help with the parser", to="bob")
-    assert "delivered to ['bob']" in sent
+    assert f"delivered to ['{bob_ref}']" in sent
     inbox = await at.bus_check(_ctx("bob"))
-    assert "need help with the parser" in inbox and "alice" in inbox
+    assert "need help with the parser" in inbox and alice_ref in inbox
 
 
 @pytest.mark.asyncio

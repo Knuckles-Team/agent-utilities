@@ -647,9 +647,9 @@ def main():
     logger.info("Starting Harness MCP server (transport=%s)", args.transport)
 
     if args.transport == "stdio":
-        from agent_utilities.mcp.server_factory import protect_stdio_jsonrpc
-
-        protect_stdio_jsonrpc()
+        # Stdout purity is owned fd-level by the MCP SDK's own ``stdio_server()``
+        # for the scope of this call — see the "Stdio JSON-RPC purity" note in
+        # ``agent_utilities/mcp/server_factory.py``. No runtime patch needed here.
         mcp.run(transport="stdio")
     else:
         from agent_utilities.mcp.server_factory import mcp_network_run_kwargs

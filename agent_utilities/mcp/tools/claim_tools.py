@@ -213,7 +213,9 @@ def register_claim_tools(mcp):
                         raise ValueError("envelope_json must decode to a JSON object")
                     envelope: ChangeEnvelope = envelope_from_dict(envelope_data)
                 except Exception as exc:  # noqa: BLE001 — a malformed envelope is a client error
-                    return json.dumps({"error": f"invalid envelope_json: {exc}"})
+                    return json.dumps(
+                        {"error": f"invalid envelope_json: {type(exc).__name__}"}
+                    )
                 claim = PromotionRequest(
                     domain=domain,
                     statement=statement,
@@ -319,7 +321,7 @@ def register_claim_tools(mcp):
                         "action": action,
                         "claim_id": claim_id,
                         "error": "illegal_transition",
-                        "detail": str(e),
+                        "detail": type(e).__name__,
                         "policy": policy,
                     }
                 )

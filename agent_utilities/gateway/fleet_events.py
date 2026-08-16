@@ -252,29 +252,32 @@ def _correlation_stamp() -> dict[str, str]:
     Stamping the originating ``correlation_id`` (+ actor/tenant) onto the durable
     node is what makes the swarm-wide ``/api/fleet/trace`` and ``/api/fleet/touched``
     queries answerable from the graph rather than only from external traces.
+
+    These are stamped RAW (never through ``persistence_reference``): a
+    correlation id is an opaque, non-identifying uuid/trace id whose entire
+    purpose is exact-match joinability — with the external Langfuse trace
+    (``ensure_correlation_id`` defaults to the active trace id precisely so the
+    two share a value) and with ``/api/fleet/trace?correlation_id=<cid>``'s own
+    ``n.correlation_id = $cid`` Cypher match, which compares the caller's plain
+    id, not a hash of it. ``actor_id`` is read back the same way by
+    ``/api/fleet/touched`` (``e.get("actor_id")``). Hashing these into
+    ``*_ref`` values (as the event's own free-text ``source``/``subject``/
+    ``summary`` fields correctly are, just above) would silently break both
+    reads. See CONCEPT:AU-OS.observability.run-wide-correlation-id.
     """
     stamp: dict[str, str] = {}
     try:
         from agent_utilities.observability import correlation
-        from agent_utilities.security.persistence_privacy import (
-            persistence_reference,
-        )
 
-        stamp["correlation_ref"] = persistence_reference(
-            "correlation", correlation.ensure_correlation_id(), namespace="fleet-event"
-        )
+        stamp["correlation_id"] = correlation.ensure_correlation_id()
         try:
             from agent_utilities.security.brain_context import current_actor
 
             actor = current_actor()
             if actor.actor_id and actor.actor_id != "system":
-                stamp["actor_ref"] = persistence_reference(
-                    "actor", actor.actor_id, namespace="fleet-event"
-                )
+                stamp["actor_id"] = actor.actor_id
             if actor.tenant_id:
-                stamp["tenant_ref"] = persistence_reference(
-                    "tenant", actor.tenant_id, namespace="fleet-event"
-                )
+                stamp["tenant_id"] = actor.tenant_id
         except Exception:  # noqa: BLE001 — identity is best-effort context
             pass
     except Exception:  # noqa: BLE001 — correlation is best-effort context
@@ -294,6 +297,14 @@ def persist_event(engine: Any, event: FleetEvent) -> str:
             "fleet_source", event.source, namespace="fleet-event"
         ),
         "severity": event.severity,
+        # Kept RAW (unlike source/summary below): ``subject`` is a resource/
+        # service identifier (an alert's ``service``/``instance``/``job``
+        # label, a Kuma monitor name, ...), not free-text webhook content, and
+        # is the exact-match key ``GET /api/fleet/touched?resource=<id>``
+        # queries against (``fleet.fleet_trace`` matches full FleetEvent
+        # nodes back by it too). Hashing it here would silently break blast-
+        # radius lookup for a caller who already knows the resource's name.
+        "subject": event.subject,
         "subject_ref": persistence_reference(
             "fleet_subject", event.subject, namespace=source_type
         ),

@@ -90,9 +90,14 @@ RandomGenerator: TypeAlias = Any
 #      distribution — decides what imports. Reinstalling changes nothing the
 #      mount does not immediately shadow.
 #   3. "[full]" implies an extra you can opt into. There is no optional path
-#      here: this module imports the kernel UNCONDITIONALLY, so the kernel is
-#      core. The honest report is "required and missing", not "extra not
-#      selected".
+#      WITHIN THIS MODULE: this module imports the kernel UNCONDITIONALLY, so
+#      the kernel is core to `agent_utilities.numeric` specifically, even
+#      though (GOC-73) `epistemic-graph` is no longer a hard dependency of
+#      `agent-utilities` AS A WHOLE — most subpackages (knowledge_graph,
+#      server, core, security, gateway, observability, models, mcp, sdd,
+#      orchestration) never import this module and work with eg absent. The
+#      honest report for a caller that DOES reach this module is "required
+#      and missing", not "extra not selected".
 #
 # What is actually missing is a COMPILED artifact: `numeric.abi3.so`, a pyo3
 # cdylib built from `crates/eg-numeric`. Pure-Python `.py` files propagate to
@@ -105,8 +110,13 @@ try:
     _KERNEL: Any = importlib.import_module("epistemic_graph.numeric")
 except ImportError as exc:
     raise ImportError(
-        "epistemic-graph numeric kernel is REQUIRED and MISSING. It is core, not "
-        "an optional extra: this module imports it unconditionally.\n"
+        "epistemic-graph numeric kernel is REQUIRED and MISSING. It is core to "
+        "agent_utilities.numeric specifically, not an optional extra of THIS "
+        "module: this module imports it unconditionally the moment it is "
+        "imported. (It IS an optional extra of the agent-utilities PACKAGE as a "
+        "whole — `pip install agent-utilities[graphos]` — so most callers never "
+        "hit this at all; you are seeing this because something imported "
+        "agent_utilities.numeric, directly or transitively.)\n"
         "\n"
         "The kernel is a COMPILED extension — `epistemic_graph/numeric.abi3.so` — "
         "not Python source, so it never arrives just by updating the tree.\n"
@@ -124,10 +134,12 @@ except ImportError as exc:
         "        python scripts/build_numeric_kernel.py\n"
         "    (in the epistemic-graph repo; verify with "
         "`python scripts/check_mounted_kernel.py`)\n"
-        "  - Genuinely pip-installed consumer: install an epistemic-graph wheel "
-        "that actually contains the kernel. Published 2.14.0-2.23.0 do NOT — the "
-        "`inject_numeric_kernel.py` graft was skipped — so verify any wheel with "
-        "`scripts/check_wheel_completeness.py` before relying on it."
+        "  - Genuinely pip-installed consumer: run "
+        '`pip install "agent-utilities[graphos]"` (or install an epistemic-graph '
+        "wheel directly) that actually contains the kernel. Published "
+        "2.14.0-2.23.0 do NOT — the `inject_numeric_kernel.py` graft was "
+        "skipped — so verify any wheel with `scripts/check_wheel_completeness.py` "
+        "before relying on it."
     ) from exc
 if getattr(_KERNEL, "__kernel__", None) != "eg-numeric":
     raise ImportError(

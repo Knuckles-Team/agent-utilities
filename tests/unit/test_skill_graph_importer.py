@@ -9,6 +9,11 @@ types, body text, and edges recorded in ``kg_manifest.json`` (CONCEPT:AU-AHE.opt
 
 import msgpack
 
+import pytest
+
+# The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
+pytest.importorskip("epistemic_graph.numeric")
+
 from agent_utilities.knowledge_graph.distillation import (
     SkillGraphDistiller,
     import_skill_graph_pack,

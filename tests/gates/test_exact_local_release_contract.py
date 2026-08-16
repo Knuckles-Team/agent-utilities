@@ -23,8 +23,34 @@ CANARY = ROOT / "agent_utilities/deployment/release_canary.py"
 SPEC_SCHEMA = ROOT / "deploy/release/exact-local-release-spec.schema.json"
 EVIDENCE_SCHEMA = ROOT / "deploy/release/exact-local-release-evidence.schema.json"
 DOC = ROOT / "docs/release/exact-local-release.md"
-PIPELINE = ROOT / ".github/workflows/pipeline.yml"
+# B3: this pointed at ".github/workflows/pipeline.yml", a name that does not
+# exist in this repo's workflow directory (only advisory.yml/release.yml do) —
+# the publish pipeline this test exercises lives in release.yml. The stale
+# bare-filename reference went undetected because nothing asserted the
+# referenced path actually resolves; every repo-relative path constant below
+# is now checked for existence at collection time (see the loop right after
+# this block) specifically so a future rename/move fails loudly here instead
+# of surfacing as an opaque FileNotFoundError deep in a test body.
+PIPELINE = ROOT / ".github/workflows/release.yml"
 PREBUNDLED_SKILL_CATALOG = ROOT / "deploy/release/prebundled-skills.catalog.json"
+
+for _name, _path in (
+    ("PROMOTER", PROMOTER),
+    ("WHEEL_CHECKER", WHEEL_CHECKER),
+    ("CANARY", CANARY),
+    ("SPEC_SCHEMA", SPEC_SCHEMA),
+    ("EVIDENCE_SCHEMA", EVIDENCE_SCHEMA),
+    ("DOC", DOC),
+    ("PIPELINE", PIPELINE),
+    ("PREBUNDLED_SKILL_CATALOG", PREBUNDLED_SKILL_CATALOG),
+):
+    if not _path.is_file():
+        raise AssertionError(
+            f"{_name} = {_path} does not exist — this gate's manifest of "
+            "repo-relative paths has drifted from a file move/rename; update "
+            "the constant above instead of letting the referencing test fail "
+            "with an opaque FileNotFoundError"
+        )
 
 # D-CIP-18: these used to be a second hand-maintained copy of the same 10-skill,
 # fixed 3-file-per-skill shape that had already drifted in check_release_wheel.py
@@ -553,7 +579,7 @@ def _synthetic_release_wheel(
                 "Metadata-Version: 2.4\n"
                 "Name: agent-utilities\n"
                 "Version: 1.0.0\n"
-                "Requires-Dist: epistemic-graph[full]>=2.23.2,<3.0.0\n\n"
+                'Requires-Dist: epistemic-graph[full]<3.0.0,>=2.23.2; extra == "graphos"\n\n'
             ),
         )
         archive.writestr(

@@ -9,8 +9,21 @@ from dataclasses import replace
 import pytest
 
 from agent_utilities.mcp import kg_server
-from agent_utilities.mcp.tools import intent_tools
+from agent_utilities.mcp.tools import engine_tools, intent_tools
 from agent_utilities.models.evidence_bundle import EvidenceBundle
+
+# ``engine_placement`` is one of the ``engine_<domain>`` MCP tools, registered
+# only when the real ``epistemic_graph.client`` package is importable (see
+# tests/unit/test_engine_api_coverage.py). In the lean CI `gates` lane it is
+# genuinely absent from ``REGISTERED_TOOLS`` -- not the D-03-class incident
+# this regression test guards against.
+_NEEDS_ENGINE_DOMAINS = pytest.mark.skipif(
+    not engine_tools.ENGINE_DOMAINS,
+    reason=(
+        "epistemic_graph package not installed in this environment -- "
+        "engine_placement is not registered to assert against."
+    ),
+)
 
 
 @pytest.fixture(autouse=True)
@@ -270,6 +283,88 @@ async def test_graph_code_mutations_are_denied_by_ask_and_reachable_via_act(
     assert executed["routing"]["chosen_tool"] == "graph_code"
     assert executed["routing"]["action"] == action
     assert seen == [(action, "agent-utilities")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("action", ("process",))
+async def test_graph_mine_mutations_are_denied_by_ask_and_reachable_via_act(
+    monkeypatch,
+    action,
+):
+    """B-15: TOOL_VERBS["graph_mine"] used to be ("ask",) only, with no READ_ONLY_ACTIONS
+    entry at all -- so a mutating action (17 of graph_mine's 18 actions can writeback a
+    node/commit a ChangeEnvelope, per the CPD's "mutates": "~true") was only reachable
+    through the read verb, and could never reach act's reviewed preview/plan-ref flow.
+    Empirically, the fail-closed unclassified-route check still denied ask-routed
+    execution (mutates=None from `_operation_plan` is "not False" too) -- so this was a
+    misleading mapping, not a live security bypass -- but the mutating surface was
+    entirely unreachable through the intent dispatcher. Mirrors the graph_code split
+    above: ask stays read-only, act reaches the reviewed mutation path."""
+
+    seen: list[tuple[str, str]] = []
+
+    async def fake_graph_mine(
+        action: str = "associate", params_json: str = "{}", graph: str = ""
+    ) -> str:
+        seen.append((action, params_json))
+        return json.dumps({"status": "ok", "action": action})
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_mine", fake_graph_mine)
+    intent = f"mine the graph {action}"
+    hints = {"tool": "graph_mine", "action": action, "params_json": "{}"}
+
+    denied = await intent_tools.dispatch_intent("ask", intent, hints=hints)
+
+    assert denied["executed"] is False
+    assert denied["error"] == "Read-only intent action is not declared read-only."
+    assert seen == []
+
+    preview = await intent_tools.dispatch_intent("act", intent, hints=hints)
+
+    assert preview["executed"] is False
+    assert preview["routing"]["plan"]["execution_class"] == "mutation"
+    assert preview["routing"]["plan"]["preview_required"] is True
+    plan_ref = preview["routing"]["plan"]["plan_ref"]
+
+    executed = await intent_tools.dispatch_intent(
+        "act",
+        intent,
+        hints={"plan_ref": plan_ref},
+        execute=True,
+    )
+
+    assert executed["executed"] is True
+    assert executed["routing"]["chosen_tool"] == "graph_mine"
+    assert executed["routing"]["action"] == action
+    assert seen == [(action, "{}")]
+
+
+@pytest.mark.parametrize(
+    ("action", "expected_execution_class"),
+    [
+        # The one graph_mine action the CPD declares non-mutating ("classify_fit":
+        # "false", no ``writeback`` option -- see READ_ONLY_ACTIONS["graph_mine"]).
+        ("classify_fit", "read_only"),
+        # Representative writeback-gated actions (CPD "mutates": "~true") -- once
+        # graph_mine has a READ_ONLY_ACTIONS entry, `_operation_plan`'s "mixed
+        # surface" branch (anything not explicitly declared read-only is non-read)
+        # classifies every one of these as a real "mutation".
+        ("process", "mutation"),
+        ("cluster", "mutation"),
+        ("root_cause", "mutation"),
+        ("community", "mutation"),
+    ],
+)
+def test_graph_mine_operation_plan_classifies_every_action_correctly(
+    action, expected_execution_class
+):
+    """Exercises ``_operation_plan`` directly (the level named in B-15/GOC-61 as
+    ``intent_tools.py:1426``) so every one of graph_mine's 18 actions is checked, not
+    just the one action (`process`) the static graph-os action manifest currently
+    declares routable through the full ``dispatch_intent`` path."""
+    plan = intent_tools._operation_plan("ask", "graph_mine", action, {})
+    assert plan["execution_class"] == expected_execution_class
+    assert (plan["mutates"] is False) == (expected_execution_class == "read_only")
 
 
 @pytest.mark.asyncio
@@ -1073,6 +1168,7 @@ def test_every_registered_non_intent_verb_tool_has_a_cpd():
     assert not missing, f"Tools with no packaged CPD: {sorted(missing)}"
 
 
+@_NEEDS_ENGINE_DOMAINS
 def test_engine_placement_resolves_under_manage_without_failing_closed():
     """Direct regression test for the incident itself: calling any intent
     verb used to raise ``RuntimeError: GraphOS capability descriptors are

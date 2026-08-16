@@ -151,7 +151,9 @@ def register_candidate_claim_tools(mcp):
                     if not isinstance(fragments, list):
                         raise ValueError("fragments_json must decode to a JSON array")
                 except Exception as exc:  # noqa: BLE001 — a malformed payload is a client error
-                    return json.dumps({"error": f"invalid fragments_json: {exc}"})
+                    return json.dumps(
+                        {"error": f"invalid fragments_json: {type(exc).__name__}"}
+                    )
 
                 from agent_utilities.knowledge_graph.extraction.candidate_claims import (
                     CandidateClaimExtractor,
@@ -190,7 +192,9 @@ def register_candidate_claim_tools(mcp):
                     if not isinstance(records_raw, list):
                         raise ValueError("records_json must decode to a JSON array")
                 except Exception as exc:  # noqa: BLE001 — a malformed payload is a client error
-                    return json.dumps({"error": f"invalid records_json: {exc}"})
+                    return json.dumps(
+                        {"error": f"invalid records_json: {type(exc).__name__}"}
+                    )
 
                 from agent_utilities.knowledge_graph.assimilation import (
                     EntityRecord,
@@ -209,7 +213,9 @@ def register_candidate_claim_tools(mcp):
                         for r in records_raw
                     ]
                 except (KeyError, TypeError) as exc:
-                    return json.dumps({"error": f"invalid records_json entry: {exc}"})
+                    return json.dumps(
+                        {"error": f"invalid records_json entry: {type(exc).__name__}"}
+                    )
 
                 candidates = resolve_identity_candidates(
                     records, min_confidence=min_confidence

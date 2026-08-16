@@ -30,6 +30,7 @@ from .fleet_autonomy_fakes import (
     CaptureNotifier,
     FakeEngine,
     FakeObserver,
+    in_memory_writer,
     obs,
     utc_now_str,
     write_policy,
@@ -258,6 +259,8 @@ def test_remediation_keeps_failure_gap_escalation(engine, notifier):
     remediation_playbooks.ensure_registered()
     set_fleet_observer(FakeObserver({"caddy-mcp": obs("caddy-mcp", "down")}))
     event_id = _event(engine)
-    report = fleet_event_triage.triage_fleet_event(engine, event_id)
+    report = fleet_event_triage.triage_fleet_event(
+        engine, event_id, graph_writer=in_memory_writer(engine)
+    )
     # The OS-5.15 default playbook still filed the failure_gap topic.
     assert report.get("gap_topic")

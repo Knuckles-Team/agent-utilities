@@ -1102,8 +1102,15 @@ def process_one_activation(
     item = _wi.get_work_item(engine, work_item_id) or {}
     raw_metadata = item.get("metadata")
     metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+    # ``payload_ref`` is the opaque machine reference and is NEVER routed through
+    # ``PersistencePrivacyGuard`` (work_item.py's ``submit_work_item``); the
+    # duplicate copy on ``metadata["agent_instance_id"]`` IS privacy-sanitized on
+    # write (it's a display/decorative field) and can be corrupted by a false
+    # positive — the IBAN pattern matches ~1-in-20 random hex ids (D-GM-3's same
+    # class of bug in envelope_ingest.py). Prefer the raw, reliable payload_ref;
+    # only fall back to metadata when it is absent.
     instance_id = str(
-        metadata.get("agent_instance_id") or item.get("payload_ref") or ""
+        item.get("payload_ref") or metadata.get("agent_instance_id") or ""
     )
     node = get_agent_instance(engine, instance_id) if instance_id else None
     if node is None:

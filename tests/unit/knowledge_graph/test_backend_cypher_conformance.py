@@ -111,62 +111,68 @@ def test_durable_transpiler_recognises_contract(name, cypher, params):
     )
 
 
-def _inprocess_backends():
-    """Backend instances that run fully in-process (no external server).
+def _build_inprocess_backend(label: str):
+    """Construct one in-process backend by name, at TEST-EXECUTION time.
+
+    Deliberately NOT called from the ``parametrize`` decorator below (that
+    would run at *collection* time, executed unconditionally on every single
+    pytest invocation regardless of ``-k``/``-m`` selection, since parametrize
+    arguments are evaluated while the module is imported for collection, not
+    when a selected test actually runs). Measured with cProfile
+    (2026-08-15): the ladybug branch alone -- ``LadybugBackend.create_schema()``
+    issuing ~7.6k individual native DDL statements to build the full ~40-table
+    schema -- cost ~267s of a ~447s profiled full-suite `--collect-only` run
+    (~60%), paid on every collection of all 17k+ tests, not just the 2 that
+    use it. Moving construction into the test body means it only runs for the
+    2 items actually SELECTED to execute; skip semantics are unchanged (same
+    reasons, same visible skip, just decided when the test runs instead of
+    when the module is imported).
 
     The epistemic-graph backend binds a ``SyncEpistemicGraphClient`` at
     construction, which connects to the engine's Tokio service. CI runs an
     engine, but a bare dev box (or a hermetic unit run with no engine) has none,
-    so guard the bind: when the engine is unreachable the entry is emitted as a
-    skip-marked param instead of raising at *collection* time (which would abort
-    the whole module). The contract still runs wherever an engine is up.
+    so the bind failure produces a skip rather than raising at *collection*
+    time (which would abort the whole module). The contract still runs
+    wherever an engine is up.
     """
-    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
-        EpistemicGraphBackend,
-    )
-
-    try:
-        backends = [("epistemic_graph", EpistemicGraphBackend())]
-    except Exception as exc:  # engine not reachable in this environment
-        backends = [
-            pytest.param(
-                "epistemic_graph",
-                None,
-                marks=pytest.mark.skip(
-                    reason=f"epistemic-graph engine unreachable: {exc}"
-                ),
-            )
-        ]
-    try:
-        from agent_utilities.knowledge_graph.backends import (
-            LADYBUG_AVAILABLE,
-            LadybugBackend,
+    if label == "epistemic_graph":
+        from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
+            EpistemicGraphBackend,
         )
 
-        if LADYBUG_AVAILABLE:
-            import tempfile
+        try:
+            return EpistemicGraphBackend()
+        except Exception as exc:  # engine not reachable in this environment
+            pytest.skip(f"epistemic-graph engine unreachable: {exc}")
 
-            path = tempfile.mktemp(suffix=".db")  # noqa: S306 - test scratch
-            lb = LadybugBackend(path)
-            try:
-                lb.create_schema()
-            except Exception:
-                pass
-            backends.append(("ladybug", lb))
-    except Exception:
-        pass
-    return backends
+    if label == "ladybug":
+        try:
+            from agent_utilities.knowledge_graph.backends import (
+                LADYBUG_AVAILABLE,
+                LadybugBackend,
+            )
+        except Exception as exc:
+            pytest.skip(f"ladybug backend import failed: {exc}")
+        if not LADYBUG_AVAILABLE:
+            pytest.skip("ladybug not installed")
+
+        import tempfile
+
+        path = tempfile.mktemp(suffix=".db")  # noqa: S306 - test scratch
+        lb = LadybugBackend(path)
+        try:
+            lb.create_schema()
+        except Exception:
+            pass
+        return lb
+
+    raise ValueError(f"unknown in-process backend label: {label!r}")  # pragma: no cover
 
 
-@pytest.mark.parametrize(
-    "label,backend",
-    _inprocess_backends(),
-    ids=lambda v: v if isinstance(v, str) else "",
-)
-def test_inprocess_backend_honours_lifecycle_contract(label, backend):
+@pytest.mark.parametrize("label", ["epistemic_graph", "ladybug"])
+def test_inprocess_backend_honours_lifecycle_contract(label):
     """Every in-process backend must honour generic node mutation semantics."""
-    if not isinstance(label, str):  # pragma: no cover - param id artifact
-        return
+    backend = _build_inprocess_backend(label)
 
     # 1) Node upsert via MERGE ... SET actually persists + is queryable.
     backend.execute(

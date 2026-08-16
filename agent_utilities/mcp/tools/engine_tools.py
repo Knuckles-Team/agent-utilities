@@ -48,6 +48,7 @@ CONCEPT:AU-KG.compute.engine-surface-manifest — Engine surface manifest (clien
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import inspect
 import json
@@ -104,6 +105,15 @@ _DOMAIN_CLASSES: dict[str, str] = {
     # cleanly (see ``_discover_domains`` below) until the engine client ships
     # ``VizClient``.
     "viz": "VizClient",
+    # B-12 — the native document/image/audio/video ingest + typed-query +
+    # events surface (16 methods: ingest/ingest_stream/query_image_region/
+    # query_similar_images/query_audio_window/query_video_window/delete/
+    # move_to_cold/restore/events/stats/collect_tombstones/capabilities/…)
+    # had zero au callers anywhere, verified by grep, despite being fully
+    # implemented and bound on the typed client as ``.modalities``. This is
+    # the same generic introspection-driven registration every other domain
+    # gets — no bespoke tool needed.
+    "modalities": "ServedModalityClient",
 }
 
 _DOMAIN_BLURB: dict[str, str] = {
@@ -133,6 +143,7 @@ _DOMAIN_BLURB: dict[str, str] = {
     "admin": "ops/maintenance: online backup + restore (ADMIN)",
     "graphlearn": "KAN graph-learning: fit/predict a learned per-feature edge-function link predictor",
     "viz": "D-VZ-1 native visualization: render/capability_matrix over the eg-viz LOD ColumnStore/export pipeline",
+    "modalities": "native document/image/audio/video ingest, typed region/window query, lifecycle (cold/restore/delete/tombstone), and events (B-12)",
 }
 
 
@@ -158,9 +169,10 @@ def _discover_domains() -> dict[str, list[str]]:
         logger.warning(
             "engine surface discovery: 'epistemic_graph' client unavailable — "
             "ALL engine_<domain> tools (and their verbose/manifest ops) will be "
-            "absent this run (exception_type=%s: %s)",
+            "absent this run (exception_type=%s). Install the engine with "
+            "`pip install agent-utilities[graphos]` (or `[serving]`/`[all]`, both "
+            "of which pull it) if this MCP process is meant to serve engine tools.",
             type(exc).__name__,
-            exc,
         )
         return {}
 
@@ -333,6 +345,10 @@ _NORMAL_DOMAINS: frozenset[str] = frozenset(
         "broker",
         "graphlearn",
         "viz",
+        # B-12: document/image/audio/video ingest + typed query + events —
+        # ordinary content read/write, same shape as "blob" (content-
+        # addressed media), not a tenant/cluster/identity admin surface.
+        "modalities",
     }
 )
 
@@ -579,7 +595,7 @@ def _embed_texts(texts: list[str]) -> list[list[float]]:
             "has none bound (the engine's 'no embedder bound op' state) and "
             "pre-embedding it client-side "
             "(agent_utilities.core.embedding_utilities.create_embedding_model) failed "
-            f"too: {exc}"
+            f"too: {type(exc).__name__}"
         ) from exc
     return [list(v) for v in vectors]
 
@@ -621,6 +637,17 @@ def _dispatch(
     domain: str, methods: set[str], action: str, params_json: str, graph: str
 ) -> str:
     """Generic dispatch into one engine sub-client method. The ONE engine core."""
+    # A direct call bypassing FastMCP's own Field-default resolution (e.g. a
+    # raw Python call in a test, or another tool module forwarding its own
+    # unfilled ``graph`` Field straight through — see ``epistemic_tools.py``'s
+    # ``graph_epistemic``) binds an omitted ``graph`` to its raw, truthy
+    # ``pydantic.fields.FieldInfo`` rather than ``""`` — mirrors the same
+    # defensive normalization ``query_tools.py`` already applies for the
+    # identical reason. Left un-normalized, the narrowing check below would
+    # compare a real session graph name against a FieldInfo object, which can
+    # never compare equal, making the mismatch permanent and the one-step
+    # recursion unbounded.
+    graph = graph if isinstance(graph, str) else ""
     if not action:
         return json.dumps(
             {
@@ -640,6 +667,36 @@ def _dispatch(
     # JSON error data) so a denial is unambiguous and cannot be masked by a
     # caller pattern-matching on ``{"error": ...}`` engine-degrade payloads.
     _enforce_action_scope(domain, action)
+
+    # R-23/GOC-67 (defect 2): an explicit `graph` narrows the CLIENT
+    # `_client_for` builds below (a `_SessionRoutedAsyncClient` view FIXED to
+    # `graph`) but says nothing about the ambient verified `GraphSession`
+    # this call is authenticated under — that session still names whatever
+    # graph the calling boundary bound it to (commonly the deployment
+    # default). The mismatch between a client fixed to `graph` and a session
+    # still naming the default is caught correctly, but only deep inside the
+    # wire layer's own `_send` ("A graph-scoped view cannot retarget the
+    # verified GraphSession") — by which point a legitimate, RBAC-authorized
+    # `graph=` selection has already been rejected before the engine's own
+    # RBAC/RLS ever got to evaluate the request.
+    #
+    # Fix: narrow the SESSION first — through `kg_server.bound_to_graph`, the
+    # exact `GraphSession.with_graph()` + `use_session()` primitive
+    # `query_tools.py`'s `resolve_explicit_graph`/`bound_to_graph` callers
+    # already use (no second authorization mechanism; the engine's own
+    # RBAC/RLS still evaluates every RPC server-side, identically) — then
+    # re-enter this function once. The recursive leg observes
+    # `current_session().graph == graph` (``with_graph`` makes the two equal
+    # on the very next entry) and this branch is skipped, so recursion
+    # terminates after exactly one narrowing; it is structurally incapable
+    # of recursing a second time.
+    from agent_utilities.knowledge_graph.core.session import current_session
+
+    session = current_session()
+    if graph and session is not None and session.graph != graph:
+        with kg_server.bound_to_graph(graph):
+            return _dispatch(domain, methods, action, params_json, graph)
+
     try:
         params = json.loads(params_json) if params_json else {}
     except (TypeError, ValueError) as exc:
@@ -753,7 +810,34 @@ def _make_domain_tool(domain: str, methods: list[str]):
             description="Target graph name (empty ⇒ the deployment default graph).",
         ),
     ) -> str:
-        return _dispatch(domain, method_set, action, params_json, graph)
+        # U-86/U-91/BUG-171: this coroutine's body used to call the SYNCHRONOUS
+        # ``_dispatch`` inline (``return _dispatch(...)``). ``_dispatch`` does
+        # blocking native engine I/O (a real socket RPC, sometimes a
+        # multi-attempt retry loop tens of seconds long for a slow admin/
+        # lifecycle call like ``tenants.create``). Because this function is
+        # declared ``async def``, kg_server._execute_tool's dispatch-isolation
+        # check (``inspect.iscoroutinefunction(tool_func)``) treats it as
+        # "already async" and awaits it INLINE on the gateway's one asyncio
+        # event-loop thread instead of routing it through
+        # ``asyncio.to_thread`` the way it does for plain synchronous tool
+        # functions — so a slow engine_* call froze the entire event loop:
+        # every other coroutine on the same loop (including /health and
+        # /health/ready, which must stay schedulable so kubelet's liveness
+        # probe does not restart an otherwise-healthy process — see
+        # ``observability/runtime_health.py``) starved until this call
+        # returned. Confirmed live: r21 was OOM-killed by kubelet during
+        # exactly this scenario.
+        #
+        # Fix: execute ``_dispatch`` in a worker thread via
+        # ``asyncio.to_thread``, which propagates the calling task's
+        # contextvars (actor/session — ``contextvars.copy_context()``) into
+        # the thread, exactly like kg_server._execute_tool already does for
+        # ordinary synchronous tools. This keeps the uniform "every
+        # ``engine_*`` tool is declared ``async def``" surface while making
+        # the actual blocking I/O yield the loop instead of monopolizing it.
+        return await asyncio.to_thread(
+            _dispatch, domain, method_set, action, params_json, graph
+        )
 
     return _engine_domain_tool
 

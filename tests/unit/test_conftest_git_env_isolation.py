@@ -71,7 +71,7 @@ def _git(
 
 
 def test_inherited_git_index_file_redirects_a_dash_c_add_to_the_wrong_repo(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Proves the underlying git behaviour this whole item is about, on its
     own, with no dependency on this repo's real index: ``-C`` changes the
@@ -80,7 +80,17 @@ def test_inherited_git_index_file_redirects_a_dash_c_add_to_the_wrong_repo(
     the REAL repo's index during a real ``git commit`` (D-LGI-1) -- the exact
     mechanism, reproduced here in two disposable throwaway repos so it needs
     no assumption about (and takes no risk against) the real repository.
+
+    Deliberately bypasses the runtime guard added alongside it (see
+    ``_guarded_popen_init``) by restoring the true, unpatched
+    ``Popen.__init__`` for this test only -- this test's whole purpose is to
+    reproduce the raw, unprotected vulnerability, and the guard would
+    otherwise (correctly) refuse to let it. ``monkeypatch`` reverts the
+    restore at teardown, same as the guard's own negative-control tests.
     """
+    conftest = _conftest_module()
+    monkeypatch.setattr(subprocess.Popen, "__init__", conftest._TRUE_POPEN_INIT)
+
     decoy = tmp_path / "decoy-real-repo"
     fixture = tmp_path / "fixture-repo"
     decoy.mkdir()
@@ -261,4 +271,166 @@ def test_strip_inherited_git_repository_env_prevents_the_redirect(
     ).stdout.split()
     assert staged_in_fixture == ["fixture-file.txt"], (
         "the add must land in the fixture repo it was actually targeting"
+    )
+
+
+# ---------------------------------------------------------------------------
+# GOC-71 follow-up: GIT_AUTHOR_*/GIT_COMMITTER_*/GIT_CONFIG* -- the quieter,
+# more damaging sibling of the GIT_DIR redirect above. This repo's own
+# history carries 295 commits authored ``universal-ingestion-proof
+# <proof@test.local>`` (the identity ``tests/integration/knowledge_graph/
+# test_git_markdown_domain_packs_live_engine.py`` sets via `git -C tmp_path
+# config user.name/email`) -- the SAME GIT_DIR redirect mechanism, but
+# writing into the REAL repo's persistent local `.git/config` instead of a
+# transient env var, so it kept mis-authoring commits for weeks after the
+# triggering test run ended, until this audit found it. ``core.bare``
+# corruption breaks loudly; this one broke silently.
+# ---------------------------------------------------------------------------
+
+
+def test_dangerous_git_env_prefixes_are_absent_for_the_whole_session() -> None:
+    """The chokepoint strips GIT_AUTHOR_*/GIT_COMMITTER_*/GIT_CONFIG* too."""
+    conftest = _conftest_module()
+    for key in os.environ:
+        assert not key.startswith(conftest._DANGEROUS_GIT_ENV_PREFIXES), key
+
+
+def test_a_leaked_git_dir_redirects_a_config_call_into_the_real_repos_local_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reproduces the *config-corruption* shape of the leak, on disposable
+    stand-ins only: ``git -C fixture config user.name X`` under a leaked
+    GIT_DIR does not just fail to touch ``fixture`` -- it silently writes
+    ``user.name``/``user.email`` into the *real* (here: decoy stand-in)
+    repo's persistent local config, exactly as it did to this repo's actual
+    ``.git/config`` history. Unlike the env-var leak, this survives past the
+    poisoned subprocess -- every later commit in the real repo made without
+    explicit ``GIT_AUTHOR_*`` inherits the wrong identity until someone
+    notices and fixes the local config by hand.
+
+    Deliberately bypasses the runtime guard (see the module docstring on the
+    test above) -- this test also reproduces the raw, unprotected behaviour.
+    """
+    conftest = _conftest_module()
+    monkeypatch.setattr(subprocess.Popen, "__init__", conftest._TRUE_POPEN_INIT)
+
+    decoy = tmp_path / "decoy-real-repo"
+    fixture = tmp_path / "fixture-repo"
+    decoy.mkdir()
+    fixture.mkdir()
+
+    base_env = dict(os.environ)
+    for name in ("GIT_DIR", "GIT_INDEX_FILE", "GIT_WORK_TREE"):
+        base_env.pop(name, None)
+
+    _git(["init", "-q"], decoy, base_env)
+    _git(["config", "user.email", "legit@example.invalid"], decoy, base_env)
+    _git(["config", "user.name", "legit-owner"], decoy, base_env)
+    _git(["init", "-q"], fixture, base_env)
+
+    poisoned_env = dict(base_env)
+    poisoned_env["GIT_DIR"] = str(decoy / ".git")
+
+    # The bug: `git -C fixture config user.name/email ...` under a leaked
+    # GIT_DIR writes into decoy's config, not fixture's.
+    subprocess.run(
+        ["git", "-C", str(fixture), "config", "user.name", "universal-ingestion-proof"],
+        env=poisoned_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(fixture), "config", "user.email", "proof@test.local"],
+        env=poisoned_env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    corrupted_name = _git(
+        ["config", "--local", "--get", "user.name"], decoy, base_env
+    ).stdout.strip()
+    assert corrupted_name == "universal-ingestion-proof", (
+        "expected the poisoned env to overwrite the decoy repo's identity -- "
+        "if this fails, the underlying git behaviour this item is about no "
+        "longer reproduces the way it was observed in this repo's own history"
+    )
+
+
+def test_the_runtime_guard_refuses_a_git_subprocess_with_a_leaked_pointer_var(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Backstop proof: the session-wide strip already prevents the ambient
+    leak (proved above), but a test can still *re-introduce* one of these
+    vars mid-run (e.g. ``monkeypatch.setenv``, exactly how the real leak
+    enters a hook process). ``_guarded_popen_init`` is independent of the
+    strip and catches that case too -- refusing the corrupting subprocess
+    outright rather than letting it silently redirect, entirely against
+    disposable ``tmp_path`` stand-ins.
+    """
+    conftest = _conftest_module()
+
+    real_repo = tmp_path / "real"
+    throwaway_repo = tmp_path / "throwaway"
+    real_repo.mkdir()
+    throwaway_repo.mkdir()
+    base_env = dict(os.environ)
+    for name in conftest._DANGEROUS_GIT_ENV_VARS:
+        base_env.pop(name, None)
+    _git(["init", "-q"], real_repo, base_env)
+    _git(["init", "-q"], throwaway_repo, base_env)
+
+    monkeypatch.setenv("GIT_DIR", str(real_repo / ".git"))
+
+    with pytest.raises(conftest.LeakedGitPointerEnvError):
+        subprocess.run(
+            ["git", "-C", str(throwaway_repo), "config", "core.bare", "true"],
+            check=True,
+        )
+
+    monkeypatch.delenv("GIT_DIR", raising=False)
+    corrupted = _git(
+        ["config", "--get", "core.bare"], real_repo, base_env
+    ).stdout.strip()
+    assert corrupted in ("", "false"), (
+        "GUARD FAILED: the leaked GIT_DIR corrupted the real stand-in repo"
+    )
+
+
+def test_without_the_guard_the_same_leak_genuinely_corrupts_the_real_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Negative control for the guard test above: temporarily restores the
+    true, unpatched ``Popen.__init__`` (captured at conftest import time) to
+    prove the guard stops a real vulnerability, not a strawman.
+    """
+    conftest = _conftest_module()
+
+    real_repo = tmp_path / "real"
+    throwaway_repo = tmp_path / "throwaway"
+    real_repo.mkdir()
+    throwaway_repo.mkdir()
+    base_env = dict(os.environ)
+    for name in conftest._DANGEROUS_GIT_ENV_VARS:
+        base_env.pop(name, None)
+    _git(["init", "-q"], real_repo, base_env)
+    _git(["init", "-q"], throwaway_repo, base_env)
+
+    monkeypatch.setattr(subprocess.Popen, "__init__", conftest._TRUE_POPEN_INIT)
+    monkeypatch.setenv("GIT_DIR", str(real_repo / ".git"))
+
+    subprocess.run(
+        ["git", "-C", str(throwaway_repo), "config", "core.bare", "true"],
+        check=True,
+    )
+
+    monkeypatch.delenv("GIT_DIR", raising=False)
+    corrupted = _git(
+        ["config", "--get", "core.bare"], real_repo, base_env
+    ).stdout.strip()
+    assert corrupted == "true", (
+        "expected the unguarded leak to hit the real stand-in repo -- if "
+        "this fails, the reproduction is stale and the guard test above "
+        "proves nothing"
     )

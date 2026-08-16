@@ -32,6 +32,11 @@ from agent_utilities.domains.finance.debate_engine import (
     DebateSession,
     RiskVeto,
 )
+import pytest
+
+# The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
+pytest.importorskip("epistemic_graph.numeric")
+
 from agent_utilities.domains.finance.market_data import DataRegistry, SyntheticProvider
 from agent_utilities.domains.finance.regime_detector import RegimeDetector
 from agent_utilities.domains.finance.strategy_engine import (

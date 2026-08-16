@@ -22,6 +22,20 @@ from agent_utilities.governance import concept_allocator as ca
 from agent_utilities.governance import lanes
 
 
+def _load_check_lane_guard():
+    """Import ``scripts/check_lane_guard.py`` as a module (it is a script, not
+    a package member, so every repo's pre-commit hook `exec`s it directly)."""
+    import importlib.util
+
+    repo_root = Path(__file__).resolve().parents[2]
+    spec = importlib.util.spec_from_file_location(
+        "check_lane_guard", repo_root / "scripts" / "check_lane_guard.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def _run(args: list[str], cwd: Path) -> str:
     proc = subprocess.run(
         args, cwd=str(cwd), capture_output=True, text=True, check=True
@@ -44,6 +58,41 @@ def _init_repo(root: Path) -> Path:
     _run(["git", "add", "-A"], root)
     _run(["git", "commit", "-qm", "base"], root)
     return root
+
+
+@pytest.fixture(autouse=True)
+def _isolate_workspace_arbitration_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Route "workspace"-scoped leases into an isolated ``tmp_path`` instead of
+    the REAL host-wide ``~/.local/state/agent-utilities/arbitration`` directory
+    that live lane orchestration on this host actually uses for
+    ``dependency-lock``/``epistemic-graph-daemon``/``workspace-scripts``
+    (``lanes.workspace_arbitration_dir()`` — see ``lane_resources.yaml``:
+    those three names are deliberately host-wide, not per-repo, because the
+    shared venv/uv.lock and the shared local epistemic-graph daemon really are
+    contended across every worktree of every repo on the host).
+
+    Passing ``path=canonical`` to ``hold_lease``/``lease_status`` does NOT
+    isolate these tests from that real directory -- ``_lease_dir`` ignores
+    ``path`` for workspace-scoped resources by design (that is the behaviour
+    under test). Without this fixture these tests take a REAL lease that a
+    genuinely concurrent lane/agent on this host could be holding (a spurious
+    ``LeaseUnavailable`` unrelated to the code under test) or that this test
+    process could itself briefly hold, deferring a real concurrent full-suite
+    run or ``uv sync`` elsewhere on the host. It also makes every one of these
+    tests race every OTHER worker under ``pytest-xdist -n auto`` on the same
+    real lease file, since they all pass through the same un-isolated function.
+    """
+    workspace_dir = tmp_path / "workspace-arbitration"
+
+    def _fake_workspace_arbitration_dir() -> Path:
+        workspace_dir.mkdir(parents=True, exist_ok=True)
+        return workspace_dir
+
+    monkeypatch.setattr(
+        lanes, "workspace_arbitration_dir", _fake_workspace_arbitration_dir
+    )
 
 
 @pytest.fixture
@@ -79,6 +128,38 @@ def test_guard_refuses_to_edit_the_canonical_checkout(canonical: Path) -> None:
 def test_guard_allows_a_linked_worktree(canonical: Path) -> None:
     lane = _add_worktree(canonical, "lane-b")
     assert lanes.require_mutable_tree(lane, operation="edit").lane == "lane-b"
+
+
+# ---------------------------------------------------------------------------
+# check_lane_guard.py — the pre-commit hook every repo's `.pre-commit-config.yaml`
+# `exec`s directly. Regression: a PUSH stages nothing, and the hook's
+# `always_run: true` lane-guard check fired for every repo's pre-push gate too
+# -- an empty `staged` list fell through the old `if staged and ...:` carve-out
+# straight into REFUSED, blocking pushes fleet-wide from every canonical
+# checkout even though nothing was being committed.
+# ---------------------------------------------------------------------------
+def test_lane_guard_allows_a_canonical_push_with_nothing_staged(
+    canonical: Path,
+) -> None:
+    clg = _load_check_lane_guard()
+    scope = lanes.lane_scope(canonical)
+    assert scope.is_canonical is True
+    assert clg._check_canonical(scope, staged=[]) is None
+
+
+def test_lane_guard_still_refuses_a_real_canonical_commit(canonical: Path) -> None:
+    clg = _load_check_lane_guard()
+    scope = lanes.lane_scope(canonical)
+    assert clg._check_canonical(scope, staged=["some/real/file.py"]) is not None
+
+
+def test_lane_guard_allows_a_pure_bumpversion_commit(canonical: Path) -> None:
+    (canonical / ".bumpversion.cfg").write_text(
+        "[bumpversion:file:pyproject.toml]\n", encoding="utf-8"
+    )
+    clg = _load_check_lane_guard()
+    scope = lanes.lane_scope(canonical)
+    assert clg._check_canonical(scope, staged=["pyproject.toml"]) is None
 
 
 def test_guard_allows_the_canonical_merge_back(canonical: Path) -> None:

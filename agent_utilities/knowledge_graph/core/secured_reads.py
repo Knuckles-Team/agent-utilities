@@ -79,14 +79,61 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     ingested platform nodes had no durable ACL material to hydrate and the
     fail-closed guard denied them. Reading the backend directly removes that
     asymmetry instead of loosening the guard.
+
+    R-22/GOC-67 (defect 1): ``active.backend`` is the PROCESS-DEFAULT engine's
+    backend — fine as long as the caller's verified work is against that same
+    default graph. Once explicit-graph selection (``resolve_explicit_graph`` /
+    ``bound_to_graph``) narrows the ambient :class:`~.session.GraphSession` to a
+    DIFFERENT physical graph, the real row read (routed through the wire
+    layer's own session-graph resolution) correctly comes from the selected
+    graph, but this ACL hydration kept reading the default backend regardless
+    — the selected graph's nodes are simply absent there, so they were
+    (correctly, given the wrong backend) default-denied. The requested graph
+    is derived ONLY from the verified ambient session — never accepted as a
+    parameter here — so this layer cannot be pointed at an unverified,
+    caller-supplied graph; the session was already validated fail-closed
+    against the engine's own graph catalog before it could ever carry an
+    unknown or unauthorized name (``resolve_explicit_graph``). When the
+    session's graph differs from the active engine's own bound graph, hydrate
+    from ``IntelligenceGraphEngine.for_graph(<trusted-graph>)`` instead — a
+    lightweight, zero-transport view over the SAME process transport (no new
+    socket/connection), never a second authorization mechanism: the engine's
+    RBAC/RLS still evaluates every RPC server-side exactly as it does for the
+    row read itself. A missing per-graph view or a hydration failure on that
+    view is surfaced as :class:`PermissionError`, identically to every other
+    failure mode here — never a silent fallback to the wrong graph's backend.
     """
 
     from .engine import IntelligenceGraphEngine
+    from .session import current_session
 
     active = IntelligenceGraphEngine.get_active()
     if active is None:
         return {}
-    backend = getattr(active, "backend", None)
+
+    session = current_session()
+    requested_graph = (
+        str(getattr(session, "graph", "") or "") if session is not None else ""
+    )
+    active_graph = str(
+        getattr(getattr(active, "graph_compute", None), "graph_name", "") or ""
+    )
+
+    hydration_authority = active
+    if requested_graph and requested_graph != active_graph:
+        view_factory = getattr(active, "for_graph", None)
+        if not callable(view_factory):
+            raise PermissionError("Durable ACL hydration authority is unavailable")
+        try:
+            hydration_authority = view_factory(requested_graph)
+        except Exception as exc:
+            raise PermissionError(
+                "Durable ACL hydration authority is unavailable"
+            ) from exc
+        if hydration_authority is None:
+            raise PermissionError("Durable ACL hydration authority is unavailable")
+
+    backend = getattr(hydration_authority, "backend", None)
     execute_read = getattr(backend, "execute_read", None)
     if not callable(execute_read):
         raise PermissionError("Durable ACL hydration authority is unavailable")

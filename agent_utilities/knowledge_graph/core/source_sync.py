@@ -4443,6 +4443,7 @@ def _sync_claude_memory(
         if id_filter and slug not in id_filter:
             continue
         eid = f"claude_memory:{slug}"
+        text = (f"{description}\n\n{body}").strip()
         record: dict[str, Any] = {
             "id": eid,
             "type": "AgentMemory",
@@ -4450,10 +4451,26 @@ def _sync_claude_memory(
             "slug": slug,
             "memory_type": mtype,
             "description": description,
-            "text": (f"{description}\n\n{body}").strip(),
+            "text": text,
             # The durable envelope may identify the configured source class,
             # never the host/user-specific filesystem location.
             "source_uri": "configured-memory",
+            # A stable digest of the file's actual content -- NOT the constant
+            # ``id`` -- so ``ChangeEnvelope.from_connector_record``'s
+            # ``source_version``/idempotency key genuinely varies with content
+            # (the documented "content-hash write-delta": an unchanged topic
+            # file is skipped, but a changed one under the same slug must
+            # produce a new idempotent version rather than colliding with the
+            # previous commit under that slug). Full 64-hex-char sha256: the
+            # envelope privacy gate's opaque-digest allowlist
+            # (envelope_ingest._OPAQUE_DIGEST) only recognizes 24/32/40/64-hex
+            # lengths as opaque and exempt from the free-text privacy scan; a
+            # truncated digest falls through to that scan and can trip its
+            # regex heuristics on ordinary hex material (the same class of
+            # false positive already documented there for sha256 digests).
+            "content_version": hashlib.sha256(
+                f"{name}\n{mtype}\n{text}".encode()
+            ).hexdigest(),
         }
         rel_links = [
             {"source": eid, "target": f"claude_memory:{tgt}", "type": "RELATED_TO"}
@@ -4464,7 +4481,10 @@ def _sync_claude_memory(
             record["_links"] = rel_links
 
         env = ChangeEnvelope.from_connector_record(
-            record, connector="claude_memory", id_field="id", version_field="id"
+            record,
+            connector="claude_memory",
+            id_field="id",
+            version_field="content_version",
         )
         result = ingest_envelope(engine, env)
         if result.get("status") not in {"success", "skipped"}:

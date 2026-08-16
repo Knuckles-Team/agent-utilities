@@ -1,5 +1,10 @@
 """Tests for CONCEPT:AU-KG.research.research-pipeline-runner — Research Autopilot."""
 
+import pytest
+
+# The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
+pytest.importorskip("epistemic_graph.numeric")
+
 from agent_utilities.domains.finance.research_autopilot import (
     AutopilotConfig,
     Hypothesis,

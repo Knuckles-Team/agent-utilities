@@ -24,10 +24,11 @@ dispatch seam where they plug in — keyed ``"<source>:<severity>"`` then
 ``"<source>"`` then ``"default"`` — via :func:`register_playbook`.
 """
 
+import inspect
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,9 @@ def correlate_event(engine: Any, event: dict[str, Any]) -> list[dict[str, Any]]:
     return [r for r in rows or [] if isinstance(r, dict) and r.get("id")]
 
 
-def _file_gap(engine: Any, event: dict[str, Any]) -> dict[str, Any] | None:
+def _file_gap(
+    engine: Any, event: dict[str, Any], *, graph_writer: Any = None
+) -> dict[str, Any] | None:
     """File a failure_gap topic for the event via the failure-analyzer path."""
     from .failure_analyzer import (
         ANOMALY_ERROR,
@@ -82,12 +85,25 @@ def _file_gap(engine: Any, event: dict[str, Any]) -> dict[str, Any] | None:
         sample_detail=summary_ref,
     )
     return file_gap_topic(
-        engine, pattern, anomaly_id=event.get("id"), source="fleet_event_triage"
+        engine,
+        pattern,
+        anomaly_id=event.get("id"),
+        source="fleet_event_triage",
+        graph_writer=graph_writer,
     )
 
 
-def default_playbook(engine: Any, event: dict[str, Any]) -> dict[str, Any]:
-    """Correlate the event, escalating to a failure_gap topic when warranted."""
+def default_playbook(
+    engine: Any, event: dict[str, Any], *, graph_writer: Any = None
+) -> dict[str, Any]:
+    """Correlate the event, escalating to a failure_gap topic when warranted.
+
+    ``graph_writer`` is the same explicit in-memory test adapter
+    ``file_gap_topic``/``_commit_graph_slice`` accept (see
+    :class:`FailureAnalyzer`, ``consume_anomalies``) — threaded through by
+    callers that want to exercise gap-filing against a fake engine; the
+    daemon task dispatch never passes it, so production is unchanged.
+    """
     correlated = correlate_event(engine, event)
     out: dict[str, Any] = {
         "playbook": "default",
@@ -110,7 +126,7 @@ def default_playbook(engine: Any, event: dict[str, Any]) -> dict[str, Any]:
     severity = str(event.get("severity") or "info")
     status = str(event.get("status") or "unknown")
     if severity in GAP_SEVERITIES or status in GAP_STATUSES:
-        gap = _file_gap(engine, event)
+        gap = _file_gap(engine, event, graph_writer=graph_writer)
         if gap:
             out["gap_topic"] = gap["id"]
     return out
@@ -151,13 +167,22 @@ def _load_event(engine: Any, event_node_id: str) -> dict[str, Any] | None:
     return props
 
 
-def triage_fleet_event(engine: Any, event_node_id: str) -> dict[str, Any]:
+def triage_fleet_event(
+    engine: Any, event_node_id: str, *, graph_writer: Any = None
+) -> dict[str, Any]:
     """Triage one persisted ``FleetEvent`` node (the daemon task handler).
 
     Loads the event, dispatches the matching playbook (correlate + escalate),
     and stamps the node ``triage_status='triaged'``. Always returns a JSON-able
     report; a missing/unreadable event reports ``triaged=False`` rather than
     raising (the durable task is then completed, not retried forever).
+
+    ``graph_writer`` is the explicit in-memory test adapter accepted by
+    :func:`default_playbook` and every playbook built on it. It is passed to
+    the resolved playbook only when that playbook's own signature declares a
+    ``graph_writer`` parameter, so third-party/registered playbooks that don't
+    know about this test seam (e.g. the jira/plane ticket playbooks) are
+    called exactly as before — the daemon task dispatch never passes it.
     """
     event = _load_event(engine, event_node_id)
     if event is None:
@@ -172,7 +197,22 @@ def triage_fleet_event(engine: Any, event_node_id: str) -> dict[str, Any]:
         str(event.get("severity") or "info"),
     )
     try:
-        report = playbook(engine, event) or {}
+        if (
+            graph_writer is not None
+            and "graph_writer" in inspect.signature(playbook).parameters
+        ):
+            # PlaybookFn's declared contract is (engine, event) -> dict — most
+            # registered playbooks (e.g. jira/plane) only accept that. This
+            # branch is reached only when `inspect.signature` has just proven,
+            # at runtime, that `playbook` additionally accepts the optional
+            # `graph_writer` keyword (as `default_playbook` does); the cast
+            # reflects that runtime-verified wider signature for this one call.
+            playbook_with_writer = cast("Callable[..., dict[str, Any]]", playbook)
+            report = (
+                playbook_with_writer(engine, event, graph_writer=graph_writer) or {}
+            )
+        else:
+            report = playbook(engine, event) or {}
     except Exception as e:  # noqa: BLE001 — a playbook bug never kills the worker
         logger.warning("fleet event playbook failed (%s)", type(e).__name__)
         report = {"playbook_error": type(e).__name__}

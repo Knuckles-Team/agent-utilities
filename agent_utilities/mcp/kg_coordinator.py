@@ -48,7 +48,7 @@ class KGCoordinator:
             # Any HTTP status code (including 404 Not Found) means the web server is alive and responding!
             return True
         except Exception as e:  # noqa: BLE001 — health probe, a failed probe already returns False to the caller
-            logger.debug(f"KG server health check failed: {e}")
+            logger.debug(f"KG server health check failed: {type(e).__name__}")
             return False
 
     @classmethod
@@ -83,7 +83,7 @@ class KGCoordinator:
                         except Exception:
                             pass
         except Exception as e:  # noqa: BLE001 — best-effort process-listing lookup, another fallback method follows
-            logger.debug(f"psutil.net_connections lookup failed: {e}")
+            logger.debug(f"psutil.net_connections lookup failed: {type(e).__name__}")
 
         # 2. Terminate any lingering kg_server.py processes
         for proc in psutil.process_iter(["pid", "name", "cmdline"]):
@@ -122,12 +122,18 @@ class KGCoordinator:
         agents attempt to spawn the server simultaneously. Only one process wins
         the lock election; all others wait for health checks.
         """
-        import fcntl
         from pathlib import Path
 
         import platformdirs
 
-        # G4: File-based PID lock for spawn election
+        from agent_utilities.knowledge_graph.core.file_lock import (
+            LockUnavailable,
+            lock_exclusive_nb,
+            unlock,
+        )
+
+        # G4: File-based PID lock for spawn election (R-07: routed through the
+        # file_lock chokepoint instead of a direct POSIX-only `import fcntl`).
         lock_dir = Path(platformdirs.user_runtime_dir("agent-utilities"))
         lock_dir.mkdir(parents=True, exist_ok=True)
         lock_path = lock_dir / "kg_spawn.lock"
@@ -135,8 +141,8 @@ class KGCoordinator:
         lock_fd = None
         try:
             lock_fd = open(lock_path, "w")  # noqa: SIM115
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except (BlockingIOError, OSError):
+            lock_exclusive_nb(lock_fd.fileno())
+        except (LockUnavailable, OSError):
             # Another agent is already spawning — just wait for health
             logger.info(
                 "Another agent is spawning the KG server. Waiting for health..."
@@ -225,7 +231,7 @@ class KGCoordinator:
             # Release the spawn election lock
             if lock_fd:
                 try:
-                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                    unlock(lock_fd.fileno())
                     lock_fd.close()
                 except Exception:
                     pass

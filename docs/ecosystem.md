@@ -33,7 +33,7 @@ on. This page maps the pieces and how a request flows through them.
 
 The provider inventory is defined by repository-manager's `workspace.yml`; package
 discovery must not depend on a separately maintained list. Every declared provider uses
-the publishable range `agent-utilities>=2.3.0,<3.0.0` while local ecosystem development
+the publishable range `agent-utilities>=2.4.0,<3.0.0` while local ecosystem development
 resolves the exact sibling checkout with this uv source:
 
 ```toml
@@ -41,11 +41,18 @@ resolves the exact sibling checkout with this uv source:
 agent-utilities = { path = "../../agent-utilities", editable = true }
 ```
 
-Agent Utilities has a hard base dependency on the one supported
-`epistemic-graph[full]` artifact. The `[mcp]` extra is connector-focused and adds the MCP
-serving surface; `[agent-runtime]` additionally adds model orchestration. Neither extra
-selects or owns a different engine build. Provider documentation must not describe the
-graph engine as exclusive to the agent runtime or absent from MCP installations.
+Agent Utilities depends on the one supported `epistemic-graph[full]` artifact via the
+opt-in `[graphos]` extra (GOC-73: split out of the base dependency set so consumers
+that import `agent_utilities` but never touch the engine — e.g. a frontend that only
+needs the client-facing subpackages — are not forced to resolve it). `[serving]` and
+`[all]` both pull `[graphos]` in, so an existing `pip install agent-utilities[serving]`
+or `[all]` is unaffected; a bare `pip install agent-utilities` no longer is. The `[mcp]`
+extra is connector-focused and adds the MCP serving surface; `[agent-runtime]`
+additionally adds model orchestration — neither pulls `[graphos]` on its own, so a
+deployment that wants the engine alongside them must request it explicitly (or use
+`[serving]`, which already composes it). Neither extra selects or owns a different
+engine build. Provider documentation must not describe the graph engine as exclusive to
+the agent runtime or absent from MCP installations.
 
 Validate all 65 checkouts, dependency declarations, registry-safe source declarations, and MkDocs
 content from the ecosystem workspace:

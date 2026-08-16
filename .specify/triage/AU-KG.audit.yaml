@@ -1,0 +1,287 @@
+domain: AU-KG.audit
+generated_at: '2026-08-14T23:49:27+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
+clusters:
+  AU-KG.audit.hash-chain-verify:
+  - AU-KG.audit.hash-chain-verify
+  - AU-KG.audit.tool-call-acted-on-reverse-index
+  AU-KG.audit.hydration-absent-vs-hidden:
+  - AU-KG.audit.hydration-absent-vs-hidden
+  - AU-KG.audit.hydration-manifest-signed
+concepts:
+  AU-KG.audit.durable-error-detail:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 6 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/gateway/daemon.py
+      - agent_utilities/knowledge_graph/ontology_orchestration.ttl
+      - agent_utilities/observability/error_detail_sink.py
+      - agent_utilities/security/error_surface.py
+      test_files:
+      - tests/unit/observability/test_error_detail_sink.py
+      doc_files: []
+      introduced: '52fa3393 2026-07-30 fix(g0): durable error-detail backend + honest per-repo coverage
+        errors'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/gateway/daemon.py:273
+      - agent_utilities/knowledge_graph/ontology_orchestration.ttl:245
+      - agent_utilities/knowledge_graph/ontology_orchestration.ttl:522
+      - agent_utilities/observability/error_detail_sink.py:23
+      - agent_utilities/security/error_surface.py:196
+      - tests/unit/observability/test_error_detail_sink.py:3
+  AU-KG.audit.error-detail-resolution:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 2 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/mcp/tools/analyze_suite.py
+      - agent_utilities/security/error_surface.py
+      test_files: []
+      doc_files: []
+      introduced: 'fc53ae9c 2026-07-30 fix(security,mcp): resolve error detail_ref via graph_observe,
+        tenant-scoped'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/mcp/tools/analyze_suite.py:256
+      - agent_utilities/security/error_surface.py:188
+  AU-KG.audit.graph-ownership-disposition:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 9 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/maintenance/graph_ownership.py
+      - agent_utilities/knowledge_graph/maintenance/graph_ownership_apply.py
+      - agent_utilities/mcp/tools/governance_tools.py
+      test_files:
+      - tests/unit/knowledge_graph/test_graph_ownership.py
+      - tests/unit/knowledge_graph/test_graph_ownership_apply.py
+      - tests/unit/mcp/test_governance_tools.py
+      doc_files:
+      - docs/architecture/configuration.md
+      - docs/architecture/self-evolution-flywheel.md
+      introduced: '3d0c5971 2026-07-25 fix(surfaces): close the 6 pre-existing surface-parity gaps'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/maintenance/graph_ownership.py:6
+      - agent_utilities/knowledge_graph/maintenance/graph_ownership_apply.py:7
+      - agent_utilities/mcp/tools/governance_tools.py:233
+      - agent_utilities/mcp/tools/governance_tools.py:277
+      - docs/architecture/configuration.md:342
+      - docs/architecture/self-evolution-flywheel.md:124
+      - tests/unit/knowledge_graph/test_graph_ownership.py:1
+      - tests/unit/knowledge_graph/test_graph_ownership_apply.py:1
+      - tests/unit/mcp/test_governance_tools.py:3
+  AU-KG.audit.hash-chain-verify:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/core/graph_compute.py
+      - agent_utilities/mcp/tools/audit_tools.py
+      test_files:
+      - tests/unit/knowledge_graph/test_graph_compute_audit.py
+      - tests/unit/mcp/test_audit_tools.py
+      doc_files: []
+      introduced: '032d597d 2026-07-12 feat(g23): expose engine hash-chained audit ledger + ToolCall reverse-index'
+      cohort:
+      - AU-KG.audit.tool-call-acted-on-reverse-index
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/core/graph_compute.py:3426
+      - agent_utilities/mcp/tools/audit_tools.py:3
+      - tests/unit/knowledge_graph/test_graph_compute_audit.py:3
+      - tests/unit/mcp/test_audit_tools.py:3
+  AU-KG.audit.hydration-absent-vs-hidden:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py
+      - agent_utilities/mcp/kg_server.py
+      test_files:
+      - tests/unit/knowledge_graph/ingestion/test_hydration_manifest.py
+      doc_files: []
+      introduced: '45880abc 2026-07-30 fix(kg): wire the signed hydration manifest into boot hydration'
+      cohort:
+      - AU-KG.audit.hydration-manifest-signed
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py:565
+      - agent_utilities/mcp/kg_server.py:3167
+      - tests/unit/knowledge_graph/ingestion/test_hydration_manifest.py:4
+  AU-KG.audit.hydration-manifest-signed:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.audit.hydration-absent-vs-hidden
+    suggestion_why: 'clusters with 1 sibling(s) around AU-KG.audit.hydration-absent-vs-hidden; shares
+      agent_utilities/knowledge_graph/ingestion/hydration_manifest.py, agent_utilities/mcp/kg_server.py;
+      both introduced by 45880abc (fix(kg): wire the signed hydration manifest into boot hydrat)'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py
+      - agent_utilities/mcp/kg_server.py
+      test_files:
+      - tests/unit/knowledge_graph/ingestion/test_hydration_manifest.py
+      doc_files: []
+      introduced: '45880abc 2026-07-30 fix(kg): wire the signed hydration manifest into boot hydration'
+      cohort:
+      - AU-KG.audit.hydration-absent-vs-hidden
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py:6
+      - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py:56
+      - agent_utilities/knowledge_graph/ingestion/hydration_manifest.py:434
+      - agent_utilities/mcp/kg_server.py:3167
+      - tests/unit/knowledge_graph/ingestion/test_hydration_manifest.py:3
+  AU-KG.audit.kg-native-audit-sink:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/capabilities/composition.py
+      - agent_utilities/capabilities/kg_audit_sink.py
+      test_files:
+      - tests/unit/capabilities/test_kg_audit_sink.py
+      doc_files: []
+      introduced: '40ffcc44 2026-07-25 feat(capabilities): PA-R1.7 KG-backed AuditSink (adopt pydantic-ai-harness
+        audit_log)'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/capabilities/composition.py:105
+      - agent_utilities/capabilities/kg_audit_sink.py:6
+      - tests/unit/capabilities/test_kg_audit_sink.py:3
+  AU-KG.audit.repository-job-provenance-bridge:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/observability/gateway_metrics.py
+      - agent_utilities/observability/repository_metrics.py
+      - agent_utilities/observability/repository_provenance.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/observability/gateway_metrics.py:392
+      - agent_utilities/observability/repository_metrics.py:1
+      - agent_utilities/observability/repository_provenance.py:1
+  AU-KG.audit.tool-call-acted-on-reverse-index:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.audit.hash-chain-verify
+    suggestion_why: 'clusters with 1 sibling(s) around AU-KG.audit.hash-chain-verify; both introduced
+      by 032d597d (feat(g23): expose engine hash-chained audit ledger + ToolCal)'
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/orchestration/agent_runner.py
+      - agent_utilities/orchestration/manager.py
+      test_files:
+      - tests/unit/orchestration/test_orchestrator_tool_calls_for_target.py
+      - tests/unit/orchestration/test_tool_call_acted_on.py
+      doc_files: []
+      introduced: '032d597d 2026-07-12 feat(g23): expose engine hash-chained audit ledger + ToolCall reverse-index'
+      cohort:
+      - AU-KG.audit.hash-chain-verify
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/orchestration/agent_runner.py:4297
+      - agent_utilities/orchestration/agent_runner.py:4393
+      - agent_utilities/orchestration/manager.py:347
+      - tests/unit/orchestration/test_orchestrator_tool_calls_for_target.py:3
+      - tests/unit/orchestration/test_tool_call_acted_on.py:3

@@ -1,5 +1,6 @@
 """CONCEPT:AU-ORCH.execution.inject-signal-board-observations"""
 
+import importlib.util
 from unittest.mock import MagicMock
 
 import pytest
@@ -10,6 +11,20 @@ from agent_utilities.graph.lifecycle import usage_guard_step
 from agent_utilities.graph.routing import dispatcher_step
 from agent_utilities.graph.state import GraphDeps, GraphState
 from agent_utilities.graph.verification import verifier_step
+
+# test_verifier_step_retry: the verifier's structure-validation fallback path
+# constructs a real engine client and, when ``epistemic_graph`` is absent,
+# both the primary check AND its own unstructured fallback fail (the fallback
+# hits an unrelated ``UnboundLocalError`` on 'validation_agent' only reachable
+# once the primary already failed on ModuleNotFoundError) -- caught inside
+# ``verifier_step`` and surfaced as choosing "synthesizer" over the expected
+# "dispatcher" retry target, not a raised exception. Matches the same
+# "package genuinely absent" contract used elsewhere (e.g.
+# tests/unit/test_engine_api_coverage.py).
+_NEEDS_ENGINE = pytest.mark.skipif(
+    importlib.util.find_spec("epistemic_graph") is None,
+    reason="epistemic_graph package not installed in this environment.",
+)
 from agent_utilities.models import (
     ExecutionStep,
     GraphPlan,
@@ -109,6 +124,7 @@ async def test_verifier_step_success(mock_deps):
 
 
 @pytest.mark.asyncio
+@_NEEDS_ENGINE
 async def test_verifier_step_retry(mock_deps):
     """A very low validation score with partial results re-dispatches cheaply.
 

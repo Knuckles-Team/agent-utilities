@@ -279,10 +279,9 @@ def _checkpoint_manager(graph: str) -> Any:
     except Exception as exc:  # noqa: BLE001 — engine down degrades to RAM-only
         logger.warning(
             "[CONCEPT:AU-KG.memory.checkpoint-worthiness-scoring] durable checkpoint "
-            "tier unavailable (%s: %s) — the manager will serve RAM only and refuse "
+            "tier unavailable (%s) — the manager will serve RAM only and refuse "
             "every promotion",
             type(exc).__name__,
-            exc,
         )
         disk_store = None
     from agent_utilities.core._env import setting
@@ -763,7 +762,7 @@ def _trace_native_search(
     try:
         raw_rows = _run_coro(sink.get_traces(""))
     except Exception as exc:  # noqa: BLE001 — surface as data, never raise
-        logger.debug("graph_traces: KG-native search failed: %s", exc)
+        logger.debug("graph_traces: KG-native search failed: %s", type(exc).__name__)
         return []
     rows = [_trace_row(r) for r in raw_rows or []]
     needle = " ".join(v for v in (service, operation, query) if v).strip().lower()
@@ -794,7 +793,7 @@ def _trace_native_get(trace_id: str) -> dict[str, Any] | None:
     try:
         raw = _run_coro(sink.get_trace_summary(trace_id))
     except Exception as exc:  # noqa: BLE001 — treat as no native answer, fall through
-        logger.debug("graph_traces: KG-native get failed: %s", exc)
+        logger.debug("graph_traces: KG-native get failed: %s", type(exc).__name__)
         return None
     if not raw or raw.get("error") == "not_found":
         return None
@@ -1028,7 +1027,9 @@ def _prometheus_http_query(
             resp.raise_for_status()
             payload = resp.json()
     except Exception as e:  # noqa: BLE001 — fallback failures are "no data", never raised
-        logger.debug("graph_promql: Prometheus HTTP fallback query failed: %s", e)
+        logger.debug(
+            "graph_promql: Prometheus HTTP fallback query failed: %s", type(e).__name__
+        )
         return None
     if not isinstance(payload, dict) or payload.get("status") != "success":
         return None
@@ -2641,11 +2642,11 @@ def register_engine_surface_tools(mcp) -> None:
                     record_evidence(
                         kg_server._get_engine(), from_process_signal(evidence)
                     )
-                except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: this Evidence write is a pure observability side-channel over an import that has ALREADY succeeded, and the comment above states it "never gates the import". Failing it must not fail the caller's OCEL import. The cause is preserved (the exception is interpolated), at DEBUG because the authoritative import outcome is already reported through the normal return path.
+                except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: this Evidence write is a pure observability side-channel over an import that has ALREADY succeeded, and the comment above states it "never gates the import". Failing it must not fail the caller's OCEL import. Only the exception type is recorded, at DEBUG because the authoritative import outcome is already reported through the normal return path.
                     logger.debug(
                         "OCEL process_signal evidence record failed for %s: %s",
                         evidence.get("idempotency_key"),
-                        exc,
+                        type(exc).__name__,
                     )
                 if ocel_mode == "derive":
                     # CONCEPT:AU-KG.mining.incremental-object-centric-derivation —
@@ -2844,11 +2845,11 @@ def register_engine_surface_tools(mcp) -> None:
                     )
 
                     record_evidence(engine, from_process_signal(evidence))
-                except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: a pure observability side-channel over an import that has ALREADY committed, so failing it must not fail the caller's OCEL import. The cause is preserved (interpolated) at DEBUG because the authoritative outcome is already reported through the normal return path.
+                except Exception as exc:  # noqa: BLE001 — deliberate best-effort audit overlay: a pure observability side-channel over an import that has ALREADY committed, so failing it must not fail the caller's OCEL import. Only the exception type is recorded, at DEBUG because the authoritative outcome is already reported through the normal return path.
                     logger.debug(
                         "OCEL process_signal evidence record failed for %s: %s",
                         evidence.get("idempotency_key"),
-                        exc,
+                        type(exc).__name__,
                     )
             except (PermissionError, TypeError, ValueError) as exc:
                 return _surface_error(

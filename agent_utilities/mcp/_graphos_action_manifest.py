@@ -20,6 +20,16 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "ask_data", "action": None, "name": "ask_data"},
     {"tool": "concept_registry", "action": None, "name": "concept_registry"},
     {"tool": "document_process", "action": None, "name": "document_process"},
+    {
+        "tool": "engine_admin",
+        "action": "audit_prove_inclusion",
+        "name": "engine_admin_audit_prove_inclusion",
+    },
+    {
+        "tool": "engine_admin",
+        "action": "audit_verify",
+        "name": "engine_admin_audit_verify",
+    },
     {"tool": "engine_admin", "action": "backup", "name": "engine_admin_backup"},
     {"tool": "engine_admin", "action": "restore", "name": "engine_admin_restore"},
     {
@@ -677,6 +687,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "engine_ledger", "action": "clear", "name": "engine_ledger_clear"},
     {"tool": "engine_ledger", "action": "get", "name": "engine_ledger_get"},
     {
+        "tool": "engine_ledger",
+        "action": "get_with_watermark",
+        "name": "engine_ledger_get_with_watermark",
+    },
+    {
         "tool": "engine_lifecycle",
         "action": "batch_update",
         "name": "engine_lifecycle_batch_update",
@@ -772,6 +787,78 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "engine_mining", "action": "sequence", "name": "engine_mining_sequence"},
     {"tool": "engine_mining", "action": "subgraph", "name": "engine_mining_subgraph"},
     {"tool": "engine_mining", "action": "text", "name": "engine_mining_text"},
+    {
+        "tool": "engine_modalities",
+        "action": "authority",
+        "name": "engine_modalities_authority",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "capabilities",
+        "name": "engine_modalities_capabilities",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "collect_tombstones",
+        "name": "engine_modalities_collect_tombstones",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "delete",
+        "name": "engine_modalities_delete",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "events",
+        "name": "engine_modalities_events",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "ingest",
+        "name": "engine_modalities_ingest",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "ingest_stream",
+        "name": "engine_modalities_ingest_stream",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "move_to_cold",
+        "name": "engine_modalities_move_to_cold",
+    },
+    {"tool": "engine_modalities", "action": "query", "name": "engine_modalities_query"},
+    {
+        "tool": "engine_modalities",
+        "action": "query_audio_window",
+        "name": "engine_modalities_query_audio_window",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "query_image_region",
+        "name": "engine_modalities_query_image_region",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "query_similar_images",
+        "name": "engine_modalities_query_similar_images",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "query_video_window",
+        "name": "engine_modalities_query_video_window",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "restore",
+        "name": "engine_modalities_restore",
+    },
+    {
+        "tool": "engine_modalities",
+        "action": "search_documents",
+        "name": "engine_modalities_search_documents",
+    },
+    {"tool": "engine_modalities", "action": "stats", "name": "engine_modalities_stats"},
     {"tool": "engine_nodes", "action": "add", "name": "engine_nodes_add"},
     {"tool": "engine_nodes", "action": "claim_next", "name": "engine_nodes_claim_next"},
     {
@@ -960,6 +1047,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {"tool": "engine_rdf", "action": "explain", "name": "engine_rdf_explain"},
     {"tool": "engine_rdf", "action": "get_rdf", "name": "engine_rdf_get_rdf"},
+    {
+        "tool": "engine_rdf",
+        "action": "icv_configure",
+        "name": "engine_rdf_icv_configure",
+    },
     {"tool": "engine_rdf", "action": "owl_reason", "name": "engine_rdf_owl_reason"},
     {
         "tool": "engine_rdf",
@@ -1022,6 +1114,26 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "engine_streaming",
         "action": "cdc_read",
         "name": "engine_streaming_cdc_read",
+    },
+    {
+        "tool": "engine_streaming",
+        "action": "cdc_read_with_watermark",
+        "name": "engine_streaming_cdc_read_with_watermark",
+    },
+    {
+        "tool": "engine_streaming",
+        "action": "cep_poll",
+        "name": "engine_streaming_cep_poll",
+    },
+    {
+        "tool": "engine_streaming",
+        "action": "cep_subscribe",
+        "name": "engine_streaming_cep_subscribe",
+    },
+    {
+        "tool": "engine_streaming",
+        "action": "cep_unsubscribe",
+        "name": "engine_streaming_cep_unsubscribe",
     },
     {
         "tool": "engine_streaming",
@@ -1105,6 +1217,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "engine_txn", "action": "blob_ref", "name": "engine_txn_blob_ref"},
     {"tool": "engine_txn", "action": "cas", "name": "engine_txn_cas"},
     {"tool": "engine_txn", "action": "commit", "name": "engine_txn_commit"},
+    {
+        "tool": "engine_txn",
+        "action": "commit_with_outcome",
+        "name": "engine_txn_commit_with_outcome",
+    },
     {"tool": "engine_txn", "action": "construct", "name": "engine_txn_construct"},
     {
         "tool": "engine_txn",
@@ -1129,6 +1246,12 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "unified_query_plan",
         "name": "engine_txn_unified_query_plan",
     },
+    {
+        "tool": "engine_viz",
+        "action": "capability_matrix",
+        "name": "engine_viz_capability_matrix",
+    },
+    {"tool": "engine_viz", "action": "render", "name": "engine_viz_render"},
     {"tool": "find", "action": None, "name": "find"},
     {
         "tool": "graph_agents",
@@ -1686,6 +1809,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_goals", "action": "create", "name": "graph_goals_create"},
     {"tool": "graph_goals", "action": "iterations", "name": "graph_goals_iterations"},
     {"tool": "graph_goals", "action": "list", "name": "graph_goals_list"},
+    {
+        "tool": "graph_governance",
+        "action": "claim_ownership",
+        "name": "graph_governance_claim_ownership",
+    },
     {
         "tool": "graph_governance",
         "action": "grant_approval",

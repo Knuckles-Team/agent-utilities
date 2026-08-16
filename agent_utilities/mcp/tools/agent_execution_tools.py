@@ -65,7 +65,11 @@ def _reasoning_step_fn(agent: Any, task: str):
             step: ReasoningStepOutput = result.output
             return step.summary, step.content, bool(step.is_final)
         except Exception as exc:  # noqa: BLE001 — a failed step ends the chain honestly
-            return f"reasoning step failed: {exc}", prior_content or task, True
+            return (
+                f"reasoning step failed: {type(exc).__name__}",
+                prior_content or task,
+                True,
+            )
 
     return step_fn
 
@@ -124,7 +128,7 @@ def _tot_functions(
             result = run_sync_isolated(lambda: agent.run_sync(prompt))
             output: ToTGenerateOutput = result.output
         except Exception as exc:  # noqa: BLE001 — a failed expansion ends that branch honestly
-            logger.debug("tot: generate_fn step failed: %s", exc, exc_info=True)
+            logger.debug("tot: generate_fn step failed: %s", type(exc).__name__)
             return []
         children = list(output.children)[:branching_factor]
         for child in children:

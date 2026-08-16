@@ -16,6 +16,7 @@ claims:
     - engine_ledger
     - engine_lifecycle
     - engine_mining
+    - engine_modalities
     - engine_nodes
     - engine_placement
     - engine_query
@@ -27,6 +28,7 @@ claims:
     - engine_tenants
     - engine_timeseries
     - engine_txn
+    - engine_viz
     - graph_domain_ops
     - graph_pipeline
   features:

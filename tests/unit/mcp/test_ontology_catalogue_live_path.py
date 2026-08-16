@@ -204,9 +204,27 @@ async def test_deprecate_action_flips_the_flag_and_is_filterable(registered):
     assert (await _graph_ontology(action="list", deprecated_only=True))["count"] == 0
 
 
-async def test_deprecate_is_purely_advisory_and_never_touches_active(registered):
+async def test_deprecate_is_purely_advisory_and_never_touches_active(
+    registered, monkeypatch
+):
     """A deprecated version can stay active (e.g. mid-migration window) — the
-    two flags are independent axes, never coupled."""
+    two flags are independent axes, never coupled.
+
+    Per this module's own docstring, this exercises the "no live engine"
+    offline path (``activated`` stays the requested intent flag — see
+    ``OntologyLifecycle.load``'s fail-closed rule, CONCEPT:AU-KG.ontology.activation-fails-closed).
+    Pin ``kg_server._get_engine`` to unreachable so that holds regardless of
+    whether some OTHER test file already stood up the process-global
+    ``IntelligenceGraphEngine`` singleton — a real live engine present here
+    would make ``load``'s axiom activation fail closed against the
+    per-tenant ontology graph (an unrelated, deliberate GraphSession
+    immutability guard, not something this advisory-flag test exercises).
+    """
+
+    def _boom():
+        raise RuntimeError("no engine")
+
+    monkeypatch.setattr(kg_server, "_get_engine", _boom)
     await _graph_ontology(action="load", source=PETS_TTL, source_type="text")
     deprecated = await _graph_ontology(
         action="deprecate", iri="http://example.org/pets"

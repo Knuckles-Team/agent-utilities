@@ -86,14 +86,14 @@ def test_media_cross_modal_acid_node_and_blob(engine_graph):
     # The occurrence node committed with its content digest (the ACID node write).
     occurrence = compute._client.nodes.properties(res.occurrence_id)
     assert occurrence is not None
-    assert occurrence.get("type") == "AssetOccurrence"
+    assert occurrence.get("node_type") == "AssetOccurrence"
     assert occurrence.get("content_digest") == res.digest
     assert occurrence.get("message_id") == "mem:msg1"
 
     # The :Blob handle node committed too (same txn).
     blob = compute._client.nodes.properties(f"blob:{res.digest}")
     assert blob is not None
-    assert blob.get("type") == "Blob"
+    assert blob.get("node_type") == "Blob"
     assert blob.get("content_digest") == res.digest
 
     # The :hasBlob edge links occurrence → blob.

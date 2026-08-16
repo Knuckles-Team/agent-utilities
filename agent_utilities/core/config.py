@@ -63,18 +63,29 @@ DEFAULT_DB_PATH = str(
 # the correct universal default (config discipline — no flag for a one-correct-value).
 RESERVED_INTERACTIVE_INSTANCES = 1
 
+# D-PERF-2 (test-suite acceleration program): this module is imported by ~420
+# other modules across the codebase (near-universal — most tests transitively
+# import it), so an eager `import logfire` here pays logfire's full import
+# chain (logfire._internal.* + the whole opentelemetry SDK/OTLP-exporter
+# stack + pydantic_core + requests/urllib3) on every one of those imports,
+# even though this module only ever needs a yes/no "is logfire installed"
+# answer, never the `logfire` module object itself (nothing here or anywhere
+# downstream does `from agent_utilities.core.config import logfire`).
+# `importlib.util.find_spec` answers that without executing the package's
+# `__init__.py` (or any of its submodules), so it is orders of magnitude
+# cheaper than a real import while HAS_LOGFIRE keeps IDENTICAL semantics for
+# every consumer. Call sites that need the real API (e.g.
+# agent_utilities/observability/custom_observability.py) still import
+# `logfire` themselves, lazily, at the point of use.
+import importlib.util
+
 from agent_utilities.base_utilities import (
     to_boolean,
     to_dict,
     to_list,
 )
 
-try:
-    import logfire  # noqa: F401
-
-    HAS_LOGFIRE = True
-except ImportError:
-    HAS_LOGFIRE = False
+HAS_LOGFIRE = importlib.util.find_spec("logfire") is not None
 
 os.environ.setdefault("LOGFIRE_SEND_TO_LOGFIRE", "false")
 
@@ -3211,6 +3222,28 @@ class AgentConfig(BaseSettings):
     per-server probe timeout. Full ingestion remains an explicit, unbounded
     operation through ``probe_catalog()``.
     """
+
+    mcp_catalog_probe_ttl: float = Field(
+        default=300.0, ge=1.0, le=86_400.0, alias="MCP_CATALOG_PROBE_TTL"
+    )
+    """CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness — fleet catalog-probe cache TTL.
+
+    How long a cached fleet-probe result (``Multiplexer._probe_cache``) is
+    served as fresh before it is reported ``stale`` and re-queued for a
+    background re-probe. There is no correct universal default here — a busy, frequently-restarting
+    fleet wants a short window, a stable homelab fleet does not need constant
+    re-probing — so this is a genuine operator knob, not an auto-detectable
+    value. Before this field existed, a cache entry was reported ``stale``
+    only in the one narrow branch where a *new, uncached* probe timed out
+    mid-flight; a normal settled entry stayed ``stale: false`` forever
+    regardless of age (one incident: an 80-hour-old entry still read
+    ``stale: false``, hiding ~74% of the fleet's tools as falsely
+    unreachable). Staleness is now computed at serve time from
+    ``age_s > mcp_catalog_probe_ttl`` in every caller that reports it
+    (``list_catalog``, ``find_tools``), and ``probe_catalog`` re-targets any
+    cached entry that has aged past this TTL for a background re-probe —
+    never blocking the caller that observed the staleness, which still gets
+    the honest last-known answer with its real age."""
 
     mcp_always_load: list[str] = Field(
         default_factory=lambda: list(DEFAULT_MCP_ALWAYS_LOAD),

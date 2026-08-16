@@ -1109,11 +1109,13 @@ def execute_agent_task_turn(
         lease.close()
     if finalization in {"fenced", "missing", "conflict", None}:
         return "fenced"
+    from agent_utilities.security.persistence_privacy import persistence_reference
+
     logger.debug(
         "AgentTask %s turn finished: %s (agent=%s, result=%s)",
         task_id,
         status,
-        agent_id,
+        persistence_reference("agent", agent_id, namespace="agent-dispatch-worker"),
         result,
     )
     return status
@@ -1641,6 +1643,18 @@ def run_dispatch_consumer_loop(
     queue-pull: workers claim work when they have capacity — no central
     placer to fail or rebalance; see ``orchestration/agent_dispatch.py``).
     """
+    if engine is None:
+        # Mirror execute_agent_turn's own auto-resolve courtesy (it falls
+        # back to the process-wide engine for goal_loop turns when a caller
+        # leaves ``engine`` unset) -- this loop's poison/dead-letter branch
+        # calls _dead_letter_poison_envelope(engine, ...) directly, BEFORE
+        # ever reaching execute_agent_turn's own resolution, so without this
+        # a caller that (like execute_agent_turn's callers) relies on the
+        # already-active process engine would silently dead-letter nothing
+        # and withhold every ack forever.
+        from agent_utilities.core import sessions as _sessions
+
+        engine = _sessions._goal_engine()
     token = worker_id or worker_token()
     active: list[str] = []
     next_heartbeat = 0.0

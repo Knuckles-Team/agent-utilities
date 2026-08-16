@@ -112,6 +112,22 @@ def _parse_sync_command(steps: list[dict]) -> list[str]:
     )
 
 
+#: A ``${{ <expression> }}`` GitHub Actions template -- substituted by the
+#: Actions runner BEFORE a `run:` step's shell ever sees it, never by bash
+#: itself. A step whose command is otherwise a plain gate/pytest invocation
+#: (e.g. "Secret-history scan (D-CIP-13)", which computes a `BASE` diff ref
+#: from `github.event.pull_request.base.sha || github.event.before`) can
+#: still legitimately reference one for context this local replay has no
+#: equivalent runner-side value for. Left verbatim, bash parses the literal
+#: `${{ ... }}` text as a parameter expansion and dies with "bad
+#: substitution" before the gate itself ever runs. Blanked to an empty
+#: string instead: every such step in this workflow already carries its own
+#: bash fallback for an empty/unset value (see the Secret-history step's own
+#: `BASE` resolution), matching what a real trigger with no matching event
+#: field (e.g. `workflow_dispatch`) would leave it as anyway.
+_GHA_EXPRESSION_RE = re.compile(r"\$\{\{.*?\}\}")
+
+
 def _parse_gates(steps: list[dict]) -> list[Gate]:
     """Every run-step that invokes a gate script or pytest, in workflow order."""
     gates: list[Gate] = []
@@ -127,7 +143,7 @@ def _parse_gates(steps: list[dict]) -> list[Gate]:
         gates.append(
             Gate(
                 name=step.get("name", run.splitlines()[0]),
-                command=run,
+                command=_GHA_EXPRESSION_RE.sub("", run),
                 advisory=bool(step.get("continue-on-error", False)),
             )
         )

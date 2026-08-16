@@ -496,6 +496,17 @@ def _cas(
     return bool(fn(node_id, conditions, updates))
 
 
+def _is_native_authority_refusal(exc: BaseException) -> bool:
+    """True when ``exc`` is the engine's native WorkItem-authority guard
+    (``epistemic-graph``'s ``work_item_capability`` module, RMDD-29) refusing a
+    GENERIC graph-row write (``AddNode``/``CompareAndSetNodeFields``) that
+    would manufacture or replace native WorkItem lease authority. The guard
+    raises a bare ``RuntimeError`` (no typed exception crosses the wire), so
+    this matches on the engine's own stable message prefix rather than a type.
+    """
+    return isinstance(exc, RuntimeError) and "native WorkItem authority" in str(exc)
+
+
 def _link(engine: Any, source_id: str, target_id: str, rel_type: str) -> None:
     """Best-effort edge write (never blocks a WorkItem transition on a graph-viz edge)."""
     try:
@@ -949,7 +960,27 @@ def submit_work_item_atomic(engine: Any, **kwargs: Any) -> tuple[str, bool]:
 def _append_downstream(
     engine: Any, parent_id: str, child_id: str, *, now: float | None = None
 ) -> bool:
-    """CAS-append ``child_id`` to the parent's reverse dependency index."""
+    """CAS-append ``child_id`` to the parent's reverse dependency index.
+
+    Best-effort, exactly like :func:`_link`'s edge write just above it in the
+    submission path (same rationale, same shape): the engine's native
+    WorkItem-authority guard (``epistemic-graph`` RMDD-29,
+    ``work_item_capability::validate_generic_method``) categorically refuses
+    ANY generic graph-row write — ``AddNode`` or ``CompareAndSetNodeFields`` —
+    that touches an ALREADY-EXISTING native WorkItem row, regardless of which
+    fields it changes; a harmless ``{"downstream_ids": [...]}`` delta is
+    refused identically to a lease-field one (verified empirically: the
+    durable commit lowers a changed-node CAS to a row-delta ``AddNode``, and
+    that op's existing-native-WorkItem check has no protected-field carve-out).
+    There is no native call for this — the exposed WorkItem API
+    (``ClaimWorkItem``/``RenewWorkItemLease``/``CommitWorkItemResult``/
+    ``CancelWorkItem``/``DeferWorkItem``) covers lease lifecycle only, never a
+    dependency reverse-index. ``downstream_ids`` has no functional reader
+    (dependency readiness is resolved by :func:`_reconcile_dependency_readiness`
+    polling each child's OWN ``depends_on`` parents, never by a parent pushing
+    through this index) — it is a decorative/introspection field, so degrading
+    it to best-effort on a hardened engine loses no real behavior.
+    """
     now = now if now is not None else _now()
     for _ in range(_CAS_LOOP_MAX_RETRIES):
         parent = get_work_item(engine, parent_id)
@@ -959,12 +990,24 @@ def _append_downstream(
         if child_id in current:
             return False
         updated = current + [child_id]
-        won = _cas(
-            engine,
-            parent_id,
-            {"downstream_ids": current},
-            {"downstream_ids": updated, "updated_at": now},
-        )
+        try:
+            won = _cas(
+                engine,
+                parent_id,
+                {"downstream_ids": current},
+                {"downstream_ids": updated, "updated_at": now},
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort index, see docstring
+            if not _is_native_authority_refusal(exc):
+                raise
+            logger.debug(
+                "work_item: downstream index %s -> %s refused by native "
+                "WorkItem authority (best-effort, no functional reader): %s",
+                parent_id,
+                child_id,
+                exc,
+            )
+            return False
         if won:
             return True
     logger.warning(
@@ -1012,16 +1055,38 @@ def _reconcile_dependency_readiness(
         next_status = "ready" if unresolved == 0 else "submitted"
         if current_count == unresolved and next_status == item.get("status"):
             return False
-        if _cas(
-            engine,
-            item_id,
-            {"status": "submitted", "dep_count": current_count},
-            {
-                "status": next_status,
-                "dep_count": unresolved,
-                "updated_at": timestamp,
-            },
-        ):
+        try:
+            won = _cas(
+                engine,
+                item_id,
+                {"status": "submitted", "dep_count": current_count},
+                {
+                    "status": next_status,
+                    "dep_count": unresolved,
+                    "updated_at": timestamp,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort repair, see docstring
+            if not _is_native_authority_refusal(exc):
+                raise
+            # The engine's native WorkItem-authority guard (RMDD-29) refuses this
+            # generic ``status`` transition on an already-existing native
+            # WorkItem row (the same categorical refusal :func:`_append_downstream`
+            # hits — see its docstring). There is no native call for THIS
+            # narrow repair window either. Accepted, bounded degradation: the
+            # PRIMARY path (native ``CommitWorkItemResult``'s own atomic
+            # dependency release) is unaffected — only this rare
+            # create-then-index race's repair silently no-ops instead of
+            # crashing the caller; the item stays "submitted" until something
+            # else reconciles it.
+            logger.debug(
+                "work_item: dependency-readiness repair for %s refused by "
+                "native WorkItem authority (bounded degradation): %s",
+                item_id,
+                exc,
+            )
+            return False
+        if won:
             return True
     logger.warning(
         "work_item: dependency readiness reconciliation for %s lost %d CAS retries",

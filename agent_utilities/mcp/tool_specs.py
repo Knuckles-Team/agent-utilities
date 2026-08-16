@@ -65,11 +65,21 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "engine_finance": ("ask", "act"),
         "engine_mining": ("ask",),
         "engine_graph": ("ask", "write"),
-        "graph_mine": ("ask",),
+        # 17 of graph_mine's 18 actions can write (writeback => a persisted
+        # :Community/:RootCause/:... node, or process's ChangeEnvelope commit) --
+        # only `classify_fit` never persists (see READ_ONLY_ACTIONS below). Mirrors
+        # graph_code's split just above: `ask` stays read-only, `act` reaches the
+        # reviewed preview/plan-ref mutation path (CONCEPT:EG-KG.mining.frequent-itemset-mining).
+        "graph_mine": ("ask", "act"),
         "graph_mine_deep": ("act", "ask"),
         "graph_learn": ("act", "ask"),
         "graph_pipeline": ("act", "ask"),
         "engine_graphlearn": ("act", "ask"),
+        # D-VZ-1: renders a ViewSpec through the eg-viz LOD ColumnStore/export
+        # pipeline (`render`) or inspects what's renderable (`capability_matrix`)
+        # -- the same act(produces an artifact)/ask(inspect) split as
+        # engine_graphlearn just above.
+        "engine_viz": ("act", "ask"),
         "graph_ops_causal": ("why", "ask"),
         "graph_traces": ("ask", "why"),
         "graph_audit": ("why", "ask"),
@@ -99,6 +109,10 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "engine_nodes": ("write", "ask"),
         "engine_edges": ("write",),
         "engine_blob": ("write",),
+        # B-12: native document/image/audio/video ingest (write) + typed
+        # region/window query (ask) + events/lifecycle — same read+write shape
+        # as engine_nodes/engine_rdf/engine_timeseries above.
+        "engine_modalities": ("write", "ask"),
         "engine_rdf": ("write", "ask"),
         "engine_timeseries": ("write", "ask"),
         "graph_share": ("write", "manage"),
@@ -189,6 +203,12 @@ READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
             }
         ),
         "graph_ingest": frozenset({"jobs", "job_status", "status"}),
+        # graph_mine's CPD (capabilities-power.json) declares "mutates": "~true" for
+        # every action except `classify_fit` (declared "false" -- it only fits a
+        # model in memory and returns it; it never has a `writeback` option, unlike
+        # every other action, which the docstring documents as writeback => a
+        # persisted node). The other 17 stay reachable only via `act` (B-15).
+        "graph_mine": frozenset({"classify_fit"}),
         # Only ``set`` mutates; the other four are pure reads over the pydantic
         # model and the effective configuration (CONCEPT:AU-OS.config.two-surfaces-by-default).
         # ``reload`` re-reads from disk without writing, so it is a read of the

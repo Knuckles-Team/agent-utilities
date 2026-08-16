@@ -637,7 +637,7 @@ class WorkItemTasksExtension(ServerExtension):
                 "Unsupported Tasks extension revision",
                 {"expectedRevision": TASKS_EXTENSION_REVISION},
             )
-        route = {"server": server.strip(), "revision": revision}
+        route: dict[str, Any] = {"server": server.strip(), "revision": revision}
         # Preserve only the route target/revision.  Caller identity is
         # accepted below only as a delegated envelope emitted by the
         # multiplexer; a direct client cannot forge echoed authority metadata.
@@ -686,7 +686,7 @@ class WorkItemTasksExtension(ServerExtension):
 
         try:
             return resolve_session(required_scope=scope)
-        except SessionRequiredError:
+        except SessionRequiredError:  # noqa: BLE001 — falls through to mint from the access token
             pass
 
         try:
@@ -1091,7 +1091,7 @@ class WorkItemTasksExtension(ServerExtension):
             logger.warning(
                 "tasks_extension: RunTrace lookup for task %s failed: %s",
                 task_id,
-                exc,
+                type(exc).__name__,
             )
             return None
         # `get_run_trace`'s found-path always stamps `trace_id` -- the
@@ -1370,8 +1370,13 @@ class WorkItemTasksExtension(ServerExtension):
             if isinstance(pending, Mapping)
             else None
         )
+        # Narrowed once here (rather than re-checked via the bare `status ==
+        # "input_required"` below) so mypy — and the reader — can see that
+        # `input_request` is only ever a Mapping when it is actually used.
+        input_request: Mapping[str, Any] | None = None
         if status == "working" and isinstance(pending_request, Mapping):
             status = "input_required"
+            input_request = pending_request
         created_at = raw.get("created_at") if isinstance(raw, Mapping) else None
         updated_at = raw.get("updated_at") if isinstance(raw, Mapping) else None
         result = _GetTaskResult(
@@ -1382,9 +1387,9 @@ class WorkItemTasksExtension(ServerExtension):
             ttl_ms=None,
             meta=self._response_meta(session, route),
         )
-        if status == "input_required":
+        if status == "input_required" and input_request is not None:
             result.status_message = "Repository WorkItem is waiting for input"
-            result.input_requests = {"request": dict(pending_request)}
+            result.input_requests = {"request": dict(input_request)}
         elif status == "completed":
             result.result = self._repository_domain_payload(view)
         elif status == "failed":

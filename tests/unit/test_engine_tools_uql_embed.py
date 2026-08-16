@@ -24,6 +24,21 @@ from agent_utilities.mcp.tools import engine_tools
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
+# The tests below resolve the REAL, REGISTERED ``engine_query`` MCP tool
+# (``kg_server.REGISTERED_TOOLS["engine_query"]``), which only exists when
+# ``engine_tools.ENGINE_DOMAINS`` was discovered from the real
+# ``epistemic_graph.client`` package (see the identical rationale in
+# tests/unit/test_engine_api_coverage.py). The two rank-text-span HELPER tests
+# at the bottom of this file never touch ``REGISTERED_TOOLS`` and still run.
+_NEEDS_ENGINE_DOMAINS = pytest.mark.skipif(
+    not engine_tools.ENGINE_DOMAINS,
+    reason=(
+        "epistemic_graph package not installed in this environment -- "
+        "engine_tools.ENGINE_DOMAINS is empty, so engine_query is not "
+        "registered to dispatch through."
+    ),
+)
+
 
 def _fake_client_factory():
     """A fake ``SyncEpistemicGraphClient`` recording every call made to it."""
@@ -85,6 +100,7 @@ def fake_embed_model(monkeypatch):
 
 
 # ── wire-first + live-path: RANK BY ~"text" gets pre-embedded ────────────────
+@_NEEDS_ENGINE_DOMAINS
 def test_uql_rank_by_quoted_text_is_pre_embedded(monkeypatch, fake_embed_model):
     """The real ``engine_query`` tool path: a ``RANK BY ~"..."`` leg is rewritten
     to an inline literal vector before ``client.query.uql`` ever sees it."""
@@ -118,6 +134,7 @@ def test_uql_rank_by_quoted_text_is_pre_embedded(monkeypatch, fake_embed_model):
     assert fake_embed_model.calls == [["some text"]]
 
 
+@_NEEDS_ENGINE_DOMAINS
 def test_uql_rank_text_inside_fuse_branches_is_pre_embedded(
     monkeypatch, fake_embed_model
 ):
@@ -146,6 +163,7 @@ def test_uql_rank_text_inside_fuse_branches_is_pre_embedded(
 
 
 # ── inline vector / reserved handle pass through untouched, no embed call ────
+@_NEEDS_ENGINE_DOMAINS
 def test_uql_inline_vector_and_handle_untouched(monkeypatch, fake_embed_model):
     kg_server.ensure_tools_registered()
     client, calls = _fake_client_factory()
@@ -172,6 +190,7 @@ def test_uql_inline_vector_and_handle_untouched(monkeypatch, fake_embed_model):
 
 
 # ── the structured `unified` plan surface gets the same fix ──────────────────
+@_NEEDS_ENGINE_DOMAINS
 def test_unified_plan_rank_text_query_is_pre_embedded(monkeypatch, fake_embed_model):
     kg_server.ensure_tools_registered()
     client, calls = _fake_client_factory()
@@ -201,6 +220,7 @@ def test_unified_plan_rank_text_query_is_pre_embedded(monkeypatch, fake_embed_mo
     assert fake_embed_model.calls == [["some text"]]
 
 
+@_NEEDS_ENGINE_DOMAINS
 def test_unified_plan_inline_vector_rank_untouched(monkeypatch, fake_embed_model):
     kg_server.ensure_tools_registered()
     client, calls = _fake_client_factory()
@@ -221,6 +241,7 @@ def test_unified_plan_inline_vector_rank_untouched(monkeypatch, fake_embed_model
 
 
 # ── fails loud, never silently drops the RANK leg ─────────────────────────────
+@_NEEDS_ENGINE_DOMAINS
 def test_uql_rank_text_embedder_unavailable_fails_loud(monkeypatch):
     kg_server.ensure_tools_registered()
     client, calls = _fake_client_factory()

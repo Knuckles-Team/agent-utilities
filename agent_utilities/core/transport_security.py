@@ -44,6 +44,41 @@ _NAME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,63}$")
 _ENV_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 _MATERIALIZED_PATHS: set[Path] = set()
 
+# CONCEPT:AU-OS.config.dynamic-env-family -- declarative record read by
+# check_env_var_drift.py's static scanner (agent_utilities/mcp/check_env_var_drift.py,
+# ``_dynamic_env_families``/``_scan_dynamic_family_reads``). ``resolve_tls_profile`` and
+# ``resolve_configured_tls_profile`` compose env-var names at RUNTIME as
+# ``f"{sanitized_prefix}_{suffix}"`` from a caller-supplied ``service`` string (see
+# ``_service_prefix`` below for the sanitizer: upper-case, non-alnum -> "_", strip "_").
+# No literal var-name argument ever appears next to a setting()/getenv() call for a purely
+# static scan to see, so before this declaration existed every per-service TLS selector was
+# reported DEAD no matter how many real callers there were -- e.g. mealie-mcp's
+# ``resolve_configured_tls_profile("mealie")`` genuinely reads ``MEALIE_TLS_PROFILE`` /
+# ``MEALIE_TLS_PROFILE_REF``, but no literal of either name appears anywhere in mealie-mcp.
+#
+# Any first-party function that composes env names the same way MUST publish this same pair
+# of attributes (set right after the ``def``, see below) so the checker resolves its concrete
+# reads from this declaration instead of hardcoding a service name in the checker itself:
+#   func.dynamic_env_prefix_arg  -- the parameter name whose literal string value (positional
+#                                    or keyword at the call site) seeds the prefix
+#   func.dynamic_env_suffixes    -- the "_SUFFIX" family appended to the sanitized prefix
+#
+# Deliberately scoped to the two PRIMARY per-service selectors, not every advanced override
+# suffix resolve_tls_profile also reads per-service (``_CA_BUNDLE_REF``, ``_CLIENT_CERT``,
+# ``_CLIENT_KEY``, ``_PROXY_URL``, ...): those remain reachable through the shared GLOBAL
+# ``TLS_*`` fallback (the same env var name for every service) that a connector only needs to
+# document once, not per-service -- widening this family to every such suffix would force
+# every TLS-profile-using connector to add a dozen near-never-set per-service override
+# entries to its own .env.example, trading a real false-DEAD bug for UNDOCUMENTED noise.
+# Trade-off: a connector whose code genuinely depends on a *per-service* override (e.g. reads
+# behavior specifically keyed on ``MEALIE_CLIENT_CERT_REF`` rather than falling back to the
+# shared ``TLS_CLIENT_CERT_REF``) without documenting it will NOT be flagged UNDOCUMENTED for
+# that one; only the primary two selectors are enforced.
+TLS_PROFILE_DYNAMIC_ENV_SUFFIXES: tuple[str, ...] = (
+    "TLS_PROFILE",
+    "TLS_PROFILE_REF",
+)
+
 
 def tls_environment_from_config(
     config: Any,
@@ -203,6 +238,12 @@ def resolve_configured_tls_profile(
         resolver=resolver,
         destination_root=destination_root,
     )
+
+
+# See CONCEPT:AU-OS.config.dynamic-env-family above -- declares the runtime-composed env
+# family this function reads via its ``service`` argument, for check_env_var_drift.py.
+resolve_configured_tls_profile.dynamic_env_prefix_arg = "service"  # type: ignore[attr-defined]
+resolve_configured_tls_profile.dynamic_env_suffixes = TLS_PROFILE_DYNAMIC_ENV_SUFFIXES  # type: ignore[attr-defined]
 
 
 class TransportSecurityError(RuntimeError):
@@ -926,3 +967,9 @@ def resolve_tls_profile(
         no_proxy=no_proxy,
         materialized=materialized,
     )
+
+
+# See CONCEPT:AU-OS.config.dynamic-env-family above -- declares the runtime-composed env
+# family this function reads via its ``service`` argument, for check_env_var_drift.py.
+resolve_tls_profile.dynamic_env_prefix_arg = "service"  # type: ignore[attr-defined]
+resolve_tls_profile.dynamic_env_suffixes = TLS_PROFILE_DYNAMIC_ENV_SUFFIXES  # type: ignore[attr-defined]

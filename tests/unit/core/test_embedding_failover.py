@@ -26,6 +26,21 @@ from agent_utilities.core.config import ChatModelConfig, EmbeddingModelConfig
 from agent_utilities.core.gpu_group_budget import group_allowed
 from agent_utilities.core.model_circuit_breaker import get_circuit_breaker
 
+
+@pytest.fixture(autouse=True)
+def _hair_trigger_breaker(monkeypatch):
+    """Opt this module back into the production fail_threshold=1.
+
+    pytest.ini raises the test-wide floor to 4 so incidental CPU contention
+    under `-n auto` cannot trip the process-wide breaker and fail unrelated
+    tests. The tests HERE assert tripping behaviour itself, so they need the
+    real production hair-trigger. `_tunables()` reads the env at breaker
+    construction time and the autouse registry reset runs before each test,
+    so setting it here is enough.
+    """
+    monkeypatch.setenv("MODEL_BREAKER_FAIL_THRESHOLD", "1")
+
+
 # Captured before the unit suite's autouse hermetic-embeddings fixture stubs the
 # factory, so test (d) can exercise the REAL create_embedding_model swap logic.
 _REAL_CREATE_EMBEDDING_MODEL = eu.create_embedding_model

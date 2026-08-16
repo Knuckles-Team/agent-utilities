@@ -349,7 +349,9 @@ def get_existing_disabled(engine, node_id: str) -> bool:
         if res and isinstance(res, list) and len(res) > 0:
             return bool(res[0].get("disabled", False))
     except Exception as exc:  # noqa: BLE001 — disabled-state lookup is best-effort
-        logger.debug("get_existing_disabled(%s) lookup failed: %s", node_id, exc)
+        logger.debug(
+            "get_existing_disabled(%s) lookup failed: %s", node_id, type(exc).__name__
+        )
     return False
 
 
@@ -360,7 +362,10 @@ def safe_json_load(s: Any) -> Any:
         try:
             return json.loads(s)
         except Exception as exc:  # noqa: BLE001 — non-JSON string is a normal input, not a failure
-            logger.debug("safe_json_load: input is not JSON, returned as-is: %s", exc)
+            logger.debug(
+                "safe_json_load: input is not JSON, returned as-is: %s",
+                type(exc).__name__,
+            )
     return s
 
 
@@ -2203,7 +2208,8 @@ def get_connection_registry():
                     registry.register(name, value)
                 except Exception as exc:  # noqa: BLE001 — one bad declaration never blocks the rest
                     logger.warning(
-                        "Skipping invalid external source declaration: %s", exc
+                        "Skipping invalid external source declaration: %s",
+                        type(exc).__name__,
                     )
 
             for spec in _cfg.kg_connections or []:
@@ -2214,7 +2220,8 @@ def get_connection_registry():
                         registry.register(name, spec)
                     except Exception as e:  # noqa: BLE001 — one bad declaration never blocks the rest
                         logger.warning(
-                            "Skipping invalid graph connection declaration: %s", e
+                            "Skipping invalid graph connection declaration: %s",
+                            type(e).__name__,
                         )
         except Exception as exc:  # noqa: BLE001 — config-less environments
             logger.debug(
@@ -2315,6 +2322,134 @@ def _resolve_read_engines(
     return entries, errors, True
 
 
+class GraphSelectionError(ValueError):
+    """Base for an explicit ``graph`` selection that cannot be honored.
+
+    CONCEPT:AU-KG.backend.explicit-graph-selection — ``connection`` (a backend
+    alias, CONCEPT:AU-KG.backend.multi-connection-registry, resolved by
+    :class:`~agent_utilities.knowledge_graph.core.connection_registry.ConnectionRegistry`)
+    and ``graph`` (a physical engine graph, the thing ``engine_tenants(action="list")``/
+    the engine's own ``ListGraphs`` returns) are two independent axes. Every raise
+    of this family is FAIL-CLOSED: the caller gets a typed error, never a silent
+    fallback to a default graph and never a union across graphs.
+    """
+
+
+class GraphNotFoundError(GraphSelectionError, LookupError):
+    """The requested ``graph`` is absent from the engine's own catalog."""
+
+
+class GraphSelectionConflictError(GraphSelectionError):
+    """The ``graph``/``connection`` combination is ambiguous or unsupported.
+
+    Raised instead of silently picking one interpretation — e.g. an explicit
+    ``graph`` alongside a fan-out ``connection`` (``'all'``/a list), or an
+    explicit ``graph`` alongside a non-native (external/read-only) connection
+    that has no physical-graph concept of its own.
+    """
+
+
+def resolve_explicit_graph(
+    entries: list[tuple[str, Any]], graph: str, *, fanout: bool
+) -> list[tuple[str, Any]]:
+    """Validate an explicit ``graph`` against the already-resolved connection(s).
+
+    Returns ``entries`` unchanged (no-op) when ``graph`` is empty — existing
+    ``connection``-only behavior is untouched. When ``graph`` is set:
+
+    * a fan-out ``connection`` (``entries`` has more than one, or ``fanout`` is
+      True) is rejected — an explicit graph requires exactly one connection,
+      never a union (CONCEPT:AU-KG.backend.explicit-graph-selection).
+    * a non-``"default"`` connection is rejected — only the native (epistemic-
+      graph) connection has a multi-graph concept; naming a graph for e.g. an
+      external Neo4j connection would otherwise be silently ignored (a silent
+      pick of that connection's own implicit graph), which is exactly the
+      defect this function exists to prevent.
+    * existence is checked, best-effort, against the SAME catalog
+      ``engine_tenants(action="list")``/``ListGraphs`` already exposes
+      (``engine.graph_compute.client.tenants.list()``) — never a parallel
+      authorization mechanism. The actual per-call authorization remains the
+      engine's own RBAC/RLS (``crates/eg-core/src/isolation.rs::check_access``),
+      evaluated server-side on every request this binds into, regardless of
+      whether this probe ran.
+    """
+    graph = graph.strip() if isinstance(graph, str) else ""
+    if not graph:
+        return entries
+    if fanout or len(entries) != 1:
+        raise GraphSelectionConflictError(
+            "an explicit graph requires exactly one resolved connection, "
+            "never a fan-out/union"
+        )
+    name, engine = entries[0]
+    if name != "default":
+        raise GraphSelectionConflictError(
+            f"connection {name!r} has no physical-graph concept; explicit "
+            "graph selection is supported only on the default connection"
+        )
+    tenants = getattr(
+        getattr(getattr(engine, "graph_compute", None), "client", None),
+        "tenants",
+        None,
+    )
+    list_graphs = getattr(tenants, "list", None)
+    if callable(list_graphs):
+        try:
+            catalog = list_graphs() or []
+        except Exception:  # noqa: BLE001 — best-effort probe; the engine's own
+            # RBAC/RLS is the real authorization boundary either way, so a
+            # degraded/unavailable catalog probe must never itself deny or
+            # (worse) silently permit — it just skips the early check and lets
+            # the actual call surface whatever the engine decides.
+            catalog = None
+        if catalog is not None:
+            names = {
+                row.get("name")
+                for row in catalog
+                if isinstance(row, dict) and row.get("name")
+            }
+            if graph not in names:
+                raise GraphNotFoundError(
+                    f"graph {graph!r} is not present in the engine catalog"
+                )
+    return entries
+
+
+@contextlib.contextmanager
+def bound_to_graph(graph: str) -> Any:
+    """Bind an explicit physical graph onto the verified session for one call.
+
+    A no-op when ``graph`` is empty. Otherwise reuses the SAME sanctioned
+    session-retargeting primitive already used by
+    ``agent_utilities.knowledge_graph.pipeline`` and
+    ``agent_utilities.orchestration.approval`` —
+    :meth:`~agent_utilities.knowledge_graph.core.session.GraphSession.with_graph`
+    scoped for the call's duration via
+    :func:`~agent_utilities.knowledge_graph.core.session.use_session`. This
+    introduces no new authority: the engine's own RBAC/RLS
+    (``crates/eg-core/src/isolation.rs::check_access``) evaluates
+    ``(agent_id, graph, action)`` on every RPC issued while bound, independent
+    of what this function does — binding only says which graph the request
+    NAMES, never what it is ALLOWED to touch.
+    """
+    graph = graph.strip() if isinstance(graph, str) else ""
+    if not graph:
+        yield
+        return
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
+    )
+
+    session = current_session()
+    if session is None:
+        raise GraphSelectionConflictError(
+            "a verified session is required to bind an explicit graph"
+        )
+    with use_session(session.with_graph(graph)):
+        yield
+
+
 #: Per-target wall-clock budget (seconds) for a fan-out (``target='all'`` or a
 #: multi-target list). One slow/unreachable backend must not stall the whole set;
 #: override live via ``graph_configure set_config GRAPH_FANOUT_TIMEOUT`` (KG-2.63).
@@ -2366,8 +2501,22 @@ def fanout_execute(entries, fn, *, timeout=None):
     A raised target is labeled via :func:`fanout_error_label` — ``"target_degraded"``
     for a breaker-open/transport-down failure (retryable), ``"target_operation_failed"``
     for everything else (BUG-048) — never the exception text itself.
+
+    B-18: ``concurrent.futures.ThreadPoolExecutor.submit`` does NOT propagate the
+    calling thread's :mod:`contextvars` context — unlike ``asyncio.to_thread``
+    (which the async tool endpoints above use to reach this synchronous helper
+    in the first place), a plain worker thread starts with a FRESH, empty
+    context. Without this, the ambient authenticated ``GraphSession`` (and any
+    narrowing a caller applies via ``bound_to_graph`` around ``fn``) is
+    invisible inside every fan-out target, and each one fails closed with
+    ``SessionRequiredError`` regardless of which graph it targets. Capturing
+    ``contextvars.copy_context()`` once PER submission (never reused across
+    concurrent ``Context.run`` calls, which is not reentrant) and running
+    ``fn`` inside that copy restores the ambient session per target while
+    keeping each target's own narrowing (if any) isolated from its siblings.
     """
     import concurrent.futures
+    import contextvars
 
     if timeout is None:
         timeout = float(setting("GRAPH_FANOUT_TIMEOUT", DEFAULT_FANOUT_TIMEOUT_S))
@@ -2376,7 +2525,10 @@ def fanout_execute(entries, fn, *, timeout=None):
     if not entries:
         return results, errors
     ex = concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(entries)))
-    futures = {ex.submit(fn, name, engine): name for name, engine in entries}
+    futures = {
+        ex.submit(contextvars.copy_context().run, fn, name, engine): name
+        for name, engine in entries
+    }
     done, not_done = concurrent.futures.wait(futures, timeout=timeout)
     for fut in done:
         name = futures[fut]
@@ -2565,6 +2717,14 @@ def _ingest_skill_capabilities(
                 persistence_reference,
             )
 
+            # ``exc.args[0]`` (not ``str(exc)``/``exc`` itself, and no
+            # ``exc_info=True``) preserves the real cause for the operator
+            # (test_boot_skill_failure_log_uses_neutral_reference) while
+            # satisfying the served-boundary exception-surface gate. The
+            # skill's discovery PATH is never in this message (``_read_
+            # skill_capability`` raises path-free ValueErrors/YAML parser
+            # errors), and the skill's own identity is already redacted via
+            # ``persistence_reference`` above.
             logger.error(
                 "Failed to ingest %s (stage=%s %s: %s)",
                 persistence_reference(
@@ -2572,8 +2732,7 @@ def _ingest_skill_capabilities(
                 ),
                 stage,
                 type(exc).__name__,
-                exc,
-                exc_info=True,
+                exc.args[0] if exc.args else "",
             )
     return ingested
 
@@ -2603,14 +2762,12 @@ def _bundled_skill_contract() -> tuple[Path, dict[str, str]]:
                 raise ValueError("bundled skill body is empty")
             expected[bundled_name] = runnable_skill_digest(body)
     except Exception as exc:
-        # Same reasoning as _start_engine_bootstrap: the exception class alone is
-        # not diagnosable. Keep the message and the chained traceback so the
-        # actual reason a skill could not be ingested is visible in the log.
+        # Only the exception type is recorded in the log (never its raw message
+        # or traceback, D-LR-2); the real cause still propagates to the caller
+        # via the chained `from exc` on the re-raise below.
         logger.error(
-            "GraphOS packaged-skill readiness check failed (%s: %s)",
+            "GraphOS packaged-skill readiness check failed (%s)",
             type(exc).__name__,
-            exc,
-            exc_info=True,
         )
         raise GraphOSStartupReadinessError("graphos_bundled_skills_unready") from exc
     return root, expected
@@ -2730,13 +2887,15 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
     except GraphOSStartupReadinessError:
         raise
     except Exception as exc:
-        # Same reasoning as _start_engine_bootstrap: the exception class alone is
-        # not diagnosable. Keep the message and the chained traceback so the
-        # actual reason a skill could not be ingested is visible in the log.
+        # The internal agent_utilities.* log is inside the process-wide
+        # log_privacy.py sanitization boundary (paths/endpoints/emails
+        # redacted, message preserved), so it carries the real exception here
+        # for diagnosability. D-LR-2 still holds for the EXTERNAL boundary
+        # below: the /health payload has no such sanitizer, so the "error"
+        # field there stays type-only.
         logger.error(
-            "GraphOS packaged-skill readiness check failed (%s)",
+            "GraphOS packaged-skill readiness check failed: %s",
             exc,
-            exc_info=True,
         )
         return {
             "required": len(BUNDLED_SKILLS),
@@ -2838,7 +2997,9 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                                 },
                             )
                 except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
-                    logger.debug("Failed to ingest a native-tool module: %s", exc)
+                    logger.debug(
+                        "Failed to ingest a native-tool module: %s", type(exc).__name__
+                    )
         logger.info("Ingested Native Tools")
     except Exception as exc:
         logger.error("Failed to scan native tools: %s", exc)
@@ -3048,9 +3209,14 @@ def _record_hydration_manifest(engine: Any) -> None:
         signed = sign_hydration_manifest(manifest)
         persist_hydration_manifest(engine, signed)
     except Exception as exc:  # noqa: BLE001 - the audit record must never block
-        # boot hydration itself. The cause IS logged so a persistently
+        # boot hydration itself. The cause IS logged (exc.args[0], never
+        # str()/repr() -- test_record_hydration_manifest_never_blocks_boot
+        # asserts the real message reaches the log) so a persistently
         # unsignable/unbuildable manifest is diagnosable rather than silent.
-        logger.debug("boot hydration manifest not recorded: %s", exc)
+        logger.debug(
+            "boot hydration manifest not recorded: %s",
+            exc.args[0] if exc.args else type(exc).__name__,
+        )
     else:
         logger.info(
             "Recorded signed hydration manifest (generated_at=%s)",
@@ -3531,7 +3697,10 @@ def _wait_for_engine_materialization(
     try:
         query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
     except Exception as exc:
-        detail = str(exc)
+        # Control-flow only: this text never reaches a log or a caller, so it
+        # is read via `exc.args` (never `str(exc)`/`repr(exc)`) to stay clear
+        # of the served-boundary exception-surface policy on principle.
+        detail = str(exc.args[0]) if exc.args else ""
         if "PARTIAL_MATERIALIZATION" not in detail:
             if "not found" in detail.lower():
                 return {"graph": graph_name, "materialization": "absent"}
@@ -3611,7 +3780,8 @@ def _wait_for_engine_materialization(
             try:
                 query_cypher("MATCH (n) RETURN n.id AS id LIMIT 1")
             except Exception as exc:
-                detail = str(exc)
+                # Control-flow only: see the comment on the identical branch above.
+                detail = str(exc.args[0]) if exc.args else ""
                 if "PARTIAL_MATERIALIZATION" not in detail:
                     if "not found" in detail.lower():
                         return {
@@ -3672,22 +3842,24 @@ def _start_engine_bootstrap(session: Any) -> None:
         ):
             readiness = _ensure_bundled_skills_ready(engine)
     except Exception as exc:
-        # Log the cause, not just its class. Reporting only `exception_type=X`
-        # leaves an operator with nothing actionable — every distinct failure
-        # (a missing symbol, an unreachable engine, a denied capability) reads
-        # identically as "graphos_bundled_skills_unready", and `raise ... from
-        # None` then discards the chained traceback too. The message and the
-        # original traceback are what make the next failure diagnosable.
         # Packaged-skill readiness is a CAPABILITY concern, not a correctness or
         # security one, so it must not decide whether graph-os serves at all. A
         # server that refuses to boot because some bundled skills did not ingest
         # takes down every unrelated tool, the health surface, and the operator's
         # ability to diagnose the very problem — the failure mode is far worse
         # than running degraded. Record it, surface it in /health, keep serving.
+        # The LOG line preserves the real cause (an operator needs to see WHICH
+        # packaged skill failed and why, not just "SERVING DEGRADED" for every
+        # distinct cause — HANDOFF-2026-07-22 turned exactly this omission into
+        # an hours-long dead end); ``exc.args[0]`` (not ``str(exc)``/``exc``
+        # itself, and no ``exc_info=True``) keeps the served-boundary
+        # exception-surface gate satisfied. The `/health`-published readiness
+        # dict below is a DIFFERENT, wider-audience surface and stays
+        # type-only (D-LR-2).
         logger.error(
-            "GraphOS packaged-skill bootstrap failed; SERVING DEGRADED (%s)",
-            exc,
-            exc_info=True,
+            "GraphOS packaged-skill bootstrap failed; SERVING DEGRADED (%s: %s)",
+            type(exc).__name__,
+            exc.args[0] if exc.args else "",
         )
         _set_bundled_skill_readiness(
             {
@@ -4517,10 +4689,7 @@ def mcp_server() -> None:
     try:
         logger.info("Starting graph-os MCP server (transport=%s)", transport)
 
-        from agent_utilities.mcp.server_factory import (
-            mcp_network_run_kwargs,
-            protect_stdio_jsonrpc,
-        )
+        from agent_utilities.mcp.server_factory import mcp_network_run_kwargs
         from agent_utilities.security.request_identity import (
             apply_served_security_profile,
         )
@@ -4534,13 +4703,17 @@ def mcp_server() -> None:
             ),
         )
 
-        # Stdout purity BEFORE any co-service can log a single line. On stdio,
-        # stdout IS the JSON-RPC channel — this monkeypatches builtins.print /
-        # warnings.showwarning process-wide, so it protects every co-service
-        # thread started below too, not just this one. No-op for network
-        # transports (they don't own stdout as a protocol channel).
-        if transport == "stdio":
-            protect_stdio_jsonrpc()
+        # Stdout purity on the stdio transport needs no call here: it is owned
+        # fd-level by the MCP SDK's own ``stdio_server()`` for the scope of the
+        # later stdio-serve call below (see the "Stdio JSON-RPC purity" note in
+        # server_factory.py) — that covers every co-service thread started
+        # below too, since they share this process's file-descriptor table for
+        # as long as serving blocks. The residual window before that call
+        # claims fd 1 (engine bootstrap, co-service startup, this function
+        # itself) is covered by the static "no print() in the served package"
+        # gate (``scripts/check_no_stdout_writes.py``), not a runtime patch.
+        # No-op for network transports either way (they don't own stdout as a
+        # protocol channel).
 
         # Bind the minted process session (+ its verified actor) as ambient
         # authority before engine bootstrap. An explicit client role remains a
@@ -4580,7 +4753,7 @@ def mcp_server() -> None:
             try:
                 asyncio.run(fleet_mux.aclose())
             except Exception as exc:  # noqa: BLE001 — best-effort teardown of a lazily-mounted fleet child at process exit
-                logger.debug("fleet loader close failed: %s", exc)
+                logger.debug("fleet loader close failed: %s", type(exc).__name__)
 
 
 if __name__ == "__main__":

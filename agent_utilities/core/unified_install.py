@@ -47,6 +47,7 @@ from agent_utilities.core.providers import (
     ProviderRegistration,
     provider_registrations,
 )
+from agent_utilities.knowledge_graph.core.file_lock import lock_exclusive, unlock
 
 logger = logging.getLogger(__name__)
 
@@ -78,11 +79,66 @@ def _is_linklike(path: Path) -> bool:
     return bool(is_junction is not None and is_junction())
 
 
+def _secure_mkdir(path: Path, *, parents: bool = False, exist_ok: bool = False) -> None:
+    """Create a directory readable/writable ONLY by its owner, on both platforms.
+
+    R-07: ``mode=0o700`` passed to ``Path.mkdir()`` is a POSIX permission
+    bit -- Windows has no such bits at all (NTFS security is ACL-based), so
+    the same call there silently creates a directory with whatever
+    permissions it inherits from its parent, which is very often NOT
+    owner-only. That is exactly the "silent no-op" failure mode this
+    remediation exists to eliminate: the call succeeds, nobody is told the
+    restriction never took effect, and a materialization root meant to be
+    private is not. So this expresses the INTENT ("restrict to the current
+    user") via each platform's real mechanism instead of leaning on a POSIX
+    API that is a no-op on the other platform:
+
+    * POSIX: ``mode=0o700`` on the ``mkdir`` call itself (unchanged).
+    * Windows: create the directory, then apply an ACL via ``icacls``
+      (shipped with every Windows install; no new dependency) that strips
+      inherited permissions and grants full control to the current user
+      only -- ``icacls <path> /inheritance:r /grant:r
+      <DOMAIN\\USER>:(OI)(CI)F``. ``icacls`` failing is treated as the same
+      class of error a POSIX ``chmod`` failure would be: raised, not
+      swallowed, because a materialization/lock root that silently ends up
+      world-writable is a security regression, not a cosmetic one.
+    """
+    path.mkdir(parents=parents, exist_ok=exist_ok, mode=0o700)
+    if sys.platform != "win32":
+        return
+    import subprocess
+
+    domain = os.environ.get("USERDOMAIN", "")
+    user = os.environ.get("USERNAME", "")
+    if not user:
+        raise ProviderOwnershipConflict(
+            f"cannot restrict {path} to the current user: USERNAME is unset"
+        )
+    principal = f"{domain}\\{user}" if domain else user
+    result = subprocess.run(  # nosec B603 B607 - fixed argv, no shell, stdlib-shipped tool
+        [
+            "icacls",
+            str(path),
+            "/inheritance:r",
+            "/grant:r",
+            f"{principal}:(OI)(CI)F",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise ProviderOwnershipConflict(
+            f"could not restrict {path} to {principal!r}: "
+            f"icacls exited {result.returncode}: {result.stderr.strip()}"
+        )
+
+
 @contextlib.contextmanager
 def _materialization_lock(root: Path) -> Iterator[None]:
     """Serialize materialization writers with a non-following local lock file."""
 
-    root.mkdir(parents=True, exist_ok=True, mode=0o700)
+    _secure_mkdir(root, parents=True, exist_ok=True)
     if not _safe_directory(root):
         raise ProviderOwnershipConflict(
             "materialization root is not a regular directory"
@@ -111,35 +167,17 @@ def _materialization_lock(root: Path) -> Iterator[None]:
             or opened_path.st_ino != info.st_ino
         ):
             raise ProviderOwnershipConflict("materialization lock changed during open")
-        if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI
-            import msvcrt
-
-            if info.st_size == 0:
-                os.write(descriptor, b"\0")
-                os.fsync(descriptor)
-            os.lseek(descriptor, 0, os.SEEK_SET)
-            msvcrt.locking(descriptor, msvcrt.LK_LOCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(descriptor, fcntl.LOCK_EX)
+        # R-07: routed through the file_lock chokepoint (was a hand-rolled
+        # sys.platform branch that duplicated this module's own logic and,
+        # on Windows, blocked via msvcrt's LK_LOCK -- which gives up after
+        # ~10s and raises instead of blocking indefinitely like flock(LOCK_EX).
+        # A materialization writer that legitimately holds this lock longer
+        # than that would have raised OSError here. lock_exclusive() blocks
+        # for real on both platforms; see file_lock.py's docstring.
+        lock_exclusive(descriptor)
         yield
     finally:
-        if sys.platform == "win32":  # pragma: no cover - exercised by Windows CI
-            import msvcrt
-
-            try:
-                os.lseek(descriptor, 0, os.SEEK_SET)
-                msvcrt.locking(descriptor, msvcrt.LK_UNLCK, 1)
-            except OSError:
-                pass
-        else:
-            import fcntl
-
-            try:
-                fcntl.flock(descriptor, fcntl.LOCK_UN)
-            except OSError:
-                pass
+        unlock(descriptor)
         os.close(descriptor)
 
 
@@ -176,14 +214,14 @@ def _provider_root(root: Path, provider: str, leg: str) -> tuple[Path, bool]:
             pass
         else:
             raise ProviderOwnershipConflict("provider destination is an unsafe link")
-        destination.mkdir(mode=0o700)
+        _secure_mkdir(destination)
         created = True
     generations = destination / MANAGED_PROVIDER_GENERATIONS
     if generations.exists():
         if not _safe_directory(generations):
             raise ProviderOwnershipConflict("provider generation root is unsafe")
     else:
-        generations.mkdir(mode=0o700)
+        _secure_mkdir(generations)
     return destination, created
 
 

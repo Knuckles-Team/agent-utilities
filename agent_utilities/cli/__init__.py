@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_utilities.core.config import setting
+from agent_utilities.governance.lanes import is_pid_alive
 from agent_utilities.security.run_token import mint_token
 
 COMPONENTS = ("daemon", "mcp", "gateway")
@@ -45,9 +46,8 @@ def status(namespace: str) -> dict[str, Any]:
         if pid_file.exists():
             try:
                 pid = int(pid_file.read_text().strip())
-                os.kill(pid, 0)  # signal 0 = liveness probe
-                running = True
-            except (ValueError, OSError):
+                running = is_pid_alive(pid)  # R-07: portable liveness probe
+            except ValueError:
                 running = False
         components[comp] = {"running": running, "pid": pid}
     return {"namespace": namespace, "runtime_dir": str(root), "components": components}

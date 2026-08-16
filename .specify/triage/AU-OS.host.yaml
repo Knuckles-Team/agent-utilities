@@ -1,0 +1,290 @@
+domain: AU-OS.host
+generated_at: '2026-08-14T23:51:08+00:00'
+generator: scripts/concept_domain_triage.py
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
+clusters:
+  AU-OS.host.doctor-unified-install:
+  - AU-OS.host.doctor-unified-install
+  - AU-OS.host.venv-drift-detector
+  AU-OS.host.file-watcher-trigger:
+  - AU-OS.host.file-watcher-trigger
+  - AU-OS.host.homeostatic-recovery-daemon
+  - AU-OS.host.maintenance-cron
+  - AU-OS.host.so-they-are-idle
+concepts:
+  AU-OS.host.doctor-unified-install:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.host.venv-drift-detector
+    suggestion_why: clusters with 1 sibling(s) around AU-OS.host.venv-drift-detector; shares agent_utilities/deployment/doctor.py;
+      the candidate parent already has a design document
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/deployment/doctor.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/deployment/doctor.py:3822
+  AU-OS.host.file-watcher-trigger:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 4-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/automation/__init__.py
+      - agent_utilities/automation/file_watcher.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.host.homeostatic-recovery-daemon
+      - AU-OS.host.maintenance-cron
+      - AU-OS.host.so-they-are-idle
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/automation/__init__.py:4
+      - agent_utilities/automation/file_watcher.py:4
+      - agent_utilities/automation/file_watcher.py:24
+      - agent_utilities/automation/file_watcher.py:115
+      - agent_utilities/automation/file_watcher.py:155
+      - agent_utilities/automation/file_watcher.py:170
+      - agent_utilities/automation/file_watcher.py:223
+      - agent_utilities/automation/file_watcher.py:227
+      - agent_utilities/automation/file_watcher.py:245
+      - agent_utilities/automation/file_watcher.py:249
+      - agent_utilities/automation/file_watcher.py:272
+  AU-OS.host.homeostatic-recovery-daemon:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.host.file-watcher-trigger
+    suggestion_why: clusters with 3 sibling(s) around AU-OS.host.file-watcher-trigger; both introduced
+      by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/__init__.py
+      test_files: []
+      doc_files:
+      - .specify/specs/os-5.5-l1-cache-fidelity/spec.md
+      - docs/journey.md
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.host.file-watcher-trigger
+      - AU-OS.host.maintenance-cron
+      - AU-OS.host.so-they-are-idle
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/specs/os-5.5-l1-cache-fidelity/spec.md:3
+      - agent_utilities/__init__.py:362
+      - agent_utilities/__init__.py:534
+      - docs/journey.md:44
+  AU-OS.host.maintenance-cron:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-OS.host.file-watcher-trigger
+    suggestion_why: clusters with 3 sibling(s) around AU-OS.host.file-watcher-trigger; shares agent_utilities/automation/__init__.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/automation/__init__.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.host.file-watcher-trigger
+      - AU-OS.host.homeostatic-recovery-daemon
+      - AU-OS.host.so-they-are-idle
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/automation/__init__.py:5
+  AU-OS.host.remediation-playbooks:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 3 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/adaptation/remediation_playbooks.py
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      test_files:
+      - tests/unit/test_remediation_playbooks.py
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/adaptation/remediation_playbooks.py:6
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:5131
+      - tests/unit/test_remediation_playbooks.py:1
+  AU-OS.host.report-only-remediation-proposal:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
+      file(s), 10 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/observability/ci_recycle.py
+      - agent_utilities/observability/escalation_policy.py
+      - agent_utilities/observability/incidents.py
+      - agent_utilities/observability/lifecycle_orchestrator.py
+      test_files:
+      - tests/unit/observability/test_observability_incidents.py
+      doc_files:
+      - .specify/design/incident-brain/design.md
+      introduced: '48d030c3 2026-07-11 feat(observability): incident brain — cross-layer correlation,
+        ticket routing, report-only remediation'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/incident-brain/design.md:51
+      - .specify/design/incident-brain/design.md:71
+      - agent_utilities/observability/ci_recycle.py:9
+      - agent_utilities/observability/escalation_policy.py:7
+      - agent_utilities/observability/incidents.py:19
+      - agent_utilities/observability/incidents.py:37
+      - agent_utilities/observability/incidents.py:728
+      - agent_utilities/observability/incidents.py:812
+      - agent_utilities/observability/lifecycle_orchestrator.py:9
+      - tests/unit/observability/test_observability_incidents.py:818
+  AU-OS.host.so-they-are-idle:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: retire
+    suggested_parent: ''
+    suggestion_why: the id reads as a slugified prose fragment (so-they-are-idle)
+    evidence:
+      has_design_doc: false
+      in_baseline: true
+      source_files:
+      - agent_utilities/agent/warm_skills.py
+      - agent_utilities/gateway/daemon.py
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      - agent_utilities/mcp/tools/state_tools.py
+      - agent_utilities/rlm/sandboxes/base.py
+      - agent_utilities/runtime/warm_registry.py
+      test_files: []
+      doc_files: []
+      introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
+      cohort:
+      - AU-OS.host.file-watcher-trigger
+      - AU-OS.host.homeostatic-recovery-daemon
+      - AU-OS.host.maintenance-cron
+      artifact_id: reads as a slugified prose fragment (so-they-are-idle)
+      truncated_marker: ''
+      sites:
+      - agent_utilities/agent/warm_skills.py:16
+      - agent_utilities/gateway/daemon.py:360
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:411
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1462
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1486
+      - agent_utilities/mcp/tools/state_tools.py:594
+      - agent_utilities/rlm/sandboxes/base.py:205
+      - agent_utilities/runtime/warm_registry.py:1
+      - agent_utilities/runtime/warm_registry.py:164
+  AU-OS.host.venv-drift-detector:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/deployment/doctor.py
+      - agent_utilities/deployment/venv_sync.py
+      test_files: []
+      doc_files:
+      - .specify/design/shared-venv-lifecycle/design.md
+      - docs/architecture/shared-venv-lifecycle.md
+      introduced: 'b1de5bf4 2026-07-31 test(os): guardrail + merge-trigger regression suite; wire venv_drift
+        into doctor'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/shared-venv-lifecycle/design.md:15
+      - agent_utilities/deployment/doctor.py:4010
+      - agent_utilities/deployment/venv_sync.py:5
+      - docs/architecture/shared-venv-lifecycle.md:6
+  AU-OS.host.windows-job-object-process-tree-bound:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - scripts/security_contract.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - scripts/security_contract.py:61

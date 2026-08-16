@@ -5,6 +5,11 @@ no-look-ahead test (a signal on the *final* bar must never affect P&L), and a
 shared-capital-pool scaling test.
 """
 
+import pytest
+
+# The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
+pytest.importorskip("epistemic_graph.numeric")
+
 from agent_utilities.domains.finance.composite_backtest import (
     CompositeBacktester,
     MarketSpec,
