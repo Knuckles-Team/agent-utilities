@@ -44,6 +44,8 @@ reloads. See :meth:`OntologyLifecycle.delete`.
 
 from __future__ import annotations
 
+import contextlib
+import functools
 import json
 import logging
 from datetime import UTC, datetime
@@ -440,6 +442,35 @@ def _ensure_ontology_graph(gc: Any, graph_name: str) -> None:
     _KNOWN_ONTOLOGY_GRAPHS.add(graph_name)
 
 
+def _with_ontology_graph_scope(method: Any) -> Any:
+    """Decorator: run a public :class:`OntologyLifecycle` method with the
+    ambient verified session narrowed onto ``self._ontology_graph``.
+
+    U-17/GOC-67: every public entry point here ultimately issues engine RPCs
+    through ``self._gc``/``self._store`` — a graph-scoped, zero-transport
+    VIEW fixed to ``self._ontology_graph`` (see
+    :meth:`OntologyLifecycle._resolve_graph_compute`), the SAME
+    ``_client_for(graph)``-shaped view R-23 fixed for ``engine_tools.py``.
+    Without this, issuing an RPC through that fixed view while the ambient
+    session still names a DIFFERENT graph (e.g. whatever graph the calling
+    boundary bound the process/request session to — commonly the tenant's
+    default content graph, unrelated to its dedicated ontology graph) raises
+    the wire layer's own "A graph-scoped view cannot retarget the verified
+    GraphSession" guard — which ``_make_store``/``load``/``set_active`` all
+    caught broadly and silently downgraded to a process-local, non-durable
+    registry fallback. Live symptom this closes: startup logs "Durable
+    per-tenant ontology registry unavailable ... falling back to the
+    process-local, non-durable registry" on every boot.
+    """
+
+    @functools.wraps(method)
+    def _wrapped(self: OntologyLifecycle, *args: Any, **kwargs: Any) -> Any:
+        with self._graph_scope():
+            return method(self, *args, **kwargs)
+
+    return _wrapped
+
+
 class OntologyLifecycle:
     """CRUD lifecycle for ontologies hosted in the running KG (CONCEPT:AU-KG.ontology.manage-arbitrary).
 
@@ -469,7 +500,37 @@ class OntologyLifecycle:
         self._tenant = tenant if tenant is not None else self._ambient_tenant()
         self._ontology_graph = graph_name or _ontology_graph_name(self._tenant)
         self._gc = self._resolve_graph_compute()
-        self._store = self._make_store()
+        # U-17: `_make_store` issues the FIRST engine RPC through `self._gc`
+        # (`_ensure_ontology_graph`'s `tenants.list()`/`tenants.create()`) —
+        # narrow onto the ontology graph here too, not just in the decorated
+        # public methods below, or construction itself falls back to the
+        # non-durable in-memory store on every process boot.
+        with self._graph_scope():
+            self._store = self._make_store()
+
+    @contextlib.contextmanager
+    def _graph_scope(self) -> Any:
+        """Narrow the ambient verified session onto ``self._ontology_graph``
+        for the duration of one engine call (see
+        :func:`_with_ontology_graph_scope`'s docstring for the full root
+        cause). A no-op when no real engine is attached (offline parse/
+        validate/inspect mode — nothing to narrow a session for)."""
+        if self._gc is None:
+            yield
+            return
+        from ..core.session import current_session, use_session
+
+        session = current_session()
+        if session is None:
+            raise OntologyError(
+                "a verified session is required to activate/query the "
+                "durable ontology registry"
+            )
+        if session.graph == self._ontology_graph:
+            yield
+            return
+        with use_session(session.with_graph(self._ontology_graph)):
+            yield
 
     @staticmethod
     def _ambient_tenant() -> str | None:
@@ -564,6 +625,7 @@ class OntologyLifecycle:
         return {k: v for k, v in record.items() if k != "turtle"}
 
     # ── load / register ──────────────────────────────────────────────────────
+    @_with_ontology_graph_scope
     def load(
         self,
         source: str,
@@ -659,6 +721,7 @@ class OntologyLifecycle:
         return {"status": "ok", "idempotent": False, "ontology": self._public(record)}
 
     # ── list / catalogue ─────────────────────────────────────────────────────
+    @_with_ontology_graph_scope
     def list_ontologies(
         self,
         *,
@@ -737,6 +800,7 @@ class OntologyLifecycle:
         candidates.sort(key=lambda kr: kr[1].get("loaded_at", ""), reverse=True)
         return candidates[0]
 
+    @_with_ontology_graph_scope
     def get(
         self, iri: str, *, version: str | None = None, serialize: bool = False
     ) -> dict[str, Any]:
@@ -766,6 +830,7 @@ class OntologyLifecycle:
         return {"ontology": detail}
 
     # ── update / replace ─────────────────────────────────────────────────────
+    @_with_ontology_graph_scope
     def update(
         self,
         source: str,
@@ -825,6 +890,7 @@ class OntologyLifecycle:
             logger.debug("remove_triples failed: %s", exc)
             return {"retracted_from_engine": False, "reason": str(exc)}
 
+    @_with_ontology_graph_scope
     def delete(
         self, iri: str, *, version: str | None = None, drop_inferences: bool = False
     ) -> dict[str, Any]:
@@ -897,6 +963,7 @@ class OntologyLifecycle:
         return result
 
     # ── activate / deactivate ────────────────────────────────────────────────
+    @_with_ontology_graph_scope
     def set_active(
         self, iri: str, *, version: str | None = None, active: bool = True
     ) -> dict[str, Any]:

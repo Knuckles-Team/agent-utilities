@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import contextlib
 import json
 import logging
 import random
@@ -820,6 +821,49 @@ class GraphEngineProtocol(Protocol):
             if hasattr(self.backend, "execute"):
                 return self.backend.execute(cypher, params)
         return []
+
+
+@contextlib.contextmanager
+def _bound_to_explicit_ingest_graph(graph: str):
+    """Narrow the ambient verified session onto ``graph`` for one call.
+
+    U-06/GOC-67: a codebase/document ingest job submitted with an explicit
+    physical ``graph`` (``graph_ingest(..., graph=<physical-graph-id>)``)
+    persists it on the WorkItem's own metadata (see ``submit_task``'s
+    ``graph`` kwarg below). The background worker that later claims and
+    executes that job runs under its OWN ambient session — the ORIGINAL
+    caller's request-scoped session is long gone by the time the async job
+    actually runs — so without re-narrowing here the content write silently
+    lands wherever the worker's own default/ambient session happens to
+    point, exactly the live defect this closes (an explicit graph "lost
+    across asynchronous job control").
+
+    Mirrors ``mcp.kg_server.bound_to_graph`` — the SAME sanctioned
+    ``GraphSession.with_graph()`` + ``use_session()`` narrowing every other
+    explicit-graph call site uses (R-02) — without importing the MCP
+    dispatch layer from KG core. A no-op when ``graph`` is empty (unchanged
+    default behavior: the worker's own ambient graph). Introduces no new
+    authority: the engine's own RBAC/RLS evaluates every RPC issued while
+    bound, independent of this helper — narrowing only says which graph the
+    request NAMES, never what it is allowed to touch.
+    """
+    graph = graph.strip() if isinstance(graph, str) else ""
+    if not graph:
+        yield
+        return
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
+    )
+    from agent_utilities.orchestration.work_item import WorkItemBackendUnavailable
+
+    session = current_session()
+    if session is None:
+        raise WorkItemBackendUnavailable(
+            "a verified session is required to bind an explicit ingest graph"
+        )
+    with use_session(session.with_graph(graph)):
+        yield
 
 
 class _ControlPlaneWorkItemEngine:
@@ -3337,6 +3381,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         max_attempts: int = _TASK_MAX_ATTEMPTS,
         job_id: str | None = None,
         extra_meta: dict[str, Any] | None = None,
+        graph: str = "",
     ) -> str:
         """Submit a background task to the unified durable queue (CONCEPT:AU-KG.ingest.hardened-priority-scheduled-task).
 
@@ -3345,6 +3390,17 @@ class TaskManagerMixin(GraphEngineProtocol):
         WorkItem selection. ``job_id`` lets a
         caller supply a deterministic id (the unified Scheduler uses
         ``sched:<name>:<minute>`` so a double-fire is an idempotent upsert).
+
+        ``graph`` (CONCEPT:AU-KG.backend.explicit-graph-selection, U-06):
+        an explicit physical engine graph the caller already validated (see
+        ``mcp.kg_server.resolve_explicit_graph``) and narrowed the SUBMITTING
+        session onto. It rides on the durable WorkItem's own metadata (never
+        re-derived from whatever ambient session happens to submit) so the
+        background worker that later claims and executes this job can
+        re-narrow onto the SAME graph via ``_bound_to_explicit_ingest_graph``
+        — the caller's own request-scoped session narrowing does not survive
+        into the async execution otherwise. Empty (default) preserves the
+        unchanged behavior: content lands on the worker's own ambient graph.
         """
         from agent_utilities.orchestration import work_item as _wi
 
@@ -3378,6 +3434,16 @@ class TaskManagerMixin(GraphEngineProtocol):
                 task_data["only_files"] = [
                     _portable_task_target(str(path)) for path in only_files
                 ]
+
+        # U-06: the explicit `graph` kwarg is the caller-validated selector
+        # (already checked against the engine's own catalog by
+        # `resolve_explicit_graph` at the MCP/REST boundary) — it always wins
+        # over any same-named key an `extra_meta` caller might have set, and
+        # is stamped AFTER the merge above so it can never be spoofed via
+        # `extra_meta`.
+        explicit_graph = str(graph or "").strip()
+        if explicit_graph:
+            task_data["graph"] = explicit_graph
 
         prio_bucket = _coerce_prio_bucket(priority)
         if depends_on:
@@ -5285,14 +5351,23 @@ class TaskManagerMixin(GraphEngineProtocol):
                 route_repo = cb_meta.get("route_repo")
                 if route_repo:
                     cb_manifest_meta["route_repo"] = route_repo
+                # U-06: an explicit `graph` recorded on this WorkItem's own
+                # metadata by `submit_task` (the caller's already-validated
+                # selection, persisted precisely because THIS worker's own
+                # ambient session is unrelated to whoever submitted the job)
+                # re-narrows the verified session for the duration of this
+                # write, exactly like every other explicit-graph call site.
+                # A no-op when absent — unchanged default behavior.
+                explicit_graph = str(cb_meta.get("graph") or "").strip()
                 ing = IngestionEngine(kg_engine=self)
-                cb_res = await ing.ingest(
-                    IngestionManifest(
-                        content_type=ContentType.CODEBASE,
-                        source_uri=str(target),
-                        metadata=cb_manifest_meta,
+                with _bound_to_explicit_ingest_graph(explicit_graph):
+                    cb_res = await ing.ingest(
+                        IngestionManifest(
+                            content_type=ContentType.CODEBASE,
+                            source_uri=str(target),
+                            metadata=cb_manifest_meta,
+                        )
                     )
-                )
                 if cb_res.status == "failed":
                     raise Exception(f"Codebase ingestion failed: {cb_res.error}")
 
