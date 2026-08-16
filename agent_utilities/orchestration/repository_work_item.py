@@ -25,7 +25,7 @@ import uuid
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, cast
 
 from pydantic import (
     BaseModel,
@@ -375,9 +375,13 @@ class RepositoryTargetPolicy(BaseModel):
     @classmethod
     def from_contract(cls, value: object) -> RepositoryTargetPolicy:
         raw = _nested_mapping(value)
-        kind = str(raw.get("kind") or "local")
-        if kind == "remote":
-            kind = "inventory_alias"
+        raw_kind = str(raw.get("kind") or "local")
+        if raw_kind == "remote":
+            raw_kind = "inventory_alias"
+        if raw_kind not in ("local", "inventory_alias"):
+            raise ValueError(f"unsupported repository target kind: {raw_kind!r}")
+        # Verified against the Literal's exact member set immediately above.
+        kind = cast(Literal["local", "inventory_alias"], raw_kind)
         return cls(
             kind=kind,
             alias=raw.get("alias") or raw.get("target_alias"),
@@ -693,26 +697,40 @@ class RepositoryWorkItemRequest(BaseModel):
             if required_target_raw is not None
             else None
         )
-        operation = raw.get("operation")
-        if isinstance(operation, StrEnum):
-            operation = operation.value
-        target_kind = str(target.get("kind") or "local")
-        if target_kind == "remote":
-            target_kind = "inventory_alias"
+        operation_raw = raw.get("operation")
+        if isinstance(operation_raw, StrEnum):
+            operation_raw = operation_raw.value
+        if not isinstance(operation_raw, str):
+            raise RepositoryWorkItemError(
+                "operation is required and must be a known repository operation"
+            )
+        operation = RepositoryOperation(operation_raw)
+        target_kind_raw = str(target.get("kind") or "local")
+        if target_kind_raw == "remote":
+            target_kind_raw = "inventory_alias"
+        if target_kind_raw not in ("local", "inventory_alias"):
+            raise RepositoryWorkItemError(
+                f"unsupported repository target kind: {target_kind_raw!r}"
+            )
+        # Verified against the Literal's exact member set immediately above.
+        target_kind = cast(Literal["local", "inventory_alias"], target_kind_raw)
         input_digest = raw.get("input_digest")
         if input_digest is None:
             input_digest = _digest(raw)
         return cls(
-            request_id=raw.get("request_id") or raw.get("id"),
-            idempotency_key=raw.get("idempotency_key"),
+            request_id=_nonblank(raw.get("request_id") or raw.get("id"), "request_id"),
+            idempotency_key=_nonblank(raw.get("idempotency_key"), "idempotency_key"),
             operation=operation,
-            repository_id=repository.get("repository_id") or raw.get("repository_id"),
-            base_ref=raw.get("base_ref"),
+            repository_id=_nonblank(
+                repository.get("repository_id") or raw.get("repository_id"),
+                "repository_id",
+            ),
+            base_ref=_nonblank(raw.get("base_ref"), "base_ref"),
             branch=raw.get("branch"),
-            base_sha=raw.get("base_sha"),
-            owner_id=raw.get("owner_id"),
-            session_id=raw.get("session_id"),
-            tenant_id=raw.get("tenant_id") or raw.get("tenant"),
+            base_sha=_nonblank(raw.get("base_sha"), "base_sha"),
+            owner_id=_nonblank(raw.get("owner_id"), "owner_id"),
+            session_id=_nonblank(raw.get("session_id"), "session_id"),
+            tenant_id=_nonblank(raw.get("tenant_id") or raw.get("tenant"), "tenant_id"),
             fairness_group=raw.get("fairness_group")
             or resources.get("fairness_group")
             or "default",
@@ -1548,7 +1566,7 @@ def _view_from_row(row: Mapping[str, Any]) -> RepositoryWorkItemView:
         request_id=record["request_id"],
         operation=record["operation"],
         kind=row["kind"],
-        state=_state_value(row.get("status")),
+        state=RepositoryJobState(_state_value(row.get("status"))),
         repository_id=record["repository_id"],
         tenant_id=str(row.get("tenant") or ""),
         owner_id=record["owner_id"],

@@ -28,7 +28,7 @@ import inspect
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -197,10 +197,20 @@ def triage_fleet_event(
         str(event.get("severity") or "info"),
     )
     try:
-        if graph_writer is not None and "graph_writer" in inspect.signature(
-            playbook
-        ).parameters:
-            report = playbook(engine, event, graph_writer=graph_writer) or {}
+        if (
+            graph_writer is not None
+            and "graph_writer" in inspect.signature(playbook).parameters
+        ):
+            # PlaybookFn's declared contract is (engine, event) -> dict — most
+            # registered playbooks (e.g. jira/plane) only accept that. This
+            # branch is reached only when `inspect.signature` has just proven,
+            # at runtime, that `playbook` additionally accepts the optional
+            # `graph_writer` keyword (as `default_playbook` does); the cast
+            # reflects that runtime-verified wider signature for this one call.
+            playbook_with_writer = cast("Callable[..., dict[str, Any]]", playbook)
+            report = (
+                playbook_with_writer(engine, event, graph_writer=graph_writer) or {}
+            )
         else:
             report = playbook(engine, event) or {}
     except Exception as e:  # noqa: BLE001 — a playbook bug never kills the worker
