@@ -3891,6 +3891,54 @@ class AgentConfig(BaseSettings):
     # LLM-free, and refuses malformed definitions before they burn agent runs.
     kg_workflow_shape_gate: bool = Field(default=True, alias="KG_WORKFLOW_SHAPE_GATE")
 
+    # --- Lakehouse / Iceberg data-plane (CONCEPT:AU-OS.deployment.lakehouse-doctor) ---
+    # Every field below is opt-in and empty/unset by default -- a deployment that
+    # never names one of these endpoints never probes it (mirrors kafka_bootstrap_servers
+    # and kg_fuseki_endpoint above: naming the endpoint IS the opt-in). Read directly off
+    # the checked-in manifests at services/<name>/k8s/manifests.yaml, not invented.
+    lakehouse_s3_endpoint: str = Field(default="", alias="LAKEHOUSE_S3_ENDPOINT")
+    """SeaweedFS S3-compatible gateway backing the Iceberg lakehouse's warehouse files
+    (``services/lakehouse-seaweedfs``). No S3 STS: per-warehouse credential vending stays
+    disabled (``sts-enabled: false``); S3 identity/credentials are vended from OpenBao
+    ``apps/lakehouse-seaweedfs`` (S3_ACCESS_KEY/S3_SECRET_KEY), never hand-typed here."""
+
+    lakekeeper_catalog_uri: str = Field(default="", alias="LAKEKEEPER_CATALOG_URI")
+    """Lakekeeper Iceberg REST catalog base URI (``services/lakekeeper``). Known gotcha:
+    the deployed catalog is mounted at ``/catalog`` (i.e. requests land on
+    ``/catalog/v1/...``), NOT bare ``/v1`` -- a URI missing the ``/catalog`` path segment
+    404s every catalog call."""
+
+    lakekeeper_warehouse: str = Field(default="lakehouse", alias="LAKEKEEPER_WAREHOUSE")
+    """Iceberg warehouse name registered with the Lakekeeper catalog."""
+
+    lakekeeper_oauth2_scope: str = Field(
+        default="lakekeeper", alias="LAKEKEEPER_OAUTH2_SCOPE"
+    )
+    """OAuth2 scope requested from Keycloak (realm ``homelab``,
+    ``https://<idp-host>/realms/<realm>``) when authenticating to the Lakekeeper
+    catalog. Known gotcha: the Iceberg REST client's own default (``catalog``) is NOT
+    granted to the deployed ``lakekeeper-service`` machine client -- only ``lakekeeper``
+    is. Leaving this at the client default 400s the OAuth2 token exchange with
+    ``invalid_scope``."""
+
+    lakekeeper_db_uri_ref: str | None = Field(
+        default=None, alias="LAKEKEEPER_DB_URI_REF"
+    )
+    """Runtime secret reference for the dedicated Lakekeeper Postgres DSN
+    (``services/lakekeeper-db``); resolved only at the runtime boundary, never here."""
+
+    trino_endpoint: str = Field(default="", alias="TRINO_ENDPOINT")
+    """Trino coordinator HTTP endpoint (``services/trino``) -- single-node coordinator
+    with the Iceberg REST connector pointed at Lakekeeper. Image is pinned to tag 476;
+    newer tags require an x86-64-v3 CPU baseline the pinned node lacks."""
+
+    spark_runner_endpoint: str = Field(default="", alias="SPARK_RUNNER_ENDPOINT")
+    """Spark driver pod's Spark UI endpoint (``services/spark``, Deployment name
+    ``spark-runner``) -- an exec-driven job runner (``kubectl exec ... spark-sql.sh``),
+    not a standalone Spark cluster with a submission API. The UI listener is disabled
+    between jobs (``spark.ui.enabled=false``), so an unreachable probe here does not by
+    itself mean the pod is unhealthy."""
+
     # --- Autonomy control plane (CONCEPT:AU-OS.deployment.fleet-lifecycle-control — OS-5.27) ---
 
     fleet_mcp_url_template: str | None = Field(
@@ -4422,6 +4470,7 @@ class AgentConfig(BaseSettings):
         "fleet_events_token_ref",
         "graph_db_connection_profile_ref",
         "graph_fuseki_password_ref",
+        "lakekeeper_db_uri_ref",
         "epistemic_graph_encryption_key_ref",
         "epistemic_graph_sqlite_transfer_root_ref",
         "epistemic_graph_backup_root_ref",
