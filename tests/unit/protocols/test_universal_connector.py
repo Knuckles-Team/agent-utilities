@@ -50,7 +50,7 @@ def sqlite_db(tmp_path):
 # DSN scheme → kind inference.
 # ---------------------------------------------------------------------- #
 def test_infer_kind_from_scheme():
-    assert infer_kind("postgresql://u:p@host/db") == "postgresql"
+    assert infer_kind("postgresql://u:p@host.example/db") == "postgresql"
     assert infer_kind("postgres://host/db") == "postgresql"
     assert infer_kind("mysql://host/db") == "mysql"
     assert infer_kind("mssql://host/db") == "mssql"

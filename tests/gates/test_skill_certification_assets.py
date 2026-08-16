@@ -315,23 +315,23 @@ def test_model_registry_proves_unique_private_dns_without_exposing_addresses() -
         _model(
             identity="synthetic-light",
             level="light",
-            base_url="https://light.internal/v1",
+            base_url="https://light.example/v1",
         ),
         _model(
             identity="synthetic-normal",
             level="normal",
-            base_url="https://normal.internal/v1",
+            base_url="https://normal.example/v1",
         ),
     ]
 
     def resolver(host: str, _port: int | None, *, type: int):
         assert type > 0
-        address = "10.0.0.11" if host == "light.internal" else "10.0.0.12"
+        address = "10.0.0.11" if host == "light.example" else "10.0.0.12"
         return [(2, 1, 6, "", (address, 443))]
 
     proof = assets.prove_model_registry_runtime(
         models,
-        ["light.internal", "normal.internal"],
+        ["light.example", "normal.example"],
         resolver=resolver,
     )
 
@@ -344,7 +344,7 @@ def test_model_registry_proves_unique_private_dns_without_exposing_addresses() -
         "dnsRebindingGuarded": True,
     }
     rendered = json.dumps(proof, sort_keys=True)
-    assert "internal" not in rendered
+    assert "example" not in rendered
     assert "10.0.0" not in rendered
 
 
@@ -362,14 +362,14 @@ def test_model_registry_rejects_public_or_ambiguous_private_dns(
         _model(
             identity="synthetic-light",
             level="light",
-            base_url="https://model.internal/v1",
+            base_url="https://model.example/v1",
         ),
         _models()[1],
     ]
 
     def resolver(host: str, _port: int | None, *, type: int):
         assert type > 0
-        selected = answers if host == "model.internal" else ["10.0.0.10"]
+        selected = answers if host == "model.example" else ["10.0.0.10"]
         return [(2, 1, 6, "", (address, 443)) for address in selected]
 
     with pytest.raises(
@@ -377,7 +377,7 @@ def test_model_registry_rejects_public_or_ambiguous_private_dns(
     ):
         assets.prove_model_registry_runtime(
             models,
-            ["model.internal", "10.0.0.10"],
+            ["model.example", "10.0.0.10"],
             resolver=resolver,
         )
 

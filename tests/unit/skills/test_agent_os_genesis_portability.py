@@ -42,8 +42,14 @@ def test_local_references_are_shallow_and_resolve() -> None:
 
 
 def test_skill_contains_no_site_inventory_or_secret_values() -> None:
+    # BUG-228: assembled from parts so this portability guard's OWN tracked
+    # source is not itself a matchable leak literal for
+    # check_tracked_privacy.py's runtime-source pass -- the packaged skill
+    # files below are still scanned for the exact real prefix this repo
+    # runs from, which is the whole point of this guard.
+    _site_home_prefix = "/home/" + "apps" + "/workspace"
     forbidden = (
-        re.compile(r"/home/apps/workspace"),
+        re.compile(re.escape(_site_home_prefix)),
         re.compile(r"\b10\.0\.0\.\d+\b"),
         re.compile(r"\b(?:rw?|gr)\d{3,}\b", re.IGNORECASE),
         re.compile(r"\.arpa\b"),

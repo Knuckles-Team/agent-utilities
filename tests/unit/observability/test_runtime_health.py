@@ -636,7 +636,7 @@ def test_embedding_endpoint_ok_when_breaker_closed(monkeypatch):
         "embedding_endpoint_status",
         lambda: {
             "active_model_key": "embedding",
-            "active_base_url": "http://vllm-embed.arpa/v1",
+            "active_base_url": "http://vllm-embed.example/v1",
             "active_gpu_group": "gb10",
             "is_fallback": False,
             "fallback_configured": False,
@@ -651,7 +651,7 @@ def test_embedding_endpoint_ok_when_breaker_closed(monkeypatch):
     assert result["status"] == "ok"
     assert result["detail"]["breaker_state"] == "closed"
     # No raw endpoint URL leaks into the health payload.
-    assert "vllm-embed.arpa" not in str(result)
+    assert "vllm-embed.example" not in str(result)
 
 
 def test_embedding_endpoint_open_breaker_is_degraded_never_unhealthy(monkeypatch):
@@ -668,7 +668,7 @@ def test_embedding_endpoint_open_breaker_is_degraded_never_unhealthy(monkeypatch
         "embedding_endpoint_status",
         lambda: {
             "active_model_key": "embedding",
-            "active_base_url": "http://vllm-embed.arpa/v1",
+            "active_base_url": "http://vllm-embed.example/v1",
             "active_gpu_group": "gb10",
             "is_fallback": False,
             "fallback_configured": False,
@@ -738,7 +738,7 @@ def test_embedding_endpoint_fallback_routing_is_degraded(monkeypatch):
         "embedding_endpoint_status",
         lambda: {
             "active_model_key": "embedding:fallback",
-            "active_base_url": "http://fallback.internal/v1",
+            "active_base_url": "http://fallback.example/v1",
             "active_gpu_group": "shared",
             "is_fallback": True,
             "fallback_configured": True,
@@ -763,7 +763,7 @@ def test_collect_health_payload_never_carries_raw_endpoint_strings(
     dead_sock = str(tmp_path / "nobody.sock")
     _patch_resolve_endpoints(monkeypatch, [f"unix://{dead_sock}"])
     monkeypatch.setenv(
-        "STATE_DB_URI", "postgresql://secretuser:hunter2@10.0.0.5:5432/prod"
+        "STATE_DB_URI", "postgresql://secretuser:hunter2@192.0.2.5:5432/prod"
     )
 
     report = rh.collect_health()

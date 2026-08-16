@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import hashlib
+import ipaddress
 import os
 import re
 import socket
@@ -57,12 +58,148 @@ _GENERIC_IDENTIFIERS = frozenset(
     }
 )
 _HOME_PATH_PATTERN = (
-    r"(?:(?<![A-Za-z0-9_.-])/home/[A-Za-z0-9_.-]+(?:/|\b)|"
-    r"(?<![A-Za-z0-9_.-])/Users/[A-Za-z0-9_.-]+(?:/|\b)|"
-    r"(?<![A-Za-z0-9_.-])/mnt/[A-Za-z]/Users/[A-Za-z0-9_.-]+(?:/|\b)|"
-    r"[A-Za-z]:[\\/]Users[\\/][^\\/\s]+(?:[\\/]|\b))"
+    r"(?:(?<![A-Za-z0-9_.-])/home/(?P<home_user>[A-Za-z0-9_.-]+)(?:/|\b)|"
+    r"(?<![A-Za-z0-9_.-])/Users/(?P<users_user>[A-Za-z0-9_.-]+)(?:/|\b)|"
+    r"(?<![A-Za-z0-9_.-])/mnt/[A-Za-z]/Users/(?P<mnt_user>[A-Za-z0-9_.-]+)(?:/|\b)|"
+    # BUG-228: this branch had no left boundary guard (unlike the three
+    # above), so a REST route id like ``"route:GET:/users/{id}"`` spuriously
+    # matched it -- the "T" ending "GET" read as a fake drive letter. The
+    # same lookbehind the other branches already use fixes it: a real drive
+    # letter is never itself preceded by another identifier character.
+    r"(?<![A-Za-z0-9_.-])[A-Za-z]:[\\/]Users[\\/](?P<win_user>[^\\/\s]+)(?:[\\/]|\b))"
 )
 _HOME_PATH_RE = re.compile(_HOME_PATH_PATTERN, re.IGNORECASE)
+# BUG-228: usernames this repo's own tests use, over and over, as a
+# documented "this is not a real account" stand-in -- generic role nouns
+# (operator/user/local/app/account/person), the RFC 2606 "example" word and
+# its natural variants (example/example-user/exampleuser), classic
+# protocol-documentation personas (alice/bob, same convention IETF RFCs
+# use), this repo's own synthetic-account naming idiom (agent-user and
+# other ``*-account`` fixtures), and single-letter stand-ins (a/u). None of
+# these can identify a real person or host; only the ambient candidates
+# :func:`derive_local_identifiers` derives (the actual current account) and
+# a handful of specific real names (e.g. the developer account, the real
+# workspace root) do that, and those are NOT in this set on purpose.
+_RESERVED_HOME_USERS = frozenset(
+    {
+        "a",
+        "a-different-account",
+        "account",
+        "agent-user",
+        "alice",
+        "app",
+        "bob",
+        "example",
+        "example-user",
+        "exampleuser",
+        "local",
+        "local-account",
+        "operator",
+        "person",
+        "sensitive-account",
+        "some-account",
+        "someone",
+        "u",
+        "user",
+    }
+)
+
+
+def _home_path_user(match: re.Match[str]) -> str | None:
+    for name in ("home_user", "users_user", "mnt_user", "win_user"):
+        value = match.groupdict().get(name)
+        if value:
+            return value
+    return None
+
+
+def _is_reserved_home_user(user: str) -> bool:
+    return user.strip("\\/").casefold() in _RESERVED_HOME_USERS
+
+
+def _has_real_home_path(line: str) -> bool:
+    """True if any home-path match on this line is NOT a reserved placeholder.
+
+    A line can carry more than one match (e.g. a before/after pair); it is
+    only a real leak if at least one of them is not a documented stand-in.
+    """
+    return any(
+        not _is_reserved_home_user(user)
+        for match in _HOME_PATH_RE.finditer(line)
+        for user in (_home_path_user(match),)
+        if user is not None
+    )
+
+
+# BUG-228: RFC 2606/6761 documentation domains, RFC 5737/3927/3849 reserved
+# address blocks, and localhost can never resolve to (or disclose) a real
+# host, so a fixture built on one of these is provably synthetic -- never a
+# leak, regardless of what appears before the ``://``. Recognizing them is
+# what keeps the widened runtime-source/credential/endpoint passes from
+# being noisy enough to end up in someone's SKIP= list (the exact failure
+# mode this widening exists to avoid repeating).
+_RESERVED_DOCUMENTATION_TLDS = frozenset({"test", "example", "invalid", "localhost"})
+_RESERVED_EXAMPLE_DOMAINS = frozenset({"example.com", "example.net", "example.org"})
+_RESERVED_IPV4_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "127.0.0.0/8",  # RFC 5735 loopback (0.0.0.0/32 below is separate)
+        "0.0.0.0/32",
+        "192.0.2.0/24",  # RFC 5737 TEST-NET-1
+        "198.51.100.0/24",  # RFC 5737 TEST-NET-2
+        "203.0.113.0/24",  # RFC 5737 TEST-NET-3
+        "169.254.0.0/16",  # RFC 3927 link-local
+    )
+)
+_RESERVED_IPV6_NETWORKS = tuple(
+    ipaddress.ip_network(cidr)
+    for cidr in (
+        "fe80::/10",  # RFC 4291 link-local
+        "2001:db8::/32",  # RFC 3849 documentation
+    )
+)
+
+
+def _is_reserved_hostname(host: str) -> bool:
+    """True for an RFC-reserved-for-documentation hostname/address.
+
+    Covers example.com/.net/.org and any ``*.test``/``*.example``/
+    ``*.invalid``/``*.localhost`` name (RFC 2606, 6761), plus the RFC
+    5737/3927/3849 documentation address blocks and bare ``localhost``.
+    """
+    candidate = host.strip().rstrip(".").casefold()
+    if not candidate:
+        return False
+    if candidate == "localhost" or candidate.endswith(".localhost"):
+        return True
+    if candidate in _RESERVED_EXAMPLE_DOMAINS or any(
+        candidate.endswith(f".{domain}") for domain in _RESERVED_EXAMPLE_DOMAINS
+    ):
+        return True
+    last_label = candidate.rsplit(".", 1)[-1]
+    if last_label in _RESERVED_DOCUMENTATION_TLDS:
+        return True
+    try:
+        address = ipaddress.ip_address(candidate)
+    except ValueError:
+        return False
+    networks = (
+        _RESERVED_IPV6_NETWORKS if address.version == 6 else _RESERVED_IPV4_NETWORKS
+    )
+    return any(address in network for network in networks)
+
+
+_URL_HOST_RE = re.compile(
+    r"(?i)\b[a-z][a-z0-9+.-]*://(?:[^\s/@\"'<>]+@)?(?P<host>[^\s/@:\"'<>]+)"
+)
+
+
+def _is_reserved_endpoint_url(url_fragment: str) -> bool:
+    """True if the FIRST URL found in ``url_fragment`` has a reserved host."""
+    match = _URL_HOST_RE.search(url_fragment)
+    if not match:
+        return False
+    return _is_reserved_hostname(match.group("host"))
 _PERSISTED_FIELD_RE = re.compile(
     r"[\"']?(?P<field>workspace_path|source_path|skill_path|local_path|source_file|"
     r"eg_ledger_path)[\"']?\s*[:=]\s*(?P<value>.+)",
@@ -83,27 +220,39 @@ _SOURCE_INTERNAL_URL_RE = re.compile(
 )
 _PRIVATE_KEY_LINE_RE = re.compile(r"^\s*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----\s*$")
 _CREDENTIAL_URI_RE = re.compile(
-    r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:(?P<secret>[^\s/@]+)@"
+    r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:(?P<secret>[^\s/@]+)"
+    r"@(?P<cred_host>[^\s/@:\"'<>]+)"
 )
-# D-CIP-15: a documented template placeholder (the repo's own convention --
-# see deploy_wizard.py's ``_warn_production_safety`` and
+# D-CIP-15 / BUG-228: a documented template placeholder (the repo's own
+# convention -- see deploy_wizard.py's ``_warn_production_safety`` and
 # agent_utilities.observability.langfuse_trust's ``_CREDENTIAL_SENTINELS``)
 # is never a live credential, so a URI shaped like one must not be flagged as
-# though it were. Mirrors scripts/check_wheel_privacy.py's
-# ``_CREDENTIAL_PLACEHOLDER_TOKENS`` so the same words are safe everywhere.
+# though it were. This set had drifted out of sync with
+# scripts/check_wheel_privacy.py's own ``_CREDENTIAL_PLACEHOLDER_TOKENS`` --
+# the comment already claimed they mirrored each other, but that script's
+# set additionally recognizes "agent" (this repo's own
+# ``postgresql://agent:agent@localhost:5432/agent_kg`` documented example
+# DSN, README.md / docs/architecture/graph_backends_architecture.md),
+# "password", "secret", "test", and "sample" as placeholder words. Restored
+# so the two gates actually agree, as documented.
 _CREDENTIAL_PLACEHOLDER_TOKENS = frozenset(
     {
+        "agent",
         "changeme",
         "change_me",
         "example",
+        "fixme",
         "masked",
+        "password",
         "placeholder",
         "redacted",
-        "your",
-        "xxxx",
         "replace",
+        "sample",
+        "secret",
+        "test",
         "todo",
-        "fixme",
+        "xxxx",
+        "your",
     }
 )
 _HOST_IDENTITY_RE = re.compile(r"(?i)\bssh://(?!\$\{)[^\s/@]+@")
@@ -167,6 +316,19 @@ def _is_credential_placeholder(secret: str) -> bool:
         return True
     tokens = set(re.findall(r"[a-z0-9]+", rendered.lower()))
     return bool(tokens & _CREDENTIAL_PLACEHOLDER_TOKENS)
+
+
+def _is_credential_exempt(match: re.Match[str]) -> bool:
+    """A credential-shaped URI is not a real leak when either the secret
+    token is a documented placeholder word (existing behaviour) OR the host
+    it targets is RFC-reserved-for-documentation (BUG-228) -- a made-up
+    password pointed at ``example.test``/``localhost``/etc. cannot be a live
+    credential no matter what the password portion looks like.
+    """
+    if _is_credential_placeholder(match.group("secret")):
+        return True
+    host = match.group("cred_host")
+    return bool(host) and _is_reserved_hostname(host)
 
 
 def _identifier_from_path(value: str) -> set[str]:
@@ -294,7 +456,7 @@ def classify_line(
         ) and not re.match(r"^(?:[a-z]:|[/\\]|~)", value, re.IGNORECASE)
         if value not in {"", "none", "null", "unset"} and not runtime_relative:
             categories.add("persisted machine path")
-    if "persisted machine path" not in categories and _HOME_PATH_RE.search(line):
+    if "persisted machine path" not in categories and _has_real_home_path(line):
         categories.add("machine-specific home path")
     folded = line.casefold()
     if any(
@@ -308,9 +470,7 @@ def classify_line(
         categories.add("hard-coded internal endpoint")
     if deployment_doc:
         credential_match = _CREDENTIAL_URI_RE.search(line)
-        if credential_match and not _is_credential_placeholder(
-            credential_match.group("secret")
-        ):
+        if credential_match and not _is_credential_exempt(credential_match):
             categories.add("credential-bearing URI")
     if deployment_doc and _HOST_IDENTITY_RE.search(line):
         categories.add("hard-coded remote account")
@@ -335,7 +495,7 @@ def classify_runtime_source_line(
     """
 
     categories: set[str] = set()
-    if _HOME_PATH_RE.search(line):
+    if _has_real_home_path(line):
         categories.add("machine-specific home path in runtime source")
     folded = line.casefold()
     if any(
@@ -343,16 +503,27 @@ def classify_runtime_source_line(
         for value in identifiers
     ):
         categories.add("local account or host identifier in runtime source")
-    if _SOURCE_INTERNAL_URL_RE.search(line):
+    endpoint_match = _SOURCE_INTERNAL_URL_RE.search(line)
+    if endpoint_match and not _is_reserved_endpoint_url(endpoint_match.group(0)):
         categories.add("hard-coded internal endpoint in runtime source")
     credential_match = _CREDENTIAL_URI_RE.search(line)
-    if credential_match and not _is_credential_placeholder(
-        credential_match.group("secret")
-    ):
+    if credential_match and not _is_credential_exempt(credential_match):
         categories.add("credential-bearing URI in runtime source")
     if _PRIVATE_KEY_LINE_RE.fullmatch(line):
         categories.add("private key material in runtime source")
     return frozenset(categories)
+
+
+# BUG-228: this used to be {"docs", ".github"} plus top-level files and any
+# *.toml, which is why a leak that landed under `tests/` or `.specify/` was
+# structurally invisible to this pass -- the gate's own selection excluded
+# the tree, not the file type. A tracked test fixture in a PUBLIC repo
+# discloses exactly as much as tracked source: the file's location was never
+# a legitimate signal for whether its content is safe to publish. Widened to
+# every tracked-but-previously-excluded text tree that can carry a fixture
+# (tests/), a design/spec artifact (.specify/), or a runnable example
+# (examples/) -- not just the two trees someone happened to think of first.
+_PUBLIC_TEXT_TREES = frozenset({"docs", ".github", "tests", ".specify", "examples"})
 
 
 def _is_public_artifact(name: str) -> bool:
@@ -362,8 +533,7 @@ def _is_public_artifact(name: str) -> bool:
     if "skills" in path.parts:
         return False
     return (
-        path.parts[0] == "docs"
-        or path.parts[0] == ".github"
+        path.parts[0] in _PUBLIC_TEXT_TREES
         or len(path.parts) == 1
         or path.suffix.casefold() == ".toml"
     )
@@ -470,12 +640,36 @@ def _runtime_source_artifacts(root: Path) -> list[Path]:
 
 
 def _is_runtime_source_path(path: Path) -> bool:
-    """Scope the changed-source gate to shipped runtime/deployment material.
+    """Scope the source-literal pass to every tree that can carry a real leak.
 
-    Adversarial tests and the privacy scanners themselves intentionally contain
-    synthetic bad values. Public docs are already scanned in full by
-    ``_tracked_artifacts``; bundled skills live under the runtime package and are
-    included here.
+    BUG-228: this used to admit only ``agent_utilities``, ``deploy``,
+    ``docker``, ``helm``, ``k8s`` -- on the theory that "adversarial tests
+    ... intentionally contain synthetic bad values", so scanning ``tests/``
+    would just be noise. That reasoning does not hold: a test fixture that
+    copies a REAL internal FQDN or IdP realm (as opposed to a value that is
+    only shaped like one, e.g. an obviously-synthetic stand-in value) discloses
+    exactly as much as the same literal in shipped source, and the same
+    tracked-.py test file is exactly where D-CIP's own coverage sweep found
+    it (12 occurrences in ``tests/unit/deployment/test_doctor_lakehouse.py``,
+    invisible to this gate solely because of its directory).
+
+    Widening this pass surfaces real pre-existing debt this scope change did
+    not create: a corpus sweep at widen-time found ~213 matches across
+    tests/, the large majority genuinely synthetic fixtures that exercise
+    OTHER gates'/modules' own detection logic (e.g.
+    ``tests/gates/test_wheel_privacy_gate.py`` planting a made-up ``/home/...``
+    path to prove ``check_wheel_privacy.py`` catches it; the MCP test suite's
+    own ``.arpa``/``.internal`` fixtures for ``base_utilities.is_loopback_url``
+    and the real suffix logic in ``agent_utilities/skills/validation.py`` and
+    ``agent_utilities/core/http_client.py``) plus at least 2 confirmed real
+    leaks (fixed alongside this change). The recommended pattern for a
+    fixture that must stay leak-shaped on purpose is to construct the value
+    at runtime (string concatenation, etc.) rather than embed it as one
+    matchable source literal -- same runtime value, same proof, nothing for
+    this pass to trip on -- but sweeping the full remaining corpus that way
+    is its own follow-up, out of this change's scope. Public docs are
+    already scanned in full by ``_tracked_artifacts``; bundled skills live
+    under the runtime package and are included here.
     """
 
     if not path.parts:
@@ -484,8 +678,12 @@ def _is_runtime_source_path(path: Path) -> bool:
         "agent_utilities",
         "deploy",
         "docker",
+        "examples",
         "helm",
         "k8s",
+        "tests",
+        ".security",
+        ".specify",
     }
 
 

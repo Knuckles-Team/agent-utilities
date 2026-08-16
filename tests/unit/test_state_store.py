@@ -126,9 +126,9 @@ def test_non_postgres_uri_is_ignored(monkeypatch):
     monkeypatch.setattr(config, "state_db_uri", "mysql://nope", raising=False)
     assert state_store.state_db_uri() is None
     monkeypatch.setattr(
-        config, "state_db_uri", "postgresql://u:p@h:5432/db", raising=False
+        config, "state_db_uri", "postgresql://u:p@h.example:5432/db", raising=False
     )
-    assert state_store.state_db_uri() == "postgresql://u:p@h:5432/db"
+    assert state_store.state_db_uri() == "postgresql://u:p@h.example:5432/db"
     assert state_store.postgres_state_enabled() is True
 
 

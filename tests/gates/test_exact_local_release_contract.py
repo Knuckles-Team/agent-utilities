@@ -784,7 +784,7 @@ def test_signed_release_inputs_carry_no_hardlink_alias() -> None:
     seven doctor-suite failures deep in a production-certification run the way
     D-CDX-79 first did. compatibility-matrix.yml and certification-campaign.yml
     are the two D-CDX-79 named explicitly (materialized as independent copies
-    under the old `/home/apps/vs1-throwaway/...` hardlink mirror); this checks
+    under the old `/home/local/vs1-throwaway/...` hardlink mirror); this checks
     every tracked release input the wheel/catalog contract already treats as
     security-sensitive, so any of them regressing to a hydration-introduced
     alias fails a normal `pytest` run instead of only a doctor/certification

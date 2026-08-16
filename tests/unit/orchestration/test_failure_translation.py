@@ -155,12 +155,12 @@ def test_build_failure_detail_sanitizes_endpoints_and_paths_in_raw() -> None:
     ride all the way out to an external chat surface, so the raw text goes through the SAME
     endpoint/path redaction as the internal log-privacy boundary before it is stored."""
     raw = (
-        "ConnectionError: could not reach https://internal-secret-host.arpa:8443/v1/x "
-        "(config at /home/genius/.config/agent-utilities/secrets.json)"
+        "ConnectionError: could not reach https://internal-secret-host.example.invalid:8443/v1/x "
+        "(config at /home/example/.config/agent-utilities/secrets.json)"
     )
     detail = build_failure_detail(raw)
     assert "internal-secret-host" not in detail["raw"]
-    assert "/home/genius" not in detail["raw"]
+    assert "/home/example" not in detail["raw"]
     assert "<endpoint>" in detail["raw"] or "<path>" in detail["raw"]
 
 

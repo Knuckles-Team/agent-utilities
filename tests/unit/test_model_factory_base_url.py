@@ -1,9 +1,9 @@
 """Per-model registry base_url precedence in create_model.
 
 Regression for a split-endpoint vLLM deployment: the router model (e.g. ``qwen-lite``
-served on ``vllm-lite.arpa``) was being created with the graph-level default base_url
-(``vllm.arpa``) that the engine threads through for every role, causing a 404 because
-``vllm.arpa`` only serves the KG model. The registry is the source of truth for where a
+served on ``vllm-lite.example``) was being created with the graph-level default base_url
+(``vllm.example``) that the engine threads through for every role, causing a 404 because
+``vllm.example`` only serves the KG model. The registry is the source of truth for where a
 model is served, so its per-model ``base_url`` must win over a caller-supplied default;
 unregistered models must still honor an explicit base_url.
 """
@@ -45,7 +45,7 @@ def test_registry_base_url_wins_over_caller_default(monkeypatch):
         lambda mid=None: {
             "id": "qwen-lite",
             "provider": "openai",
-            "base_url": "http://vllm-lite.arpa/v1",
+            "base_url": "http://vllm-lite.example/v1",
         },
     )
     # Disable the TestModel short-circuit so real base_url resolution runs
@@ -54,9 +54,9 @@ def test_registry_base_url_wins_over_caller_default(monkeypatch):
     model = model_factory.create_model(
         provider="openai",
         model_id="qwen-lite",
-        base_url="http://vllm.arpa/v1",  # graph-level default the engine forces
+        base_url="http://vllm.example/v1",  # graph-level default the engine forces
     )
-    assert "vllm-lite.arpa" in (_extract_base_url(model) or "")
+    assert "vllm-lite.example" in (_extract_base_url(model) or "")
 
 
 @pytest.mark.concept("ORCH-1.27")

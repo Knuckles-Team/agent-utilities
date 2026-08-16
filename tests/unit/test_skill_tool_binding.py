@@ -51,7 +51,7 @@ def test_skill_binds_to_owning_server_with_mcp_suffix():
     eng = _FakeEngine(
         _FakeBackend(
             "tunnel-manager-mcp",
-            "http://tunnel-manager-mcp.arpa/mcp",
+            "http://tunnel-manager-mcp.example/mcp",
             [
                 ("tm_ssh_exec", "run a command over ssh"),
                 ("tm_list_hosts", "list hosts"),

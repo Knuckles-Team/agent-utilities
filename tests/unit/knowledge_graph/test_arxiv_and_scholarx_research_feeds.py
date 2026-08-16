@@ -90,7 +90,7 @@ def test_unknown_mcp_tool_preset_downgrades_to_skip_not_crash(monkeypatch):
     pip-installed alongside agent-utilities) must skip cleanly, not crash the
     connector_sync task (CONCEPT:AU-KG.ingest.research-connector-presets).
     """
-    monkeypatch.setenv("FRESHRSS_URL", "http://freshrss.arpa")
+    monkeypatch.setenv("FRESHRSS_URL", "http://freshrss.example")
 
     def _boom(_source_type, _config):
         raise ValueError("Unknown mcp_tool preset 'freshrss'. Available: sql-table")

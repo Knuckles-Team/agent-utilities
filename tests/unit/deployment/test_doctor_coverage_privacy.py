@@ -10,7 +10,7 @@ from agent_utilities.deployment import doctor as D
 
 _LOCAL_PATH = "/private/home/agent-user/workspace/workspace.yml"
 _PERSON = "Ada Lovelace"
-_ENDPOINT = "https://private.example.internal/graphql"
+_ENDPOINT = "https://private.example.invalid/graphql"
 _REPOSITORY = "customer-secret-repository"
 _STALE_REPOSITORY = "person-owned-repository"
 _CONNECTOR = "tenant-servicenow-production"

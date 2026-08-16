@@ -74,7 +74,7 @@ def _patch_pg(monkeypatch, **flags):
     )
 
 
-def _patch_profile(monkeypatch, uri="postgresql://agent:secret@h:5432/db"):
+def _patch_profile(monkeypatch, uri="postgresql://agent:secret@h.example:5432/db"):
     import agent_utilities.knowledge_graph.backends as backends_mod
 
     monkeypatch.setattr(
@@ -124,7 +124,7 @@ def test_configure_backend_persists_keys(monkeypatch, tmp_path):
     import agent_utilities.knowledge_graph.backends as backends_mod
 
     monkeypatch.setattr(backends_mod, "set_active_backend", lambda b: None)
-    _patch_profile(monkeypatch, "postgresql://agent:pw@h:5432/agent_kg")
+    _patch_profile(monkeypatch, "postgresql://agent:pw@h.example:5432/agent_kg")
 
     out = de.configure_backend(_PROFILE_REF)
     assert out["status"] == "success"

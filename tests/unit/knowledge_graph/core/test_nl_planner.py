@@ -185,7 +185,7 @@ def test_kg_2_305_uses_au_fleet_llm_when_configured(monkeypatch):
 def test_kg_2_305_is_llm_configured_reads_config(monkeypatch):
     import agent_utilities.core.config as cfg_mod
 
-    monkeypatch.setattr(cfg_mod.config, "openai_base_url", "http://vllm.arpa/v1")
+    monkeypatch.setattr(cfg_mod.config, "openai_base_url", "http://vllm.example/v1")
     assert nl_planner.is_llm_configured() is True
 
 

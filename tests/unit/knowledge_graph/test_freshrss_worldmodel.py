@@ -219,7 +219,7 @@ def test_sync_freshrss_skips_when_unconfigured(monkeypatch):
 
 
 def test_sync_freshrss_gates_and_watermarks(monkeypatch):
-    monkeypatch.setenv("FRESHRSS_URL", "http://freshrss.arpa")
+    monkeypatch.setenv("FRESHRSS_URL", "http://freshrss.example")
     monkeypatch.setattr(ss, "_read_envelope_watermark", lambda *a, **k: None)
     monkeypatch.setattr(
         "agent_utilities.automation.feed_sources.upsert_feed_source",

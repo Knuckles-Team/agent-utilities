@@ -41,7 +41,7 @@ def _controller(
     return AdaptiveCapacityController(
         model_key="embedding",
         model_name=model_name,
-        metrics_url="http://vllm-embed.arpa/metrics",
+        metrics_url="http://vllm-embed.example/metrics",
         floor=floor,
         ceiling=ceiling,
         fetcher=fetcher,
@@ -53,11 +53,11 @@ def _controller(
 
 
 def test_metrics_url_drops_v1_and_appends_metrics():
-    assert metrics_url_from_base("http://vllm-embed.arpa/v1") == (
-        "http://vllm-embed.arpa/metrics"
+    assert metrics_url_from_base("http://vllm-embed.example/v1") == (
+        "http://vllm-embed.example/metrics"
     )
-    assert metrics_url_from_base("http://vllm.arpa") == "http://vllm.arpa/metrics"
-    assert metrics_url_from_base("http://vllm.arpa/v1/") == "http://vllm.arpa/metrics"
+    assert metrics_url_from_base("http://vllm.example") == "http://vllm.example/metrics"
+    assert metrics_url_from_base("http://vllm.example/v1/") == "http://vllm.example/metrics"
 
 
 @pytest.mark.parametrize(
@@ -203,7 +203,7 @@ def test_utilization_returns_parsed_gauges():
     assert snap["saturated"] is True
     assert snap["floor"] == 4
     assert snap["current_target"] >= 4
-    assert snap["metrics_url"] == "http://vllm-embed.arpa/metrics"
+    assert snap["metrics_url"] == "http://vllm-embed.example/metrics"
 
 
 # --- integration via adaptive_capacity / config -----------------------------
@@ -250,7 +250,7 @@ def test_adaptive_capacity_ramps_via_config_endpoint(monkeypatch):
 
     class _Config:
         def model_endpoint(self, _model):
-            return ("bge-m3", "http://vllm-embed.arpa/v1")
+            return ("bge-m3", "http://vllm-embed.example/v1")
 
     monkeypatch.setattr("agent_utilities.core.config.config", _Config(), raising=False)
 
@@ -449,7 +449,7 @@ def test_get_utilization_shape(monkeypatch):
 
     class _Config:
         def model_endpoint(self, _model):
-            return ("bge-m3", "http://vllm-embed.arpa/v1")
+            return ("bge-m3", "http://vllm-embed.example/v1")
 
         def model_capacity(self, _model):
             return 4

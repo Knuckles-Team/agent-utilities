@@ -177,7 +177,7 @@ def test_pinned_egress_allows_exact_configured_private_host(monkeypatch):
 
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.host == "10.0.0.9"
-        assert request.headers["host"] == "model.internal:9000"
+        assert request.headers["host"] == "model.example:9000"
         return httpx.Response(
             200,
             extensions={"network_stream": _Peer("10.0.0.9")},
@@ -186,10 +186,10 @@ def test_pinned_egress_allows_exact_configured_private_host(monkeypatch):
     with create_http_client(
         transport=httpx.MockTransport(handler),
         pin_egress=True,
-        allowed_private_hosts=["model.internal"],
+        allowed_private_hosts=["model.example"],
         allow_loopback=False,
     ) as client:
-        assert client.get("http://model.internal:9000/v1").status_code == 200
+        assert client.get("http://model.example:9000/v1").status_code == 200
 
 
 def test_pinned_egress_allows_k8s_cgnat_cluster_ip(monkeypatch):
@@ -212,10 +212,10 @@ def test_pinned_egress_allows_k8s_cgnat_cluster_ip(monkeypatch):
     with create_http_client(
         transport=httpx.MockTransport(handler),
         pin_egress=True,
-        allowed_private_hosts=["github-mcp.arpa"],
+        allowed_private_hosts=["github-mcp.example"],
         allow_loopback=False,
     ) as client:
-        assert client.get("http://github-mcp.arpa/mcp").status_code == 200
+        assert client.get("http://github-mcp.example/mcp").status_code == 200
 
 
 def test_pinned_private_host_rejects_public_dns_rebinding(monkeypatch):
@@ -228,10 +228,10 @@ def test_pinned_private_host_rejects_public_dns_rebinding(monkeypatch):
         transport=transport,
         pin_egress=True,
         verify_pinned_peer=False,
-        allowed_private_hosts=["model.internal"],
+        allowed_private_hosts=["model.example"],
     ) as client:
         with pytest.raises(PinnedEgressViolation):
-            client.get("https://model.internal/v1")
+            client.get("https://model.example/v1")
 
 
 def test_pinned_egress_rejects_peer_mismatch(monkeypatch):
