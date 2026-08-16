@@ -944,9 +944,68 @@ def register_write_ingest_tools(mcp):
             default="",
             description="Internal override only — leave empty. The content type (codebase, document, config, prompt, skill, mcp_server, kb, conversation, policy) is auto-detected from the path, and heavy types (codebase/document) always run on the async job queue. Only set this to force a specific category for an ambiguous path.",
         ),
+        connection: str = Field(
+            default="",
+            description=(
+                "CONCEPT:AU-KG.backend.multi-connection-registry — for action='ingest' codebase/document "
+                "jobs: named BACKEND connection to submit to (default = primary). "
+                "Selects WHICH BACKEND, never which physical graph — see `graph`. "
+                "Fan-out ('all'/a list) is rejected: an ingest job always targets "
+                "exactly one backend, never a union."
+            ),
+        ),
+        graph: str = Field(
+            default="",
+            description=(
+                "CONCEPT:AU-KG.backend.explicit-graph-selection — for action='ingest' codebase/document jobs: "
+                "explicit physical engine graph to ingest INTO (one of the names "
+                "`engine_tenants(action='list')` returns), independent of "
+                "`connection`. Empty = the caller's own bound graph (unchanged "
+                "default behavior). An unknown graph, or a `connection` with no "
+                "physical-graph concept, is a typed error — never a silent "
+                "fallback or fan-out. The submitted job stays bound to this exact "
+                "graph through async claim/execute (persisted on the WorkItem), so "
+                "it can never drift to a default/registry-wide graph."
+            ),
+        ),
     ) -> str:
         """Smart ingestion tool to populate the Knowledge Graph with codebases, documents, and memory observations. Monitors async ingestion jobs."""
-        engine = kg_server._get_engine()
+        # A direct call bypassing FastMCP's own Field-default resolution binds
+        # an omitted `graph`/`connection` to a raw `FieldInfo` rather than
+        # `""` — normalize once here, mirroring `query_tools._run_graph_query`'s
+        # identical guard.
+        graph = graph if isinstance(graph, str) else ""
+        connection = connection if isinstance(connection, str) else ""
+
+        # U-06/GOC-67: resolve `connection`/`graph` for action='ingest' BEFORE
+        # any job is submitted or content is written, exactly like
+        # `graph_query`/`graph_write` — an explicit graph never defaults,
+        # never fans out, and an unknown/unauthorized graph fails closed with
+        # no job created and no partial write.
+        ingest_engine: Any = None
+        if action == "ingest" and (graph or connection):
+            try:
+                entries, errors, fanout = kg_server._resolve_target_engines(connection)
+                entries = kg_server.resolve_explicit_graph(
+                    entries, graph, fanout=fanout
+                )
+            except kg_server.GraphNotFoundError as e:
+                return public_error_text(e, code="graph_not_found")
+            except kg_server.GraphSelectionConflictError as e:
+                return public_error_text(e, code="graph_selection_conflict")
+            except Exception as e:
+                return public_error_text(e)
+            if fanout or len(entries) != 1:
+                return public_error_text(
+                    kg_server.GraphSelectionConflictError(
+                        "action='ingest' targets exactly one backend; "
+                        "'connection=all'/a list is not supported for ingestion"
+                    ),
+                    code="graph_selection_conflict",
+                )
+            _ingest_conn_name, ingest_engine = entries[0]
+
+        engine = ingest_engine if ingest_engine is not None else kg_server._get_engine()
         if not engine:
             return "Error: IntelligenceGraphEngine not active."
 
@@ -1012,6 +1071,26 @@ def register_write_ingest_tools(mcp):
                         t_type = (
                             "codebase" if ct == ContentType.CODEBASE else "document"
                         )
+                        # BUG-120: the async worker only re-narrows onto an
+                        # explicit `graph` for `task_type='codebase'` (see
+                        # `_bound_to_explicit_ingest_graph`'s call site in
+                        # `_run_background_task`) — the legacy document-chunk
+                        # ingest branch never reads the WorkItem's `graph`
+                        # metadata at all. Silently accepting `graph=` here
+                        # for a document path would echo a resolved graph the
+                        # write never actually honors — a fabricated success.
+                        # Fail closed instead until document ingest gets the
+                        # same worker-side wiring codebase already has.
+                        if graph and t_type != "codebase":
+                            return public_error_text(
+                                kg_server.GraphSelectionConflictError(
+                                    "explicit graph selection for async "
+                                    "ingestion is currently supported only "
+                                    f"for codebase content; {p!r} resolved "
+                                    f"to content_type={t_type!r}"
+                                ),
+                                code="graph_selection_conflict",
+                            )
                         jid = await run_blocking_ordered(
                             engine.submit_task,
                             target_path=p,
@@ -1021,19 +1100,29 @@ def register_write_ingest_tools(mcp):
                                 "max_depth": max_depth,
                             },
                             task_type=t_type,
+                            # U-06: persist the caller's resolved graph on the
+                            # WorkItem's own metadata — the async worker that
+                            # later executes this job re-narrows onto it
+                            # (`_bound_to_explicit_ingest_graph`) instead of
+                            # falling back to its own ambient/default graph.
+                            graph=graph,
                         )
                         async_jobs.append(jid)
                     else:
                         if ing is None:
                             ing = IngestionEngine(kg_engine=engine)
-                        r = await ing.ingest(
-                            IngestionManifest(
-                                content_type=ct,
-                                source_uri=p,
-                                max_depth=max_depth,
-                                metadata={"agent_id": agent_id},
+                        # Sync path runs inline, in THIS request's own verified
+                        # session — narrow it directly for the call's duration
+                        # (a no-op when `graph` is empty).
+                        with kg_server.bound_to_graph(graph):
+                            r = await ing.ingest(
+                                IngestionManifest(
+                                    content_type=ct,
+                                    source_uri=p,
+                                    max_depth=max_depth,
+                                    metadata={"agent_id": agent_id},
+                                )
                             )
-                        )
                         sync_out.append(
                             f"[{ct.value}] {p}: {r.status} (+{r.nodes_created}n/+{r.edges_created}e"
                             f"{', ' + str(r.details.get('cards_pending')) + ' cards pending' if r.details.get('cards_pending') else ''}"
@@ -1047,6 +1136,8 @@ def register_write_ingest_tools(mcp):
                         if len(async_jobs) == 1
                         else f"Submitted {len(async_jobs)} jobs: {', '.join(async_jobs)}"
                     )
+                    if graph or connection:
+                        label += f" [connection={connection or '(default)'} graph={graph or '(default)'}]"
                     msgs.append(label)
                 if sync_out:
                     msgs.append(" | ".join(sync_out))

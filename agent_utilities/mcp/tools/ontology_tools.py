@@ -1278,22 +1278,98 @@ def register_ontology_tools(mcp):
             default="[]",
             description="JSON list of record ids to narrow the sync (webhook delta).",
         ),
+        connection: str = Field(
+            default="",
+            description=(
+                "CONCEPT:AU-KG.backend.multi-connection-registry — named BACKEND connection to sync into "
+                "(default = primary). Selects WHICH BACKEND, never which physical "
+                "graph — see `graph`. Fan-out ('all'/a list) is rejected: a source "
+                "sync always targets exactly one backend, never a union — distinct "
+                "from `source='all'`, which fans out across CONNECTORS, not "
+                "backends/graphs."
+            ),
+        ),
+        graph: str = Field(
+            default="",
+            description=(
+                "CONCEPT:AU-KG.backend.explicit-graph-selection — explicit physical engine graph to sync THIS "
+                "source into (one of the names `engine_tenants(action='list')` "
+                "returns), independent of `connection`. U-37: gives each source "
+                "its OWN isolated physical graph and watermark/checkpoint "
+                "(the native ChangeEnvelope cursor is scoped to whatever graph "
+                "this call narrows onto), so unbounded multi-source imports "
+                "never share one bulk watermark across sources with different "
+                "trust/change-detection boundaries. Empty = the caller's own "
+                "bound graph (unchanged default behavior). An unknown graph, or "
+                "a `connection` with no physical-graph concept, is a typed "
+                "error — never a silent fallback or fan-out."
+            ),
+        ),
     ) -> str:
         """Run a delta/full/reconcile sync for any registered source against the live engine."""
         from agent_utilities.knowledge_graph.core.source_sync import sync_source
 
+        # A direct call bypassing FastMCP's own Field-default resolution binds
+        # an omitted `graph`/`connection` to a raw `FieldInfo` rather than
+        # `""` — normalize once here, mirroring `query_tools._run_graph_query`'s
+        # identical guard.
+        graph = graph if isinstance(graph, str) else ""
+        connection = connection if isinstance(connection, str) else ""
+
         try:
             ids = json.loads(ids_json) if ids_json else []
-            try:
-                engine = kg_server._get_engine()
-            except Exception:  # noqa: BLE001
-                engine = None
+
+            # U-37/GOC-67: resolve `connection`/`graph` BEFORE touching the
+            # engine or reading any watermark — exactly like `graph_query`/
+            # `graph_write`/`graph_ingest`: an explicit graph never defaults,
+            # never fans out, and an unknown/unauthorized graph fails closed
+            # with no partial sync started.
+            if graph or connection:
+                try:
+                    entries, errors, fanout = kg_server._resolve_target_engines(
+                        connection
+                    )
+                    entries = kg_server.resolve_explicit_graph(
+                        entries, graph, fanout=fanout
+                    )
+                except kg_server.GraphNotFoundError as e:
+                    return public_error_json(e, code="graph_not_found")
+                except kg_server.GraphSelectionConflictError as e:
+                    return public_error_json(e, code="graph_selection_conflict")
+                except Exception as e:
+                    return public_error_json(e)
+                if fanout or len(entries) != 1:
+                    return public_error_json(
+                        kg_server.GraphSelectionConflictError(
+                            "source_sync targets exactly one backend; "
+                            "'connection=all'/a list is not supported "
+                            "(use source='all' to fan out across connectors "
+                            "instead)"
+                        ),
+                        code="graph_selection_conflict",
+                    )
+                _sync_conn_name, engine = entries[0]
+            else:
+                try:
+                    engine = kg_server._get_engine()
+                except Exception:  # noqa: BLE001
+                    engine = None
             if engine is None:
                 return json.dumps(
                     {"status": "error", "error": "active engine required"}
                 )
-            return json.dumps(
-                sync_source(engine, str(source), mode=str(mode), ids=ids or None)
+            with kg_server.bound_to_graph(graph):
+                result = sync_source(
+                    engine, str(source), mode=str(mode), ids=ids or None
+                )
+            if graph or connection:
+                result = dict(result)
+                result.setdefault("connection", connection or "default")
+                result.setdefault("graph", graph)
+            return json.dumps(result)
+        except PermissionError as e:
+            return public_error_json(
+                e, code="permission_denied" if graph else "operation_failed"
             )
         except Exception as e:  # noqa: BLE001
             return public_error_json(e)
