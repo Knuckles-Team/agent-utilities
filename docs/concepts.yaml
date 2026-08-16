@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1176
+total_concepts: 1175
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1645,7 +1645,6 @@ concepts:
   - agent_utilities/mcp/delegated_auth.py
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/mcp/server_factory.py
-  - agent_utilities/mcp_utilities.py
   doc: MCP Standardized Interfaces
 - id: AU-ECO.mcp.stdio-static-purity-gate
   name: AU-ECO.mcp.stdio-static-purity-gate
@@ -3150,13 +3149,6 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: forward-simulate the learned world model with
-- id: AU-KG.coordination.centralized-kg-coordination-protocol
-  name: Centralized KG Coordination Protocol
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/mcp/kg_coordinator.py
-  doc: Centralized KG Coordination Protocol
 - id: AU-KG.coordination.embedder-breaker
   name: keeps a down embedder from being retry-stormed
   pillar: AU-KG

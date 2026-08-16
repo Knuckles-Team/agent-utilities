@@ -2710,9 +2710,7 @@ class GraphComputeEngine:
             # path, which is intentionally distinct from the property write —
             # see its docstring) has no such key and is not stale by this
             # signal; it must not be penalized for a property it never had.
-            if "embedding" in node_properties and not node_properties.get(
-                "embedding"
-            ):
+            if "embedding" in node_properties and not node_properties.get("embedding"):
                 continue
             current.append((node_id, score))
             if len(current) >= n_results:

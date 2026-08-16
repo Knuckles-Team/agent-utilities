@@ -197,9 +197,10 @@ def triage_fleet_event(
         str(event.get("severity") or "info"),
     )
     try:
-        if graph_writer is not None and "graph_writer" in inspect.signature(
-            playbook
-        ).parameters:
+        if (
+            graph_writer is not None
+            and "graph_writer" in inspect.signature(playbook).parameters
+        ):
             report = playbook(engine, event, graph_writer=graph_writer) or {}
         else:
             report = playbook(engine, event) or {}

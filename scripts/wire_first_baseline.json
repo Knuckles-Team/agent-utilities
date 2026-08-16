@@ -762,8 +762,6 @@
     "agent_utilities/mcp/context_helpers.py\tctx_set_state\t0",
     "agent_utilities/mcp/eunomia_principal.py\tJwtPrincipalEunomiaMiddleware.on_call_tool\t0",
     "agent_utilities/mcp/eunomia_principal.py\tJwtPrincipalEunomiaMiddleware.on_list_tools\t0",
-    "agent_utilities/mcp/kg_coordinator.py\tKGCoordinator\t0",
-    "agent_utilities/mcp/kg_coordinator.py\tKGCoordinator.get_kg_client\t0",
     "agent_utilities/mcp/middlewares.py\tActorContextMiddleware.on_call_tool\t0",
     "agent_utilities/mcp/middlewares.py\tEntityLinkingMiddleware.on_request\t0",
     "agent_utilities/mcp/middlewares.py\tToolMetricsMiddleware.on_call_tool\t0",
