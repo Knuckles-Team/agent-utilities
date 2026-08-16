@@ -31,6 +31,8 @@ from urllib.parse import unquote, urlsplit
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
 DOCS = ROOT / "docs"
 MKDOCS = ROOT / "mkdocs.yml"
 DOC_CATALOG = DOCS / "reference" / "documentation-catalog.md"
@@ -79,30 +81,6 @@ _FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})")
 _INLINE_CODE_RE = re.compile(r"`+[^`]*`+")
 _HTML_TAG_RE = re.compile(r"<[^>]+>")
 _MARKDOWN_DECORATION_RE = re.compile(r"[*_~]")
-
-
-def _tracked_or_walked(root: Path, pattern: str) -> list[Path]:
-    """Files matching ``pattern`` under ``root``, preferring git-tracked (BUG-043).
-
-    A raw ``rglob`` also picks up gitignored, generated build output, which
-    can carry a stale copy of an already-fixed doc/source file and distort
-    the docs-catalog / nav / setting()-usage inventories. Falls back to a
-    filesystem walk only when ``root`` is not inside a git working tree
-    (e.g. a synthetic test fixture).
-    """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "--", pattern],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [root / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(root.rglob(pattern))
 
 
 def _is_host_local_default(env_key: str, value: object) -> bool:
@@ -167,7 +145,7 @@ def _nav_paths() -> list[str]:
 def _site_pages() -> list[Path]:
     return sorted(
         path
-        for path in _tracked_or_walked(DOCS, "*.md")
+        for path in tracked_or_walked(DOCS, "*.md", root=ROOT)
         if path.relative_to(DOCS).as_posix() not in SITE_EXCLUDES
     )
 
@@ -265,7 +243,7 @@ def check_skill_certification_docs_contract(content: str | None = None) -> list[
 
 def _setting_calls() -> dict[str, set[str]]:
     calls: dict[str, set[str]] = defaultdict(set)
-    for path in _tracked_or_walked(ROOT / "agent_utilities", "*.py"):
+    for path in tracked_or_walked(ROOT / "agent_utilities", "*.py", root=ROOT):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         except (OSError, SyntaxError, UnicodeError):
@@ -594,7 +572,7 @@ def _catalog_links() -> set[str]:
 
 
 def metrics() -> dict[str, int]:
-    docs_total = len(_tracked_or_walked(DOCS, "*.md"))
+    docs_total = len(tracked_or_walked(DOCS, "*.md", root=ROOT))
     pages = {_relative(path) for path in _site_pages()}
     nav = set(_nav_paths())
     catalog = _catalog_links() | (

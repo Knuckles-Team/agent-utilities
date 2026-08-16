@@ -409,7 +409,7 @@ def _parse_skill_md(path: Any) -> dict[str, Any]:
             "file_path": f"skill://{name}",
         }
     except Exception as e:
-        logger.error("Failed to parse SKILL.md: %s", type(e).__name__)
+        logger.error("Failed to parse SKILL.md: %s", e)
         name = path_obj.parent.name
         return {
             "id": name,
@@ -435,7 +435,7 @@ def get_toggle_state(engine, item_type: str, item_id: str) -> bool:
         if res and len(res) > 0:
             return res[0].get("value") == "enabled"
     except Exception as exc:
-        logger.error("Failed to query toggle state: %s", type(exc).__name__)
+        logger.error("Failed to query toggle state: %s", exc)
     return True  # Enabled by default
 
 
@@ -484,7 +484,7 @@ def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
                 if node_id in engine.graph_compute.graph.nodes:
                     engine.graph_compute.graph.nodes[node_id]["disabled"] = not enabled
     except Exception as exc:
-        logger.error("Failed to save toggle state: %s", type(exc).__name__)
+        logger.error("Failed to save toggle state: %s", exc)
 
 
 from starlette.requests import Request
@@ -568,7 +568,7 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
                     }
                 )
         except Exception as e:
-            logger.error("Failed to parse MCP config: %s", type(e).__name__)
+            logger.error("Failed to parse MCP config: %s", e)
 
     # 2. Built-in Agent Tools
     builtin_tools = []
@@ -2806,7 +2806,7 @@ def _ready_bundled_skill_names(
         logger.info(
             "bundled-skill readiness probe found no existing skill graph "
             "(%s); treating every bundled skill as not yet ingested",
-            type(exc).__name__,
+            exc,
         )
         return frozenset()
     candidates: dict[str, list[dict[str, Any]]] = {}
@@ -2887,12 +2887,15 @@ def _ensure_bundled_skills_ready(engine: Any) -> dict[str, Any]:
     except GraphOSStartupReadinessError:
         raise
     except Exception as exc:
-        # Only the exception type is recorded in the log (never its raw message
-        # or traceback, D-LR-2); the return payload below already publishes the
-        # same type-only detail to the external /health surface.
+        # The internal agent_utilities.* log is inside the process-wide
+        # log_privacy.py sanitization boundary (paths/endpoints/emails
+        # redacted, message preserved), so it carries the real exception here
+        # for diagnosability. D-LR-2 still holds for the EXTERNAL boundary
+        # below: the /health payload has no such sanitizer, so the "error"
+        # field there stays type-only.
         logger.error(
-            "GraphOS packaged-skill readiness check failed (%s)",
-            type(exc).__name__,
+            "GraphOS packaged-skill readiness check failed: %s",
+            exc,
         )
         return {
             "required": len(BUNDLED_SKILLS),
@@ -2962,7 +2965,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                 ingested += 1
             logger.info("Ingested %d MCP capability declarations", ingested)
     except Exception as exc:
-        logger.error("Failed to ingest MCP configuration: %s", type(exc).__name__)
+        logger.error("Failed to ingest MCP configuration: %s", exc)
 
     # 2. Native Tools
     try:
@@ -2999,7 +3002,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                     )
         logger.info("Ingested Native Tools")
     except Exception as exc:
-        logger.error("Failed to scan native tools: %s", type(exc).__name__)
+        logger.error("Failed to scan native tools: %s", exc)
 
     # 3. Skills
     try:
@@ -3021,7 +3024,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
         if ingested:
             logger.info("Ingested %d runnable skills", ingested)
     except Exception as e:
-        logger.error("Failed to ingest skills: %s", type(e).__name__)
+        logger.error("Failed to ingest skills: %s", e)
 
     # Fleet tool schemas stay lazy.  Startup has already materialized each MCP
     # server declaration above; probing every child here would launch the whole
@@ -3241,7 +3244,7 @@ def _ingest_prompts_at_boot() -> None:
         asyncio.run(ingest_prompts_to_graph())
         logger.info("Ingested prompt-base library at boot (Phase C hydration)")
     except Exception as exc:
-        logger.error("Prompt-base boot ingestion failed: %s", type(exc).__name__)
+        logger.error("Prompt-base boot ingestion failed: %s", exc)
 
 
 def _graphos_self_tool_surface() -> list[dict[str, Any]]:
@@ -3302,7 +3305,7 @@ def _ingest_self_tool_surface_at_boot(engine: Any) -> None:
         )
         logger.info("Queued self tool-surface boot hydration: %s", job_id)
     except Exception as exc:
-        logger.error("Self tool-surface boot enqueue failed: %s", type(exc).__name__)
+        logger.error("Self tool-surface boot enqueue failed: %s", exc)
 
 
 def _sync_ontologies_at_boot(engine: Any) -> None:
@@ -3910,9 +3913,7 @@ def _start_engine_bootstrap(session: Any) -> None:
             # blocking serving.
             _run_boot_hydration_plan(engine, skip_skill_names=frozenset(BUNDLED_SKILLS))
         except Exception as exc:
-            logger.error(
-                "KG engine background bootstrap failed: %s", type(exc).__name__
-            )
+            logger.error("KG engine background bootstrap failed: %s", exc)
 
     try:
         _authorized_background_thread(
@@ -3923,9 +3924,7 @@ def _start_engine_bootstrap(session: Any) -> None:
     except Exception as exc:
         # Packaged delegation is already ready. Optional workers, provider
         # discovery, and ontology federation remain retryable operational work.
-        logger.error(
-            "GraphOS noncritical bootstrap launch failed: %s", type(exc).__name__
-        )
+        logger.error("GraphOS noncritical bootstrap launch failed: %s", exc)
 
 
 def _build_server(

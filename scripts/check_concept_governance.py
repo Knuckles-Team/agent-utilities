@@ -231,15 +231,42 @@ def _tracked_or_walked_files(root: Path, *patterns: str) -> list[Path]:
     can carry a stale ``CONCEPT:`` marker/design-doc reference no longer in
     real source. Falls back to a filesystem walk only when ``root`` is not
     inside a git working tree (e.g. a synthetic test fixture).
+
+    Anchored at ``ROOT`` (never at ``root`` itself) with pathspecs scoped to
+    ``root``'s position under it -- see ``check_wiring._tracked_or_walked``'s
+    docstring for the confirmed root cause (GOC-70 liveness investigation):
+    git's ``ls-files`` output-path base silently reverts from
+    "relative to ``-C``'s target" to "relative to the ambient work-tree
+    root" whenever ``GIT_DIR``/``GIT_INDEX_FILE`` are already set in the
+    process environment -- which git itself sets for every hook subprocess
+    (``git commit``, incl. concluding a merge). When ``root`` is a
+    subdirectory of ``ROOT`` (e.g. ``DESIGN_DIR``), that reverts the
+    ``root / line`` reconstruction into a doubled, nonexistent path,
+    silently returning an EMPTY file list -- which made ``has_design_doc``
+    report "no design document references this concept" for a concept with
+    a real, present design doc, every time this gate ran as an actual git
+    hook (as opposed to a manual ``pre-commit run``). Anchoring at ``ROOT``
+    (computed once via pure ``Path`` math, immune to git's ambient-env
+    behavior) sidesteps the ambiguity entirely.
     """
     try:
+        rel = root.relative_to(ROOT)
+        anchor = ROOT
+        prefix = "" if str(rel) == "." else f"{rel.as_posix()}/"
+        pathspecs = [f"{prefix}{p}" for p in patterns] or [f"{prefix}." if prefix else "."]
+    except ValueError:
+        # `root` is not under this repo's ROOT (e.g. a synthetic test
+        # fixture) -- preserve the prior `-C root` behavior.
+        anchor = root
+        pathspecs = list(patterns) or ["."]
+    try:
         out = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "--"] + (list(patterns) or ["."]),
+            ["git", "-C", str(anchor), "ls-files", "--"] + pathspecs,
             capture_output=True,
             text=True,
             check=True,
         ).stdout
-        tracked = [root / line for line in out.splitlines() if line]
+        tracked = [anchor / line for line in out.splitlines() if line]
         if tracked:
             return [p for p in tracked if p.is_file()]
     except (subprocess.CalledProcessError, FileNotFoundError):

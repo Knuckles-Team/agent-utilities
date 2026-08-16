@@ -126,11 +126,13 @@ from __future__ import annotations
 import argparse
 import ast
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
+
 PKG = ROOT / "agent_utilities"
 BASELINE = ROOT / "scripts" / "swallowed_error_baseline.txt"
 SKIP_DIRS = {".git", ".venv", "node_modules", "__pycache__", "build", "dist"}
@@ -144,19 +146,7 @@ def _tracked_or_walked_py_files(target: Path) -> list[Path]:
     cleared violation. Falls back to a filesystem walk only when ``target``
     is not inside a git working tree (e.g. a synthetic test fixture).
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(target), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [target / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(target.rglob("*.py"))
+    return tracked_or_walked(target, "*.py", root=ROOT)
 
 # The justified-convention marker: a "noqa: BLE001"-style comment followed by
 # a non-empty reason after a -/—/: separator. A bare marker with NO reason is

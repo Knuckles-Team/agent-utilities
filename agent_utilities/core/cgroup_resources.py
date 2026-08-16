@@ -69,7 +69,7 @@ def cgroup_cpu_limit_cores() -> float | None:
                 if period > 0 and quota > 0:
                     return quota / period
                 return None
-    except (FileNotFoundError, NotADirectoryError, ValueError, OSError):
+    except (FileNotFoundError, NotADirectoryError, ValueError, OSError):  # noqa: BLE001 — v2 unreadable/malformed, fall through to the v1 read
         pass
 
     try:
@@ -79,7 +79,7 @@ def cgroup_cpu_limit_cores() -> float | None:
             period = int(fh.read().strip())
         if quota > 0 and period > 0:
             return quota / period
-    except (FileNotFoundError, NotADirectoryError, ValueError, OSError):
+    except (FileNotFoundError, NotADirectoryError, ValueError, OSError):  # noqa: BLE001 — neither cgroup version present/readable (bare-metal/non-Linux); caller falls back to the host view
         pass
 
     return None
@@ -95,7 +95,7 @@ def cgroup_memory_limit_bytes() -> int | None:
             if value > 0:
                 return value
             return None
-    except (FileNotFoundError, NotADirectoryError, ValueError, OSError):
+    except (FileNotFoundError, NotADirectoryError, ValueError, OSError):  # noqa: BLE001 — v2 unreadable/malformed, fall through to the v1 read
         pass
 
     try:
@@ -103,7 +103,7 @@ def cgroup_memory_limit_bytes() -> int | None:
             value = int(fh.read().strip())
         if 0 < value < _V1_UNLIMITED_FLOOR:
             return value
-    except (FileNotFoundError, NotADirectoryError, ValueError, OSError):
+    except (FileNotFoundError, NotADirectoryError, ValueError, OSError):  # noqa: BLE001 — neither cgroup version present/readable (bare-metal/non-Linux); caller falls back to the host view
         pass
 
     return None

@@ -115,7 +115,7 @@ def start_daemon_metrics_listener() -> bool:
                 "extra (prometheus-client) is not installed (%s). "
                 "SCHEDULED_JOB_*/LANE_*/KG_INGEST_*/DISPATCH_* series recorded "
                 "by this process will not be scrapeable until it is.",
-                type(exc).__name__,
+                exc,
             )
             return False
         host = str(setting("KG_DAEMON_METRICS_HOST", "0.0.0.0") or "0.0.0.0")
@@ -131,7 +131,7 @@ def start_daemon_metrics_listener() -> bool:
                 "is resolved.",
                 redact_for_log(host),
                 port,
-                type(exc).__name__,
+                exc,
             )
             return False
         _metrics_started = True

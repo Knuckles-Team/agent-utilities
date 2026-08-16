@@ -989,6 +989,7 @@
     "agent_utilities/security/ard_signing.py\tsigning_available\t0",
     "agent_utilities/security/brain_context.py\tuse_source\t0",
     "agent_utilities/security/browser_auth.py\tBaseBrowserAuthManager.resolve_credentials\t0",
+    "agent_utilities/security/browser_auth.py\tBaseLoopbackCallbackHandler.log_message\t0",
     "agent_utilities/security/cli_secrets.py\tvalidate_runtime_secret_reference\t0",
     "agent_utilities/security/conformance/surface_inventory.py\tenumerate_query_dialect_surfaces\t0",
     "agent_utilities/security/conformance/surface_manifest.py\tlookup_query_dialect\t0",

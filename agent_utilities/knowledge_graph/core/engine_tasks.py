@@ -559,6 +559,47 @@ def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
     }.get(status, "unknown")
 
 
+def _record_workitem_claim_outcome(outcome: str) -> None:
+    """Publish one native WorkItem claim-poll outcome (U-66/U-92/BUG-171).
+
+    Module-level (not a :class:`TaskManagerMixin` method) on purpose: it
+    touches only the process-wide gateway metrics registry, never ``self``,
+    so every lightweight ``_claim_next_task`` test double across this
+    package's test suite (none of which subclass ``TaskManagerMixin``) calls
+    the SAME real ``_claim_next_task`` body without each needing to bind a
+    metrics-recording method it has no other reason to know about.
+
+    No-op-cheap: without ``prometheus_client`` the counter is a shared
+    no-op, same convention as :meth:`TaskManagerMixin._record_queue_telemetry`.
+    ``outcome`` is always exactly ``"claimed"`` or ``"empty"`` (bounded
+    cardinality); never a WorkItem id, job id, or path.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import WORKITEM_CLAIMS
+
+        WORKITEM_CLAIMS.labels(queue="ingest_task", outcome=outcome).inc()
+    except Exception:  # noqa: BLE001 — telemetry must never break the claim path
+        pass
+
+
+def _record_workitem_admission_deferral(task_type: str) -> None:
+    """Publish one reserved-worker AdmissionPolicy deferral (U-66/U-92/BUG-171).
+
+    Fires only for the general/unrestricted claim path's admission denial
+    (:meth:`TaskManagerMixin._claim_next_task`) — never for the
+    hydration-priority floor, which is never second-guessed by admission.
+    Module-level for the same reason as :func:`_record_workitem_claim_outcome`.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            WORKITEM_ADMISSION_DEFERRALS,
+        )
+
+        WORKITEM_ADMISSION_DEFERRALS.labels(task_type=task_type).inc()
+    except Exception:  # noqa: BLE001 — telemetry must never break the claim path
+        pass
+
+
 def _retryable_partial_materialization(error: BaseException) -> dict[str, Any] | None:
     """Return the engine's typed hydration signal, never a text lookalike.
 
@@ -1204,7 +1245,7 @@ class TaskManagerMixin(GraphEngineProtocol):
         See ``_ControlPlaneWorkItemEngine._control_session_scope`` (the
         typed-RPC sibling of this Cypher one) for the full rationale
         (including why the target is read dynamically from the control
-        backend rather than hardcoded); this is the SAME mechanism, applied
+        backend rather than baked into the code); this is the SAME mechanism, applied
         to every ``_control_cypher`` caller — including the direct
         ``self._control_cypher(...)`` call sites that never go through the
         ``_ControlPlaneWorkItemEngine`` adapter (e.g.
@@ -3722,10 +3763,10 @@ class TaskManagerMixin(GraphEngineProtocol):
             t.start()
 
         from agent_utilities.observability.gateway_metrics import (
-            WORK_ITEM_ACTIVE_WORKERS,
+            WORKITEM_ACTIVE_WORKERS,
         )
 
-        WORK_ITEM_ACTIVE_WORKERS.set(worker_count)
+        WORKITEM_ACTIVE_WORKERS.set(worker_count)
 
     def _ingest_work_item_index(self) -> dict[str, dict[str, Any]]:
         """Load ingestion WorkItems keyed by public job id in one graph read."""
@@ -4174,9 +4215,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                 lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
             )
         if claim is None:
+            _record_workitem_claim_outcome("empty")
             return None  # authoritative negative; no secondary scan/fallback
         if not _wi.mark_running(self._work_item_engine, claim["work_item_id"], claim):
             return None
+        _record_workitem_claim_outcome("claimed")
 
         job_id = str(
             claim.get("payload_ref")
@@ -4281,6 +4324,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         decision.reason,
                     )
                     self._defer_task_for_admission(job_id)
+                    _record_workitem_admission_deferral(tkind)
                     return None
             self._worker_registry().start(worker_id, lane, tkind)
         return job_id, meta
@@ -4345,9 +4389,9 @@ class TaskManagerMixin(GraphEngineProtocol):
                 poll_count += 1
 
                 from agent_utilities.observability.gateway_metrics import (
-                    WORK_ITEM_CLAIM_IN_FLIGHT,
-                    WORK_ITEM_CLAIM_LATENCY,
-                    WORK_ITEM_POLL_OUTCOMES,
+                    WORKITEM_CLAIM_IN_FLIGHT,
+                    WORKITEM_CLAIM_LATENCY,
+                    WORKITEM_CLAIMS,
                 )
 
                 # U-65/BUG-111: process-local NONBLOCKING claim/admission gate.
@@ -4363,22 +4407,30 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # never a wait). The gate is released the instant the claim
                 # decision is made, well before task execution starts, so it
                 # never throttles the actual work -- only the scan/lease/admit
-                # decision that precedes it.
+                # decision that precedes it. ``gate_skipped`` is recorded HERE
+                # (not inside ``_claim_next_task``) because it is the one
+                # outcome that never reaches that method at all -- "claimed"
+                # and "empty" are recorded once, at the deeper
+                # ``_claim_next_task``/``_record_workitem_claim_outcome`` seam,
+                # so this poll loop must not also record them or every claim
+                # would be double-counted.
                 if not self._claim_gate.acquire(blocking=False):
-                    WORK_ITEM_POLL_OUTCOMES.labels(outcome="gate_skipped").inc()
+                    WORKITEM_CLAIMS.labels(
+                        queue="ingest_task", outcome="gate_skipped"
+                    ).inc()
                     miss_streak += 1
                     time.sleep(_idle_backoff_seconds(miss_streak))
                     continue
-                WORK_ITEM_CLAIM_IN_FLIGHT.set(1)
+                WORKITEM_CLAIM_IN_FLIGHT.set(1)
                 try:
                     claim_started = time.monotonic()
                     claimed = self._claim_next_task(
                         worker_id=worker_id,
                         hydration_reserved=effective_hydration_reserved,
                     )
-                    WORK_ITEM_CLAIM_LATENCY.observe(time.monotonic() - claim_started)
+                    WORKITEM_CLAIM_LATENCY.observe(time.monotonic() - claim_started)
                 finally:
-                    WORK_ITEM_CLAIM_IN_FLIGHT.set(0)
+                    WORKITEM_CLAIM_IN_FLIGHT.set(0)
                     self._claim_gate.release()
                 if claimed:
                     job_id, meta = claimed
@@ -4389,7 +4441,6 @@ class TaskManagerMixin(GraphEngineProtocol):
                         is_codebase = task_type == "codebase"
 
                 if not job_id:
-                    WORK_ITEM_POLL_OUTCOMES.labels(outcome="idle").inc()
                     miss_streak += 1
                     # Idle backoff: bounded exponential + jitter
                     # (_idle_backoff_seconds), replacing the old fixed 2s that
@@ -4403,18 +4454,17 @@ class TaskManagerMixin(GraphEngineProtocol):
                     # a multi-minute ingest drains. (CONCEPT:AU-KG.compute.registered-edge-type)
                     from agent_utilities.core.background_throttle import get_throttle
                     from agent_utilities.observability.gateway_metrics import (
-                        WORK_ITEM_IDLE_BACKOFF_SECONDS,
+                        WORKITEM_IDLE_BACKOFF_SECONDS,
                     )
 
                     backoff = _idle_backoff_seconds(miss_streak)
                     if get_throttle().should_yield_background:
                         backoff = max(backoff, 15.0)
-                    WORK_ITEM_IDLE_BACKOFF_SECONDS.observe(backoff)
+                    WORKITEM_IDLE_BACKOFF_SECONDS.observe(backoff)
                     time.sleep(backoff)
                     continue
 
                 miss_streak = 0
-                WORK_ITEM_POLL_OUTCOMES.labels(outcome="claimed").inc()
 
                 if not target_path:
                     logger.error(f"Task {job_id} has no target in metadata, skipping.")
@@ -6244,10 +6294,13 @@ class TaskManagerMixin(GraphEngineProtocol):
         not a fixed 1s -- U-65/BUG-111: a fixed 1s retry across every denied
         worker synchronized the whole pool into a claim/defer thundering herd
         (2,278 claims + 344 defers observed in one 5-minute window).
+
+        Does not itself record ``WORKITEM_ADMISSION_DEFERRALS`` — its sole
+        caller, :meth:`_claim_next_task`, already records it (with the
+        ``task_type`` label this method has no access to) via
+        ``_record_workitem_admission_deferral`` immediately after invoking
+        this method; recording it here too would double-count every denial.
         """
-        from agent_utilities.observability.gateway_metrics import (
-            WORK_ITEM_ADMISSION_DEFERRALS,
-        )
         from agent_utilities.orchestration import work_item as _wi
 
         claim = self._active_work_item_claim(job_id)
@@ -6266,7 +6319,6 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
         finally:
             self._active_work_item_claim(job_id, pop=True)
-        WORK_ITEM_ADMISSION_DEFERRALS.inc()
         return bool(deferred)
 
     def aggregate_ingest_metrics(self, window_sec: int = 86400) -> dict[str, Any]:

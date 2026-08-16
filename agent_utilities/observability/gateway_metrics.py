@@ -79,6 +79,12 @@ __all__ = [
     "SEMANTIC_CACHE_STALENESS_SECONDS",
     "LANE_IN_FLIGHT",
     "LANE_QUEUE_DEPTH",
+    "WORKITEM_ACTIVE_WORKERS",
+    "WORKITEM_ADMISSION_DEFERRALS",
+    "WORKITEM_CLAIMS",
+    "WORKITEM_CLAIM_IN_FLIGHT",
+    "WORKITEM_CLAIM_LATENCY",
+    "WORKITEM_IDLE_BACKOFF_SECONDS",
     "MCP_CHILD_BREAKER_STATE",
     "MCP_CHILD_CALLS",
     "MCP_CHILD_PROCESS_RUNNING",
@@ -292,36 +298,54 @@ LANE_IN_FLIGHT = _gauge(
     "In-flight (currently claimed/running) KG tasks by functional lane.",
     ("lane",),
 )
-# WorkItem claim/admission contention observability (U-65/U-73/BUG-111): a live
-# 1.5-CPU/4-GiB pod ran 69 host-sized workers that produced 2,278 claim calls +
-# 344 admission-denied defers in a 5-minute window with no visibility into why.
-# These are sampled directly from the poll loop (agent_utilities.knowledge_graph
-# .core.engine_tasks.TaskManagerMixin._task_worker_loop), not a periodic
-# scheduler tick, so they reflect live contention rather than a point sample.
-WORK_ITEM_ACTIVE_WORKERS = _gauge(
-    "agent_utilities_work_item_active_workers",
+# U-65/U-66/U-73/U-92/BUG-111/BUG-171 — WorkItem claim/poll/admission-deferral
+# contention observability: every prior incident wave (U-70/U-73/U-90) had to
+# be diagnosed from ad hoc log-grepping ("2,278 claim calls/5 minutes, 344
+# defers/5 minutes") because none of it was a queryable series. ``queue`` is
+# bounded (the fixed set of native WorkItem queue names, e.g. "ingest_task");
+# ``task_type`` is bounded (the small fixed set of ingestion job kinds —
+# "document"/"codebase"/hydration types); ``outcome`` is exactly
+# "claimed"|"empty"|"gate_skipped" — no WorkItem id, job id, path, or graph
+# name is ever a label value (this module's cardinality-discipline
+# convention). ``gate_skipped`` (agent_utilities.knowledge_graph.core
+# .engine_tasks.TaskManagerMixin._task_worker_loop) is distinct from
+# "empty": it means a poll never reached the native claim_next call at all
+# because another worker thread already held the process-local
+# claim/admission gate, whereas "empty" means the native claim call ran and
+# genuinely found nothing to claim.
+WORKITEM_CLAIMS = _counter(
+    "agent_utilities_workitem_claims_total",
+    "Native WorkItem claim-poll attempts by queue and outcome "
+    "(claimed|empty|gate_skipped) — an 'empty' outcome is a normal idle "
+    "poll, not an error; 'gate_skipped' means the process-local claim/"
+    "admission gate was already held so no native claim call was even "
+    "attempted. A sustained empty/gate_skipped rate alongside nonzero queue "
+    "depth indicates a starved/misconfigured worker pool, not a healthy "
+    "idle queue.",
+    ("queue", "outcome"),
+)
+WORKITEM_ADMISSION_DEFERRALS = _counter(
+    "agent_utilities_workitem_admission_deferrals_total",
+    "Claims that succeeded natively but were released again by the "
+    "reserved-worker AdmissionPolicy (lane/heavy-type/coverage fairness) "
+    "before starting — the task remains claimable by a later poll.",
+    ("task_type",),
+)
+WORKITEM_ACTIVE_WORKERS = _gauge(
+    "agent_utilities_workitem_active_workers",
     "Ingest task workers started by this process (compute_ingest_worker_count()).",
 )
-WORK_ITEM_CLAIM_IN_FLIGHT = _gauge(
-    "agent_utilities_work_item_claim_in_flight",
+WORKITEM_CLAIM_IN_FLIGHT = _gauge(
+    "agent_utilities_workitem_claim_in_flight",
     "1 while a worker holds the process-local claim/admission gate, else 0.",
 )
-WORK_ITEM_POLL_OUTCOMES = _counter(
-    "agent_utilities_work_item_poll_outcomes_total",
-    "WorkItem poll results by outcome (claimed|idle|gate_skipped) -- bounded label set.",
-    ("outcome",),
-)
-WORK_ITEM_CLAIM_LATENCY = _histogram(
-    "agent_utilities_work_item_claim_latency_seconds",
+WORKITEM_CLAIM_LATENCY = _histogram(
+    "agent_utilities_workitem_claim_latency_seconds",
     "Wall time of one native claim_next + admission-decide round trip.",
 )
-WORK_ITEM_IDLE_BACKOFF_SECONDS = _histogram(
-    "agent_utilities_work_item_idle_backoff_seconds",
+WORKITEM_IDLE_BACKOFF_SECONDS = _histogram(
+    "agent_utilities_workitem_idle_backoff_seconds",
     "Sleep duration chosen by the idle-poll backoff (bounded exponential + jitter).",
-)
-WORK_ITEM_ADMISSION_DEFERRALS = _counter(
-    "agent_utilities_work_item_admission_deferrals_total",
-    "Claims released back to the queue because AdmissionPolicy denied them.",
 )
 # MCP multiplexer per-child resilience (CONCEPT:AU-ECO.mcp.profile-differences-from-client): one series per
 # aggregated child server (~50, bounded by mcp_config.json). The multiplexer

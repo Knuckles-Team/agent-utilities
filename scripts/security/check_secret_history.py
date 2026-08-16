@@ -92,6 +92,7 @@ import math
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -129,6 +130,36 @@ CREDENTIAL_PATTERNS: dict[str, re.Pattern[str]] = {
     "generic_secret_assignment": re.compile(
         r"(?i)\b(?:password|passwd|pwd|secret|api[_-]?key|token)\s*[:=]\s*"
         r"['\"][^'\"\s]{6,}['\"]"
+    ),
+    # BUG-190 (BUG-LEDGER.md#BUG-190): this codebase's own graph-service engine
+    # credential is named `signer_key`/`EPISTEMIC_GRAPH_SIGNER_KEYS_JSON`
+    # (agent_utilities/knowledge_graph/core/graph_compute.py,
+    # agent_utilities/security/engine_rbac_admission.py) — neither name
+    # contains "password"/"secret"/"api_key"/"token", so `generic_secret_assignment`
+    # above never matches it. The real-world shape is also not a bare
+    # `name = "value"` assignment: it is a JSON *object* value
+    # (`EPISTEMIC_GRAPH_SIGNER_KEYS_JSON={"agent:x": "<key>"}`), so the quote
+    # never immediately follows `=`. This pattern matches the `signer_key`
+    # family of names followed, within a bounded window, by ANY quoted
+    # 16+-char token — direct assignment or JSON-blob-embedded — without
+    # requiring adjacency.
+    "engine_signer_credential_assignment": re.compile(
+        # Deliberately no leading `\b`: the real names are underscore-joined
+        # compounds (`EPISTEMIC_GRAPH_SIGNER_KEYS_JSON`) where `_` is itself a
+        # word character, so a leading `\b` would never match immediately
+        # after the preceding `_` and silently miss every real occurrence.
+        # The trailing `\b` still rejects an unrelated longer identifier like
+        # `signer_keystore`. The middle `.{0,120}?` (lazy, DOES allow quote
+        # characters) — not a `[^'\"]`-excluding class — because the real
+        # leak shape is a JSON *object* value
+        # (`={"agent:x": "<key>"}`), which has its own inner quoted JSON-key
+        # segment BEFORE the actual secret; excluding quotes there would stop
+        # at that inner pair and never reach the real value. Lazy matching
+        # still finds the FIRST quoted 16+-char token, skipping any shorter
+        # quoted segment (like a 7-char JSON key) that fails the length
+        # requirement.
+        r"(?i)signer_keys?(?:_json)?\b.{0,120}?"
+        r"['\"][A-Za-z0-9+/_.=-]{16,}['\"]"
     ),
     "db_url_with_password": re.compile(
         r"(?i)\b(?:postgres|postgresql|mysql|mongodb|redis)://[^\s'\"/@]+:[^\s'\"/@]+@"
@@ -238,6 +269,51 @@ def scan_credentials(patch_lines: list[str]) -> list[dict]:
                 }
             )
     return hits
+
+
+def _text_lines_as_patch(lines: list[str], label: str) -> list[str]:
+    """Wrap plain ``lines`` (no diff/commit structure) as a synthetic one-file,
+    one-commit "patch" — every line marked "added" (prefixed ``+``) — so
+    :func:`scan_credentials`/:func:`scan_entropy` can scan it WITHOUT any
+    git-diff assumption. Reuses the exact same regex/entropy machinery the
+    push-time gate uses instead of forking a second copy of it (BUG-190:
+    see :func:`scan_text_for_credentials`'s docstring for why this exists)."""
+
+    out = ["\x00COMMIT\x00" + label, f"+++ {label}"]
+    out.extend("+" + line for line in lines)
+    return out
+
+
+def scan_text_for_credentials(text: str, label: str = "<text>") -> list[dict]:
+    """Scan arbitrary PLAIN TEXT — an exported agent/operational session
+    transcript, a saved log file, a support bundle — for credential-shaped
+    content, using the identical :data:`CREDENTIAL_PATTERNS` table
+    :func:`scan_credentials` uses for a git patch.
+
+    BUG-006 / BUG-190 (BUG-LEDGER.md#BUG-006, #BUG-190): the graph-service
+    secret this gate exists because of leaked through a prior OPERATIONAL
+    TRANSCRIPT, not a git commit — a surface :func:`check` (which only ever
+    reads ``git log -p`` patch text) structurally cannot see, no matter how
+    complete its pattern table is. This function is the missing other half:
+    a reusable, dependency-free scan any transcript/log-archival step can run
+    BEFORE persisting a session record, and that a retroactive sweep of
+    already-saved transcripts can run to confirm no further copies of a
+    known-leaked shape survive. It does not persist, print, or return the raw
+    matched secret value beyond the same 160-char truncated ``context`` field
+    :func:`scan_credentials` already returns (matching this module's existing
+    "record what pattern fired, not a verbatim secret" discipline); a caller
+    that must not even log ``context`` (e.g. a pre-save hook that wants only a
+    boolean) should use ``bool(scan_text_for_credentials(text))`` and ignore
+    the returned detail.
+
+    Returns the same ``list[dict]`` shape as :func:`scan_credentials`
+    (``commit``/``file``/``pattern``/``context``), with ``commit`` fixed to
+    ``"text"`` and ``file`` fixed to ``label`` (there is no commit/file
+    structure in plain text) — callers already handling one shape handle
+    both.
+    """
+
+    return scan_credentials(_text_lines_as_patch(text.splitlines(), label))
 
 
 def scan_entropy(patch_lines: list[str]) -> list[dict]:
@@ -416,7 +492,10 @@ def _self_check() -> tuple[int, dict]:
             ["git", "branch", "-q", "origin-main-stand-in"], cwd=str(tmp), check=True
         )
 
-        # Known-bad: a real-shaped AWS key, a GitHub PAT, and a PEM block.
+        # Known-bad: a real-shaped AWS key, a GitHub PAT, a PEM block, and
+        # (BUG-190) an EPISTEMIC_GRAPH_SIGNER_KEYS_JSON-shaped line — this
+        # codebase's own graph-service engine credential naming, planted here
+        # not-a-real-key to prove `engine_signer_credential_assignment` fires.
         bad = (
             "AWS_ACCESS_KEY_ID = 'AKIAABCDEFGHIJKLMNOP'\n"  # sanitizer:ignore - synthetic self-check fixture written into a throwaway tmp git repo, not a real key
             "GITHUB_TOKEN = 'ghp_" + ("a" * 36) + "'\n"
@@ -425,6 +504,9 @@ def _self_check() -> tuple[int, dict]:
             # detect-private-key scanner, which has no sanitizer:ignore/marker
             # support at all -- same convention as the GITHUB_TOKEN line above.
             "-----BEGIN " + "RSA PRIVATE KEY" + "-----\n"
+            'EPISTEMIC_GRAPH_SIGNER_KEYS_JSON={"agent:x": "'
+            + ("f" * 32)
+            + '"}\n'  # sanitizer:ignore - synthetic self-check fixture, not a real signer key
         )
         (tmp / "leak.py").write_text(bad, encoding="utf-8")
         subprocess.run(["git", "add", "leak.py"], cwd=str(tmp), check=True)
@@ -433,7 +515,12 @@ def _self_check() -> tuple[int, dict]:
         )
 
         rc_bad, result_bad = check(tmp, base="origin-main-stand-in")
-        caught = rc_bad == 1 and len(result_bad.get("credentialHits", [])) >= 2
+        bad_patterns = {h["pattern"] for h in result_bad.get("credentialHits", [])}
+        caught = (
+            rc_bad == 1
+            and len(result_bad.get("credentialHits", [])) >= 3
+            and "engine_signer_credential_assignment" in bad_patterns
+        )
 
         # Known-good: same shapes, but marked as an intentional synthetic fixture.
         subprocess.run(
@@ -477,7 +564,8 @@ def _self_check() -> tuple[int, dict]:
             "# test baseline\n"
             "b/leak.py\taws_access_key_id\n"
             "b/leak.py\tgithub_pat_classic\n"
-            "b/leak.py\tprivate_key_block\n",
+            "b/leak.py\tprivate_key_block\n"
+            "b/leak.py\tengine_signer_credential_assignment\n",
             encoding="utf-8",
         )
         rc_baselined, result_baselined = check(
@@ -486,7 +574,7 @@ def _self_check() -> tuple[int, dict]:
         baseline_exempts = (
             rc_baselined == 0
             and not result_baselined.get("credentialHits")
-            and len(result_baselined.get("baselinedCredentialHits", [])) >= 2
+            and len(result_baselined.get("baselinedCredentialHits", [])) >= 3
         )
 
         # (b) A baseline entry naming a (file, pattern) that no longer appears in
@@ -503,7 +591,39 @@ def _self_check() -> tuple[int, dict]:
             in result_stale.get("staleBaselineEntries", [])
         )
 
-        ok = caught and exempted and baseline_exempts and stale_detected
+        # BUG-006/BUG-190: prove the OTHER half — scan_text_for_credentials
+        # catches the same credential shapes in PLAIN TEXT with no git/diff
+        # structure at all (an exported operational/agent session transcript
+        # is exactly this shape), and stays clean on ordinary transcript text
+        # that merely discusses secrets without containing one.
+        transcript_bad = (
+            "Session log:\n"
+            "$ cat .env\n"
+            'EPISTEMIC_GRAPH_SIGNER_KEYS_JSON={"agent:svc": "'
+            + ("e" * 32)
+            + '"}\n'
+            "Command completed.\n"
+        )
+        text_hits = scan_text_for_credentials(transcript_bad, label="fake-transcript.txt")
+        text_caught = (
+            len(text_hits) >= 1
+            and any(h["pattern"] == "engine_signer_credential_assignment" for h in text_hits)
+            and all(h["file"] == "fake-transcript.txt" for h in text_hits)
+        )
+        transcript_clean = (
+            "Session log:\nAgent rotated the signer_key for service:webui "
+            "successfully; no further action needed.\n"
+        )
+        text_clean = scan_text_for_credentials(transcript_clean, label="clean.txt") == []
+
+        ok = (
+            caught
+            and exempted
+            and baseline_exempts
+            and stale_detected
+            and text_caught
+            and text_clean
+        )
         return (0 if ok else 1), {
             "ok": ok,
             "selfCheck": True,
@@ -511,6 +631,8 @@ def _self_check() -> tuple[int, dict]:
             "honoredSanitizerMarker": exempted,
             "baselineRatchetExempts": baseline_exempts,
             "baselineRatchetDetectsStaleEntries": stale_detected,
+            "textModeCaughtPlantedCredential": text_caught,
+            "textModeCleanOnNonSecretMention": text_clean,
             "plantedRunDetail": result_bad,
             "exemptedRunDetail": result_good,
             "baselinedRunDetail": result_baselined,
@@ -534,9 +656,39 @@ def main() -> int:
         action="store_true",
         help="prove the gate catches a known-bad input",
     )
+    parser.add_argument(
+        "--text-file",
+        type=Path,
+        default=None,
+        help="BUG-006/BUG-190: scan an arbitrary plain-text file (an exported "
+        "operational/agent session transcript, a saved log) for "
+        "credential-shaped content, instead of a git commit range. Reads the "
+        "SAME CREDENTIAL_PATTERNS table via scan_text_for_credentials(); "
+        "pass '-' to read from stdin.",
+    )
     args = parser.parse_args()
 
-    if args.self_check:
+    if args.text_file is not None:
+        text = (
+            sys.stdin.read()
+            if str(args.text_file) == "-"
+            else args.text_file.read_text(encoding="utf-8", errors="replace")
+        )
+        hits = scan_text_for_credentials(text, label=str(args.text_file))
+        rc = 1 if hits else 0
+        result = {
+            "ok": not hits,
+            "textFile": str(args.text_file),
+            "credentialHits": hits,
+        }
+        if hits:
+            result["error"] = (
+                f"{len(hits)} credential-shaped pattern hit(s) in "
+                f"{args.text_file} — see credentialHits. This file must not "
+                "be persisted/shared until the flagged content is confirmed "
+                "non-sensitive or redacted."
+            )
+    elif args.self_check:
         rc, result = _self_check()
     else:
         repo_root = args.repository_root.resolve()

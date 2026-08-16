@@ -9,12 +9,13 @@ surface after its implementation is removed.
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from collections.abc import Iterable
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
 SCAN_ROOTS = (
     ROOT / "agent_utilities",
     ROOT / "scripts",
@@ -454,23 +455,7 @@ _SKIP_DIR_NAMES = frozenset(
 
 
 def _tracked_or_walked(scan_root: Path) -> list[Path]:
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(scan_root), "ls-files"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [scan_root / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return [
-        p
-        for p in scan_root.rglob("*")
-        if p.is_file() and not any(part in _SKIP_DIR_NAMES for part in p.parts)
-    ]
+    return tracked_or_walked(scan_root, root=ROOT)
 
 
 def _iter_files() -> list[Path]:

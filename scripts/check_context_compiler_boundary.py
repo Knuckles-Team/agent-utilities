@@ -4,11 +4,13 @@ from __future__ import annotations
 """Architecture gate for the mandatory ContextCompiler model boundary."""
 
 import ast
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
+
 PACKAGE = ROOT / "agent_utilities"
 SCAN_ROOTS = (PACKAGE, ROOT / "scripts", ROOT / "tests", ROOT / "examples")
 
@@ -21,19 +23,7 @@ def _tracked_or_walked_py_files(scan_root: Path) -> list[Path]:
     Falls back to a filesystem walk only when ``scan_root`` is not inside a
     git working tree (e.g. a synthetic test fixture).
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(scan_root), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [scan_root / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(scan_root.rglob("*.py"))
+    return tracked_or_walked(scan_root, "*.py", root=ROOT)
 CANONICAL_AGENT_BOUNDARY = "agent_utilities/core/contextual_model.py"
 RAW_PROVIDER_ALLOWLIST = {
     "agent_utilities/core/model_factory.py",
