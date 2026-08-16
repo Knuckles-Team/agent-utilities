@@ -148,22 +148,41 @@ def _git_paths(package: Path, *, all_files: bool) -> list[Path]:
     if all_files:
         commands = [
             [
-                "git", "-C", str(anchor),
-                "ls-files", "--cached", "--others", "--exclude-standard", "-z",
-                "--", *pathspec,
+                "git",
+                "-C",
+                str(anchor),
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                "--",
+                *pathspec,
             ]
         ]
     else:
         commands = [
             [
-                "git", "-C", str(anchor),
-                "diff", "--name-only", "-z", "--diff-filter=ACMR",
-                "--", *pathspec,
+                "git",
+                "-C",
+                str(anchor),
+                "diff",
+                "--name-only",
+                "-z",
+                "--diff-filter=ACMR",
+                "--",
+                *pathspec,
             ],
             [
-                "git", "-C", str(anchor),
-                "ls-files", "--others", "--exclude-standard", "-z",
-                "--", *pathspec,
+                "git",
+                "-C",
+                str(anchor),
+                "ls-files",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                "--",
+                *pathspec,
             ],
         ]
     paths: set[Path] = set()

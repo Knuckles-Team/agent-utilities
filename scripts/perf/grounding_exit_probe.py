@@ -1,6 +1,7 @@
 """What ACTUALLY opens the engine circuit breaker? Capture the real exception chain."""
 
-import asyncio, time, traceback
+import asyncio
+import time
 
 
 def chain(e):
@@ -16,8 +17,8 @@ def chain(e):
 
 
 async def main():
-    from agent_utilities.mcp.kg_server import _mint_process_session
     from agent_utilities.knowledge_graph.core.session import set_session
+    from agent_utilities.mcp.kg_server import _mint_process_session
     from agent_utilities.security.brain_context import set_actor
 
     s = await asyncio.to_thread(_mint_process_session, "auto")
@@ -54,8 +55,9 @@ async def main():
         print(f"  env {k}={os.environ.get(k, '(unset -> default)')}", flush=True)
 
     # Exercise the REAL bounded grounding path the NL planner uses
-    from agent_utilities.core import contextual_model as cm
     from pydantic_ai.messages import ModelRequest, UserPromptPart
+
+    from agent_utilities.core import contextual_model as cm
 
     msgs = [
         ModelRequest(

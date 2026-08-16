@@ -86,7 +86,9 @@ def _proxy() -> tuple[_FakeClient, object]:
     return client, wrap_client_with_breaker(client, breaker)
 
 
-def _verified_session(actor_id: str = "agent-42", tenant: str = "tenant-a") -> GraphSession:
+def _verified_session(
+    actor_id: str = "agent-42", tenant: str = "tenant-a"
+) -> GraphSession:
     return GraphSession(
         actor=ActorContext(
             actor_id=actor_id,
@@ -188,9 +190,7 @@ class TestWorkItemClaimedBatchUpdateIsAttributed:
         assert "lease:abc123" in record.message
         assert "work_item.execute" in record.message
         # No UNATTRIBUTED line should also fire for the same call.
-        assert not [
-            r for r in caplog.records if "UNATTRIBUTED" in r.message
-        ]
+        assert not [r for r in caplog.records if "UNATTRIBUTED" in r.message]
 
     def test_work_item_context_is_scoped_to_the_executor_call(self, caplog):
         """The binding must not leak past its ``with`` block."""
@@ -283,4 +283,6 @@ class TestAttributionIsScopedToBatchUpdate:
 
 def test_attributed_mutation_ops_is_scoped_not_global(monkeypatch):
     """Sanity check on the op allowlist itself, so a future op rename is caught."""
-    assert engine_breaker._ATTRIBUTED_MUTATION_OPS == frozenset({"lifecycle.batch_update"})
+    assert engine_breaker._ATTRIBUTED_MUTATION_OPS == frozenset(
+        {"lifecycle.batch_update"}
+    )

@@ -21,7 +21,6 @@ import ast
 import json
 import os
 import re
-import subprocess
 import sys
 import unicodedata
 from collections import defaultdict
@@ -33,6 +32,7 @@ import yaml
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from scripts._git_scan import tracked_or_walked  # noqa: E402
+
 DOCS = ROOT / "docs"
 MKDOCS = ROOT / "mkdocs.yml"
 DOC_CATALOG = DOCS / "reference" / "documentation-catalog.md"

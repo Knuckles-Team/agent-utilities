@@ -549,7 +549,7 @@ def _cas_or_raise_capability_gap(
             "authority for an already-claimed item (BUG-11x): the engine's "
             "native-authority guard refuses any generic CompareAndSetNodeFields "
             "on a claimed WorkItem row, and no native typed RPC yet exists for "
-            f"this update. See work_item.py::{capability}'s docstring / "
+            f"this field write. See work_item.py::{capability}'s docstring / "
             "BUG-LEDGER.md."
         ) from exc
 

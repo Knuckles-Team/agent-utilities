@@ -233,7 +233,9 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
                 await asyncio.sleep(0.2)
             raise RuntimeError(f"engine did not become ready: {last!r}")
 
-        async def _write_concurrent(graphs: list[str], n: int, expected_touched: int) -> int:
+        async def _write_concurrent(
+            graphs: list[str], n: int, expected_touched: int
+        ) -> int:
             # Snapshot BEFORE creating the per-graph tenants so a shard file that is
             # newly created by this phase counts as touched even if the filesystem
             # mtime granularity is too coarse to see the subsequent commit.

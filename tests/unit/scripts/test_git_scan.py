@@ -56,10 +56,18 @@ def _init_repo(root: Path) -> None:
     subprocess.run(["git", "init", "-q", str(root)], check=True)
     subprocess.run(
         [
-            "git", "-C", str(root),
-            "-c", "user.email=gate@example.invalid",
-            "-c", "user.name=gate",
-            "commit", "--allow-empty", "-q", "-m", "init",
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.email=gate@example.invalid",
+            "-c",
+            "user.name=gate",
+            "commit",
+            "--allow-empty",
+            "-q",
+            "-m",
+            "init",
         ],
         check=True,
     )
@@ -69,10 +77,17 @@ def _commit_all(root: Path) -> None:
     subprocess.run(["git", "-C", str(root), "add", "-A"], check=True)
     subprocess.run(
         [
-            "git", "-C", str(root),
-            "-c", "user.email=gate@example.invalid",
-            "-c", "user.name=gate",
-            "commit", "-q", "-m", "add files",
+            "git",
+            "-C",
+            str(root),
+            "-c",
+            "user.email=gate@example.invalid",
+            "-c",
+            "user.name=gate",
+            "commit",
+            "-q",
+            "-m",
+            "add files",
         ],
         check=True,
     )
@@ -91,9 +106,7 @@ def _fixture_repo(tmp_path: Path) -> Path:
     return root
 
 
-def test_ambient_env_reproduces_the_confirmed_git_quirk_directly(
-    tmp_path, monkeypatch
-):
+def test_ambient_env_reproduces_the_confirmed_git_quirk_directly(tmp_path, monkeypatch):
     """Ground truth: plain ``-C`` output is subdir-relative; under ambient
     GIT_DIR/GIT_INDEX_FILE the SAME command reverts to root-relative -- the
     exact defect this module exists to route around. If this stops
@@ -102,7 +115,9 @@ def test_ambient_env_reproduces_the_confirmed_git_quirk_directly(
     root = _fixture_repo(tmp_path)
     plain = subprocess.run(
         ["git", "-C", str(root / "pkg"), "ls-files", "--", "*.py"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.splitlines()
     assert plain == ["module.py"]
 
@@ -111,7 +126,9 @@ def test_ambient_env_reproduces_the_confirmed_git_quirk_directly(
     monkeypatch.setenv("GIT_INDEX_FILE", str(root / ".git" / "index"))
     ambient = subprocess.run(
         ["git", "-C", str(root / "pkg"), "ls-files", "--", "*.py"],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout.splitlines()
     # Under ambient GIT_DIR/GIT_INDEX_FILE, `-C`'s own directory scoping is
     # defeated too: it lists the WHOLE repo (root-relative), not just `pkg/`.

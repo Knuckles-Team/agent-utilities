@@ -16,7 +16,6 @@ from agent_utilities.deployment.config_generator import (
     unknown_configuration_keys,
 )
 
-
 # Split so this file talks ABOUT the retired key as test data without
 # literally spelling it (mirrors the same technique used by the retired-key
 # registry itself in agent_utilities/core/config.py and by

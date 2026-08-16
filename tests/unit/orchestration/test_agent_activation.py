@@ -23,7 +23,7 @@ from agent_utilities.security import delegation as _delegation
 
 # Reuse the canonical, faithful WorkItem + statechart doubles (native lease/fencing
 # semantics + a real eg-statechart reference interpreter).
-from tests.unit.orchestration.test_work_item import FakeStatechartClient, NativeEngine
+from tests.unit.orchestration.test_work_item import NativeEngine
 
 
 class ActivationEngine(NativeEngine):

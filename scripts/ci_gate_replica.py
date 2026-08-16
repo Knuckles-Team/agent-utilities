@@ -46,6 +46,7 @@ Usage:
   scripts/ci_gate_replica.py --consistency-check # only the anti-drift check
   scripts/ci_gate_replica.py --workflow PATH     # override the workflow file (testing)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -169,7 +170,10 @@ def load_workflow(path: Path) -> dict:
     with open(path, encoding="utf-8") as f:
         doc = yaml.safe_load(f)
     if not isinstance(doc, dict) or "jobs" not in doc:
-        print(f"FATAL: {path} did not parse into a workflow with a top-level 'jobs:' map", file=sys.stderr)
+        print(
+            f"FATAL: {path} did not parse into a workflow with a top-level 'jobs:' map",
+            file=sys.stderr,
+        )
         sys.exit(90)
     return doc
 
@@ -184,7 +188,10 @@ def classify_step(step: dict) -> tuple[str, str]:
         return "ENV_SETUP", uses
     if name in ARTIFACT_IO_ACTIONS:
         return "ARTIFACT_IO", uses
-    return "SKIP_LOUD", f"marketplace action '{uses}' has no local equivalent — not executed here"
+    return (
+        "SKIP_LOUD",
+        f"marketplace action '{uses}' has no local equivalent — not executed here",
+    )
 
 
 def build_plan(doc: dict) -> tuple[list[dict], list[str], list[str]]:
@@ -206,11 +213,25 @@ def build_plan(doc: dict) -> tuple[list[dict], list[str], list[str]]:
         if job_id in EXECUTABLE_JOBS:
             for step in steps:
                 mode, detail = classify_step(step)
-                plan.append({"job": job_id, "name": _step_label(step), "mode": mode, "detail": detail})
+                plan.append(
+                    {
+                        "job": job_id,
+                        "name": _step_label(step),
+                        "mode": mode,
+                        "detail": detail,
+                    }
+                )
         elif job_id in JOB_SKIP_REASONS:
             reason = JOB_SKIP_REASONS[job_id]
             for step in steps:
-                plan.append({"job": job_id, "name": _step_label(step), "mode": "SKIP_LOUD", "detail": reason})
+                plan.append(
+                    {
+                        "job": job_id,
+                        "name": _step_label(step),
+                        "mode": "SKIP_LOUD",
+                        "detail": reason,
+                    }
+                )
         else:
             unclassified.append(job_id)
 
@@ -225,14 +246,20 @@ def consistency_check(doc: dict, *, verbose: bool = True) -> bool:
     if unclassified:
         ok = False
         if verbose:
-            print("CONSISTENCY CHECK FAILED — release.yml has job(s) this replica does not classify:")
+            print(
+                "CONSISTENCY CHECK FAILED — release.yml has job(s) this replica does not classify:"
+            )
             for j in unclassified:
                 print(f"  - {j!r} is in neither EXECUTABLE_JOBS nor JOB_SKIP_REASONS")
-            print("Update scripts/ci_gate_replica.py's EXECUTABLE_JOBS/JOB_SKIP_REASONS to cover it.")
+            print(
+                "Update scripts/ci_gate_replica.py's EXECUTABLE_JOBS/JOB_SKIP_REASONS to cover it."
+            )
     if stale:
         ok = False
         if verbose:
-            print("CONSISTENCY CHECK FAILED — configured job(s) no longer exist in release.yml (stale config):")
+            print(
+                "CONSISTENCY CHECK FAILED — configured job(s) no longer exist in release.yml (stale config):"
+            )
             for j in stale:
                 print(f"  - {j!r}")
             print("Remove the stale entry from EXECUTABLE_JOBS/JOB_SKIP_REASONS.")
@@ -267,7 +294,9 @@ def _run_step(run_text: str, job_env: dict) -> tuple[object, float]:
     t0 = time.monotonic()
     status: object
     try:
-        proc = subprocess.run(["bash", "-c", cmd_text], cwd=REPO_ROOT, env=env, timeout=STEP_TIMEOUT_SECS)
+        proc = subprocess.run(
+            ["bash", "-c", cmd_text], cwd=REPO_ROOT, env=env, timeout=STEP_TIMEOUT_SECS
+        )
         status = proc.returncode
     except subprocess.TimeoutExpired:
         status = "TIMEOUT"
@@ -300,7 +329,7 @@ def _run_step(run_text: str, job_env: dict) -> tuple[object, float]:
 def _job_base_env(doc: dict, job_id: str) -> dict:
     env = dict(os.environ)
     env.update({k: str(v) for k, v in (doc.get("env") or {}).items()})
-    env.update({k: str(v) for k, v in ((doc["jobs"][job_id].get("env") or {})).items()})
+    env.update({k: str(v) for k, v in (doc["jobs"][job_id].get("env") or {}).items()})
     env.update(LOCAL_ENV_OVERRIDES)
     return env
 
@@ -324,10 +353,21 @@ def _local_hygiene() -> None:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--consistency-check", action="store_true", help="only run the anti-drift check")
-    ap.add_argument("--dry-run", action="store_true", help="print the execution plan; run nothing")
-    ap.add_argument("--workflow", type=Path, default=DEFAULT_WORKFLOW_PATH, help="override the workflow path (testing)")
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    ap.add_argument(
+        "--consistency-check", action="store_true", help="only run the anti-drift check"
+    )
+    ap.add_argument(
+        "--dry-run", action="store_true", help="print the execution plan; run nothing"
+    )
+    ap.add_argument(
+        "--workflow",
+        type=Path,
+        default=DEFAULT_WORKFLOW_PATH,
+        help="override the workflow path (testing)",
+    )
     args = ap.parse_args()
 
     doc = load_workflow(args.workflow)
@@ -337,8 +377,12 @@ def main() -> int:
         return 0 if ok else 1
 
     if not ok:
-        print("\nRefusing to run the gate: the consistency check above failed. This IS the")
-        print("anti-drift guard working as intended — fix the classification, don't bypass it.")
+        print(
+            "\nRefusing to run the gate: the consistency check above failed. This IS the"
+        )
+        print(
+            "anti-drift guard working as intended — fix the classification, don't bypass it."
+        )
         return 1
 
     plan, _, _ = build_plan(doc)
@@ -346,13 +390,24 @@ def main() -> int:
     if not args.dry_run:
         _local_hygiene()
 
-    job_envs = {job_id: _job_base_env(doc, job_id) for job_id in EXECUTABLE_JOBS if job_id in doc.get("jobs", {})}
+    job_envs = {
+        job_id: _job_base_env(doc, job_id)
+        for job_id in EXECUTABLE_JOBS
+        if job_id in doc.get("jobs", {})
+    }
 
-    print(f"=== ci_gate_replica.py START {datetime.datetime.now(datetime.timezone.utc).isoformat()} nproc={os.cpu_count()} ===")
+    print(
+        f"=== ci_gate_replica.py START {datetime.datetime.now(datetime.UTC).isoformat()} nproc={os.cpu_count()} ==="
+    )
 
     results: list[tuple[str, str, object, float]] = []
     for item in plan:
-        job_id, name, mode, detail = item["job"], item["name"], item["mode"], item["detail"]
+        job_id, name, mode, detail = (
+            item["job"],
+            item["name"],
+            item["mode"],
+            item["detail"],
+        )
         if mode == "RUN":
             if args.dry_run:
                 print(f"[DRY-RUN] would RUN [{job_id}] {name}")
@@ -360,26 +415,34 @@ def main() -> int:
                 continue
             print(f"\n############### STEP [{job_id}] {name} ###############")
             status, elapsed = _run_step(detail, job_envs[job_id])
-            print(f"### STEP_RESULT job={job_id} name={name!r} exit={status} secs={elapsed:.1f}")
+            print(
+                f"### STEP_RESULT job={job_id} name={name!r} exit={status} secs={elapsed:.1f}"
+            )
             results.append((job_id, name, status, elapsed))
         elif mode == "ENV_SETUP":
             results.append((job_id, name, "ENV_SETUP", 0.0))
         elif mode == "ARTIFACT_IO":
             results.append((job_id, name, "ARTIFACT_IO", 0.0))
         else:
-            print(f"\n### NOT VALIDATED LOCALLY [{job_id}] {name}\n    reason: {detail}")
+            print(
+                f"\n### NOT VALIDATED LOCALLY [{job_id}] {name}\n    reason: {detail}"
+            )
             results.append((job_id, name, "NOT_VALIDATED_LOCALLY", 0.0))
 
     print("\n################ SUMMARY ################")
     fail = False
     for job_id, name, status, elapsed in results:
-        print(f"{job_id:22s} {name[:64]:64s} status={str(status):22s} secs={elapsed:8.1f}")
+        print(
+            f"{job_id:22s} {name[:64]:64s} status={str(status):22s} secs={elapsed:8.1f}"
+        )
         if isinstance(status, str) and status not in NON_BLOCKING_STATUSES:
             fail = True
         elif isinstance(status, int) and status != 0:
             fail = True
     print(f"OVERALL_FAIL={'1' if fail else '0'}")
-    print(f"=== SENTINEL_COMPLETE {datetime.datetime.now(datetime.timezone.utc).isoformat()} ===")
+    print(
+        f"=== SENTINEL_COMPLETE {datetime.datetime.now(datetime.UTC).isoformat()} ==="
+    )
     return 1 if fail else 0
 
 

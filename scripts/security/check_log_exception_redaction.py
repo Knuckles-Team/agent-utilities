@@ -459,7 +459,7 @@ def _find_violations(rel: str, tree: ast.Module) -> list[Violation]:
         #: ``check_cypher_write_subset.py`` uses (D-F6-2), reused rather
         #: than inventing a second scheme.
         content_hash = hashlib.sha256(
-            f"{logger_name}\x00{snippet}".encode("utf-8")
+            f"{logger_name}\x00{snippet}".encode()
         ).hexdigest()[:16]
         violations.append(
             Violation(rel, lineno, logger_name, snippet, symbol, content_hash)

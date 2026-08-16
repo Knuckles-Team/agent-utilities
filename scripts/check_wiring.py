@@ -202,6 +202,7 @@ def _tracked_or_walked(root: Path, pattern: str) -> list[Path]:
         pass
     return sorted(root.rglob(pattern))
 
+
 # Method names common enough (as ordinary verbs on many unrelated classes)
 # that a global word-boundary usage count is too noisy to trust at the
 # method level. The class-level check still covers these classes.
@@ -592,7 +593,9 @@ def find_silent_import_guards(
 
 
 def _iter_agent_utilities_files(src_dir: Path = SRC_DIR) -> list[Path]:
-    return [p for p in _tracked_or_walked(src_dir, "*.py") if "__pycache__" not in p.parts]
+    return [
+        p for p in _tracked_or_walked(src_dir, "*.py") if "__pycache__" not in p.parts
+    ]
 
 
 def _public_top_level_defs(tree: ast.Module) -> list[tuple[str, str, int]]:

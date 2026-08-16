@@ -151,7 +151,9 @@ def _resource_request_payload(*, profile_version: str = "1") -> dict[str, Any]:
     }
 
 
-def test_resource_projection_rejects_noncanonical_profile_version_and_duplicate_labels() -> None:
+def test_resource_projection_rejects_noncanonical_profile_version_and_duplicate_labels() -> (
+    None
+):
     with pytest.raises(ValidationError, match="profile_version"):
         ResourceReservationRequest.model_validate(
             _resource_request_payload(profile_version="01")

@@ -148,6 +148,7 @@ def _tracked_or_walked_py_files(target: Path) -> list[Path]:
     """
     return tracked_or_walked(target, "*.py", root=ROOT)
 
+
 # The justified-convention marker: a "noqa: BLE001"-style comment followed by
 # a non-empty reason after a -/—/: separator. A bare marker with NO reason is
 # deliberately NOT accepted — the convention this codebase established is
@@ -295,7 +296,7 @@ def _shape(
 
 def _iter_except_handlers_with_scope(
     node: ast.AST, scope_stack: tuple[str, ...] = ()
-) -> "list[tuple[ast.ExceptHandler, str]]":
+) -> list[tuple[ast.ExceptHandler, str]]:
     """Yields (handler, enclosing qualname) for every ``ExceptHandler`` under
     ``node``, e.g. ``"ClientFactory.create"`` or ``"<module>"``.
 

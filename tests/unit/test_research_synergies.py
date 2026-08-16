@@ -16,6 +16,7 @@ from agent_utilities.knowledge_graph.retrieval.latent_topology_rag import (
     LatentTopologicalRAG,
 )
 from agent_utilities.knowledge_graph.retrieval.single_shot_sira import SingleShotSIRA
+
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 

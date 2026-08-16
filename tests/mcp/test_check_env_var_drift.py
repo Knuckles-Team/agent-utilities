@@ -312,9 +312,7 @@ def test_scripts_read_suppresses_dead(tmp_path: Path) -> None:
         env_example="DEMO_BASE_URL=http://x\nFALKORDB_URI=\n",
         mcp_config={
             "mcpServers": {
-                "demo": {
-                    "env": {"DEMO_BASE_URL": "x", "MCP_TOOL_MODE": "condensed"}
-                }
+                "demo": {"env": {"DEMO_BASE_URL": "x", "MCP_TOOL_MODE": "condensed"}}
             }
         },
         code='from agent_utilities.core.config import setting\nsetting("DEMO_BASE_URL", "")\n',
@@ -456,7 +454,7 @@ def test_compose_command_and_entrypoint_substitution_suppresses_dead(
     (root / "docker" / "mcp.compose.yml").write_text(
         "services:\n"
         "  demo:\n"
-        "    entrypoint: [\"${DEMO_ENTRY}\"]\n"
+        '    entrypoint: ["${DEMO_ENTRY}"]\n'
         "    command:\n"
         '      - "--flag=${DEMO_FLAG:-default}"\n'
         '      - "--static"\n'
@@ -536,9 +534,7 @@ def test_known_bad_dead_var_still_caught_after_widening(tmp_path: Path) -> None:
     )
     (root / "docker").mkdir()
     (root / "docker" / "mcp.compose.yml").write_text(
-        "services:\n"
-        "  demo:\n"
-        "    image: ${DEMO_MCP_IMAGE:?set-image}\n",
+        "services:\n  demo:\n    image: ${DEMO_MCP_IMAGE:?set-image}\n",
         encoding="utf-8",
     )
     report = drift.analyze(root)
@@ -568,9 +564,7 @@ def test_known_bad_undocumented_var_still_caught_after_widening(tmp_path: Path) 
     )
     (root / "docker").mkdir()
     (root / "docker" / "mcp.compose.yml").write_text(
-        "services:\n"
-        "  demo:\n"
-        "    image: ${DEMO_MCP_IMAGE:?set-image}\n",
+        "services:\n  demo:\n    image: ${DEMO_MCP_IMAGE:?set-image}\n",
         encoding="utf-8",
     )
     report = drift.analyze(root)

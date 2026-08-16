@@ -72,13 +72,13 @@ scan. Recorded as D-W15-6 in ``reports/deferred/waves1-5-gate.md``.
 from __future__ import annotations
 
 import ast
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from scripts._git_scan import tracked_or_walked  # noqa: E402
+
 PKG = ROOT / "agent_utilities"
 
 
@@ -91,6 +91,8 @@ def _tracked_or_walked_py_files(target: Path) -> list[Path]:
     is not inside a git working tree (e.g. a synthetic test fixture).
     """
     return tracked_or_walked(target, "*.py", root=ROOT)
+
+
 BASELINE = ROOT / "scripts" / "event_loop_blocking_baseline.txt"
 
 # Hop helpers: passing the blocking callable as a bare reference to one of these is

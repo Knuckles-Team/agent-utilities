@@ -13,8 +13,6 @@ import subprocess
 
 import pytest
 
-from tests.unit.fleet_autonomy_fakes import FakeEngine
-
 from agent_utilities.knowledge_graph.research import code_synthesis
 from agent_utilities.knowledge_graph.research.change_publisher import (
     LocalBranchPublisher,
@@ -28,6 +26,7 @@ from agent_utilities.knowledge_graph.research.code_synthesis import (
     resolve_target_file,
     synthesize_code,
 )
+from tests.unit.fleet_autonomy_fakes import FakeEngine
 
 pytestmark = pytest.mark.concept("AU-AHE.harness.single-file-code-synthesis")
 

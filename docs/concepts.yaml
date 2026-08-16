@@ -9050,6 +9050,13 @@ concepts:
   code_paths:
   - agent_utilities/deployment/venv_autosync.py
   doc: AU-OS.deployment.merge-triggered-venv-flip
+- id: AU-OS.deployment.mutable-image-refs
+  name: was invisible and
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/mcp/check_env_var_drift.py
+  doc: was invisible and
 - id: AU-OS.deployment.report-resolved-mode
   name: report the RESOLVED mode
   pillar: AU-OS
@@ -10218,13 +10225,6 @@ concepts:
   - agent_utilities/runtime/warm_registry.py
   - agent_utilities/server/routers/commands.py
   doc: Unified scheduling engine, one intelligent scheduler for all recurring work
-- id: AU-OS.supply-chain.mutable-image-refs
-  name: was invisible and
-  pillar: AU-OS
-  status: live
-  code_paths:
-  - agent_utilities/mcp/check_env_var_drift.py
-  doc: was invisible and
 - id: EG-AHE.harness.online-exploit-explore-reference
   name: one online exploit/explore bandit router per agent
   pillar: EG-AHE

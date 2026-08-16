@@ -52,11 +52,10 @@ ANTIGRAVITY_MCP_CONFIG = Path(
 def _create_engine():
     """Create a minimal IntelligenceGraphEngine for testing."""
     os.environ["AGENT_UTILITIES_TESTING"] = "true"
-    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
-
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         EpistemicGraphBackend,
     )
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     compute = GraphComputeEngine(backend_type="rust")
     # Bind both the NX-style ``.graph`` facade AND ``.backend``'s Cypher path to

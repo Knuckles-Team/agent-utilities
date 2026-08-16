@@ -253,7 +253,9 @@ def _tracked_or_walked_files(root: Path, *patterns: str) -> list[Path]:
         rel = root.relative_to(ROOT)
         anchor = ROOT
         prefix = "" if str(rel) == "." else f"{rel.as_posix()}/"
-        pathspecs = [f"{prefix}{p}" for p in patterns] or [f"{prefix}." if prefix else "."]
+        pathspecs = [f"{prefix}{p}" for p in patterns] or [
+            f"{prefix}." if prefix else "."
+        ]
     except ValueError:
         # `root` is not under this repo's ROOT (e.g. a synthetic test
         # fixture) -- preserve the prior `-C root` behavior.

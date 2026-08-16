@@ -24,6 +24,8 @@ def _tracked_or_walked_py_files(scan_root: Path) -> list[Path]:
     git working tree (e.g. a synthetic test fixture).
     """
     return tracked_or_walked(scan_root, "*.py", root=ROOT)
+
+
 CANONICAL_AGENT_BOUNDARY = "agent_utilities/core/contextual_model.py"
 RAW_PROVIDER_ALLOWLIST = {
     "agent_utilities/core/model_factory.py",

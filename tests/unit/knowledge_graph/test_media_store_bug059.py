@@ -206,7 +206,9 @@ def test_migrate_legacy_asset_stamps_governed_ownership():
     }
     store = MediaStore(_FakeCompute(client))
 
-    res = store.migrate_legacy_asset(legacy_id, session=_auth_session("acme", "user:bob"))
+    res = store.migrate_legacy_asset(
+        legacy_id, session=_auth_session("acme", "user:bob")
+    )
 
     assert res is not None
     props = client.txn.nodes[res.occurrence_id]

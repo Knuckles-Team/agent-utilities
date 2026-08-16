@@ -25,6 +25,7 @@ def _tracked_or_walked_py_files(package: Path) -> list[Path]:
     """
     return tracked_or_walked(package, "*.py", root=ROOT)
 
+
 # Files whose direct construction of a blocked HTTP client is intentional and
 # justified inline at the call site, not just here (mirrors
 # ``check_context_compiler_boundary.py``'s ``RAW_PROVIDER_ALLOWLIST`` idiom).

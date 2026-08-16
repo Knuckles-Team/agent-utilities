@@ -208,7 +208,9 @@ def test_resolve_routing_graph_explicit_non_default_name_honored_verbatim():
     keeps working post-fix. PASSED both pre- and post-fix."""
     cfg = _FakeConfig()
     with use_actor(ActorContext(actor_id="u", tenant_id="acme")):
-        assert resolve_routing_graph("code_agent_utilities", cfg) == "code_agent_utilities"
+        assert (
+            resolve_routing_graph("code_agent_utilities", cfg) == "code_agent_utilities"
+        )
 
 
 def test_resolve_routing_graph_control_graph_behaviour_unchanged():

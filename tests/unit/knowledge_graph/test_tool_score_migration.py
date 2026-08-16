@@ -6,7 +6,6 @@ from __future__ import annotations
 (agent_utilities/knowledge_graph/core/tool_score_migration.py).
 """
 
-import pytest
 
 from agent_utilities.knowledge_graph.core.tool_score_migration import (
     plan_tool_relevance_resync,

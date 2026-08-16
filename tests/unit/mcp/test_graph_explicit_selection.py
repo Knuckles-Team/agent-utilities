@@ -468,7 +468,10 @@ async def test_unauthenticated_style_session_same_explicitness_and_fail_closed()
         assert _query_error_code(unknown) == "graph_not_found"
 
         conflict = await kg_server._execute_tool(
-            "graph_query", cypher="MATCH (n) RETURN n", connection="all", graph="graph-a"
+            "graph_query",
+            cypher="MATCH (n) RETURN n",
+            connection="all",
+            graph="graph-a",
         )
         assert _query_error_code(conflict) == "graph_selection_conflict"
 

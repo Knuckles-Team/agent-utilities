@@ -58,9 +58,7 @@ def _create_engine():
     # ``__secrets__`` are), so it is never auto-created for a hand-built
     # engine like this one; ensure it here, once, the same idempotent way.
     try:
-        compute._client.tenants.create(
-            engine.control_backend.graph_name, "Agent"
-        )
+        compute._client.tenants.create(engine.control_backend.graph_name, "Agent")
     except Exception:  # noqa: BLE001 — already exists (a prior test's engine
         # created it first) is the expected steady state; anything else
         # surfaces the next time the control graph is actually used.

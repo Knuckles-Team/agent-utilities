@@ -242,7 +242,7 @@ class _FakeEngine:
         self.graph_compute = _EmptyGraphCompute()
         self.graph = self.graph_compute
 
-    def for_graph(self, _graph_name: str) -> "_FakeEngine":
+    def for_graph(self, _graph_name: str) -> _FakeEngine:
         """Never narrows to a distinct object -- these tests are about ACL
         hydration SOURCE (backend vs. compute scratchpad), not multi-graph
         routing, so a for_graph() call (if the narrowing branch is ever
@@ -464,13 +464,13 @@ class _MultiGraphFakeEngine:
         graph_name: str,
         backend: _FakeBackendReader,
         *,
-        views: dict[str, "_MultiGraphFakeEngine"] | None = None,
+        views: dict[str, _MultiGraphFakeEngine] | None = None,
     ) -> None:
         self.backend = backend
         self.graph_compute = _NamedGraphCompute(graph_name)
         self._views = views or {}
 
-    def for_graph(self, graph_name: str) -> "_MultiGraphFakeEngine":
+    def for_graph(self, graph_name: str) -> _MultiGraphFakeEngine:
         if graph_name == self.graph_compute.graph_name:
             return self
         view = self._views.get(graph_name)
@@ -479,7 +479,7 @@ class _MultiGraphFakeEngine:
         return view
 
 
-def _graph_session(actor: ActorContext, graph: str) -> "GraphSession":
+def _graph_session(actor: ActorContext, graph: str) -> GraphSession:
     from agent_utilities.knowledge_graph.core.session import GraphSession
 
     return GraphSession(
@@ -638,6 +638,8 @@ def test_durable_access_rows_unknown_graph_and_hydration_failure_both_deny_close
     # unknown graph and a real authorization rejection cannot be told apart
     # from the outside, which is the point (never leak "does this graph
     # exist" as a side channel).
-    assert str(unknown_exc.value) == str(denied_exc.value) == (
-        "Node permission evaluation failed"
+    assert (
+        str(unknown_exc.value)
+        == str(denied_exc.value)
+        == ("Node permission evaluation failed")
     )

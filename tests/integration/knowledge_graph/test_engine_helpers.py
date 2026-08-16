@@ -385,7 +385,9 @@ class TestMCPServerCatalog:
     ):
         """A server's tool_count reflects its outgoing SERVES edges."""
         engine._upsert_node(
-            "MCPServer", "mcp_server_gitlab-mcp", {"name": "gitlab-mcp", "disabled": False}
+            "MCPServer",
+            "mcp_server_gitlab-mcp",
+            {"name": "gitlab-mcp", "disabled": False},
         )
         engine._upsert_node(
             "Tool",

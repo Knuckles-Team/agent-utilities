@@ -19,7 +19,6 @@ from agent_utilities.orchestration.loop_guards import (
     window_is_stalled,
 )
 
-
 # ── exit 7: ConsecutiveFailureGuard (engine-breaker threshold + reset) ──────────
 
 
