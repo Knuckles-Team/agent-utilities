@@ -387,3 +387,215 @@ def test_contradiction_detector_silent_on_single_or_no_claims():
     ans = _code_context_answer(answer="Only one sentence here.")
     b = EvidenceBundle.from_code_context_answer(ans)
     assert b.contradictions == []
+
+
+# ---------------------------------------------------------------------------
+# U-124 / U-131 — contradiction detection is opt-in, not generic-row-wide
+# ---------------------------------------------------------------------------
+#
+# Regression coverage for the defect where EVERY query row (not just explicit
+# assertions) was scanned for contradictions: sibling metadata rows differing
+# only in ordinary values (path/size/hash/...) were falsely reported as
+# high-severity FRICTION at ~0.81-0.91 similarity, because the synthesized
+# claim text fell back to a generic templated repr of the row's own
+# id/kind/score/confidence/time/evidence fields — never real assertion
+# content or declared contradiction semantics.
+
+
+def _artifact_rows() -> list[dict]:
+    """Three sibling `SourceArtifact`-shaped rows: same schema, different values."""
+    return [
+        {
+            "id": "artifact:1",
+            "kind": "SourceArtifact",
+            "path": "/repo/a.py",
+            "size": 1234,
+            "hash": "aaa111",
+        },
+        {
+            "id": "artifact:2",
+            "kind": "SourceArtifact",
+            "path": "/repo/b.py",
+            "size": 5678,
+            "hash": "bbb222",
+        },
+        {
+            "id": "artifact:3",
+            "kind": "SourceArtifact",
+            "path": "/repo/c.py",
+            "size": 9012,
+            "hash": "ccc333",
+        },
+    ]
+
+
+def test_sibling_metadata_rows_with_different_values_are_not_contradictions():
+    rows = _artifact_rows()
+    b = EvidenceBundle.from_payload({"rows": rows})
+    assert len(b.claims) == 3  # every source row is retained regardless
+    assert b.contradictions == []
+
+
+def test_repeated_identical_structured_rows_are_not_contradictions():
+    row = {
+        "id": "e1",
+        "comparison_key": "primary_region",
+        "comparison_mode": "exclusive",
+        "comparison_value": "us-east-1",
+    }
+    other = dict(row, id="e2")
+    b = EvidenceBundle.from_payload({"rows": [row, other]})
+    assert len(b.claims) == 2
+    assert b.contradictions == []
+
+
+def test_unrelated_prose_assertions_are_not_contradictions():
+    rows = [
+        {"id": "n1", "semantic_role": "assertion", "text": "The sky is blue today."},
+        {
+            "id": "n2",
+            "semantic_role": "assertion",
+            "text": "Bananas are a yellow fruit.",
+        },
+    ]
+    b = EvidenceBundle.from_payload({"rows": rows})
+    assert len(b.claims) == 2
+    assert b.contradictions == []
+
+
+def test_explicit_opposing_assertions_yield_exactly_one_finding():
+    rows = [
+        {
+            "id": "c1",
+            "semantic_role": "assertion",
+            "text": "The cache increases lookup latency for cold reads.",
+        },
+        {
+            "id": "c2",
+            "semantic_role": "assertion",
+            "text": "The cache decreases lookup latency for cold reads.",
+        },
+    ]
+    b = EvidenceBundle.from_payload({"rows": rows})
+    assert len(b.claims) == 2
+    assert len(b.contradictions) == 1
+    finding = b.contradictions[0]
+    assert {finding["new_id"], finding["conflict_id"]} == {"c1", "c2"}
+    assert finding["comparison_rule"] == "natural_language_opposition"
+
+
+def test_exclusive_structured_values_under_one_key_yield_exactly_one_finding():
+    rows = [
+        {
+            "id": "e1",
+            "comparison_key": "primary_region",
+            "comparison_mode": "exclusive",
+            "comparison_value": "us-east-1",
+        },
+        {
+            "id": "e2",
+            "comparison_key": "primary_region",
+            "comparison_mode": "exclusive",
+            "comparison_value": "us-west-2",
+        },
+    ]
+    b = EvidenceBundle.from_payload({"rows": rows})
+    assert len(b.claims) == 2
+    assert len(b.contradictions) == 1
+    finding = b.contradictions[0]
+    assert {finding["new_id"], finding["conflict_id"]} == {"e1", "e2"}
+    assert finding["comparison_rule"] == "structured_mutual_exclusivity"
+    assert finding["comparison_key"] == "primary_region"
+
+
+def test_polarity_conflict_yields_one_finding():
+    rows = [
+        {
+            "id": "p1",
+            "semantic_role": "assertion",
+            "text": "The migration is healthy.",
+        },
+        {
+            "id": "p2",
+            "semantic_role": "assertion",
+            "text": "The migration is not healthy.",
+        },
+    ]
+    b = EvidenceBundle.from_payload({"rows": rows})
+    assert len(b.claims) == 2
+    assert len(b.contradictions) == 1
+    finding = b.contradictions[0]
+    assert {finding["new_id"], finding["conflict_id"]} == {"p1", "p2"}
+
+
+def test_missing_comparison_key_yields_zero_contradictions():
+    rows = [
+        {"id": "m1", "comparison_mode": "exclusive", "comparison_value": "a"},
+        {"id": "m2", "comparison_mode": "exclusive", "comparison_value": "b"},
+    ]
+    b = EvidenceBundle.from_payload({"rows": rows})
+    assert len(b.claims) == 2
+    assert b.contradictions == []
+
+
+def test_mixed_eligible_and_ineligible_claims_only_eligible_participate():
+    rows = _artifact_rows()[:2] + [
+        {
+            "id": "e1",
+            "comparison_key": "primary_region",
+            "comparison_mode": "exclusive",
+            "comparison_value": "us-east-1",
+        },
+        {
+            "id": "e2",
+            "comparison_key": "primary_region",
+            "comparison_mode": "exclusive",
+            "comparison_value": "us-west-2",
+        },
+    ]
+    b = EvidenceBundle.from_payload({"rows": rows})
+    assert len(b.claims) == 4  # every row retained, ineligible or not
+    assert len(b.contradictions) == 1
+    finding = b.contradictions[0]
+    assert {finding["new_id"], finding["conflict_id"]} == {"e1", "e2"}
+    ineligible_ids = {"artifact:1", "artifact:2"}
+    assert not ineligible_ids & {finding["new_id"], finding["conflict_id"]}
+
+
+def test_all_source_rows_remain_intact_across_every_scenario():
+    scenarios = [
+        _artifact_rows(),
+        [
+            {
+                "id": "e1",
+                "comparison_key": "k",
+                "comparison_mode": "exclusive",
+                "comparison_value": "a",
+            },
+            {
+                "id": "e2",
+                "comparison_key": "k",
+                "comparison_mode": "exclusive",
+                "comparison_value": "a",
+            },
+        ],
+        [
+            {"id": "n1", "semantic_role": "assertion", "text": "unrelated prose one."},
+            {"id": "n2", "semantic_role": "assertion", "text": "unrelated prose two."},
+        ],
+        [
+            {
+                "id": "c1",
+                "semantic_role": "assertion",
+                "text": "The cache increases lookup latency for cold reads.",
+            },
+            {
+                "id": "c2",
+                "semantic_role": "assertion",
+                "text": "The cache decreases lookup latency for cold reads.",
+            },
+        ],
+    ]
+    for rows in scenarios:
+        b = EvidenceBundle.from_payload({"rows": rows})
+        assert [c["id"] for c in b.claims] == [r["id"] for r in rows]
