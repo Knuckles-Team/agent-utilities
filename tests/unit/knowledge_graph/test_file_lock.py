@@ -112,7 +112,9 @@ def test_lock_exclusive_blocking_waits_then_acquires(tmp_path):
 
         t = threading.Thread(target=_waiter)
         t.start()
-        assert not acquired.wait(timeout=0.3), "blocking acquire returned while still held"
+        assert not acquired.wait(timeout=0.3), (
+            "blocking acquire returned while still held"
+        )
         file_lock.unlock(fd_holder)
         assert acquired.wait(timeout=5), "blocking acquire never acquired after release"
         t.join(timeout=5)
@@ -499,7 +501,9 @@ def test_windows_lock_exclusive_blocking_waits_then_acquires(win_file_lock, tmp_
 
         t = threading.Thread(target=_waiter)
         t.start()
-        assert not acquired.wait(timeout=0.3), "blocking acquire returned while still held"
+        assert not acquired.wait(timeout=0.3), (
+            "blocking acquire returned while still held"
+        )
         win_file_lock.unlock(fd_holder)
         assert acquired.wait(timeout=5), "blocking acquire never acquired after release"
         t.join(timeout=5)

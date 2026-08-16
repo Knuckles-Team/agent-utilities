@@ -1122,7 +1122,10 @@ async def dispatch_intent(
         # ``exc.args[0]`` (not ``str(exc)``/``repr(exc)``): see the identical
         # comment on the second _normalize_documented_hint_aliases call site
         # below.
-        return {"error": exc.args[0] if exc.args else type(exc).__name__, "executed": False}
+        return {
+            "error": exc.args[0] if exc.args else type(exc).__name__,
+            "executed": False,
+        }
     if verb not in _DISPATCH_VERBS:
         return {
             "error": "Unsupported GraphOS intent verb.",
@@ -1263,7 +1266,10 @@ async def dispatch_intent(
             # the exception TYPE name here would satisfy the served-boundary
             # exception-surface gate's letter while losing the caller-facing
             # detail those tests require; .args[0] satisfies both.
-            return {"error": exc.args[0] if exc.args else type(exc).__name__, "executed": False}
+            return {
+                "error": exc.args[0] if exc.args else type(exc).__name__,
+                "executed": False,
+            }
     available_actions = _actions_by_tool().get(chosen_tool, [])
     if explicit_action is not None and explicit_action not in available_actions:
         return {

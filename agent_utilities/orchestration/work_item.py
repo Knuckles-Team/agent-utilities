@@ -507,6 +507,53 @@ def _is_native_authority_refusal(exc: BaseException) -> bool:
     return isinstance(exc, RuntimeError) and "native WorkItem authority" in str(exc)
 
 
+def _cas_or_raise_capability_gap(
+    engine: Any,
+    node_id: str,
+    conditions: dict[str, Any],
+    updates: dict[str, Any],
+    *,
+    capability: str,
+) -> bool:
+    """Route a metadata CAS through :func:`_cas`; convert a live native
+    -authority refusal into a clear, typed, actionable error instead of the
+    engine's raw wire-transport exception (BUG-11x).
+
+    U-24 lane discovery: ``epistemic-graph``'s native WorkItem-authority guard
+    (``work_item_capability::validate_generic_method``,
+    ``crates/eg-core/.../work_item_capability.rs`` on the engine side)
+    unconditionally refuses ANY generic ``CompareAndSetNodeFields`` on a
+    WorkItem row once it has been claimed (``claimed(node_id)?`` — checked
+    BEFORE any protected-field carve-out, so it is not limited to lease
+    fields). Confirmed live against the current engine build: claiming a
+    WorkItem then calling this on it raises
+    ``RuntimeError: staged MutationBatch durable commit failed: native
+    WorkItem authority required for generic replacement``. There is currently
+    no native typed RPC for this class of update (unlike claim/renew/commit/
+    cancel/defer, which are all native) — closing that gap requires a
+    cross-repo protocol change (BUG-11x, see BUG-LEDGER.md), not a client-side
+    fix. Until then, a caller of a FUNCTIONALLY IMPORTANT metadata update
+    (checkpoint progress, a pending-input request/response — as opposed to
+    the purely decorative ``downstream_ids`` index :func:`_append_downstream`
+    already degrades silently) deserves a clear, typed, actionable exception
+    naming the actual constraint, not a bare transport ``RuntimeError`` whose
+    message reads as a generic commit failure.
+    """
+    try:
+        return _cas(engine, node_id, conditions, updates)
+    except Exception as exc:  # noqa: BLE001 — re-raised as a typed error below
+        if not _is_native_authority_refusal(exc):
+            raise
+        raise WorkItemBackendUnavailable(
+            f"{capability} is not currently supported by the native WorkItem "
+            "authority for an already-claimed item (BUG-11x): the engine's "
+            "native-authority guard refuses any generic CompareAndSetNodeFields "
+            "on a claimed WorkItem row, and no native typed RPC yet exists for "
+            f"this field write. See work_item.py::{capability}'s docstring / "
+            "BUG-LEDGER.md."
+        ) from exc
+
+
 def _link(engine: Any, source_id: str, target_id: str, rel_type: str) -> None:
     """Best-effort edge write (never blocks a WorkItem transition on a graph-viz edge)."""
     try:
@@ -1360,11 +1407,12 @@ def checkpoint_work_item(
         "lease_epoch": epoch,
         "fencing_token": fencing_token,
     }
-    return _cas(
+    return _cas_or_raise_capability_gap(
         engine,
         item_id,
         conditions,
         {"checkpoint_id": checkpoint_id, "updated_at": now},
+        capability="checkpoint_work_item",
     )
 
 
@@ -1651,8 +1699,12 @@ def request_work_item_input(
         "fencing_token": fencing_token,
         "metadata": old_metadata,
     }
-    return _cas(
-        engine, item_id, conditions, {"metadata": new_metadata, "updated_at": now}
+    return _cas_or_raise_capability_gap(
+        engine,
+        item_id,
+        conditions,
+        {"metadata": new_metadata, "updated_at": now},
+        capability="request_work_item_input",
     )
 
 
@@ -1693,8 +1745,12 @@ def submit_work_item_input(
     new_metadata["pending_input_response"] = clean_response
     new_metadata.pop("pending_input_request", None)
     conditions = {"tenant": tenant, "metadata": old_metadata}
-    return _cas(
-        engine, item_id, conditions, {"metadata": new_metadata, "updated_at": now}
+    return _cas_or_raise_capability_gap(
+        engine,
+        item_id,
+        conditions,
+        {"metadata": new_metadata, "updated_at": now},
+        capability="submit_work_item_input",
     )
 
 
@@ -2509,7 +2565,18 @@ def set_work_item_priority(
     *,
     now: float | None = None,
 ) -> bool:
-    """Update scheduling priority without granting claim/lease authority."""
+    """Update scheduling priority without granting claim/lease authority.
+
+    Best-effort against an already-CLAIMED WorkItem (BUG-11x): the engine's
+    native WorkItem-authority guard unconditionally refuses ANY generic CAS
+    on a claimed row (confirmed live), and priority is non-critical
+    scheduling metadata with no correctness impact if a bump is missed — the
+    same "decorative, no functional reader that would break" shape
+    :func:`_append_downstream` already degrades silently on, unlike
+    :func:`checkpoint_work_item`/:func:`request_work_item_input`/
+    :func:`submit_work_item_input` (functionally important, so those raise a
+    clear typed error instead — see :func:`_cas_or_raise_capability_gap`).
+    """
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
 
     now = now if now is not None else _now()
@@ -2518,15 +2585,27 @@ def set_work_item_priority(
         if item is None or item.get("status") in TERMINAL_WORK_ITEM_STATUSES:
             return False
         current = int(item.get("prio_bucket") or 0)
-        if _cas(
-            engine,
-            item_id,
-            {"prio_bucket": current, "status": item.get("status")},
-            {
-                "prio_bucket": _coerce_prio_bucket(priority),
-                "updated_at": now,
-            },
-        ):
+        try:
+            won = _cas(
+                engine,
+                item_id,
+                {"prio_bucket": current, "status": item.get("status")},
+                {
+                    "prio_bucket": _coerce_prio_bucket(priority),
+                    "updated_at": now,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 — best-effort priority bump, see docstring
+            if not _is_native_authority_refusal(exc):
+                raise
+            logger.debug(
+                "work_item: priority bump for %s refused by native WorkItem "
+                "authority (claimed item, best-effort, no correctness impact): %s",
+                item_id,
+                exc,
+            )
+            return False
+        if won:
             return True
     return False
 

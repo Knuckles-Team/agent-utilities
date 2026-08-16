@@ -30,6 +30,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "CONTROL_GRAPH_NAME",
     "DEFAULT_GRAPH",
     "DEFAULT_LOCAL_ENDPOINT",
     "is_local_endpoint",
@@ -45,6 +46,16 @@ __all__ = [
 #: Fallback default graph when no config object is reachable. The runtime
 #: default lives on ``AgentConfig.kg_default_graph`` (KG_DEFAULT_GRAPH).
 DEFAULT_GRAPH = "__commons__"
+
+#: The one fixed, tenant-shared control-plane graph (U-16/BUG-113): the sole
+#: WorkItem/:Schedule authority (``engine.py::_build_control_backend``,
+#: ``ingest_profile.py``'s ``EpistemicGraphBackend().for_graph("__control__")``
+#: pattern). A system ``__…__`` graph per ``is_system_graph`` -- readable by
+#: every tenant by design, never content/document/codebase data. Named here
+#: as ONE constant so every control-plane binding site (currently
+#: ``engine.py`` and ``ingest_profile.py``) agrees on the literal instead of
+#: re-deriving/hardcoding it independently.
+CONTROL_GRAPH_NAME = "__control__"
 
 
 def _platform_default_endpoint() -> str:

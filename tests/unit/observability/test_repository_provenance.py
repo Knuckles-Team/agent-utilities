@@ -99,7 +99,10 @@ class _FakeEngine:
         limit = int(params.get("limit") or len(rows) or 1)
         if "RETURN t.fence_ref" in query:
             return [
-                {"fence_ref": n.get("fence_ref"), "event_sequence": n.get("event_sequence")}
+                {
+                    "fence_ref": n.get("fence_ref"),
+                    "event_sequence": n.get("event_sequence"),
+                }
                 for n in rows[:limit]
             ]
         return [{"t": n} for n in rows[:limit]]
@@ -332,7 +335,9 @@ def test_cross_tenant_query_denies() -> None:
     assert other_tenant == []
 
 
-def test_query_without_any_tenant_scope_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_query_without_any_tenant_scope_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Simulates the "no identity" environment even though the autouse
     ``isolate_graph_compute_engine`` fixture normally binds a verified test
     actor with a tenant, by making ambient actor resolution raise as if
@@ -493,9 +498,7 @@ def _flatten_values(node: Mapping[str, Any]) -> str:
     return json.dumps(node, sort_keys=True, default=str)
 
 
-def test_redaction_gate_catches_a_known_bad_input_secret_path_and_raw_command() -> (
-    None
-):
+def test_redaction_gate_catches_a_known_bad_input_secret_path_and_raw_command() -> None:
     """H-9: feed the writer a fixture with a real-shaped secret, an absolute
     machine path, and a raw command body, and prove none of the three ever
     reach the graph verbatim -- and that the guard actually detected them

@@ -30,7 +30,9 @@ def _isolated_graph(graph_name: str):
     """
     session = GraphSession.from_ambient().with_graph(graph_name)
     with use_session(session):
-        graph = GraphComputeEngine.get_or_create(backend_type="rust", graph_name=graph_name)
+        graph = GraphComputeEngine.get_or_create(
+            backend_type="rust", graph_name=graph_name
+        )
         entries = graph._client.tenants.list() or []
         existing = {
             str(entry.get("name") if isinstance(entry, dict) else entry)

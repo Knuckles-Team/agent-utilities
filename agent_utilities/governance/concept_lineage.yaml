@@ -313,6 +313,15 @@ parents:
       inherited; the parent's design doc (.specify/design/au-kv-persistence-authority/design.md) owns
       that choice, and this marker only names where it lands on the engine boundary
 renamed:
+  AU-OS.supply-chain.mutable-image-refs:
+    reason: supply-chain was never registered in the OS pillar closed vocabulary
+      (agent_utilities/governance/domain_vocab.yaml) and check_domain_vocab.py fails the
+      build on it -- the same shape as the AU-KG.history rename recorded above. The
+      decision it names (pin a compose image ref to an operator-supplied digest rather
+      than a mutable :latest tag) is deployment integrity, so it moves onto the already
+      registered `deployment` domain rather than registering a new one
+      (Extend-Before-Invent). Behaviour is unchanged; only the id moves.
+    to: AU-OS.deployment.mutable-image-refs
   AU-KG.history.scoped-conversation-search:
     reason: history was never registered in the KG pillar closed vocabulary (agent_utilities/governance/domain_vocab.yaml)
       and check_domain_vocab.py fails the build on it (D-CC-9); the marker names a real decision (scope-aware

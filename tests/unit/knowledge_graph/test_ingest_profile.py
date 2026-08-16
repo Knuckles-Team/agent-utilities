@@ -103,8 +103,6 @@ def test_cost_is_derived_and_jsonable():
 def test_record_offqueue_span_works_with_no_actor_bound(monkeypatch):
     import contextvars
 
-    from agent_utilities.knowledge_graph.core import ingest_profile
-
     captured: dict[str, dict] = {}
 
     class _FakeGraphView:

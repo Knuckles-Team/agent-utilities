@@ -9,6 +9,8 @@ small in-test facade, and the graceful degradation + caching/invalidation
 contract. No backend services required.
 """
 
+import pytest
+
 from agent_utilities.knowledge_graph.ontology.derived_properties import (
     DEFAULT_DERIVED_ENGINE,
     DEFAULT_DERIVED_REGISTRY,
@@ -20,7 +22,6 @@ from agent_utilities.knowledge_graph.ontology.derived_properties import (
     compute_derived,
 )
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
-import pytest
 
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")

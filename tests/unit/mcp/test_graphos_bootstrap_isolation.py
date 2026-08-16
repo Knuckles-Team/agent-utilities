@@ -38,7 +38,6 @@ from agent_utilities.security.brain_context import (
     use_actor,
 )
 
-
 # NOTE: this file used to carry an autouse ``_restore_stdio_protection_state``
 # fixture here, saving/restoring ``server_factory._STDIO_PROTECTED`` and the
 # process-global ``builtins.print``/``warnings.showwarning`` monkeypatches that

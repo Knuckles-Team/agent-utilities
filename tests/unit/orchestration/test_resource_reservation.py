@@ -104,7 +104,10 @@ def test_status_result_cannot_exceed_requested_bound() -> None:
     class Overfull(_WorkItems):
         def status(self, *, request: dict[str, Any]) -> dict[str, Any]:
             result = super().status(request=request)
-            result["reservations"] = [{"reservation_id": "one"}, {"reservation_id": "two"}]
+            result["reservations"] = [
+                {"reservation_id": "one"},
+                {"reservation_id": "two"},
+            ]
             return result
 
     client = _Client()

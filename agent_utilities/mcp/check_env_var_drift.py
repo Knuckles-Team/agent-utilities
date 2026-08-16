@@ -480,7 +480,7 @@ def _script_reads(root: Path) -> set[str]:
     ``_scan_setting_calls`` surface: ``scripts/`` in this fleet is scaffolded, maintainer-only
     dev/CI tooling (validation harnesses, local gate runners) that reads its config with a
     hardcoded fallback default at the call site — e.g.
-    ``os.environ.get("A2A_URL", "http://127.0.0.1:9016/a2a/")`` in
+    an ``A2A_URL`` environment read defaulting to ``http://127.0.0.1:9016/a2a/`` in
     ``scripts/validate_a2a_agent.py``, or ``AGENT_UTILITIES_ROOT`` in the identical
     ``scripts/run_agent_utilities_gate.py`` shared byte-for-byte across 60+ packages in this
     fleet. Folding those reads into the documentable/UNDOCUMENTED surface too (tried first)
@@ -863,7 +863,7 @@ def _compose_env_keys(root: Path) -> dict[str, set[str]]:
 # not a Python ``setting()``/``getenv()`` call. Previously only ``environment:`` was scanned
 # (see ``_compose_env_keys`` above), so ``image:
 # ${MEDIA_DOWNLOADER_MCP_IMAGE:?set-...-to-image@sha256-digest}`` (pinning the image to an
-# operator-supplied digest — CONCEPT:AU-OS.supply-chain.mutable-image-refs) was invisible and
+# operator-supplied digest — CONCEPT:AU-OS.deployment.mutable-image-refs) was invisible and
 # its var reported DEAD even though every ``docker compose up`` genuinely requires it.
 # Deliberately scoped to these four keys (not e.g. ``labels:``/``volumes:``/``ports:``/
 # resource-limit scalars like ``mem_limit:``/``cpus:``) — the task that surfaced this blind

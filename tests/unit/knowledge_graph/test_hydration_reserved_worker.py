@@ -18,6 +18,8 @@ exercise the pure claim-selection logic (no engine/backend).
 
 from __future__ import annotations
 
+import threading
+
 import pytest
 
 from agent_utilities.knowledge_graph.core.engine_tasks import TaskManagerMixin
@@ -185,6 +187,10 @@ def test_task_worker_loop_alternates_hydration_priority_on_the_degenerate_single
 
     class AlternatingWorker:
         _task_worker_loop = TaskManagerMixin._task_worker_loop
+        # U-65/BUG-111: _task_worker_loop now gates each claim attempt through
+        # a process-local nonblocking lock (self._claim_gate) -- a real one is
+        # needed here, same as production TaskManagerMixin.__init__ sets.
+        _claim_gate = threading.Lock()
 
         def _claim_next_task(
             self, *, worker_id: str | None = None, hydration_reserved: bool = False
@@ -220,6 +226,8 @@ def test_task_worker_loop_no_alternation_when_disabled():
 
     class PlainWorker:
         _task_worker_loop = TaskManagerMixin._task_worker_loop
+        # U-65/BUG-111: see AlternatingWorker above.
+        _claim_gate = threading.Lock()
 
         def _claim_next_task(
             self, *, worker_id: str | None = None, hydration_reserved: bool = False

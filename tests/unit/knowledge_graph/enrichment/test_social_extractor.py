@@ -64,7 +64,9 @@ def test_extract_structured_entities_never_raises_on_malformed_input() -> None:
     assert extract_structured_entities(None).is_empty()
     assert extract_structured_entities({}).is_empty()
     assert extract_structured_entities({"entities": "not-a-dict"}).is_empty()
-    assert extract_structured_entities({"entities": {"hashtags": "not-a-list"}}).is_empty()
+    assert extract_structured_entities(
+        {"entities": {"hashtags": "not-a-list"}}
+    ).is_empty()
     assert extract_structured_entities(
         {"entities": {"hashtags": [{"tag": None}, "not-a-dict", {}]}}
     ).is_empty()

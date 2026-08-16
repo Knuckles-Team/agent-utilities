@@ -295,7 +295,9 @@ def test_same_query_against_second_graph_returns_zero_rows(monkeypatch, brain):
     assert rows == []
 
 
-def test_unknown_and_unauthorized_graph_fail_closed_indistinguishably(monkeypatch, brain):
+def test_unknown_and_unauthorized_graph_fail_closed_indistinguishably(
+    monkeypatch, brain
+):
     content_a = _RecordingBackend([ARTIFACT_ROW])
     acl_a = _AclBackend([_public_acl_row(ARTIFACT_ROW["id"])])
     view_a = _GraphView("graph-a", content_a, acl_a)
@@ -303,9 +305,7 @@ def test_unknown_and_unauthorized_graph_fail_closed_indistinguishably(monkeypatc
     content_denied = _RecordingBackend([ARTIFACT_ROW])
     view_denied = _GraphView("graph-denied", content_denied, _RejectingAclBackend())
 
-    active = _ActiveEngine(
-        "graph-a", {"graph-a": view_a, "graph-denied": view_denied}
-    )
+    active = _ActiveEngine("graph-a", {"graph-a": view_a, "graph-denied": view_denied})
     monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", active)
     actor = _actor()
 
@@ -344,7 +344,9 @@ def test_scalar_row_without_governed_id_is_denied(monkeypatch, brain):
     assert str(exc.value) == "Graph row-policy or audit enforcement failed"
 
 
-def test_graph_never_accepted_as_a_raw_parameter_only_from_the_session(monkeypatch, brain):
+def test_graph_never_accepted_as_a_raw_parameter_only_from_the_session(
+    monkeypatch, brain
+):
     """_durable_access_rows takes no graph argument at all -- every test in
     this module drives the graph selection purely through ``use_session``,
     never a function parameter, which is itself the proof: there is no

@@ -800,7 +800,9 @@ async def test_act_routes_plain_intent_to_graphos_skill_gateway(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_act_replays_unpinned_skill_delegation_with_hints_plus_plan_ref(monkeypatch):
+async def test_act_replays_unpinned_skill_delegation_with_hints_plus_plan_ref(
+    monkeypatch,
+):
     """D-GIS-1: the DOCUMENTED replay flow (resubmit the same hints + plan_ref)
     must work, not just the plan_ref-alone shortcut.
 

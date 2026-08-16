@@ -62,7 +62,9 @@ def _step_action(counters: dict[int, int], i: int):
     return action
 
 
-def _run_script(run: DurableRun, counters: dict[int, int], steps: range) -> dict[str, object]:
+def _run_script(
+    run: DurableRun, counters: dict[int, int], steps: range
+) -> dict[str, object]:
     results: dict[str, object] = {}
     for i in steps:
         name = f"step{i}"

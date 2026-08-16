@@ -141,10 +141,14 @@ import argparse
 import ast
 import hashlib
 import json
-import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(_REPO_ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 #: Same method set as
 #: ``tests/unit/security/test_log_location_privacy_static_gate.py``, for the
@@ -455,7 +459,7 @@ def _find_violations(rel: str, tree: ast.Module) -> list[Violation]:
         #: ``check_cypher_write_subset.py`` uses (D-F6-2), reused rather
         #: than inventing a second scheme.
         content_hash = hashlib.sha256(
-            f"{logger_name}\x00{snippet}".encode("utf-8")
+            f"{logger_name}\x00{snippet}".encode()
         ).hexdigest()[:16]
         violations.append(
             Violation(rel, lineno, logger_name, snippet, symbol, content_hash)
@@ -471,36 +475,28 @@ def _candidate_files(root: Path, target_dirs: tuple[Path, ...]) -> list[Path]:
     ``root`` itself not existing IS an error, raised by the caller before
     this is reached.
     """
+    root = root.resolve()
     files: list[Path] = []
     for rel_dir in target_dirs:
         d = root / rel_dir
         if not d.is_dir():
             continue
-        files.extend(_tracked_or_walked_py_files(d))
+        files.extend(_tracked_or_walked_py_files(d, root))
     return sorted(set(files))
 
 
-def _tracked_or_walked_py_files(target_dir: Path) -> list[Path]:
+def _tracked_or_walked_py_files(target_dir: Path, root: Path) -> list[Path]:
     """``.py`` files under ``target_dir``, preferring git-tracked (BUG-043).
 
     A raw ``rglob`` also picks up gitignored, generated build output, which
     can carry a stale, already-fixed raw-exception log-site violation. Falls
     back to a filesystem walk only when ``target_dir`` is not inside a git
-    working tree (e.g. a synthetic test fixture).
+    working tree (e.g. a synthetic test fixture). ``root`` is the resolved
+    ``--repository-root`` this call's ``target_dir`` was resolved under --
+    the anchor for git's ambient-env-immune pathspec, per
+    ``scripts/_git_scan.py``.
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(target_dir), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [target_dir / line for line in out.splitlines() if line]
-        if tracked:
-            return sorted(p for p in tracked if p.is_file())
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(target_dir.rglob("*.py"))
+    return sorted(tracked_or_walked(target_dir, "*.py", root=root))
 
 
 def scan(

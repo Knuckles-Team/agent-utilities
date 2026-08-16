@@ -480,13 +480,17 @@ def test_privacy_gate_identifiers_vary_with_ambient_identity_when_unpinned(
         lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout="", stderr=""),
     )
     monkeypatch.setattr(
-        privacy.pwd, "getpwuid", lambda _uid: type("_Pw", (), {"pw_name": "sandbox-one"})()
+        privacy.pwd,
+        "getpwuid",
+        lambda _uid: type("_Pw", (), {"pw_name": "sandbox-one"})(),
     )
     first = privacy.derive_local_identifiers()
 
     monkeypatch.setattr(privacy.getpass, "getuser", lambda: "sandbox-two")
     monkeypatch.setattr(
-        privacy.pwd, "getpwuid", lambda _uid: type("_Pw", (), {"pw_name": "sandbox-two"})()
+        privacy.pwd,
+        "getpwuid",
+        lambda _uid: type("_Pw", (), {"pw_name": "sandbox-two"})(),
     )
     second = privacy.derive_local_identifiers()
 
@@ -510,13 +514,17 @@ def test_privacy_gate_identifiers_are_deterministic_with_declared_override(
     monkeypatch.setenv("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", "declared-identity")
     monkeypatch.setattr(privacy.getpass, "getuser", lambda: "sandbox-one")
     monkeypatch.setattr(
-        privacy.pwd, "getpwuid", lambda _uid: type("_Pw", (), {"pw_name": "sandbox-one"})()
+        privacy.pwd,
+        "getpwuid",
+        lambda _uid: type("_Pw", (), {"pw_name": "sandbox-one"})(),
     )
     first = privacy.derive_local_identifiers()
 
     monkeypatch.setattr(privacy.getpass, "getuser", lambda: "sandbox-two")
     monkeypatch.setattr(
-        privacy.pwd, "getpwuid", lambda _uid: type("_Pw", (), {"pw_name": "sandbox-two"})()
+        privacy.pwd,
+        "getpwuid",
+        lambda _uid: type("_Pw", (), {"pw_name": "sandbox-two"})(),
     )
     second = privacy.derive_local_identifiers()
 

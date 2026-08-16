@@ -3,7 +3,9 @@
 CONCEPT:AU-OS.config.secrets-authentication — Secrets & Authentication
 """
 
+import http.client
 import logging
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -12,12 +14,14 @@ import pytest
 from agent_utilities.security.browser_auth import (
     BaseBrowserAuthManager,
     BaseLoopbackCallbackHandler,
+    BaseLoopbackCallbackServer,
     generate_pkce,
 )
 from agent_utilities.security.secrets_client import (
     InEpistemicGraphBackend,
     SecretsClient,
 )
+from tests.wiring import observe
 
 
 class TestBaseBrowserAuthManager:
@@ -272,3 +276,53 @@ class TestLoopbackCallbackHandlerLogHygiene:
         with caplog.at_level(logging.DEBUG, logger=logger_name):
             BaseLoopbackCallbackHandler.log_message(_BadPathSelf(), "unused")
         assert "<unparseable>" in caplog.text
+
+    def test_log_message_reached_from_a_real_http_callback_wiring(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Wire-First (D-OB-9): `log_message` has zero non-test callers inside
+        `agent_utilities/` because its real caller is CPython's own
+        `BaseHTTPRequestHandler.log_request()` (`http/server.py`), invoked
+        polymorphically on `self` whenever `send_response()` runs — a
+        text-based caller scan can never see an edge whose source lives in the
+        stdlib, not this repo. So this test drives the actual live entrypoint
+        `login()` relies on instead of calling `log_message` directly: a real
+        socket-bound `BaseLoopbackCallbackServer` + the real, undoubled
+        `BaseLoopbackCallbackHandler`, hit with a genuine HTTP GET carrying a
+        code/state pair, exactly like a real browser OAuth redirect would.
+        `observe()` proves the seam was reached without replacing it, and the
+        response asserts BUG-140's fix held under the real dispatch path (not
+        just the direct-call unit tests above)."""
+        server = BaseLoopbackCallbackServer(
+            ("127.0.0.1", 0), BaseLoopbackCallbackHandler
+        )
+        thread = threading.Thread(target=server.handle_request, daemon=True)
+        thread.start()
+        logger_name = "agent_utilities.security.browser_auth"
+        try:
+            with caplog.at_level(logging.DEBUG, logger=logger_name):
+                with observe(BaseLoopbackCallbackHandler, "log_message") as scan:
+                    host, port = server.server_address[0], server.server_address[1]
+                    conn = http.client.HTTPConnection(host, port, timeout=10)
+                    try:
+                        conn.request(
+                            "GET",
+                            "/callback?code=SUPER:SECRET_AUTH_CODE&"
+                            "state=SUPER:SECRET_CSRF_STATE",
+                        )
+                        response = conn.getresponse()
+                        response.read()
+                    finally:
+                        conn.close()
+                    thread.join(timeout=10)
+                    scan.assert_called(
+                        why="a real OAuth callback request must reach "
+                        "log_message through BaseHTTPRequestHandler's own "
+                        "log_request() dispatch, the same path login() relies "
+                        "on for every genuine browser redirect"
+                    )
+        finally:
+            server.server_close()
+        assert server.auth_code == "SUPER:SECRET_AUTH_CODE"
+        assert "SECRET_AUTH_CODE" not in caplog.text
+        assert "SECRET_CSRF_STATE" not in caplog.text
