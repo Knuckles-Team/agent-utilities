@@ -853,6 +853,19 @@ class QueryMixin(_Base):
                 corpus_id=corpus_id,
                 as_of=as_of,
             )
+        # U-107/U-132 (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval): ACL/owner/
+        # scope enforcement runs on the RAW candidate set, before archive trimming,
+        # the score gate, or any other ranking/fusion step. A denied high-score
+        # candidate must never be able to consume top-k capacity that an
+        # authorized lower-score candidate would otherwise have won — enforcing
+        # ACL only at the very end (the prior order) let unauthorized rows crowd
+        # authorized ones out of the response even though they were never
+        # returned themselves. `_enforce_acl_on_results` is a no-op when
+        # `session` is None, matching prior behavior exactly for callers that
+        # pass none.
+        results = self._enforce_acl_on_results(
+            results, session=session, summary="hybrid-search"
+        )
         if not include_archived:
             results = [
                 r for r in results if str(r.get("status", "")).upper() != "ARCHIVED"
@@ -876,9 +889,7 @@ class QueryMixin(_Base):
         for r in results:
             if isinstance(r, dict) and r.get("score") is None and "_score" in r:
                 r["score"] = r["_score"]
-        return self._enforce_acl_on_results(
-            results, session=session, summary="hybrid-search"
-        )
+        return results
 
     def _enforce_acl_on_results(
         self,

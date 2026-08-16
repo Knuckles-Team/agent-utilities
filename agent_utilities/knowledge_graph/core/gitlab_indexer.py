@@ -85,7 +85,24 @@ class GitLabSource(Protocol):
     """What the indexer needs from a GitLab instance (injectable for tests)."""
 
     def list_projects(self) -> Iterable[GitLabProject]:
-        """Every project visible on the instance (already group-recursed)."""
+        """Every project visible on the instance (already group-recursed).
+
+        SECURITY (R-27, CONCEPT:AU-KG.ingest.no-broad-project-enumeration): this is
+        a broad membership listing and must only be called for an intentional
+        full/unscoped sync. Any caller that already knows the exact project id(s)
+        it wants (webhook delta, an explicit ``ids=`` sync request) MUST use
+        :meth:`get_project` instead — never enumerate-then-filter.
+        """
+        ...
+
+    def get_project(self, project_id: str) -> GitLabProject | None:
+        """Fetch exactly one project by id — no membership/listing call.
+
+        Returns ``None`` if the project does not exist or the connector identity
+        is not authorized to read it (never distinguishes the two, so an
+        unauthorized id fails closed identically to an unknown one and cannot be
+        used to probe project existence).
+        """
         ...
 
     def list_files(self, project: GitLabProject) -> Iterable[str]:
@@ -158,7 +175,11 @@ def index_instance(
     a Repository node + File nodes, and written via ``ingest`` under
     ``source_system = "gitlab:<instance>"``.
 
-    - ``project_ids`` narrows to specific projects (webhook delta).
+    - ``project_ids`` narrows to specific projects (webhook delta). SECURITY
+      (R-27): when given, this method NEVER calls ``source.list_projects()`` (the
+      broad membership-listing enumeration) — it resolves exactly those ids via
+      ``source.get_project(id)``, a direct-by-id call, so the connector identity
+      is never used to list projects it wasn't explicitly asked to sync.
     - ``since`` (a watermark) skips projects whose ``last_activity_at`` is not newer
       (delta sync); ``None`` indexes all (full sync).
     """
@@ -166,26 +187,42 @@ def index_instance(
     domain = make_source_id("gitlab", instance)
     watermark = since
 
-    # Enumerate defensively, then process oldest-first. A newer project's native
-    # cursor must never commit before an older project that can still fail.
     projects: list[GitLabProject] = []
     enumeration_complete = True
-    project_iter = iter(source.list_projects())
-    while True:
-        try:
-            projects.append(next(project_iter))
-        except StopIteration:
-            break
-        except Exception as exc:  # noqa: BLE001 - enumeration blip → stop, keep partial
-            summary.errors.append(f"project enumeration stopped early: {exc}")
-            enumeration_complete = False
-            break
+    if project_ids is not None:
+        # Direct-by-id retrieval only — no membership/listing call is issued.
+        # An id that doesn't exist or isn't authorized resolves to `None` and is
+        # recorded as a skip, never silently dropped and never distinguished
+        # from "not found" (fail-closed: this must not become an oracle for
+        # probing which project ids exist/are accessible).
+        for pid in sorted(project_ids):
+            try:
+                project = source.get_project(pid)
+            except Exception as exc:  # noqa: BLE001 - one bad id must not abort the batch
+                summary.errors.append(f"project {pid}: direct fetch failed: {exc}")
+                continue
+            if project is None:
+                summary.projects_skipped += 1
+                continue
+            projects.append(project)
+    else:
+        # Enumerate defensively, then process oldest-first. A newer project's
+        # native cursor must never commit before an older project that can still
+        # fail. Only reached for an intentional unscoped full/delta-by-watermark
+        # sync — never when the caller already has explicit project ids.
+        project_iter = iter(source.list_projects())
+        while True:
+            try:
+                projects.append(next(project_iter))
+            except StopIteration:
+                break
+            except Exception as exc:  # noqa: BLE001 - enumeration blip → stop, keep partial
+                summary.errors.append(f"project enumeration stopped early: {exc}")
+                enumeration_complete = False
+                break
     projects.sort(key=lambda item: str(item.last_activity_at or ""))
 
     for project in projects:
-        pid = str(project.id)
-        if project_ids is not None and pid not in project_ids:
-            continue
         # Delta: skip untouched projects (watermark is the max last_activity_at seen).
         if since and project.last_activity_at and project.last_activity_at <= since:
             summary.projects_skipped += 1
@@ -496,6 +533,34 @@ class GitLabRestSource:
                     web_url=row.get("web_url", ""),
                     last_activity_at=row.get("last_activity_at"),
                 )
+
+    def get_project(self, project_id: str) -> GitLabProject | None:
+        """Direct-by-id lookup (``GET /projects/:id``) — issues no listing call.
+
+        R-27: the sole entrypoint :func:`index_instance` uses when it already has
+        explicit project ids (webhook delta, a scoped ``ids=`` sync request), so
+        the connector identity's broad project membership is never enumerated
+        just to narrow it back down client-side. A 404/403 both resolve to
+        ``None`` — deliberately not distinguished, so this cannot be used to
+        probe whether an id exists versus is merely unauthorized.
+        """
+        from urllib.parse import quote
+
+        encoded = quote(str(project_id), safe="")
+        with self._session() as session:
+            resp = self._get(session, f"{self._base}/projects/{encoded}", {})
+            if resp.status_code != 200:
+                return None
+            row = resp.json()
+            if not isinstance(row, dict):
+                return None
+            return GitLabProject(
+                id=str(row.get("id")),
+                path_with_namespace=row.get("path_with_namespace", str(row.get("id"))),
+                default_branch=row.get("default_branch") or "main",
+                web_url=row.get("web_url", ""),
+                last_activity_at=row.get("last_activity_at"),
+            )
 
     def list_files(self, project: GitLabProject) -> Iterable[str]:
         with self._session() as session:

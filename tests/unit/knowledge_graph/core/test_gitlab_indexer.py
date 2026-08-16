@@ -83,9 +83,19 @@ class FakeSource:
         self._projects = projects
         self._files = files
         self._contents = contents
+        self.list_projects_calls = 0
+        self.get_project_calls: list[str] = []
 
     def list_projects(self):
+        self.list_projects_calls += 1
         return self._projects
+
+    def get_project(self, project_id):
+        self.get_project_calls.append(str(project_id))
+        for project in self._projects:
+            if str(project.id) == str(project_id):
+                return project
+        return None
 
     def list_files(self, project):
         return self._files.get(project.id, [])
@@ -201,6 +211,65 @@ def test_project_ids_scoping_skips_others():
         project_ids={"99"},
     )
     assert summary.projects_indexed == 0
+
+
+def test_project_ids_never_enumerates_broad_membership():
+    """R-27 (SECURITY): explicit ``project_ids`` must resolve by direct-id fetch
+    only. This asserts on the QUERY ISSUED, not merely the filtered result — a
+    connector that broadly lists membership and filters client-side would still
+    pass a result-only assertion but must fail this one, because ``list_projects``
+    poisons the test the instant it is called."""
+
+    class _EnumerationForbiddenSource(FakeSource):
+        def list_projects(self):
+            raise AssertionError(
+                "index_instance must not enumerate broad project membership "
+                "when explicit project_ids are supplied (R-27)"
+            )
+
+    src = _EnumerationForbiddenSource(
+        [_proj("42", last_activity_at="2026-06-01")],
+        {"42": ["pkg/util.py"]},
+        {("42", "pkg/util.py"): b"def shared():\n    return 1\n"},
+    )
+
+    summary = index_instance(
+        instance="test",
+        source=src,
+        index_fn=lambda f: INDEX_RESULT,
+        ingest=lambda *a: None,
+        project_ids={"42"},
+    )
+
+    # Direct-by-id retrieval was used instead — never a listing call.
+    assert src.list_projects_calls == 0
+    assert src.get_project_calls == ["42"]
+    assert summary.projects_indexed == 1
+
+
+def test_project_ids_unauthorized_or_missing_id_fails_closed_without_enumeration():
+    """An id the identity cannot read (or that doesn't exist) must resolve to a
+    skip via the direct-id path — it must NOT trigger a fallback broad listing
+    to "find" the project another way."""
+
+    class _EnumerationForbiddenSource(FakeSource):
+        def list_projects(self):
+            raise AssertionError("must not fall back to broad enumeration")
+
+    src = _EnumerationForbiddenSource([], {}, {})  # get_project() -> None for any id
+
+    summary = index_instance(
+        instance="test",
+        source=src,
+        index_fn=lambda f: INDEX_RESULT,
+        ingest=lambda *a: None,
+        project_ids={"99"},
+    )
+
+    assert src.list_projects_calls == 0
+    assert src.get_project_calls == ["99"]
+    assert summary.projects_indexed == 0
+    assert summary.projects_skipped == 1
 
 
 def test_delta_watermark_skips_untouched_projects():
