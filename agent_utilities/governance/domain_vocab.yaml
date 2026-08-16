@@ -97,6 +97,7 @@ pillars:
     context:       [context, nested-context, context-plane, subfolder-instructions]
     scaling:       [scaling, sharding, capacity, autoscaler, loadgen, gateway-scaling, ha]
     audit:         [audit, compliance, ledger, action-outcome, provenance]
+    measurement:   [measurement, verdict, exit-code, load-gate, copy-integrity, merged-tree, safe-process-targeting, background-run, provenance-header]
 
   # ─────────────────────────────────────────────────────────────────────────
   GBOT: # GeniusBot Desktop Cockpit — the desktop frontend.

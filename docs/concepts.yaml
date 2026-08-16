@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1176
+total_concepts: 1184
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -9667,6 +9667,62 @@ concepts:
   - agent_utilities/security/conformance/surface_inventory.py
   - agent_utilities/security/conformance/surface_manifest.py
   doc: see this package
+- id: AU-OS.measurement.background-run
+  name: AU-OS.measurement.background-run
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/measurement/background.py
+  doc: AU-OS.measurement.background-run
+- id: AU-OS.measurement.copy-integrity
+  name: AU-OS.measurement.copy-integrity
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/measurement/copy_integrity.py
+  doc: AU-OS.measurement.copy-integrity
+- id: AU-OS.measurement.exit-code-correctness
+  name: AU-OS.measurement.exit-code-correctness
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/measurement/run.py
+  doc: AU-OS.measurement.exit-code-correctness
+- id: AU-OS.measurement.harness
+  name: AU-OS.measurement.harness
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/measurement/__init__.py
+  doc: AU-OS.measurement.harness
+- id: AU-OS.measurement.load-gate
+  name: AU-OS.measurement.load-gate
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/measurement/load_gate.py
+  doc: AU-OS.measurement.load-gate
+- id: AU-OS.measurement.merged-tree
+  name: AU-OS.measurement.merged-tree
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/measurement/merged_tree.py
+  doc: AU-OS.measurement.merged-tree
+- id: AU-OS.measurement.provenance-header
+  name: AU-OS.measurement.provenance-header
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/measurement/provenance.py
+  doc: AU-OS.measurement.provenance-header
+- id: AU-OS.measurement.safe-process-targeting
+  name: AU-OS.measurement.safe-process-targeting
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/measurement/proc_safety.py
+  doc: AU-OS.measurement.safe-process-targeting
 - id: AU-OS.observability.co-service-visibility
   name: instead of a bare log line
   pillar: AU-OS
