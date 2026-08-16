@@ -423,6 +423,53 @@ class NativeEngine:
         )
         return {"status": "deferred"}
 
+    def cas_work_item_metadata(self, request: dict[str, Any]) -> dict[str, Any]:
+        """In-memory double for the native ``CasWorkItemMetadata`` RPC
+        (BUG-111): the same three outcomes (``applied``/``conflict``/
+        ``not_found``) the real engine returns, atomically compare-and-set
+        against ``self.nodes`` under ``self._lock`` -- never a silent
+        overwrite of a losing CAS.
+        """
+        self.native_calls.append("cas_metadata")
+        with self._lock:
+            node = self.nodes.get(request["work_item_id"])
+            if node is None:
+                return {"outcome": "not_found"}
+            if node.get("tenant") != request["tenant"]:
+                return {"outcome": "conflict"}
+            if node.get("status") not in set(request["expected_status"]):
+                return {"outcome": "conflict"}
+            lease = request.get("expected_lease")
+            if lease is not None and not self._owns(
+                node,
+                {
+                    "worker_ref": lease["worker_ref"],
+                    "expected_epoch": lease["lease_epoch"],
+                    "fencing_token": lease["fencing_token"],
+                },
+            ):
+                return {"outcome": "conflict"}
+            if request.get("set_checkpoint_id") is not None:
+                if node.get("checkpoint_id") != request.get("expected_checkpoint_id"):
+                    return {"outcome": "conflict"}
+                node["checkpoint_id"] = request["set_checkpoint_id"]
+            elif request.get("set_metadata") is not None:
+                if (node.get("metadata") or {}) != (
+                    request.get("expected_metadata") or {}
+                ):
+                    return {"outcome": "conflict"}
+                node["metadata"] = request["set_metadata"]
+            elif request.get("set_prio_bucket") is not None:
+                if int(node.get("prio_bucket") or 0) != int(
+                    request.get("expected_prio_bucket") or 0
+                ):
+                    return {"outcome": "conflict"}
+                node["prio_bucket"] = request["set_prio_bucket"]
+            else:
+                raise AssertionError("cas_work_item_metadata: no set_* field given")
+            node["updated_at"] = float(request["now_ms"]) / 1000.0
+            return {"outcome": "applied"}
+
 
 class NoNativeEngine(NativeEngine):
     claim_work_item = None  # type: ignore[assignment]
@@ -430,6 +477,7 @@ class NoNativeEngine(NativeEngine):
     commit_work_item_result = None  # type: ignore[assignment]
     cancel_work_item = None  # type: ignore[assignment]
     defer_work_item = None  # type: ignore[assignment]
+    cas_work_item_metadata = None  # type: ignore[assignment]
 
 
 class HostEngine:
@@ -692,6 +740,84 @@ def test_submit_work_item_input_double_submit_only_wins_once(
     assert wi.get_work_item(engine, item_id)["metadata"]["pending_input_response"] == {
         "confirmed": True
     }
+
+
+def test_set_work_item_priority_applies_via_native_cas(engine: NativeEngine) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    assert wi.set_work_item_priority(engine, item_id, 3, now=10.0)
+    assert wi.get_work_item(engine, item_id)["prio_bucket"] == 3
+    assert "cas_metadata" in engine.native_calls
+
+
+def test_set_work_item_priority_is_terminal_status_closed(
+    engine: NativeEngine,
+) -> None:
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="p", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+    assert (
+        wi.commit_result(
+            engine, item_id, claim, outcome="succeeded", result_ref="r", now=11.0
+        )
+        == "committed"
+    )
+    # A terminal item is closed to priority changes -- the pre-check short-
+    # circuits before the CAS RPC is ever reached.
+    assert not wi.set_work_item_priority(engine, item_id, 9, now=12.0)
+    assert wi.get_work_item(engine, item_id)["prio_bucket"] != 9
+
+
+def test_cas_work_item_metadata_deterministic_conflict_never_silently_overwrites(
+    engine: NativeEngine,
+) -> None:
+    """BUG-111 at the Python integration layer: two contenders derive their
+    checkpoint CAS from the SAME pre-claim read; the loser gets a distinct
+    ``False`` (conflict), never a silent overwrite of the winner's write --
+    proven deterministically (two sequential calls against one engine
+    double), never by spawning threads and hoping they race (GOC-70)."""
+    item_id = wi.submit_work_item(
+        engine, kind="goal_loop", payload_ref="loop:opaque", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+
+    # Contender A wins.
+    assert wi.checkpoint_work_item(
+        engine, item_id, claim, "checkpoint:1", now=11.0
+    )
+    assert wi.get_work_item(engine, item_id)["checkpoint_id"] == "checkpoint:1"
+
+    # Contender B holds the SAME claim/lease (still fenced correctly -- this
+    # is not a stale-lease rejection) but its CAS condition
+    # (``expected_checkpoint_id=None``, baked into the request the moment it
+    # was built) is now stale because A already committed. It must be told
+    # CONFLICT (surfaced here as a plain ``False``, per this wrapper's
+    # documented bool-collapsing contract), not silently overwrite A's write.
+    with pytest.MonkeyPatch.context() as mp:
+        # Force the read `checkpoint_work_item` performs internally to still
+        # observe the PRE-A state, so its request is built exactly like a
+        # genuine second contender's would be -- the deterministic
+        # equivalent of "both readers observed the same value before either
+        # wrote."
+        original_get = wi.get_work_item
+
+        def stale_read(engine: Any, item_id_inner: str) -> dict[str, Any] | None:
+            item = original_get(engine, item_id_inner)
+            if item is not None:
+                item = {**item, "checkpoint_id": None}
+            return item
+
+        mp.setattr(wi, "get_work_item", stale_read)
+        assert not wi.checkpoint_work_item(
+            engine, item_id, claim, "checkpoint:2", now=12.0
+        )
+
+    # The loser's write never landed.
+    assert wi.get_work_item(engine, item_id)["checkpoint_id"] == "checkpoint:1"
 
 
 def test_native_retry_then_dead_letter(engine: NativeEngine) -> None:

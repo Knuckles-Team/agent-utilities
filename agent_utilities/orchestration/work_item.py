@@ -496,6 +496,69 @@ def _cas(
     return bool(fn(node_id, conditions, updates))
 
 
+def _cas_work_item_metadata(
+    engine: Any,
+    *,
+    tenant: str,
+    item_id: str,
+    expected_status: list[str],
+    now: float,
+    expected_lease: dict[str, Any] | None = None,
+    expected_checkpoint_id: str | None = None,
+    set_checkpoint_id: str | None = None,
+    expected_metadata: dict[str, Any] | None = None,
+    set_metadata: dict[str, Any] | None = None,
+    expected_prio_bucket: int | None = None,
+    set_prio_bucket: int | None = None,
+) -> bool:
+    """Native atomic CAS on one WorkItem's non-authority SCHEDULING METADATA
+    (checkpoint_id / metadata / prio_bucket) -- BUG-111's closed capability gap.
+
+    Replaces a raw :func:`_cas` (generic ``CompareAndSetNodeFields``) call on
+    an already-claimed WorkItem row, which the engine's native-WorkItem-
+    authority guard unconditionally refuses (RMDD-29). This goes through the
+    engine-native ``CasWorkItemMetadata`` RPC instead -- the SAME durable
+    WorkItem mutation authority ``ClaimWorkItem``/``RenewWorkItemLease`` use
+    (commit-before-ack), never a side path -- which distinguishes three
+    outcomes: ``"applied"``, ``"conflict"`` (a genuine lost race -- the row
+    exists but status/lease/the field's own expected prior value no longer
+    matches), and ``"not_found"`` (no such WorkItem row).
+
+    This wrapper still returns a plain ``bool`` (``True`` only for
+    ``"applied"``) to match every call site's existing ``bool`` contract --
+    conflict and not-found both read as ``False`` here, exactly as a stale-
+    condition CAS mismatch always has in this module (:func:`heartbeat`,
+    :func:`mark_running`, and the raw :func:`_cas` sites all collapse "lost
+    the race" to ``False`` for the same reason: the caller re-reads and
+    decides whether to retry). The three-way distinction is not lost -- it
+    lives at the wire/client layer (:meth:`WorkItemClient.cas_metadata`),
+    which is what actually cannot be collapsed. What this function does NOT
+    tolerate silently is a genuine CAPABILITY gap or a malformed engine
+    response: those still raise :class:`WorkItemBackendUnavailable` /
+    :class:`NativeWorkItemRequired`, never a silent ``False``.
+    """
+    request = {
+        "tenant": tenant,
+        "work_item_id": item_id,
+        "expected_status": list(expected_status),
+        "now_ms": max(0, int(now * 1000)),
+        "expected_lease": expected_lease,
+        "expected_checkpoint_id": expected_checkpoint_id,
+        "set_checkpoint_id": set_checkpoint_id,
+        "expected_metadata": expected_metadata,
+        "set_metadata": set_metadata,
+        "expected_prio_bucket": expected_prio_bucket,
+        "set_prio_bucket": set_prio_bucket,
+    }
+    answer = _native_call(engine, "cas_work_item_metadata", request)
+    outcome = answer.get("outcome") if isinstance(answer, dict) else None
+    if outcome not in {"applied", "conflict", "not_found"}:
+        raise WorkItemBackendUnavailable(
+            f"native CasWorkItemMetadata returned an invalid result for {item_id!r}"
+        )
+    return outcome == "applied"
+
+
 def _is_native_authority_refusal(exc: BaseException) -> bool:
     """True when ``exc`` is the engine's native WorkItem-authority guard
     (``epistemic-graph``'s ``work_item_capability`` module, RMDD-29) refusing a
@@ -505,53 +568,6 @@ def _is_native_authority_refusal(exc: BaseException) -> bool:
     this matches on the engine's own stable message prefix rather than a type.
     """
     return isinstance(exc, RuntimeError) and "native WorkItem authority" in str(exc)
-
-
-def _cas_or_raise_capability_gap(
-    engine: Any,
-    node_id: str,
-    conditions: dict[str, Any],
-    updates: dict[str, Any],
-    *,
-    capability: str,
-) -> bool:
-    """Route a metadata CAS through :func:`_cas`; convert a live native
-    -authority refusal into a clear, typed, actionable error instead of the
-    engine's raw wire-transport exception (BUG-11x).
-
-    U-24 lane discovery: ``epistemic-graph``'s native WorkItem-authority guard
-    (``work_item_capability::validate_generic_method``,
-    ``crates/eg-core/.../work_item_capability.rs`` on the engine side)
-    unconditionally refuses ANY generic ``CompareAndSetNodeFields`` on a
-    WorkItem row once it has been claimed (``claimed(node_id)?`` — checked
-    BEFORE any protected-field carve-out, so it is not limited to lease
-    fields). Confirmed live against the current engine build: claiming a
-    WorkItem then calling this on it raises
-    ``RuntimeError: staged MutationBatch durable commit failed: native
-    WorkItem authority required for generic replacement``. There is currently
-    no native typed RPC for this class of update (unlike claim/renew/commit/
-    cancel/defer, which are all native) — closing that gap requires a
-    cross-repo protocol change (BUG-11x, see BUG-LEDGER.md), not a client-side
-    fix. Until then, a caller of a FUNCTIONALLY IMPORTANT metadata update
-    (checkpoint progress, a pending-input request/response — as opposed to
-    the purely decorative ``downstream_ids`` index :func:`_append_downstream`
-    already degrades silently) deserves a clear, typed, actionable exception
-    naming the actual constraint, not a bare transport ``RuntimeError`` whose
-    message reads as a generic commit failure.
-    """
-    try:
-        return _cas(engine, node_id, conditions, updates)
-    except Exception as exc:  # noqa: BLE001 — re-raised as a typed error below
-        if not _is_native_authority_refusal(exc):
-            raise
-        raise WorkItemBackendUnavailable(
-            f"{capability} is not currently supported by the native WorkItem "
-            "authority for an already-claimed item (BUG-11x): the engine's "
-            "native-authority guard refuses any generic CompareAndSetNodeFields "
-            "on a claimed WorkItem row, and no native typed RPC yet exists for "
-            f"this field write. See work_item.py::{capability}'s docstring / "
-            "BUG-LEDGER.md."
-        ) from exc
 
 
 def _link(engine: Any, source_id: str, target_id: str, rel_type: str) -> None:
@@ -1400,19 +1416,20 @@ def checkpoint_work_item(
         return False
     epoch = claim.get("lease_epoch", claim.get("fence_token"))
     fencing_token = claim.get("fencing_token", claim.get("fence_token"))
-    conditions = {
-        "status": item.get("status"),
-        "tenant": item.get("tenant"),
-        "lease_owner": claim.get("lease_owner") or _default_token(),
-        "lease_epoch": epoch,
-        "fencing_token": fencing_token,
-    }
-    return _cas_or_raise_capability_gap(
+    lease_owner = claim.get("lease_owner") or _default_token()
+    return _cas_work_item_metadata(
         engine,
-        item_id,
-        conditions,
-        {"checkpoint_id": checkpoint_id, "updated_at": now},
-        capability="checkpoint_work_item",
+        tenant=str(item.get("tenant") or ""),
+        item_id=item_id,
+        expected_status=[str(item.get("status"))],
+        now=now,
+        expected_lease={
+            "worker_ref": lease_owner,
+            "lease_epoch": epoch,
+            "fencing_token": fencing_token,
+        },
+        expected_checkpoint_id=item.get("checkpoint_id"),
+        set_checkpoint_id=checkpoint_id,
     )
 
 
@@ -1691,20 +1708,20 @@ def request_work_item_input(
     new_metadata = dict(old_metadata)
     new_metadata["pending_input_request"] = clean_request
     new_metadata.pop("pending_input_response", None)
-    conditions = {
-        "status": item.get("status"),
-        "tenant": item.get("tenant"),
-        "lease_owner": claim.get("lease_owner") or _default_token(),
-        "lease_epoch": epoch,
-        "fencing_token": fencing_token,
-        "metadata": old_metadata,
-    }
-    return _cas_or_raise_capability_gap(
+    lease_owner = claim.get("lease_owner") or _default_token()
+    return _cas_work_item_metadata(
         engine,
-        item_id,
-        conditions,
-        {"metadata": new_metadata, "updated_at": now},
-        capability="request_work_item_input",
+        tenant=str(item.get("tenant") or ""),
+        item_id=item_id,
+        expected_status=[str(item.get("status"))],
+        now=now,
+        expected_lease={
+            "worker_ref": lease_owner,
+            "lease_epoch": epoch,
+            "fencing_token": fencing_token,
+        },
+        expected_metadata=old_metadata,
+        set_metadata=new_metadata,
     )
 
 
@@ -1744,13 +1761,14 @@ def submit_work_item_input(
     new_metadata = dict(old_metadata)
     new_metadata["pending_input_response"] = clean_response
     new_metadata.pop("pending_input_request", None)
-    conditions = {"tenant": tenant, "metadata": old_metadata}
-    return _cas_or_raise_capability_gap(
+    return _cas_work_item_metadata(
         engine,
-        item_id,
-        conditions,
-        {"metadata": new_metadata, "updated_at": now},
-        capability="submit_work_item_input",
+        tenant=tenant,
+        item_id=item_id,
+        expected_status=["leased", "running"],
+        now=now,
+        expected_metadata=old_metadata,
+        set_metadata=new_metadata,
     )
 
 
@@ -2567,15 +2585,11 @@ def set_work_item_priority(
 ) -> bool:
     """Update scheduling priority without granting claim/lease authority.
 
-    Best-effort against an already-CLAIMED WorkItem (BUG-11x): the engine's
-    native WorkItem-authority guard unconditionally refuses ANY generic CAS
-    on a claimed row (confirmed live), and priority is non-critical
-    scheduling metadata with no correctness impact if a bump is missed — the
-    same "decorative, no functional reader that would break" shape
-    :func:`_append_downstream` already degrades silently on, unlike
+    Routed through the same engine-native ``CasWorkItemMetadata`` RPC as
     :func:`checkpoint_work_item`/:func:`request_work_item_input`/
-    :func:`submit_work_item_input` (functionally important, so those raise a
-    clear typed error instead — see :func:`_cas_or_raise_capability_gap`).
+    :func:`submit_work_item_input` (BUG-111) — priority is a non-authority
+    scheduling field the native RPC supports directly, so this no longer hits
+    the native WorkItem-authority guard (RMDD-29) that a generic CAS would.
     """
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
 
@@ -2585,27 +2599,15 @@ def set_work_item_priority(
         if item is None or item.get("status") in TERMINAL_WORK_ITEM_STATUSES:
             return False
         current = int(item.get("prio_bucket") or 0)
-        try:
-            won = _cas(
-                engine,
-                item_id,
-                {"prio_bucket": current, "status": item.get("status")},
-                {
-                    "prio_bucket": _coerce_prio_bucket(priority),
-                    "updated_at": now,
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 — best-effort priority bump, see docstring
-            if not _is_native_authority_refusal(exc):
-                raise
-            logger.debug(
-                "work_item: priority bump for %s refused by native WorkItem "
-                "authority (claimed item, best-effort, no correctness impact): %s",
-                item_id,
-                exc,
-            )
-            return False
-        if won:
+        if _cas_work_item_metadata(
+            engine,
+            tenant=str(item.get("tenant") or ""),
+            item_id=item_id,
+            expected_status=[str(item.get("status"))],
+            now=now,
+            expected_prio_bucket=current,
+            set_prio_bucket=_coerce_prio_bucket(priority),
+        ):
             return True
     return False
 
