@@ -1223,6 +1223,85 @@ def test_pre_existing_contract_debt_does_not_block_an_unrelated_candidate(
 
 
 # ---------------------------------------------------------------------------
+# BUG-176: the base-tree baseline run must execute the CANDIDATE's version of
+# a check_*.py, not base_ref's OWN copy — otherwise a candidate that repairs
+# a blind check script has its own repair read as a regression, because the
+# two sides of the differential compare are measured with two DIFFERENT
+# instruments. Live incident: `fix/p0-workitem` fixed the ambient-`GIT_DIR`
+# blindness in `scripts/_git_scan.py` / `scripts/check_current_only_
+# contract.py` (BUG-174) and was rejected for the 28 pre-existing findings
+# its own fix newly made visible. See docs/architecture/merge-queue.md
+# "Repo-invariant contract checks on the merged tree" and BUG-LEDGER.md
+# BUG-176.
+# ---------------------------------------------------------------------------
+
+BLIND_CONTRACT = """\
+import pathlib, sys
+root = pathlib.Path(sys.argv[sys.argv.index("--repository-root") + 1])
+# BUG: only ever looks at pkg/core.py -- blind to pkg/legacy.py, the same
+# shape as BUG-174's ambient-GIT_DIR blindness in check_current_only_contract.py.
+targets = [root / "pkg" / "core.py"]
+violations = []
+for t in targets:
+    violations += sorted(
+        f"{t.name}:{line.strip()}"
+        for line in t.read_text().splitlines()
+        if line.strip().startswith("BAD_")
+    )
+if violations:
+    print("itemized gate failed:")
+    for v in violations:
+        print(f"- {v}")
+    sys.exit(1)
+sys.exit(0)
+"""
+
+# The repair: teaches the SAME script to also scan pkg/legacy.py. Nothing
+# about pkg/legacy.py's own content changes -- the violation it newly
+# reveals was always there.
+FIXED_CONTRACT = BLIND_CONTRACT.replace(
+    'targets = [root / "pkg" / "core.py"]',
+    'targets = [root / "pkg" / "core.py", root / "pkg" / "legacy.py"]',
+)
+
+
+def test_repaired_check_script_seeing_more_pre_existing_debt_is_not_a_regression(
+    canonical: Path,
+) -> None:
+    """The instrument-parity proof (BUG-176). main ships a check script that
+    is BLIND to a real, pre-existing violation in pkg/legacy.py (never scans
+    that file at all) -- and pkg/legacy.py already carries that violation on
+    main, before this candidate exists. A candidate that repairs ONLY the
+    check script (teaches it to also scan pkg/legacy.py) touches nothing
+    else -- in particular it never touches pkg/legacy.py's content. Fixing
+    the gate's own blindness must never read as the candidate INTRODUCING
+    the violation its repair newly reveals; both the base-tree and the
+    merged-tree run must be judged by the SAME (repaired) instrument.
+    """
+    _write(canonical, "pkg/core.py", "VALUE = 1\n")
+    _write(canonical, "pkg/legacy.py", "OLD = 1\nBAD_legacy = 1\n")
+    _write(canonical, "scripts/security/check_blind_contract.py", BLIND_CONTRACT)
+    _commit(
+        canonical,
+        "main: a blind check script + a pre-existing violation it cannot see",
+    )
+
+    lane = _branch(
+        canonical,
+        "lane-repairs-the-check",
+        {"scripts/security/check_blind_contract.py": FIXED_CONTRACT},
+    )
+    mq.enqueue(path=lane)
+    result = mq.run_queue(path=canonical, prune=False)
+    gate = result["outcomes"][0]["gate"]
+    check = next(c for c in gate["checks"] if c["name"] == "contract-checks")
+    assert result["landed"] == 1 and result["rejected"] == 0, check["detail"]
+    assert check["ok"] is True
+    assert "BAD_legacy" in check["detail"]
+    assert "pre-existing" in check["detail"]
+
+
+# ---------------------------------------------------------------------------
 # D-MQ-FP-1: a contract script's own INCIDENTAL report text (a count, a
 # range boundary — anything derived from the size/shape of what it scanned
 # rather than from a violation's identity) must never be diffed as if it
