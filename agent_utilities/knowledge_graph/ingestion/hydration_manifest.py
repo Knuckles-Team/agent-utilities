@@ -139,7 +139,7 @@ class GraphReader:
             rows = self.query(
                 "MATCH (n:HydrationPlanStep {id: "
                 + json.dumps(node_id)
-                + "}) RETURN n.status AS status, n.updated_at AS updated_at"
+                + "}) RETURN n.id AS id, n.status AS status, n.updated_at AS updated_at"
             )
         except Exception as exc:
             raise GraphReaderError(
@@ -150,6 +150,14 @@ class GraphReader:
         row = rows[0]
         if not isinstance(row, dict):
             return None
+        # U-18: the trusted row-governance boundary (`secured_reads.row_node_ids`)
+        # requires every returned row to carry a governed node identity, INCLUDING
+        # a bounded scalar projection like this one — a row with only `status`/
+        # `updated_at` and no `id` fails closed with "Graph result contains a row
+        # without a governed node id" before this method ever sees it. `n.id AS id`
+        # above satisfies that boundary; it is consumed here only to confirm the
+        # row is the expected node, never surfaced as part of this method's
+        # freshness payload (callers want status/updated_at, not identity).
         return {"status": row.get("status"), "updated_at": row.get("updated_at")}
 
 

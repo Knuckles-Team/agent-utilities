@@ -415,7 +415,20 @@ def _ensure_ontology_graph(gc: Any, graph_name: str) -> None:
         _KNOWN_ONTOLOGY_GRAPHS.add(graph_name)
         return
     try:
-        tenants.create(graph_name, "Ontology")
+        # U-96: "Ontology" is a semantic content label, not a member of the
+        # engine's closed GraphType wire enum (crates/eg-types/src/
+        # protocol.rs: Agent | Team | Global | Commons — see also the engine's
+        # own canonical ontology fixture, which creates global:ontology as
+        # GraphType::Global). The unsupported value used to fail to
+        # deserialize server-side, which previously surfaced as a multi-
+        # minute connection timeout rather than an immediate error (fixed
+        # separately in epistemic-graph's transport/decode-error path and in
+        # this client's tenants.create allowlist, which now also rejects an
+        # unsupported value like the old "Ontology" locally before any send).
+        # Ontology semantics live in the governed graph contents/provenance
+        # this dedicated graph hosts, not in the lifecycle/isolation category
+        # used to provision it.
+        tenants.create(graph_name, "Global")
     except Exception as exc:
         # Another process/writer may have won a create race — reverify before
         # treating this as fatal; otherwise fail closed (do not silently

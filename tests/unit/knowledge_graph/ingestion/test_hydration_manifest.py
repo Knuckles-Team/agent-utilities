@@ -102,6 +102,50 @@ def test_graph_reader_hydration_step_none_when_absent():
     assert reader.hydration_step("capabilities") is None
 
 
+@pytest.mark.concept("AU-KG.audit.hydration-manifest-signed")
+def test_graph_reader_hydration_step_survives_real_row_governance():
+    """U-18: boot hydration status probes queried only `n.status`/
+    `n.updated_at` with no governed node id, so the trusted row-governance
+    boundary (`secured_reads.row_node_ids`) fails every one of them closed
+    with ``PermissionError: Graph result contains a row without a governed
+    node id`` -- even though the graph and row are genuinely readable. This
+    module's own ``FakeReader`` above is too permissive to have caught that
+    (it never applies real governance), so this test drives the SAME
+    governance function a real served ``query_cypher`` call applies, proving
+    ``hydration_step``'s query retains ``n.id AS id`` for real, not just
+    against a lenient fixture.
+    """
+    from agent_utilities.knowledge_graph.core.secured_reads import row_node_ids
+
+    def governed_query(cypher: str):
+        row = {"status": "completed", "updated_at": "2026-07-29T00:00:00Z"}
+        if "n.id AS id" in cypher:
+            row = {"id": "boot-hydration:capabilities", **row}
+        row_node_ids([row])  # raises PermissionError on a row with no governed id
+        return [row]
+
+    reader = hm.GraphReader(query=governed_query, authority="serving")
+    record = reader.hydration_step("capabilities")
+    assert record == {"status": "completed", "updated_at": "2026-07-29T00:00:00Z"}
+
+
+@pytest.mark.concept("AU-KG.audit.hydration-manifest-signed")
+def test_graph_reader_hydration_step_query_retains_the_id_alias():
+    """Pins the query text so a future edit cannot silently drop the alias
+    without a test catching it directly (not just via the governance proof
+    above)."""
+    captured: dict[str, str] = {}
+
+    def capturing_query(cypher: str):
+        captured["cypher"] = cypher
+        return [{"id": "boot-hydration:capabilities", "status": "s", "updated_at": "u"}]
+
+    hm.GraphReader(query=capturing_query, authority="serving").hydration_step(
+        "capabilities"
+    )
+    assert "n.id AS id" in captured["cypher"]
+
+
 # ---------------------------------------------------------------------------
 # Verdict fusion — the absent-vs-hidden decision rule
 # ---------------------------------------------------------------------------
