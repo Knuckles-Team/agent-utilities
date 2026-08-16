@@ -62,6 +62,27 @@ _UNATTESTABLE_NATIVE_SOURCES_WITHOUT_SIGNING_KEY = frozenset(
     }
 )
 
+# BUG-161 — a REAL, currently open finding, not a masked one: `arxiv` and
+# `git_markdown` were registered as native source connectors in code (live
+# since 2026-07-30/31) but the bundled, SIGNED
+# `native-source-connectors/connector_manifest.yml` has never actually been
+# regenerated to cover them — `_native_provider_violations`'s new `[coverage]`
+# cross-check (added by this same lane to close the underlying detection gap)
+# now correctly reports this drift as `missing=['arxiv', 'git_markdown']`.
+# Closing the artifact itself (not just detecting the drift) requires
+# regenerating + re-signing the manifest with the fleet's release-signing
+# authority and re-pinning `agent_utilities/knowledge_graph/ontology.lock`'s
+# `agents/native-source-connectors/connector_manifest.yml` entry — a governed
+# release action this lane does not hold the key for (see
+# `ontology_integrity.rotation_record`'s "no silent substitution" contract).
+# Asserted EXACTLY, like the fingerprint carve-out above: any OTHER coverage
+# drift, or this one changing shape, fails the test loudly rather than
+# silently passing.
+_KNOWN_OPEN_NATIVE_COVERAGE_GAP = (
+    "[coverage] native-source-connectors/connector_manifest.yml: native "
+    "manifest and live registry inventory differ (missing=['arxiv', 'git_markdown'])"
+)
+
 
 def _assert_precheck_ok_or_only_unattestable_fingerprint_drift(
     result: dict, *, source: str
@@ -72,9 +93,10 @@ def _assert_precheck_ok_or_only_unattestable_fingerprint_drift(
     strict `ok is True` — identical to the pre-B1 assertion. When it is not
     (this sandbox), a mismatch is tolerated ONLY if it is precisely a
     `[tool-schema] ... differs from its signed code fingerprint` violation for
-    one of the named, expected native sources above — proving the manifest is
+    one of the named, expected native sources above, or the exact, named,
+    still-open `[coverage]` gap (BUG-161) above — proving the manifest is
     otherwise structurally sound and the gap is exactly, and only, the
-    documented missing-signing-authority one, not a masked regression.
+    documented ones, not a masked regression.
     """
     if result["ok"] is True:
         return
@@ -90,10 +112,12 @@ def _assert_precheck_ok_or_only_unattestable_fingerprint_drift(
                 for name in _UNATTESTABLE_NATIVE_SOURCES_WITHOUT_SIGNING_KEY
             )
         )
+        and violation != _KNOWN_OPEN_NATIVE_COVERAGE_GAP
     ]
     assert unexpected == [], (
         "connector precheck failed with violations beyond the documented "
-        "missing-ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF gap (B1): "
+        "missing-ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF gap (B1) and the "
+        "documented open BUG-161 native coverage gap: "
         f"{(source, unexpected)}"
     )
 

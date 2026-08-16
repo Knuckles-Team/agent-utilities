@@ -857,6 +857,35 @@ def _native_provider_violations(manifest: Any, *, path: Path, label: str) -> lis
         violations.append(
             f"[tool-schema] {label}: native manifest and fingerprint inventory differ"
         )
+    # BUG-161 — a THIRD, independent cross-check against the LIVE registry, not
+    # the sidecar. The manifest and its `tool_schema_fingerprints.json` sidecar
+    # are written together by the SAME generator run
+    # (`scripts/generate_native_connector_manifest.py`), so a source added to
+    # :data:`SOURCE_TO_CONNECTOR_PACKAGE` (and thus actually registered/activated
+    # in code) without re-running the generator leaves the manifest and sidecar
+    # in lockstep with EACH OTHER while both silently drift from what the code
+    # actually registers — the `declared != set(pins)` check above cannot see
+    # this because it only ever compares the manifest to its own sidecar. This
+    # needs no signing key (pure code/manifest comparison, like the fingerprint
+    # check above), so it fires identically in an unsigned sandbox and in real
+    # CI/release.
+    live_registered = {
+        source
+        for source, package in SOURCE_TO_CONNECTOR_PACKAGE.items()
+        if package == manifest.connector
+    }
+    missing = sorted(live_registered - declared)
+    extra = sorted(declared - live_registered)
+    if missing or extra:
+        detail = []
+        if missing:
+            detail.append(f"missing={missing}")
+        if extra:
+            detail.append(f"extra={extra}")
+        violations.append(
+            f"[coverage] {label}: native manifest and live registry inventory "
+            f"differ ({', '.join(detail)})"
+        )
     return violations
 
 

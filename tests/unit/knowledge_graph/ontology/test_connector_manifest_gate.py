@@ -232,6 +232,92 @@ def test_native_fingerprint_changes_for_transitive_dependency_tampering(
     assert "fixturepkg.optional" in third_modules
 
 
+def _load_native_manifest_generator():
+    """Load ``scripts/generate_native_connector_manifest.py`` the same way
+
+    ``tests/unit/scripts/test_generate_native_connector_manifest.py`` does —
+    it is a script, not an importable package module.
+    """
+    import importlib.util
+
+    repo_root = Path(gate.__file__).resolve().parents[3]
+    spec = importlib.util.spec_from_file_location(
+        "generate_native_connector_manifest",
+        repo_root / "scripts" / "generate_native_connector_manifest.py",
+    )
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _write_single_source_native_bundle(tmp_path: Path, monkeypatch, *, source: str) -> Path:
+    """Generate a self-consistent ``native-source-connectors`` bundle whose
+
+    ``sync`` list covers exactly ``{source}`` — isolates the coverage
+    cross-check under test from any unrelated fingerprint drift the real
+    bundled manifest may independently have.
+    """
+    gen = _load_native_manifest_generator()
+    single_source_map = {source: "native-source-connectors"}
+    monkeypatch.setattr(gate, "SOURCE_TO_CONNECTOR_PACKAGE", single_source_map)
+    monkeypatch.setattr(gen, "SOURCE_TO_CONNECTOR_PACKAGE", single_source_map)
+    output_dir = tmp_path / "native-source-connectors"
+    gen.write_bundle(output_dir)
+    return output_dir / "connector_manifest.yml"
+
+
+def test_native_coverage_gate_catches_a_registered_source_missing_from_manifest(
+    tmp_path: Path, monkeypatch
+):
+    """BUG-161 — reproduces the exact arxiv/git_markdown shape: ``arxiv`` and
+    ``git_markdown`` were registered as native source connectors in code
+    (:data:`gate.SOURCE_TO_CONNECTOR_PACKAGE`) but the bundled signed
+    ``native-source-connectors/connector_manifest.yml`` was never regenerated
+    to cover them. The pre-fix ``_native_provider_violations`` only cross-checked
+    the manifest against its OWN ``tool_schema_fingerprints.json`` sidecar —
+    written by the SAME stale generator run, so it agreed with itself vacuously
+    and never noticed the manifest had drifted from the live code registry. A
+    source registered for ``native-source-connectors`` that the bundled
+    manifest's ``sync`` list does not declare must be caught independent of the
+    sidecar.
+    """
+    path = _write_single_source_native_bundle(tmp_path, monkeypatch, source="web")
+    # After generation, the live registry gains a second source the manifest
+    # was never regenerated to cover — the exact arxiv/git_markdown shape.
+    gate.SOURCE_TO_CONNECTOR_PACKAGE["not_yet_in_any_manifest"] = (
+        "native-source-connectors"
+    )
+
+    violations = gate.check_manifest_bytes(path, require_provider=True)
+
+    assert any(
+        "[coverage]" in violation and "missing=['not_yet_in_any_manifest']" in violation
+        for violation in violations
+    ), violations
+
+
+def test_native_coverage_gate_catches_a_manifest_entry_no_longer_registered(
+    tmp_path: Path, monkeypatch
+):
+    """Mirror of the missing-from-manifest case above: a source the bundled
+    manifest still declares (``web``) but that code no longer registers under
+    ``native-source-connectors`` must also be caught by the same coverage
+    cross-check, not just a manifest-vs-sidecar comparison.
+    """
+    path = _write_single_source_native_bundle(tmp_path, monkeypatch, source="web")
+    # After generation, code stops registering the ONLY source the manifest
+    # declares — the mirror image of the missing-source case above.
+    del gate.SOURCE_TO_CONNECTOR_PACKAGE["web"]
+
+    violations = gate.check_manifest_bytes(path, require_provider=True)
+
+    assert any(
+        "[coverage]" in violation and "extra=['web']" in violation
+        for violation in violations
+    ), violations
+
+
 def test_resolve_connector_package_via_suffix_guess(tmp_path: Path):
     (tmp_path / "widget-mcp").mkdir()
     assert (
