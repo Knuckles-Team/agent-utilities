@@ -141,7 +141,8 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
         rows = execute_read(
             "MATCH (n) WHERE n.id IN $ids RETURN n.id AS id, "
             "n.tenant_id AS tenant_id, n.classification AS classification, "
-            "n.external_access AS external_access, n._owner_id AS owner_id",
+            "n.external_access AS external_access, n._owner_id AS owner_id, "
+            "n._shared_scope AS shared_scope",
             {"ids": list(node_ids)},
         )
     except Exception as exc:
@@ -167,6 +168,20 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
             "classification": row.get("classification"),
             "external_access": external_access,
             "owner_id": row.get("owner_id"),
+            # D-P0-U119: the write-time governance stamp
+            # (`tenant_sharing.stamp_ownership`) always writes `_owner_id` AND
+            # `_shared_scope` together -- an org-/commons-shared node has NO
+            # `external_access` descriptor (that shape is connector-only, see
+            # `_hydrate_missing_acls`'s docstring) and its private-by-default
+            # `_owner_id` alone denies every non-owner same-tenant reader. This
+            # field was previously dropped here, so `_hydrate_missing_acls` had
+            # no organization-sharing evidence and every non-owner reader in the
+            # SAME tenant was (incorrectly) default-denied post-restart/cache-miss
+            # even though `tenant_sharing.visible()`'s raw-row post-filter (a
+            # DIFFERENT, already-correct enforcement path) would have shown the
+            # row. Must be preserved through this mapping for
+            # `_hydrate_missing_acls` to reconcile it.
+            "shared_scope": row.get("shared_scope"),
         }
     return result
 
@@ -203,17 +218,40 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
        denied — even to its own owning actor, in production, not just tests.
 
     A node with neither ``external_access`` nor a stamped ``_owner_id``/
-    ``PUBLIC`` classification (unowned/system data, or first-party data
-    written before this fix existed) is left unregistered and stays denied —
-    fail-closed, exactly as before this fallback existed. This only unblocks a
-    node's own real, verified owner or genuinely PUBLIC data; it never widens
-    access for anyone else, and the cross-tenant check above still gates
-    every branch.
+    ``PUBLIC``/organization-shared classification (unowned/system data, or
+    first-party data written before this fix existed) is left unregistered
+    and stays denied — fail-closed, exactly as before this fallback existed.
+    This only unblocks a node's own real, verified owner, genuinely PUBLIC
+    data, or data explicitly org-/commons-shared BY ITS OWNER; it never
+    widens access for anyone else, and the cross-tenant check above still
+    gates every branch.
+
+    3. **Organization/commons sharing** (``_shared_scope`` — D-P0-U119).
+       ``tenant_sharing.stamp_ownership`` always writes ``_owner_id`` and
+       ``_shared_scope`` together, and the raw-row post-filter
+       (``tenant_sharing.visible``/``visibility_predicate``) already treats
+       ``_shared_scope in ('org', 'commons')`` as visible to every reader in
+       the SAME tenant. The per-node-ACL gate here (``permit``/
+       ``filter_rows`` → :class:`NodeACL`) had no equivalent: it only ever
+       granted the recorded owner or PUBLIC classification, so a same-tenant
+       non-owner reader was denied by THIS gate even though the raw-row
+       filter would have shown the row — a governed multi-row projection
+       (``filter_rows`` applies ``permit`` first) therefore silently dropped
+       every organization-shared row it did not itself own, most visibly
+       right after a process restart / ACL-cache miss. Fixed by granting the
+       verified reading actor explicit per-actor read access
+       (:attr:`NodeACL.read_actors`) whenever the durable row is
+       org-/commons-shared — additive only: it never touches
+       ``read_actors``/``read_roles``/``admin_actors`` for a private,
+       unshared node, and the same-tenant gate above still applies first.
     """
 
     from ...models.company_brain import DataClassification
     from ...protocols.source_connectors.base import ExternalAccess
     from ...protocols.source_connectors.permission_sync import sync_access
+    from .tenant_sharing import SCOPE_COMMONS, SCOPE_ORG
+
+    org_shared_scopes = {SCOPE_ORG, SCOPE_COMMONS}
 
     rows = _durable_access_rows(node_ids)
     for node_id in node_ids:
@@ -238,18 +276,24 @@ def _hydrate_missing_acls(node_ids: list[str], actor: ActorContext) -> None:
         # stamp instead of leaving the node permanently unclassified.
         parsed_classification = _parse_classification(properties.get("classification"))
         owner_id = str(properties.get("owner_id") or "").strip()
+        shared_scope = str(properties.get("shared_scope") or "").strip().lower()
+        org_shared = shared_scope in org_shared_scopes
         if parsed_classification is DataClassification.PUBLIC:
             get_company_brain().permissions.classify_node(
                 node_id, DataClassification.PUBLIC
             )
-        elif owner_id:
-            get_company_brain().permissions.classify_node(
+        elif owner_id or org_shared:
+            acl = get_company_brain().permissions.classify_node(
                 node_id,
                 parsed_classification or DataClassification.CONFIDENTIAL,
                 data_owner=owner_id,
             )
-        # else: no owner and not PUBLIC -> nothing to synthesize; the node
-        # stays denied (fail closed), identical to pre-fix behavior.
+            if org_shared and actor.actor_id not in acl.read_actors:
+                acl.read_actors.append(actor.actor_id)
+                get_company_brain().permissions.set_acl(acl)
+        # else: no owner, not PUBLIC, not org-/commons-shared -> nothing to
+        # synthesize; the node stays denied (fail closed), identical to
+        # pre-fix behavior.
 
 
 def audit_read(

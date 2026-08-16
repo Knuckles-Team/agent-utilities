@@ -22,7 +22,6 @@ from agent_utilities.protocols.source_connectors import (
 )
 from agent_utilities.protocols.source_connectors.connectors.git_markdown import (
     GIT_MARKDOWN_PRESETS,
-    GitMarkdownConnector,
     GitMarkdownError,
     fragment_markdown,
 )
@@ -38,7 +37,7 @@ def _git(repo, *args: str) -> str:
     ).stdout.strip()
 
 
-def _init_repo(tmp_path) -> "object":
+def _init_repo(tmp_path) -> object:
     repo = tmp_path / "repo"
     repo.mkdir()
     _git(repo, "init", "-q")

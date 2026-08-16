@@ -202,7 +202,10 @@ repos:
     # code; deployment.venv_sync/venv_autosync (previously listed here) now
     # import cleanly and needed no entry.
     entry: >-
-      python3 scripts/check_import_safety.py --package agent_utilities --simulate-windows
+      bash -c 'CMD="scripts/check_import_safety.py $*"; if [ -f uv.lock ]; then
+      exec python3 scripts/uv_workspace.py run --all-extras -- python3 $CMD; else
+      exec python3 $CMD; fi' --
+      --package agent_utilities --simulate-windows
       --exclude agent_utilities.knowledge_graph.core.file_lock
       --exclude agent_utilities.__main__
       --exclude agent_utilities.agent.factory

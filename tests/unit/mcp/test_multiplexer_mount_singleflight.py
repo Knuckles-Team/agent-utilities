@@ -16,9 +16,9 @@ failed leader does not poison a later retry.
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 import pytest
-from unittest.mock import AsyncMock
 
 from tests.unit.mcp.test_multiplexer_dynamic_gateway import (
     CNT,

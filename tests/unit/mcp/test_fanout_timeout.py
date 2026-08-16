@@ -129,11 +129,11 @@ def test_fanout_error_label_matches_error_surface_classification():
     """`fanout_error_label` is the single place `fanout_execute` and the
     `graph_query` primary-target mirror both call — direct unit coverage of
     the classification itself, independent of the concurrency machinery."""
-    assert fanout_error_label(EngineCircuitOpenError("breaker open")) == "target_degraded"
-    assert fanout_error_label(ConnectionError("connect refused")) == "target_degraded"
     assert (
-        fanout_error_label(ValueError("bad predicate")) == "target_operation_failed"
+        fanout_error_label(EngineCircuitOpenError("breaker open")) == "target_degraded"
     )
+    assert fanout_error_label(ConnectionError("connect refused")) == "target_degraded"
+    assert fanout_error_label(ValueError("bad predicate")) == "target_operation_failed"
     assert (
         fanout_error_label(
             CypherEngineError("Q", "read", EngineCircuitOpenError("open"))

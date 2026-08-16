@@ -20,8 +20,6 @@ from unittest.mock import patch
 
 import pytest
 
-from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-
 
 @pytest.fixture()
 def memory_tmpdir(tmp_path: Path):

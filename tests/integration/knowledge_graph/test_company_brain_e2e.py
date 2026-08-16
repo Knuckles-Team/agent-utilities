@@ -13,7 +13,6 @@ import pytest
 from agent_utilities.knowledge_graph.adaptation.feedback import FeedbackService
 from agent_utilities.knowledge_graph.backends import (
     GraphBackend,
-    create_backend,
 )
 from agent_utilities.knowledge_graph.core import secured_reads as sr
 from agent_utilities.knowledge_graph.core.company_brain_runtime import (

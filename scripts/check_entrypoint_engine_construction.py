@@ -50,9 +50,12 @@ only, 1 = a divergent construction path was found.
 from __future__ import annotations
 
 import ast
-import subprocess
 import sys
 from pathlib import Path
+
+_AU_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_AU_ROOT))
+from scripts._git_scan import repo_root_of, tracked_or_walked  # noqa: E402
 
 CONSTRUCTED_CLASS = "IntelligenceGraphEngine"
 BACKEND_FACTORY = "create_backend"
@@ -141,20 +144,17 @@ def _tracked_or_walked_py_files(root: Path) -> list[Path]:
     can carry a stale hand-rolled-construction violation no longer in real
     source. Falls back to a filesystem walk only when ``root`` is not inside
     a git working tree (e.g. a synthetic test fixture).
+
+    Every entrypoint tree scanned here can belong to a DIFFERENT repository
+    than this script's own (``agent-webui``, ``agent-terminal-ui``,
+    ``geniusbot`` are siblings of ``agent-utilities``, not subdirectories of
+    it) -- anchoring at this script's own ``_AU_ROOT`` would either miss the
+    anchor entirely or, worse, silently cross-contaminate under an ambient
+    ``GIT_DIR`` belonging to a DIFFERENT repo (confirmed empirically, see
+    ``scripts/_git_scan.py``). :func:`repo_root_of` finds each tree's own
+    correct anchor by pure filesystem inspection instead.
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [root / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(root.rglob("*.py"))
+    return tracked_or_walked(root, "*.py", root=repo_root_of(root) or root)
 
 
 def scan_tree(root: Path) -> dict[str, list[str]]:

@@ -21,6 +21,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+from agent_utilities.core._env import setting
 from agent_utilities.core.paths import ontology_dir, skills_dir, unified_prompts_dir
 from agent_utilities.core.provider_materialization import (
     MANAGED_PROVIDER_GENERATIONS,
@@ -108,8 +109,8 @@ def _secure_mkdir(path: Path, *, parents: bool = False, exist_ok: bool = False) 
         return
     import subprocess
 
-    domain = os.environ.get("USERDOMAIN", "")
-    user = os.environ.get("USERNAME", "")
+    domain = setting("USERDOMAIN", "")
+    user = setting("USERNAME", "")
     if not user:
         raise ProviderOwnershipConflict(
             f"cannot restrict {path} to the current user: USERNAME is unset"

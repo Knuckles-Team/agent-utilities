@@ -19,7 +19,6 @@ import asyncio
 import contextlib
 import hashlib
 import json
-import os
 import re
 import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Sequence
@@ -47,6 +46,7 @@ from opentelemetry.trace import get_current_span, get_tracer, use_span
 from pydantic import TypeAdapter, ValidationError
 from pydantic_ai.messages import ModelMessage, UserPromptPart
 
+from agent_utilities.core._env import setting
 from agent_utilities.security.persistence_privacy import (
     persistence_reference,
     sanitize_for_persistence,
@@ -126,12 +126,10 @@ _DISPATCH_CANCEL = 2
 #: stays consistent, plus fixed headroom for the connect/write phases the
 #: read budget does not cover.
 def _a2a_sync_call_deadline_seconds() -> float:
-    heavy = float(os.environ.get("GRAPH_SERVICE_HEAVY_RPC_TIMEOUT", "1200") or 1200)
-    connect = float(os.environ.get("GRAPH_SERVICE_CONNECT_TIMEOUT", "10") or 10)
-    write = float(os.environ.get("GRAPH_SERVICE_WRITE_TIMEOUT", "30") or 30)
-    margin = float(
-        os.environ.get("AGENT_UTILITIES_A2A_CALL_DEADLINE_MARGIN_SECONDS", "60") or 60
-    )
+    heavy = float(setting("GRAPH_SERVICE_HEAVY_RPC_TIMEOUT", 1200.0))
+    connect = float(setting("GRAPH_SERVICE_CONNECT_TIMEOUT", 10.0))
+    write = float(setting("GRAPH_SERVICE_WRITE_TIMEOUT", 30.0))
+    margin = float(setting("AGENT_UTILITIES_A2A_CALL_DEADLINE_MARGIN_SECONDS", 60.0))
     return heavy + connect + write + margin
 
 

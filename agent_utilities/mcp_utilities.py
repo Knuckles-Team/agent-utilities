@@ -7,7 +7,14 @@ New code should import from the submodules directly:
 - ``agent_utilities.mcp.context_helpers`` — ctx_* helpers
 - ``agent_utilities.mcp.delegated_auth`` — OAuth 2.0 delegation helpers
 
-CONCEPT:AU-ECO.mcp.standardized-interfaces — MCP Standardized Interfaces
+Not itself part of the AU-ECO.mcp.standardized-interfaces implementation — that
+marker stays on the real submodules above; this module only forwards to them.
+Retired-but-undeletable (scripts/check_current_only_contract.py's RETIRED_PATHS
+carries it as accepted debt): 15+ files across 6 live agents/* repos
+(aris-mcp, audiobookshelf-mcp, firefly-iii-mcp, freshrss-agent, hdhomerun-mcp,
+vector-mcp) import from here directly, so deleting it is a coordinated
+fleet-wide migration, not a change scoped to this repo. Do not delete without
+that migration landing first.
 """
 
 from agent_utilities._version import __version__ as __version__

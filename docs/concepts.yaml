@@ -1645,7 +1645,6 @@ concepts:
   - agent_utilities/mcp/delegated_auth.py
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/mcp/server_factory.py
-  - agent_utilities/mcp_utilities.py
   doc: MCP Standardized Interfaces
 - id: AU-ECO.mcp.stdio-static-purity-gate
   name: AU-ECO.mcp.stdio-static-purity-gate
@@ -3150,13 +3149,6 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: forward-simulate the learned world model with
-- id: AU-KG.coordination.centralized-kg-coordination-protocol
-  name: Centralized KG Coordination Protocol
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/mcp/kg_coordinator.py
-  doc: Centralized KG Coordination Protocol
 - id: AU-KG.coordination.embedder-breaker
   name: keeps a down embedder from being retry-stormed
   pillar: AU-KG
@@ -9406,6 +9398,13 @@ concepts:
   - agent_utilities/core/__init__.py
   - agent_utilities/core/wasm_runner.py
   doc: WASM Micro-Agent Sandbox & Runner
+- id: AU-OS.host.cgroup-resource-envelope
+  name: the live r18/r19 GraphOS pod ran with a
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/core/cgroup_resources.py
+  doc: the live r18/r19 GraphOS pod ran with a
 - id: AU-OS.host.doctor-unified-install
   name: AU-OS.host.doctor-unified-install
   pillar: AU-OS

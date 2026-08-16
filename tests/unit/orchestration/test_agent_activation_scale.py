@@ -25,12 +25,9 @@ MAX_RESIDENT_GRAPHS`` / cold-offload), doing strictly better on RSS. The
 from __future__ import annotations
 
 import os
-import threading
 import time
 from dataclasses import dataclass, field
 from typing import Any
-
-import pytest
 
 from agent_utilities.orchestration import agent_activation as aa
 from agent_utilities.orchestration import work_item as wi

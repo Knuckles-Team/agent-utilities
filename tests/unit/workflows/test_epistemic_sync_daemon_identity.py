@@ -71,10 +71,10 @@ def test_daemon_thread_binds_the_caller_ambient_session(monkeypatch) -> None:
     thread boundary and re-bound inside the daemon thread, so the thread's
     own sync-cycle work observes that SAME real, authenticated actor --
     never nothing and never a different/synthesized identity."""
+    import agent_utilities.workflows.epistemic_sync as es
     from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
     from agent_utilities.models.company_brain import ActorType
     from agent_utilities.security.brain_context import ActorContext, use_actor
-    import agent_utilities.workflows.epistemic_sync as es
 
     captured: list = []
     ready = threading.Event()

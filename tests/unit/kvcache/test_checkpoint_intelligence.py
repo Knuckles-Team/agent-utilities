@@ -37,7 +37,6 @@ import logging
 import pytest
 
 from agent_utilities.core.contextual_model import use_grounding_policy
-
 from agent_utilities.kvcache.checkpoint import (
     CrossTenantCheckpointError,
     KVCheckpointError,
@@ -52,15 +51,6 @@ from agent_utilities.kvcache.eligibility import (
     derive_caller_authority,
     get_persistence_eligibility_gate,
     set_persistence_eligibility_gate,
-)
-
-# The authority fixtures live with the derivation proofs
-# (``test_persistence_authority``); imported rather than duplicated so both modules
-# bind identical sessions and identical source labels.
-from tests.unit.kvcache.test_persistence_authority import (  # noqa: E402
-    caller,
-    labelled_source,
-    public_source,
 )
 from agent_utilities.kvcache.rebuild_cost import (
     RebuildCostInputs,
@@ -86,6 +76,15 @@ from agent_utilities.kvcache.worthiness import (
     clear_checkpoint_advisory,
     publish_checkpoint_advisory,
     render_checkpoint_advisory_instructions,
+)
+
+# The authority fixtures live with the derivation proofs
+# (``test_persistence_authority``); imported rather than duplicated so both modules
+# bind identical sessions and identical source labels.
+from tests.unit.kvcache.test_persistence_authority import (  # noqa: E402
+    caller,
+    labelled_source,
+    public_source,
 )
 
 # ---------------------------------------------------------------------------

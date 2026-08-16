@@ -219,7 +219,9 @@ def _materialize_root_cause_claims(
                     action_decision=verdict.decision,
                 )
             except Exception as e:  # noqa: BLE001 — the audit overlay is best-effort
-                errors.append(f"ops_causal:flywheel_reject {claim.id}: {type(e).__name__}")
+                errors.append(
+                    f"ops_causal:flywheel_reject {claim.id}: {type(e).__name__}"
+                )
     return claim_ids, errors, governance
 
 

@@ -83,7 +83,9 @@ def graph_write_and_engine(tmp_path, monkeypatch):
     registry = MagicMock()
     registry.is_writable.return_value = True
     monkeypatch.setattr(
-        kg_server, "_resolve_target_engines", lambda _t: ([("primary", engine)], {}, False)
+        kg_server,
+        "_resolve_target_engines",
+        lambda _t: ([("primary", engine)], {}, False),
     )
     monkeypatch.setattr(kg_server, "get_connection_registry", lambda: registry)
     return mock_mcp.funcs["graph_write"], engine
@@ -197,7 +199,9 @@ async def test_delete_edge_known_bad_input_refuses(graph_write_and_engine) -> No
     """delete_edge carried the identical missing-validation defect."""
     graph_write, engine = graph_write_and_engine
 
-    result = await graph_write(action="delete_edge", source_id="a", target_id="", rel_type="")
+    result = await graph_write(
+        action="delete_edge", source_id="a", target_id="", rel_type=""
+    )
 
     assert "Error" in str(result), f"got {result!r}"
     engine.delete_edge.assert_not_called()

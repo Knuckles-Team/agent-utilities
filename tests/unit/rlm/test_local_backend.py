@@ -83,10 +83,14 @@ async def test_two_concurrent_executions_do_not_cross_contaminate_stdout():
     gate_b = [asyncio.Event(), asyncio.Event()]
 
     env_a = SandboxEnv(
-        vars={}, tool_sources={}, helpers={"wait_for": _staggered_wait_for(started_a, gate_a)}
+        vars={},
+        tool_sources={},
+        helpers={"wait_for": _staggered_wait_for(started_a, gate_a)},
     )
     env_b = SandboxEnv(
-        vars={}, tool_sources={}, helpers={"wait_for": _staggered_wait_for(started_b, gate_b)}
+        vars={},
+        tool_sources={},
+        helpers={"wait_for": _staggered_wait_for(started_b, gate_b)},
     )
 
     code = "print('1')\nawait wait_for()\nprint('2')\nawait wait_for()\nprint('3')"

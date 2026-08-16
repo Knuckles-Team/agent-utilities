@@ -11,36 +11,16 @@ Usage: python scripts/check_domain_vocab.py [ROOT ...]  (default: cwd)
 
 from __future__ import annotations
 
-import os
-import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 from agent_utilities.governance import concept_hierarchy as ch
+from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 _EXT = {".py", ".rs", ".md"}
 _SKIP = {"__pycache__", ".git", ".venv", "node_modules", "target", "build", "dist"}
-_GIT_ENV_LEAK_KEYS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")
-
-
-def _git_subprocess_env() -> dict[str, str]:
-    """Environment for a ``git -C <subdir>`` call, scrubbed of inherited GIT_* vars.
-
-    ``git commit`` exports ``GIT_DIR``/``GIT_WORK_TREE``/``GIT_INDEX_FILE`` (pinned to
-    this worktree) for every hook it runs. A child ``git -C <subdir> ls-files``
-    subprocess that inherits those vars stops computing the ``-C``-relative path
-    prefix and instead emits repo-root-relative paths -- silently breaking every
-    caller that joins them back onto ``root`` (``root / line`` no longer resolves,
-    so callers that additionally check ``.is_file()`` filter the tracked set down
-    to nearly nothing, which made this gate scan **zero** files -- and thus
-    vacuously pass -- on every real ``git commit``). Reproduced directly: with
-    ``GIT_DIR`` set, ``git -C docs ls-files -- "*.md"`` returns paths like
-    ``.specify/design/README.md`` instead of ``CONTEXT.md``. Stripping these
-    keys forces fresh, ``-C``-relative discovery regardless of the parent
-    process's hook context.
-    """
-    return {k: v for k, v in os.environ.items() if k not in _GIT_ENV_LEAK_KEYS}
 
 
 def _candidate_files(root: Path) -> list[Path]:
@@ -50,24 +30,16 @@ def _candidate_files(root: Path) -> list[Path]:
     can carry a stale ``CONCEPT:`` marker no longer in real source. Falls
     back to a filtered filesystem walk only when ``root`` is not inside a
     git working tree.
+
+    Callers must pass an already-resolved (absolute) ``root`` -- see
+    :func:`scan`, which resolves once and reuses that value both for the
+    scan and for every ``relative_to`` display path.
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(root), "ls-files"],
-            capture_output=True,
-            text=True,
-            check=True,
-            env=_git_subprocess_env(),
-        ).stdout
-        tracked = [root / line for line in out.splitlines() if line]
-        if tracked:
-            return tracked
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return [p for p in root.rglob("*") if not any(s in p.parts for s in _SKIP)]
+    return tracked_or_walked(root, root=ROOT)
 
 
 def scan(root: Path) -> list[str]:
+    root = root.resolve()
     errs: list[str] = []
     known_slugs = set(ch.load_slug_registry().values())
     for p in _candidate_files(root):

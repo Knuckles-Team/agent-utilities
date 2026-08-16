@@ -129,7 +129,11 @@ def test_explicit_graph_mismatch_narrows_session_before_client_construction(
     with use_actor(READER_ACTOR), use_session(session):
         out = json.loads(
             engine_tools._dispatch(
-                "nodes", {"has"}, "has", json.dumps({"node_id": "n1"}), "tenant-other-graph"
+                "nodes",
+                {"has"},
+                "has",
+                json.dumps({"node_id": "n1"}),
+                "tenant-other-graph",
             )
         )
         # The ambient session is restored after `_dispatch` returns -- no leak.
@@ -193,7 +197,9 @@ def test_recursion_terminates_after_exactly_one_narrowing(monkeypatch):
     session = _session(READER_ACTOR, "tenant-acme-graph", "kg:read")
     with use_actor(READER_ACTOR), use_session(session):
         out = json.loads(
-            counting_dispatch("nodes", {"has"}, "has", '{"node_id": "n1"}', "tenant-other-graph")
+            counting_dispatch(
+                "nodes", {"has"}, "has", '{"node_id": "n1"}', "tenant-other-graph"
+            )
         )
 
     assert out["ok"] is True
@@ -250,7 +256,9 @@ def test_engine_tenants_list_then_engine_nodes_list_by_label_succeeds(monkeypatc
     client = _Client()
     monkeypatch.setattr(engine_tools, "_client_for", lambda graph: client)
 
-    admin_session = _session(ADMIN_ACTOR, "tenant-acme-graph", "kg:admin", "kg:read", "kg:write")
+    admin_session = _session(
+        ADMIN_ACTOR, "tenant-acme-graph", "kg:admin", "kg:read", "kg:write"
+    )
 
     with use_actor(ADMIN_ACTOR), use_session(admin_session):
         tenants_out = json.loads(
@@ -315,7 +323,9 @@ def test_verified_identity_preserved_through_narrowing(monkeypatch):
     monkeypatch.setattr(kg_server, "bound_to_graph", _spy_bound_to_graph)
 
     with use_actor(READER_ACTOR), use_session(session):
-        engine_tools._dispatch("nodes", {"has"}, "has", '{"node_id": "n1"}', "tenant-other-graph")
+        engine_tools._dispatch(
+            "nodes", {"has"}, "has", '{"node_id": "n1"}', "tenant-other-graph"
+        )
 
     assert len(observed_sessions) == 1
     narrowed = observed_sessions[0]

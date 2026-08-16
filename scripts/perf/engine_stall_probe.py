@@ -1,6 +1,10 @@
 """Correlate read-call stalls with concurrent WRITE activity on the global ServerState lock."""
 
-import asyncio, time, statistics, re, urllib.request
+import asyncio
+import re
+import statistics
+import time
+import urllib.request
 
 
 def snap():
@@ -33,8 +37,8 @@ WRITE_OPS = {
 
 
 async def main():
-    from agent_utilities.mcp.kg_server import _mint_process_session
     from agent_utilities.knowledge_graph.core.session import set_session
+    from agent_utilities.mcp.kg_server import _mint_process_session
     from agent_utilities.security.brain_context import set_actor
 
     s = await asyncio.to_thread(_mint_process_session, "auto")

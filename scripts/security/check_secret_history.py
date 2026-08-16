@@ -599,22 +599,26 @@ def _self_check() -> tuple[int, dict]:
         transcript_bad = (
             "Session log:\n"
             "$ cat .env\n"
-            'EPISTEMIC_GRAPH_SIGNER_KEYS_JSON={"agent:svc": "'
-            + ("e" * 32)
-            + '"}\n'
+            'EPISTEMIC_GRAPH_SIGNER_KEYS_JSON={"agent:svc": "' + ("e" * 32) + '"}\n'
             "Command completed.\n"
         )
-        text_hits = scan_text_for_credentials(transcript_bad, label="fake-transcript.txt")
+        text_hits = scan_text_for_credentials(
+            transcript_bad, label="fake-transcript.txt"
+        )
         text_caught = (
             len(text_hits) >= 1
-            and any(h["pattern"] == "engine_signer_credential_assignment" for h in text_hits)
+            and any(
+                h["pattern"] == "engine_signer_credential_assignment" for h in text_hits
+            )
             and all(h["file"] == "fake-transcript.txt" for h in text_hits)
         )
         transcript_clean = (
             "Session log:\nAgent rotated the signer_key for service:webui "
             "successfully; no further action needed.\n"
         )
-        text_clean = scan_text_for_credentials(transcript_clean, label="clean.txt") == []
+        text_clean = (
+            scan_text_for_credentials(transcript_clean, label="clean.txt") == []
+        )
 
         ok = (
             caught
@@ -692,7 +696,9 @@ def main() -> int:
         rc, result = _self_check()
     else:
         repo_root = args.repository_root.resolve()
-        baseline_path = repo_root / "scripts" / "security" / "secret_history_baseline.txt"
+        baseline_path = (
+            repo_root / "scripts" / "security" / "secret_history_baseline.txt"
+        )
         rc, result = check(repo_root, args.base, baseline_path=baseline_path)
 
     print(json.dumps(result, indent=2))

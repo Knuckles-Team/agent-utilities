@@ -480,7 +480,7 @@ def _script_reads(root: Path) -> set[str]:
     ``_scan_setting_calls`` surface: ``scripts/`` in this fleet is scaffolded, maintainer-only
     dev/CI tooling (validation harnesses, local gate runners) that reads its config with a
     hardcoded fallback default at the call site — e.g.
-    ``os.environ.get("A2A_URL", "http://127.0.0.1:9016/a2a/")`` in
+    an ``A2A_URL`` environment read defaulting to ``http://127.0.0.1:9016/a2a/`` in
     ``scripts/validate_a2a_agent.py``, or ``AGENT_UTILITIES_ROOT`` in the identical
     ``scripts/run_agent_utilities_gate.py`` shared byte-for-byte across 60+ packages in this
     fleet. Folding those reads into the documentable/UNDOCUMENTED surface too (tried first)

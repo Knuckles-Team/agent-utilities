@@ -34,9 +34,12 @@ the CI step to blocking.
 from __future__ import annotations
 
 import ast
-import subprocess
 import sys
 from pathlib import Path
+
+_AU_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_AU_ROOT))
+from scripts._git_scan import repo_root_of, tracked_or_walked  # noqa: E402
 
 # Allowlist is relative to the geniusbot *package* root (geniusbot/geniusbot/).
 ALLOWLISTED_ADAPTERS = {
@@ -76,20 +79,15 @@ def _tracked_or_walked_py_files(pkg_root: Path) -> list[Path]:
     can carry a stale layering violation no longer in real source. Falls
     back to a filesystem walk only when ``pkg_root`` is not inside a git
     working tree (e.g. a synthetic test fixture).
+
+    ``pkg_root`` is ``geniusbot/geniusbot`` -- a DIFFERENT repository than
+    this script's own ``agent-utilities`` -- so anchoring at this script's
+    own root would be wrong, and confirmed empirically to cross-contaminate
+    under an ambient ``GIT_DIR`` belonging to a DIFFERENT repo (see
+    ``scripts/_git_scan.py``). :func:`repo_root_of` finds geniusbot's own
+    correct anchor by pure filesystem inspection instead.
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(pkg_root), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [pkg_root / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(pkg_root.rglob("*.py"))
+    return tracked_or_walked(pkg_root, "*.py", root=repo_root_of(pkg_root) or pkg_root)
 
 
 def scan(pkg_root: Path) -> list[str]:

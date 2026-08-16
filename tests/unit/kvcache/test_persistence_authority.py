@@ -36,6 +36,11 @@ from contextlib import contextmanager
 
 import pytest
 
+from agent_utilities.knowledge_graph.core.session import (
+    GraphSession,
+    suspend_session,
+    use_session,
+)
 from agent_utilities.kvcache.checkpoint import (
     CrossTenantCheckpointError,
     KVCheckpointError,
@@ -61,11 +66,6 @@ from agent_utilities.kvcache.tiering import (
     prefix_digest,
 )
 from agent_utilities.kvcache.worthiness import CheckpointTier
-from agent_utilities.knowledge_graph.core.session import (
-    GraphSession,
-    suspend_session,
-    use_session,
-)
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import ActorContext
 from agent_utilities.security.delegation import (

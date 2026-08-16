@@ -18,7 +18,35 @@ from typing import Any, Literal
 
 from agent_utilities.security.persistence_privacy import persistence_reference
 
-NativeDisposition = Literal["completed", "unavailable", "error"]
+NativeDisposition = Literal["completed", "unavailable", "error", "no_data"]
+
+
+class OptimizationRequestError(Exception):
+    """Base class for a signal raised while building/validating a request payload.
+
+    Every subclass is raised by :meth:`OptimizationRequest.to_payload` — i.e.
+    strictly *before* the native optimizer is ever invoked — so none of them can
+    ever be confused with an exception raised by the native call itself
+    (``native_execution_failed`` is reserved exclusively for that).
+    """
+
+
+class OptimizationDataUnavailable(OptimizationRequestError):
+    """No governed training data is available for this request.
+
+    U-103/U-135: this is a **normal idle outcome** (there is simply nothing to
+    optimize yet), not a request defect and not an execution failure.
+    """
+
+
+class OptimizationCapabilityUnavailable(OptimizationRequestError):
+    """The requested optimizer strategy has no execution mapping in the native engine.
+
+    A missing capability, distinct from a malformed request: the shape of the
+    request is fine, but the optimizer it names does not exist.
+    """
+
+
 _OPAQUE_REF = re.compile(
     r"^eg:[a-z0-9_-]{1,32}(?::[a-z0-9_-]{1,32}){0,3}:[0-9a-f]{16,128}$"
 )
@@ -280,11 +308,15 @@ class OptimizationRequest:
     def to_payload(self) -> dict[str, Any]:
         rows = _training_rows(self.data)
         if not rows:
-            raise ValueError("native program optimization requires training examples")
+            raise OptimizationDataUnavailable(
+                "no governed training examples are available yet"
+            )
         optimizer = str(self.optimizer).strip().casefold()
         execution = _OPTIMIZER_EXECUTIONS.get(optimizer)
         if execution is None:
-            raise ValueError("native program optimizer is unsupported")
+            raise OptimizationCapabilityUnavailable(
+                f"native program optimizer {optimizer!r} has no execution mapping"
+            )
         tool_refs = _tool_references(self.data)
         if optimizer == "avatar" and not tool_refs:
             raise ValueError("Avatar optimization requires a governed tool reference")
@@ -515,12 +547,33 @@ def _program_authority(engine: Any) -> Any:
 def try_native_optimization(
     engine: Any, request: OptimizationRequest
 ) -> NativeOptimizationAttempt:
-    """Invoke the sole native backend and fail closed on protocol errors."""
+    """Invoke the sole native backend and fail closed on protocol errors.
+
+    U-103/U-135: the request is built and validated *before* the native call is
+    ever attempted, so a normal absence of governed training data (or a
+    malformed request, or an unsupported optimizer) can never be misclassified
+    as a native engine failure. ``native_execution_failed`` is reserved
+    strictly for an exception raised by the invoked native method itself.
+    """
     method = getattr(_program_authority(engine), "optimize_program", None)
     if not callable(method):
         return NativeOptimizationAttempt(disposition="unavailable")
+
     try:
-        raw = method(request.to_payload())
+        payload = request.to_payload()
+    except OptimizationDataUnavailable:
+        # No governed training data — a normal idle outcome, not a failure.
+        return NativeOptimizationAttempt(disposition="no_data")
+    except OptimizationCapabilityUnavailable:
+        # The named optimizer strategy has no execution mapping — a missing capability.
+        return NativeOptimizationAttempt(disposition="unavailable")
+    except Exception:  # noqa: BLE001 - malformed input is a request defect
+        return NativeOptimizationAttempt(
+            disposition="error", error_code="native_request_invalid"
+        )
+
+    try:
+        raw = method(payload)
     except Exception:  # noqa: BLE001 - durable reports receive only bounded codes
         return NativeOptimizationAttempt(
             disposition="error", error_code="native_execution_failed"
@@ -545,8 +598,12 @@ def try_native_optimization(
 
 __all__ = [
     "is_opaque_program_reference",
+    "NativeDisposition",
     "NativeOptimizationAttempt",
+    "OptimizationCapabilityUnavailable",
+    "OptimizationDataUnavailable",
     "OptimizationRequest",
+    "OptimizationRequestError",
     "opaque_program_reference",
     "try_native_optimization",
 ]

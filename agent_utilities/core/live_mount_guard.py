@@ -72,6 +72,7 @@ import enum
 import logging
 import os
 from pathlib import Path
+from typing import TypedDict
 
 from agent_utilities.core._env import setting
 
@@ -112,6 +113,22 @@ class LiveMountStatus(enum.StrEnum):
     IMMUTABLE_VERIFIED = "immutable_verified"
     DRIFT = "drift"
     NOT_APPLICABLE = "not_applicable"
+
+
+class LiveMountDetail(TypedDict, total=False):
+    """The typed payload accompanying a :class:`LiveMountStatus`.
+
+    ``total=False``: which keys are present varies by status (``reason`` only
+    for ``NOT_APPLICABLE``; ``active_source_mount``/optionally
+    ``source_revision`` otherwise) -- pinning the key set here, rather than a
+    bare ``dict[str, object]``, is what keeps ``observability.runtime_health``
+    (the sole caller) from drifting out of sync with what this module actually
+    emits, the exact seam class this module's own docstring calls out.
+    """
+
+    reason: str
+    active_source_mount: bool
+    source_revision: str
 
 
 #: Set to skip the check entirely -- for environments that intentionally run
@@ -206,7 +223,7 @@ def _installed_source_revision(package_dir: Path) -> str | None:
 
 def check_live_mount_status(
     *, package_dir: Path | None = None
-) -> tuple[LiveMountStatus, dict[str, object]]:
+) -> tuple[LiveMountStatus, LiveMountDetail]:
     """Typed, provenance-aware evaluation of the source-layout guard.
 
     Returns ``(status, detail)``. ``detail`` never contains secrets or raw

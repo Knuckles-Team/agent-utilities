@@ -509,7 +509,7 @@ def _check_source_provenance(cfg: Any) -> dict[str, Any]:  # noqa: ARG001 - unif
             "this package was imported from a directory that is not under an "
             "active source mount and carries no build-time provenance marker "
             "-- likely running STALE code baked in at build time (D-EGK-1)",
-            detail=detail,
+            detail=dict(detail),
         )
     # ACTIVE_MOUNT or IMMUTABLE_VERIFIED
     return _ok("source_provenance", detail={**detail, "status": status.value})

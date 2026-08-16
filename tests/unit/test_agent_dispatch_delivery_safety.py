@@ -230,9 +230,13 @@ def test_ack_gate_rejects_ack_before_durable_terminal_state():
     _wi.claim_specific(engine, work_item_id, token="w1")  # -> "leased", non-terminal
 
     acked: list[str] = []
-    queue = type("Q", (), {"ack": staticmethod(lambda item_id: acked.append(item_id))})()
+    queue = type(
+        "Q", (), {"ack": staticmethod(lambda item_id: acked.append(item_id))}
+    )()
 
-    result = worker._ack_after_durable_outcome(queue, "broker-item-1", engine, work_item_id)
+    result = worker._ack_after_durable_outcome(
+        queue, "broker-item-1", engine, work_item_id
+    )
 
     assert result is False
     assert acked == []  # the broker was never told to drop the message
@@ -254,9 +258,13 @@ def test_ack_gate_permits_ack_after_durable_terminal_state():
     _wi.commit_result(engine, work_item_id, claim, outcome="failed", retryable=False)
 
     acked: list[str] = []
-    queue = type("Q", (), {"ack": staticmethod(lambda item_id: acked.append(item_id))})()
+    queue = type(
+        "Q", (), {"ack": staticmethod(lambda item_id: acked.append(item_id))}
+    )()
 
-    result = worker._ack_after_durable_outcome(queue, "broker-item-2", engine, work_item_id)
+    result = worker._ack_after_durable_outcome(
+        queue, "broker-item-2", engine, work_item_id
+    )
 
     assert result is True
     assert acked == ["broker-item-2"]
@@ -267,7 +275,9 @@ def test_ack_gate_rejects_when_no_work_item_exists_at_all():
     never landed) must never be acked."""
     engine = _FakeOrchEngine()
     acked: list[str] = []
-    queue = type("Q", (), {"ack": staticmethod(lambda item_id: acked.append(item_id))})()
+    queue = type(
+        "Q", (), {"ack": staticmethod(lambda item_id: acked.append(item_id))}
+    )()
 
     result = worker._ack_after_durable_outcome(
         queue, "broker-item-3", engine, "workitem:dispatch:never-existed"
@@ -401,7 +411,6 @@ def test_dispatch_worker_pool_accepts_explicit_verified_session(monkeypatch):
     ``background_session`` is accepted (mirrors ``start_ingest_consumer_pool``'s
     ``background_session=`` parameter) without needing to re-derive one from
     ambient context."""
-    from types import SimpleNamespace
 
     captured: dict = {}
 
@@ -415,9 +424,7 @@ def test_dispatch_worker_pool_accepts_explicit_verified_session(monkeypatch):
         captured["session"] = session
         import threading as _threading
 
-        return _threading.Thread(
-            target=lambda: None, name=name, daemon=True
-        )
+        return _threading.Thread(target=lambda: None, name=name, daemon=True)
 
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.core.engine_tasks._authorized_background_thread",

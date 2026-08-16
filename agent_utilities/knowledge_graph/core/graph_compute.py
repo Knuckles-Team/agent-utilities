@@ -2627,6 +2627,37 @@ class GraphComputeEngine:
             now_ms=int(float(request.get("now_unix") or 0) * 1000),
         )
 
+    def cas_work_item_metadata(self, request: dict[str, Any]) -> Any:
+        """Atomic compare-and-set on one WorkItem's non-authority SCHEDULING
+        METADATA (checkpoint_id / metadata / prio_bucket) -- BUG-111.
+
+        The native replacement for a generic ``compare_and_set_node_fields``
+        against a WorkItem row, which the engine's native-WorkItem-authority
+        guard unconditionally refuses once the row is claimed. Returns a
+        mapping whose ``outcome`` is one of three DISTINCT values --
+        ``"applied"``/``"conflict"``/``"not_found"`` -- never collapsed to a
+        bool.
+        """
+        namespace = getattr(self._client, "work_items", None)
+        method = getattr(namespace, "cas_metadata", None)
+        if not callable(method):
+            raise NotImplementedError(  # ABSTRACT-OK: fail-closed when the connected engine build lacks this native surface
+                "connected engine has no work_items.cas_metadata"
+            )
+        return method(
+            tenant=str(request.get("tenant") or ""),
+            work_item_id=str(request.get("work_item_id") or ""),
+            expected_status=list(request.get("expected_status") or []),
+            now_ms=int(request.get("now_ms") or 0),
+            expected_lease=request.get("expected_lease"),
+            expected_checkpoint_id=request.get("expected_checkpoint_id"),
+            set_checkpoint_id=request.get("set_checkpoint_id"),
+            expected_metadata=request.get("expected_metadata"),
+            set_metadata=request.get("set_metadata"),
+            expected_prio_bucket=request.get("expected_prio_bucket"),
+            set_prio_bucket=request.get("set_prio_bucket"),
+        )
+
     def node_count(self) -> int:
         """Return the number of nodes in the graph."""
         return self._client.nodes.count()
@@ -2710,9 +2741,7 @@ class GraphComputeEngine:
             # path, which is intentionally distinct from the property write —
             # see its docstring) has no such key and is not stale by this
             # signal; it must not be penalized for a property it never had.
-            if "embedding" in node_properties and not node_properties.get(
-                "embedding"
-            ):
+            if "embedding" in node_properties and not node_properties.get("embedding"):
                 continue
             current.append((node_id, score))
             if len(current) >= n_results:

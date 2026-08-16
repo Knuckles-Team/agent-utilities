@@ -772,6 +772,7 @@ def pytest_collection_modifyitems(session, config, items):
     # Every collected test is a tests/unit test that never asks for the engine.
     _WORKER_NEEDS_ENGINE = False
 
+
 #: Generous headroom above the longest full-suite run observed (~37 minutes) —
 #: see :func:`_acquire_engine_daemon_lease`. The default ``hold_lease`` TTL
 #: (30 minutes) would let the lease be reclaimed as "dead" out from under a

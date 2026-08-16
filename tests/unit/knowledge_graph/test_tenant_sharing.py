@@ -45,6 +45,45 @@ def test_stamp_ownership_skips_privileged():
     assert props[ts.TENANT_KEY] == "acme"  # but still tenant-attributed
 
 
+def test_stamp_ownership_privileged_still_gets_shared_scope_marker():
+    """U-77: an unowned privileged write must still carry a native-recognized
+    visibility marker (``_shared_scope``), or the engine's row-level guard
+    (which denies any row with neither an owner nor a scope marker) makes the
+    row invisible to native Cypher after a process restart even though it is
+    present on disk and visible through the raw node/property API."""
+    props: dict = {}
+    ts.stamp_ownership(props, _user("root", "acme", roles=("kg:admin",)))
+    assert ts.OWNER_KEY not in props  # still unowned -- no personal owner
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG  # but now natively visible
+
+
+def test_stamp_ownership_privileged_preserves_narrower_caller_scope():
+    """A caller-supplied narrower scope (e.g. an explicit private share) must
+    survive privileged stamping -- the ``org`` default is only a ``setdefault``,
+    never an overwrite."""
+    props: dict = {ts.SCOPE_KEY: ts.SCOPE_PRIVATE}
+    ts.stamp_ownership(props, _user("root", "acme", roles=("kg:admin",)))
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_PRIVATE
+    assert ts.OWNER_KEY not in props
+
+
+def test_stamp_ownership_system_actor_still_gets_shared_scope_marker():
+    """The ``actor_id == "system"`` early-return path is the same intentional
+    "unowned platform write" case as ``is_privileged`` -- see the module
+    docstring's "privileged/system writes are left unowned" -- so it must get
+    the same native-visibility marker."""
+    props: dict = {}
+    actor = ActorContext(
+        actor_id="system",
+        actor_type=ActorType.SYSTEM,
+        tenant_id="acme",
+        authenticated=True,
+    )
+    ts.stamp_ownership(props, actor)
+    assert ts.OWNER_KEY not in props
+    assert props[ts.SCOPE_KEY] == ts.SCOPE_ORG
+
+
 def test_stamp_ownership_rejects_unverified_system_actor():
     props: dict = {}
     with pytest.raises(PermissionError):
@@ -418,8 +457,12 @@ def test_stamp_classification_does_not_require_an_actor():
 
 def test_check_system_graph_write_noop_for_non_system_graph():
     # Not a system graph at all -> no-op regardless of actor/type.
-    ts.check_system_graph_write("tenant__acme____commons__", "Message", _user("mallory", "acme"))
-    ts.check_system_graph_write("code:agent-utilities", "Message", _user("mallory", "acme"))
+    ts.check_system_graph_write(
+        "tenant__acme____commons__", "Message", _user("mallory", "acme")
+    )
+    ts.check_system_graph_write(
+        "code:agent-utilities", "Message", _user("mallory", "acme")
+    )
 
 
 def test_check_system_graph_write_denies_privileged_caller_of_private_type():
@@ -438,7 +481,14 @@ def test_check_system_graph_write_denies_privileged_caller_of_private_type():
 
 def test_check_system_graph_write_private_denylist_is_exactly_the_owner_six():
     assert ts.COMMONS_PRIVATE_NODE_TYPES == frozenset(
-        {"Message", "Thread", "Memento", "ChatSummary", "InboundMessage", "EvictedBlock"}
+        {
+            "Message",
+            "Thread",
+            "Memento",
+            "ChatSummary",
+            "InboundMessage",
+            "EvictedBlock",
+        }
     )
 
 
@@ -447,8 +497,17 @@ def test_check_system_graph_write_privileged_operational_type_now_allowed():
     are no longer refused by CONTENT for a privileged writer -- they were
     never the leak; the six confirmed private types are."""
     root = _user("root", "acme", roles=("kg:admin",))
-    for operational_type in ("WorkItem", "RuntimeSignal", "Concept", "Evidence", "Tool", "Skill"):
-        ts.check_system_graph_write("__commons__", operational_type, root)  # must not raise
+    for operational_type in (
+        "WorkItem",
+        "RuntimeSignal",
+        "Concept",
+        "Evidence",
+        "Tool",
+        "Skill",
+    ):
+        ts.check_system_graph_write(
+            "__commons__", operational_type, root
+        )  # must not raise
 
 
 def test_check_system_graph_write_tenant_bound_nonadmin_writes_workitem_permitted():
@@ -465,7 +524,9 @@ def test_check_system_graph_write_tenant_bound_nonadmin_writes_workitem_permitte
     """
     mallory = _user("mallory", "acme")  # tenant-bound, no kg:admin
     ts.check_system_graph_write("__commons__", "WorkItem", mallory)  # must not raise
-    ts.check_system_graph_write("__commons__", "RuntimeSignal", mallory)  # must not raise
+    ts.check_system_graph_write(
+        "__commons__", "RuntimeSignal", mallory
+    )  # must not raise
 
 
 def test_check_system_graph_write_commons_authority_exempt_but_control_graph_is_not():
@@ -474,9 +535,13 @@ def test_check_system_graph_write_commons_authority_exempt_but_control_graph_is_
     also test_check_system_graph_write_content_gate_is_commons_only_not_every_system_graph,
     which proves the converse: CONTENT does not apply to those graphs)."""
     mallory = _user("mallory", "acme")
-    ts.check_system_graph_write("__commons__", "WorkItem", mallory)  # commons: no authority check
+    ts.check_system_graph_write(
+        "__commons__", "WorkItem", mallory
+    )  # commons: no authority check
     with pytest.raises(PermissionError):
-        ts.check_system_graph_write("__control__", "ProfileSpan", mallory)  # control: authority still applies
+        ts.check_system_graph_write(
+            "__control__", "ProfileSpan", mallory
+        )  # control: authority still applies
 
 
 def test_check_system_graph_write_denies_unprivileged_caller_even_for_control_graph():
@@ -568,8 +633,15 @@ _CATALOG_READ_ROWS = [
 def test_filter_commons_catalog_cross_tenant_sees_only_catalog_types():
     """Read proof (new): a cross-tenant reader sees the catalog and nothing else."""
     bob = _user("bob", "globex")  # different tenant, no admin
-    seen = {r["id"] for r in ts.filter_commons_catalog(_CATALOG_READ_ROWS, bob, "__commons__")}
-    assert seen == {"s1", "t1", "cr1"}  # catalog types + AGENT_SKILL CallableResource only
+    seen = {
+        r["id"]
+        for r in ts.filter_commons_catalog(_CATALOG_READ_ROWS, bob, "__commons__")
+    }
+    assert seen == {
+        "s1",
+        "t1",
+        "cr1",
+    }  # catalog types + AGENT_SKILL CallableResource only
     assert "cr2" not in seen  # CallableResource without resource_type=AGENT_SKILL
     assert not ({"w1", "rs1", "c1", "m1"} & seen)  # no operational or private data
     assert "u1" not in seen  # unclassifiable -> fails CLOSED
@@ -577,8 +649,16 @@ def test_filter_commons_catalog_cross_tenant_sees_only_catalog_types():
 
 def test_filter_commons_catalog_same_tenant_still_sees_own_operational_data():
     alice = _user("alice", "acme")  # SAME tenant as the operational rows
-    seen = {r["id"] for r in ts.filter_commons_catalog(_CATALOG_READ_ROWS, alice, "__commons__")}
-    assert {"w1", "rs1", "c1", "m1"} <= seen  # own tenant's data, including Message here
+    seen = {
+        r["id"]
+        for r in ts.filter_commons_catalog(_CATALOG_READ_ROWS, alice, "__commons__")
+    }
+    assert {
+        "w1",
+        "rs1",
+        "c1",
+        "m1",
+    } <= seen  # own tenant's data, including Message here
 
 
 def test_filter_commons_catalog_novel_type_not_visible_cross_tenant():
@@ -588,14 +668,16 @@ def test_filter_commons_catalog_novel_type_not_visible_cross_tenant():
     alice = _user("alice", "acme")
     novel = [_row("n1", "SomeBrandNewNodeType2077", tenant="acme")]
     assert ts.filter_commons_catalog(novel, bob, "__commons__") == []
-    assert len(ts.filter_commons_catalog(novel, alice, "__commons__")) == 1  # own tenant, not destroyed
+    assert (
+        len(ts.filter_commons_catalog(novel, alice, "__commons__")) == 1
+    )  # own tenant, not destroyed
 
 
 def test_filter_commons_catalog_noop_for_privileged_actor():
     root = _user("root", "acme", roles=("kg:admin",))
-    assert len(ts.filter_commons_catalog(_CATALOG_READ_ROWS, root, "__commons__")) == len(
-        _CATALOG_READ_ROWS
-    )
+    assert len(
+        ts.filter_commons_catalog(_CATALOG_READ_ROWS, root, "__commons__")
+    ) == len(_CATALOG_READ_ROWS)
 
 
 def test_filter_commons_catalog_noop_for_non_commons_graph():
@@ -608,8 +690,12 @@ def test_filter_commons_catalog_noop_for_non_commons_graph():
 def test_commons_catalog_predicate_noop_cases():
     bob = _user("bob", "globex")
     root = _user("root", "acme", roles=("kg:admin",))
-    assert ts.commons_catalog_predicate(root, graph_name="__commons__") is None  # privileged
-    assert ts.commons_catalog_predicate(bob, graph_name="__control__") is None  # not commons
+    assert (
+        ts.commons_catalog_predicate(root, graph_name="__commons__") is None
+    )  # privileged
+    assert (
+        ts.commons_catalog_predicate(bob, graph_name="__control__") is None
+    )  # not commons
 
 
 def test_commons_catalog_predicate_carries_reader_tenant_and_types():
@@ -635,4 +721,7 @@ def test_apply_commons_catalog_restriction_injects_into_aggregate_query():
 def test_apply_commons_catalog_restriction_noop_for_non_commons_graph():
     bob = _user("bob", "globex")
     q = "MATCH (n:ProfileSpan) RETURN count(n) AS c"
-    assert ts.apply_commons_catalog_restriction(q, bob, "__control__", var="n") == (q, {})
+    assert ts.apply_commons_catalog_restriction(q, bob, "__control__", var="n") == (
+        q,
+        {},
+    )

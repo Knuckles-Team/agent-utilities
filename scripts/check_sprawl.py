@@ -14,9 +14,12 @@ Exit 0 = clean, 1 = violations found.
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 CLONE_RE = re.compile(r".*_(v\d+|old|new)\.py$")
 ARTIFACT_SUFFIXES = (".orig", ".rej", ".bak")
@@ -67,20 +70,9 @@ TEXT_SUFFIXES = {
 
 def _candidate_files(root: Path):
     """Prefer git-tracked files (ignores build/data junk & .gitignored files);
-    fall back to a filtered filesystem walk outside a git repo."""
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(root), "ls-files"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [root / line for line in out.splitlines() if line]
-        if tracked:
-            return tracked
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return [p for p in root.rglob("*") if not any(d in p.parts for d in SKIP_DIRS)]
+    fall back to a filesystem walk outside a git repo (BUG-043) -- ``scan()``
+    below re-filters ``SKIP_DIRS`` on every candidate regardless of source."""
+    return tracked_or_walked(root, root=ROOT)
 
 
 def scan(root: Path) -> list[str]:

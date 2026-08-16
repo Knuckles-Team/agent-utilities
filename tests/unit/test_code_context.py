@@ -179,6 +179,73 @@ def test_no_anchor_degrades_gracefully():
     assert "No resolved code symbol" in res["answer"]
 
 
+@pytest.mark.concept("AU-KG.retrieval.synthesized-cited-answer")
+def test_bug004_engine_degraded_during_anchor_resolution_is_not_reported_as_no_symbol():
+    """BUG-004: an engine outage during anchor resolution must NOT read the
+    same as "no such symbol". Reproduced live against the running graph-os:
+    a well-known, definitely-ingested symbol (``dispatch_intent``) returned
+    the exact same "No resolved code symbol matched" / "may not be ingested
+    yet" answer as a genuinely absent one, because `_rows` swallowed the
+    underlying `CypherEngineError`/`EngineCircuitOpenError` into a bare `[]`
+    indistinguishably from a real empty result."""
+    from agent_utilities.knowledge_graph.core.engine_breaker import (
+        EngineCircuitOpenError,
+    )
+
+    class BreakerOpenEngine:
+        def query_cypher(self, cypher, params):
+            raise EngineCircuitOpenError("engine")
+
+    res = build_code_context(
+        BreakerOpenEngine(), query="dispatch_intent", intent="how"
+    )
+    assert res["status"] == "degraded"
+    assert res["error"] is not None
+    assert res["error"]["code"] == "engine_degraded"
+    # The old false-confident phrasing must be gone from this path.
+    assert "may not be ingested" not in res["answer"]
+    assert "unavailable" in res["answer"] or "degraded" in res["answer"]
+
+
+@pytest.mark.concept("AU-KG.retrieval.synthesized-cited-answer")
+def test_bug004_rows_distinguishes_degraded_from_genuinely_empty():
+    """Negative-direction proof: a real query rejection (not an engine
+    outage) still degrades gracefully to `[]`, exactly as before — this fix
+    narrows the swallow to ONLY the breaker/transport class, it does not
+    remove best-effort tolerance for a malformed/rejected query."""
+    from agent_utilities.knowledge_graph.retrieval.code_context import _rows
+
+    class RejectingEngine:
+        def query_cypher(self, cypher, params):
+            raise ValueError("malformed cypher")
+
+    assert _rows(RejectingEngine(), "MATCH (n) RETURN n", {}) == []
+
+
+@pytest.mark.concept("AU-KG.retrieval.synthesized-cited-answer")
+def test_bug004_enrichment_degradation_after_anchor_resolves_does_not_crash():
+    """A breaker trip AFTER the anchor already resolved must still return a
+    grounded (if incomplete) answer, never an unhandled exception out of
+    build_code_context — this is the regression the enrichment-phase
+    try/except specifically guards against, now that `_rows` can raise."""
+    from agent_utilities.knowledge_graph.core.engine_breaker import (
+        EngineCircuitOpenError,
+    )
+
+    class DegradesAfterAnchorEngine(FakeEngine):
+        def query_cypher(self, cypher, params):
+            if "c.name = $tok" in cypher or "CONTAINS $tok" in cypher:
+                return super().query_cypher(cypher, params)
+            raise EngineCircuitOpenError("engine")
+
+    res = build_code_context(
+        DegradesAfterAnchorEngine(), query="run_agent", intent="how"
+    )
+    assert res["anchors"]  # the anchor itself DID resolve
+    assert res["status"] == "degraded"
+    assert res["coverage"]["enrichment_degraded"] is True
+
+
 @pytest.mark.concept("AU-KG.retrieval.every-usage-published-symbol")
 def test_cross_repo_usages_grouped_by_repo():
     info = cross_repo_usages(FakeEngine(), "run_agent")
