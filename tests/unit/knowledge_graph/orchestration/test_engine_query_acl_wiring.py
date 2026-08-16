@@ -118,3 +118,30 @@ def test_session_records_a_read_audit(brain):
     with use_session(session):
         _Engine(_NODES).search_hybrid("q", top_k=5, session=session)
     assert brain.provenance.read_count == before + 1
+
+
+def test_denied_high_score_candidate_cannot_crowd_out_an_authorized_result(brain):
+    """U-107/U-132 — ACL enforcement must run BEFORE the score gate trims to
+    ``top_k``, not after.
+
+    Regression for the crowd-out defect: an unauthorized (no registered ACL,
+    denied fail-closed) candidate scored highest and an authorized PUBLIC
+    candidate scored lowest. With ``top_k=1``, applying the score gate first
+    keeps ONLY the denied high-score node — ACL then strips it and the
+    legitimately authorized result never reaches the caller at all, even
+    though it was retrieved and the actor is entitled to read it. Enforcing
+    ACL on the raw candidate set first means the denied node never occupies
+    the single top-k slot, so the authorized node is returned.
+    """
+    brain.permissions.set_acl(
+        NodeACL(node_id="permitted-low", classification=DataClassification.PUBLIC)
+    )
+    nodes = [
+        {"id": "denied-high", "type": "Doc", "_score": 0.95, "status": "ACTIVE"},
+        {"id": "permitted-low", "type": "Doc", "_score": 0.1, "status": "ACTIVE"},
+    ]
+    actor = _actor()
+    session = _session(actor)
+    with use_session(session):
+        out = _Engine(nodes).search_hybrid("q", top_k=1, session=session)
+    assert [n["id"] for n in out] == ["permitted-low"]
