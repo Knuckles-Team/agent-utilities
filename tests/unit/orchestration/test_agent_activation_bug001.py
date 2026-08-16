@@ -38,7 +38,6 @@ import pytest
 
 from agent_utilities.orchestration import agent_activation as aa
 from agent_utilities.orchestration import work_item as wi
-
 from tests.unit.orchestration.test_agent_activation import ActivationEngine
 
 
@@ -122,8 +121,12 @@ def test_bug001_reproduction_via_the_real_worker_loop(
     (and the fix) hold at the entrypoint a real deployment uses, not only at the
     lower-level function tests exercise directly.
     """
-    instance_id = aa.register_agent_instance(engine, agent_name="prod-agent-2", tenant="t")
-    wid = aa.deliver_activation(engine, instance_id, message_ref="msg:x", source="direct")
+    instance_id = aa.register_agent_instance(
+        engine, agent_name="prod-agent-2", tenant="t"
+    )
+    wid = aa.deliver_activation(
+        engine, instance_id, message_ref="msg:x", source="direct"
+    )
     stop = threading.Event()
     processed = aa.run_activation_worker_loop(
         engine, stop, tenants=["t"], max_activations=1
@@ -200,7 +203,9 @@ def test_bug001_no_toolcall_on_a_path_that_reports_success(
     consumer can mistake it for a real agent turn.
     """
     aa.set_activation_diagnostic_mode(True)
-    instance_id = aa.register_agent_instance(engine, agent_name="diag-agent", tenant="t")
+    instance_id = aa.register_agent_instance(
+        engine, agent_name="diag-agent", tenant="t"
+    )
     aa.deliver_activation(engine, instance_id, message_ref="m1", source="timer")
     stop = threading.Event()
     aa.run_activation_worker_loop(engine, stop, tenants=["t"], max_activations=1)
@@ -210,7 +215,9 @@ def test_bug001_no_toolcall_on_a_path_that_reports_success(
     )
     receipts = engine.by_label(aa._RECEIPT_LABEL)
     assert len(receipts) == 1
-    assert receipts[0]["executor_status"] == aa.ActivationExecutorStatus.UNAVAILABLE.value
+    assert (
+        receipts[0]["executor_status"] == aa.ActivationExecutorStatus.UNAVAILABLE.value
+    )
 
 
 def test_bug001_bound_executor_that_fails_is_tagged_failed_not_unavailable(
@@ -225,7 +232,9 @@ def test_bug001_bound_executor_that_fails_is_tagged_failed_not_unavailable(
         return aa.ActivationResult(outcome="failed", retryable=True, error_ref="boom")
 
     aa.set_activation_executor(failing_executor)
-    instance_id = aa.register_agent_instance(engine, agent_name="fail-agent", tenant="t")
+    instance_id = aa.register_agent_instance(
+        engine, agent_name="fail-agent", tenant="t"
+    )
     wid = aa.deliver_activation(engine, instance_id, message_ref="m", source="direct")
     claim = wi.claim_next(
         engine, resource_class=aa.WORK_ITEM_KIND, queue=aa.WORK_ITEM_KIND

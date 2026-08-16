@@ -4,10 +4,13 @@
 from __future__ import annotations
 
 import ast
-import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
+
 PACKAGE = ROOT / "agent_utilities"
 FACTORY = Path("agent_utilities/core/http_client.py")
 
@@ -20,19 +23,8 @@ def _tracked_or_walked_py_files(package: Path) -> list[Path]:
     Falls back to a filesystem walk only when ``package`` is not inside a
     git working tree (e.g. a synthetic test fixture).
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(package), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [package / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(package.rglob("*.py"))
+    return tracked_or_walked(package, "*.py", root=ROOT)
+
 
 # Files whose direct construction of a blocked HTTP client is intentional and
 # justified inline at the call site, not just here (mirrors

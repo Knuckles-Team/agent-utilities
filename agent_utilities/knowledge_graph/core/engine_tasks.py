@@ -2,6 +2,7 @@ import asyncio
 import base64
 import json
 import logging
+import random
 import re
 import threading
 import time
@@ -330,37 +331,100 @@ def _kg_dev_mode() -> bool:
 
 
 def compute_ingest_worker_count(configured: int | None = None) -> int:
-    """Autosize the ingest worker pool for THIS host (CPU + memory bounded).
+    """Autosize the ingest worker pool for THIS CGROUP (CPU + memory bounded).
 
     The single sizing policy shared by the in-process task workers and the
-    decoupled ``kg-ingest`` consumer pool (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): ~36% of the cores,
-    capped by available memory at ~3 GB per heavy worker, floor of 2. An
-    explicit ``configured`` value (``KG_INGESTION_WORKERS``) wins outright.
+    decoupled ``kg-ingest`` consumer pool (CONCEPT:AU-KG.ingest.decoupled-kg-ingest-consumer): ~36% of the
+    *effective* cores (the tighter of the cgroup CPU quota and the host's visible
+    core count — :mod:`agent_utilities.core.cgroup_resources`), capped by *effective*
+    memory (the tighter of the cgroup limit and host-available memory) at ~3 GB per
+    heavy worker, floor of 1.
+
+    U-64/BUG-110: a live 1.5-CPU/4-GiB pod on a 192-core host previously got
+    ``os.cpu_count()``/``psutil.virtual_memory()`` — the HOST's view, not the
+    container's — producing 69 workers and 65.9% throttled scheduling periods.
+    An explicit ``configured`` value (``KG_INGESTION_WORKERS``) is still an
+    override, but it is now an escape hatch for tuning *within* the actual
+    envelope, not a way to force more workers than the cgroup can schedule: it
+    is clamped to the same ceiling the automatic path computes (a requested
+    69 also resolves to 1 inside that 1.5-CPU/4-GiB envelope).
     """
     if configured is None:
         from agent_utilities.core.config import DEFAULT_KG_INGESTION_WORKERS
 
         configured = DEFAULT_KG_INGESTION_WORKERS
-    if configured:
-        return int(configured)
+
     try:
-        import os
+        from agent_utilities.core.cgroup_resources import (
+            effective_cpu_cores,
+            effective_memory_limit_bytes,
+        )
 
-        import psutil
-
-        # Memory bound: assume ~3GB RAM per heavy (parse/LLM) worker.
-        mem = psutil.virtual_memory()
-        available_gb = mem.available / (1024**3)
-        max_mem_workers = max(1, int(available_gb / 3.0))
-
-        # CPU bound: target ~36% of the cores so ingest never starves the box.
-        cores = os.cpu_count() or 4
+        # CPU bound: target ~36% of the effective cores so ingest never starves the box.
+        cores = effective_cpu_cores()
         max_cpu_workers = max(1, int(cores * 0.36))
 
-        return max(2, min(max_cpu_workers, max_mem_workers))
+        # Memory bound: assume ~3GB RAM per heavy (parse/LLM) worker.
+        mem_limit = effective_memory_limit_bytes()
+        if mem_limit is not None:
+            available_gb = mem_limit / (1024**3)
+            max_mem_workers = max(1, int(available_gb / 3.0))
+        else:
+            max_mem_workers = max_cpu_workers
+
+        ceiling = max(1, min(max_cpu_workers, max_mem_workers))
     except Exception as e:  # noqa: BLE001 — sizing is best-effort
         logger.debug("Dynamic worker scaling failed, falling back to 4: %s", e)
-        return 4
+        ceiling = 4
+
+    if configured:
+        return max(1, min(int(configured), ceiling))
+    return ceiling
+
+
+# --- U-65/BUG-111: claim/admission churn backoff -----------------------------
+# A live pod ran a fixed-cadence idle poll (2s) and a fixed 1s admission-denied
+# retry with NO jitter. Every idle worker woke in lockstep, and every
+# admission-denied claim came back exactly 1s later -- synchronizing however
+# many workers the pool had into a thundering-herd claim/defer cycle (2,278
+# claim calls + 344 defers in one observed 5-minute window). These two knobs
+# replace both fixed cadences with bounded, jittered, per-poll values so
+# concurrent workers desynchronize instead of retrying in the same instant.
+
+#: Idle-poll backoff: doubles per consecutive empty poll from this floor...
+_IDLE_BACKOFF_FLOOR_SECS = 1.0
+#: ...capped here (matches the pre-existing bulk-ingest hard floor of 15s).
+_IDLE_BACKOFF_CAP_SECS = 15.0
+#: Positive jitter added on top of the exponential value, as a fraction of it.
+_IDLE_BACKOFF_JITTER_FRACTION = 0.25
+
+#: Admission-denied claims are re-offered somewhere in this bounded window
+#: instead of always exactly 1s later, so competing workers spread out.
+_ADMISSION_RETRY_MIN_SECS = 5.0
+_ADMISSION_RETRY_MAX_SECS = 15.0
+
+
+def _idle_backoff_seconds(miss_streak: int) -> float:
+    """Bounded exponential idle-poll backoff with positive jitter (U-65/BUG-111).
+
+    ``miss_streak`` is this worker thread's count of consecutive empty polls
+    (reset to 0 the moment it claims something). The base delay doubles each
+    additional miss, capped at :data:`_IDLE_BACKOFF_CAP_SECS`; jitter in
+    ``[0, base * _IDLE_BACKOFF_JITTER_FRACTION]`` is added on top so workers
+    that happened to go idle at the same instant do not keep waking together.
+    """
+    exponent = max(0, int(miss_streak) - 1)
+    base = min(_IDLE_BACKOFF_CAP_SECS, _IDLE_BACKOFF_FLOOR_SECS * (2**exponent))
+    # nosec B311 - scheduling jitter to desynchronize idle workers (U-65), not a
+    # security/cryptographic use; a CSPRNG would be slower for no benefit here.
+    jitter = random.uniform(0.0, base * _IDLE_BACKOFF_JITTER_FRACTION)  # nosec B311
+    return base + jitter
+
+
+def _admission_retry_delay_seconds() -> float:
+    """A jittered admission-denied re-offer delay (U-65/BUG-111), replacing a fixed 1s retry."""
+    # nosec B311 - retry jitter, not a security/cryptographic use (see above).
+    return random.uniform(_ADMISSION_RETRY_MIN_SECS, _ADMISSION_RETRY_MAX_SECS)  # nosec B311
 
 
 # Embedding-backfill sizing. Previously the single overloaded
@@ -493,6 +557,47 @@ def _task_status_from_work_item(item: dict[str, Any] | None) -> str:
         "cancelled": "cancelled",
         "dead_letter": "dead_letter",
     }.get(status, "unknown")
+
+
+def _record_workitem_claim_outcome(outcome: str) -> None:
+    """Publish one native WorkItem claim-poll outcome (U-66/U-92/BUG-171).
+
+    Module-level (not a :class:`TaskManagerMixin` method) on purpose: it
+    touches only the process-wide gateway metrics registry, never ``self``,
+    so every lightweight ``_claim_next_task`` test double across this
+    package's test suite (none of which subclass ``TaskManagerMixin``) calls
+    the SAME real ``_claim_next_task`` body without each needing to bind a
+    metrics-recording method it has no other reason to know about.
+
+    No-op-cheap: without ``prometheus_client`` the counter is a shared
+    no-op, same convention as :meth:`TaskManagerMixin._record_queue_telemetry`.
+    ``outcome`` is always exactly ``"claimed"`` or ``"empty"`` (bounded
+    cardinality); never a WorkItem id, job id, or path.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import WORKITEM_CLAIMS
+
+        WORKITEM_CLAIMS.labels(queue="ingest_task", outcome=outcome).inc()
+    except Exception:  # noqa: BLE001 — telemetry must never break the claim path
+        pass
+
+
+def _record_workitem_admission_deferral(task_type: str) -> None:
+    """Publish one reserved-worker AdmissionPolicy deferral (U-66/U-92/BUG-171).
+
+    Fires only for the general/unrestricted claim path's admission denial
+    (:meth:`TaskManagerMixin._claim_next_task`) — never for the
+    hydration-priority floor, which is never second-guessed by admission.
+    Module-level for the same reason as :func:`_record_workitem_claim_outcome`.
+    """
+    try:
+        from agent_utilities.observability.gateway_metrics import (
+            WORKITEM_ADMISSION_DEFERRALS,
+        )
+
+        WORKITEM_ADMISSION_DEFERRALS.labels(task_type=task_type).inc()
+    except Exception:  # noqa: BLE001 — telemetry must never break the claim path
+        pass
 
 
 def _retryable_partial_materialization(error: BaseException) -> dict[str, Any] | None:
@@ -753,9 +858,59 @@ class _ControlPlaneWorkItemEngine:
     def __init__(self, host: "TaskManagerMixin") -> None:
         self._host = host
 
+    def _control_session_scope(self) -> Any:
+        """Temporarily retarget the ambient verified GraphSession onto
+        whatever graph the control-plane authority (``self._host._control``)
+        is ACTUALLY bound to, for the duration of one control-plane RPC, then
+        restore the caller's original scope (U-16/BUG-113).
+
+        Mirrors the sanctioned ``with_graph`` + ``use_session`` pattern
+        already used by ``knowledge_graph/pipeline/__init__.py`` (D-CDX-70)
+        for the identical shape of problem: a fixed-graph client must not be
+        driven by whatever graph the caller's ambient session happens to be
+        scoped to. Here that means: a codebase-ingest submission that runs
+        under an explicit content-graph verified session (e.g.
+        ``kf-pilot:code-ingest``) must still create/read/claim/renew/commit/
+        cancel/defer its WorkItem against the ONE control graph, not the
+        content graph the caller happened to be scoped to when it called in
+        — the exact live r15 split (a WorkItem created under a content-graph
+        session was later unreachable through the true control authority).
+
+        Reads the target graph name from ``self._host._control`` itself
+        (``EpistemicGraphBackend.graph_name``) rather than hardcoding the
+        ``__control__`` literal: in production ``_build_control_backend``
+        resolves that to ``__control__`` (``shard_topology.
+        CONTROL_GRAPH_NAME``), but a control authority bound to a different
+        graph (e.g. a test harness that intentionally shares one backend as
+        both content and control for isolation) must retarget the session to
+        THAT graph, not force a mismatch against a graph it was never bound
+        to. A control authority with no discoverable graph name (an opaque
+        test double) is a no-op — nothing to retarget onto.
+
+        ``with_graph`` only ever changes the target graph field, never the
+        actor/tenant/scopes, so tenant isolation and the fail-closed
+        "no session at all" guard are both unchanged. No ambient session (an
+        unauthenticated bootstrap/background-daemon context) or a session
+        already scoped to the resolved control graph is a no-op.
+        """
+        from contextlib import nullcontext
+
+        from .session import current_session, use_session
+
+        ambient = current_session()
+        if ambient is None:
+            return nullcontext()
+        target_graph = getattr(self._host._control, "graph_name", None)
+        if not target_graph or ambient.graph == target_graph:
+            return nullcontext()
+        return use_session(ambient.with_graph(target_graph))
+
     def query_cypher(
         self, cypher: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
+        # _host._control_cypher (TaskManagerMixin) does its own session
+        # rebind for every caller, including the direct-call sites that
+        # bypass this adapter -- no need to duplicate it here.
         return self._host._control_cypher(cypher, params)
 
     def add_node(
@@ -797,7 +952,8 @@ class _ControlPlaneWorkItemEngine:
         # ``RegistryNode`` subclass happens to fold into its own properties.
         props = dict(properties or {})
         props["node_type"] = node_type
-        add(node_id, label=node_type, **props)
+        with self._control_session_scope():
+            add(node_id, label=node_type, **props)
 
     def create_node_if_absent(
         self, node_id: str, properties: dict[str, Any] | None = None
@@ -812,11 +968,12 @@ class _ControlPlaneWorkItemEngine:
         exists to close.
         """
 
-        return bool(
-            self._native_work_item_method("create_node_if_absent")(
-                node_id, properties=properties
+        with self._control_session_scope():
+            return bool(
+                self._native_work_item_method("create_node_if_absent")(
+                    node_id, properties=properties
+                )
             )
-        )
 
     def link_nodes(
         self,
@@ -831,7 +988,10 @@ class _ControlPlaneWorkItemEngine:
         if not callable(add_edge):
             return
         try:
-            add_edge(source_id, target_id, rel_type=str(rel_type), **(properties or {}))
+            with self._control_session_scope():
+                add_edge(
+                    source_id, target_id, rel_type=str(rel_type), **(properties or {})
+                )
         except Exception as e:  # noqa: BLE001 — viz edge is best-effort
             logger.debug("control-plane work-item view: link_nodes failed: %s", e)
 
@@ -850,7 +1010,8 @@ class _ControlPlaneWorkItemEngine:
                 "the ingestion WorkItem requires an engine-native "
                 "atomic CAS control backend."
             )
-        return bool(fn(node_id, conditions, updates))
+        with self._control_session_scope():
+            return bool(fn(node_id, conditions, updates))
 
     def _native_work_items(self) -> Any:
         """Return the host's one process-owned native WorkItem client."""
@@ -880,19 +1041,24 @@ class _ControlPlaneWorkItemEngine:
         return method
 
     def claim_work_item(self, request: dict[str, Any]) -> Any:
-        return self._native_work_item_method("claim_work_item")(request)
+        with self._control_session_scope():
+            return self._native_work_item_method("claim_work_item")(request)
 
     def renew_work_item_lease(self, request: dict[str, Any]) -> Any:
-        return self._native_work_item_method("renew_work_item_lease")(request)
+        with self._control_session_scope():
+            return self._native_work_item_method("renew_work_item_lease")(request)
 
     def commit_work_item_result(self, request: dict[str, Any]) -> Any:
-        return self._native_work_item_method("commit_work_item_result")(request)
+        with self._control_session_scope():
+            return self._native_work_item_method("commit_work_item_result")(request)
 
     def cancel_work_item(self, request: dict[str, Any]) -> Any:
-        return self._native_work_item_method("cancel_work_item")(request)
+        with self._control_session_scope():
+            return self._native_work_item_method("cancel_work_item")(request)
 
     def defer_work_item(self, request: dict[str, Any]) -> Any:
-        return self._native_work_item_method("defer_work_item")(request)
+        with self._control_session_scope():
+            return self._native_work_item_method("defer_work_item")(request)
 
 
 class TaskManagerMixin(GraphEngineProtocol):
@@ -905,6 +1071,13 @@ class TaskManagerMixin(GraphEngineProtocol):
         super().__init__(*args, **kwargs)
         self._workers_running = False
         self._worker_lock = threading.Lock()
+        # U-65/BUG-111: process-local NONBLOCKING claim/admission gate. Only one
+        # worker thread performs a native claim_next()+AdmissionPolicy round trip
+        # at a time; every other worker that finds the gate held skips this poll
+        # entirely (no engine call at all) rather than piling another concurrent
+        # claim on top of it. Held only across the claim+admission decision,
+        # never across task execution -- see _task_worker_loop.
+        self._claim_gate = threading.Lock()
         self._background_daemons_lock = threading.Lock()
         self._active_work_item_claims: dict[str, dict[str, Any]] = {}
         self._active_work_item_claims_lock = threading.Lock()
@@ -1064,6 +1237,32 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
         return control
 
+    def _control_session_scope(self) -> Any:
+        """Temporarily retarget the ambient verified GraphSession onto
+        whatever graph ``self._control`` is ACTUALLY bound to, for one
+        control-plane RPC (U-16/BUG-113).
+
+        See ``_ControlPlaneWorkItemEngine._control_session_scope`` (the
+        typed-RPC sibling of this Cypher one) for the full rationale
+        (including why the target is read dynamically from the control
+        backend rather than baked into the code); this is the SAME mechanism, applied
+        to every ``_control_cypher`` caller — including the direct
+        ``self._control_cypher(...)`` call sites that never go through the
+        ``_ControlPlaneWorkItemEngine`` adapter (e.g.
+        ``aggregate_ingest_metrics``'s off-queue ``:ProfileSpan`` read).
+        """
+        from contextlib import nullcontext
+
+        from .session import current_session, use_session
+
+        ambient = current_session()
+        if ambient is None:
+            return nullcontext()
+        target_graph = getattr(self._control, "graph_name", None)
+        if not target_graph or ambient.graph == target_graph:
+            return nullcontext()
+        return use_session(ambient.with_graph(target_graph))
+
     def _control_cypher(
         self, cypher: str, params: dict | None = None
     ) -> list[dict[str, Any]]:
@@ -1083,7 +1282,8 @@ class TaskManagerMixin(GraphEngineProtocol):
             raise WorkItemBackendUnavailable(
                 "the WorkItem control authority has no governed read surface"
             )
-        return execute_read(cypher, params)
+        with self._control_session_scope():
+            return execute_read(cypher, params)
 
     @property
     def _work_item_engine(self) -> _ControlPlaneWorkItemEngine:
@@ -3562,6 +3762,12 @@ class TaskManagerMixin(GraphEngineProtocol):
             )
             t.start()
 
+        from agent_utilities.observability.gateway_metrics import (
+            WORKITEM_ACTIVE_WORKERS,
+        )
+
+        WORKITEM_ACTIVE_WORKERS.set(worker_count)
+
     def _ingest_work_item_index(self) -> dict[str, dict[str, Any]]:
         """Load ingestion WorkItems keyed by public job id in one graph read."""
         rows = self._work_item_engine.query_cypher(
@@ -4009,9 +4215,11 @@ class TaskManagerMixin(GraphEngineProtocol):
                 lease_ttl_s=_TASK_WORK_ITEM_LEASE_SEC,
             )
         if claim is None:
+            _record_workitem_claim_outcome("empty")
             return None  # authoritative negative; no secondary scan/fallback
         if not _wi.mark_running(self._work_item_engine, claim["work_item_id"], claim):
             return None
+        _record_workitem_claim_outcome("claimed")
 
         job_id = str(
             claim.get("payload_ref")
@@ -4116,6 +4324,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                         decision.reason,
                     )
                     self._defer_task_for_admission(job_id)
+                    _record_workitem_admission_deferral(tkind)
                     return None
             self._worker_registry().start(worker_id, lane, tkind)
         return job_id, meta
@@ -4140,6 +4349,10 @@ class TaskManagerMixin(GraphEngineProtocol):
         # registry, so the policy knows what THIS worker is processing.
         worker_id = threading.current_thread().name
         poll_count = 0
+        # U-65/BUG-111: this worker's own consecutive-empty-poll streak, driving
+        # the bounded exponential idle backoff below. Per-thread by construction
+        # (a plain local, not shared state) since each worker runs its own loop.
+        miss_streak = 0
         # BUG-047 gap-fill (CONCEPT:AU-ORCH.scheduling.resource-priority-edict): this
         # dedicated background thread polls and claims work for its entire life —
         # tag it BACKGROUND_INGESTION ONCE so every engine call the claim decision
@@ -4174,10 +4387,51 @@ class TaskManagerMixin(GraphEngineProtocol):
                     hydration_alternate and poll_count % 2 == 0
                 )
                 poll_count += 1
-                claimed = self._claim_next_task(
-                    worker_id=worker_id,
-                    hydration_reserved=effective_hydration_reserved,
+
+                from agent_utilities.observability.gateway_metrics import (
+                    WORKITEM_CLAIM_IN_FLIGHT,
+                    WORKITEM_CLAIM_LATENCY,
+                    WORKITEM_CLAIMS,
                 )
+
+                # U-65/BUG-111: process-local NONBLOCKING claim/admission gate.
+                # A live pod ran 69 host-sized workers that all independently
+                # hit native claim_next()+AdmissionPolicy on every poll,
+                # producing 2,278 claim calls in 5 minutes and amplifying engine
+                # write contention. Only one worker thread performs that round
+                # trip at a time; every other worker that finds the gate held
+                # skips this poll with NO engine call at all, backs off, and
+                # tries again -- this bounds concurrent claim traffic to 1
+                # in-flight per process regardless of pool size, without
+                # blocking (a busy gate is a fast, local, non-blocking no-op,
+                # never a wait). The gate is released the instant the claim
+                # decision is made, well before task execution starts, so it
+                # never throttles the actual work -- only the scan/lease/admit
+                # decision that precedes it. ``gate_skipped`` is recorded HERE
+                # (not inside ``_claim_next_task``) because it is the one
+                # outcome that never reaches that method at all -- "claimed"
+                # and "empty" are recorded once, at the deeper
+                # ``_claim_next_task``/``_record_workitem_claim_outcome`` seam,
+                # so this poll loop must not also record them or every claim
+                # would be double-counted.
+                if not self._claim_gate.acquire(blocking=False):
+                    WORKITEM_CLAIMS.labels(
+                        queue="ingest_task", outcome="gate_skipped"
+                    ).inc()
+                    miss_streak += 1
+                    time.sleep(_idle_backoff_seconds(miss_streak))
+                    continue
+                WORKITEM_CLAIM_IN_FLIGHT.set(1)
+                try:
+                    claim_started = time.monotonic()
+                    claimed = self._claim_next_task(
+                        worker_id=worker_id,
+                        hydration_reserved=effective_hydration_reserved,
+                    )
+                    WORKITEM_CLAIM_LATENCY.observe(time.monotonic() - claim_started)
+                finally:
+                    WORKITEM_CLAIM_IN_FLIGHT.set(0)
+                    self._claim_gate.release()
                 if claimed:
                     job_id, meta = claimed
                     if meta:
@@ -4187,17 +4441,30 @@ class TaskManagerMixin(GraphEngineProtocol):
                         is_codebase = task_type == "codebase"
 
                 if not job_id:
-                    # Idle backoff. During a bulk ingest, back off HARD: one worker
+                    miss_streak += 1
+                    # Idle backoff: bounded exponential + jitter
+                    # (_idle_backoff_seconds), replacing the old fixed 2s that
+                    # made every idle worker wake in lockstep. During a bulk
+                    # ingest, back off at least as hard as before: one worker
                     # holds the ingest while the other idle workers repeatedly
-                    # polled the queue every 2s, flooding the single
-                    # client event loop + engine and starving the ingest worker
-                    # (profiled: 24% of daemon CPU in poll query_cypher vs 10% in the
-                    # actual ingest). A new task then waits at most one backoff to be
-                    # claimed — fine while a multi-minute ingest drains. (CONCEPT:AU-KG.compute.registered-edge-type)
+                    # polling flooded the single client event loop + engine and
+                    # starved the ingest worker (profiled: 24% of daemon CPU in
+                    # poll query_cypher vs 10% in the actual ingest). A new task
+                    # still waits at most one backoff to be claimed — fine while
+                    # a multi-minute ingest drains. (CONCEPT:AU-KG.compute.registered-edge-type)
                     from agent_utilities.core.background_throttle import get_throttle
+                    from agent_utilities.observability.gateway_metrics import (
+                        WORKITEM_IDLE_BACKOFF_SECONDS,
+                    )
 
-                    time.sleep(15.0 if get_throttle().should_yield_background else 2.0)
+                    backoff = _idle_backoff_seconds(miss_streak)
+                    if get_throttle().should_yield_background:
+                        backoff = max(backoff, 15.0)
+                    WORKITEM_IDLE_BACKOFF_SECONDS.observe(backoff)
+                    time.sleep(backoff)
                     continue
+
+                miss_streak = 0
 
                 if not target_path:
                     logger.error(f"Task {job_id} has no target in metadata, skipping.")
@@ -6020,9 +6287,19 @@ class TaskManagerMixin(GraphEngineProtocol):
         type is known, so a candidate the pool's own admission rules refuse
         (heavy-type cap, hot-spare reservation, interactive floor, best-effort
         lane cap, memory-gen pool cap, …) is un-claimed the same way a
-        materialization-blocked task is: a fenced, near-immediate-retry defer
-        rather than running work this host's own scheduler just decided it
-        should hold back on. Mirrors :meth:`_defer_task_for_materialization`.
+        materialization-blocked task is: a fenced defer rather than running
+        work this host's own scheduler just decided it should hold back on.
+        Mirrors :meth:`_defer_task_for_materialization`, except the retry delay
+        is a jittered 5-15s window (:func:`_admission_retry_delay_seconds`),
+        not a fixed 1s -- U-65/BUG-111: a fixed 1s retry across every denied
+        worker synchronized the whole pool into a claim/defer thundering herd
+        (2,278 claims + 344 defers observed in one 5-minute window).
+
+        Does not itself record ``WORKITEM_ADMISSION_DEFERRALS`` — its sole
+        caller, :meth:`_claim_next_task`, already records it (with the
+        ``task_type`` label this method has no access to) via
+        ``_record_workitem_admission_deferral`` immediately after invoking
+        this method; recording it here too would double-count every denial.
         """
         from agent_utilities.orchestration import work_item as _wi
 
@@ -6037,7 +6314,7 @@ class TaskManagerMixin(GraphEngineProtocol):
                 self._work_item_engine,
                 work_item_id,
                 claim,
-                next_retry_at=time.time() + 1.0,
+                next_retry_at=time.time() + _admission_retry_delay_seconds(),
                 reason_ref="admission_denied",
             )
         finally:

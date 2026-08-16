@@ -237,11 +237,6 @@ Typed as a :Concept so it federates with the SKOS taxonomy; :partOf its
             owl:onProperty :governedBy ;
             owl:someValuesFrom bfo:0000001 ] .
 
-:Hashtag a owl:Class ;
-    rdfs:label "Hashtag" ;
-    rdfs:comment "A hashtag token mined directly from a source platform's own structured entity metadata (e.g. a tweet's `entities.hashtags`), before any LLM call (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining). BFO:GenericallyDependentContinuant." ;
-    rdfs:subClassOf bfo:0000031 .
-
 :Hypothesis a owl:Class ;
     rdfs:label "Hypothesis" ;
     rdfs:comment "A falsifiable predictive belief." ;
@@ -278,11 +273,6 @@ Typed as a :Concept so it federates with the SKOS taxonomy; :partOf its
             owl:onProperty :ownedBy ;
             owl:someValuesFrom bfo:0000004 ],
         bfo:0000031 .
-
-:Mention a owl:Class ;
-    rdfs:label "Mention" ;
-    rdfs:comment "An @-handle mention token mined directly from a source platform's own structured entity metadata (e.g. a tweet's `entities.user_mentions`), before any LLM call and prior to identity resolution into a :Person (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining). BFO:GenericallyDependentContinuant." ;
-    rdfs:subClassOf bfo:0000031 .
 
 :Module a owl:Class ;
     rdfs:label "Module" ;
@@ -604,6 +594,12 @@ necessarily depends on what it extends.""" ;
     rdfs:domain :Document ;
     rdfs:range :Concept .
 
+:mentionsHandle a owl:ObjectProperty ;
+    rdfs:label "mentions handle" ;
+    rdfs:comment "Links a Document to a Mention (an @-handle referenced in the document's own structured entity metadata), mined deterministically at ingestion time before any LLM call (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining)." ;
+    rdfs:domain :Document ;
+    rdfs:range :Mention .
+
 :nextFragment a owl:ObjectProperty ;
     rdfs:label "next fragment" ;
     rdfs:comment "Relates a Fragment to the next Fragment among its siblings (NEXT_FRAGMENT) — document order as an explicit edge, so a reader walking evidence needs no sort. CONCEPT:AU-KG.ingest.stable-fragment-address." ;
@@ -647,6 +643,12 @@ necessarily depends on what it extends.""" ;
     rdfs:domain :TemporalFact ;
     rdfs:range :TemporalFact ;
     rdfs:subPropertyOf prov:wasRevisionOf .
+
+:taggedWithHashtag a owl:ObjectProperty ;
+    rdfs:label "tagged with hashtag" ;
+    rdfs:comment "Links a Document to a Hashtag mined from the document's own structured entity metadata, deterministically at ingestion time before any LLM call (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining)." ;
+    rdfs:domain :Document ;
+    rdfs:range :Hashtag .
 
 :triggeredIncident a owl:ObjectProperty ;
     rdfs:label "triggered incident" ;
@@ -704,6 +706,16 @@ necessarily depends on what it extends.""" ;
             owl:someValuesFrom :Agent ],
         :Event .
 
+:Hashtag a owl:Class ;
+    rdfs:label "Hashtag" ;
+    rdfs:comment "A hashtag token mined directly from a source platform's own structured entity metadata (e.g. a tweet's `entities.hashtags`), before any LLM call (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining). BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Mention a owl:Class ;
+    rdfs:label "Mention" ;
+    rdfs:comment "An @-handle mention token mined directly from a source platform's own structured entity metadata (e.g. a tweet's `entities.user_mentions`), before any LLM call and prior to identity resolution into a :Person (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining). BFO:GenericallyDependentContinuant." ;
+    rdfs:subClassOf bfo:0000031 .
+
 :Organization a owl:Class ;
     rdfs:label "Organization" ;
     rdfs:comment "An organizational entity. BFO:IndependentContinuant. Aligned to foaf:Organization, schema:Organization, and fibo-org:Organization." ;
@@ -745,12 +757,6 @@ necessarily depends on what it extends.""" ;
             owl:onProperty :dependsOn ],
         bfo:0000004 .
 
-:Tool a owl:Class ;
-    rdfs:label "Tool" ;
-    rdfs:comment "A software tool or instrument. BFO:IndependentContinuant, aligned to schema:SoftwareApplication." ;
-    rdfs:seeAlso schema:SoftwareApplication ;
-    rdfs:subClassOf bfo:0000004 .
-
 :blocksTask a owl:ObjectProperty ;
     rdfs:label "blocks task" ;
     rdfs:comment "Links an Incident to the Task(s) it blocks." ;
@@ -774,18 +780,6 @@ necessarily depends on what it extends.""" ;
     rdfs:comment "Links a Document (or other content-bearing entity) to a Topic it was classified under, at any level of the WorldView hierarchy (CONCEPT:AU-KG.enrichment.topic-classification-topology)." ;
     rdfs:domain bfo:0000001 ;
     rdfs:range :Topic .
-
-:mentionsHandle a owl:ObjectProperty ;
-    rdfs:label "mentions handle" ;
-    rdfs:comment "Links a Document to a Mention (an @-handle referenced in the document's own structured entity metadata), mined deterministically at ingestion time before any LLM call (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining)." ;
-    rdfs:domain :Document ;
-    rdfs:range :Mention .
-
-:taggedWithHashtag a owl:ObjectProperty ;
-    rdfs:label "tagged with hashtag" ;
-    rdfs:comment "Links a Document to a Hashtag mined from the document's own structured entity metadata, deterministically at ingestion time before any LLM call (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining)." ;
-    rdfs:domain :Document ;
-    rdfs:range :Hashtag .
 
 :influenced a owl:ObjectProperty ;
     rdfs:label "influenced" ;
@@ -853,6 +847,12 @@ Works for versions, phases, events, role transitions, etc.""" ;
 :GovernanceRule a owl:Class ;
     rdfs:label "Governance Rule" ;
     rdfs:comment "A durable rule (forbid/prefer/demote) consulted at retrieval time." .
+
+:Tool a owl:Class ;
+    rdfs:label "Tool" ;
+    rdfs:comment "A software tool or instrument. BFO:IndependentContinuant, aligned to schema:SoftwareApplication." ;
+    rdfs:seeAlso schema:SoftwareApplication ;
+    rdfs:subClassOf bfo:0000004 .
 
 :Topic a owl:Class ;
     rdfs:label "Topic" ;
@@ -999,16 +999,6 @@ CONCEPT:AU-KG.ingest.evidence-spine-artifact.""" ;
     rdfs:seeAlso prov:Entity ;
     rdfs:subClassOf bfo:0000031 .
 
-:Document a owl:Class ;
-    rdfs:label "Document" ;
-    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
-    rdfs:seeAlso bibo:Document,
-        schema:DigitalDocument ;
-    rdfs:subClassOf [ a owl:Restriction ;
-            owl:onProperty :createdBy ;
-            owl:someValuesFrom bfo:0000004 ],
-        bfo:0000031 .
-
 :Place a owl:Class ;
     rdfs:label "Place" ;
     rdfs:comment "A physical, virtual, or contextual location. BFO:IndependentContinuant." ;
@@ -1057,6 +1047,16 @@ bfo:0000015 a owl:Class ;
     rdfs:label "Process" ;
     rdfs:comment "BFO:Process — an occurrent that has temporal parts." ;
     rdfs:subClassOf bfo:0000003 .
+
+:Document a owl:Class ;
+    rdfs:label "Document" ;
+    rdfs:comment "A digital or physical document. BFO:GenericallyDependentContinuant. Aligned to schema:DigitalDocument and bibo:Document." ;
+    rdfs:seeAlso bibo:Document,
+        schema:DigitalDocument ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :createdBy ;
+            owl:someValuesFrom bfo:0000004 ],
+        bfo:0000031 .
 
 :Event a owl:Class ;
     rdfs:label "Event" ;

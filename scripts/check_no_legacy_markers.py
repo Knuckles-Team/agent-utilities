@@ -11,9 +11,12 @@ Usage: python scripts/check_no_legacy_markers.py [ROOT ...]  (default: cwd)
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 # A legacy marker = CONCEPT: then LETTERS-DIGIT (the new grammar has a word pillar,
 # never a digit immediately after the dash).
@@ -29,23 +32,16 @@ def _candidate_files(root: Path) -> list[Path]:
     packaging-build copy, a `.venv`, ...) which can carry a legacy marker a
     real source rewrite already cleared. Falls back to a filtered filesystem
     walk only when ``root`` is not inside a git working tree.
+
+    Callers must pass an already-resolved (absolute) ``root`` -- see
+    :func:`scan`, which resolves once and reuses that value both for the
+    scan and for every ``relative_to`` display path.
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(root), "ls-files"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [root / line for line in out.splitlines() if line]
-        if tracked:
-            return tracked
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return [p for p in root.rglob("*") if not any(s in p.parts for s in _SKIP)]
+    return tracked_or_walked(root, root=ROOT)
 
 
 def scan(root: Path) -> list[str]:
+    root = root.resolve()
     hits: list[str] = []
     for p in _candidate_files(root):
         if p.suffix not in _EXT or any(s in p.parts for s in _SKIP):

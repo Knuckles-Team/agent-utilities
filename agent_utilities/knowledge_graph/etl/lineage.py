@@ -205,7 +205,7 @@ def record_connector_sync_activity(
     # (``envelope_ingest._OPAQUE_NAMESPACED_ID_RE``) only skips its
     # PII/pattern scan for a ``namespace:<opaque-digest>`` id whose FINAL
     # segment is a bare 24/32/40/64-hex digest — a raw millisecond timestamp
-    # (starts with a digit) or the ``source_instance or '_'`` placeholder
+    # (starts with a digit) or the ``source_instance or '_'`` fallback value
     # (starts with ``_``) breaks that match, so the trailing random
     # ``uuid4().hex`` fell through to the full-text scan instead of being
     # treated as opaque and reproducibly tripped the generic IBAN pattern

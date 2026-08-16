@@ -1,11 +1,13 @@
 """lane-perf-0801: (A) is the semantic index populated? (B) is the latency a per-call stall?"""
 
-import asyncio, time, statistics, json
+import asyncio
+import statistics
+import time
 
 
 async def main():
-    from agent_utilities.mcp.kg_server import _mint_process_session
     from agent_utilities.knowledge_graph.core.session import set_session
+    from agent_utilities.mcp.kg_server import _mint_process_session
     from agent_utilities.security.brain_context import set_actor
 
     s = await asyncio.to_thread(_mint_process_session, "auto")

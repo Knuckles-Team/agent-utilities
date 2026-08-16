@@ -57,14 +57,13 @@ from __future__ import annotations
 import argparse
 import ast
 import json
-import re
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from check_swallowed_errors import HandlerKey, _iter_except_handlers_with_scope, scan  # noqa: E402
+from check_swallowed_errors import _iter_except_handlers_with_scope, scan  # noqa: E402
 
 # Keyword -> one-line reason it signals a write/governance/control path
 # (bucket ii). Matched case-insensitively against "<file>::<symbol>".

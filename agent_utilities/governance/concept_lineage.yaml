@@ -313,6 +313,15 @@ parents:
       inherited; the parent's design doc (.specify/design/au-kv-persistence-authority/design.md) owns
       that choice, and this marker only names where it lands on the engine boundary
 renamed:
+  AU-OS.supply-chain.mutable-image-refs:
+    reason: supply-chain was never registered in the OS pillar closed vocabulary
+      (agent_utilities/governance/domain_vocab.yaml) and check_domain_vocab.py fails the
+      build on it -- the same shape as the AU-KG.history rename recorded above. The
+      decision it names (pin a compose image ref to an operator-supplied digest rather
+      than a mutable :latest tag) is deployment integrity, so it moves onto the already
+      registered `deployment` domain rather than registering a new one
+      (Extend-Before-Invent). Behaviour is unchanged; only the id moves.
+    to: AU-OS.deployment.mutable-image-refs
   AU-KG.history.scoped-conversation-search:
     reason: history was never registered in the KG pillar closed vocabulary (agent_utilities/governance/domain_vocab.yaml)
       and check_domain_vocab.py fails the build on it (D-CC-9); the marker names a real decision (scope-aware
@@ -363,9 +372,10 @@ retired:
       was never assigned its own numbered concept the way its file-neighbour ingestion-serving-separation
       (KG-2.130) was.'
   AU-KG.query.intelligent-routing:
-    reason: 'Named the "Intelligent Query Routing" header comment of agent_utilities/graph/routing/strategies/query_tier.py,
-      deleted whole in GOC-59-W05 (commit 13b1c5c8) as itself-retired dead code: it implemented the retired
-      L0/L1/L2/L3 tiered graph backend architecture that AGENTS.md''s Architecture Reference supersedes
+    reason: 'Named the "Intelligent Query Routing" header comment of the now-deleted query-tier routing
+      strategy module (agent_utilities/graph/routing/strategies/, since removed), deleted whole in GOC-59-W05
+      (commit 13b1c5c8) as itself-retired dead code: it implemented the retired four-level (numbered zero
+      through three) tiered graph backend architecture that AGENTS.md''s Architecture Reference supersedes
       with the epistemic-graph engine as the ONE authority (no numeric storage-tier hierarchy), and had
       zero live callers anywhere in agent_utilities/** (proven by grep in the deletion commit). No successor
       marker inherits this decision -- the module itself was the retired surface.'

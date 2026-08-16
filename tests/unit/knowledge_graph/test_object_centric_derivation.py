@@ -5,7 +5,7 @@ CONCEPT:AU-KG.mining.incremental-object-centric-derivation
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -22,7 +22,7 @@ from agent_utilities.knowledge_graph.ingestion.semantic_event_model import (
 
 
 def _dt(value: str) -> datetime:
-    return datetime.fromisoformat(value).replace(tzinfo=timezone.utc)
+    return datetime.fromisoformat(value).replace(tzinfo=UTC)
 
 
 def _event(

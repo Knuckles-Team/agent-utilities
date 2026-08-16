@@ -303,7 +303,10 @@ def test_apply_rule_requires_a_bound_actor():
     def isolated():
         with pytest.raises(IdentityRequiredError):
             svc.record_correction(
-                "rule", "tool:bad", corrected_value="never use this", reason="broke prod"
+                "rule",
+                "tool:bad",
+                corrected_value="never use this",
+                reason="broke prod",
             )
 
     contextvars.Context().run(isolated)

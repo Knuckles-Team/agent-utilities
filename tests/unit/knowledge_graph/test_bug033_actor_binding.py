@@ -354,7 +354,7 @@ def test_enrich_conversation_binds_a_real_actor_with_no_ambient_session(monkeypa
     monkeypatch.setattr(ez, "_enabled", lambda: True)
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.enrichment.cards.make_lite_llm_fn",
-        lambda: (lambda _prompt: "{}"),
+        lambda: lambda _prompt: "{}",
     )
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.enrichment.extractors.text.extract_text_concepts",

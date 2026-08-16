@@ -242,7 +242,7 @@ class _FakeEngine:
         self.graph_compute = _EmptyGraphCompute()
         self.graph = self.graph_compute
 
-    def for_graph(self, _graph_name: str) -> "_FakeEngine":
+    def for_graph(self, _graph_name: str) -> _FakeEngine:
         """Never narrows to a distinct object -- these tests are about ACL
         hydration SOURCE (backend vs. compute scratchpad), not multi-graph
         routing, so a for_graph() call (if the narrowing branch is ever
@@ -410,6 +410,125 @@ def test_unowned_non_public_node_stays_denied(monkeypatch, brain):
         assert sr.permit(["sys-1"]) == []
 
 
+def test_durable_access_rows_preserves_shared_scope(monkeypatch, brain):
+    """D-P0-U119 regression: `_durable_access_rows`' Cypher fallback must return
+    `_shared_scope` (aliased `shared_scope`) alongside tenant/classification/
+    owner/external_access -- it was silently dropped from both the query and
+    the mapped result, so `_hydrate_missing_acls` never saw organization-share
+    evidence for a durable row at all."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    backend = _FakeBackendReader(
+        rows=[
+            {
+                "id": "artifact-1",
+                "tenant_id": "tenant-a",
+                "classification": "confidential",
+                "external_access": None,
+                "owner_id": "principal:owner",
+                "shared_scope": "org",
+            }
+        ]
+    )
+    engine = _FakeEngine(backend)
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
+
+    rows = sr._durable_access_rows(["artifact-1"])
+    assert "n._shared_scope AS shared_scope" in backend.queries[0][0]
+    assert rows["artifact-1"]["shared_scope"] == "org"
+
+
+def test_org_shared_node_grants_any_same_tenant_reader(monkeypatch, brain):
+    """D-P0-U119 core fix: a durable row stamped `_shared_scope=org` (always
+    written alongside `_owner_id` by `tenant_sharing.stamp_ownership`) must be
+    readable by a NON-OWNER in the SAME tenant through the governed per-node
+    ACL gate (`permit`/`filter_rows`), not just by the owner -- this is the
+    exact mechanism `filter_rows` (used by every `/graph/query`-style governed
+    projection) applies BEFORE the raw-row `tenant_sharing.visible()` filter,
+    so a false denial here drops the row before `visible()` is ever reached."""
+    monkeypatch.setattr(
+        sr,
+        "_durable_access_rows",
+        lambda _ids: {
+            "artifact-1": {
+                "tenant_id": "tenant-a",
+                "classification": "confidential",
+                "external_access": None,
+                "owner_id": "principal:owner",
+                "shared_scope": "org",
+            }
+        },
+    )
+    reader = ActorContext(
+        "principal:someone-else",
+        ActorType.AI_AGENT,
+        roles=(),
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    with use_actor(reader):
+        assert sr.permit(["artifact-1"]) == ["artifact-1"]
+
+
+def test_org_shared_scope_never_grants_a_cross_tenant_reader(monkeypatch, brain):
+    """The pre-existing cross-tenant hydration gate (tenant match, checked
+    before any classification/owner/scope branch) must still deny an
+    org-shared node to an actor in a DIFFERENT tenant -- org sharing is
+    intra-tenant only, never a cross-tenant grant."""
+    monkeypatch.setattr(
+        sr,
+        "_durable_access_rows",
+        lambda _ids: {
+            "artifact-1": {
+                "tenant_id": "tenant-a",
+                "classification": "confidential",
+                "external_access": None,
+                "owner_id": "principal:owner",
+                "shared_scope": "org",
+            }
+        },
+    )
+    other_tenant_reader = ActorContext(
+        "principal:someone-else",
+        ActorType.AI_AGENT,
+        roles=(),
+        tenant_id="tenant-b",
+        authenticated=True,
+    )
+    with use_actor(other_tenant_reader):
+        assert sr.permit(["artifact-1"]) == []
+
+
+def test_private_scope_does_not_grant_a_non_owner_same_tenant_reader(
+    monkeypatch, brain
+):
+    """A node stamped `_shared_scope=private` (or empty) must NOT be widened by
+    this fix -- only an explicit `org`/`commons` scope grants a non-owner
+    reader; the private-by-default owner-only gate is unchanged."""
+    monkeypatch.setattr(
+        sr,
+        "_durable_access_rows",
+        lambda _ids: {
+            "artifact-1": {
+                "tenant_id": "tenant-a",
+                "classification": "confidential",
+                "external_access": None,
+                "owner_id": "principal:owner",
+                "shared_scope": "private",
+            }
+        },
+    )
+    other_same_tenant = ActorContext(
+        "principal:someone-else",
+        ActorType.AI_AGENT,
+        roles=(),
+        tenant_id="tenant-a",
+        authenticated=True,
+    )
+    with use_actor(other_same_tenant):
+        assert sr.permit(["artifact-1"]) == []
+
+
 def test_durable_access_rows_parses_json_and_native_external_access(monkeypatch, brain):
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
@@ -464,13 +583,13 @@ class _MultiGraphFakeEngine:
         graph_name: str,
         backend: _FakeBackendReader,
         *,
-        views: dict[str, "_MultiGraphFakeEngine"] | None = None,
+        views: dict[str, _MultiGraphFakeEngine] | None = None,
     ) -> None:
         self.backend = backend
         self.graph_compute = _NamedGraphCompute(graph_name)
         self._views = views or {}
 
-    def for_graph(self, graph_name: str) -> "_MultiGraphFakeEngine":
+    def for_graph(self, graph_name: str) -> _MultiGraphFakeEngine:
         if graph_name == self.graph_compute.graph_name:
             return self
         view = self._views.get(graph_name)
@@ -479,7 +598,7 @@ class _MultiGraphFakeEngine:
         return view
 
 
-def _graph_session(actor: ActorContext, graph: str) -> "GraphSession":
+def _graph_session(actor: ActorContext, graph: str) -> GraphSession:
     from agent_utilities.knowledge_graph.core.session import GraphSession
 
     return GraphSession(
@@ -638,6 +757,8 @@ def test_durable_access_rows_unknown_graph_and_hydration_failure_both_deny_close
     # unknown graph and a real authorization rejection cannot be told apart
     # from the outside, which is the point (never leak "does this graph
     # exist" as a side channel).
-    assert str(unknown_exc.value) == str(denied_exc.value) == (
-        "Node permission evaluation failed"
+    assert (
+        str(unknown_exc.value)
+        == str(denied_exc.value)
+        == ("Node permission evaluation failed")
     )

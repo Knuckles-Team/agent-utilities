@@ -15,9 +15,13 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlparse
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._git_scan import repo_root_of  # noqa: E402
 
 _TEXT_SUFFIXES = {
     "",
@@ -120,19 +124,65 @@ class Finding:
 
 
 def _git_paths(package: Path, *, all_files: bool) -> list[Path]:
+    """Tracked/untracked/changed paths under ``package``, package-relative.
+
+    BUG-043/BUG-174: this used to run every command with ``cwd=package`` and
+    no explicit ``-C``. Under a hook's ambient ``GIT_DIR``/``GIT_INDEX_FILE``
+    (git sets these for every hook subprocess), a bare ``cwd=`` is exactly
+    as vulnerable as ``-C`` -- confirmed empirically identical, see
+    ``scripts/_git_scan.py`` -- and worse here specifically: ``package`` is
+    routinely a DIFFERENT repository than the one running the hook (this
+    scans OTHER checked-out fleet packages), so the ambient env can return
+    the AMBIENT repo's own paths entirely, mislabeled as this package's.
+    Anchor at ``package``'s own repository root -- found by pure filesystem
+    ``.git`` inspection, never by asking git itself -- with a pathspec
+    scoped back down to ``package``, immune to the ambient env either way.
+    """
+    anchor = repo_root_of(package) or package
+    try:
+        rel = package.relative_to(anchor)
+        pathspec = [rel.as_posix() + "/"] if str(rel) != "." else ["."]
+    except ValueError:
+        anchor = package
+        pathspec = ["."]
     if all_files:
         commands = [
-            ["git", "ls-files", "--cached", "--others", "--exclude-standard", "-z"]
+            [
+                "git",
+                "-C",
+                str(anchor),
+                "ls-files",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+                "-z",
+                "--",
+                *pathspec,
+            ]
         ]
     else:
         commands = [
-            ["git", "diff", "--name-only", "-z", "--diff-filter=ACMR"],
             [
                 "git",
+                "-C",
+                str(anchor),
+                "diff",
+                "--name-only",
+                "-z",
+                "--diff-filter=ACMR",
+                "--",
+                *pathspec,
+            ],
+            [
+                "git",
+                "-C",
+                str(anchor),
                 "ls-files",
                 "--others",
                 "--exclude-standard",
                 "-z",
+                "--",
+                *pathspec,
             ],
         ]
     paths: set[Path] = set()
@@ -140,18 +190,20 @@ def _git_paths(package: Path, *, all_files: bool) -> list[Path]:
     for command in commands:
         result = subprocess.run(  # noqa: S603 - fixed git argv, no shell
             command,
-            cwd=package,
             check=False,
             capture_output=True,
         )
         if result.returncode != 0:
             continue
         command_succeeded = True
-        paths.update(
-            Path(value.decode("utf-8", errors="replace"))
-            for value in result.stdout.split(b"\0")
-            if value
-        )
+        for value in result.stdout.split(b"\0"):
+            if not value:
+                continue
+            absolute = anchor / Path(value.decode("utf-8", errors="replace"))
+            try:
+                paths.add(absolute.relative_to(package))
+            except ValueError:
+                continue
     if command_succeeded:
         return sorted(paths)
     for directory, names, filenames in os.walk(package):

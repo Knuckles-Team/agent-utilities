@@ -1813,6 +1813,7 @@ def test_graph_pipeline_degrades_when_surface_absent(monkeypatch, tools):
 
 # ---- merged from lane-gateway ----
 
+
 def test_kg_2_310_promql_degrades_cleanly_without_a_configured_prometheus(
     monkeypatch, tools
 ):

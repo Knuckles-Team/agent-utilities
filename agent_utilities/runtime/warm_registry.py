@@ -18,7 +18,6 @@ evicts the least-recently-used parent.
 from __future__ import annotations
 
 import logging
-import os
 import threading
 import time
 from collections.abc import Callable
@@ -43,27 +42,43 @@ _WARM_PARENT_GIB = 1.5
 
 
 def compute_warm_parent_count(configured: int | None = None) -> int:
-    """Auto-size the warm-parent pool to host RAM + CPU (mirrors ``compute_ingest_worker_count``).
+    """Auto-size the warm-parent pool to the CGROUP RAM + CPU envelope
+    (mirrors ``compute_ingest_worker_count`` — BUG-110/U-64: this function's
+    own original docstring already said "mirrors compute_ingest_worker_count",
+    but that mirroring extended to the bug too — it read ``os.cpu_count()``/
+    ``psutil.virtual_memory()`` directly, the HOST's view, not the
+    container's. A live pod ran a 1.5-CPU/4-GiB cgroup on a 192-core host;
+    this function would have sized against that host, not the cgroup, the
+    same amplification class U-64 fixed for ingest workers).
 
-    An explicit ``configured`` value wins outright (the escape hatch). Otherwise bound by
-    available memory (``_WARM_PARENT_GIB`` per parent) and CPU (parents are forked/run on demand,
-    so cap near core count), with a floor of 2.
+    An explicit ``configured`` value is an escape hatch for tuning *within*
+    the actual envelope, not a way to force more parents than the cgroup can
+    schedule — it is now clamped to the same ceiling the automatic path
+    computes (mirrors U-64's ``compute_ingest_worker_count`` contract).
+    Otherwise bound by effective memory (``_WARM_PARENT_GIB`` per parent) and
+    effective CPU (parents are forked/run on demand, so cap near core count),
+    with a floor of 2 (unchanged: warm parents are a heavier resource class
+    than ingest workers, and this fix only changes the sizing anchor).
     """
-    if configured is not None and configured > 0:
-        return configured
     try:
-        cpu = os.cpu_count() or 4
-        max_cpu = max(2, int(cpu))
-        try:
-            import psutil
+        from agent_utilities.core.cgroup_resources import (
+            effective_cpu_cores,
+            effective_memory_limit_bytes,
+        )
 
-            avail = psutil.virtual_memory().available
-            max_mem = max(1, int(avail / (_WARM_PARENT_GIB * (1024**3))))
-        except Exception:  # noqa: BLE001 - psutil optional; fall back to CPU bound only
+        max_cpu = max(2, int(effective_cpu_cores()))
+        mem_limit = effective_memory_limit_bytes()
+        if mem_limit is not None:
+            max_mem = max(1, int(mem_limit / (_WARM_PARENT_GIB * (1024**3))))
+        else:
             max_mem = max_cpu
-        return max(2, min(max_cpu, max_mem))
+        ceiling = max(2, min(max_cpu, max_mem))
     except Exception:  # noqa: BLE001
-        return 4
+        ceiling = 4
+
+    if configured is not None and configured > 0:
+        return max(2, min(int(configured), ceiling))
+    return ceiling
 
 
 @dataclass

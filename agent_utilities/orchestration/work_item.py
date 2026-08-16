@@ -2583,7 +2583,14 @@ def set_work_item_priority(
     *,
     now: float | None = None,
 ) -> bool:
-    """Update scheduling priority without granting claim/lease authority."""
+    """Update scheduling priority without granting claim/lease authority.
+
+    Routed through the same engine-native ``CasWorkItemMetadata`` RPC as
+    :func:`checkpoint_work_item`/:func:`request_work_item_input`/
+    :func:`submit_work_item_input` (BUG-111) — priority is a non-authority
+    scheduling field the native RPC supports directly, so this no longer hits
+    the native WorkItem-authority guard (RMDD-29) that a generic CAS would.
+    """
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
 
     now = now if now is not None else _now()

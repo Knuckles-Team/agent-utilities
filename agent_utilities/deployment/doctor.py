@@ -1553,6 +1553,74 @@ def _check_engine() -> dict[str, Any]:
     )
 
 
+def _check_engine_domains() -> dict[str, Any]:
+    """BUG-013: a required capability module absent must fail readiness, not
+    degrade silently past it.
+
+    The 21 ``engine_<domain>`` tool families are declared REQUIRED
+    (``feature=None``) in the canonical ``ToolSpec`` manifest — a real
+    deployment always ships them (unlike the deployment-configurable
+    ``quant``/``finance`` optional features). They are populated at runtime
+    only when the ``epistemic_graph`` client package is importable
+    (``engine_tools._discover_domains``); when it is not, that function
+    already degrades gracefully rather than crashing the whole MCP process
+    (so a ``tiny`` pre-bootstrap profile can still start) and logs a loud
+    warning — but until this check existed, nothing turned that warning into
+    a certification/readiness signal an operator or a gate could act on. A
+    ``single-node-prod``/``enterprise`` deployment could boot, report itself
+    healthy, and silently serve without ~21 required tool families (and
+    their REST twins, and every ``code_context``/``graph_code`` KG-first
+    capability that resolves through them) with no doctor check ever saying
+    so — this is what let `tests/unit/test_gateway_mcp_parity.py`'s own
+    parity checks report a legitimate skip (missing package, lean test lane)
+    look, from a live-deployment reader's seat, indistinguishable from "this
+    was never actually verified".
+
+    ``tiny`` is the one profile documented
+    (:mod:`agent_utilities.deployment.genesis_environments`) to run
+    engine-less by design — warn there, fail everywhere else. This mirrors
+    the exact ``tiny``-vs-else split :func:`_check_config` already
+    established for the same profile distinction (durability findings are
+    advisory on ``tiny``, a hard failure elsewhere).
+    """
+    try:
+        from agent_utilities.core.config import AgentConfig
+        from agent_utilities.mcp.tools import engine_tools
+
+        cfg = AgentConfig()
+        profile = cfg.deployment_profile
+        domain_count = len(engine_tools.ENGINE_DOMAINS)
+    except Exception as exc:  # noqa: BLE001
+        return _result(
+            "engine_domains",
+            "error",
+            f"engine domain discovery check failed ({type(exc).__name__})",
+        )
+    data = {"profile": profile, "domain_count": domain_count, "redacted": True}
+    if domain_count > 0:
+        return _result(
+            "engine_domains",
+            "ok",
+            f"{domain_count} engine_<domain> tool families registered",
+            data=data,
+        )
+    status = "warn" if profile == "tiny" else "fail"
+    return _result(
+        "engine_domains",
+        status,
+        f"no engine_<domain> tool families registered for profile {profile!r} "
+        "-- the 'epistemic_graph' client package is not importable",
+        remediation=(
+            "install the engine client (`pip install 'agent-utilities[graphos]'` "
+            "or the `[serving]`/`[all]` extra, both of which pull it) so the "
+            "required engine_<domain> tool families and their REST twins are "
+            "actually served"
+        ),
+        skill="agent-utilities-deployment",
+        data=data,
+    )
+
+
 def _check_engine_request_context() -> dict[str, Any]:
     """Report the fail-secure native-engine request-context posture."""
 
@@ -4249,6 +4317,7 @@ CHECKS: dict[str, Callable[..., dict[str, Any]]] = {
     "workspace_config": _check_workspace_config,
     "engine_request_context": _check_engine_request_context,
     "engine": _check_engine,
+    "engine_domains": _check_engine_domains,
     "graph_authority": _check_graph_authority,
     "graph_connections": _check_graph_connections,
     "ingestion_coverage": _check_ingestion_coverage,

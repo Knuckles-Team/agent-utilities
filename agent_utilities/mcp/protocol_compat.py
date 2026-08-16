@@ -9,7 +9,7 @@ CONCEPT:AU-ECO.mcp.protocol-compat-bridge
 `pyproject.toml`), which transitively requires `mcp>=2.0.0,<3.0.0` (the MCP Python
 SDK's v2 line). Empirically verified against a live fastmcp-4 server + a real
 `pydantic_ai.mcp.MCPToolset` client (fastmcp 4.0.0b1, mcp 2.0.0, pydantic-ai-slim
-2.21.0 — the latest published release as of this writing), two upstream gaps break
+2.25.0 — the latest published release as of this writing), two upstream gaps break
 every real toolset connection unless bridged here. Both gaps are inside
 `pydantic_ai.mcp` / `fastmcp`'s own code, not anything this package calls directly,
 so they cannot be fixed by changing how *we* invoke the API — only by adapting to
@@ -32,7 +32,7 @@ the renamed/defaulted surface until upstream catches up:
 2. **`fastmcp.client.Client` defaults to `mode="auto"`**, which negotiates the
    modern `server/discover` connect era against a fastmcp-4 server and leaves
    `Client.initialize_result` as `None`. `pydantic_ai.mcp.MCPToolset.__aenter__`
-   (2.21.0) unconditionally asserts `client.initialize_result is not None`, so
+   (2.25.0) unconditionally asserts `client.initialize_result is not None`, so
    every connection to a real fastmcp-4 server fails outright unless the
    underlying client is pinned to `mode="legacy"` (today's initialize handshake,
    which populates `initialize_result`). `MCPToolset` does not expose a `mode`
@@ -204,26 +204,30 @@ def install_mcp_v2_bridge() -> None:
 #: The exact `pydantic-ai-slim` release this D-CDX-69 patch was written and
 #: verified against (see `_install_pydantic_ai_v2_read_bridge`'s docstring).
 #: Deliberately an EXACT match, not a floor: `MCPToolset.__aenter__`/`get_tools`
-#: are copied verbatim below with three reads corrected, so a body that has
+#: are copied verbatim below with four reads corrected, so a body that has
 #: since changed upstream must not silently receive a stale patch.
-_PATCHED_PYDANTIC_AI_VERSION = "2.21.0"
+_PATCHED_PYDANTIC_AI_VERSION = "2.25.0"
 
 _toolset_reads_patched = False
 
 
 def _install_pydantic_ai_v2_read_bridge() -> None:
-    """D-CDX-69: stop `pydantic_ai.mcp.MCPToolset` from ever performing the three
-    deprecated camelCase reads that trip `fastmcp._compat`'s OWN shim.
+    """D-CDX-69: stop `pydantic_ai.mcp.MCPToolset` from ever performing the four
+    deprecated camelCase reads that trip a warn-on-read compatibility shim
+    (`fastmcp._compat`'s for three of them, `install_mcp_v2_bridge`'s own alias
+    above for the fourth).
 
-    Unlike the gaps `install_mcp_v2_bridge` closes above (fields `fastmcp._compat`
-    does not cover at all, so a plain property never shadows anything real),
     `InitializeResult.serverInfo` and `Tool.inputSchema` / `Tool.outputSchema` ARE
     already covered by `fastmcp._compat` — that shim is exactly what emits the
-    `FastMCPDeprecationWarning` the live ServiceNow probe observed. The warning is
-    correct: `pydantic_ai.mcp.MCPToolset.__aenter__` (line ~1086) and `.get_tools`
-    (lines ~1149/1155) really do read `init_result.serverInfo` /
+    `FastMCPDeprecationWarning` the live ServiceNow probe observed. The fourth,
+    `ToolExecution.taskSupport`, is instead covered by the alias `install_mcp_v2_bridge`
+    installs above (`mcp_types.ToolExecution: {"taskSupport": "task_support"}`) — that
+    alias has no once-only guard, so it warns on every single read rather than once
+    per class/name. Either way, the warning is correct: `pydantic_ai.mcp.MCPToolset.
+    __aenter__` (line ~1086) and `.get_tools` (lines ~1151/1154/1159/1165) really do
+    read `init_result.serverInfo` / `mcp_tool.execution.taskSupport` /
     `mcp_tool.inputSchema` / `mcp_tool.outputSchema` instead of the SDK v2
-    `server_info` / `input_schema` / `output_schema` names.
+    `server_info` / `task_support` / `input_schema` / `output_schema` names.
 
     Because the warning is real and not a false positive, silencing it (a
     `warnings` filter, or overwriting `fastmcp`'s shim property with a
@@ -233,11 +237,16 @@ def _install_pydantic_ai_v2_read_bridge() -> None:
     item's acceptance criteria rules out. The only fix that removes the warning
     without touching its detection machinery is to stop `MCPToolset` from making
     the deprecated read at all — so this replaces its two owning methods with a
-    byte-for-byte copy of the installed `pydantic-ai-slim` 2.21.0 source with
-    exactly those three attribute reads corrected to the v2 names (plus the
-    pre-existing `ToolExecution.taskSupport` -> `task_support` read, which
-    `install_mcp_v2_bridge` above already bridges but still emits its own
-    warn-once `DeprecationWarning` on every read otherwise).
+    byte-for-byte copy of the installed `pydantic-ai-slim` 2.25.0 source with
+    exactly those four attribute reads corrected to the v2 names. `get_tools`
+    changed shape since the 2.21.0 copy this patch previously carried: it now
+    delegates `ToolsetTool` construction to the real (unpatched)
+    `MCPToolset.tool_for_tool_def` helper instead of constructing `ToolsetTool`
+    inline, and factors the SEP-1686 task-augmented-execution preference in via
+    `self.prefer_tasks` (`'task': task_support == 'required' or (task_support ==
+    'optional' and self.prefer_tasks)`) rather than treating `'required'` and
+    `'optional'` alike. Both are preserved exactly as installed — only the four
+    camelCase reads are corrected.
 
     Idempotent, and version-pinned defensively: if the installed
     `pydantic-ai-slim` is not exactly `_PATCHED_PYDANTIC_AI_VERSION`, this emits
@@ -275,6 +284,11 @@ def _install_pydantic_ai_v2_read_bridge() -> None:
     import pydantic_ai.mcp as _pydantic_ai_mcp
 
     async def _v2_aenter(self: Any) -> Any:
+        # Build the exit stack inside an `async with` so any failure after
+        # `enter_async_context(self.client)` cleans up the open session — only commit
+        # the stack and write `_server_info`/`_server_capabilities`/`_instructions` to
+        # `self` once initialization fully succeeds, so `_initialized` can't see stale
+        # data from a session that got torn down mid-setup.
         async with self._enter_lock:
             if self._running_count == 0:
                 async with AsyncExitStack() as exit_stack:
@@ -300,17 +314,13 @@ def _install_pydantic_ai_v2_read_bridge() -> None:
         return self
 
     async def _v2_get_tools(self: Any, ctx: Any) -> dict[str, Any]:
-        max_retries = (
-            self.max_retries if self.max_retries is not None else ctx.max_retries
-        )
         tools: dict[str, Any] = {}
         for mcp_tool in await self.list_tools():
             task_support = (
                 mcp_tool.execution.task_support if mcp_tool.execution else None
-            )  # v2 name
-            tools[mcp_tool.name] = _pydantic_ai_mcp.ToolsetTool(
-                toolset=self,
-                tool_def=_pydantic_ai_mcp.ToolDefinition(
+            )  # v2 name (was `.taskSupport`)
+            tools[mcp_tool.name] = self.tool_for_tool_def(
+                _pydantic_ai_mcp.ToolDefinition(
                     name=mcp_tool.name,
                     description=mcp_tool.description,
                     parameters_json_schema=mcp_tool.input_schema,  # v2 name (was `.inputSchema`)
@@ -319,14 +329,14 @@ def _install_pydantic_ai_v2_read_bridge() -> None:
                         "annotations": mcp_tool.annotations.model_dump()
                         if mcp_tool.annotations
                         else None,
-                        "task": task_support in ("required", "optional"),
+                        "task": task_support == "required"
+                        or (task_support == "optional" and self.prefer_tasks),
                     },
                     return_schema=mcp_tool.output_schema
                     or None,  # v2 name (was `.outputSchema`)
                     include_return_schema=self.include_return_schema,
                 ),
-                max_retries=max_retries,
-                args_validator=_pydantic_ai_mcp.TOOL_SCHEMA_VALIDATOR,
+                ctx=ctx,
             )
         return tools
 

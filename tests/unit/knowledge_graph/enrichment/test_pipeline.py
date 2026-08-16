@@ -558,7 +558,9 @@ def test_enrich_documents_stamps_ownership_when_actor_is_bound(tmp_path):
         concepts, edges, summary = pipe.enrich_documents([tmp_path / "doc.md"])
 
     assert summary.documents == 1
-    (doc_props,) = [p for p in backend.nodes.values() if p.get("node_type") == "Document"]
+    (doc_props,) = [
+        p for p in backend.nodes.values() if p.get("node_type") == "Document"
+    ]
     assert doc_props["_owner_id"] == "user:doc-writer"
     assert doc_props["tenant_id"] == "tenant-docs"
     assert doc_props["_shared_scope"] == "private"

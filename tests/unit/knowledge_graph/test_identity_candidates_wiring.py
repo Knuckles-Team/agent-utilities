@@ -30,7 +30,6 @@ from agent_utilities.knowledge_graph.assimilation.identity_candidates import (
 from agent_utilities.models.knowledge_graph import RegistryEdgeType
 from agent_utilities.models.schema_pack import IdentityRule, SchemaPack
 
-
 # --------------------------------------------------------------------------- #
 # 1. Near-identical names -> a candidate, never a merge
 # --------------------------------------------------------------------------- #

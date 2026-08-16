@@ -57,7 +57,9 @@ from pathlib import Path
 POSIX_ONLY_STDLIB_MODULES = ("fcntl", "termios", "pwd", "resource", "grp")
 
 
-def install_windows_simulation(blocked: tuple[str, ...] = POSIX_ONLY_STDLIB_MODULES) -> None:
+def install_windows_simulation(
+    blocked: tuple[str, ...] = POSIX_ONLY_STDLIB_MODULES,
+) -> None:
     """Make POSIX-only stdlib modules unimportable, as they are on Windows.
 
     Overrides ``builtins.__import__`` (rather than just deleting cache
@@ -133,11 +135,20 @@ def discover_modules(package_name: str) -> tuple[list[str], list[tuple[str, str]
 
     def _on_walk_error(broken_name: str) -> None:
         exc = sys.exc_info()[1]
-        walk_failures.append((broken_name, f"{type(exc).__name__}: {exc}" if exc else "import failed while walking"))
+        walk_failures.append(
+            (
+                broken_name,
+                f"{type(exc).__name__}: {exc}"
+                if exc
+                else "import failed while walking",
+            )
+        )
 
     walkable_path = getattr(package, "__path__", None)
     if walkable_path is not None:
-        for info in pkgutil.walk_packages(walkable_path, prefix=f"{package_name}.", onerror=_on_walk_error):
+        for info in pkgutil.walk_packages(
+            walkable_path, prefix=f"{package_name}.", onerror=_on_walk_error
+        ):
             names.append(info.name)
     return sorted(names), walk_failures
 
@@ -154,7 +165,9 @@ def import_standalone_script(path: Path) -> None:
     would never see it. Raises on any import-time exception; the caller
     decides how to report it.
     """
-    spec = importlib.util.spec_from_file_location(f"_import_safety_script_check__{path.stem}", path)
+    spec = importlib.util.spec_from_file_location(
+        f"_import_safety_script_check__{path.stem}", path
+    )
     if spec is None or spec.loader is None:
         raise ImportError(f"could not build an import spec for {path}")
     module = importlib.util.module_from_spec(spec)
@@ -162,7 +175,9 @@ def import_standalone_script(path: Path) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "--package",
         required=True,
@@ -195,23 +210,34 @@ def main() -> int:
     try:
         module_names, walk_failures = discover_modules(args.package)
     except Exception as exc:  # the package itself failed to import -- fatal
-        print(f"FATAL: could not import {args.package!r} at all: {type(exc).__name__}: {exc}")
+        print(
+            f"FATAL: could not import {args.package!r} at all: {type(exc).__name__}: {exc}"
+        )
         traceback.print_exc()
         return 1
 
     excluded = tuple(args.exclude)
 
     def is_excluded(name: str) -> bool:
-        return any(name == prefix or name.startswith(prefix + ".") for prefix in excluded)
+        return any(
+            name == prefix or name.startswith(prefix + ".") for prefix in excluded
+        )
 
-    mode = "simulated-windows" if args.simulate_windows else ("windows" if sys.platform == "win32" else "native")
+    mode = (
+        "simulated-windows"
+        if args.simulate_windows
+        else ("windows" if sys.platform == "win32" else "native")
+    )
 
     # Walk-time failures (subpackages pkgutil could not descend into at all)
     # are real findings, not a footnote -- everything beneath them was never
     # enumerable, so report them as failures even though we cannot name what
     # (if anything) they were individually hiding.
     failures: list[tuple[str, str]] = [
-        (name, f"{err} (package failed to import WHILE WALKING -- its children could not be enumerated at all)")
+        (
+            name,
+            f"{err} (package failed to import WHILE WALKING -- its children could not be enumerated at all)",
+        )
         for name, err in walk_failures
         if not is_excluded(name)
     ]
@@ -239,7 +265,10 @@ def main() -> int:
         except Exception as exc:
             failures.append((str(path), f"{type(exc).__name__}: {exc}"))
 
-    print(f"import-safety[{mode}]: checked {checked} modules/scripts under {args.package!r}" + (f" (+{len(args.script)} standalone script(s))" if args.script else ""))
+    print(
+        f"import-safety[{mode}]: checked {checked} modules/scripts under {args.package!r}"
+        + (f" (+{len(args.script)} standalone script(s))" if args.script else "")
+    )
 
     if failures:
         print(f"import-safety[{mode}]: {len(failures)} module(s) FAILED to import:")

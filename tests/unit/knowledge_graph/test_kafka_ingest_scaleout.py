@@ -23,7 +23,9 @@ import pytest
 
 from agent_utilities.knowledge_graph.core.engine_tasks import (
     TaskManagerMixin,
+    _admission_retry_delay_seconds,
     _encode_metadata,
+    _idle_backoff_seconds,
     compute_ingest_worker_count,
 )
 from agent_utilities.knowledge_graph.core.queue_backend import (
@@ -1020,12 +1022,88 @@ def test_kafka_notification_falls_back_to_put_without_put_hydration():
 # ── autosizing ───────────────────────────────────────────────────────────
 
 
-def test_worker_count_configured_wins():
+def test_worker_count_configured_wins_within_envelope():
+    # On this (uncontained) test host the cgroup/host ceiling is large, so an
+    # explicit in-envelope override still wins outright.
     assert compute_ingest_worker_count(7) == 7
 
 
 def test_worker_count_autosizes_with_floor():
-    assert compute_ingest_worker_count(0) >= 2
+    # U-64/BUG-110: the floor is now 1 (a safe single-worker floor), not 2 --
+    # a two-worker floor is exactly what let a 1.5-CPU cgroup get oversubscribed
+    # when combined with resource-blind sizing.
+    assert compute_ingest_worker_count(0) >= 1
+
+
+def test_worker_count_configured_is_clamped_to_cgroup_ceiling(monkeypatch):
+    """U-64/BUG-110 regression: a live pod requested 69 workers (via caller
+    config bypassing autosizing entirely) inside a 1.5-CPU/4-GiB cgroup. An
+    explicit ``configured`` value must be clamped to the same ceiling the
+    automatic path computes, not honored unconditionally."""
+    import agent_utilities.core.cgroup_resources as cgroup_resources
+
+    monkeypatch.setattr(cgroup_resources, "effective_cpu_cores", lambda: 1.5)
+    monkeypatch.setattr(
+        cgroup_resources, "effective_memory_limit_bytes", lambda: 4 * (1024**3)
+    )
+    assert compute_ingest_worker_count(69) == 1
+
+
+def test_worker_count_autosize_bounded_by_cgroup_not_host(monkeypatch):
+    """U-64/BUG-110 regression: with no explicit override, autosizing must be
+    bounded by the cgroup envelope, not ``os.cpu_count()``/host memory. The
+    exact live-pod envelope (1.5 CPU, 4 GiB) resolves to exactly 1 worker
+    even though the host in this evidence had 192 cores."""
+    import agent_utilities.core.cgroup_resources as cgroup_resources
+
+    monkeypatch.setattr(cgroup_resources, "effective_cpu_cores", lambda: 1.5)
+    monkeypatch.setattr(
+        cgroup_resources, "effective_memory_limit_bytes", lambda: 4 * (1024**3)
+    )
+    assert compute_ingest_worker_count(0) == 1
+
+
+def test_idle_backoff_grows_exponentially_and_caps(monkeypatch):
+    """U-65/BUG-111: the old idle poll always slept a fixed 2s. The new
+    backoff must grow with the consecutive-miss streak and cap at 15s."""
+    monkeypatch.setattr("random.uniform", lambda lo, hi: lo)  # freeze jitter at 0
+    assert _idle_backoff_seconds(1) == 1.0
+    assert _idle_backoff_seconds(2) == 2.0
+    assert _idle_backoff_seconds(3) == 4.0
+    assert _idle_backoff_seconds(4) == 8.0
+    assert _idle_backoff_seconds(5) == 15.0  # capped, not 16.0
+    assert _idle_backoff_seconds(20) == 15.0  # still capped
+
+
+def test_idle_backoff_adds_positive_jitter_so_workers_desynchronize():
+    """U-65/BUG-111: fixed-cadence polling synchronized every idle worker onto
+    the same wake time. Repeated calls at the same streak must not all return
+    the identical value (jitter is genuinely applied)."""
+    samples = {_idle_backoff_seconds(4) for _ in range(20)}
+    assert len(samples) > 1
+    for value in samples:
+        assert 8.0 <= value <= 8.0 * 1.25
+
+
+def test_admission_retry_delay_is_bounded_5_to_15s():
+    """U-65/BUG-111: the old fixed 1s admission-denied retry synchronized every
+    denied worker onto the same retry tick. The new delay must land in the
+    bounded 5-15s spread window every time, never collapsing back to ~1s."""
+    for _ in range(50):
+        delay = _admission_retry_delay_seconds()
+        assert 5.0 <= delay <= 15.0
+
+
+def test_worker_count_autosize_scales_up_on_a_generous_cgroup(monkeypatch):
+    """Sanity check that the cgroup ceiling genuinely drives the result both
+    ways -- a generous envelope (32 cores, 256 GiB) permits more than 1."""
+    import agent_utilities.core.cgroup_resources as cgroup_resources
+
+    monkeypatch.setattr(cgroup_resources, "effective_cpu_cores", lambda: 32.0)
+    monkeypatch.setattr(
+        cgroup_resources, "effective_memory_limit_bytes", lambda: 256 * (1024**3)
+    )
+    assert compute_ingest_worker_count(0) == max(1, int(32 * 0.36))
 
 
 # ── KG-2.57: uniform queue depth + orchestrator backpressure ────────────

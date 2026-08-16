@@ -40,7 +40,6 @@ import argparse
 import os
 import re
 import stat
-import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -50,6 +49,8 @@ ROOT = Path(__file__).resolve().parent.parent
 # pip-installed, so the KG-2.320 federation discoverer/registry can be reached.
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
+
 KG_DIR = ROOT / "agent_utilities" / "knowledge_graph"
 SHAPES_DIR = KG_DIR / "shapes"
 CANONICAL = KG_DIR / "ontology.ttl"
@@ -320,19 +321,7 @@ def _bundled_ttls(kg_dir: Path) -> list[Path]:
     Falls back to ``rglob`` only when ``kg_dir`` is not inside a git working
     tree (e.g. an installed, non-editable copy with no ``.git``).
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(kg_dir), "ls-files", "--", "*.ttl"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [kg_dir / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return list(kg_dir.rglob("*.ttl"))
+    return tracked_or_walked(kg_dir, "*.ttl", root=ROOT)
 
 
 def _all_ttls(provider_ttls: list[Path] | None = None) -> list[Path]:

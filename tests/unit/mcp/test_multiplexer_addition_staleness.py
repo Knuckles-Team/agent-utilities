@@ -29,13 +29,12 @@ from fastmcp import FastMCP
 from agent_utilities.mcp.multiplexer import (
     MCPMultiplexer,
     _perform_always_load,
-    _register_forwarder,
     _session_key,
     load_session_tools,
 )
 from tests.unit.mcp.test_multiplexer_dynamic_gateway import (
-    _SchemaGenerationSession,
     _schema_tool,
+    _SchemaGenerationSession,
     _wait_for_condition,
     _write_config,
 )

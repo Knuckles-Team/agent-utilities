@@ -227,7 +227,49 @@ class IntelligenceGraphEngine(
 
         Native WorkItem lifecycle methods remain the only writable work-state
         There is no separate control store, graph client, or fallback authority.
+
+        U-16/BUG-113: this used to return ``self.backend`` verbatim -- correct
+        ONLY when ``self.backend`` already happens to be scoped to the fixed,
+        tenant-shared ``__control__`` system graph (``shard_topology.
+        is_system_graph``). It is not, whenever THIS particular engine
+        instance was itself constructed already scoped to a content graph --
+        an explicit ``db_path``/``graph=`` construction argument, or a
+        session-bound backend picked up via ``get_active_backend()`` for an
+        explicit content-graph session. A live r15 gate reproduced exactly
+        that split: a codebase-ingest submission ran through a content-graph
+        -scoped engine, so its WorkItem was created IN that content graph
+        (``kf-pilot:code-ingest`` held the WorkItem row); the public
+        ``job_status``/background-claim path ran through a different engine
+        instance whose ``control_backend`` was the true ``__control__``
+        graph, so it could never find it -- split WorkItem authority plus a
+        content-graph leak of control state.
+
+        The control-plane authority must be independent of whatever content
+        graph this instance happens to be scoped to: always resolve the
+        fixed ``__control__`` graph via the backend's own cheap ``for_graph``
+        view factory (the same mechanism :meth:`for_graph` uses for content
+        views -- no new transport/socket, per
+        ``EpistemicGraphBackend.for_graph``'s own docstring). A backend with
+        no such factory (a minimal test double, or a non-graph-scoped store)
+        falls back to ``self.backend`` unchanged -- today's behavior, and
+        correct for a backend that has only one scope to begin with.
         """
+        view_factory = getattr(self.backend, "for_graph", None)
+        if callable(view_factory):
+            from .shard_topology import CONTROL_GRAPH_NAME
+
+            try:
+                return view_factory(CONTROL_GRAPH_NAME)
+            except Exception:  # noqa: BLE001 — a view-factory failure must not
+                # block engine construction; the pre-existing single-scope
+                # fallback keeps the engine usable (and the WorkItemBackend
+                # -Unavailable guard in engine_tasks.py still fails closed on
+                # a genuinely missing control authority downstream).
+                logger.warning(
+                    "control-graph view resolution failed; falling back to "
+                    "this instance's own backend scope",
+                    exc_info=True,
+                )
         return self.backend
 
     def _bind_policy_stores(self) -> None:

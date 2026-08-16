@@ -252,14 +252,18 @@ def classify_and_patch(repo: Path, *, apply: bool, force: bool) -> Outcome:
     if is_insert:
         match = ANCHOR_RE.search(text)
         if not match:
-            return Outcome(name, "skipped-no-anchor", "no `- id: check-stubs` line found")
+            return Outcome(
+                name, "skipped-no-anchor", "no `- id: check-stubs` line found"
+            )
         if not apply:
             return Outcome(name, "would-insert", f"anchor indent={match['indent']!r}")
     else:
         if not apply:
             return Outcome(name, f"would-rewrite ({state})")
 
-    branch = "feat/lane-protocol-reach" if is_insert else "fix/lane-guard-hook-resolution"
+    branch = (
+        "feat/lane-protocol-reach" if is_insert else "fix/lane-guard-hook-resolution"
+    )
     worktree_root = Path.home() / ".local" / "state" / "repository-worktrees" / name
     worktree_root.mkdir(parents=True, exist_ok=True)
     worktree = worktree_root / branch.replace("/", "-")
@@ -293,7 +297,9 @@ def classify_and_patch(repo: Path, *, apply: bool, force: bool) -> Outcome:
     else:
         wt_existing = _find_existing_block(wt_text)
         if wt_existing is None:
-            return Outcome(name, "skipped-block-vanished", "lane-guard block vanished in worktree")
+            return Outcome(
+                name, "skipped-block-vanished", "lane-guard block vanished in worktree"
+            )
         old_block, indent = wt_existing
         new_block = _hook_block(indent)
         start = wt_text.index(old_block)
@@ -320,9 +326,8 @@ def classify_and_patch(repo: Path, *, apply: bool, force: bool) -> Outcome:
     )
     _run(["git", "merge", "--ff-only", branch], repo, check=False)
     merged_text = config.read_text(encoding="utf-8")
-    ok = (
-        HOOK_ID_MARKER in merged_text
-        and (is_insert or _hook_block(_find_existing_block(merged_text)[1]) in merged_text)
+    ok = HOOK_ID_MARKER in merged_text and (
+        is_insert or _hook_block(_find_existing_block(merged_text)[1]) in merged_text
     )
     merged = _run(["git", "log", "--oneline", "-1"], repo, check=False)
     if not ok:

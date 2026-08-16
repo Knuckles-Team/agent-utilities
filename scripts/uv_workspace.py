@@ -191,7 +191,9 @@ else:  # pragma: no cover - exercised only on Windows (or the import-fault sim)
         # byte-range locks are explicitly documented to allow this), so no
         # "ensure the file is non-empty" workaround is needed, unlike the
         # CRT's msvcrt.locking().
-        ok = _kernel32.LockFileEx(_win_handle(handle), flags, 0, 1, 0, _ctypes.byref(ov))
+        ok = _kernel32.LockFileEx(
+            _win_handle(handle), flags, 0, 1, 0, _ctypes.byref(ov)
+        )
         if ok:
             return True
         err = _ctypes.get_last_error()
@@ -225,6 +227,7 @@ else:  # pragma: no cover - exercised only on Windows (or the import-fault sim)
             _kernel32.UnlockFileEx(_win_handle(handle), 0, 1, 0, _ctypes.byref(ov))
         except OSError:
             pass
+
 
 PROJECT_NAME = "agent-utilities"
 _SHADOW_MARKER = ".agent-utilities-worktree.json"
