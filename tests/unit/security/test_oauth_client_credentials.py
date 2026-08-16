@@ -608,6 +608,14 @@ class TestBearerAttachedToLLMRequest:
 
 class TestBearerAttachedToEmbeddingRequest:
     def test_embedding_client_carries_oauth2_auth(self, fake_secrets):
+        # ``provider="openai"`` below constructs a REAL llama_index
+        # OpenAIEmbedding client, which needs the optional
+        # `embeddings-openai` extra (`llama-index-embeddings-openai`) --
+        # deliberately NOT part of the `test` extra (see
+        # tests/unit/test_serving_embeddings_dependency.py,
+        # test_serving_does_not_rely_on_bare_embeddings_only): the bare
+        # `embeddings` extra ships only llama-index-core, no provider.
+        pytest.importorskip("llama_index.embeddings.openai")
         from agent_utilities.core import embedding_utilities
 
         embedding_utilities.clear_embedding_model_cache()

@@ -1027,6 +1027,79 @@ def test_engine_doctor_never_returns_endpoint_or_socket_material(monkeypatch):
     assert "/private/machine" not in rendered
 
 
+def test_bug013_engine_domains_doctor_fails_closed_on_production_profile(monkeypatch):
+    """BUG-013: a required capability module (the `epistemic_graph` client,
+    which populates the 21 REQUIRED `engine_<domain>` tool families) silently
+    absent must FAIL readiness on a real deployment profile, not warn/skip
+    past it. Reproduces the exact live shape: `engine_tools.ENGINE_DOMAINS`
+    degrades to `{}` (its own documented graceful-but-loud fallback) when the
+    `epistemic_graph` package is not importable."""
+    from agent_utilities.mcp.tools import engine_tools
+
+    cfg = SimpleNamespace(deployment_profile="single-node-prod")
+    monkeypatch.setattr("agent_utilities.core.config.AgentConfig", lambda: cfg)
+    monkeypatch.setattr(engine_tools, "ENGINE_DOMAINS", {})
+
+    result = D._check_engine_domains()
+
+    assert result["status"] == "fail"
+    assert result["data"]["domain_count"] == 0
+    assert result["data"]["profile"] == "single-node-prod"
+    assert result["remediation"]
+
+
+def test_bug013_engine_domains_doctor_warns_not_fails_on_tiny_profile(monkeypatch):
+    """`tiny` is the one documented engine-less pre-bootstrap profile — the
+    same distinction `_check_config` already draws — so the same absence is a
+    `warn`, not a `fail`, there."""
+    from agent_utilities.mcp.tools import engine_tools
+
+    cfg = SimpleNamespace(deployment_profile="tiny")
+    monkeypatch.setattr("agent_utilities.core.config.AgentConfig", lambda: cfg)
+    monkeypatch.setattr(engine_tools, "ENGINE_DOMAINS", {})
+
+    result = D._check_engine_domains()
+
+    assert result["status"] == "warn"
+
+
+def test_bug013_engine_domains_doctor_ok_when_domains_registered(monkeypatch):
+    """Negative-direction proof: a real, populated registry reports `ok` on
+    every profile — this check does not fail a healthy deployment."""
+    from agent_utilities.mcp.tools import engine_tools
+
+    cfg = SimpleNamespace(deployment_profile="enterprise")
+    monkeypatch.setattr("agent_utilities.core.config.AgentConfig", lambda: cfg)
+    monkeypatch.setattr(
+        engine_tools, "ENGINE_DOMAINS", {"nodes": ["get_node"], "edges": ["get_edge"]}
+    )
+
+    result = D._check_engine_domains()
+
+    assert result["status"] == "ok"
+    assert result["data"]["domain_count"] == 2
+
+
+def test_bug013_engine_domains_wired_into_run_doctor_and_fails_the_sweep(monkeypatch):
+    """Wiring proof through the REAL aggregator entrypoint (`run_doctor`), not
+    just the standalone check function — proves `engine_domains` is actually
+    registered in `CHECKS` and that its `fail` status propagates to the
+    overall sweep verdict, exactly like every other doctor check."""
+    from agent_utilities.mcp.tools import engine_tools
+
+    cfg = SimpleNamespace(deployment_profile="single-node-prod")
+    monkeypatch.setattr("agent_utilities.core.config.AgentConfig", lambda: cfg)
+    monkeypatch.setattr("agent_utilities.core.config.load_config", lambda: None)
+    monkeypatch.setattr(engine_tools, "ENGINE_DOMAINS", {})
+
+    report = D.run_doctor(only=["engine_domains"])
+
+    assert report["status"] == "unhealthy"
+    names = [c["name"] for c in report["checks"]]
+    assert names == ["engine_domains"]
+    assert report["checks"][0]["status"] == "fail"
+
+
 def _multi_endpoint_engine_config(monkeypatch, *, discovery_ready: bool | None):
     """Shared fixture for the ADR-1 / W1.1 inverted multi-contact engine check
     (`reports/wave1/ADR-scale-trio.md` §ADR-1 decision 5): 2 reachable

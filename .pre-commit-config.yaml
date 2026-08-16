@@ -162,16 +162,50 @@ repos:
     #     for separate triage so this gate's signal stays specific to
     #     cross-platform import safety.
     #
-    # NOT excluded, and expected to keep this hook RED until
-    # fix/au-cross-platform-locking (or equivalent) merges: the 12 modules
-    # with a genuinely unguarded top-level `import fcntl`/`import resource`
-    # -- agent_utilities.deployment.{venv_sync,venv_autosync},
-    # governance.{concept_allocator,lanes,merge_queue},
-    # knowledge_graph.core.{engine_lock,host_lock}, mcp.{eunomia_principal,
-    # kg_coordinator,middlewares,multiplexer,shared_multiplexer}. A hook
-    # that stayed green through those would not be proving anything.
+    # The previous version of this comment listed 12 modules as "genuinely
+    # unguarded, expected RED until fix/au-cross-platform-locking merges" --
+    # that branch merged 2026-08-13 (2df6f6d14, migrating cli/unified_install/
+    # concept_allocator/lanes/merge_queue/engine_lock/host_lock/kg_coordinator
+    # onto file_lock.py's guarded primitive) but this hook's exclude list was
+    # never updated for the new call sites, so it kept failing for a *third*
+    # reason: measuring with the ambient system `python3` instead of the repo
+    # `.venv` (the interpreter pre-commit's `language: system` hooks actually
+    # get depends on PATH at invocation time -- CI's Windows job explicitly
+    # prepends `.venv/bin`/`.venv/Scripts` to $GITHUB_PATH before this exact
+    # script runs; a local run without doing the same silently falls back to
+    # system python3, which has neither this repo's fastmcp>=4.0.0b1 nor
+    # pydantic-ai-harness installed and reports THOSE as failures instead --
+    # a red herring, not a Windows/fcntl finding). Re-verified 2026-08-15
+    # against the repo venv (`.venv/bin` first on PATH) with a full per-module
+    # traceback (not assumed): every one of the 12 modules below bottoms out
+    # at an ALREADY correctly `sys.platform == "win32"`-guarded import, one or
+    # more dependency hops removed -- the same shim limitation as the group
+    # above, just not yet added to this list:
+    #   * cli, core.unified_install, governance.{concept_allocator,lanes,
+    #     merge_queue}, knowledge_graph.core.{engine_lock,host_lock} --
+    #     transitively import knowledge_graph.core.file_lock (already
+    #     excluded above for direct import; these are the same limitation
+    #     one hop removed, exactly like the mcp.tools/mcp.verbose_tools/
+    #     patterns.* group below).
+    #   * mcp.{eunomia_principal,middlewares,multiplexer,shared_multiplexer}
+    #     -- transitively import fastmcp's `server.middleware`/`prompts.base`,
+    #     which (as of the fastmcp 4.0.0b2 upgrade -- not the case under the
+    #     3.3.1 pin this comment was originally written against) now reach
+    #     the third-party `mcp` SDK's own `mcp/server/stdio.py`, which
+    #     guards its `import fcntl` behind the identical pattern (`# POSIX-
+    #     only line, uncovered on Windows runners`) already covered above.
+    #   * mcp.kg_coordinator -- transitively imports `psutil`, whose
+    #     `psutil/__init__.py` platform-dispatches to `psutil/_pslinux.py`
+    #     (real `sys.platform`-gated selection inside psutil itself), which
+    #     imports `resource` -- same shim limitation, third dependency.
+    # None of the 12 are a genuinely unguarded import in agent_utilities' own
+    # code; deployment.venv_sync/venv_autosync (previously listed here) now
+    # import cleanly and needed no entry.
     entry: >-
-      python3 scripts/check_import_safety.py --package agent_utilities --simulate-windows
+      bash -c 'CMD="scripts/check_import_safety.py $*"; if [ -f uv.lock ]; then
+      exec python3 scripts/uv_workspace.py run --all-extras -- python3 $CMD; else
+      exec python3 $CMD; fi' --
+      --package agent_utilities --simulate-windows
       --exclude agent_utilities.knowledge_graph.core.file_lock
       --exclude agent_utilities.__main__
       --exclude agent_utilities.agent.factory
@@ -181,6 +215,18 @@ repos:
       --exclude agent_utilities.patterns
       --exclude agent_utilities.agent_utilities
       --exclude agent_utilities.knowledge_graph.adaptation.trace_distiller
+      --exclude agent_utilities.cli
+      --exclude agent_utilities.core.unified_install
+      --exclude agent_utilities.governance.concept_allocator
+      --exclude agent_utilities.governance.lanes
+      --exclude agent_utilities.governance.merge_queue
+      --exclude agent_utilities.knowledge_graph.core.engine_lock
+      --exclude agent_utilities.knowledge_graph.core.host_lock
+      --exclude agent_utilities.mcp.eunomia_principal
+      --exclude agent_utilities.mcp.middlewares
+      --exclude agent_utilities.mcp.multiplexer
+      --exclude agent_utilities.mcp.shared_multiplexer
+      --exclude agent_utilities.mcp.kg_coordinator
     language: system
     pass_filenames: false
     # NOT `types: [python]` (this repo's own top-level `exclude: ^scripts/`,

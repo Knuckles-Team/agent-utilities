@@ -52,11 +52,13 @@ walk — a syntax scan, not a call graph.
 from __future__ import annotations
 
 import ast
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
+
 SCOPE = ROOT / "agent_utilities" / "mcp"
 BASELINE = ROOT / "scripts" / "no_per_element_ingest_loop_baseline.txt"
 
@@ -71,19 +73,7 @@ def _tracked_or_walked_py_files(target: Path) -> list[Path]:
     """``.py`` files under ``target``, preferring the git-tracked set (BUG-043) —
     a raw ``rglob`` also picks up gitignored/generated output that can carry a
     stale copy of an already-fixed file and reintroduce a cleared violation."""
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(target), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [target / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(target.rglob("*.py"))
+    return tracked_or_walked(target, "*.py", root=ROOT)
 
 
 def _dotted_name(node: ast.AST) -> str | None:

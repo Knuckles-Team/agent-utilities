@@ -95,11 +95,42 @@ _BARE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _ABSOLUTE_MODULE_RE = re.compile(r"^agent_utilities(?:\.[A-Za-z_][A-Za-z0-9_]*)+$")
 
 
+class LivenessSourceDiscoveryError(RuntimeError):
+    """A rescue mechanism's source-file discovery returned implausibly few
+    files for a root that demonstrably has more on disk (GOC-70 liveness
+    investigation). ``check_wiring._tracked_or_walked`` prefers
+    ``git ls-files`` and falls back to a filesystem walk on failure -- but a
+    confirmed defect let it return an empty list *without* falling back
+    whenever an ambient ``GIT_DIR``/``GIT_INDEX_FILE`` (set by git for every
+    hook subprocess, e.g. concluding a merge commit) made the underlying
+    ``git ls-files`` call misresolve its output paths. That silently
+    collapsed every rescue mechanism's import graph to near-empty, which
+    read at the call site as "196 new dead orphan modules" -- a fabricated
+    regression, not a real one. Per AGENTS.md *Fail closed* and GOC-70 rule
+    4 ("a check reporting coverage it doesn't have is worse than one that
+    fails"), this reconciler must never again silently feed a
+    degraded/empty file list into a rescue mechanism and report the result
+    as if it were a real, complete scan -- it raises this instead, so the
+    failure is visible and attributable rather than misread as new dead
+    code. See ``check_wiring._tracked_or_walked``'s docstring for the fixed
+    root cause.
+    """
+
+
 def _iter_source_files(*roots: Path) -> list[Path]:
     out: list[Path] = []
     for root in roots:
-        if root.exists():
-            out.extend(check_wiring._tracked_or_walked(root, "*.py"))
+        if not root.exists():
+            continue
+        found = check_wiring._tracked_or_walked(root, "*.py")
+        if not found and next(root.rglob("*.py"), None) is not None:
+            raise LivenessSourceDiscoveryError(
+                f"tracked-file discovery returned 0 files for {root}, but at "
+                "least one *.py file exists on disk there -- source discovery "
+                "is degraded, not genuinely empty; refusing to silently "
+                "under-rescue liveness findings."
+            )
+        out.extend(found)
     return [p for p in out if "__pycache__" not in p.parts]
 
 

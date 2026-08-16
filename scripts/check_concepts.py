@@ -11,7 +11,6 @@ Run:  python scripts/check_concepts.py
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
@@ -25,6 +24,7 @@ CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
 # the allocator so the three scanners can never drift.
 sys.path.insert(0, str(ROOT))
 from agent_utilities.governance.concept_hierarchy import iter_okf_markers  # noqa: E402
+from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 
 def _tracked_or_walked_files(src_dir: Path) -> list[Path]:
@@ -35,19 +35,7 @@ def _tracked_or_walked_files(src_dir: Path) -> list[Path]:
     back to a filesystem walk only when ``src_dir`` is not inside a git
     working tree (e.g. a synthetic test fixture).
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(src_dir), "ls-files"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [src_dir / line for line in out.splitlines() if line]
-        if tracked:
-            return tracked
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(src_dir.rglob("*"))
+    return tracked_or_walked(src_dir, root=ROOT)
 
 
 def markers_in_code() -> dict[str, list[str]]:

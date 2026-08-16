@@ -2995,7 +2995,7 @@ class MCPMultiplexer:
         return await self._probe_prompts(server_name, session)
 
     @staticmethod
-    def _mark_future_exception_retrieved(future: "asyncio.Future[Any]") -> None:
+    def _mark_future_exception_retrieved(future: asyncio.Future[Any]) -> None:
         """Call ``future.exception()`` so asyncio never logs "exception was
         never retrieved" for a leader future with no follower.
 

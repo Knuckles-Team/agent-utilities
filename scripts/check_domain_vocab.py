@@ -11,12 +11,13 @@ Usage: python scripts/check_domain_vocab.py [ROOT ...]  (default: cwd)
 
 from __future__ import annotations
 
-import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 from agent_utilities.governance import concept_hierarchy as ch
+from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 _EXT = {".py", ".rs", ".md"}
 _SKIP = {"__pycache__", ".git", ".venv", "node_modules", "target", "build", "dist"}
@@ -29,23 +30,16 @@ def _candidate_files(root: Path) -> list[Path]:
     can carry a stale ``CONCEPT:`` marker no longer in real source. Falls
     back to a filtered filesystem walk only when ``root`` is not inside a
     git working tree.
+
+    Callers must pass an already-resolved (absolute) ``root`` -- see
+    :func:`scan`, which resolves once and reuses that value both for the
+    scan and for every ``relative_to`` display path.
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(root), "ls-files"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [root / line for line in out.splitlines() if line]
-        if tracked:
-            return tracked
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return [p for p in root.rglob("*") if not any(s in p.parts for s in _SKIP)]
+    return tracked_or_walked(root, root=ROOT)
 
 
 def scan(root: Path) -> list[str]:
+    root = root.resolve()
     errs: list[str] = []
     known_slugs = set(ch.load_slug_registry().values())
     for p in _candidate_files(root):

@@ -1055,6 +1055,32 @@ file as a known, unavoidable limitation. Only commit once `pre-commit run
 --all-files` (via the safe wrapper above) passes cleanly; if a check legitimately
 cannot pass, stop and explain why rather than bypassing it.
 
+**The one documented exception: a scoped `SKIP=<hook,...>` for a whole-repo,
+non-differential hook proven to flag only files this diff did not touch.** Several
+hooks here (`mypy`, `check-import-safety`, `check-release-catalogs`, the
+`guardrail-*` gates, …) run `always_run` or unscoped over the *entire* tree on
+every commit, on purpose — that is what lets them catch drift a diff-scoped `files:`
+filter would miss. The cost is that they also surface pre-existing debt no diff
+caused and no diff can fix without an unrelated rewrite (a sibling connector
+repo's manifest drift, a pinned dependency's own broken type stubs, a Rust
+crate in another repo that has drifted from its schema). `SKIP=` is permitted for
+exactly that shape, and only when all three hold: (1) **every file the hook
+flags is proven byte-identical to the merge base** — `git diff <base> --name-only`
+plus a per-file hash comparison (`git hash-object` vs `git cat-file -p
+<base>:<path> | git hash-object --stdin`), not eyeballing; a hook flagging a file
+this diff DID touch is never skip-eligible for that finding — fix it, then skip
+only what remains. (2) **Each skipped hook is named individually in the commit
+body with its evidence** — which files, which base commit, which comparison —
+matching the shape already in `main`'s history. (3) **`--no-verify` is still
+never used** — it silences the hooks that DO matter along with the ones that
+don't; `SKIP=` names exactly what is being bypassed and why, `--no-verify` names
+nothing. Never `SKIP=` a hook to avoid re-running it after a genuine fix, and
+never widen the list past what step (1) actually proved. The **merge queue's
+differential gating** (see *Concurrent development* below) — not this local,
+non-differential commit hook — is the arbiter for what actually lands: it gates
+on regressions against a base-ref baseline, not on absolute green, precisely
+because a whole-repo hook will always carry debt older than any one diff.
+
 **And never silence a *failure*.** Silencing a check and silencing a red test are
 different moves with the same effect, and only the first was written down here before.
 Do not `xfail`, `skip`/`skipif`, delete, or loosen an assertion (`== 4` → `>= 0`) to turn

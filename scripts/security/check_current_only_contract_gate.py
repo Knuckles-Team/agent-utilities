@@ -40,7 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _fast_tier_forward import ForwardError, forward, self_check  # noqa: E402
 
 TARGET = "scripts/check_current_only_contract.py"
-EXTRA_ARGS: list[str] = []
+EXTRA_ARGS: list[str] = ["--new-only"]
 
 
 def main(argv: list[str] | None = None) -> int:

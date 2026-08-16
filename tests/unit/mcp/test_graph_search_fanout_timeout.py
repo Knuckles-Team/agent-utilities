@@ -176,7 +176,9 @@ def test_graph_search_explicit_all_target_keeps_full_fanout_timeout(monkeypatch)
     )
 
     asyncio.run(
-        kg_server._execute_tool("graph_search", query="delegation router", connection="all")
+        kg_server._execute_tool(
+            "graph_search", query="delegation router", connection="all"
+        )
     )
 
     assert seen["timeout"] is None  # fanout_execute's own (full) default applies

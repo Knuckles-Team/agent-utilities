@@ -25,7 +25,9 @@ def test_label_sets_are_bounded_small_enums_not_open_cardinality() -> None:
     # concrete, checkable stand-in for "bounded cardinality" that would fail
     # loudly if a future edit added a wide-cardinality dimension by mistake.
     for name, labels in REPOSITORY_METRIC_LABELS.items():
-        assert 0 < len(labels) <= 2, f"{name} has an unexpectedly wide label set: {labels}"
+        assert 0 < len(labels) <= 2, (
+            f"{name} has an unexpectedly wide label set: {labels}"
+        )
 
 
 def test_instruments_are_callable_with_their_declared_labels() -> None:

@@ -7,6 +7,8 @@ import pytest
 from agent_utilities.harness.optimization_backend import (
     _MAX_NATIVE_DEMONSTRATIONS,
     _OPTIMIZER_EXECUTIONS,
+    OptimizationCapabilityUnavailable,
+    OptimizationDataUnavailable,
     OptimizationRequest,
     _demonstration_budget,
     is_opaque_program_reference,
@@ -326,6 +328,89 @@ def test_native_failure_is_content_safe() -> None:
     assert result.disposition == "error"
     assert result.error_code == "native_execution_failed"
     assert "sensitive" not in repr(result)
+
+
+def test_native_timeout_is_an_execution_failure() -> None:
+    # A timeout raised BY the native call is still an exception from the invoked
+    # optimizer, so it is (correctly) an execution failure like any other.
+    result = try_native_optimization(
+        _NativeEngine(TimeoutError("native optimizer did not respond in time")),
+        _request(),
+    )
+
+    assert result.disposition == "error"
+    assert result.error_code == "native_execution_failed"
+
+
+class _MustNotCallEngine:
+    """A spy that fails the test outright if the native optimizer is invoked.
+
+    U-103/U-135: a normal absence of governed training data (or a malformed
+    request, or an unsupported optimizer) must never reach the native engine.
+    """
+
+    def optimize_program(self, request: dict[str, Any]) -> Any:
+        pytest.fail(
+            "native optimizer must not be invoked for a no-data/invalid/"
+            "unavailable disposition"
+        )
+
+
+def test_empty_training_set_is_idle_not_a_native_execution_failure() -> None:
+    """U-103: an empty corpus is a normal idle outcome, never a fake engine failure."""
+    request = OptimizationRequest(
+        target="extraction", objective="self-supervised dedup", data={}
+    )
+
+    with pytest.raises(OptimizationDataUnavailable):
+        request.to_payload()
+
+    result = try_native_optimization(_MustNotCallEngine(), request)
+
+    assert result.disposition == "no_data"
+    assert result.error_code == ""
+
+
+def test_malformed_row_is_a_request_defect_not_an_execution_failure() -> None:
+    """A schema/type/range validation failure is a request defect, not a native
+    engine failure — and the native optimizer must never be called for it."""
+    request = OptimizationRequest(
+        target="concept_match",
+        objective="classification accuracy",
+        data={"examples": [{"task": "x", "response": "y", "modalities": 123}]},
+    )
+
+    result = try_native_optimization(_MustNotCallEngine(), request)
+
+    assert result.disposition == "error"
+    assert result.error_code == "native_request_invalid"
+
+
+def test_unsupported_optimizer_raises_capability_unavailable_signal() -> None:
+    with pytest.raises(OptimizationCapabilityUnavailable):
+        OptimizationRequest(
+            target="skill",
+            objective="skill invocation reliability",
+            optimizer="not-a-real-optimizer",
+            data={"examples": [{"task": "x", "response": "y"}]},
+        ).to_payload()
+
+
+def test_unsupported_optimizer_is_unavailable_not_a_request_defect() -> None:
+    """A missing capability (an optimizer strategy native does not implement) is
+    ``unavailable``, distinct from a malformed request — and never reaches the
+    native engine."""
+    request = OptimizationRequest(
+        target="skill",
+        objective="skill invocation reliability",
+        optimizer="not-a-real-optimizer",
+        data={"examples": [{"task": "x", "response": "y"}]},
+    )
+
+    result = try_native_optimization(_MustNotCallEngine(), request)
+
+    assert result.disposition == "unavailable"
+    assert result.error_code == ""
 
 
 def test_removed_response_alias_fails_closed() -> None:

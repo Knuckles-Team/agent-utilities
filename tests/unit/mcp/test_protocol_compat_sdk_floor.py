@@ -87,9 +87,9 @@ def test_detects_source_installed_divergence(monkeypatch, tmp_path) -> None:
     (`PYTHONPATH=/au`), so installed `.dist-info` metadata can declare an OLDER floor
     than the code that actually runs. That divergence is itself the defect — a
     metadata-only check reports green while the pod runs v2 source on a v1 SDK."""
-    from agent_utilities.mcp import protocol_compat
-
     from packaging.requirements import Requirement
+
+    from agent_utilities.mcp import protocol_compat
 
     monkeypatch.setattr(
         protocol_compat,
@@ -123,9 +123,9 @@ def test_a_harmless_divergence_is_reported_but_does_not_fail(monkeypatch) -> Non
     """A divergence the installed SDK still satisfies (e.g. a tightened floor) is
     context, not a failure — the check must not turn every editable dev checkout with
     an edited pyproject.toml into a hard startup refusal."""
-    from agent_utilities.mcp import protocol_compat
-
     from packaging.requirements import Requirement
+
+    from agent_utilities.mcp import protocol_compat
 
     monkeypatch.setattr(
         protocol_compat,

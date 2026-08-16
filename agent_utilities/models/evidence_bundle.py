@@ -79,24 +79,230 @@ def _claim_text(claim: dict[str, Any], fallback_id: str) -> tuple[str, str]:
     return cid, str(claim)
 
 
-def _scan_contradictions(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Run :class:`ContradictionDetector` over ``claims`` and return plain dicts.
+# --- U-124 / U-131: contradiction analysis is opt-in, never generic-row-wide ---
+#
+# Different values in independent query rows are NOT contradictions. Sibling
+# metadata rows (e.g. three ``SourceArtifact`` rows differing only in
+# path/size/hash) were being synthesized into a generic templated repr (via
+# :func:`_claim_text`'s ``str(claim)`` fallback) and compared as if that repr
+# were a real assertion — schema-similar rows land at ~0.81-0.91 lexical
+# similarity and, on any differing number, trip :func:`opposes`'s numeric
+# rule. A row is now eligible for contradiction analysis ONLY when it
+# explicitly declares how it should be compared:
+#
+# * **Natural-language** — a ``semantic_role`` drawn from the closed
+#   assertion-role set below, PLUS a non-empty ``text`` (see
+#   :func:`_is_nl_assertion`). Ordinary query/result rows never carry
+#   ``semantic_role`` at all, so they are excluded by construction — never by
+#   guessing at their shape.
+# * **Structured** — a stable ``comparison_key``/``contradiction_key`` PLUS
+#   either ``comparison_mode`` in {"exclusive", "single_value"} or an explicit
+#   ``mutually_exclusive: true`` (see :func:`_is_structured_comparable`).
+#   Shared column names, differing hashes/sizes/timestamps, or sibling
+#   ``kind``s are NEVER, by themselves, inferred as declaring exclusivity.
+#
+# Every row in ``claims`` is retained regardless of eligibility — this stage
+# only ever produces findings; it never filters the bundle's ``claims``.
+_NL_ASSERTION_ROLES = frozenset(
+    {"assertion", "belief", "claim", "statement", "opinion"}
+)
+_STRUCTURED_COMPARISON_MODES = frozenset({"exclusive", "single_value"})
 
-    Zero/one claims trivially scan to no findings (the detector only compares
-    pairs) — this is always safe to call, even on an empty claim set.
+
+def _is_nl_assertion(claim: dict[str, Any]) -> bool:
+    """True when ``claim`` explicitly opts into natural-language contradiction scanning.
+
+    Requires BOTH a ``semantic_role`` in the closed assertion-role set AND a
+    non-empty ``text`` — never inferred from any other field (name/definition/
+    note/answer), unlike :func:`_claim_text`'s display-oriented fallback.
+    """
+    if claim.get("semantic_role") not in _NL_ASSERTION_ROLES:
+        return False
+    text = claim.get("text")
+    return isinstance(text, str) and bool(text.strip())
+
+
+def _structured_comparison_key(claim: dict[str, Any]) -> str | None:
+    """The claim's declared comparison domain, or ``None`` when absent/blank."""
+    key = claim.get("comparison_key") or claim.get("contradiction_key")
+    return str(key) if isinstance(key, str) and key.strip() else None
+
+
+def _is_structured_comparable(claim: dict[str, Any]) -> bool:
+    """True when ``claim`` declares a shared comparison domain AND mutual exclusivity.
+
+    A stable comparison key alone is not enough — the row must also assert
+    that values under that key are mutually exclusive (``comparison_mode`` in
+    {"exclusive", "single_value"}) or ``mutually_exclusive: true``.
+    """
+    if _structured_comparison_key(claim) is None:
+        return False
+    if bool(claim.get("mutually_exclusive")):
+        return True
+    return claim.get("comparison_mode") in _STRUCTURED_COMPARISON_MODES
+
+
+def _canonicalize_comparison_value(value: Any) -> Any:
+    """Canonicalize a structured comparison value while preserving its polarity.
+
+    Booleans stay booleans (checked before the numeric branch so ``True`` is
+    never conflated with ``1.0``), numbers normalize to ``float``, strings
+    trim/lowercase for whitespace/case-insensitive comparison, and any other
+    type compares as-is.
+    """
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int | float):
+        return float(value)
+    if isinstance(value, str):
+        return value.strip().lower()
+    return value
+
+
+def _structured_comparison_value(claim: dict[str, Any]) -> Any:
+    """The claim's declared comparison value (``comparison_value``, else ``value``)."""
+    if "comparison_value" in claim:
+        return claim.get("comparison_value")
+    return claim.get("value")
+
+
+def _scan_nl_contradictions(
+    indexed_claims: list[tuple[str, dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Lexical opposition scan restricted to explicit natural-language assertions.
+
+    Builds :class:`Claim` objects only from rows that opt in via
+    :func:`_is_nl_assertion`, then delegates to the existing
+    :class:`ContradictionDetector`. Every finding is tagged with the
+    comparison rule that produced it.
+    """
+    eligible = [
+        Claim(id=cid, text=claim["text"])
+        for cid, claim in indexed_claims
+        if _is_nl_assertion(claim)
+    ]
+    if len(eligible) < 2:
+        return []
+    findings = [asdict(f) for f in ContradictionDetector().scan(eligible)]
+    for finding in findings:
+        finding["comparison_rule"] = "natural_language_opposition"
+    return findings
+
+
+def _scan_structured_contradictions(
+    indexed_claims: list[tuple[str, dict[str, Any]]],
+) -> list[dict[str, Any]]:
+    """Pairwise structured-value contradiction scan restricted to declared domains.
+
+    Groups claims by their declared ``comparison_key``/``contradiction_key``
+    (only rows passing :func:`_is_structured_comparable`), canonicalizes each
+    claim's comparison value, and flags a FRICTION finding for every pair
+    within a group whose canonicalized values differ. The comparison domain
+    and mutual-exclusivity mode are exactly what the rows themselves declared
+    — never inferred from column overlap.
+    """
+    groups: dict[str, list[tuple[str, dict[str, Any]]]] = {}
+    for cid, claim in indexed_claims:
+        if not _is_structured_comparable(claim):
+            continue
+        key = _structured_comparison_key(claim)
+        if key is None:  # pragma: no cover - guaranteed by the check above
+            continue
+        groups.setdefault(key, []).append((cid, claim))
+
+    findings: list[dict[str, Any]] = []
+    for key, members in groups.items():
+        for i in range(len(members)):
+            for j in range(i + 1, len(members)):
+                id_a, claim_a = members[i]
+                id_b, claim_b = members[j]
+                value_a = _canonicalize_comparison_value(
+                    _structured_comparison_value(claim_a)
+                )
+                value_b = _canonicalize_comparison_value(
+                    _structured_comparison_value(claim_b)
+                )
+                if value_a == value_b:
+                    continue
+                mode = (
+                    claim_a.get("comparison_mode")
+                    or claim_b.get("comparison_mode")
+                    or "mutually_exclusive"
+                )
+                lo_id, hi_id = sorted((id_a, id_b))
+                lo_val, hi_val = (
+                    (value_a, value_b) if id_a <= id_b else (value_b, value_a)
+                )
+                reason = (
+                    f"[FRICTION] structured comparison_key='{key}' mode='{mode}': "
+                    f"claim '{lo_id}' asserts {lo_val!r} while "
+                    f"claim '{hi_id}' asserts {hi_val!r}"
+                )
+                findings.append(
+                    {
+                        "new_id": lo_id,
+                        "conflict_id": hi_id,
+                        "similarity": 1.0,
+                        "reason": reason,
+                        "severity": "high",
+                        "comparison_rule": "structured_mutual_exclusivity",
+                        "comparison_key": key,
+                        "comparison_mode": mode,
+                    }
+                )
+    return findings
+
+
+def _dedupe_and_sort_findings(findings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop duplicate claim-id-pair findings (keep the first) and sort deterministically.
+
+    Sorted most-similar first, then by the pair's own ids, so the result is
+    stable regardless of which rule (natural-language vs structured)
+    produced a given finding.
+    """
+    seen: set[tuple[str, str]] = set()
+    deduped: list[dict[str, Any]] = []
+    for finding in findings:
+        id_a, id_b = sorted(
+            (str(finding.get("new_id")), str(finding.get("conflict_id")))
+        )
+        pair: tuple[str, str] = (id_a, id_b)
+        if pair in seen:
+            continue
+        seen.add(pair)
+        deduped.append(finding)
+    deduped.sort(
+        key=lambda f: (
+            -float(f.get("similarity") or 0.0),
+            str(f.get("new_id")),
+            str(f.get("conflict_id")),
+        )
+    )
+    return deduped
+
+
+def _scan_contradictions(claims: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Run opt-in contradiction analysis over ``claims`` and return plain dicts.
+
+    See the module-level comment above :data:`_NL_ASSERTION_ROLES` for the
+    full eligibility contract. Zero/one claims trivially scan to no findings
+    — this is always safe to call, even on an empty claim set. Every claim in
+    ``claims`` is preserved by the caller regardless of what this returns;
+    this function only ever produces findings, never filters rows. Each
+    finding cites both claim ids (``new_id``/``conflict_id``) and the
+    ``comparison_rule`` that produced it.
     """
     if len(claims) < 2:
         return []
-    detector_claims = [
-        Claim(id=cid, text=text)
-        for cid, text in (
-            _claim_text(c, fallback_id=f"claim:{i}")
-            for i, c in enumerate(claims)
-            if isinstance(c, dict)
-        )
+    indexed = [
+        (str(c.get("id") or f"claim:{i}"), c)
+        for i, c in enumerate(claims)
+        if isinstance(c, dict)
     ]
-    findings = ContradictionDetector().scan(detector_claims)
-    return [asdict(f) for f in findings]
+    findings = _scan_nl_contradictions(indexed) + _scan_structured_contradictions(
+        indexed
+    )
+    return _dedupe_and_sort_findings(findings)
 
 
 def _source_authority_from_citations(
@@ -149,7 +355,13 @@ class EvidenceBundle(BaseModel):
     )
     contradictions: list[dict[str, Any]] = Field(
         default_factory=list,
-        description="FrictionFinding-shaped conflicts detected across `claims`.",
+        description="FrictionFinding-shaped conflicts detected across `claims`. "
+        "Opt-in only (U-124/U-131): a claim participates ONLY when it declares "
+        "itself a natural-language assertion (`semantic_role` + `text`) or a "
+        "structured comparison (`comparison_key`/`contradiction_key` + "
+        "`comparison_mode` in {exclusive, single_value} or "
+        "`mutually_exclusive: true`) — different values across ordinary query "
+        "rows are never treated as contradictions.",
     )
     confidence: float | None = Field(
         default=None,
@@ -289,9 +501,28 @@ class EvidenceBundle(BaseModel):
         used_primitives = list(payload.get("used_primitives") or [])
         coverage = dict(payload.get("coverage") or {})
         anchors = list(payload.get("anchors") or [])
+        # BUG-004: ``build_code_context`` marks ``status: "degraded"`` (plus a
+        # structured ``error``) when the KG engine itself was unreachable —
+        # distinct from ``status: "ok"`` with genuinely empty sections. That
+        # distinction must survive the wrap: a degraded read is a real
+        # ``EvidenceBundle.error``, not a silent empty-but-successful bundle
+        # (which is exactly how the sparse-evidence-coverage defect this
+        # closes went unnoticed — an engine outage read identically to "no
+        # such symbol").
+        raw_status = payload.get("status")
+        raw_error = payload.get("error")
+        code_context_error: dict[str, Any] | None = (
+            dict(raw_error) if isinstance(raw_error, dict) else None
+        )
+        if code_context_error is None and raw_status == "degraded":
+            code_context_error = {"code": "engine_degraded"}
 
+        # semantic_role="assertion" opts these system-synthesized sentences into
+        # contradiction analysis (U-124/U-131) — they are genuine natural-language
+        # claims, unlike a raw KG query row with no distinguishing assertion text.
         claims = [
-            {"id": f"claim:{i}", "text": s} for i, s in enumerate(_sentences(answer))
+            {"id": f"claim:{i}", "text": s, "semantic_role": "assertion"}
+            for i, s in enumerate(_sentences(answer))
         ]
 
         reasoning_trace: list[dict[str, Any]] = [
@@ -312,13 +543,23 @@ class EvidenceBundle(BaseModel):
             )
 
         next_actions: list[str] = []
-        if not anchors:
+        if code_context_error is not None:
+            next_actions.append(
+                "The knowledge graph engine was degraded/unreachable for this "
+                "read — retry shortly. This is NOT evidence the queried area "
+                "is unindexed; do not re-ingest on the strength of this "
+                "result alone."
+            )
+        elif not anchors:
             next_actions.append(
                 "source_sync source=all mode=delta (re-ingest so this area resolves), "
                 "or refine the query with a more specific symbol name."
             )
 
         fields: dict[str, Any] = {
+            # Unlike from_operation_result, code_context's own `answer` text is
+            # already an honest, self-describing message in the degraded case
+            # (see build_code_context) — keep it rather than blanking it.
             "answer_candidate": answer,
             "claims": claims,
             "evidence_spans": citations,
@@ -329,6 +570,7 @@ class EvidenceBundle(BaseModel):
             "policy_exclusions": [],
             "reasoning_trace": reasoning_trace,
             "next_actions": next_actions,
+            "error": code_context_error,
         }
         fields.update(overrides)
         return cls(**fields)
@@ -365,8 +607,11 @@ class EvidenceBundle(BaseModel):
             claims = [dict(e) for e in evidence if isinstance(e, dict)]
         else:
             evidence_spans = [{"id": eid} for eid in evidence_ids]
+            # semantic_role="assertion" opts these system-synthesized sentences
+            # into contradiction analysis (U-124/U-131) — see the matching note
+            # in from_code_context_answer.
             claims = [
-                {"id": f"claim:{i}", "text": s}
+                {"id": f"claim:{i}", "text": s, "semantic_role": "assertion"}
                 for i, s in enumerate(_sentences(answer))
             ]
 

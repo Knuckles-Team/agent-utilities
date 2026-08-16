@@ -2,16 +2,18 @@
 
 The live ServiceNow delegation probe bound all 158 tools but emitted
 `FastMCPDeprecationWarning` from installed `pydantic_ai/mcp.py`: it reads
-`InitializeResult.serverInfo` and `Tool.inputSchema`/`Tool.outputSchema` instead
-of the MCP SDK v2 `server_info`/`input_schema`/`output_schema` names, tripping
-`fastmcp._compat`'s own warn-once camelCase compatibility shim. Those three
-fields ARE covered by that shim (unlike the four gaps `install_mcp_v2_bridge`
-closes elsewhere in this module), so the fix cannot be "add a bridging
-property" — it has to stop `pydantic_ai.mcp.MCPToolset` from performing the
-deprecated read at all, which is what
-`protocol_compat._install_pydantic_ai_v2_read_bridge` does by replacing
-`MCPToolset.__aenter__`/`.get_tools` with a version-pinned copy that reads the
-v2 names directly.
+`InitializeResult.serverInfo`, `Tool.inputSchema`/`Tool.outputSchema`, and
+`ToolExecution.taskSupport` instead of the MCP SDK v2
+`server_info`/`input_schema`/`output_schema`/`task_support` names, tripping a
+warn-on-read camelCase compatibility shim for each (`fastmcp._compat`'s own
+warn-once shim for the first three; `install_mcp_v2_bridge`'s own alias,
+installed elsewhere in this module, for `taskSupport` — which `fastmcp._compat`
+does not cover at all). So the fix cannot be "add a bridging property" — it has
+to stop `pydantic_ai.mcp.MCPToolset` from performing the deprecated read at
+all, which is what `protocol_compat._install_pydantic_ai_v2_read_bridge` does
+by replacing `MCPToolset.__aenter__`/`.get_tools` (pinned to the installed
+`pydantic-ai-slim` release, currently 2.25.0) with a byte-for-byte copy that
+reads the v2 names directly.
 
 Two things are proven here, with warnings treated as errors so a regression
 cannot silently reappear:
@@ -204,11 +206,13 @@ def test_patched_get_tools_reads_v2_input_output_schema_without_warning() -> Non
         description="does a thing",
         input_schema={"type": "object", "properties": {}},
         output_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
+        execution=mcp_types.ToolExecution(task_support="optional"),
     )
 
     toolset = pam.MCPToolset.__new__(pam.MCPToolset)
     toolset.max_retries = None
     toolset.include_return_schema = True
+    toolset.prefer_tasks = True
     toolset.list_tools = AsyncMock(return_value=[fake_tool])
 
     ctx = type("Ctx", (), {"max_retries": 1})()
@@ -224,6 +228,46 @@ def test_patched_get_tools_reads_v2_input_output_schema_without_warning() -> Non
     tool_def = tools["do_thing"].tool_def
     assert tool_def.parameters_json_schema == fake_tool.input_schema
     assert tool_def.return_schema == fake_tool.output_schema
+    # `task_support == "optional"` only turns the `task` flag on when the toolset
+    # itself prefers tasks (`self.prefer_tasks`, read via the v2 `.task_support`
+    # name on `ToolExecution` — never the deprecated `.taskSupport`).
+    assert tool_def.metadata["task"] is True
+
+
+def test_patched_get_tools_optional_task_support_respects_prefer_tasks_false() -> None:
+    """`task_support == "optional"` must NOT set the `task` flag when the toolset
+    has `prefer_tasks=False` — the v2 copy's exact preservation of the upstream
+    `task_support == "required" or (task_support == "optional" and
+    self.prefer_tasks)` combination, not the looser 2.21.0-era `in ("required",
+    "optional")` check this bridge previously carried."""
+    _skip_unless_patch_version_matches()
+    import mcp_types
+    import pydantic_ai.mcp as pam
+
+    protocol_compat.install_mcp_v2_bridge()
+
+    fake_tool = mcp_types.Tool(
+        name="do_thing",
+        input_schema={"type": "object", "properties": {}},
+        execution=mcp_types.ToolExecution(task_support="optional"),
+    )
+
+    toolset = pam.MCPToolset.__new__(pam.MCPToolset)
+    toolset.max_retries = None
+    toolset.include_return_schema = False
+    toolset.prefer_tasks = False
+    toolset.list_tools = AsyncMock(return_value=[fake_tool])
+
+    ctx = type("Ctx", (), {"max_retries": 1})()
+
+    async def _run() -> dict[str, Any]:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            return await toolset.get_tools(ctx)
+
+    tools = asyncio.run(_run())
+
+    assert tools["do_thing"].tool_def.metadata["task"] is False
 
 
 def test_bridge_skips_patching_outside_its_pinned_version(monkeypatch) -> None:

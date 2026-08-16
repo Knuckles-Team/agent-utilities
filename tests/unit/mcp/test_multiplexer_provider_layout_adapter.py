@@ -20,7 +20,6 @@ from fastmcp import FastMCP
 from fastmcp.tools import FunctionTool
 
 from agent_utilities.mcp.multiplexer import (
-    MCPMultiplexer,
     UnsupportedLocalProviderLayout,
     _local_provider_component_snapshot,
     _swap_local_provider_components,

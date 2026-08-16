@@ -3794,7 +3794,14 @@ def register_analysis_tools(mcp):
                     {
                         "status": "success",
                         "key": env_key,
-                        "applied_live": not restart,
+                        # BUG-065: renamed from ``applied_live`` — see the
+                        # identical field on ``config_admin.set_value``
+                        # (the ``graph_config`` twin of this
+                        # ``graph_configure`` action) for why: this process
+                        # has no evidence about any OTHER replica having
+                        # picked up the write, only that ITS OWN cached
+                        # fields do or don't need a restart to see it.
+                        "applied_in_this_process": not restart,
                         "restart_required": restart,
                     },
                     default=str,
@@ -4026,9 +4033,7 @@ def register_analysis_tools(mcp):
             # not successful MCP payloads.  Preserve fail-closed dispatch.
             raise PermissionError("configuration operation denied") from None
         except Exception as exc:
-            logger.warning(
-                "graph_configure operation failed: %s", type(exc).__name__
-            )
+            logger.warning("graph_configure operation failed: %s", exc)
             return json.dumps(
                 {
                     "error": "configuration operation failed",

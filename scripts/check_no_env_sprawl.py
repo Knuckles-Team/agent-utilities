@@ -23,11 +23,13 @@ from __future__ import annotations
 
 import argparse
 import re
-import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
+
 PKG = ROOT / "agent_utilities"
 BASELINE = ROOT / "scripts" / "env_flag_baseline.txt"
 
@@ -66,19 +68,7 @@ def _candidate_py_files(pkg: Path) -> list[Path]:
     source. Falls back to a filtered filesystem walk only when ``pkg`` is not
     inside a git working tree (e.g. a synthetic test fixture).
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(pkg), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [pkg / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return [p for p in pkg.rglob("*.py") if not any(d in p.parts for d in SKIP_DIRS)]
+    return tracked_or_walked(pkg, "*.py", root=ROOT)
 
 
 def scan() -> set[tuple[str, str]]:

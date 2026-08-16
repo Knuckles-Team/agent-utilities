@@ -800,7 +800,9 @@ async def test_act_routes_plain_intent_to_graphos_skill_gateway(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_act_replays_unpinned_skill_delegation_with_hints_plus_plan_ref(monkeypatch):
+async def test_act_replays_unpinned_skill_delegation_with_hints_plus_plan_ref(
+    monkeypatch,
+):
     """D-GIS-1: the DOCUMENTED replay flow (resubmit the same hints + plan_ref)
     must work, not just the plan_ref-alone shortcut.
 
@@ -975,7 +977,13 @@ async def test_destructive_plan_requires_exact_tool_approval(monkeypatch):
     )
     assert result["executed"] is False
     assert result["approval_required"] is True
-    assert "exact dynamically loaded tool" in result["error"]
+    # BUG-040: a caller with no session/mux at all (this test passes no
+    # ``mcp``) is still refused — see
+    # tests/unit/mcp/test_intent_surface_gating.py::
+    # test_bug040_destructive_plan_executes_once_session_loaded_exact_tool for
+    # the positive path once the exact tool IS session-loaded.
+    assert "approval policy" in result["error"]
+    assert result["required_load_tools"] == ["graph_write"]
     assert seen is False
 
 

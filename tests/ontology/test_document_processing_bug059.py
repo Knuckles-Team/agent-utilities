@@ -37,7 +37,7 @@ from agent_utilities.security.brain_context import IdentityRequiredError
 class _FakeBulkGraph:
     """Minimal ``_graph`` shape ``_BatchedBackend`` recognizes as bulk-capable."""
 
-    def __init__(self, writer: "_FakeBulkWriter") -> None:
+    def __init__(self, writer: _FakeBulkWriter) -> None:
         self._writer = writer
 
     def batch_update(self, ops: list[dict]) -> None:
@@ -61,7 +61,9 @@ class _FakeBulkWriter:
         self.edges: list[tuple] = []
         self._graph = _FakeBulkGraph(self)
 
-    def add_node(self, node_id, label="", **properties):  # pragma: no cover - unused when bulk_available
+    def add_node(
+        self, node_id, label="", **properties
+    ):  # pragma: no cover - unused when bulk_available
         self.nodes[node_id] = {"label": label, **properties}
 
     def add_edge(self, source, target, rel_type="", **properties):  # pragma: no cover

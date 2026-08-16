@@ -192,3 +192,52 @@ def test_claim_next_task_admission_allowed_starts_worker_live_path(monkeypatch):
     # live registry now shows this worker busy in the connectors lane.
     assert registry.running_by_lane() == {"connectors": 1}
     assert registry.busy_count() == 1
+
+
+def test_admission_denied_retry_delay_is_jittered_not_fixed_one_second(monkeypatch):
+    """U-65/BUG-111 regression: a live pod's admission-denied retry was a
+    FIXED ``next_retry_at = now + 1.0`` for every denied worker, synchronizing
+    the whole pool into a claim/defer thundering herd (2,278 claims + 344
+    defers observed in one 5-minute window). The fenced defer must now offer a
+    retry somewhere in a bounded 5-15s jittered window instead."""
+    import time as time_mod
+
+    from agent_utilities.orchestration import work_item
+
+    captured: list[float] = []
+
+    def fake_defer(_engine, work_item_id, claim, *, next_retry_at, reason_ref=""):
+        captured.append(next_retry_at)
+        return True
+
+    monkeypatch.setattr(work_item, "defer_work_item", fake_defer)
+    _patch_claim(
+        monkeypatch,
+        job_id="new-connector-sync",
+        work_item_id="workitem:ingest_task:new-connector-sync",
+    )
+
+    registry = WorkerRegistry()
+    registry.start("existing-worker", "connectors", "connector_sync")
+    cfg = SchedulerConfig(worker_count=4, reserved=0, per_lane_min=1)
+
+    harness = _AdmissionClaimHarness(
+        {"new-connector-sync": "connector_sync"},
+        sched_config=cfg,
+        registry=registry,
+        pending_by_lane={"connectors": 0, "research": 5},
+    )
+
+    before = time_mod.time()
+    harness._claim_next_task(worker_id="worker-a", hydration_reserved=False)
+    after = time_mod.time()
+
+    assert len(captured) == 1
+    delay = captured[0] - before
+    # Bounded 5-15s window (with a small tolerance for wall-clock skew around
+    # `after`), and NOT the old fixed ~1.0s.
+    assert 5.0 <= delay <= 15.0 + (after - before)
+    assert delay > 1.5, (
+        "admission-denied retry must not collapse back to the old fixed ~1s "
+        "delay that synchronized every denied worker onto the same retry tick"
+    )

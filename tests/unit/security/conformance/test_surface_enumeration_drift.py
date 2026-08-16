@@ -44,9 +44,7 @@ def test_manifest_has_no_stale_entries_for_dialects_that_no_longer_exist() -> No
     still asserted so the manifest is kept honest rather than accreting dead
     rows silently."""
 
-    live_names = {
-        s.name for s in surface_inventory.enumerate_query_dialect_surfaces()
-    }
+    live_names = {s.name for s in surface_inventory.enumerate_query_dialect_surfaces()}
     manifest_names = {
         entry.surface_id.removeprefix("query_dialect:")
         for entry in surface_manifest.QUERY_DIALECT_MANIFEST
@@ -66,9 +64,7 @@ def test_enumeration_finds_the_four_known_dialects() -> None:
     (the two tests above are) — it exists so a change to query_tools.py that
     silently drops a dialect (rather than adding one) is also caught."""
 
-    live_names = {
-        s.name for s in surface_inventory.enumerate_query_dialect_surfaces()
-    }
+    live_names = {s.name for s in surface_inventory.enumerate_query_dialect_surfaces()}
     assert live_names == {"local", "sql", "sparql", "federated"}
 
 
@@ -78,9 +74,9 @@ def test_enumerator_fails_loudly_on_a_missing_module() -> None:
     would make the drift tests above vacuously pass — the exact "gate that
     reports more coverage than it has" failure mode this design avoids)."""
 
-    import pytest
-
     from pathlib import Path
+
+    import pytest
 
     with pytest.raises(FileNotFoundError):
         surface_inventory.enumerate_query_dialect_surfaces(
@@ -92,14 +88,13 @@ def test_enumerator_fails_loudly_on_a_module_with_no_dialect_branches() -> None:
     """Known-bad-input proof: an empty/unrelated module must raise, not report
     zero surfaces silently."""
 
-    import pytest
     import tempfile
     from pathlib import Path
+
+    import pytest
 
     with tempfile.TemporaryDirectory() as tmp:
         empty_module = Path(tmp) / "empty_query_tools.py"
         empty_module.write_text("def _run_graph_query():\n    pass\n")
         with pytest.raises(RuntimeError, match="zero"):
-            surface_inventory.enumerate_query_dialect_surfaces(
-                module_path=empty_module
-            )
+            surface_inventory.enumerate_query_dialect_surfaces(module_path=empty_module)

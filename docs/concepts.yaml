@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1171
+total_concepts: 1175
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1589,6 +1589,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/engine_mcp_discovery.py
   doc: Live MCP server connection for tool metadata caching
+- id: AU-ECO.mcp.oauth-log-hygiene
+  name: AU-ECO.mcp.oauth-log-hygiene
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/oauth_log_hygiene.py
+  doc: AU-ECO.mcp.oauth-log-hygiene
 - id: AU-ECO.mcp.profile-differences-from-client
   name: Profile differences from the engine-client breaker
   pillar: AU-ECO
@@ -1638,7 +1645,6 @@ concepts:
   - agent_utilities/mcp/delegated_auth.py
   - agent_utilities/mcp/multiplexer.py
   - agent_utilities/mcp/server_factory.py
-  - agent_utilities/mcp_utilities.py
   doc: MCP Standardized Interfaces
 - id: AU-ECO.mcp.stdio-static-purity-gate
   name: AU-ECO.mcp.stdio-static-purity-gate
@@ -3143,13 +3149,6 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/analysis_tools.py
   doc: forward-simulate the learned world model with
-- id: AU-KG.coordination.centralized-kg-coordination-protocol
-  name: Centralized KG Coordination Protocol
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/mcp/kg_coordinator.py
-  doc: Centralized KG Coordination Protocol
 - id: AU-KG.coordination.embedder-breaker
   name: keeps a down embedder from being retry-stormed
   pillar: AU-KG
@@ -8764,6 +8763,14 @@ concepts:
   - agent_utilities/orchestration/fleet_observation.py
   - agent_utilities/orchestration/fleet_reconciler.py
   doc: Desired-state fleet reconciler
+- id: AU-OS.config.dynamic-env-family
+  name: a general, INSPECTABLE escape hatch for env
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/core/transport_security.py
+  - agent_utilities/mcp/check_env_var_drift.py
+  doc: a general, INSPECTABLE escape hatch for env
 - id: AU-OS.config.env-var-drift-guard
   name: Env-var drift guard
   pillar: AU-OS
@@ -9043,6 +9050,13 @@ concepts:
   code_paths:
   - agent_utilities/deployment/venv_autosync.py
   doc: AU-OS.deployment.merge-triggered-venv-flip
+- id: AU-OS.deployment.mutable-image-refs
+  name: was invisible and
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/mcp/check_env_var_drift.py
+  doc: was invisible and
 - id: AU-OS.deployment.report-resolved-mode
   name: report the RESOLVED mode
   pillar: AU-OS
@@ -9384,6 +9398,13 @@ concepts:
   - agent_utilities/core/__init__.py
   - agent_utilities/core/wasm_runner.py
   doc: WASM Micro-Agent Sandbox & Runner
+- id: AU-OS.host.cgroup-resource-envelope
+  name: the live r18/r19 GraphOS pod ran with a
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/core/cgroup_resources.py
+  doc: the live r18/r19 GraphOS pod ran with a
 - id: AU-OS.host.doctor-unified-install
   name: AU-OS.host.doctor-unified-install
   pillar: AU-OS
@@ -9639,12 +9660,13 @@ concepts:
   - agent_utilities/security/conformance/surface_manifest.py
   doc: see this package
 - id: AU-OS.observability.co-service-visibility
-  name: AU-OS.observability.co-service-visibility
+  name: instead of a bare log line
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/core/live_mount_guard.py
   - agent_utilities/observability/runtime_health.py
-  doc: AU-OS.observability.co-service-visibility
+  doc: instead of a bare log line
 - id: AU-OS.observability.daemon-metrics-listener
   name: AU-OS.observability.daemon-metrics-listener
   pillar: AU-OS
@@ -10221,6 +10243,13 @@ concepts:
   - agent_utilities/kvcache/l2_native_connector.py
   - agent_utilities/kvcache/remote_backend.py
   doc: is configured with, so a co-located deploy shares one source of
+- id: EG-KG.backend.work-item-capability
+  name: the engine
+  pillar: EG-KG
+  status: live
+  code_paths:
+  - agent_utilities/messaging/bus_inbox.py
+  doc: the engine
 - id: EG-KG.compute.compiled-semantic-reasoner
   name: and generates summary text via the shared
   pillar: EG-KG

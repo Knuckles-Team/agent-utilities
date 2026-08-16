@@ -196,6 +196,7 @@ def record_offqueue_span(engine: Any, kind: str, profile: IngestProfile) -> None
         from datetime import UTC, datetime
 
         from ..backends.epistemic_graph_backend import EpistemicGraphBackend
+        from .shard_topology import CONTROL_GRAPH_NAME
 
         now = datetime.now(UTC).isoformat()
         envelope = {
@@ -207,7 +208,7 @@ def record_offqueue_span(engine: Any, kind: str, profile: IngestProfile) -> None
             "completed_at": now,
         }
         span_id = f"profilespan:{kind}:{int(_time.time() * 1000)}"
-        EpistemicGraphBackend().for_graph("__control__").add_node(
+        EpistemicGraphBackend().for_graph(CONTROL_GRAPH_NAME).add_node(
             span_id, node_type="ProfileSpan", metadata=_json.dumps(envelope)
         )
     except Exception:  # noqa: BLE001 — persistence is best-effort; the log remains

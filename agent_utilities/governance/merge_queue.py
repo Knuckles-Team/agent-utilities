@@ -826,6 +826,49 @@ def _venv_signature(interpreter: str) -> str:
     ]
 
 
+def _scripts_dir_signature(scripts_dir: Path) -> str:
+    """Content digest of every file under *scripts_dir* — the CANDIDATE's
+    ``scripts/`` tree, i.e. the instrument :func:`compute_contract_baseline`
+    is about to run against the base-ref tree.
+
+    BUG-176: the contract-baseline cache was keyed on ``(base_sha,
+    interpreter)`` alone, on the same reasoning :func:`_venv_signature`
+    already applies one level down — but a *third* thing can change the
+    baseline's correct value without changing either of those: the CONTENT
+    of the check scripts themselves. Two candidates can share a
+    ``base_sha`` while one of them repairs a ``check_*.py`` (or a shared
+    helper it imports, e.g. ``scripts/_git_scan.py``) — the earlier
+    candidate's cached baseline was computed with the OLD script and would
+    be silently served to the later one, reintroducing exactly the defect
+    this fix closes (a repaired check reads its own repair as a
+    regression). Folding a digest of the whole ``scripts/`` tree into the
+    cache key means a script edit anywhere in that tree — not just the
+    discovered ``check_*.py`` files themselves, since several forward to a
+    canonical target outside ``scripts/security/`` (e.g.
+    ``check_current_only_contract_gate.py`` → ``scripts/check_current_only_
+    contract.py``) or import a shared helper (``scripts/_git_scan.py``) —
+    busts the cache. ``__pycache__`` is excluded: compiled bytecode is
+    derived, not source, and its mtime-driven churn would defeat caching
+    for no correctness benefit. Never raises: an unreadable file is skipped
+    rather than failing the gate (mirrors :func:`_venv_signature`'s
+    never-raises contract).
+    """
+    digest = hashlib.sha256()
+    if not scripts_dir.is_dir():
+        return "absent"
+    for path in sorted(scripts_dir.rglob("*")):
+        if not path.is_file() or "__pycache__" in path.parts:
+            continue
+        digest.update(path.relative_to(scripts_dir).as_posix().encode("utf-8"))
+        digest.update(b"\0")
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            digest.update(b"<unreadable>")
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
 def select_tests(tree: Path, paths: Iterable[str]) -> list[str]:
     """Test files worth running for *paths* — targeted, and honest when it can't be.
 
@@ -1017,25 +1060,39 @@ class ContractBaselineResult:
 
 
 def _contract_baseline_cache_path(
-    scope: LaneScope, base_sha: str, *, interpreter: str
+    scope: LaneScope, base_sha: str, *, interpreter: str, scripts_signature: str
 ) -> Path:
-    """Cache location for one ``(base_sha, interpreter)``'s contract-check output
-    baseline — same shared arbitration dir and same "one entry per discovered
-    item, not per whole request" shape as :func:`_baseline_cache_path`, just at
-    script granularity instead of test-file granularity (there are only a
-    handful of contract scripts, so no delta-run optimization is needed beyond
-    "don't recompute a script already known for this base_sha").
+    """Cache location for one ``(base_sha, interpreter, scripts_signature)``'s
+    contract-check output baseline — same shared arbitration dir and same "one
+    entry per discovered item, not per whole request" shape as
+    :func:`_baseline_cache_path`, just at script granularity instead of
+    test-file granularity (there are only a handful of contract scripts, so no
+    delta-run optimization is needed beyond "don't recompute a script already
+    known for this base_sha").
 
     D-MQD-1: the key includes :func:`_venv_signature` alongside the bare
     interpreter path, so an in-place venv rebuild (same path, different
     installed packages, same ``base_sha``) busts this cache instead of
     silently serving a baseline computed against packages that no longer
     exist.
+
+    BUG-176: the key ALSO includes :func:`_scripts_dir_signature` of the
+    CANDIDATE'S ``scripts/`` tree — see that function's docstring. Without it,
+    two candidates sharing a ``base_sha`` where one repairs a check script
+    would have the second silently served a baseline computed under the
+    first's (or main's) different instrument, reintroducing the exact defect
+    this fix closes.
     """
     digest = hashlib.sha256(
-        (base_sha + "\n" + interpreter + "\n" + _venv_signature(interpreter)).encode(
-            "utf-8"
-        )
+        (
+            base_sha
+            + "\n"
+            + interpreter
+            + "\n"
+            + _venv_signature(interpreter)
+            + "\n"
+            + scripts_signature
+        ).encode("utf-8")
     ).hexdigest()
     return (
         scope.arbitration_dir
@@ -1197,25 +1254,71 @@ def compute_contract_baseline(
     base_ref: str,
     script_names: list[str],
     *,
+    candidate_tree: Path,
     scope: LaneScope,
     interpreter: str,
     env: dict[str, str],
 ) -> ContractBaselineResult:
     """The :class:`ScriptBaseline` each named contract check already produces on
-    *base_ref* — cached per ``(base_sha, script)`` exactly like
-    :func:`compute_test_baseline` is cached per ``(base_sha, file)``, and for the
-    identical reason: :func:`run_fast_gate` calls this once per batch/sub-batch
-    attempt, and bisection's sub-batches ask for the same (or a subset of the
-    same) script set their parent batch already baselined at the same base_sha.
+    *base_ref* — cached per ``(base_sha, script, scripts_signature)`` exactly
+    like :func:`compute_test_baseline` is cached per ``(base_sha, file)``, and
+    for the identical reason: :func:`run_fast_gate` calls this once per
+    batch/sub-batch attempt, and bisection's sub-batches ask for the same (or a
+    subset of the same) script set their parent batch already baselined at the
+    same base_sha.
 
-    A script named here that does not exist under ``scripts/security/`` on
-    *base_ref* at all (a candidate that *adds* a contract) maps to
-    ``ScriptBaseline(ok=True)`` — every line it prints on the merged tree is then
-    correctly "new", which is what makes a freshly-added contract enforced
-    against itself in the same gate run (see :func:`run_contract_checks`).
+    **BUG-176 — same instrument, both sides.** Before this fix, the baseline
+    run executed *base_ref*'s OWN copy of each script (``base_tree /
+    contract_dir / name``) against the base tree, while the merged-tree run
+    (:func:`run_contract_checks`) always executes the CANDIDATE's copy
+    (discovered via ``tree.glob(CONTRACT_CHECK_GLOB)``) against the merged
+    tree. A candidate that *repairs* a check script — teaches it to see files
+    or violations it was previously blind to — was measured with a stricter
+    instrument on the merged tree than the one that produced the baseline on
+    the base tree, so the repair's own newly-visible, PRE-EXISTING findings
+    read as violations the candidate introduced. Live incident: `fix/
+    p0-workitem` fixed the ambient-``GIT_DIR``/``GIT_INDEX_FILE`` blindness
+    (BUG-174) in ``scripts/_git_scan.py`` / ``scripts/check_current_only_
+    contract.py``; the identical 28 findings existed on both trees under the
+    FIXED instrument, but the base side's OLD, blind instrument reported 0,
+    so all 28 read as "NEW" and the fix that made the gate able to see was
+    rejected for making the gate able to see.
+
+    The fix: this function now OVERLAYS the *candidate*'s entire ``scripts/``
+    tree onto the materialized base worktree before running anything, so the
+    CODE executed against ``base_ref``'s content is byte-for-byte the same
+    code :func:`run_contract_checks` executes against the merged tree's
+    content — the only thing that legitimately differs between the two runs
+    is the tree being scanned, never the instrument doing the scanning. This
+    also transparently fixes the forwarder-pattern scripts
+    (``scripts/security/check_*_gate.py`` → a canonical target under bare
+    ``scripts/`` via ``_fast_tier_forward.forward``, and any shared helper a
+    check imports, e.g. ``scripts/_git_scan.py``): those resolve their own
+    target/helper paths relative to whatever ``--repository-root`` they are
+    given, so overlaying the whole ``scripts/`` tree (not just the discovered
+    ``check_*.py`` files) is what makes the forwarder chain follow the
+    candidate's code too, not just its entry point.
+
+    **A script named here that genuinely did not exist under
+    ``scripts/security/`` on *base_ref* at all** (a candidate that *adds* a
+    brand-new contract) is decided BEFORE the overlay and maps to
+    ``ScriptBaseline(ok=True)`` without ever being executed against the base
+    tree — a deliberate choice, not an oversight: (1) it preserves the
+    existing, documented semantics that "a candidate that adds an invariant
+    has it enforced against itself in the same gate run" (:func:`contract_
+    scripts`'s docstring) — a brand-new check has no legitimate "pre-existing
+    debt" to exempt, so every line it prints on the merged tree is correctly
+    "new" and blocking; (2) it cannot crash on a base tree that may be
+    missing files or shapes the new script assumes exist (its own author
+    only ever validated it against the tree it was added to). This is the
+    "must not crash" case the base-missing possibility raises: because the
+    check is skipped rather than run, there is nothing to crash.
     """
     base_sha = _require_git(["rev-parse", base_ref], repo)
-    cache_path = _contract_baseline_cache_path(scope, base_sha, interpreter=interpreter)
+    scripts_signature = _scripts_dir_signature(candidate_tree / "scripts")
+    cache_path = _contract_baseline_cache_path(
+        scope, base_sha, interpreter=interpreter, scripts_signature=scripts_signature
+    )
     cached = _load_contract_baseline_cache(cache_path)
 
     unknown = [s for s in script_names if s not in cached]
@@ -1226,20 +1329,46 @@ def compute_contract_baseline(
             scripts={s: cached[s] for s in script_names},
             detail=(
                 f"{len(script_names)} contract script(s) already baselined on "
-                f"{base_ref} ({base_sha[:12]}) — full cache hit"
+                f"{base_ref} ({base_sha[:12]}) under this instrument — full "
+                "cache hit"
             ),
         )
 
     contract_dir = Path(CONTRACT_CHECK_GLOB).parent
     new_entries: dict[str, ScriptBaseline] = {}
     with materialized(repo, base_sha, scope=scope) as base_tree:
-        present: dict[str, Path] = {}
+        # Decide "did this contract exist on base_ref at all" BEFORE the
+        # overlay below replaces base_tree/scripts wholesale with the
+        # candidate's copy — see the "genuinely new contract" branch of this
+        # function's docstring.
+        pre_overlay_present = {
+            name for name in unknown if (base_tree / contract_dir / name).is_file()
+        }
         for name in unknown:
-            script = base_tree / contract_dir / name
-            if not script.is_file():
+            if name not in pre_overlay_present:
                 new_entries[name] = ScriptBaseline(ok=True)
-            else:
-                present[name] = script
+
+        # BUG-176: overlay the CANDIDATE's scripts/ tree onto the base
+        # worktree so every present script — and anything it forwards to or
+        # imports from elsewhere under scripts/ — runs as the candidate's
+        # code, scanning only the base tree's (untouched) content. This
+        # worktree is thrown away at the end of the `with` block, so
+        # mutating it here never touches the canonical checkout or base_ref
+        # itself.
+        candidate_scripts = candidate_tree / "scripts"
+        if candidate_scripts.is_dir():
+            base_scripts = base_tree / "scripts"
+            if base_scripts.exists():
+                shutil.rmtree(base_scripts)
+            shutil.copytree(
+                candidate_scripts,
+                base_scripts,
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+
+        present: dict[str, Path] = {
+            name: base_tree / contract_dir / name for name in pre_overlay_present
+        }
 
         # D-MW-9: run the (usually empty, since this is cached) not-yet-known
         # scripts concurrently too — same reasoning as run_contract_checks.
@@ -1780,6 +1909,7 @@ def run_fast_gate(
                     scope.main_tree,
                     base_ref,
                     discovered_names,
+                    candidate_tree=tree,
                     scope=scope,
                     interpreter=interpreter,
                     env=env,

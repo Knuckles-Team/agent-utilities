@@ -47,6 +47,7 @@ sidecar-produced locus through this one claim,
 CONCEPT:AU-KG.identity.evidence-spine-convergence).
 """
 
+import hashlib
 import logging
 import time
 import uuid
@@ -198,10 +199,25 @@ def record_connector_sync_activity(
     if not callable(add_node):
         return None
     ts = at if at is not None else time.time()
-    activity_id = activity_id or (
-        f"activity:{connector}:{source_instance or '_'}:"
-        f"{int(ts * 1000)}:{uuid.uuid4().hex}"
-    )
+    # The volatile part (source_instance/timestamp/uuid) is folded into ONE
+    # 64-hex sha256 digest rather than kept as separate colon segments: the
+    # persistence privacy gate's opaque-identity exemption
+    # (``envelope_ingest._OPAQUE_NAMESPACED_ID_RE``) only skips its
+    # PII/pattern scan for a ``namespace:<opaque-digest>`` id whose FINAL
+    # segment is a bare 24/32/40/64-hex digest — a raw millisecond timestamp
+    # (starts with a digit) or the ``source_instance or '_'`` fallback value
+    # (starts with ``_``) breaks that match, so the trailing random
+    # ``uuid4().hex`` fell through to the full-text scan instead of being
+    # treated as opaque and reproducibly tripped the generic IBAN pattern
+    # (~1 in 20 hex strings, same class as D-GM-3/D-GM-4) — a legitimate,
+    # non-sensitive internal id rejected as an "unsafe identity" with no PII
+    # involved. Keeping only ``activity:<connector>`` ahead of the digest
+    # keeps the connector name scanned (as intended) while the digest itself
+    # is exempted.
+    digest = hashlib.sha256(
+        f"{source_instance}:{ts}:{uuid.uuid4().hex}".encode()
+    ).hexdigest()
+    activity_id = activity_id or f"activity:{connector}:{digest}"
     props: dict[str, Any] = {
         "kind": _CONNECTOR_SYNC_KIND,
         "connector": connector,
@@ -327,10 +343,12 @@ def record_media_sidecar_activity(
     if not callable(add_node):
         return None
     ts = at if at is not None else time.time()
-    activity_id = activity_id or (
-        f"activity:{_MEDIA_SIDECAR_KIND}:{sidecar}:{modality}:"
-        f"{int(ts * 1000)}:{uuid.uuid4().hex}"
-    )
+    # Same fix as record_connector_sync_activity above (see its comment): fold
+    # the volatile parts into one opaque sha256 digest instead of raw colon
+    # segments, so the privacy gate's opaque-identity exemption actually
+    # matches and the random uuid suffix doesn't undergo the full-text scan.
+    digest = hashlib.sha256(f"{modality}:{ts}:{uuid.uuid4().hex}".encode()).hexdigest()
+    activity_id = activity_id or f"activity:{_MEDIA_SIDECAR_KIND}:{sidecar}:{digest}"
     props: dict[str, Any] = {
         "kind": _MEDIA_SIDECAR_KIND,
         "sidecar": sidecar,

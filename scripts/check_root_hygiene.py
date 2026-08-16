@@ -119,8 +119,12 @@ def tracked_root_entries() -> tuple[set[str], set[str]]:
 def main() -> int:
     files, dirs = tracked_root_entries()
 
-    stray_files = sorted(f for f in files if not f.startswith(".") and f not in ALLOWED_FILES)
-    stray_dirs = sorted(d for d in dirs if not d.startswith(".") and d not in ALLOWED_DIRS)
+    stray_files = sorted(
+        f for f in files if not f.startswith(".") and f not in ALLOWED_FILES
+    )
+    stray_dirs = sorted(
+        d for d in dirs if not d.startswith(".") and d not in ALLOWED_DIRS
+    )
 
     if not stray_files and not stray_dirs:
         print(f"root hygiene: clean ({len(files)} root files, {len(dirs)} root dirs)")

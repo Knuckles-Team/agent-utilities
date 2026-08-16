@@ -810,21 +810,31 @@ def _make_domain_tool(domain: str, methods: list[str]):
             description="Target graph name (empty ⇒ the deployment default graph).",
         ),
     ) -> str:
-        # U-86: `_dispatch` performs synchronous native engine I/O (blocking
-        # socket round-trips, including retries on a slow lifecycle op like
-        # CreateGraph). Calling it inline from this `async def` — even though
-        # the surface is declared async — ran that blocking I/O directly ON
-        # the server event loop: `inspect.iscoroutinefunction` sees a real
-        # coroutine function here, so the central dispatcher's own
-        # offload-synchronous-tools protection never applied to this
-        # generated surface. A slow admin/lifecycle call then froze
-        # liveness/health for every other MCP/REST client on the same
-        # process. `asyncio.to_thread` offloads the blocking call to a worker
-        # thread while keeping the event loop schedulable, and — per its
-        # documented contract — runs the call inside a COPY of the calling
-        # task's `contextvars.Context`, so the verified actor/session
-        # context (`current_session()` et al.) still resolves correctly off
-        # the event loop thread.
+        # U-86/U-91/BUG-171: this coroutine's body used to call the SYNCHRONOUS
+        # ``_dispatch`` inline (``return _dispatch(...)``). ``_dispatch`` does
+        # blocking native engine I/O (a real socket RPC, sometimes a
+        # multi-attempt retry loop tens of seconds long for a slow admin/
+        # lifecycle call like ``tenants.create``). Because this function is
+        # declared ``async def``, kg_server._execute_tool's dispatch-isolation
+        # check (``inspect.iscoroutinefunction(tool_func)``) treats it as
+        # "already async" and awaits it INLINE on the gateway's one asyncio
+        # event-loop thread instead of routing it through
+        # ``asyncio.to_thread`` the way it does for plain synchronous tool
+        # functions — so a slow engine_* call froze the entire event loop:
+        # every other coroutine on the same loop (including /health and
+        # /health/ready, which must stay schedulable so kubelet's liveness
+        # probe does not restart an otherwise-healthy process — see
+        # ``observability/runtime_health.py``) starved until this call
+        # returned. Confirmed live: r21 was OOM-killed by kubelet during
+        # exactly this scenario.
+        #
+        # Fix: execute ``_dispatch`` in a worker thread via
+        # ``asyncio.to_thread``, which propagates the calling task's
+        # contextvars (actor/session — ``contextvars.copy_context()``) into
+        # the thread, exactly like kg_server._execute_tool already does for
+        # ordinary synchronous tools. This keeps the uniform "every
+        # ``engine_*`` tool is declared ``async def``" surface while making
+        # the actual blocking I/O yield the loop instead of monopolizing it.
         return await asyncio.to_thread(
             _dispatch, domain, method_set, action, params_json, graph
         )

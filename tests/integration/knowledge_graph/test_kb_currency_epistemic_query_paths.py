@@ -253,9 +253,6 @@ def test_store_execute_include_epistemic_carries_engine_envelope(
     (``GRAPH_SERVICE_ENDPOINTS``/``_AUTH_SECRET``) re-asserted, per its own
     docstring's convention.
     """
-    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
-        EpistemicGraphBackend,
-    )
     from agent_utilities.knowledge_graph.core.session import use_session
 
     if not hasattr(engine_graph, "explain_provenance_by_ids"):
@@ -301,9 +298,6 @@ def test_query_cypher_include_epistemic_carries_engine_envelope(
     stands in for the full ``IntelligenceGraphEngine`` host, mirroring
     :func:`test_store_execute_include_epistemic_carries_engine_envelope`'s setup.
     """
-    from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
-        EpistemicGraphBackend,
-    )
     from agent_utilities.knowledge_graph.core.session import use_session
     from agent_utilities.knowledge_graph.orchestration.engine_query import QueryMixin
 
@@ -326,10 +320,11 @@ def test_query_cypher_include_epistemic_carries_engine_envelope(
             # store.execute (the sibling test above) doesn't run this check —
             # it's the deliberately "unguarded/unaudited direct-backend
             # path" per its own docstring; query_cypher is the governed one.
+            from _test_engine import TEST_AGENT_ID as _TEST_AGENT_ID
+
             from agent_utilities.knowledge_graph.ontology.permissioning import (
                 build_acl,
             )
-            from _test_engine import TEST_AGENT_ID as _TEST_AGENT_ID
 
             build_acl(claim_id, data_owner=_TEST_AGENT_ID)
             build_acl(evidence_id, data_owner=_TEST_AGENT_ID)

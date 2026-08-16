@@ -87,13 +87,15 @@ from __future__ import annotations
 
 import ast
 import re
-import subprocess
 import sys
 from collections.abc import Sequence
 from collections.abc import Set as AbstractSet
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
+
 SKIP_DIRS = {"__pycache__", ".venv", "node_modules", "build", "dist"}
 
 # Primitives that are ALWAYS a recognized guard, anywhere in the fleet. Every
@@ -451,19 +453,7 @@ def _tracked_or_walked_py_files(target: Path) -> list[Path]:
     cleared violation. Falls back to a filesystem walk only when ``target``
     is not inside a git working tree (e.g. a synthetic test fixture).
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(target), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [target / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(target.rglob("*.py"))
+    return tracked_or_walked(target, "*.py", root=ROOT)
 
 
 def _iter_py_files(target: Path, *, exclude_dirs: AbstractSet[str]) -> list[Path]:

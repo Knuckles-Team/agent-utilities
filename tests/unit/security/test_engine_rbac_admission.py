@@ -26,7 +26,9 @@ import pytest
 from agent_utilities.security import engine_rbac_admission as era
 
 
-def _authority(agent_id: str, *, signer_id: str | None = None) -> era.AdmissionAuthority:
+def _authority(
+    agent_id: str, *, signer_id: str | None = None
+) -> era.AdmissionAuthority:
     return era.AdmissionAuthority(
         agent_id=agent_id,
         signer_id=signer_id or agent_id,

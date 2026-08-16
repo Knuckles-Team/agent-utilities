@@ -143,20 +143,65 @@ def _tracked_or_walked(root: Path, pattern: str) -> list[Path]:
     can distort the import graph / wire-first sweep with a stale copy of an
     already-fixed source file. Falls back to a filesystem walk only when
     ``root`` is not inside a git working tree (e.g. a synthetic test fixture).
+
+    Anchored at ``ROOT`` (never at ``root`` itself) with a pathspec scoped to
+    ``root``'s position under it, because git's ``ls-files`` output-path base
+    is NOT reliably "relative to ``-C``'s target" -- it silently reverts to
+    the ambient work-tree root whenever ``GIT_DIR``/``GIT_INDEX_FILE`` are
+    already present in the process environment, which git itself sets for
+    *every* hook subprocess (``git commit``, incl. concluding a merge).
+    Confirmed empirically (GOC-70 liveness investigation): under a plain
+    invocation, ``git -C agent_utilities ls-files -- '*.py'`` returns
+    ``agent_utilities``-relative lines ("__init__.py", ...); with
+    ``GIT_DIR``/``GIT_INDEX_FILE`` set (as they are inside every git hook
+    subprocess), the SAME command instead returns work-tree-root-relative
+    lines ("agent_utilities/__init__.py", ...) while ``-C``'s own
+    ``rev-parse --show-toplevel``/``--show-prefix`` simultaneously claim
+    ``agent_utilities`` itself is the toplevel with an empty prefix -- an
+    internally inconsistent, ambient-env-dependent git quirk, not a rare
+    edge case. The old code reconstructed absolute paths as ``root / line``,
+    which under that ambient condition doubled the ``agent_utilities/``
+    segment onto a path that never exists on disk; every reconstructed path
+    then failed ``is_file()`` and got filtered to an EMPTY list -- but
+    because the raw ``tracked`` list was non-empty, the function returned
+    that empty list directly instead of falling through to the (correct)
+    ``rglob`` fallback. Every rescue mechanism that depends on this function
+    (all but the pyproject-entry-point one) then saw an empty import graph,
+    manufacturing a false "196 new dead orphan modules" regression on a
+    ratchet gate that runs as a git hook -- the exact "component that cannot
+    do its job returns a value read as a real signal" shape AGENTS.md's
+    *Fail closed* section prohibits. Anchoring at ``ROOT`` sidesteps the
+    ambiguity entirely: ``ROOT`` is computed once via pure ``Path`` math
+    (``Path(__file__).resolve().parent.parent``), so it is always the
+    correct work-tree root regardless of what git's ambient environment
+    claims, and reconstructing every path as ``ROOT / line`` is then correct
+    under both the plain and the ambient-env-polluted invocation shapes.
     """
     try:
+        rel = root.relative_to(ROOT)
+        anchor = ROOT
+        pathspec = pattern if str(rel) == "." else f"{rel.as_posix()}/{pattern}"
+    except ValueError:
+        # `root` is not under this repo's ROOT at all (e.g. a synthetic test
+        # fixture rooted at its own tmp_path with no relation to ROOT) --
+        # nothing to anchor to; preserve the prior `-C root` behavior, which
+        # is correct there since no ambient GIT_DIR of THIS repo applies.
+        anchor = root
+        pathspec = pattern
+    try:
         out = subprocess.run(
-            ["git", "-C", str(root), "ls-files", "--", pattern],
+            ["git", "-C", str(anchor), "ls-files", "--", pathspec],
             capture_output=True,
             text=True,
             check=True,
         ).stdout
-        tracked = [root / line for line in out.splitlines() if line]
+        tracked = [anchor / line for line in out.splitlines() if line]
         if tracked:
             return [p for p in tracked if p.is_file()]
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
     return sorted(root.rglob(pattern))
+
 
 # Method names common enough (as ordinary verbs on many unrelated classes)
 # that a global word-boundary usage count is too noisy to trust at the
@@ -548,7 +593,9 @@ def find_silent_import_guards(
 
 
 def _iter_agent_utilities_files(src_dir: Path = SRC_DIR) -> list[Path]:
-    return [p for p in _tracked_or_walked(src_dir, "*.py") if "__pycache__" not in p.parts]
+    return [
+        p for p in _tracked_or_walked(src_dir, "*.py") if "__pycache__" not in p.parts
+    ]
 
 
 def _public_top_level_defs(tree: ast.Module) -> list[tuple[str, str, int]]:

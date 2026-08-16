@@ -133,9 +133,7 @@ async def test_main_path_run_summary_reports_degraded_when_trace_write_fails() -
     fake_engine = MagicMock()
     fake_engine.backend = None
 
-    real_result = {
-        "results": {"output": "Found 3 running containers: web, db, cache."}
-    }
+    real_result = {"results": {"output": "Found 3 running containers: web, db, cache."}}
 
     with (
         patch.object(agent_runner, "_get_or_create_engine", return_value=fake_engine),

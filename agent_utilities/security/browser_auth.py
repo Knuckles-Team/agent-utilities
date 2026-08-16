@@ -98,8 +98,24 @@ class BaseLoopbackCallbackHandler(BaseHTTPRequestHandler):
     )
 
     def log_message(self, format: str, *args: Any) -> None:
-        # Suppress logging request details to standard out to maintain clean CLI
-        logger.debug(format, *args)
+        # BUG-140: BaseHTTPRequestHandler's default log call passes the RAW
+        # request line (`self.requestline`) as an arg — for this handler
+        # that is the OAuth redirect URI, whose query string carries the
+        # authorization `code` and CSRF `state` in the clear
+        # (`GET /callback?code=...&state=... HTTP/1.1`). Forwarding
+        # `format`/`args` verbatim into `logger.debug` (as this previously
+        # did) logs both secrets the moment DEBUG logging is enabled. Never
+        # log the request line/args; log only what we can derive safely
+        # (method + path with the query string stripped).
+        try:
+            safe_path = urlparse(self.path).path
+        except ValueError:
+            safe_path = "<unparseable>"
+        logger.debug(
+            "Loopback OAuth callback request (method=%s path=%s)",
+            self.command,
+            safe_path,
+        )
 
     def do_GET(self) -> None:
         parsed_url = urlparse(self.path)

@@ -15,6 +15,7 @@ from agent_utilities.knowledge_graph.core.company_brain_runtime import (
 )
 from agent_utilities.knowledge_graph.facade import KnowledgeGraph
 from agent_utilities.models.company_brain import DataClassification, NodeACL
+
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 

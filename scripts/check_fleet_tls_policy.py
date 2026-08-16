@@ -14,8 +14,12 @@ import argparse
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from scripts._git_scan import repo_root_of  # noqa: E402
 
 _SUFFIXES = {
     ".env",
@@ -96,26 +100,53 @@ def _candidate(path: Path) -> bool:
 
 
 def scan_package(package_root: Path) -> list[Finding]:
-    """Return privacy-safe TLS-policy findings for one package."""
+    """Return privacy-safe TLS-policy findings for one package.
+
+    BUG-043/BUG-174: git sets ``GIT_DIR``/``GIT_INDEX_FILE`` in the
+    environment of every hook subprocess, under which ``git -C
+    <package_root> ls-files`` silently reverts to ambient-work-tree-root-
+    relative output -- or, when ``package_root`` belongs to a DIFFERENT
+    repository than the ambient one (the common case here: this scans
+    OTHER checked-out packages), returns the AMBIENT repo's own file list
+    entirely, mislabeled as this package's (confirmed empirically, see
+    ``scripts/_git_scan.py``). Anchor at ``package_root``'s own repository
+    root -- found by pure filesystem ``.git`` inspection, never by asking
+    git itself -- with a pathspec scoped back down to ``package_root``, and
+    reconstruct every path from that anchor: immune to the ambient env
+    either way. ``--others`` is preserved deliberately (unlike the tracked-
+    only ``scripts/_git_scan.py`` helper): this gate must also catch a
+    brand-new untracked file before its first commit.
+    """
 
     findings: list[Finding] = []
+    anchor = repo_root_of(package_root) or package_root
+    try:
+        rel = package_root.relative_to(anchor)
+        pathspec = [rel.as_posix() + "/"] if str(rel) != "." else ["."]
+    except ValueError:
+        anchor = package_root
+        pathspec = ["."]
     result = subprocess.run(  # noqa: S603 - fixed git argv, no shell
         [
             "git",
             "-C",
-            str(package_root),
+            str(anchor),
             "ls-files",
             "--cached",
             "--others",
             "--exclude-standard",
             "-z",
+            "--",
+            *pathspec,
         ],
         check=False,
         capture_output=True,
     )
     if result.returncode == 0:
         relatives = sorted(
-            Path(value.decode("utf-8", errors="replace"))
+            (anchor / Path(value.decode("utf-8", errors="replace"))).relative_to(
+                package_root
+            )
             for value in result.stdout.split(b"\0")
             if value
         )

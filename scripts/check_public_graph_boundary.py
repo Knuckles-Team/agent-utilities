@@ -4,9 +4,12 @@
 from __future__ import annotations
 
 import ast
-import subprocess
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 PUBLIC_ROOTS = (
     "agent_utilities/gateway",
@@ -63,19 +66,7 @@ def _tracked_or_walked_py_files(public_path: Path) -> list[Path]:
     to a filesystem walk only when ``public_path`` is not inside a git
     working tree (e.g. a synthetic test fixture).
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", str(public_path), "ls-files", "--", "*.py"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout
-        tracked = [public_path / line for line in out.splitlines() if line]
-        if tracked:
-            return [p for p in tracked if p.is_file()]
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-    return sorted(public_path.rglob("*.py"))
+    return tracked_or_walked(public_path, "*.py", root=ROOT)
 
 
 def check(root: Path) -> list[str]:

@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agent_utilities.core.source_paths import normalize_path, repo_of
+from agent_utilities.security.error_surface import is_engine_degraded
 
 VALID_INTENTS = ("how", "usage", "impact")
 
@@ -70,10 +71,15 @@ class CodeContextAnswer:
     used_primitives: list[str] = field(default_factory=list)
     cross_repo: bool = False
     coverage: dict[str, Any] = field(default_factory=dict)
+    #: BUG-004: "ok" (a real, possibly-empty answer) or "degraded" (the engine
+    #: itself was unavailable — an empty answer here is NOT evidence the
+    #: symbol is unindexed; see :func:`build_code_context`).
+    status: str = "ok"
+    error: dict[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "status": "ok",
+            "status": self.status,
             "query": self.query,
             "intent": self.intent,
             "answer": self.answer,
@@ -84,11 +90,44 @@ class CodeContextAnswer:
             "used_primitives": self.used_primitives,
             "cross_repo": self.cross_repo,
             "coverage": self.coverage,
+            "error": self.error,
         }
 
 
+class EngineReadDegraded(RuntimeError):
+    """BUG-004: the engine itself was unavailable (breaker open / transport
+    down / a sanitized ``CypherEngineError`` wrapping one of those), raised by
+    :func:`_rows` instead of being swallowed into a bare ``[]``.
+
+    Before this, ``resolve_anchors`` returning no rows during an engine outage
+    was indistinguishable from a genuinely absent symbol: ``build_code_context``
+    reported a confident "No resolved code symbol matched ... may not be
+    ingested yet" — an actively misleading diagnosis (sparse evidence measured
+    at 0.0% coverage was a *reachability* failure, not an *index* gap) that
+    sent operators chasing a re-ingestion that was never the problem. Reusing
+    ``is_engine_degraded`` (BUG-048's own classification, already the
+    established vocabulary for "breaker-open vs genuine rejection" in this
+    codebase) keeps the two failure classes consistent everywhere they are
+    checked.
+    """
+
+    def __init__(self, cause: BaseException) -> None:
+        self.cause_type = type(cause).__name__
+        super().__init__(
+            f"knowledge graph engine degraded ({self.cause_type}); this read "
+            "produced no evidence about whether the queried data exists"
+        )
+
+
 def _rows(engine: Any, cypher: str, params: dict[str, Any]) -> list[dict[str, Any]]:
-    """Run a read-only query, tolerant of either engine read API; never raises."""
+    """Run a read-only query, tolerant of either engine read API.
+
+    Best-effort for a genuine query-shaped failure (returns ``[]``), but
+    raises :class:`EngineReadDegraded` when the engine itself is unavailable
+    (BUG-004) so a caller resolving the PRIMARY anchor can tell "the engine
+    could not answer" from "the engine answered: nothing matches" instead of
+    conflating both into the same false-confident empty result.
+    """
     try:
         qc = getattr(engine, "query_cypher", None)
         if callable(qc):
@@ -96,7 +135,9 @@ def _rows(engine: Any, cypher: str, params: dict[str, Any]) -> list[dict[str, An
         backend = getattr(engine, "backend", None)
         if backend is not None and hasattr(backend, "execute"):
             return list(backend.execute(cypher, params) or [])
-    except Exception:  # pragma: no cover - read best-effort by design
+    except Exception as exc:  # pragma: no cover - re-raise path covered by unit tests
+        if is_engine_degraded(exc):
+            raise EngineReadDegraded(exc) from None
         return []
     return []
 
@@ -403,9 +444,36 @@ def build_code_context(
         intent = "how"
     limit = max(1, min(100, int(top_k)))
 
-    anchors = resolve_anchors(
-        engine, query=query, node_id=node_id, source_system=source_system, limit=8
-    )
+    try:
+        anchors = resolve_anchors(
+            engine, query=query, node_id=node_id, source_system=source_system, limit=8
+        )
+    except EngineReadDegraded as exc:
+        # BUG-004: do NOT report this as "no resolved code symbol" — that
+        # claim is about the INDEX, and this failure carries no evidence
+        # about the index at all, only that the engine could not be read
+        # right now. Say so plainly and mark the answer non-"ok" so a
+        # wrapping EvidenceBundle surfaces a real `error`, not a silent
+        # empty success (CONCEPT:AU-KG.retrieval.synthesized-cited-answer).
+        cap = _make_capability_id(intent, [], query)
+        return CodeContextAnswer(
+            query=query,
+            intent=intent,
+            answer=(
+                "The knowledge graph engine was unavailable while answering "
+                f"'{query}'. This is NOT evidence the symbol is unindexed — "
+                "retry shortly rather than re-ingesting."
+            ),
+            citations=[],
+            sections={},
+            anchors=[],
+            capability_id=cap,
+            used_primitives=[],
+            cross_repo=cross_repo,
+            coverage={"anchors": 0},
+            status="degraded",
+            error={"code": "engine_degraded", "cause_type": exc.cause_type},
+        ).as_dict()
     sections: dict[str, list[dict[str, Any]]] = {}
     used: list[str] = []
     cites: list[dict[str, Any]] = list(anchors)
@@ -442,65 +510,84 @@ def build_code_context(
     nid = primary.get("id") or ""
     fp = primary.get("file") or ""
 
-    if intent == "how":
-        callees = _callees(engine, name, depth, limit)
-        if callees:
-            sections["calls"] = callees
-            cites += callees
-            used.append("call_graph")
-        concepts = _concepts(engine, fp, limit)
-        if concepts:
-            sections["concepts"] = concepts
-            used.append("concepts")
-        routes = _routes(engine, name, limit)
-        if routes:
-            sections["routes"] = routes
-            used.append("routes")
-        docs = _docs(engine, query or name, limit)
-        if docs:
-            sections["docs"] = docs
-            used.append("docs")
-        gotchas = _gotchas(engine, fp, limit)
-        if gotchas:
-            sections["gotchas"] = gotchas
-            used.append("gotchas")
-    elif intent == "usage":
-        callers = _callers(engine, name, limit)
-        if callers:
-            sections["callers"] = callers
-            cites += callers
-            used.append("call_graph")
-        similar = _similar(engine, nid, limit) if nid else []
-        if similar:
-            sections["similar"] = similar
-            cites += similar
-            used.append("similar_code")
-        routes = _routes(engine, name, limit)
-        if routes:
-            sections["routes"] = routes
-            used.append("routes")
-        # "Where is it used" is inherently a fleet-wide question — surface the
-        # cross-repo usage view by default for usage intent (CONCEPT:AU-KG.retrieval.every-usage-published-symbol).
-        sections["cross_repo"] = [cross_repo_usages(engine, name, limit)]
-        used.append("cross_repo")
-        cross_repo = True
-    else:  # impact
-        impacted = _impact(engine, name, depth, limit)
-        if impacted:
-            sections["impacted_callers"] = impacted
-            cites += impacted
-            used.append("impact_of_change")
-        coupling = _coupling(engine, fp, limit)
-        if coupling:
-            sections["change_coupling"] = coupling
-            used.append("change_coupling")
-        routes = _routes(engine, name, limit)
-        if routes:
-            sections["routes"] = routes
-            used.append("routes")
+    # BUG-004: the anchor itself resolved (real, grounded evidence), but a
+    # SUPPLEMENTARY enrichment read below can still hit an engine outage
+    # mid-way (breaker trips between calls). Before this, that raised
+    # EngineReadDegraded (from `_rows`, now that it no longer swallows a
+    # degraded read into a bare `[]`) unhandled out of this function — a
+    # regression this fix must not introduce. Degrade the ENRICHMENT
+    # gracefully (keep whatever sections completed) while still marking the
+    # answer so a caller knows it is incomplete, rather than silently
+    # pretending the missing sections simply "have not run yet".
+    enrichment_degraded = False
+    try:
+        if intent == "how":
+            callees = _callees(engine, name, depth, limit)
+            if callees:
+                sections["calls"] = callees
+                cites += callees
+                used.append("call_graph")
+            concepts = _concepts(engine, fp, limit)
+            if concepts:
+                sections["concepts"] = concepts
+                used.append("concepts")
+            routes = _routes(engine, name, limit)
+            if routes:
+                sections["routes"] = routes
+                used.append("routes")
+            docs = _docs(engine, query or name, limit)
+            if docs:
+                sections["docs"] = docs
+                used.append("docs")
+            gotchas = _gotchas(engine, fp, limit)
+            if gotchas:
+                sections["gotchas"] = gotchas
+                used.append("gotchas")
+        elif intent == "usage":
+            callers = _callers(engine, name, limit)
+            if callers:
+                sections["callers"] = callers
+                cites += callers
+                used.append("call_graph")
+            similar = _similar(engine, nid, limit) if nid else []
+            if similar:
+                sections["similar"] = similar
+                cites += similar
+                used.append("similar_code")
+            routes = _routes(engine, name, limit)
+            if routes:
+                sections["routes"] = routes
+                used.append("routes")
+            # "Where is it used" is inherently a fleet-wide question — surface the
+            # cross-repo usage view by default for usage intent (CONCEPT:AU-KG.retrieval.every-usage-published-symbol).
+            sections["cross_repo"] = [cross_repo_usages(engine, name, limit)]
+            used.append("cross_repo")
+            cross_repo = True
+        else:  # impact
+            impacted = _impact(engine, name, depth, limit)
+            if impacted:
+                sections["impacted_callers"] = impacted
+                cites += impacted
+                used.append("impact_of_change")
+            coupling = _coupling(engine, fp, limit)
+            if coupling:
+                sections["change_coupling"] = coupling
+                used.append("change_coupling")
+            routes = _routes(engine, name, limit)
+            if routes:
+                sections["routes"] = routes
+                used.append("routes")
+    except EngineReadDegraded:
+        enrichment_degraded = True
 
     citations = _dedup_cites(cites)
     answer = _synthesize(query, intent, primary, sections, citations)
+    if enrichment_degraded:
+        answer += (
+            " (The knowledge graph engine degraded partway through "
+            "enrichment; some sections above may be incomplete rather than "
+            "genuinely empty.)"
+        )
     cap = _make_capability_id(intent, anchors, query)
     return CodeContextAnswer(
         query=query,
@@ -516,7 +603,14 @@ def build_code_context(
             "anchors": len(anchors),
             "citations": len(citations),
             "sections": {k: len(v) for k, v in sections.items()},
+            "enrichment_degraded": enrichment_degraded,
         },
+        status="degraded" if enrichment_degraded else "ok",
+        error=(
+            {"code": "engine_degraded", "detail": "enrichment reads incomplete"}
+            if enrichment_degraded
+            else None
+        ),
     ).as_dict()
 
 

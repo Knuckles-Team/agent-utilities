@@ -244,7 +244,9 @@ def main() -> int:
         help="Workspace root containing agent-packages/ (default: /home/apps/workspace).",
     )
     parser.add_argument("--update", action="store_true", help="Write the index file.")
-    parser.add_argument("--json", action="store_true", help="Emit the index as JSON to stdout.")
+    parser.add_argument(
+        "--json", action="store_true", help="Emit the index as JSON to stdout."
+    )
     args = parser.parse_args()
 
     index = build_index(args.workspace_root.resolve())

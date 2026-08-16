@@ -9,12 +9,12 @@ from unittest.mock import patch
 
 import pytest
 
+from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
 from agent_utilities.knowledge_graph.core.engine_tasks import (
     _TASK_WORK_ITEM_LEASE_SEC,
     TaskManagerMixin,
     _retryable_partial_materialization,
 )
-from agent_utilities.core.resource_priority import HYDRATION_TASK_TYPES
 from agent_utilities.orchestration import work_item as wi
 
 

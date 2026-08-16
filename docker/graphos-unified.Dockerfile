@@ -52,6 +52,23 @@ ARG HOST=127.0.0.1
 ARG PORT=8000
 ARG TRANSPORT="stdio"
 ARG AUTH_TYPE="none"
+# U-26/BUG-172 — non-secret build provenance. This image installs
+# agent_utilities EDITABLE from local source at build time (step 2 below) and
+# ships with NO agent_utilities hostPath/live-mount volume by design (a
+# deployer MAY bind-mount fresher source over it later, but none is
+# expected). Without evidence of that intent, agent_utilities' own
+# core/live_mount_guard.py cannot distinguish this deliberate shape from a
+# genuinely drifted D-EGK-1 mount and used to log a false CRITICAL
+# stale-code warning on every boot. Pass the exact git revision this image
+# was built from (e.g. `--build-arg SOURCE_REVISION=$(git rev-parse HEAD)`,
+# see the sibling kaniko Job manifests); it lands in a plain-text
+# .source-revision marker beside the installed package (step 2 below) that
+# the guard reads at runtime. Left as "unknown" when unset rather than
+# omitted — presence of the marker (not the specific value) is what proves
+# intent, and an explicit "unknown" is still evidence a human chose not to
+# thread the real revision through, as opposed to a pre-U-26 image that
+# predates the marker file entirely.
+ARG SOURCE_REVISION="unknown"
 ENV DEBIAN_FRONTEND=noninteractive \
     HOST=${HOST} \
     PORT=${PORT} \
@@ -121,6 +138,11 @@ RUN uv pip install --system --break-system-packages \
 # outside this repo's .dockerignore-admitted set) and avoids re-pulling in build-artifacts/.
 COPY pyproject.toml build_backend.py README.md LICENSE /opt/agent-utilities/
 COPY agent_utilities/ /opt/agent-utilities/agent_utilities/
+# U-26/BUG-172 — write the provenance marker core/live_mount_guard.py looks
+# for, beside the package it describes (not the repo root, which is never
+# copied into this image). One line, no trailing newline needed — the
+# runtime reader strips whitespace regardless.
+RUN printf '%s' "${SOURCE_REVISION}" > /opt/agent-utilities/agent_utilities/.source-revision
 
 # 2b) langfuse-agent — ALSO workspace-sourced (`[tool.uv.sources] langfuse-agent =
 #     { workspace = true }` in au's own pyproject, same as epistemic-graph in step 1), and
