@@ -217,3 +217,117 @@ async def test_manage_verb_lifecycle_action_loads_and_unloads(tmp_path):
     # Not a lifecycle action -> returns None so the caller falls through to the
     # normal capability resolver.
     assert await intent_tools._manage_lifecycle(mcp, "list my tenants", {}) is None
+
+
+@pytest.mark.asyncio
+async def test_bug040_destructive_plan_without_session_load_still_refuses(
+    monkeypatch,
+):
+    """BUG-040 negative proof: a caller who has NOT explicitly ``load_tools``-ed
+    the exact destructive tool for their own session is still refused — the
+    fix proven in the next test does not weaken this in any way, it only makes
+    the refusal's documented escape hatch (load_tools -> resubmit) ACTUALLY
+    reachable instead of a dead end. No ``mcp``/multiplexer at all is the
+    hardest case (matches the pre-fix regression test)."""
+    from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tools import intent_tools
+
+    seen = False
+
+    async def fake_graph_write(**_kw) -> str:
+        nonlocal seen
+        seen = True
+        return "ok"
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_write", fake_graph_write)
+    hints = {"tool": "graph_write", "action": "delete_node", "node_id": "node-1"}
+    preview = await intent_tools.dispatch_intent(
+        "write", "delete a node", hints=hints, execute=False
+    )
+    plan = preview["routing"]["plan"]
+    assert plan["approval"]["required"] is True
+
+    result = await intent_tools.dispatch_intent(
+        "write",
+        "delete a node",
+        hints={**hints, "plan_ref": plan["plan_ref"]},
+        execute=True,
+    )
+    assert result["executed"] is False
+    assert result["approval_required"] is True
+    assert result["required_load_tools"] == ["graph_write"]
+    assert seen is False
+
+
+@pytest.mark.asyncio
+async def test_bug040_destructive_plan_executes_once_session_loaded_exact_tool(
+    tmp_path, monkeypatch
+):
+    """BUG-040 positive proof, end to end through the REAL dispatch gate.
+
+    Before the fix, ``graph_write`` resolved a valid ``delete_node`` plan and
+    then dead-ended unconditionally with "Operation requires the exact
+    dynamically loaded tool and its approval policy" — reproduced live against
+    the running graph-os MCP server, not just in this suite. The exact tool
+    never became callable to a client that (like most real MCP clients,
+    including the one that surfaced this bug) never re-issues ``tools/list``
+    after ``notifications/tools/list_changed`` (BUG-050). This test proves the
+    fix: once the caller's OWN session has explicitly ``load_tools``-ed
+    ``graph_write`` — the SAME session-scoped state
+    :meth:`MCPMultiplexer.tool_dispatchable` uses to gate a real
+    ``tools/call`` — resubmitting the identical previewed ``plan_ref`` through
+    the always-visible ``write`` verb actually dispatches, with no dependence
+    on the client ever seeing ``graph_write`` in its own tool list.
+    """
+    from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tools import intent_tools
+
+    seen_kwargs: dict | None = None
+
+    async def fake_graph_write(**kw) -> str:
+        nonlocal seen_kwargs
+        seen_kwargs = kw
+        return "deleted"
+
+    monkeypatch.setitem(kg_server.REGISTERED_TOOLS, "graph_write", fake_graph_write)
+
+    mcp = FastMCP("graph-os-test")
+    mux = _mux_with_local_gated(
+        tmp_path, mcp, {"graph_write": {"write_ingest", "gated"}}
+    )
+    mcp._fleet_mux = mux
+
+    hints = {"tool": "graph_write", "action": "delete_node", "node_id": "node-1"}
+    preview = await intent_tools.dispatch_intent(
+        "write", "delete a node", hints=hints, execute=False, mcp=mcp
+    )
+    plan = preview["routing"]["plan"]
+    assert plan["approval"]["required"] is True
+
+    # Not loaded yet, even with a real multiplexer attached -> still refused.
+    still_refused = await intent_tools.dispatch_intent(
+        "write",
+        "delete a node",
+        hints={**hints, "plan_ref": plan["plan_ref"]},
+        execute=True,
+        mcp=mcp,
+    )
+    assert still_refused["executed"] is False
+    assert still_refused["approval_required"] is True
+    assert seen_kwargs is None
+
+    # The caller explicitly acknowledges the approval policy for THIS exact
+    # tool via the documented escape hatch.
+    load = await mcp.get_tool("load_tools")
+    load_result = await load.fn(tools=["graph_write"])
+    assert "graph_write" in load_result.structured_content["newly_exposed"]
+
+    result = await intent_tools.dispatch_intent(
+        "write",
+        "delete a node",
+        hints={**hints, "plan_ref": plan["plan_ref"]},
+        execute=True,
+        mcp=mcp,
+    )
+    assert result["executed"] is True
+    assert seen_kwargs == {"action": "delete_node", "node_id": "node-1"}

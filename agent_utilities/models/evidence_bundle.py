@@ -501,6 +501,21 @@ class EvidenceBundle(BaseModel):
         used_primitives = list(payload.get("used_primitives") or [])
         coverage = dict(payload.get("coverage") or {})
         anchors = list(payload.get("anchors") or [])
+        # BUG-004: ``build_code_context`` marks ``status: "degraded"`` (plus a
+        # structured ``error``) when the KG engine itself was unreachable —
+        # distinct from ``status: "ok"`` with genuinely empty sections. That
+        # distinction must survive the wrap: a degraded read is a real
+        # ``EvidenceBundle.error``, not a silent empty-but-successful bundle
+        # (which is exactly how the sparse-evidence-coverage defect this
+        # closes went unnoticed — an engine outage read identically to "no
+        # such symbol").
+        raw_status = payload.get("status")
+        raw_error = payload.get("error")
+        code_context_error: dict[str, Any] | None = (
+            dict(raw_error) if isinstance(raw_error, dict) else None
+        )
+        if code_context_error is None and raw_status == "degraded":
+            code_context_error = {"code": "engine_degraded"}
 
         # semantic_role="assertion" opts these system-synthesized sentences into
         # contradiction analysis (U-124/U-131) — they are genuine natural-language
@@ -528,13 +543,23 @@ class EvidenceBundle(BaseModel):
             )
 
         next_actions: list[str] = []
-        if not anchors:
+        if code_context_error is not None:
+            next_actions.append(
+                "The knowledge graph engine was degraded/unreachable for this "
+                "read — retry shortly. This is NOT evidence the queried area "
+                "is unindexed; do not re-ingest on the strength of this "
+                "result alone."
+            )
+        elif not anchors:
             next_actions.append(
                 "source_sync source=all mode=delta (re-ingest so this area resolves), "
                 "or refine the query with a more specific symbol name."
             )
 
         fields: dict[str, Any] = {
+            # Unlike from_operation_result, code_context's own `answer` text is
+            # already an honest, self-describing message in the degraded case
+            # (see build_code_context) — keep it rather than blanking it.
             "answer_candidate": answer,
             "claims": claims,
             "evidence_spans": citations,
@@ -545,6 +570,7 @@ class EvidenceBundle(BaseModel):
             "policy_exclusions": [],
             "reasoning_trace": reasoning_trace,
             "next_actions": next_actions,
+            "error": code_context_error,
         }
         fields.update(overrides)
         return cls(**fields)

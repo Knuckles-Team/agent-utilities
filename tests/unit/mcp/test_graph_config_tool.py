@@ -268,6 +268,33 @@ def test_set_writes_through_the_standard_precedence_and_records_provenance(monke
     assert provenance[0][1]["reason"] == "pin one server"
 
 
+def test_bug065_set_reports_process_scoped_field_not_fleet_wide_applied_live(
+    monkeypatch,
+):
+    """BUG-065: `set_value` must not claim a fleet-wide fact
+    (`applied_live: True`) from evidence (`is_restart_required`) that is only
+    ever about THIS process's own startup-cached fields. The field is renamed
+    to `applied_in_this_process`; the old, overclaiming name must not
+    reappear in the response, and `restart_required` (already honestly
+    process-scoped) is unchanged."""
+    monkeypatch.setattr(
+        "agent_utilities.core.config.save_config_item", lambda k, v: None
+    )
+    monkeypatch.setattr(
+        config_admin, "_gate", lambda key, reason: (True, {"decision": "allow"})
+    )
+    monkeypatch.setattr(config_admin, "_record_provenance", lambda key, **kw: None)
+    monkeypatch.setattr(
+        "agent_utilities.deployment.is_restart_required", lambda key: False
+    )
+
+    result = config_admin.set_value("MCP_ALWAYS_LOAD", '["tunnel-manager-mcp"]')
+
+    assert "applied_live" not in result
+    assert result["applied_in_this_process"] is True
+    assert result["restart_required"] is False
+
+
 def test_set_can_change_the_always_load_declaration(monkeypatch):
     """The operator's actual ask: AgentConfig — including always-load — must be
     modifiable through an MCP tool."""

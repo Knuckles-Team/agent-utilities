@@ -10,8 +10,13 @@ Dispatch is proof-carrying. Every response includes the ranked evidence,
 effective operation, policy classification, preview plan, and result
 provenance. ``ask`` is read-only; a tool pin cannot change that policy.
 Non-read verbs preview by default, ambiguous mutations do not execute, and
-destructive operations must be called through their exact dynamically loaded
-tool so its client approval policy remains in force.
+an approval-required (destructive, or a non-``auto`` ``approval_class``)
+operation only executes once the calling session has explicitly
+``load_tools``-ed its exact tool (BUG-040: the same predicate the real
+``tools/call`` gate enforces, applied here so the governed path stays
+reachable even for a client that never re-fetches its tool list after
+``notifications/tools/list_changed`` — see
+:func:`_approval_satisfied_by_session_load`).
 
 Outcome learning accepts only the observed result of an unpinned,
 unambiguous, policy-authorized execution. Caller-supplied feedback is rejected.
@@ -1099,6 +1104,48 @@ def _execution_succeeded(result: Any) -> bool:
     return result is not None
 
 
+def _approval_satisfied_by_session_load(mcp: Any, chosen_tool: str) -> bool:
+    """BUG-040: is THIS caller's session actually allowed to dispatch ``chosen_tool``?
+
+    Root cause: this surface used to refuse *every* approval-required
+    (``destructive``/non-``auto`` ``approval_class``) plan unconditionally,
+    telling the caller to "call the exact dynamically loaded tool" instead —
+    but the dynamically-loaded tool never reliably becomes callable to a real
+    MCP client. ``load_tools``/``manage(action=load)`` mounts it and fires
+    ``notifications/tools/list_changed``, which is fire-and-forget with no ack
+    (BUG-050); a client that never re-issues ``tools/list`` (most subagent
+    harnesses, proven live in this program) can NEVER see the new name. The
+    combination made the governed destructive-mutation path 100% unreachable:
+    not a bypass of governance, a dead end past it.
+
+    The "approval policy" this used to defer to does not exist as extra
+    runtime protection on the target tool either — ``graph_write``'s
+    ``delete_node`` (and siblings) call no ``ctx.elicit``/confirmation gate;
+    ``approval_class`` is a static CPD declaration, not a per-call check. The
+    REAL authorization boundary is the actor/session identity verification in
+    ``kg_server.verified_tool_session_scope``/``_execute_tool``, which applies
+    identically whichever surface calls it.
+
+    So the fix reuses the exact predicate the real ``tools/call`` gate already
+    enforces (:meth:`MCPMultiplexer.tool_dispatchable`) — "would a direct call
+    to ``chosen_tool`` succeed for this session RIGHT NOW" — as the approval
+    signal: a caller must have explicitly ``load_tools``-ed (or otherwise
+    session-loaded) this EXACT tool before its plan can execute through the
+    intent surface. This is not a weaker check than "call it directly" would
+    have been — it is the SAME check, made reachable, and provably equivalent
+    to what a compliant client that DID see the refreshed tool list would get.
+    A caller who never loads the tool is still refused (see
+    ``test_destructive_plan_without_session_load_still_refuses``).
+    """
+    mux = getattr(mcp, "_fleet_mux", None)
+    if mux is None:
+        return False
+    try:
+        return bool(mux.tool_dispatchable(chosen_tool))
+    except Exception:  # noqa: BLE001 — a broken predicate must fail closed, not open
+        return False
+
+
 async def dispatch_intent(
     verb: str,
     intent: str,
@@ -1106,14 +1153,18 @@ async def dispatch_intent(
     hints: dict[str, Any] | None = None,
     execute: bool | None = None,
     top_k: int = 5,
+    mcp: Any = None,
 ) -> dict[str, Any]:
     """Resolve, preview, policy-check, and optionally dispatch one intent.
 
     ``ask``/``why`` execute by default and remain read-only. Non-read verbs
     preview by default; execution requires the opaque ``plan_ref`` returned by
-    that exact preview. Destructive plans are never nested-dispatched because
-    doing so would bypass the dynamically loaded exact tool's approval policy.
-    Outcome learning consumes only the verified tool result of an unpinned,
+    that exact preview. An approval-required (destructive or non-``auto``
+    ``approval_class``) plan only executes through this surface once the
+    calling session has explicitly ``load_tools``-ed the exact chosen tool
+    (BUG-040 — see :func:`_approval_satisfied_by_session_load`); otherwise it
+    fails closed with an actionable ``required_load_tools`` hint. Outcome
+    learning consumes only the verified tool result of an unpinned,
     unambiguous execution in the current tenant/policy partition.
     """
     try:
@@ -1482,15 +1533,21 @@ async def dispatch_intent(
             "routing": routing,
             "executed": False,
         }
-    if plan["approval"]["required"]:
+    if plan["approval"]["required"] and not _approval_satisfied_by_session_load(
+        mcp, chosen_tool
+    ):
         return {
             "error": (
-                "Operation requires the exact dynamically loaded tool and its "
-                "approval policy."
+                "Approval-required operation: call "
+                f"manage(intent='load {chosen_tool}', hints_json="
+                f'\'{{"action": "load", "tools": ["{chosen_tool}"]}}\') to '
+                "explicitly acknowledge the approval policy for THIS exact "
+                "tool, then resubmit this plan_ref with execute=true."
             ),
             "routing": routing,
             "executed": False,
             "approval_required": True,
+            "required_load_tools": [chosen_tool],
         }
 
     try:
@@ -1723,7 +1780,9 @@ def register_intent_tools(mcp: Any) -> list[str]:
                 lifecycle = await _manage_lifecycle(mcp, intent, hints, execute=execute)
                 if lifecycle is not None:
                     return json.dumps({"lifecycle": lifecycle}, default=str)
-            result = await dispatch_intent(verb, intent, hints=hints, execute=execute)
+            result = await dispatch_intent(
+                verb, intent, hints=hints, execute=execute, mcp=mcp
+            )
             return json.dumps(result, default=str)
 
         return _tool

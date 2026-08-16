@@ -116,6 +116,31 @@ def test_from_code_context_answer_no_anchors_suggests_resync():
     assert b.confidence is None
 
 
+def test_bug004_from_code_context_answer_degraded_status_becomes_real_error():
+    """BUG-004: `status: "degraded"` must survive the wrap as a real
+    `EvidenceBundle.error`, not a silently-empty-but-`error=None` bundle — the
+    exact shape that made an engine outage indistinguishable from a genuine
+    empty result at the caller-facing envelope."""
+    ans = _code_context_answer(
+        answer=(
+            "The knowledge graph engine was unavailable while answering "
+            "'foo'. This is NOT evidence the symbol is unindexed — retry "
+            "shortly rather than re-ingesting."
+        ),
+        citations=[],
+        sections={},
+        anchors=[],
+        coverage={"anchors": 0},
+        status="degraded",
+        error={"code": "engine_degraded", "cause_type": "EngineCircuitOpenError"},
+    )
+    b = EvidenceBundle.from_code_context_answer(ans)
+    assert b.error == {"code": "engine_degraded", "cause_type": "EngineCircuitOpenError"}
+    # The misleading re-ingest suggestion must NOT appear for a degraded read.
+    assert not any("source_sync" in a for a in b.next_actions)
+    assert any("retry" in a.lower() for a in b.next_actions)
+
+
 def test_from_code_context_answer_source_authority_only_when_known():
     ans = _code_context_answer()
     b = EvidenceBundle.from_code_context_answer(ans)

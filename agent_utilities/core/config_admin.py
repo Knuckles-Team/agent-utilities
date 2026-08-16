@@ -480,7 +480,20 @@ def set_value(key: str, value: Any, *, reason: str = "") -> dict[str, Any]:
         "applied": True,
         "value": _jsonable(safe_value),
         "redacted": was_redacted,
-        "applied_live": not restart,
+        # BUG-065: this used to be named ``applied_live`` and asserted a
+        # fleet-wide fact ("this setting is now in effect") from evidence
+        # ``is_restart_required`` can only ever have about ONE process — this
+        # process's own startup-cached fields. In this fleet's multi-pod
+        # topology, a caller reading ``applied_live: True`` had no way to know
+        # whether any OTHER replica had even seen the write, let alone
+        # reloaded it. Same overclaim shape BUG-050 named for
+        # ``load_tools``'s old ``notified`` field ("a field asserting a
+        # fleet-wide fact from process-local evidence"): rename to what this
+        # process can actually observe rather than fabricate a poll this
+        # module never performs. A real fleet-wide "did every replica pick
+        # this up" answer needs an actual cross-replica poll/broadcast+ack —
+        # a distinct, not-yet-built capability — not a renamed field.
+        "applied_in_this_process": not restart,
         "restart_required": restart,
         "provenance_id": provenance_id,
         **decision,
