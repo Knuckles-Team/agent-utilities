@@ -20,6 +20,8 @@ It provides a **graded metric** built on the existing :class:`EvalRunner` scorer
 from __future__ import annotations
 
 import logging
+import random
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -418,6 +420,17 @@ def run_component_optimization(
         )
         return report
 
+    if attempt.disposition == "no_data":
+        # U-103/U-135: no governed training data yet is a normal idle outcome —
+        # not an error, never logged as a failure, never promoted.
+        report.update(status="no_data")
+        logger.info(
+            "optimization: target=%s idle (no governed training data) duration=%.2fs",
+            target_name,
+            report["duration_s"],
+        )
+        return report
+
     report.update(
         status="error",
         error_code=attempt.error_code or f"native_{attempt.disposition}",
@@ -438,6 +451,54 @@ def run_component_optimization(
 # system_prompt/tool_description/skill — are driven by the failure-cluster evolution
 # cycle, not this sweep).
 SCHEDULABLE_TARGETS: tuple[str, ...] = ("extraction", "concept_match", "routing")
+
+# --------------------------------------------------------------------------- #
+# U-103/U-135 — bounded backoff-with-jitter for unavailable/transient targets
+# --------------------------------------------------------------------------- #
+# ``no_data`` is a normal idle outcome and never touches this state. Only a
+# missing capability (``native_unavailable``) or a transient execution failure
+# (``native_execution_failed``) schedules a deferral — never an immediate
+# retry, and the delay is exponential-with-jitter, capped so it never grows
+# unbounded. State is module-scoped (one process owns the daemon tick).
+_BACKOFF_BASE_S = 30.0
+_BACKOFF_MAX_S = 900.0
+_BACKOFF_JITTER_FRACTION = 0.2
+_RETRYABLE_ERROR_CODES = frozenset({"native_unavailable", "native_execution_failed"})
+
+
+@dataclass
+class _TargetBackoff:
+    consecutive_failures: int = 0
+    next_eligible_at: float = 0.0
+
+
+_TARGET_BACKOFF: dict[str, _TargetBackoff] = {}
+_BACKOFF_LOCK = threading.Lock()
+# Jitter is scheduling noise, not a secret — but an instance-bound RNG (vs the
+# `random.uniform` module function bandit's B311 blacklist targets) keeps this
+# gate honest instead of suppressing the finding.
+_JITTER_RNG = random.SystemRandom()
+
+
+def _backoff_delay_s(consecutive_failures: int) -> float:
+    """Bounded exponential backoff with symmetric jitter, capped at ``_BACKOFF_MAX_S``."""
+    base = min(
+        _BACKOFF_BASE_S * (2 ** max(0, consecutive_failures - 1)), _BACKOFF_MAX_S
+    )
+    jitter = base * _BACKOFF_JITTER_FRACTION
+    return max(0.0, base + _JITTER_RNG.uniform(-jitter, jitter))
+
+
+def reset_target_backoff(target: str | None = None) -> None:
+    """Clear bounded-backoff state for one target, or every target.
+
+    Exposed for tests and for an operator forcing an immediate retry.
+    """
+    with _BACKOFF_LOCK:
+        if target is None:
+            _TARGET_BACKOFF.clear()
+        else:
+            _TARGET_BACKOFF.pop(target, None)
 
 
 def should_promote(
@@ -645,14 +706,47 @@ def run_optimization_sweep(
     report: dict[str, Any] = {}
     optimized: list[str] = []
     failed: list[str] = []
+    deferred: list[str] = []
     for name in names:
+        now = time.monotonic()
+        with _BACKOFF_LOCK:
+            backoff = _TARGET_BACKOFF.get(name)
+        if backoff is not None and now < backoff.next_eligible_at:
+            # Bounded backoff still active — no immediate retry, and a deferred
+            # target is not a fresh failure (no warning amplification).
+            report[name] = {
+                "target": name,
+                "status": "deferred",
+                "detail": "bounded backoff after consecutive unavailable/execution failures",
+                "consecutive_failures": backoff.consecutive_failures,
+                "retry_after_s": round(backoff.next_eligible_at - now, 3),
+            }
+            deferred.append(name)
+            continue
+
         data = gather_optimization_data(engine, name)
         result = run_component_optimization(name, data, engine=engine)
         report[name] = result
-        if result.get("status") in {"optimized", "proposed"}:
+        status = result.get("status")
+        if status in {"optimized", "proposed"}:
             optimized.append(name)
-        elif result.get("status") == "error":
+            reset_target_backoff(name)
+        elif status == "no_data":
+            # U-103/U-135: a normal idle outcome — never a failure, never
+            # amplifies backoff, no promotion.
+            reset_target_backoff(name)
+        elif status == "error":
             failed.append(name)
+            error_code = result.get("error_code", "")
+            if error_code in _RETRYABLE_ERROR_CODES:
+                with _BACKOFF_LOCK:
+                    state = _TARGET_BACKOFF.get(name, _TargetBackoff())
+                    state.consecutive_failures += 1
+                    state.next_eligible_at = now + _backoff_delay_s(
+                        state.consecutive_failures
+                    )
+                    _TARGET_BACKOFF[name] = state
+
         # Unified Evidence resource (lane 7.1, CONCEPT:AU-KG.evolution.unified-evidence-resource) —
         # the optimization_signal channel: recorded HERE, at the one place this
         # target's real outcome is computed, never re-derived by a second query.
@@ -672,21 +766,24 @@ def run_optimization_sweep(
 
     if failed:
         logger.error(
-            "optimization sweep: FAILURES targets=%s (optimized=%s, duration=%.2fs)",
+            "optimization sweep: FAILURES targets=%s (optimized=%s, deferred=%s, duration=%.2fs)",
             failed,
             optimized,
+            deferred,
             duration,
         )
     else:
         logger.info(
-            "optimization sweep: done optimized=%s duration=%.2fs",
+            "optimization sweep: done optimized=%s deferred=%s duration=%.2fs",
             optimized,
+            deferred,
             duration,
         )
     return {
         "targets": report,
         "optimized": optimized,
         "failed": failed,
+        "deferred": deferred,
         "propose_only": True,
         "duration_s": round(duration, 3),
     }
