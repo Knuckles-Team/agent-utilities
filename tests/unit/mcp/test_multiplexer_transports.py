@@ -73,7 +73,7 @@ def transports(monkeypatch):
     monkeypatch.setattr(
         config,
         "mcp_http_allowed_private_hosts",
-        ["egeria-mcp.arpa", "foo.arpa", "bar.arpa", "auth.arpa"],
+        ["egeria-mcp.example", "foo.example", "bar.example", "auth.example"],
     )
     return rec
 
@@ -81,10 +81,10 @@ def transports(monkeypatch):
 @pytest.mark.asyncio
 async def test_remote_child_uses_streamable_http(transports, tmp_path):
     mux = MCPMultiplexer(tmp_path / "c.json")
-    res = await mux._start_child("egeria-mcp", {"url": "http://egeria-mcp.arpa/mcp"})
+    res = await mux._start_child("egeria-mcp", {"url": "http://egeria-mcp.example/mcp"})
     assert res is not None and res[0] == "egeria-mcp"
     assert len(transports["http"]) == 1 and not transports["stdio"]
-    assert transports["http"][0]["args"][0] == "http://egeria-mcp.arpa/mcp"
+    assert transports["http"][0]["args"][0] == "http://egeria-mcp.example/mcp"
 
 
 @pytest.mark.asyncio
@@ -97,7 +97,7 @@ async def test_remote_http_child_rejected_when_host_not_allowlisted(
     not disable the check fleet-wide."""
     mux = MCPMultiplexer(tmp_path / "c.json")
     res = await mux._start_child(
-        "untrusted-mcp", {"url": "http://untrusted-mcp.arpa/mcp"}
+        "untrusted-mcp", {"url": "http://untrusted-mcp.example/mcp"}
     )
     assert res is None
     assert not transports["http"]
@@ -111,8 +111,8 @@ async def test_remote_http_child_allowed_via_per_child_allowlist(transports, tmp
     res = await mux._start_child(
         "scoped-mcp",
         {
-            "url": "http://scoped-mcp.arpa/mcp",
-            "allowed_private_hosts": ["scoped-mcp.arpa"],
+            "url": "http://scoped-mcp.example/mcp",
+            "allowed_private_hosts": ["scoped-mcp.example"],
         },
     )
     assert res is not None
@@ -176,7 +176,7 @@ async def test_child_initialization_rejects_unbounded_timeout(transports, tmp_pa
 @pytest.mark.asyncio
 async def test_sse_url_uses_sse(transports, tmp_path):
     mux = MCPMultiplexer(tmp_path / "c.json")
-    res = await mux._start_child("foo", {"url": "http://foo.arpa/sse"})
+    res = await mux._start_child("foo", {"url": "http://foo.example/sse"})
     assert res is not None
     assert len(transports["sse"]) == 1 and not transports["http"]
 
@@ -185,7 +185,7 @@ async def test_sse_url_uses_sse(transports, tmp_path):
 async def test_explicit_transport_without_url_is_remote(transports, tmp_path):
     mux = MCPMultiplexer(tmp_path / "c.json")
     res = await mux._start_child(
-        "bar", {"transport": "streamable-http", "url": "http://bar.arpa/mcp"}
+        "bar", {"transport": "streamable-http", "url": "http://bar.example/mcp"}
     )
     assert res is not None and len(transports["http"]) == 1
 
@@ -197,7 +197,7 @@ async def test_header_var_expansion(transports, tmp_path, monkeypatch):
     await mux._start_child(
         "auth-mcp",
         {
-            "url": "http://auth.arpa/mcp",
+            "url": "http://auth.example/mcp",
             "headers": {"Authorization": "Bearer ${MY_TOKEN}"},
         },
     )
@@ -235,7 +235,7 @@ async def test_remote_child_gets_per_request_service_auth(
     Authorization header — so the pooled session survives token expiry."""
     cc = _enable_service_auth(monkeypatch)
     mux = MCPMultiplexer(tmp_path / "c.json")
-    await mux._start_child("egeria-mcp", {"url": "http://egeria-mcp.arpa/mcp"})
+    await mux._start_child("egeria-mcp", {"url": "http://egeria-mcp.example/mcp"})
     # MCP SDK v2 takes a pre-configured client instead of headers/auth kwargs,
     # so the auth+header contract is asserted on the client the multiplexer
     # built and handed over — the object that actually signs each request.
@@ -261,7 +261,7 @@ async def test_child_own_authorization_not_overridden(
     await mux._start_child(
         "auth-mcp",
         {
-            "url": "http://auth.arpa/mcp",
+            "url": "http://auth.example/mcp",
             "headers": {"Authorization": "Bearer ${CHILD_OWN_TOKEN}"},
         },
     )

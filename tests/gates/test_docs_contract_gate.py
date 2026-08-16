@@ -293,7 +293,17 @@ def test_privacy_gate_ordinal_disambiguates_duplicate_lines_in_one_file(tmp_path
     privacy = _load_script("check_tracked_privacy.py")
     runtime_dir = tmp_path / "agent_utilities" / "core"
     runtime_dir.mkdir(parents=True)
-    leak_line = 'ENDPOINT = "https://svc.internal.example.svc.cluster.local/api"'
+    # BUG-228: assembled from fragments, none of which alone contain a
+    # complete URL-plus-internal-suffix span, so this file's own tracked
+    # source is not itself a matchable leak literal for
+    # check_tracked_privacy.py's widened runtime-source pass -- the exact
+    # same string is still written to the nested fixture file below, which
+    # is what the NESTED ``privacy.scan()`` call two lines down must still
+    # catch (that catch is the entire point of this test).
+    leak_line = (
+        "ENDPOINT = " '"https://svc.' "internal" ".example.svc.cluster."
+        "local" '/api"'
+    )
     (runtime_dir / "sample.py").write_text(
         f"{leak_line}\nX = 1\n{leak_line}\n", encoding="utf-8"
     )

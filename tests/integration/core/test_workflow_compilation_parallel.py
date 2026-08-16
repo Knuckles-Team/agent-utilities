@@ -25,7 +25,7 @@ def get_skills_root() -> Path:
 
     A hardcoded ``/home/agent-user/workspace/...`` path only worked on one
     specific historical checkout layout; every worktree (this repo runs from
-    git worktrees under ``/home/apps/worktrees/...``) resolved it to a path
+    git worktrees under ``/home/local/worktrees/...``) resolved it to a path
     that never existed. ``universal_skills`` is a uv workspace member — its
     installed (editable) package path is the portable way to find it,
     consistent with how production code locates it (see

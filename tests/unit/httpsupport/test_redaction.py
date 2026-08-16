@@ -28,10 +28,10 @@ def test_redacts_bearer_and_ssws_scheme_tokens():
 
 
 def test_redacts_dsn_credentials_keeping_structure():
-    text = "connecting to postgresql://agent:hunter2pass@db.arpa:5432/kg"
+    text = "connecting to postgresql://agent:hunter2pass@db.example:5432/kg"
     redacted = redact_text(text)
     assert "hunter2pass" not in redacted
-    assert f"postgresql://agent:{REDACTED}@db.arpa:5432/kg" in redacted
+    assert f"postgresql://agent:{REDACTED}@db.example:5432/kg" in redacted
 
 
 def test_redacts_known_token_shapes():

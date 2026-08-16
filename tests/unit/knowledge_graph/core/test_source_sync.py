@@ -473,7 +473,7 @@ def _sweep_targets(monkeypatch, servers: list[str]) -> list[str]:
     monkeypatch.setattr(HydrationManager, "get_status", lambda self: {})
     monkeypatch.setattr(
         "agent_utilities.protocols.source_connectors.connectors.mcp_package._load_mcp_config",
-        lambda: {s: {"url": f"http://{s}.arpa/mcp"} for s in servers},
+        lambda: {s: {"url": f"http://{s}.example/mcp"} for s in servers},
     )
     eng = _EnqueueEngine()
     ss.sweep_all_sources(eng, mode="full", include_materialize=False)

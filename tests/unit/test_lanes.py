@@ -291,7 +291,7 @@ def test_engine_daemon_lease_defers_a_second_lanes_full_suite(canonical: Path) -
 
 
 def test_workspace_scripts_lease_is_workspace_scoped(canonical: Path) -> None:
-    """D-ORC-28: /home/apps/workspace/scripts/ is not a git worktree of any repo
+    """D-ORC-28: /home/local/workspace/scripts/ is not a git worktree of any repo
     and cannot be PARTITIONed like cargo/pytest/scratch — it is one directory
     every lane on the host invokes, so its edit lease must be workspace-scoped
     like the shared venv and the engine daemon, not repo-scoped."""

@@ -200,7 +200,7 @@ async def test_focused_tools_failure_fails_closed_even_when_agent_name_resolves_
                 "tools": [],
                 "capabilities": [],
                 "mcp_command": "",
-                "url": "https://container-manager-mcp.arpa/mcp",
+                "url": "https://container-manager-mcp.example/mcp",
                 "system_prompt": "",
             },
         ),

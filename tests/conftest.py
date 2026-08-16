@@ -150,7 +150,7 @@ subprocess.Popen.__init__ = _guarded_popen_init  # type: ignore[method-assign]
 
 def _fail_fast_on_wrong_interpreter() -> None:
     """D-CC-6: a bare ``pytest``/``uv run pytest`` silently runs a stray
-    interpreter (the host's ``/home/genius/.local/bin/pytest`` has shebang
+    interpreter (a host-user ``~/.local/bin/pytest`` has shebang
     ``#!/usr/bin/python`` and resolves an OLD fastmcp) instead of this repo's
     own ``.venv``, producing floods of phantom failures that cite the
     project's own guards — see ``reports/deferred/`` (``uv run -> system

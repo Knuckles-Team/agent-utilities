@@ -220,7 +220,7 @@ async def test_multiplexer_opens_pool_size_connections_for_http_child(
     # in _open_one_session) — this test is about pool sizing, not that gate,
     # so use a scheme the gate actually admits.
     res = await mux._start_child(
-        "pooled-http", {"url": "https://pooled.arpa/mcp", "pool_size": 3}
+        "pooled-http", {"url": "https://pooled.example/mcp", "pool_size": 3}
     )
     assert res is not None
     assert len(connects) == 3

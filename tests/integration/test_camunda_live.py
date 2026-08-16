@@ -6,7 +6,7 @@ from real BPMN XML. Deselected by default (``-m "not live"``); enable by
 deploying a Camunda 7 engine with at least one process definition and pointing
 ``CAMUNDA7_URL`` at it, e.g.::
 
-    CAMUNDA7_URL=http://camunda.arpa/engine-rest pytest -m live \\
+    CAMUNDA7_URL=http://camunda.example.invalid/engine-rest pytest -m live \\
         tests/integration/test_camunda_live.py
 
 Then ``graph_ingest(action='materialize_source', corpus_name='camunda')``

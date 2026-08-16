@@ -47,7 +47,7 @@ def test_wrong_interpreter_without_escape_hatch_is_rejected(
     """Known-bad input: a `sys.executable` outside `<repo>/.venv`, escape hatch unset."""
     conftest = _conftest_module()
     monkeypatch.delenv("AGENT_UTILITIES_ALLOW_ANY_INTERPRETER", raising=False)
-    monkeypatch.setattr(sys, "executable", "/home/genius/.local/bin/python3")
+    monkeypatch.setattr(sys, "executable", "/home/example/.local/bin/python3")
 
     with pytest.raises(SystemExit, match="is not inside"):
         conftest._fail_fast_on_wrong_interpreter()
@@ -61,7 +61,7 @@ def test_wrong_interpreter_with_escape_hatch_is_accepted(
     this is what makes the CI-parity lean venv runnable at all."""
     conftest = _conftest_module()
     monkeypatch.setenv("AGENT_UTILITIES_ALLOW_ANY_INTERPRETER", "1")
-    monkeypatch.setattr(sys, "executable", "/home/genius/.local/bin/python3")
+    monkeypatch.setattr(sys, "executable", "/home/example/.local/bin/python3")
 
     conftest._fail_fast_on_wrong_interpreter()  # must not raise
 

@@ -53,7 +53,7 @@ def test_embedding_per_model_headers_and_tls_reach_http_client(monkeypatch):
     embed_cfg = SimpleNamespace(
         provider="openai",
         id="internal-embed",
-        base_url="https://embed.internal/v1",
+        base_url="https://embed.example/v1",
         api_key="ek",
         api_key_ref=None,
         oauth2=None,
@@ -71,7 +71,7 @@ def test_embedding_per_model_headers_and_tls_reach_http_client(monkeypatch):
     embedding_utilities.clear_embedding_model_cache()
 
     _real_create_embedding_model(
-        provider="openai", model="internal-embed", base_url="https://embed.internal/v1"
+        provider="openai", model="internal-embed", base_url="https://embed.example/v1"
     )
 
     assert isinstance(captured.get("verify"), ssl.SSLContext)

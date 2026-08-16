@@ -517,11 +517,11 @@ class TestOtlpTraceWiring:
 
         monkeypatch.setenv(
             "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-            "http://tempo.apps.svc.cluster.local:4318/v1/traces",
+            "http://tempo.example.invalid:4318/v1/traces",
         )
         assert (
-            obs._resolve_traces_endpoint("https://langfuse.arpa/api/public/otel")
-            == "http://tempo.apps.svc.cluster.local:4318/v1/traces"
+            obs._resolve_traces_endpoint("https://langfuse.example.invalid/api/public/otel")
+            == "http://tempo.example.invalid:4318/v1/traces"
         )
 
     def test_export_failure_is_soft_but_loud(self, caplog):

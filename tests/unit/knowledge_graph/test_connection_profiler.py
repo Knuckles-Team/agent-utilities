@@ -81,7 +81,7 @@ def test_map_labels_exact_plural_fuzzy_novel():
 def test_spec_summary_never_returns_endpoint_or_database_material():
     reg = ConnectionRegistry()
     reg.register(
-        "secure", {"backend": "neo4j", "uri": "bolt://neo4j:s3cret@db.internal:7687"}
+        "secure", {"backend": "neo4j", "uri": "bolt://neo4j:s3cret@db.example:7687"}
     )
     s = reg.spec_summary("secure")
     assert s["backend"] == "neo4j"

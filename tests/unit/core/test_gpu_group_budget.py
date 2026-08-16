@@ -32,8 +32,8 @@ class _FakeConfig:
     """Minimal config: chat and embedding models share ``accelerator-a``."""
 
     def __init__(self, *, group="accelerator-a", chat_cap=8, embed_cap=4):
-        self._chat = _ChatModel("qwen3.5-9b", "http://vllm.arpa/v1", group)
-        self._embed = _EmbedModel("bge-m3", "http://vllm-embed.arpa/v1", group)
+        self._chat = _ChatModel("qwen3.5-9b", "http://vllm.example/v1", group)
+        self._embed = _EmbedModel("bge-m3", "http://vllm-embed.example/v1", group)
         self.chat_models = [self._chat]
         self.embedding_models = [self._embed]
         self._chat_cap = chat_cap
@@ -98,8 +98,8 @@ def test_gpu_group_explicit_tag_wins_over_base_url(monkeypatch):
 def test_gpu_group_defaults_to_base_url_host_when_untagged(monkeypatch):
     cfg = _FakeConfig(group=None)
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
-    assert cfg.gpu_group("qwen3.5-9b") == "vllm.arpa"
-    assert cfg.gpu_group("bge-m3") == "vllm-embed.arpa"  # different hosts → diff groups
+    assert cfg.gpu_group("qwen3.5-9b") == "vllm.example"
+    assert cfg.gpu_group("bge-m3") == "vllm-embed.example"  # different hosts → diff groups
 
 
 # --- budget caps the SUM of member targets ----------------------------------

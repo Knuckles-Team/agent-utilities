@@ -61,7 +61,7 @@ def test_default_routing_uses_defined_default_not_hardcoded_qwen(monkeypatch):
         return {
             "id": "house-model",
             "provider": "openai",
-            "base_url": "http://house.arpa/v1",
+            "base_url": "http://house.example/v1",
         }
 
     monkeypatch.setattr(
@@ -69,7 +69,7 @@ def test_default_routing_uses_defined_default_not_hardcoded_qwen(monkeypatch):
         "config",
         SimpleNamespace(
             default_chat_model=SimpleNamespace(id="house-model"),
-            openai_base_url="http://house.arpa/v1",
+            openai_base_url="http://house.example/v1",
             openai_api_key="k",
             model_tls_profile=None,
             model_tls_profile_ref=None,
@@ -93,7 +93,7 @@ def test_per_model_reference_backed_headers_sent(monkeypatch):
         lambda mid=None: {
             "id": "gw",
             "provider": "openai",
-            "base_url": "https://gateway.arpa/v1",
+            "base_url": "https://gateway.example/v1",
             "headers_ref": "env://TEST_MODEL_HEADERS",
         },
     )
@@ -114,7 +114,7 @@ def test_call_site_header_wins_over_per_model_header(monkeypatch):
         lambda mid=None: {
             "id": "gw",
             "provider": "openai",
-            "base_url": "https://gateway.arpa/v1",
+            "base_url": "https://gateway.example/v1",
             "headers_ref": "env://TEST_MODEL_HEADERS",
         },
     )
@@ -138,7 +138,7 @@ def test_per_model_api_key_reference_is_resolved_in_memory(monkeypatch):
         lambda mid=None: {
             "id": "gw",
             "provider": "openai",
-            "base_url": "https://gateway.arpa/v1",
+            "base_url": "https://gateway.example/v1",
             "api_key_ref": "env://TEST_MODEL_API_KEY",
         },
     )
@@ -166,7 +166,7 @@ def test_per_model_reasoning_effort_pins_level(monkeypatch):
         lambda mid=None: {
             "id": "thinker",
             "provider": "openai",
-            "base_url": "https://vllm.arpa/v1",
+            "base_url": "https://vllm.example/v1",
             "reasoning_effort": "high",
         },
     )
@@ -188,7 +188,7 @@ def test_per_model_reasoning_effort_null_opts_into_native_reasoning(monkeypatch)
         lambda mid=None: {
             "id": "native",
             "provider": "openai",
-            "base_url": "https://vllm.arpa/v1",
+            "base_url": "https://vllm.example/v1",
             "reasoning_effort": None,
         },
     )
@@ -210,7 +210,7 @@ def test_reasoning_effort_inherit_keeps_caller_value(monkeypatch):
         lambda mid=None: {
             "id": "plain",
             "provider": "openai",
-            "base_url": "https://vllm.arpa/v1",
+            "base_url": "https://vllm.example/v1",
             "reasoning_effort": "inherit",
         },
     )

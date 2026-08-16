@@ -67,7 +67,7 @@ def test_public_base_url_set_wraps_in_remote_auth_provider() -> None:
     """MCP_PUBLIC_BASE_URL set -> RemoteAuthProvider advertising RFC 9728."""
     from fastmcp.server.auth import RemoteAuthProvider
 
-    verifier = _configure_jwt_auth(_args(public_base_url="https://graph-os.arpa"))
+    verifier = _configure_jwt_auth(_args(public_base_url="https://graph-os.example"))
     assert isinstance(verifier, RemoteAuthProvider)
 
     routes = verifier.get_routes(mcp_path="/mcp")
@@ -86,13 +86,13 @@ def test_public_base_url_set_401_carries_resource_metadata() -> None:
     from mcp.server.auth.middleware.bearer_auth import RequireAuthMiddleware
     from mcp.server.auth.routes import build_resource_metadata_url
 
-    verifier = _configure_jwt_auth(_args(public_base_url="https://graph-os.arpa"))
+    verifier = _configure_jwt_auth(_args(public_base_url="https://graph-os.example"))
     verifier.get_routes(mcp_path="/mcp")  # binds mcp_path / resource url
     resource_url = verifier._get_resource_url("/mcp")
     assert resource_url is not None
     metadata_url = build_resource_metadata_url(resource_url)
     assert str(metadata_url) == (
-        "https://graph-os.arpa/.well-known/oauth-protected-resource/mcp"
+        "https://graph-os.example/.well-known/oauth-protected-resource/mcp"
     )
 
     async def _inner_app(
@@ -117,7 +117,7 @@ def test_public_base_url_set_401_carries_resource_metadata() -> None:
     headers = dict(start["headers"])
     www_authenticate = headers[b"www-authenticate"].decode()
     assert (
-        'resource_metadata="https://graph-os.arpa/.well-known/'
+        'resource_metadata="https://graph-os.example/.well-known/'
         'oauth-protected-resource/mcp"' in www_authenticate
     )
 
@@ -141,7 +141,7 @@ def test_public_base_url_set_multi_realm_also_wraps() -> None:
                 "https://kc.test/realms/homelab/protocol/openid-connect/certs"
             ),
             token_issuer="https://kc.test/realms/master,https://kc.test/realms/homelab",
-            public_base_url="https://graph-os.arpa",
+            public_base_url="https://graph-os.example",
         )
     )
     assert isinstance(verifier, RemoteAuthProvider)
@@ -181,4 +181,4 @@ def test_invalid_public_base_url_exits_closed() -> None:
 def test_http_public_base_url_off_loopback_rejected() -> None:
     """Same HTTPS-outside-loopback policy as every sibling auth URL flag."""
     with pytest.raises(SystemExit):
-        _configure_jwt_auth(_args(public_base_url="http://graph-os.arpa"))
+        _configure_jwt_auth(_args(public_base_url="http://graph-os.example"))

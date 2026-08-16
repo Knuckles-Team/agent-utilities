@@ -192,7 +192,7 @@ def test_create_agent_threads_reasoning_effort_onto_thinking(monkeypatch):
     common = dict(
         provider="openai",
         model_id="qwen/qwen3.6-27b",
-        base_url="http://vllm.arpa/v1",
+        base_url="http://vllm.example/v1",
         api_key=None,
         mcp_toolsets=[],
         enable_skills=False,
@@ -260,7 +260,7 @@ def _run_single_server(monkeypatch, config: dict) -> dict:
         "mcp_toolsets": [object()],  # non-empty so it doesn't fail-loud on "no toolset"
         "provider": "openai",
         "agent_model": "qwen/qwen3.6-27b",
-        "base_url": "http://vllm.arpa/v1",
+        "base_url": "http://vllm.example/v1",
         "api_key": None,
     }
     base.update(config)

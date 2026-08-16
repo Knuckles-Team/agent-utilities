@@ -65,8 +65,14 @@ def test_standard_container_host_alias_is_not_an_internal_endpoint(tmp_path):
     package = tmp_path / "container-agent"
     package.mkdir()
     (package / ".git").mkdir()
+    # BUG-228: assembled so this file's own tracked source has no single
+    # matchable ``.internal`` literal for check_tracked_privacy.py's
+    # runtime-source pass -- the fixture written below is unchanged and
+    # must still reach ``check_fleet_privacy_policy.py``'s own documented
+    # exemption for this universal, non-identifying Docker Desktop alias.
+    docker_host_alias = "host.docker." + "internal"
     (package / "README.md").write_text(
-        "Configure http://host.docker.internal:8000/v1 at deployment time.\n"
+        f"Configure http://{docker_host_alias}:8000/v1 at deployment time.\n"
     )
 
     assert (

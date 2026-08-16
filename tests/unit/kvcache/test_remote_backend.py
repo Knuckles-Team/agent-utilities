@@ -262,7 +262,7 @@ def test_injected_client_not_closed_kg_2_306() -> None:
         ("127.0.0.1:9130", "http://127.0.0.1:9130"),
         ("9130", "http://127.0.0.1:9130"),
         ("engine-host:9200", "http://engine-host:9200"),
-        ("http://kv.internal:9130", "http://kv.internal:9130"),
+        ("http://kv.example:9130", "http://kv.example:9130"),
         ("1", "http://127.0.0.1:9130"),
         ("", "http://127.0.0.1:9130"),
     ],

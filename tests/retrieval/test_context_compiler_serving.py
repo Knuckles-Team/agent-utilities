@@ -285,7 +285,7 @@ def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
 
     class _FakeChatModelConfig:
         id = "qwen/qwen3.6-27b"
-        base_url = "http://vllm.arpa/v1"
+        base_url = "http://vllm.example/v1"
         api_key_ref = "env://TEST_CONTEXT_MODEL_API_KEY"
         headers_ref = None
         oauth2 = None
@@ -300,7 +300,7 @@ def test_resolve_bundle_chat_client_prefers_configured_default(monkeypatch):
 
     client, model_id = resolve_bundle_chat_client()
     assert model_id == "qwen/qwen3.6-27b"
-    assert str(client.base_url).rstrip("/") == "http://vllm.arpa/v1"
+    assert str(client.base_url).rstrip("/") == "http://vllm.example/v1"
     assert client.api_key == "synthetic-runtime-material"
 
 
@@ -334,7 +334,7 @@ def test_resolve_bundle_chat_client_explicit_override_wins(monkeypatch):
 
     class _FakeChatModelConfig:
         id = "some-other-model"
-        base_url = "http://other.arpa/v1"
+        base_url = "http://other.example/v1"
         api_key_ref = "env://TEST_CONTEXT_MODEL_API_KEY"
         headers_ref = None
         oauth2 = None
@@ -348,7 +348,7 @@ def test_resolve_bundle_chat_client_explicit_override_wins(monkeypatch):
     )
 
     client, model_id = resolve_bundle_chat_client(
-        base_url="http://override.arpa/v1", model="override-model"
+        base_url="http://override.example/v1", model="override-model"
     )
     assert model_id == "override-model"
-    assert str(client.base_url).rstrip("/") == "http://override.arpa/v1"
+    assert str(client.base_url).rstrip("/") == "http://override.example/v1"

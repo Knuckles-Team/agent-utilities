@@ -367,7 +367,7 @@ class TestLMStudioIntegration:
         """Check if LM Studio is reachable."""
         import httpx
 
-        base_url = os.environ.get("LLM_BASE_URL", "http://vllm.arpa/v1")
+        base_url = os.environ.get("LLM_BASE_URL", "http://vllm.example/v1")
         try:
             resp = httpx.get(f"{base_url}/models", timeout=5.0)
             return resp.status_code == 200

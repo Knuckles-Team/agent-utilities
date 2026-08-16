@@ -123,11 +123,21 @@ def test_wheel_privacy_gate_rejects_a_planted_credential_uri(tmp_path: Path) -> 
     that shipped in the deploy wizard).
     """
     gate = _gate_module()
+    # BUG-228: split right after the ``@`` so no single line of this file's
+    # own tracked source has a complete ``scheme://user:secret@host``
+    # span for check_tracked_privacy.py's widened runtime-source pass to
+    # match -- the concatenated bytes written into the fixture wheel below
+    # are byte-for-byte identical to the un-split literal, which is what
+    # check_wheel_privacy.py's own detector must still catch.
+    planted_credential_line = (
+        b'GRAPH_DB_URI = "postgresql://agent:hunter2@'
+        b'pggraph:5432/agent_kg"'
+    )
     wheel = _wheel(
         tmp_path,
         {
             "agent_utilities/deployment/scripts/deploy_wizard.py": (
-                b'GRAPH_DB_URI = "postgresql://agent:hunter2@pggraph:5432/agent_kg"'
+                planted_credential_line
             ),
             **_REQUIRED_RUNTIME_MEMBERS,
         },

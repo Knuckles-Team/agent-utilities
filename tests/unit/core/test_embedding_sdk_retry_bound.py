@@ -59,7 +59,7 @@ def test_max_retries_is_explicit_and_bounded(monkeypatch):
     embed_cfg = SimpleNamespace(
         provider="openai",
         id="bge-m3",
-        base_url="https://embed.internal/v1",
+        base_url="https://embed.example/v1",
         api_key="ek",
         api_key_ref=None,
         oauth2=None,
@@ -70,7 +70,7 @@ def test_max_retries_is_explicit_and_bounded(monkeypatch):
     embedding_utilities.clear_embedding_model_cache()
 
     _real_create_embedding_model(
-        provider="openai", model="bge-m3", base_url="https://embed.internal/v1"
+        provider="openai", model="bge-m3", base_url="https://embed.example/v1"
     )
 
     assert captured.get("max_retries") == _EMBED_SDK_MAX_RETRIES
