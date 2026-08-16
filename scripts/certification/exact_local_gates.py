@@ -330,7 +330,7 @@ def _test_catalog_snapshot() -> dict[str, str]:
     for relative in CERTIFICATION_TESTS:
         source = TEST_ROOT / relative
         if source.is_symlink() or not source.is_file():
-            _fail("certification_test_source_invalid")
+            _fail(f"certification_test_source_missing:{relative.replace('/', '.')}")
         snapshot[relative] = _sha256_file(source)
     return snapshot
 

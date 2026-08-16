@@ -142,6 +142,8 @@ def source_bindings(source_root: Path) -> dict[str, str]:
     digest = hashlib.sha256(b"agent-utilities-exact-test-catalog-v1\0")
     for relative in sorted(EXACT_LOCAL_TEST_FILES):
         path = test_root / relative
+        if path.is_symlink() or not path.is_file():
+            _fail(f"source_test_file_missing:{relative}")
         file_digest = _sha256_file(path, limit=16 * 1024 * 1024)
         digest.update(relative.encode("utf-8"))
         digest.update(b"\0")
