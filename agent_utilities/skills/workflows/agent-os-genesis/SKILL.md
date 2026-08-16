@@ -82,6 +82,13 @@ Collect or infer:
 - engine topology: `unified-in-process` or `out-of-process-shared`;
 - identity, secrets, PKI, DNS/ingress, storage, observability, backup, and GitOps
   providers, each as `deploy`, `use-existing`, or `skip`;
+- **optional data-plane substrate** — object storage, a table/catalog service, a SQL
+  query engine, batch compute, event streaming, and a triple store — each named
+  service independently `deploy`, `use-existing`, or `skip`. These are never
+  required: default every one to `skip` unless the scope explicitly selects it, and
+  a laptop/minimal profile must resolve with none selected. Read
+  [data-plane-substrate.md](references/data-plane-substrate.md) before selecting or
+  connecting any of them;
 - tenancy, availability, recovery objectives, resource ceilings, egress policy,
   change window, and approval boundaries.
 
@@ -154,6 +161,7 @@ CRDs; a `ReadWriteOnce` engine volume cannot be mounted by multiple writers.
 | Existing cluster with platform administration | Kubernetes `existing-cluster` | [kubernetes-and-helm.md](references/kubernetes-and-helm.md) |
 | New single-node or edge cluster | Kubernetes `provision-cluster` | [kubernetes-and-helm.md](references/kubernetes-and-helm.md) |
 | Multi-node HA, multiple failure domains | Kubernetes `provision-multi-node` | [kubernetes-and-helm.md](references/kubernetes-and-helm.md) |
+| Workload needs object storage, an Iceberg-style catalog, SQL federation, batch compute, streaming, or a triple store | optional data-plane substrate, Kubernetes only | [data-plane-substrate.md](references/data-plane-substrate.md) |
 
 Do not provision Kubernetes merely because it is available. Choose it when its
 scheduling, policy, availability, GitOps, or tenancy benefits justify the operational
@@ -177,6 +185,20 @@ Cluster bootstrap is provider-pluggable. The plan may select a managed service,
 Cluster API, kubeadm, RKE2, k3s, Talos, or an operator-approved equivalent, but it
 must record the provider/version and prove the same postconditions. Do not hardcode
 one distribution.
+
+#### Optional data-plane substrate
+
+Each selected data-plane service (object storage, catalog, query engine, compute,
+streaming, triple store) is a **sibling to the chart, not a chart template** — it
+ships as its own checked-in, environment-specific config-as-code manifest
+(`services/<name>/k8s/manifests.yaml` in this workspace) rather than a Helm values
+list, because these are independently versioned platform services, not
+`agent-utilities` application pods. Discover before deploying, apply the same
+render→validate→apply→verify gates as the chart, and connect selected
+`agent-utilities`/`epistemic-graph` consumers only through resolved endpoint and
+auth references in the handoff. Full discover/deploy/connect procedure, the
+component catalog, and every known gotcha:
+[data-plane-substrate.md](references/data-plane-substrate.md).
 
 ### Compose, Swarm, and Podman
 
@@ -242,6 +264,7 @@ providers:
   ingress_class: <name-or-null>
   storage_class: <name-or-null>
   observability_ref: <reference-or-null>
+  data_plane_ref: <reference-or-null>  # optional; see data-plane-substrate.md
 artifacts:
   helm_values: <path-or-null>
   compose_model: <path-or-null>

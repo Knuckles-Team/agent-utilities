@@ -198,7 +198,20 @@ repos:
     #     `psutil/__init__.py` platform-dispatches to `psutil/_pslinux.py`
     #     (real `sys.platform`-gated selection inside psutil itself), which
     #     imports `resource` -- same shim limitation, third dependency.
-    # None of the 12 are a genuinely unguarded import in agent_utilities' own
+    #   * mcp.toolset_factory -- module-level `install_mcp_v2_bridge()` call
+    #     (protocol_compat.py) transitively imports `mcp.shared.exceptions`
+    #     -> ... -> `mcp.server.stdio`, the exact same already-guarded
+    #     `if sys.platform != "win32": import fcntl` line covered by the
+    #     mcp.tools/mcp.verbose_tools/patterns.*/eunomia_principal group
+    #     above -- one dependency path the shim hadn't been exercised
+    #     through yet. Confirmed by direct traceback 2026-08-16, scoped to
+    #     this module alone (`--package agent_utilities.mcp.toolset_factory`),
+    #     not assumed: the whole-package walk instead reports a downstream
+    #     ImportError from pydantic_ai's own MCPToolset guard, because the
+    #     earlier ModuleNotFoundError left a partially-imported `mcp` package
+    #     cached in sys.modules for the rest of that walk -- a shim artifact
+    #     of the fcntl block itself, not a second defect.
+    # None of the 13 are a genuinely unguarded import in agent_utilities' own
     # code; deployment.venv_sync/venv_autosync (previously listed here) now
     # import cleanly and needed no entry.
     entry: >-
@@ -210,6 +223,7 @@ repos:
       --exclude agent_utilities.__main__
       --exclude agent_utilities.agent.factory
       --exclude agent_utilities.server
+      --exclude agent_utilities.mcp.toolset_factory
       --exclude agent_utilities.mcp.tools
       --exclude agent_utilities.mcp.verbose_tools
       --exclude agent_utilities.patterns
