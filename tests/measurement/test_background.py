@@ -76,3 +76,33 @@ def test_end_to_end_output_lands_in_the_log_file_not_nowhere(tmp_path):
 
 def test_poll_of_nonexistent_log_returns_empty_not_an_error(tmp_path):
     assert poll(tmp_path / "never-written.log") == ""
+
+
+def test_background_end_to_end_output_lands_in_the_log_file_not_nowhere(tmp_path):
+    """BUG-220 — the multi-stage `&&`-joined-command variant of "incident 9",
+    named explicitly.
+
+    Real systemd-run, real unit, real file, a MULTI-STAGE `&&`-joined
+    command: without the `{ cmd ; }` grouping in ``run_background`` (see its
+    docstring), `cmd1 && cmd2 > log 2>&1` binds the redirect to `cmd2` ALONE
+    (shell operator precedence) -- `cmd1`'s output is silently dropped even
+    though the redirect textually looks like it covers the whole command.
+    This asserts the FIRST stage's output actually reaches the log file, not
+    just that the unit ran.
+    """
+    unit = f"measurement-harness-multistage-test-{int(time.time())}"
+    result = run_background(
+        "echo bug-220-first-stage-canary && sleep 0.2",
+        unit_name=unit,
+        log_dir=tmp_path,
+    )
+    assert result.launch_returncode == 0
+
+    finished = wait_for_unit(unit, timeout_s=15.0, poll_interval_s=0.2)
+    assert finished, "unit did not finish within timeout"
+
+    contents = poll(result.log_path)
+    assert "bug-220-first-stage-canary" in contents, (
+        "the first `&&`-joined stage's output must land in the log file, "
+        "not be silently dropped by an ungrouped redirect"
+    )
