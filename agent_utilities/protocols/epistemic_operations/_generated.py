@@ -1329,7 +1329,7 @@ class DevelopmentLaneReserveRequest(ProtocolModel):
     lease_epoch: Annotated[int, Field(ge=0)]
     fencing_token: Annotated[int, Field(ge=0)]
     work_item_fence: Annotated[str, Field(min_length=1, max_length=256)]
-    intent: Any
+    intent: DevelopmentLaneIntent
     idempotency_key: Annotated[str, Field(min_length=1, max_length=256)]
     now_ms: Annotated[int, Field(ge=0)]
 

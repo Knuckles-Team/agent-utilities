@@ -414,6 +414,9 @@ def _ref_model(
     owner: dict[str, Any],
     external_roots: dict[str, str],
 ) -> str | None:
+    if ref == "#":
+        model = owner.get("x-python-model")
+        return str(model) if model else None
     if ref.startswith("#/$defs/"):
         name = ref.removeprefix("#/$defs/")
         node = (owner.get("$defs") or {}).get(name)
