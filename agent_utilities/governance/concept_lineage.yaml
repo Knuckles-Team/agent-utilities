@@ -363,9 +363,10 @@ retired:
       was never assigned its own numbered concept the way its file-neighbour ingestion-serving-separation
       (KG-2.130) was.'
   AU-KG.query.intelligent-routing:
-    reason: 'Named the "Intelligent Query Routing" header comment of agent_utilities/graph/routing/strategies/query_tier.py,
-      deleted whole in GOC-59-W05 (commit 13b1c5c8) as itself-retired dead code: it implemented the retired
-      L0/L1/L2/L3 tiered graph backend architecture that AGENTS.md''s Architecture Reference supersedes
+    reason: 'Named the "Intelligent Query Routing" header comment of the now-deleted query-tier routing
+      strategy module (agent_utilities/graph/routing/strategies/, since removed), deleted whole in GOC-59-W05
+      (commit 13b1c5c8) as itself-retired dead code: it implemented the retired four-level (numbered zero
+      through three) tiered graph backend architecture that AGENTS.md''s Architecture Reference supersedes
       with the epistemic-graph engine as the ONE authority (no numeric storage-tier hierarchy), and had
       zero live callers anywhere in agent_utilities/** (proven by grep in the deletion commit). No successor
       marker inherits this decision -- the module itself was the retired surface.'
