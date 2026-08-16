@@ -51,14 +51,44 @@ silently. It recognizes:
   (e.g. ``_LABEL = validate_identifier("IngestManifest", kind="label")``)
   counts as pre-validated wherever that constant is later interpolated.
 
-An interpolation is only a *candidate* when the f-string's own literal text
-contains a query/DDL keyword (CREATE/ALTER/DROP/SELECT/INSERT/UPDATE/DELETE/
-MERGE/MATCH/GRANT/CALL/…) AND the literal text immediately touching the ``{}``
-gap looks like an identifier slot (a bare/backtick/double-quoted position, or
-right after TABLE/INDEX/EXTENSION/POLICY/COLUMN/EXISTS/ON/FROM/TO/INTO) — or
-the whole f-string is a "pure" dotted-name composition (``f"{schema}.{tbl}"``,
-the ``::regclass`` cast shape) regardless of keyword content. This keeps the
-gate from flagging ordinary log/error f-strings.
+An interpolation is only a *candidate* when its f-string is **sink-reachable**
+(BUG-232 — classify by SINK, not by f-string shape): the f-string's value must
+be able to reach an actual query-execution call, not merely *look* query-shaped.
+Reachability is computed once per file as a small worklist/fixed-point over the
+file's own AST (still a single-file static heuristic, not cross-module
+dataflow):
+
+* **Seed** — every f-string passed directly as a positional/keyword argument to
+  a call whose callee matches :data:`_SINK_CALL_NAMES` (the backends' actual
+  execute/DDL entrypoints — ``execute``, ``executemany``, ``execute_batch``,
+  ``execute_cypher``, ``query_cypher``, …) or a ``session.run(...)``/``tx.run(...)``
+  call (the neo4j-driver shape, scoped to those receiver names so it doesn't
+  collide with this codebase's many unrelated ``.run(...)`` calls — pydantic-ai
+  ``agent.run(...)``, ``asyncio.run(...)``, ``subprocess.run(...)``). A bare
+  ``execute``-prefixed name is deliberately **not** matched as a substring/regex —
+  this codebase also has non-DB "execute this unit of work" dispatchers
+  (``_execute_tool``, ``_execute_one``, ``_execute_claim``, …) with the same
+  naming convention; the sink set is an explicit, grep-verified allow-list so
+  those don't collide.
+* **Propagate** — a name assigned directly from an f-string (``label = f"..."``)
+  is itself sink-reachable if that name is later passed directly to a sink call,
+  *or* if it is later interpolated into ANOTHER f-string that is (transitively)
+  sink-reachable — the exact ``label`` → ``query`` → ``self.execute(query, …)``
+  chain that is the original ``ladybug_backend.prune()`` bug this gate exists to
+  catch (see the gate's own meta-test).
+
+Only *within* a sink-reachable f-string does the existing per-slot shape check
+run: the literal text immediately touching the ``{}`` gap must look like an
+identifier slot (a bare/backtick/double-quoted position, or right after
+TABLE/INDEX/EXTENSION/POLICY/COLUMN/EXISTS/ON/FROM/TO/INTO) — or the whole
+f-string is a "pure" dotted-name composition (``f"{schema}.{tbl}"``, the
+``::regclass`` cast shape). This two-stage design (sink-reachable, THEN
+identifier-shaped) is what keeps the gate from flagging an ordinary log/error
+f-string that merely *contains* a query-shaped word: the original false
+positive here was ``intent_tools.py``'s approval-required error message —
+never passed to any query call — which only tripped the gate because its text
+happened to contain the English word "call" (matching the ``CALL`` Cypher
+keyword) next to a JSON-quote-adjacent ``{chosen_tool}`` interpolation.
 
 Scope: by default this scans ALL of ``agent_utilities/`` — every current and
 future module that might f-string-interpolate a label/table/relationship-
@@ -121,11 +151,6 @@ BASE_GUARD_NAMES = {
 # it's the driver's own quoting primitive, not a raw string splice.
 _SAFE_ATTR_CALLS = {"Identifier"}
 
-_QUERY_KEYWORD_RE = re.compile(
-    r"\b(CREATE|ALTER|DROP|SELECT|INSERT|UPDATE|DELETE|MERGE|MATCH|GRANT|"
-    r"REVOKE|TRUNCATE|CALL)\b",
-    re.IGNORECASE,
-)
 # Literal text ending in one of these means the very next `{}` gap is an
 # identifier slot: a bare/backtick/double-quoted or Cypher-label-colon
 # position. A bare trailing "." is deliberately EXCLUDED here — a lone dot
@@ -224,6 +249,125 @@ def _iter_calls(node: ast.AST) -> list[ast.Call]:
     return [n for n in ast.walk(node) if isinstance(n, ast.Call)]
 
 
+# Query-execution entrypoints (BUG-232 sink allow-list). Grep-verified against
+# this codebase: each name below is the immediate call that hands a
+# Cypher/SQL/DDL string to the underlying driver/connection — psycopg's
+# ``cursor.execute``, kuzu's ``conn.execute``, sqlite3's ``.execute``, the
+# shared ``GraphBackend`` ABC's ``execute``/``execute_read``/``execute_write``,
+# and the private per-backend Cypher/AGE transpile-then-execute wrappers.
+# Deliberately an EXPLICIT set, not an ``^execute`` prefix/substring regex:
+# this codebase also names non-DB "execute this unit of work" dispatchers the
+# same way (``_execute_tool`` — MCP tool dispatch; ``_execute_one``/
+# ``_execute_batch`` — ontology action execution; ``_execute_claim``,
+# ``_execute_result``, ``_execute_sub_call``, …) and a substring match would
+# treat those as query sinks too, reintroducing a false-positive class shaped
+# exactly like the one this allow-list was built to remove (BUG-232 —
+# ``intent_tools.py`` calling ``kg_server._execute_tool(...)`` in the same
+# scope as its approval-required error message).
+_SINK_CALL_NAMES = {
+    "execute",
+    "executemany",
+    "executescript",
+    "execute_batch",
+    "execute_read",
+    "execute_write",
+    "execute_ddl",
+    "execute_query",
+    "execute_cypher",
+    "_execute_cypher",
+    "execute_age",
+    "_execute_age",
+    "query_cypher",
+    "_query_cypher_rows",
+}
+# The neo4j-driver ``session.run(query, params)`` / ``tx.run(...)`` shape is a
+# real sink, but a bare ``run`` name is far too overloaded in this codebase to
+# match unconditionally (pydantic-ai ``agent.run(...)``, ``asyncio.run(...)``,
+# ``subprocess.run(...)``, an orchestrator's ``Graph.run(...)`` are all
+# `.run(...)` calls that never touch Cypher/SQL) — so it is scoped to the
+# conventional receiver names this codebase's own neo4j backend actually uses.
+_SINK_RUN_RECEIVER_NAMES = {"session", "tx"}
+
+
+def _is_sink_call(call: ast.Call) -> bool:
+    """True when ``call`` is a recognized query/DDL-execution entrypoint."""
+    name = _call_name(call.func)
+    if name in _SINK_CALL_NAMES:
+        return True
+    return bool(
+        name == "run"
+        and isinstance(call.func, ast.Attribute)
+        and isinstance(call.func.value, ast.Name)
+        and call.func.value.id in _SINK_RUN_RECEIVER_NAMES
+    )
+
+
+def _collect_name_defs(tree: ast.Module) -> dict[str, list[ast.JoinedStr]]:
+    """Map ``name -> [f-strings directly assigned to it]`` across the whole
+    file (``label = f"..."``, ``query: str = f"..."``) — the local, per-file
+    dataflow edges the sink-reachability worklist below walks backward over.
+    Multiple assignments to the same name are all kept (a coarse
+    over-approximation consistent with this gate's whole-file, static-heuristic
+    character elsewhere: it can only make MORE f-strings candidates, never
+    fewer, so it cannot hide a genuine violation)."""
+    defs: dict[str, list[ast.JoinedStr]] = {}
+    for node in ast.walk(tree):
+        target: ast.expr | None = None
+        value: ast.expr | None = None
+        if isinstance(node, ast.Assign) and len(node.targets) == 1:
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            target, value = node.target, node.value
+        if isinstance(target, ast.Name) and isinstance(value, ast.JoinedStr):
+            defs.setdefault(target.id, []).append(value)
+    return defs
+
+
+def _sink_reachable_ids(tree: ast.Module) -> set[int]:
+    """``id()`` of every ``JoinedStr`` node that can reach a query-execution
+    sink (BUG-232) — seeded from f-strings/names passed directly to a
+    :func:`_is_sink_call` call, then propagated backward through
+    :func:`_collect_name_defs` so a fragment (e.g. ``label``) spliced into a
+    larger, sink-reachable f-string (e.g. ``query``) is reachable too — the
+    ``label`` → ``query`` → ``self.execute(query, …)`` chain that is the
+    original ``ladybug_backend.prune()`` bug this gate exists to catch."""
+    name_defs = _collect_name_defs(tree)
+    visited: set[int] = set()
+    worklist: list[ast.JoinedStr] = []
+
+    def _seed(expr: ast.expr) -> None:
+        if isinstance(expr, ast.JoinedStr):
+            if id(expr) not in visited:
+                visited.add(id(expr))
+                worklist.append(expr)
+        elif isinstance(expr, ast.Name):
+            for defn in name_defs.get(expr.id, ()):
+                if id(defn) not in visited:
+                    visited.add(id(defn))
+                    worklist.append(defn)
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and _is_sink_call(node):
+            for arg in node.args:
+                _seed(arg)
+            for kw in node.keywords:
+                if kw.value is not None:
+                    _seed(kw.value)
+
+    while worklist:
+        current = worklist.pop()
+        for value in current.values:
+            if isinstance(value, ast.FormattedValue) and isinstance(
+                value.value, ast.Name
+            ):
+                for defn in name_defs.get(value.value.id, ()):
+                    if id(defn) not in visited:
+                        visited.add(id(defn))
+                        worklist.append(defn)
+
+    return visited
+
+
 def _is_guard_call(call: ast.Call, guard_names: set[str]) -> bool:
     name = _call_name(call.func)
     if name in guard_names:
@@ -309,18 +453,6 @@ def _scope_has_guard_call(scopes: Sequence[ast.AST], guard_names: set[str]) -> b
     )
 
 
-def _joined_str_literal(node: ast.JoinedStr) -> str:
-    # ``ast.Constant.value`` is typed for ANY literal (int/float/…), but a
-    # JoinedStr's own Constant children are always the literal TEXT parts —
-    # guaranteed ``str`` by the grammar — filtered explicitly so mypy can
-    # narrow it rather than relying on that grammar guarantee alone.
-    return "".join(
-        v.value
-        for v in node.values
-        if isinstance(v, ast.Constant) and isinstance(v.value, str)
-    )
-
-
 def _is_pure_dotted_composition(node: ast.JoinedStr) -> bool:
     """True for an f-string that is ONLY ``{expr}.{expr}`` (an ACTUAL literal
     dot between two interpolations, e.g. ``f"{schema}.{tbl}"`` — the
@@ -380,23 +512,29 @@ def _find_violations(rel: Path, tree: ast.Module) -> list[str]:
     guard_names = _local_guard_names(tree)
     module_constants = _module_validated_constants(tree, guard_names)
     parents = _build_parent_map(tree)
+    sink_reachable = _sink_reachable_ids(tree)
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.JoinedStr):
             continue
+        # BUG-232: candidacy is decided by SINK reachability, not by whether
+        # the f-string's own text merely *looks* query-shaped (see module
+        # docstring). A query-keyword word can appear in ordinary prose (the
+        # ``intent_tools.py`` approval message contains "call") without the
+        # f-string ever reaching a query-execution call.
+        if id(node) not in sink_reachable:
+            continue
         if _is_import_module_path_argument(node, parents):
             continue
-        literal = _joined_str_literal(node)
-        has_query_keyword = bool(_QUERY_KEYWORD_RE.search(literal))
         pure_dotted = _is_pure_dotted_composition(node)
-        if not has_query_keyword and not pure_dotted:
-            continue
 
         prev_literal = ""
         for value in node.values:
             if isinstance(value, ast.Constant):
-                # See _joined_str_literal: a JoinedStr's own Constant children
-                # are always the literal str text parts by grammar.
+                # ``ast.Constant.value`` is typed for ANY literal (int/float/…),
+                # but a JoinedStr's own Constant children are always the
+                # literal str text parts by grammar — checked explicitly so
+                # mypy can narrow it rather than relying on that guarantee alone.
                 prev_literal = value.value if isinstance(value.value, str) else ""
                 continue
             if not isinstance(value, ast.FormattedValue):

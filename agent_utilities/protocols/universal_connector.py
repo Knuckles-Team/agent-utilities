@@ -41,6 +41,7 @@ from ..knowledge_graph.enrichment.models import (
     ExtractionBatch,
     GraphNode,
 )
+from ..security.identifiers import quote_sql_identifier
 from ..security.persistence_privacy import (
     PersistencePrivacyGuard,
     persistence_reference,
@@ -636,8 +637,8 @@ class UniversalConnector:
                 edges.append(
                     EnrichmentEdge(source=ds_id, target=table_id, rel_type="HAS_TABLE")
                 )
-                quoted_table = table.replace('"', '""')
-                cur.execute(f'PRAGMA table_info("{quoted_table}")')
+                quoted_table = quote_sql_identifier(table, kind="table")
+                cur.execute(f"PRAGMA table_info({quoted_table})")
                 for col in cur.fetchmany(_MAX_SCHEMA_FIELDS - field_count + 1):
                     # (cid, name, type, notnull, dflt_value, pk)
                     field_count += 1
@@ -664,7 +665,7 @@ class UniversalConnector:
                         )
                     )
                 # Foreign keys.
-                cur.execute(f'PRAGMA foreign_key_list("{quoted_table}")')
+                cur.execute(f"PRAGMA foreign_key_list({quoted_table})")
                 for fk in cur.fetchmany(_MAX_SCHEMA_FIELDS + 1):
                     # (id, seq, table, from, to, on_update, on_delete, match)
                     from_col = self._safe_identifier(fk[3])

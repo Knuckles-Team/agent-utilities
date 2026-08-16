@@ -52,6 +52,18 @@ from pathlib import Path
 
 _NAME_RE = re.compile(r"^name:\s*(.+?)\s*$", re.MULTILINE)
 _TASK_RE = re.compile(r'"task"\s*:\s*"([^"]+)"')
+# BUG-233: ``.uv-workspace-siblings/<pkg>`` is `scripts/uv_workspace.py`'s own
+# editable-install mechanism — a per-package directory containing a symlink
+# back to a sibling repo (e.g. ``agents/<pkg>/.uv-workspace-siblings/
+# agent-utilities -> agent-packages/agent-utilities``) so `uv` can resolve the
+# workspace member without a real checkout under every package. It is build
+# tooling, exactly like ``.venv``/``venv`` above — not part of any package's
+# installable skill namespace — so it is excluded here for the same reason.
+# Without this, `os.walk` (which never descends into a symlink on its own,
+# ``followlinks=False``) still reports the symlinked directory in `dirnames`,
+# and the walk below fails closed on ANY symlinked directory it is not told
+# to skip — see `_classify_symlinked_dir` for the defense-in-depth handling
+# of a symlink this exclude-list doesn't (yet) know about.
 _EXCLUDE_SEGMENTS = frozenset(
     {
         ".git",
@@ -59,6 +71,7 @@ _EXCLUDE_SEGMENTS = frozenset(
         ".pytest_cache",
         ".ruff_cache",
         ".tox",
+        ".uv-workspace-siblings",
         ".venv",
         ".worktrees",
         "__pycache__",
@@ -102,13 +115,58 @@ def _clean_name(raw: str) -> str:
     return raw.strip().strip("'").strip('"').strip()
 
 
-def _iter_skill_files(root: Path) -> list[Path]:
+def _installable_tree_anchors(root: Path) -> tuple[Path, ...]:
+    """The tracked trees a benign symlink is allowed to resolve into: the
+    fleet's ``agents/`` and ``skills/`` trees, and the ``agent-utilities`` hub
+    repo (an ANCESTOR of its own canonical ``agent_utilities/skills`` root —
+    the real ``.uv-workspace-siblings/agent-utilities -> agent-packages/
+    agent-utilities`` shape resolves to this exact anchor, not a descendant of
+    it). Deliberately narrower than "anywhere under the fleet root" — a
+    symlink to an arbitrary unrelated sibling directory (e.g. a scratch dir,
+    ``open-source-libraries/``, another checkout entirely) is still a real
+    finding even though it is technically a subpath of the same fleet root.
+    """
+    return (root / "agents", root / "skills", root / "agent-utilities")
+
+
+def _classify_symlinked_dir(path: Path, root: Path) -> tuple[bool, Path | None]:
+    """Resolve a symlinked directory found inside the installable skill tree
+    and decide whether it is environmental noise or a real finding (BUG-233).
+
+    Returns ``(benign, resolved)``:
+
+    * **benign=True** — the symlink resolves to a real path inside one of the
+      tracked trees (:func:`_installable_tree_anchors`) — e.g. a build-tooling
+      mechanism (``.uv-workspace-siblings``, an editable-install shim) that
+      happens to not be caught by :data:`_EXCLUDE_SEGMENTS` yet, pointing back
+      at a sibling repo that is itself part of this workspace. Descending into
+      it would at best re-scan content one of this gate's own canonical
+      ``roots`` already covers directly (double-counting a SKILL.md under two
+      different paths would manufacture a phantom name collision), so the
+      caller prunes it — scan continues, no failure.
+    * **benign=False** — the symlink is dangling, unresolvable, or resolves
+      outside every tracked tree. That is the actual environmental-pollution
+      finding this gate exists to catch (an uncontrolled path grafted into the
+      installable skill namespace) — the caller fails closed and names the
+      exact offending path.
+    """
+    try:
+        resolved = path.resolve(strict=True)
+    except OSError:
+        return False, None
+    if any(resolved.is_relative_to(a) for a in _installable_tree_anchors(root)):
+        return True, resolved
+    return False, resolved
+
+
+def _iter_skill_files(root: Path) -> tuple[list[Path], list[str]]:
     roots = [
         root / "agents",
         root / "skills" / "universal-skills",
         root / "agent-utilities" / "agent_utilities" / "skills",
     ]
     files: list[Path] = []
+    warnings: list[str] = []
     entries = 0
     for r in roots:
         if not r.is_dir():
@@ -129,7 +187,23 @@ def _iter_skill_files(root: Path) -> list[Path]:
                 child = current / name
                 metadata = child.lstat()
                 if stat.S_ISLNK(metadata.st_mode):
-                    raise RuntimeError("installable skill tree contains a symlink")
+                    benign, resolved = _classify_symlinked_dir(child, root)
+                    if not benign:
+                        target = str(resolved) if resolved is not None else "<dangling>"
+                        raise RuntimeError(
+                            "installable skill tree contains a symlink escaping "
+                            f"the tracked tree: {child.relative_to(root)} -> {target}"
+                        )
+                    # Benign: prune rather than descend, so the same SKILL.md
+                    # reached via a shorter direct path is never counted
+                    # twice under two paths (which would manufacture a
+                    # phantom name collision) — see _classify_symlinked_dir.
+                    assert resolved is not None  # benign=True always pairs with it
+                    warnings.append(
+                        f"{child.relative_to(root)} -> {resolved.relative_to(root)} "
+                        "(symlink inside the tracked tree; pruned, not scanned twice)"
+                    )
+                    continue
                 if not stat.S_ISDIR(metadata.st_mode):
                     raise RuntimeError(
                         "installable skill tree contains a special entry"
@@ -157,7 +231,7 @@ def _iter_skill_files(root: Path) -> list[Path]:
                     raise RuntimeError(
                         "installable skill inventory exceeds the safe bound"
                     )
-    return sorted(files)
+    return sorted(files), warnings
 
 
 def _iter_prompt_files(root: Path) -> list[tuple[str, Path]]:
@@ -227,11 +301,14 @@ def _load_baseline() -> set[str]:
 
 def scan(
     root: Path,
-) -> tuple[dict[str, list[Path]], list[tuple[str, Path]], dict[str, list[Path]]]:
-    """Return (name->paths, convention_offenders, prompt_task collisions)."""
+) -> tuple[
+    dict[str, list[Path]], list[tuple[str, Path]], dict[str, list[Path]], list[str]
+]:
+    """Return (name->paths, convention_offenders, prompt_task collisions, warnings)."""
     by_name: dict[str, list[Path]] = defaultdict(list)
     convention: list[tuple[str, Path]] = []
-    for f in _iter_skill_files(root):
+    skill_files, warnings = _iter_skill_files(root)
+    for f in skill_files:
         m = _NAME_RE.search(f.read_text(encoding="utf-8"))
         if not m:
             continue
@@ -257,7 +334,7 @@ def scan(
         for task, paths in seen.items():
             if len(paths) > 1:
                 prompt_dups[f"{module}/{task}"] = paths
-    return by_name, convention, prompt_dups
+    return by_name, convention, prompt_dups, warnings
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -280,11 +357,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        by_name, convention, prompt_dups = scan(root)
+        by_name, convention, prompt_dups, symlink_warnings = scan(root)
     except (OSError, RuntimeError, UnicodeError) as error:
         print(f"FAIL: skill collision inventory unavailable: {error}", file=sys.stderr)
         return 2
     collisions = {n: ps for n, ps in by_name.items() if len(ps) > 1}
+
+    if symlink_warnings:
+        print(
+            f"NOTE: {len(symlink_warnings)} benign in-tree symlink(s) pruned "
+            "from the scan (BUG-233):"
+        )
+        for w in symlink_warnings:
+            print(f"  {w}")
 
     if args.update_baseline:
         BASELINE.write_text(
