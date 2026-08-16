@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-555 typed fields · 364 runtime-only call-site inputs.
+562 typed fields · 364 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -441,6 +441,18 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `GRAPH_FUSEKI_PASSWORD_REF` | `Union` | `unset` |
 | `KG_FUSEKI_PUBLISH_INTERVAL` | `float` | `3600.0` |
 | `KG_WORKFLOW_SHAPE_GATE` | `bool` | `True` |
+
+## Lakehouse / Iceberg data-plane (CONCEPT:AU-OS.deployment.lakehouse-doctor)
+
+| Environment key | Type | Default |
+|---|---|---|
+| `LAKEHOUSE_S3_ENDPOINT` | `str` | `` |
+| `LAKEKEEPER_CATALOG_URI` | `str` | `` |
+| `LAKEKEEPER_WAREHOUSE` | `str` | `lakehouse` |
+| `LAKEKEEPER_OAUTH2_SCOPE` | `str` | `lakekeeper` |
+| `LAKEKEEPER_DB_URI_REF` | `Union` | `unset` |
+| `TRINO_ENDPOINT` | `str` | `` |
+| `SPARK_RUNNER_ENDPOINT` | `str` | `` |
 
 ## Autonomy control plane (CONCEPT:AU-OS.deployment.fleet-lifecycle-control — OS-5.27)
 
