@@ -2982,6 +2982,16 @@ class AgentConfig(BaseSettings):
     mcp_tls_certfile: str | None = Field(default=None, alias="MCP_TLS_CERTFILE")
     mcp_tls_keyfile: str | None = Field(default=None, alias="MCP_TLS_KEYFILE")
     mcp_tls_terminated: bool = Field(default=False, alias="MCP_TLS_TERMINATED")
+    mcp_stdio_prohibited: bool = Field(default=False, alias="MCP_STDIO_PROHIBITED")
+    """Prohibit spawning stdio-transport MCP children in THIS process. Default
+    permissive (False) so no other deployment's behavior changes. A stdio child
+    is a subprocess spawned inside the calling process itself (not a network
+    peer) -- a deployment that fans out across the whole MCP catalog (e.g.
+    agent-webui probing dozens of servers) can be starved or crashed by stdio
+    children it never intended to run locally. When set, every stdio-transport
+    spawn attempt is refused with a stated reason via
+    :func:`enforce_mcp_stdio_permitted` -- see that function's docstring for the
+    exhaustive list of call sites that must consult it."""
     mcp_trusted_proxy_cidrs: str | None = Field(
         default=None, alias="MCP_TRUSTED_PROXY_CIDRS"
     )
@@ -5792,6 +5802,45 @@ class AgentConfigProxy:
 
     def __repr__(self) -> str:
         return "AgentConfigProxy(<redacted-snapshot>)"
+
+
+def enforce_mcp_stdio_permitted(*, server_name: str | None = None) -> None:
+    """Fail closed and loudly, with a stated reason, before ANY code path
+    spawns a stdio-transport MCP child process in this process.
+
+    A stdio MCP child is a subprocess spawned INSIDE the calling process (as
+    opposed to a network peer reached over HTTP/SSE), so a deployment that
+    fans out across the whole MCP catalog can be starved or crashed by stdio
+    children it never intended to run locally -- exactly what happened to
+    agent-webui probing ~66 catalog servers. Permissive by default
+    (``MCP_STDIO_PROHIBITED`` unset/false, ``mcp_stdio_prohibited`` field):
+    nothing else in the fleet changes behavior. A deployment that must never
+    run stdio children in-process (agent-webui) sets ``MCP_STDIO_PROHIBITED=true``.
+
+    Every real stdio-spawn call site in this codebase MUST call this function
+    before constructing a stdio transport (``StdioServerParameters``/
+    ``stdio_client``, or a FastMCP ``Client`` target implying a ``command``
+    key), and MUST let its exception propagate -- never catch-and-silently-
+    drop it -- so the caller sees "unavailable" with this exact reason rather
+    than an empty/absent result indistinguishable from "nothing found":
+
+    * :meth:`agent_utilities.mcp.multiplexer.MCPMultiplexer._open_one_session`
+      -- the shared chokepoint for the fleet loader (``_start_child``,
+      ``probe_server``, ``probe_declaration``, ``mount_child``,
+      ``start_children``, ``list_catalog``, ``load_tools``/``find_tools``).
+    * :func:`agent_utilities.protocols.source_connectors.connectors.mcp_package._default_call_tool`
+      -- the ``mcp`` source-connector's stdio ingestion path.
+    * :meth:`agent_utilities.protocols.source_connectors.connectors.mcp_tool.McpToolSourceConnector._open_client`
+      -- the ``mcp_tool`` preset connector's FastMCP-``Client`` stdio path,
+      reached by agent-webui's ``call_mcp_tool``/``read_mcp_resource`` helpers.
+    """
+    if not _CONFIG_PROXY.mcp_stdio_prohibited:
+        return
+    detail = f" (server={server_name!r})" if server_name else ""
+    raise RuntimeError(
+        f"stdio transport is not permitted in this process{detail}: "
+        "MCP_STDIO_PROHIBITED is set"
+    )
 
 
 class BoundedLRUCache:

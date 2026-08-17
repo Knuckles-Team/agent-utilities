@@ -1660,6 +1660,9 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
         if self.url:
             return self.url
         if self.command:
+            from agent_utilities.core.config import enforce_mcp_stdio_permitted
+
+            enforce_mcp_stdio_permitted(server_name=self.server or self.name)
             env = {k: os.path.expandvars(str(v)) for k, v in self.command_env.items()}
             return {
                 "mcpServers": {
@@ -1680,6 +1683,17 @@ class McpToolSourceConnector(LoadConnector, PollConnector):
                 "pass an explicit 'url'/'command' or an injected 'client'."
             )
         configured_name, cfg = resolved
+        # A resolved catalog entry may itself be remote (url/streamable-http/sse)
+        # or stdio (bare command) -- only the stdio shape spawns an in-process
+        # child, so only that shape is subject to the prohibition.
+        is_remote = bool(cfg.get("url")) or str(cfg.get("transport", "")).lower() in (
+            "streamable-http",
+            "sse",
+        )
+        if not is_remote:
+            from agent_utilities.core.config import enforce_mcp_stdio_permitted
+
+            enforce_mcp_stdio_permitted(server_name=configured_name)
         return {"mcpServers": {configured_name: cfg}}
 
     def _open_client(self) -> Any:

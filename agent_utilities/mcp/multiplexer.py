@@ -1814,6 +1814,10 @@ class MCPMultiplexer:
         )
         if not command and not is_remote:
             raise RuntimeError("MCP child requires a command or URL")
+        if not is_remote:
+            from agent_utilities.core.config import enforce_mcp_stdio_permitted
+
+            enforce_mcp_stdio_permitted(server_name=server_name)
         try:
             initialization_timeout = float(
                 cfg.get("initialization_timeout", cfg.get("timeout", 300.0))

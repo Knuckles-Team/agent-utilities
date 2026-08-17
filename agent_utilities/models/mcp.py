@@ -1,7 +1,7 @@
 import time
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .tool_score import normalize_legacy_relevance_score
 
@@ -10,6 +10,67 @@ SpecialistTier = Literal["light", "medium", "heavy", "reasoning"]
 
 class MCPConfigModel(BaseModel):
     mcpServers: dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPServerEntryModel(BaseModel):
+    """One ``mcp_config.json`` ``mcpServers.<name>`` entry, typed for CRUD.
+
+    Mirrors, field-for-field, the shape :meth:`agent_utilities.mcp.multiplexer.
+    MCPMultiplexer._open_one_session` actually reads off the raw catalog dict
+    (``command``/``url``/``transport``/``args``/``env``/``headers``/``timeout``/
+    ``allowed_private_hosts``/``disabled``) -- this is the ONE typed model for
+    that shape (none existed before; every call site re-derived it ad hoc from
+    an untyped dict). Used for schema-derived add/edit forms (``.model_json_schema()``,
+    matching the ``ChatModelConfig``/``EmbeddingModelConfig`` pattern) and to
+    validate a submitted entry BEFORE it is written to the catalog file, so an
+    invalid shape is rejected at CRUD time rather than silently failing every
+    later spawn attempt.
+    """
+
+    model_config = ConfigDict(validate_assignment=True)
+
+    command: str | None = Field(
+        default=None,
+        description="Executable to spawn over stdio. Mutually exclusive with 'url'.",
+    )
+    args: list[str] = Field(
+        default_factory=list, description="Arguments passed to 'command'"
+    )
+    env: dict[str, str] = Field(
+        default_factory=dict, description="Environment variables for the stdio child"
+    )
+    url: str | None = Field(
+        default=None,
+        description="Remote MCP endpoint URL. Mutually exclusive with 'command'.",
+    )
+    transport: Literal["", "streamable-http", "sse"] = Field(
+        default="",
+        description="Explicit remote transport; inferred from 'url' when blank",
+    )
+    headers: dict[str, str] = Field(
+        default_factory=dict, description="Extra HTTP headers for a remote child"
+    )
+    disabled: bool = Field(
+        default=False, description="Excluded from the mountable catalog when true"
+    )
+    timeout: float = Field(
+        default=300.0, ge=0.001, le=3_600.0, description="Connect timeout, seconds"
+    )
+    allowed_private_hosts: list[str] = Field(
+        default_factory=list,
+        description="Extra plain-HTTP hostnames trusted for THIS server only",
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one_transport(self) -> "MCPServerEntryModel":
+        """Match the multiplexer's own invariant: exactly one of command/url."""
+        if bool(self.command) == bool(self.url):
+            raise ValueError(
+                "Exactly one of 'command' (stdio) or 'url' (remote) is required"
+            )
+        if self.transport and not self.url:
+            raise ValueError("'transport' requires 'url'")
+        return self
 
 
 class MCPAgent(BaseModel):

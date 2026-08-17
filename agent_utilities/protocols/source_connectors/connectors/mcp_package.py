@@ -180,6 +180,12 @@ def _default_call_tool(server_name: str) -> CallToolFn:
     session per call (connectors poll infrequently, so this is acceptable and
     avoids holding child processes open).
     """
+    from agent_utilities.core.config import enforce_mcp_stdio_permitted
+
+    # This whole function exists to spawn a stdio child; there is no remote
+    # branch, so the prohibition is checked once, up front, rather than
+    # deferred into the returned closure.
+    enforce_mcp_stdio_permitted(server_name=server_name)
     servers = _load_mcp_config()
     resolved = _configured_mcp_server(servers, server_name)
     if resolved is None or not resolved[1].get("command"):
