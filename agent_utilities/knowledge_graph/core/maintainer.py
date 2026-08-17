@@ -28,6 +28,22 @@ _base_url = str(DEFAULT_EMBEDDING_BASE_URL or "").strip().rstrip("/")
 LM_STUDIO_URL = f"{_base_url}/embeddings" if _base_url else ""
 EMBEDDING_MODEL = str(DEFAULT_EMBEDDING_MODEL_ID or "").strip()
 
+#: Conversational node types confirmed to have NO reingest/backfill path once deleted
+#: (CONCEPT:AU-ECO.messaging.conversational-retention-guard, BUG-041 investigation):
+#: ``InboundMessage``/``Thread`` are written once at live intake
+#: (``messaging/inbox.py``, ``messaging/router.py``, ``messaging/enrichment.py``) with no
+#: export/history-fetch connector; ``Memory`` retains no raw transcript; ``Memento`` raw-
+#: block retention is opt-in and off by default. A subset of messaging platforms (Discord,
+#: Slack, Mattermost, Matrix, Google Chat, Nextcloud Talk, Twilio/voicecall) DO expose a
+#: re-fetchable history API — see ``agent_utilities/messaging/backfill.py`` — but this is a
+#: NODE-TYPE-level protection with no per-row platform awareness, so the whole type is
+#: withheld from automated low-signal pruning by default (see
+#: ``GraphMaintainer.prune_low_importance_nodes``). See
+#: ``docs/guides/knowledge-graph.md`` "Low-Signal Pruning" for the operator-facing writeup.
+UNRECOVERABLE_CONVERSATIONAL_NODE_TYPES: frozenset[str] = frozenset(
+    {"InboundMessage", "Thread", "Memory", "Memento"}
+)
+
 
 def generate_embedding(text: str) -> list[float] | None:
     """Generate an embedding through the configured OpenAI-compatible endpoint."""
@@ -721,24 +737,93 @@ class GraphMaintainer:
         logger.info(f"Synthesized {len(episodes)} episodes into summary {sum_id}.")
         return len(episodes)
 
-    def prune_low_importance_nodes(self, threshold: float = 0.05) -> int:
-        """Remove low-signal nodes to maintain scalability, utilizing validation-gated synthesis."""
+    def prune_low_importance_nodes(
+        self,
+        threshold: float = 0.05,
+        *,
+        include_unrecoverable_conversational: bool = False,
+    ) -> int:
+        """Remove low-signal nodes to maintain scalability, utilizing validation-gated synthesis.
+
+        CONCEPT:AU-ECO.messaging.conversational-retention-guard (BUG-041) — by default this
+        blind importance-score sweep never touches
+        :data:`UNRECOVERABLE_CONVERSATIONAL_NODE_TYPES`. Those node types are written once
+        at live intake with no reingest/backfill/export path once deleted (see
+        ``docs/guides/knowledge-graph.md`` "Low-Signal Pruning" and
+        ``agent_utilities/messaging/backfill.py`` for the platforms that DO have one — this
+        sweep has no per-row platform awareness, so the whole type stays protected).
+        Pass ``include_unrecoverable_conversational=True`` only after confirming the
+        affected rows are recoverable or that the loss is an accepted, deliberate decision
+        — never as the default behavior of an automated sweep.
+        """
         if not self.engine.backend:
             return 0
 
+        protect_types = (
+            ()
+            if include_unrecoverable_conversational
+            else tuple(sorted(UNRECOVERABLE_CONVERSATIONAL_NODE_TYPES))
+        )
+        if protect_types:
+            protected_count = self._count_protected_conversational_nodes(
+                threshold, protect_types
+            )
+            if protected_count:
+                logger.warning(
+                    "[CONCEPT:AU-ECO.messaging.conversational-retention-guard] "
+                    "prune_low_importance_nodes SKIPPED %d node(s) of an unrecoverable "
+                    "conversational type (%s) below the importance threshold — no "
+                    "reingest/backfill path exists for these once deleted (BUG-041). Pass "
+                    "include_unrecoverable_conversational=True only after confirming "
+                    "recoverability or explicitly accepting the loss.",
+                    protected_count,
+                    ", ".join(protect_types),
+                )
+
         # Protect nodes marked as is_permanent=True
         # Self-Reflection mechanism: Delete if importance < threshold and it's not a core structural node
-        query = """
+        protect_clause = (
+            "\n        AND NOT (" + " OR ".join(f"n:{t}" for t in protect_types) + ")"
+            if protect_types
+            else ""
+        )
+        query = f"""
         MATCH (n)
         WHERE n.importance_score < $threshold
         AND (n.is_permanent IS NULL OR n.is_permanent = False)
-        AND NOT (n:Agent OR n:Tool OR n:Skill OR n:SystemPrompt OR n:KnowledgeBaseTopic)
+        AND NOT (n:Agent OR n:Tool OR n:Skill OR n:SystemPrompt OR n:KnowledgeBaseTopic){protect_clause}
         DETACH DELETE n
         """
         self.engine.backend.execute(query, {"threshold": threshold})
 
         logger.info(f"Pruned non-permanent nodes with importance below {threshold}.")
         return 1
+
+    def _count_protected_conversational_nodes(
+        self, threshold: float, protect_types: tuple[str, ...]
+    ) -> int:
+        """Best-effort count of unrecoverable-conversational rows a sweep would have hit.
+
+        Never blocks the actual prune below on failure — a count-query error just means the
+        warning is silently under-reported, not that protection itself is skipped.
+        """
+        try:
+            rows = (
+                self.engine.backend.execute(
+                    "MATCH (n) WHERE n.importance_score < $threshold "
+                    "AND (n.is_permanent IS NULL OR n.is_permanent = False) "
+                    "AND (" + " OR ".join(f"n:{t}" for t in protect_types) + ") "
+                    "RETURN count(n) AS c",
+                    {"threshold": threshold},
+                )
+                or []
+            )
+            return int(rows[0].get("c", 0)) if rows else 0
+        except Exception as exc:  # noqa: BLE001 — best-effort pre-count only, see docstring
+            logger.debug(
+                "prune_low_importance_nodes: protected-count query failed: %s", exc
+            )
+            return 0
 
     def trigger_self_improvement(self) -> int:
         """Trigger autonomous self-improvement tasks based on recent failures."""

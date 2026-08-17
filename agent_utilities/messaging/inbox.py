@@ -37,9 +37,18 @@ def record_inbound(
     message_id: Any,
     text: str,
     session: str,
+    status: str = "pending",
+    received_at: str | None = None,
 ) -> str | None:
     """Persist an inbound message as ``pending`` BEFORE the reply is attempted (idempotent by
-    content), so a failed/lost turn can be found + retried. Best-effort; returns the inbox id."""
+    content), so a failed/lost turn can be found + retried. Best-effort; returns the inbox id.
+
+    ``status``/``received_at`` default to the live-intake shape (``pending`` / now). A
+    history backfill (CONCEPT:AU-ECO.messaging.conversational-history-backfill, BUG-041)
+    passes ``status="backfilled"`` and the ORIGINAL platform timestamp so a reconstructed
+    row never enters the live reply-retry reaper's ``pending`` scan (see
+    :func:`pending_unanswered`) and preserves the fact it is historical, not a fresh turn.
+    """
     add_node = getattr(engine, "add_node", None) if engine is not None else None
     if not callable(add_node):
         return None
@@ -55,8 +64,8 @@ def record_inbound(
                 "message_id": str(message_id or ""),
                 "text": (text or "")[:4000],
                 "session": session or "",
-                "status": "pending",
-                "received_at": datetime.now(UTC).isoformat(),
+                "status": status,
+                "received_at": received_at or datetime.now(UTC).isoformat(),
                 "attempts": 0,
             },
         )
