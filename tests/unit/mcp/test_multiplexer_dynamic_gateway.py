@@ -2113,6 +2113,79 @@ def test_local_session_meta_cannot_override_an_authenticated_http_session(
     assert _session_key() == "real-authenticated-http-session"
 
 
+def test_session_key_isolates_distinct_tenants_via_authenticated_token_claims(
+    monkeypatch,
+):
+    """GOC-48 known-bad proof: drive the token-claims branch of ``_session_key``
+    (the HTTP fallback when no ``Context.session_id`` is available — e.g. a
+    streamable-http transport in front of an OIDC-authenticated caller) through
+    the REAL production cascade, with two principals differing only by tenant,
+    and prove they land in distinct, stable multiplexer session buckets.
+
+    This is the mechanism ``SessionVisibilityMiddleware`` relies on to keep one
+    principal's loaded-tool catalog (``load_tools``/``tools/list``) from leaking
+    into another's — D-I5-1's real, already-shipped resolution. It is NOT proof
+    that remote MCP child sessions are per-principal: ``MCPMultiplexer.children``
+    is keyed only by ``server_name`` (one ``ChildRuntime`` per configured
+    server, shared by every caller regardless of tenant), and outbound child
+    auth (``MCP_CLIENT_AUTH``) is one fleet-global service-account credential.
+    That deeper isolation gap is unresolved on this branch — see the GOC-48
+    lane report; it requires a per-principal remote-OAuth broker
+    (``agent_utilities/mcp/remote_oauth_broker.py``) that does not exist on
+    `main` (GOC-85 has not landed it) and is deliberately out of this test's
+    and this lane's scope to build.
+    """
+    mock_request = MagicMock()
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_http_request",
+        lambda: mock_request,
+    )
+    mock_context = MagicMock()
+    mock_context.session_id = None
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_context",
+        lambda: mock_context,
+    )
+
+    def _token(client_id: str, sub: str, tenant_id: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            client_id=client_id, claims={"sub": sub, "tenant_id": tenant_id}
+        )
+
+    token_alice = _token("svc-client", "principal-alice", "tenant-a")
+    token_bob = _token("svc-client", "principal-bob", "tenant-b")
+    token_alice_again = _token("svc-client", "principal-alice", "tenant-a")
+
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_access_token", lambda: token_alice
+    )
+    key_alice = _session_key()
+
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_access_token", lambda: token_bob
+    )
+    key_bob = _session_key()
+
+    monkeypatch.setattr(
+        "fastmcp.server.dependencies.get_access_token",
+        lambda: token_alice_again,
+    )
+    key_alice_again = _session_key()
+
+    assert key_alice.startswith("http_")
+    assert key_bob.startswith("http_")
+    assert key_alice != key_bob, (
+        "two distinct tenants collapsed onto the same multiplexer session "
+        "bucket -- SessionVisibilityMiddleware would leak one principal's "
+        "loaded tool catalog into the other's tools/list"
+    )
+    assert key_alice == key_alice_again, (
+        "the same principal must resolve to a stable session bucket across "
+        "calls, or SessionVisibilityMiddleware would treat every request as "
+        "a brand-new session and never retain loaded tools"
+    )
+
+
 async def test_notify_tools_changed_returns_false_without_request_context():
     from agent_utilities.mcp.multiplexer import _notify_tools_changed
 
