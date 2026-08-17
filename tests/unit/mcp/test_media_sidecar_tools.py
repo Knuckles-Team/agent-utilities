@@ -1,8 +1,9 @@
 """Unit tests for the ``graph_media_sidecar`` MCP tool
 (CONCEPT:AU-KG.ingest.media-sidecar-delegation) — the two-surface (MCP + REST)
-entry point for the W4.6 sidecar delegate pattern. The adapter functions
-(``ingest_pdf_via_sidecar``/``ingest_jpeg_via_sidecar``) are MOCKED here; their
-own write-back behavior is proven by the TCK conformance tests in
+entry point for the sidecar delegate pattern. The adapter functions
+(``ingest_pdf_via_sidecar``/``ingest_jpeg_via_sidecar``/
+``ingest_audio_via_sidecar``/``ingest_video_via_sidecar``) are MOCKED here;
+their own write-back behavior is proven by the TCK conformance tests in
 ``tests/unit/media/``. No live engine or fleet service is required.
 """
 
@@ -15,8 +16,10 @@ import pytest
 
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.tools import media_sidecar_tools
+from agent_utilities.media.audio_sidecar import AudioSidecarResult
 from agent_utilities.media.image_sidecar import ImageSidecarResult
 from agent_utilities.media.pdf_sidecar import PdfSidecarResult
+from agent_utilities.media.video_sidecar import VideoSidecarResult
 
 
 class _CollectingMCP:
@@ -114,17 +117,90 @@ def test_graph_media_sidecar_ingest_jpeg_dispatches_to_the_image_adapter(
     assert len(out["region_evidence_ids"]) == 2
 
 
-@pytest.mark.parametrize(
-    "action,modality", [("ingest_audio", "audio"), ("ingest_video", "video")]
-)
-def test_graph_media_sidecar_stub_actions_degrade_cleanly(tools, action, modality):
+def test_graph_media_sidecar_ingest_audio_dispatches_to_the_audio_adapter(
+    monkeypatch, tools
+):
+    captured: dict = {}
+
+    def _fake_ingest(data, *, audio_id, source, provider):
+        captured["data"] = data
+        captured["audio_id"] = audio_id
+        captured["source"] = source
+        captured["provider"] = provider
+        return AudioSidecarResult(
+            available=True,
+            audio_id=audio_id,
+            occurrence_id="occurrence:3",
+            blob_id="blob:3",
+            claim_id="claim:3",
+            segment_count=1,
+            segment_evidence_ids=["evidence:4"],
+        )
+
+    monkeypatch.setattr(media_sidecar_tools, "ingest_audio_via_sidecar", _fake_ingest)
+
     out = json.loads(
-        tools["graph_media_sidecar"](action=action, artifact_id="x", data_b64="Zm9v")
+        tools["graph_media_sidecar"](
+            action="ingest_audio",
+            artifact_id="audio-1",
+            data_b64=base64.b64encode(b"RIFF....WAVEfmt ").decode("ascii"),
+            source="unit-test",
+        )
     )
-    assert out["available"] is False
-    assert out["stub"] is True
-    assert modality in out["error"]
-    assert "DESIGN STUB" in out["error"]
+    assert out["available"] is True
+    assert out["audio_id"] == "audio-1"
+    assert out["segment_count"] == 1
+    assert captured["data"] == b"RIFF....WAVEfmt "
+    assert captured["audio_id"] == "audio-1"
+    assert captured["source"] == "unit-test"
+
+
+def test_graph_media_sidecar_ingest_video_dispatches_to_the_video_adapter(
+    monkeypatch, tools
+):
+    def _fake_ingest(data, *, video_id, source, provider):
+        return VideoSidecarResult(
+            available=True,
+            video_id=video_id,
+            occurrence_id="occurrence:4",
+            blob_id="blob:4",
+            claim_id="claim:4",
+            shot_count=1,
+            keyframe_count=2,
+            shot_evidence_ids=["evidence:5"],
+            frame_range_evidence_ids=["evidence:6", "evidence:7"],
+        )
+
+    monkeypatch.setattr(media_sidecar_tools, "ingest_video_via_sidecar", _fake_ingest)
+
+    out = json.loads(
+        tools["graph_media_sidecar"](
+            action="ingest_video",
+            artifact_id="video-1",
+            data_b64=base64.b64encode(b"....ftypisom....").decode("ascii"),
+        )
+    )
+    assert out["available"] is True
+    assert out["video_id"] == "video-1"
+    assert out["shot_count"] == 1
+    assert len(out["frame_range_evidence_ids"]) == 2
+
+
+def test_graph_media_sidecar_no_actions_are_stubs(tools):
+    """GOC-07 wired audio/video adapters — STUB_MODALITIES is now empty, so
+    every declared action dispatches to a real adapter rather than
+    degrading with a 'not implemented' payload. This test pins that
+    invariant so a future stub-declared modality is caught explicitly
+    rather than silently reintroducing dead stub branches."""
+    from agent_utilities.media.sidecar_contract import STUB_MODALITIES
+
+    assert STUB_MODALITIES == frozenset()
+    assert set(media_sidecar_tools._ALL_ACTIONS) == {
+        "ingest_pdf",
+        "ingest_jpeg",
+        "ingest_audio",
+        "ingest_video",
+    }
 
 
 def test_graph_media_sidecar_unknown_action_is_reported(tools):

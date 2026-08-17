@@ -55,11 +55,16 @@ builds) are what those tools should implement; tracked as follow-ups in
 write-back with the fleet call MOCKED at the seam (no live sidecar required),
 per the task's own acceptance bar.
 
-**Audio/video are DESIGN STUBS this wave** — :data:`STUB_MODALITIES` declares
-their target sidecar/tool/produced-loci so a future wave has a contract to
-implement against, but no adapter module (the ``pdf_sidecar.py`` /
-``image_sidecar.py`` sibling) is wired for them yet; see
-``reports/issue-register.md`` for the registered follow-up.
+**Audio/video adapters landed in GOC-07** (audio/video modality stack) —
+``audio_sidecar.py``/``video_sidecar.py`` are the ``pdf_sidecar.py``/
+``image_sidecar.py`` siblings for the two modalities this module previously
+only declared as design stubs. Both are proven the SAME way pdf/jpeg were:
+the AU-side contract + write-back with the fleet call MOCKED at the seam
+(``audio-transcriber-mcp``'s ``transcribe_media`` action and
+``data-science-mcp``'s ``video_keyframes`` action still do not exist in the
+live fleet as of this wave — tracked in ``reports/issue-register.md`` as
+follow-ups for the fleet-side tool implementation, same posture pdf/jpeg's
+own not-yet-live sidecar actions were shipped under).
 """
 
 from __future__ import annotations
@@ -193,7 +198,6 @@ SIDECAR_CAPABILITIES: dict[str, SidecarCapability] = {
             "(CONCEPT:AU-KG.mining.dsm-forecast-delegation) — same boundary, a new action."
         ),
     ),
-    # -- design stubs (W4.6 scope: contract declared, no adapter wired) --
     "audio": SidecarCapability(
         modality="audio",
         server="audio-transcriber-mcp",
@@ -201,11 +205,13 @@ SIDECAR_CAPABILITIES: dict[str, SidecarCapability] = {
         action="transcribe_segments",
         produces=frozenset({"AudioSegment"}),
         description=(
-            "STUB — not implemented this wave. Target: Whisper transcript "
-            "segments with start_ms/end_ms timing -> AudioSegment loci, "
-            "mirroring messaging/router.py's existing local-transcription "
-            "AudioSegment producer but via the fleet sidecar instead of the "
-            "in-process faster-whisper reader."
+            "Whisper transcript segments with start_ms/end_ms timing -> "
+            "AudioSegment loci, mirroring messaging/router.py's existing "
+            "local-transcription AudioSegment producer but via the fleet "
+            "sidecar instead of the in-process faster-whisper reader. "
+            "GOC-07: adapter wired in audio_sidecar.py; the fleet tool "
+            "action (audio-transcriber-mcp's transcribe_media) is not yet "
+            "live — tracked in reports/issue-register.md."
         ),
     ),
     "video": SidecarCapability(
@@ -215,24 +221,23 @@ SIDECAR_CAPABILITIES: dict[str, SidecarCapability] = {
         action="extract_keyframes",
         produces=frozenset({"VideoShot", "VideoFrameRange"}),
         description=(
-            "STUB — not implemented this wave. Target: keyframe PNGs "
-            "(re-entering the engine's native codec) + shot-boundary "
-            "timestamps -> VideoShot loci. No shot-detection/frame-accurate "
-            "video path exists anywhere in AU yet (re-confirmed in "
-            "docs/architecture/evidence_spine_convergence.md's 'What would "
-            "be required' section) — this is a genuinely new capability, "
-            "not a wiring gap."
+            "Keyframe PNGs (re-entering the engine's native codec) + "
+            "shot-boundary timestamps -> VideoShot/VideoFrameRange loci. "
+            "GOC-07: adapter wired in video_sidecar.py; the fleet tool "
+            "action (data-science-mcp's video_keyframes) is not yet live — "
+            "tracked in reports/issue-register.md."
         ),
     ),
 }
 
-#: Modalities with a wired ``ingest_*_via_sidecar`` adapter this wave.
-IMPLEMENTED_MODALITIES: frozenset[str] = frozenset({"pdf", "jpeg"})
+#: Modalities with a wired ``ingest_*_via_sidecar`` adapter.
+IMPLEMENTED_MODALITIES: frozenset[str] = frozenset({"pdf", "jpeg", "audio", "video"})
 
 #: Modalities with a declared :class:`SidecarCapability` contract but no
-#: adapter — design stubs, per the task's explicit "design, don't implement"
-#: scope for audio/video this wave.
-STUB_MODALITIES: frozenset[str] = frozenset({"audio", "video"})
+#: adapter — design stubs. Empty as of GOC-07 (audio/video landed); kept as
+#: a typed set so a future modality can declare itself here again without a
+#: shape change to media_sidecar_tools.py's stub-degrade branch.
+STUB_MODALITIES: frozenset[str] = frozenset()
 
 
 def capability_for(modality: str, *, provider: str = "") -> SidecarCapability:

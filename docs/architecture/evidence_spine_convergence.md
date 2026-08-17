@@ -162,13 +162,13 @@ exactly like `store_document_page_evidence` — nothing about `store_media`/
 | `DocumentSpan` | `store_document_span_evidence` | Wired (pass 1, 2026-07-22) — `IngestionEngine._extract_facts_into_graph` (`agent_utilities/knowledge_graph/ingestion/engine.py`), one locus per persisted fact whose `evidence_span` is a real substring of the window it was extracted from. **W4.6 (2026-07-24) adds a second producer**: `pdf_sidecar.py`, one locus per page covering that page's full sidecar-extracted text (the same "whole known extent" volume discipline `TableCellRange`/`PageBox` already use, not per-line/per-fact). |
 | `TableCellRange` | `store_table_cell_evidence` | Wired (pass 1, 2026-07-22) — `readers_office.read_xlsx` (`agent_utilities/knowledge_graph/extraction/readers_office.py`), one locus per worksheet covering its full used range. |
 | `ImageRegion` | `store_image_region_evidence` | Wired (pass 1, 2026-07-22), RapidOCR branch only — `readers_media._ocr_with_rapidocr` (`agent_utilities/knowledge_graph/extraction/readers_media.py`). The `pytesseract` branch (`_ocr_with_pytesseract`) never computes a box at all (`image_to_string` has no box output), so there is nothing to wire there without adding new computation — left unwired by design. **W4.6 (2026-07-24) adds two more producers**, both sidecar-delegated (`agent_utilities/media/`, CONCEPT:AU-KG.ingest.media-sidecar-delegation): `pdf_sidecar.py` writes one locus per OCR word/line box a PDF sidecar returns (`image_id="<document_id>:page<n>"`, mirroring RapidOCR's own per-line granularity); `image_sidecar.py` writes one locus per detected region in a JPEG (a NEW modality — JPEG decode never had an AU producer before this wave). Both are fail-closed gated by the sidecar's declared `SidecarCapability.produces` (`sidecar_contract.assert_capable`) — a provider not declared for `ImageRegion` (e.g. the `pdf_documents`/paperless-ngx-mcp alternate) writes none, never a guess. |
-| `AudioSegment` | `store_audio_segment_evidence` | Wired (pre-existing, confirmed 2026-07-21) — `messaging/router.py`. |
+| `AudioSegment` | `store_audio_segment_evidence` | Wired (pre-existing, confirmed 2026-07-21) — `messaging/router.py`. **GOC-07 adds a second producer**: `agent_utilities/media/audio_sidecar.py::ingest_audio_via_sidecar` hands the recording to a governed fleet transcription sidecar (default `audio-transcriber-mcp`) and writes one locus per returned segment. |
 | `MetricWindow` | `store_metric_window_evidence` | **Wired 2026-07-22 (pass 2)** — new `observability/gateway_health.py`, driven from `GatewayMetricsMiddleware`'s already-computed per-request `duration` (`observability/gateway_metrics.py`). Bounded/claim-driven-equivalent by design: request durations distill into ONE `HealthTrendBuffer` window (5 min), and a write fires only when `health.detect_anomaly` actually flags that window against the gateway's own rolling baseline — never per request. This SAME wiring is also the first live caller anywhere in AU of `observability.health`'s anomaly kernel + `health_ingest.ingest_health_anomaly`, which pass 1 found was itself a fully-built, unwired kernel. |
 | `CodeSymbol` | `store_code_symbol_evidence` | **Wired 2026-07-22 (pass 2)** — `research/candidate_insight.py`'s `register_claim_materialization` (the ONE shared seam every real, floor-cleared `:Claim` from every finding family already passes through), via new `_persist_code_symbol_evidence`. Bounded/claim-driven: fires only when a claim's own `source_ids` resolve to a real, engine-stored `:Code`/`:Test` node — never per AST symbol on ingestion. `data` is the real text of the symbol's known start line, read back from the source file on disk (no fabricated `end_line` — the stored node doesn't carry one, and recovering it would need a second, language-specific re-parse this module deliberately avoids). |
 | `TraceSpan` | `store_trace_span_evidence` | **Wired 2026-07-22 (pass 2)** — same `register_claim_materialization` seam, via new `_persist_trace_span_evidence`. Bounded/claim-driven: fires only when a claim's `source_ids` resolve to a real, engine-stored span/generation node (the shape an ops-causal root-cause finding's causal path produces, since it runs from an ingested Trace/Generation through agent/tool/model/service/deploy) — never per span/generation event on `KGTraceBackend.record_event`'s hot path. `data` is the node's own already-stored properties, serialized. |
 | `RowVersion` | `store_row_version_evidence` | **Wired 2026-07-22 (pass 2), opt-in** — `DatabaseConnector.poll()` (`protocols/source_connectors/connectors/database.py`), via new `_persist_row_version_evidence`. Requires TWO real, non-fabricated facts: a new optional `table` config field (the connector wraps an arbitrary `SELECT`, so this is NEVER inferred from the query text — only written when the operator who authored the query explicitly configures it) AND `updated_field`'s value parsing as a genuine integer (a real incrementing-id/revision watermark; an ISO-timestamp watermark, the other documented `updated_field` use case, cleanly no-ops — no version is invented). With `table` unset (the default) or a non-numeric watermark, this locus stays unwired for that source, honestly, rather than guessing. |
-| `VideoShot` | `store_video_shot_evidence` | **Still unwired — re-surveyed 2026-07-22, no producer exists.** See "What would be required" below. |
-| `VideoFrameRange` | `store_video_frame_range_evidence` | **Still unwired — re-surveyed 2026-07-22, no producer exists.** See "What would be required" below. |
+| `VideoShot` | `store_video_shot_evidence` | Unwired 2026-07-22 through W4.6 (see "What would be required" below — no in-AU video-decode capability existed). **GOC-07 (2026-08-16) wires it via the sidecar-delegate path** (not an in-AU decode capability — that gap is unchanged): `agent_utilities/media/video_sidecar.py::ingest_video_via_sidecar` hands the video to a governed fleet sidecar (default `data-science-mcp`) and writes one locus per returned shot boundary. |
+| `VideoFrameRange` | `store_video_frame_range_evidence` | Unwired 2026-07-22 through W4.6 (see "What would be required" below — no in-AU video-decode capability existed). **GOC-07 (2026-08-16) wires it via the same sidecar-delegate path**: one locus per returned keyframe (a decoded-frame index range, kept distinct from `VideoShot`'s wall-clock range). |
 
 **Proof:** `tests/unit/knowledge_graph/test_media_store_evidence_spine.py`'s
 `test_store_locus_evidence_writes_the_full_identity_chain` /
@@ -315,7 +315,13 @@ Still not wired, re-surveyed this pass:
   producer (a `data-science-mcp` keyframe/shot-boundary sidecar) and its
   wire shape, so the capability that's missing is now a documented contract
   stub, not an open question — see the section below and
-  `reports/issue-register.md`'s W4.6 entry.
+  `reports/issue-register.md`'s W4.6 entry. **GOC-07 (2026-08-16) wires the
+  adapter** (`agent_utilities/media/video_sidecar.py`) against this same
+  declared contract — see the updated table rows above and the "GOC-07"
+  section below. This still does NOT add an in-AU video-decode capability;
+  the fleet sidecar's `video_keyframes`/`extract_keyframes` action itself
+  remains not-yet-live (proven with the fleet call mocked at the seam, same
+  posture PDF/JPEG shipped under in W4.6).
 
 ## The governed media-sidecar pattern (W4.6, CONCEPT:AU-KG.ingest.media-sidecar-delegation)
 
@@ -326,9 +332,9 @@ delegate agent**, reached the same way `graph_mine_deep` already reaches
 `data-science-mcp` for torch-dependent mining (CONCEPT:AU-KG.mining.dsm-forecast-delegation). W4.6
 standardizes that shape into ONE reusable component,
 `agent_utilities/media/sidecar_delegate.py::delegate_extract`, so every
-modality adapter (`pdf_sidecar.py`, `image_sidecar.py`, and future
-`audio_sidecar.py`/`video_sidecar.py`) shares one fleet-call/decode/
-provenance loop instead of reimplementing it:
+modality adapter (`pdf_sidecar.py`, `image_sidecar.py`, `audio_sidecar.py`,
+`video_sidecar.py` — the last two landed in GOC-07) shares one
+fleet-call/decode/provenance loop instead of reimplementing it:
 
 ```mermaid
 flowchart LR
@@ -376,21 +382,29 @@ every write-back, so a provider not declared for a locus kind (e.g. the
 paperless-ngx-mcp PDF alternate, which has no word-box detail) writes none
 rather than guessing.
 
-Shipped this wave: PDF (via `stirlingpdf-mcp`, default) and JPEG (via
+Shipped W4.6: PDF (via `stirlingpdf-mcp`, default) and JPEG (via
 `data-science-mcp`) — see `reports/issue-register.md`'s W4.6 entry for the
-exact locus/producer mapping and the two sidecar tools whose real
-implementation is a tracked follow-up (this wave proves the AU-side
-contract + write-back with the fleet call mocked at the seam, per the ADR's
-own testing directive). Audio/video are declared capability-manifest
-contract stubs only, no adapter.
+exact locus/producer mapping. **Shipped GOC-07 (2026-08-16):** audio (via
+`audio-transcriber-mcp`, default) and video (via `data-science-mcp`),
+completing all four modalities `sidecar_contract.SIDECAR_CAPABILITIES`
+declares — `STUB_MODALITIES` is now empty. All four sidecar tool actions
+(`ocr_pdf`, `analyze_image`, `transcribe_segments`, `extract_keyframes`)
+remain not-yet-live in the fleet as of this wave; every adapter is proven
+the same way — AU-side contract + write-back with the fleet call mocked at
+the seam, per the ADR's own testing directive.
 
 ## What remains for full convergence
 
-* **One locus has no real capability to wire to** (`VideoShot`/
-  `VideoFrameRange` — see above; both loci share the same missing
-  capability, a video-decode/shot-detection path, so they move together).
-  Every other locus (10/11) now has both a tested `MediaStore` method AND a
-  live AU producer call.
+* **All 12 loci now have both a tested `MediaStore` method and a live AU
+  producer call** (GOC-07 closed the last two, `VideoShot`/
+  `VideoFrameRange`, via the sidecar-delegate path). What remains is
+  fleet-side, not AU-side: none of the four sidecar tool actions
+  (`stirlingpdf-mcp`'s `ocr_pdf`, `data-science-mcp`'s `analyze_image` and
+  `video_keyframes`, `audio-transcriber-mcp`'s `transcribe_media`) are live
+  yet — each adapter's own conformance test proves the AU-side contract +
+  write-back with the fleet call mocked at the seam, per the ADR's testing
+  directive, but no locus of any of the four sidecar-delegated modalities
+  has actually round-tripped through a real fleet service.
 * **No live-engine round-trip test in AU's own suite.** `evidence-graph` is an
   opt-in, non-default Cargo feature (not folded into any tier, including
   `full`/`default`) — AU's shared ephemeral-engine test fixture
@@ -439,7 +453,8 @@ locus, not one of the named table/code/row/metric/trace kinds), logged in
 
 **Media-decode loci deferred to W4.6.** `PageRegion`/`ImageRegion`/
 `AudioRange` already have live AU producers (readers_office/readers_media/
-messaging router) predating this pass; `VideoTimeRange`/`FrameRange` remain
-unwired (no video-decode capability in AU, as this doc's "Still not wired"
-section above already documents) and pair with the W4.6 media-sidecar
-program rather than being wired here.
+messaging router) predating this pass; `VideoTimeRange`/`FrameRange` were
+unwired at the time of this pass (no video-decode capability in AU, as this
+doc's "Still not wired" section above documented) and paired with the W4.6
+media-sidecar program rather than being wired here — GOC-07 later wired
+both via that program's sidecar-delegate path (see above).
