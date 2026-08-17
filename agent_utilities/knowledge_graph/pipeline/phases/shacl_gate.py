@@ -75,24 +75,76 @@ def _class_iri(node_type: str) -> str:
     return cleaned[:1].upper() + cleaned[1:]
 
 
+def _graph_has_nodes(graph: Any) -> bool:
+    """Best-effort "does this graph hold any node at all" probe (BUG-281).
+
+    Used ONLY to tell an honest empty RDF projection (empty graph) apart from a
+    degraded one (populated graph, no triples). Deliberately conservative: if the
+    node count cannot be established, return ``False`` so an indeterminate probe
+    never manufactures a :class:`EngineRdfProjectionError` on its own -- the
+    escalation has to be evidence-backed, not a guess.
+    """
+    try:
+        nodes = graph.nodes()
+    except Exception:  # noqa: BLE001 -- an unprobeable graph must not itself escalate
+        return False
+    try:
+        return any(True for _ in nodes)
+    except Exception:  # noqa: BLE001 -- same rationale as above
+        return False
+
+
+class EngineRdfProjectionError(RuntimeError):
+    """The engine's RDF projection was REACHABLE but did not yield a usable data
+    graph (BUG-281).
+
+    Distinct from "no engine attached" (which :func:`_data_graph_from_engine_rdf`
+    still signals with ``None``, the legitimate fall-back-to-LPG case). The two used
+    to be indistinguishable: a raised ``GetRdf`` and an empty projection were both
+    swallowed into the SAME ``None`` a healthy no-engine deployment returns, so a
+    DEGRADED read silently became "validate the LPG instead" with no signal that the
+    authoritative source had failed -- the fail-open shape this program's standards
+    call out (a reader that swallows an exception and returns a falsy value is
+    indistinguishable from a healthy negative at the call site).
+    """
+
+
 def _data_graph_from_engine_rdf(graph: Any) -> Any | None:
     """Build the SHACL data graph from the ENGINE's RDF projection (CONCEPT:AU-KG.compute.native-sparql-owl-shacl).
 
     Routes the SHACL *graph source* to the engine: pulls the canonical N-Triples
     document from ``GetRdf`` (one round-trip over the live graph) and parses it
-    without datatype/language loss. Returns
-    ``None`` when the engine/op is unavailable so the caller falls back to per-node
-    iteration of the LPG. PySHACL is used only for this advisory quarantine view;
-    the native engine validator remains authoritative at materialization time.
+    without datatype/language loss.
+
+    Returns ``None`` for EXACTLY ONE condition -- no engine RDF surface is attached
+    at all -- so the caller's fall back to per-node LPG iteration stays the
+    deliberate, correct behaviour for an offline/dev deployment. Every OTHER failure
+    (``GetRdf`` raising, or an empty projection over a non-empty graph) raises
+    :class:`EngineRdfProjectionError` WITH its cause attached, because those mean the
+    authoritative source is degraded and the caller must decide that explicitly
+    rather than inherit a silent downgrade (BUG-281). PySHACL is used only for this
+    advisory quarantine view; the native engine validator remains authoritative at
+    materialization time.
     """
     get_rdf = getattr(graph, "get_rdf", None)
     if get_rdf is None:
+        # The one legitimate None: nothing to route to.
         return None
     try:
         ntriples = get_rdf()
-    except Exception:  # noqa: BLE001 -- engine/op unavailable -> caller falls back
-        return None
+    except Exception as exc:
+        raise EngineRdfProjectionError(
+            "engine GetRdf failed; the RDF projection is degraded"
+        ) from exc
     if not ntriples:
+        # An empty projection is only honest when the graph itself is empty.
+        # Empty triples over a POPULATED graph is a degraded read, not a clean
+        # negative -- exactly the case that used to vanish into `None`.
+        if _graph_has_nodes(graph):
+            raise EngineRdfProjectionError(
+                "engine GetRdf returned an empty RDF projection for a non-empty "
+                "graph; refusing to treat it as a clean empty result"
+            )
         return None
 
     import rdflib
@@ -117,8 +169,22 @@ def build_data_graph(graph: Any) -> Any:
     Each node becomes ``kg:<id> rdf:type kg:<Class>`` plus its string/numeric
     properties as datatype-property assertions, so SHACL shapes targeting
     ``:Tool``/``:Agent``/``:ServiceCapability`` etc. can validate them.
+
+    BUG-281: a DEGRADED engine projection (as opposed to an absent one) now surfaces
+    as :class:`EngineRdfProjectionError` from the helper. This function still falls
+    back to the LPG -- an advisory quarantine view is better than none -- but the
+    downgrade is now LOGGED with its cause instead of being invisible, so a degraded
+    authoritative source is observable rather than silently tolerated.
     """
-    engine_graph = _data_graph_from_engine_rdf(graph)
+    try:
+        engine_graph = _data_graph_from_engine_rdf(graph)
+    except EngineRdfProjectionError:
+        logger.warning(
+            "SHACL data graph: engine RDF projection degraded; falling back to "
+            "per-node LPG iteration (advisory view only)",
+            exc_info=True,
+        )
+        engine_graph = None
     if engine_graph is not None:
         return engine_graph
 
