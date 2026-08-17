@@ -331,7 +331,7 @@ The `GraphMaintainer` class (`knowledge_graph/core/maintainer.py`) runs several 
 4. **Importance Scoring**: PageRank-based centrality scoring for all nodes.
 5. **Temporal Decay**: Ebbinghaus-style 5%/day decay on importance scores.
 6. **Memory Consolidation**: Distills old episodes into semantic summaries.
-7. **Low-Signal Pruning**: Removes nodes below importance threshold (0.05) using the backend-native pruning logic.
+7. **Low-Signal Pruning**: Removes nodes below importance threshold (0.05) using the backend-native pruning logic. **Conversational-data retention (BUG-041):** `InboundMessage`/`Thread`/`Memory`/`Memento` are written ONCE at live intake with no reingest path for most sources, so this sweep excludes them by default (`GraphMaintainer.UNRECOVERABLE_CONVERSATIONAL_NODE_TYPES`) and logs a warning naming how many rows it protected. A subset of messaging platforms (Discord, Slack, Matrix, Nextcloud Talk, Twilio) DO expose a re-fetchable history API — see `agent_utilities/messaging/backfill.py` for the per-platform recoverability table and the `backfill_platform_history()` recovery path — but the pruning sweep has no per-row platform awareness, so an operator must pass `include_unrecoverable_conversational=True` explicitly (never as a default) after confirming the affected rows are recoverable or accepting the loss.
 8. **Knowledge Base Maintenance**: Archiving and health checks for the KB layer.
 9. **OWL Reasoning Cycle**: Promotes stable nodes -> runs HermiT/Stardog reasoning -> downfeeds inferred facts.
 10. **OWL Stale Triple Pruning**: Removes OWL individuals for nodes that no longer exist in LPG or have decayed below threshold.

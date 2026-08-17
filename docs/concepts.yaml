@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1191
+total_concepts: 1193
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1740,6 +1740,21 @@ concepts:
   - agent_utilities/messaging/coalescer.py
   - agent_utilities/messaging/router.py
   doc: collapse a rapid run of messages into ONE reply
+- id: AU-ECO.messaging.conversational-history-backfill
+  name: BUG-041
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/messaging/backfill.py
+  - agent_utilities/messaging/inbox.py
+  doc: BUG-041
+- id: AU-ECO.messaging.conversational-retention-guard
+  name: BUG-041 investigation
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/maintainer.py
+  doc: BUG-041 investigation
 - id: AU-ECO.messaging.debounce-relevance-sweep
   name: do NOT fire the heavy relevance sweep immediately on every
   pillar: AU-ECO
@@ -4218,6 +4233,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/extraction/second_brain_sync.py
   - agent_utilities/knowledge_graph/ontology/connector_manifest.py
+  - agent_utilities/messaging/backfill.py
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
   - agent_utilities/protocols/source_connectors/connectors/database.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
