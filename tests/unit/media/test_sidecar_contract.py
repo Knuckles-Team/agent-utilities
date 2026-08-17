@@ -58,10 +58,14 @@ def test_implemented_and_stub_modalities_are_disjoint_and_declared():
         assert sc.capability_for(modality) is not None
 
 
-def test_audio_and_video_are_declared_stub_contracts_only():
-    """W4.6 scope: design the contract, don't implement — both stub
-    modalities must be declared capabilities but ship no adapter module."""
-    assert sc.STUB_MODALITIES == frozenset({"audio", "video"})
+def test_audio_and_video_are_implemented_capabilities():
+    """GOC-07 (audio/video modality stack) wired the adapters the W4.6 ADR
+    declared as design stubs — both modalities are now in
+    IMPLEMENTED_MODALITIES with a real adapter module
+    (``audio_sidecar.py``/``video_sidecar.py``), and STUB_MODALITIES is
+    empty."""
+    assert sc.STUB_MODALITIES == frozenset()
+    assert {"audio", "video"} <= sc.IMPLEMENTED_MODALITIES
     audio = sc.capability_for("audio")
     assert audio.produces == frozenset({"AudioSegment"})
     video = sc.capability_for("video")

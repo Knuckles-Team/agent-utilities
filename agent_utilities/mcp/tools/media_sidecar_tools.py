@@ -1,16 +1,18 @@
-"""``graph_media_sidecar`` — the W4.6 media-sidecar-delegation MCP surface
+"""``graph_media_sidecar`` — the media-sidecar-delegation MCP surface
 (CONCEPT:AU-KG.ingest.media-sidecar-delegation).
 
 Two-surface (MCP + REST — ``agent_utilities/mcp/kg_server.py`` auto-mounts
 the REST twin from ``ACTION_TOOL_ROUTES``) entry point for the sidecar
-delegate pattern: ``ingest_pdf``/``ingest_jpeg`` each store the artifact,
-delegate extraction to the governed fleet sidecar, and through-write the
-resulting pages/spans/loci/embeddings — see ``agent_utilities/media/
-pdf_sidecar.py`` / ``image_sidecar.py`` for the actual write-back, and
-``reports/wave4/ADR-media-sidecar.md`` for the design. ``ingest_audio``/
-``ingest_video`` are DESIGN STUBS this wave (per the ADR's audio/video
-scope, tracked in ``reports/issue-register.md``) — they degrade cleanly with
-a clear "not implemented" payload rather than raising or pretending to work.
+delegate pattern: ``ingest_pdf``/``ingest_jpeg``/``ingest_audio``/
+``ingest_video`` each store the artifact, delegate extraction to the
+governed fleet sidecar, and through-write the resulting pages/spans/loci/
+embeddings — see ``agent_utilities/media/pdf_sidecar.py`` /
+``image_sidecar.py`` / ``audio_sidecar.py`` / ``video_sidecar.py`` for the
+actual write-back, ``reports/wave4/ADR-media-sidecar.md`` for the original
+design, and the GOC-07 lane (audio/video modality stack) for the
+audio/video adapters. ``STUB_MODALITIES`` is empty as of GOC-07 but the
+degrade branch below is kept live so a future modality can be declared as a
+stub again without a shape change here.
 """
 
 from __future__ import annotations
@@ -22,6 +24,10 @@ import json
 from pydantic import Field
 
 from agent_utilities.mcp import kg_server
+from agent_utilities.media.audio_sidecar import (
+    AudioSidecarResult,
+    ingest_audio_via_sidecar,
+)
 from agent_utilities.media.image_sidecar import (
     ImageSidecarResult,
     ingest_jpeg_via_sidecar,
@@ -30,6 +36,10 @@ from agent_utilities.media.pdf_sidecar import PdfSidecarResult, ingest_pdf_via_s
 from agent_utilities.media.sidecar_contract import (
     IMPLEMENTED_MODALITIES,
     STUB_MODALITIES,
+)
+from agent_utilities.media.video_sidecar import (
+    VideoSidecarResult,
+    ingest_video_via_sidecar,
 )
 from agent_utilities.security.error_surface import public_error_json
 
@@ -68,21 +78,21 @@ def register_media_sidecar_tools(mcp) -> None:
     @mcp.tool(
         name="graph_media_sidecar",
         description=(
-            "Delegate a media artifact (PDF, JPEG) to a governed fleet sidecar "
-            "for heavy decode (OCR / image analysis) the pure-Rust engine "
+            "Delegate a media artifact (PDF, JPEG, audio, video) to a governed "
+            "fleet sidecar for heavy decode (OCR / image analysis / "
+            "transcription / keyframe+shot detection) the pure-Rust engine "
             "deliberately does not do in-process, and write the result back as "
             "an ArtifactBundle + EvidenceLocus chain + embeddings through the "
             "EXISTING evidence-spine surfaces (reports/wave4/ADR-media-sidecar.md). "
             "Actions: 'ingest_pdf' (stirlingpdf-mcp OCR -> pages/spans/OCR-word-"
             "boxes as PageBox/DocumentSpan/ImageRegion loci), 'ingest_jpeg' "
-            "(data-science-mcp decode -> pHash/thumbnail/region loci). "
-            "'ingest_audio'/'ingest_video' are DESIGN STUBS this wave (the "
-            "Whisper transcript-segment / keyframe+shot-boundary contracts are "
-            "declared in agent_utilities/media/sidecar_contract.py but no "
-            "adapter is wired yet) and return a clear not-implemented payload "
-            "rather than raising. Every action is best-effort/never-raises: a "
-            "delegation failure or malformed sidecar response returns "
-            "available=false with error set, never an exception."
+            "(data-science-mcp decode -> pHash/thumbnail/region loci), "
+            "'ingest_audio' (audio-transcriber-mcp transcription -> "
+            "AudioSegment loci), 'ingest_video' (data-science-mcp keyframe/"
+            "shot detection -> VideoShot/VideoFrameRange loci). Every action "
+            "is best-effort/never-raises: a delegation failure or malformed "
+            "sidecar response returns available=false with error set, never "
+            "an exception."
         ),
         tags=["graph-os", "media", "delegation", "evidence"],
     )
@@ -93,7 +103,10 @@ def register_media_sidecar_tools(mcp) -> None:
         ),
         artifact_id: str = Field(
             default="",
-            description="The document_id (PDF) or image_id (JPEG) this artifact is filed under.",
+            description=(
+                "The document_id (PDF), image_id (JPEG), audio_id (audio), or "
+                "video_id (video) this artifact is filed under."
+            ),
         ),
         data_b64: str = Field(default="", description="Base64-encoded artifact bytes."),
         source: str = Field(default="", description="Provenance source tag."),
@@ -163,15 +176,23 @@ def register_media_sidecar_tools(mcp) -> None:
                 }
             )
 
-        result: PdfSidecarResult | ImageSidecarResult
+        result: PdfSidecarResult | ImageSidecarResult | AudioSidecarResult | VideoSidecarResult
         try:
             if action == "ingest_pdf":
                 result = ingest_pdf_via_sidecar(
                     data, document_id=artifact_id, source=source, provider=provider
                 )
-            else:
+            elif action == "ingest_jpeg":
                 result = ingest_jpeg_via_sidecar(
                     data, image_id=artifact_id, source=source, provider=provider
+                )
+            elif action == "ingest_audio":
+                result = ingest_audio_via_sidecar(
+                    data, audio_id=artifact_id, source=source, provider=provider
+                )
+            else:
+                result = ingest_video_via_sidecar(
+                    data, video_id=artifact_id, source=source, provider=provider
                 )
         except Exception as exc:  # noqa: BLE001 - a delegation/write-back failure degrades cleanly
             return public_error_json(
