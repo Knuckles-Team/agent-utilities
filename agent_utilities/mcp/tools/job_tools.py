@@ -92,7 +92,8 @@ def register_job_tools(mcp: Any) -> None:
                         kind=KIND_ORCHESTRATOR_TASK,
                         payload_ref=dispatched_id,
                         agent_name=agent_name,
-                    )
+                    ),
+                    engine=engine,
                 )
                 handle["status_url"] = "/api/graph/jobs"
                 handle["status_request"] = {

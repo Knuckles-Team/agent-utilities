@@ -228,7 +228,7 @@ def dispatch_queue_depth(queue: Any = None) -> int:
 
 
 def enqueue_agent_turn(
-    envelope: AgentTurnEnvelope, queue: Any = None
+    envelope: AgentTurnEnvelope, queue: Any = None, engine: Any = None
 ) -> dict[str, Any]:
     """Publish one agent turn and return its job handle.
 
@@ -236,6 +236,25 @@ def enqueue_agent_turn(
     executing in-process: poll ``graph_jobs action=status`` or the collapsed
     ``/api/graph/jobs`` REST surface (orchestrator jobs), or
     the goals API (goal runs) for progress and the executing worker/host.
+
+    ``engine``, when the caller already holds a resolved engine (e.g.
+    ``graph_jobs``'s ``dispatch`` action, which resolves one via
+    ``kg_server._get_engine()`` to build its ``Orchestrator`` two lines
+    above), is reused as-is instead of independently deriving a second one
+    through ``IntelligenceGraphEngine.get_or_create()``. Callers with no
+    engine already in hand (``None``, the default) get the same
+    process-singleton lookup as before — this is additive, not a behavior
+    change for them.
+
+    D-03/GOC-39: a bare ``get_or_create()`` here constructed its own engine
+    independent of whatever the caller already resolved, which is merely
+    redundant in production (both resolve the same process singleton) but a
+    real bug under test doubles — a caller-injected fake engine (e.g.
+    ``tests/unit/test_agent_dispatch.py``'s ``orchestrate_tool`` fixture,
+    which patches ``kg_server._get_engine`` for the ``Orchestrator``/WorkItem
+    calls either side of this one) was silently bypassed here, so this call
+    alone reached for the real process-wide engine and raced its
+    connection/lifecycle against the test's own isolated one.
     """
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     from agent_utilities.knowledge_graph.core.session import resolve_session
@@ -256,7 +275,7 @@ def enqueue_agent_turn(
     if dispatch_queue_depth(q) >= max_depth:
         raise DispatchQueueFull("agent dispatch queue is at its admission bound")
 
-    engine = IntelligenceGraphEngine.get_or_create()
+    engine = engine if engine is not None else IntelligenceGraphEngine.get_or_create()
     work_item_id = f"workitem:dispatch:{envelope.job_id}"
     submit_work_item(
         engine,
