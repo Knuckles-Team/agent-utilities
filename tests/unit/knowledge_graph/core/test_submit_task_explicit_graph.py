@@ -22,13 +22,26 @@ from agent_utilities.security.brain_context import ActorContext, ActorType
 
 class _FakeControlEngine:
     """Minimal WorkItem control authority: enough for `submit_work_item`'s
-    create path (no pre-existing item, no dependencies)."""
+    create path (no pre-existing item, no dependencies), AND for
+    `ensure_ingest_task_work_item`'s post-submit durable admission readback
+    (U-24, `agent_utilities.orchestration.work_item.get_work_item`), which
+    re-queries by id and raises `WorkItemBackendUnavailable` if the row isn't
+    found. Before the node exists this still answers "not found" (so the
+    pre-create idempotency probe in `_submit_work_item` behaves correctly);
+    once `add_node` has stored it, the same id resolves to its properties so
+    the readback that immediately follows `add_node` in the real code path
+    sees what was actually written, instead of the always-empty stub making
+    every submission look like a stranded admission.
+    """
 
     def __init__(self) -> None:
         self.nodes: dict[str, dict] = {}
 
     def query_cypher(self, cypher, params=None):
-        return []  # get_work_item's existence probe: always "not found" here.
+        node_id = (params or {}).get("id")
+        if node_id is not None and node_id in self.nodes:
+            return [{"id": node_id, **self.nodes[node_id]}]
+        return []
 
     def add_node(self, node_id, node_type, properties=None):
         self.nodes[node_id] = dict(properties or {})

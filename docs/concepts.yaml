@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1204
+total_concepts: 1208
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -268,6 +268,13 @@ concepts:
   code_paths:
   - agent_utilities/harness/continuous_evaluation_engine.py
   doc: Multi-Strategy Evaluation
+- id: AU-AHE.evaluation.no-untyped-seam
+  name: a plain
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/workflows/epistemic_sync.py
+  doc: a plain
 - id: AU-AHE.evaluation.parity-surpass-scoreboard
   name: the parity-and-surpass scoreboard vs HarnessX
   pillar: AU-AHE
@@ -309,6 +316,15 @@ concepts:
   code_paths:
   - agent_utilities/graph/reasoning/benchmark.py
   doc: AU-AHE.evaluation.reasoning-topology-benchmark
+- id: AU-AHE.evaluation.return-none-on-failure
+  name: this used to swallow
+  pillar: AU-AHE
+  status: live
+  code_paths:
+  - agent_utilities/workflows/epistemic_sync.py
+  - agent_utilities/workflows/localized_repair.py
+  - agent_utilities/workflows/skill_compiler.py
+  doc: this used to swallow
 - id: AU-AHE.harness.agentic-engineering-patterns
   name: Agentic Engineering Patterns
   pillar: AU-AHE
@@ -1723,6 +1739,14 @@ concepts:
   - agent_utilities/server/app.py
   - agent_utilities/server/webui_mcp_delegation.py
   doc: AU-ECO.mcp.webui-governed-mcp-delegation
+- id: AU-ECO.mcp.webui-voice-transcription-delegation
+  name: AU-ECO.mcp.webui-voice-transcription-delegation
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/server/app.py
+  - agent_utilities/server/webui_voice_delegation.py
+  doc: AU-ECO.mcp.webui-voice-transcription-delegation
 - id: AU-ECO.messaging.alert-intake
   name: messaging alert-intake enabled on port
   pillar: AU-ECO
@@ -4592,6 +4616,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/cli/__init__.py
   - agent_utilities/protocols/voice_supply_chain/__init__.py
   doc: Governed, digest-verified, pinned-revision
 - id: AU-KG.ingest.web-fetch-front-door
@@ -5129,6 +5154,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ontology/classification_claims.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   doc: AU-KG.ontology.classification-claim-multi-category
 - id: AU-KG.ontology.classification-claim-promotion-lifecycle
   name: AU-KG.ontology.classification-claim-promotion-lifecycle
@@ -10391,6 +10417,13 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   doc: Cross-host daemon leadership election via Postgres advisory locks so singleton background ticks
     run on exactly one host fleet-wide
+- id: AU-OS.state.durable-schedule-outbox
+  name: AU-OS.state.durable-schedule-outbox
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/core/schedule_engine.py
+  doc: AU-OS.state.durable-schedule-outbox
 - id: AU-OS.state.fleet-supervisory-plane-at
   name: Fleet supervisory plane at scale — SQL aggregation, paginated and filtered session queries, and
     desired-state pause and kill reconciliation across hosts
