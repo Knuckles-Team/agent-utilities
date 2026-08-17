@@ -190,6 +190,38 @@ def test_bug001_good_input_is_accepted_and_readiness_passes() -> None:
     assert ready is True
 
 
+def test_bug001_worker_pool_refuses_to_start_when_unready(
+    engine: ActivationEngine,
+) -> None:
+    """The startup-time twin of the chokepoint guard: ``start_activation_worker_pool``
+    (what ``main()`` calls) must REFUSE to start a single thread — not start and then
+    silently never process anything — when nothing is bound and diagnostic mode is
+    off. Acceptance gate 1: "Production startup binds canonical executor and fails
+    readiness when unavailable.\""""
+    with pytest.raises(aa.ActivationReadinessError):
+        aa.start_activation_worker_pool(engine, worker_count=2)
+
+
+def test_bug001_worker_pool_starts_once_canonical_executor_is_bound(
+    engine: ActivationEngine,
+) -> None:
+    """Counterpart: once a real executor is bound, the SAME startup call the guard
+    just refused now succeeds and returns live worker threads."""
+
+    def real_executor(ctx: aa.ActivationContext) -> aa.ActivationResult:
+        return aa.ActivationResult(outcome="succeeded")
+
+    aa.set_activation_executor(real_executor)
+    threads, stop = aa.start_activation_worker_pool(engine, worker_count=2)
+    try:
+        assert len(threads) == 2
+        assert all(t.is_alive() for t in threads)
+    finally:
+        stop.set()
+        for t in threads:
+            t.join(timeout=5.0)
+
+
 # ── 3. no receipt-only success can carry a :ToolCall (acceptance gate 6) ─────────────
 
 

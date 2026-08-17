@@ -91,8 +91,26 @@ the lease at the next beat (**bounded-time revocation**, no separate kill channe
 agent-activation-worker --workers 4 --tenant tenant-a --tenant tenant-b
 ```
 
-The full LLM/tool loop plugs in via `set_activation_executor(...)`; until one is bound the
-worker still does real, observable work (drain the mailbox + write provenance).
+The full LLM/tool loop plugs in via `set_activation_executor(...)`; `main()` binds
+[`canonical_activation_executor`] (the `Orchestrator.execute_agent` gateway) automatically
+at startup. **BUG-001 fail-closed contract:** if no executor can be bound, worker startup
+calls `activation_worker_readiness()` and refuses to start the pool at all — it never falls
+back to a receipt-only "success". `process_one_activation` re-checks the same condition per
+item (belt-and-suspenders against a direct caller that bypasses the startup check): with no
+executor bound and diagnostic mode off, the WorkItem is committed `failed`/retryable with
+`error_ref=…executor_unavailable`, the mailbox is left undrained, and **no `:ToolCall` or
+`:RunTrace` is written** — a claimed-but-refused activation leaves no side effect indistin-
+guishable from a real run.
+
+A `--diagnostic-receipt-only` flag (or `AU_ACTIVATION_DIAGNOSTIC_MODE=1`) is an explicit,
+grep-able dev/test-only escape hatch: the receipt-only default executor may then drain the
+mailbox and commit `succeeded`, but it writes an `:ActivationReceipt` — never a `:ToolCall`
+— and the WorkItem/receipt are tagged `executor_status=unavailable` so no consumer can read
+it as a real agent turn. `ActivationExecutorStatus` (`executed` / `failed` / `unavailable`)
+is stamped authoritatively by `process_one_activation` itself, never trusted from the
+executor's own return value, and a bound executor's own failure is tagged `failed` (a real
+attempt happened), distinct from `unavailable` (no attempt was made). A production
+deployment must never pass `--diagnostic-receipt-only`.
 
 ## Local scale proof (feeds W5.3)
 
@@ -119,4 +137,5 @@ pool (the W5.1 k8s Deployment) gives true N-core parallelism rather than the GIL
 in-process thread pool. The 1M-instance cluster soak is W5.3.
 
 [`AGENT_LIFECYCLE_DEF`]: ../../agent_utilities/orchestration/agent_activation.py
+[`canonical_activation_executor`]: ../../agent_utilities/orchestration/agent_activation.py
 [`activation_priority_class`]: ../../agent_utilities/orchestration/agent_activation.py
