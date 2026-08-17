@@ -1389,7 +1389,8 @@ def test_submit_replays_idempotency_key_without_an_explicit_work_item_id(
     )
     item = wi.get_work_item(cas_engine, first)
     assert item is not None
-    assert item["payload_ref"] == "attempt-1"  # the replay was a no-op, not an overwrite
+    # the replay was a no-op, not an overwrite
+    assert item["payload_ref"] == "attempt-1"
 
 
 def test_submit_idempotency_key_replay_is_tenant_scoped(
