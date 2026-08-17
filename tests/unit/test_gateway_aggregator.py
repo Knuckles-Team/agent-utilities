@@ -97,3 +97,67 @@ async def test_aggregator_fetch_one(tmp_path):
     assert result_fail.status == "error"
     assert result_fail.error is not None
     assert "not found" in result_fail.error
+
+
+@pytest.mark.asyncio
+async def test_fetch_dashboard_subset_fetches_only_the_named_widgets(
+    tmp_path, monkeypatch
+):
+    """BUG-019 (GOC-29): ``fetch_dashboard_subset`` is what lets a caller that
+    already knows its subscribed widget set (the dashboard websocket, once a
+    client has sent ``{"type": "subscribe", ...}``) fetch only those widgets
+    instead of polling every configured service via ``fetch_all()`` and
+    discarding the rest. Proves both that only the requested ids come back,
+    AND that an unrequested widget is never fetched at all (a second,
+    fetch-type widget that would raise if called is included precisely to
+    catch a regression back to "fetch everything, filter after")."""
+
+    from agent_utilities.gateway import api as gateway_api
+
+    class OtherWidget(BaseWidget):
+        service_type = "must-not-be-called"
+        display_name = "Must Not Be Called"
+
+        def get_fields(self):
+            return []
+
+        def fetch_data(self, config: ServiceConfig) -> WidgetData:
+            raise AssertionError("an unsubscribed widget must never be fetched")
+
+    registry = Registry()
+    registry._widgets["portainer"] = MockWidget
+    registry._widgets["must-not-be-called"] = OtherWidget
+
+    config_file = tmp_path / "services.yaml"
+    config_manager = ConfigManager(config_path=config_file)
+    services = [
+        ServiceConfig(
+            id="portainer-test",
+            name="Portainer Test",
+            widget_type="portainer",
+            url="http://localhost:9000",
+            category=ServiceCategory.INFRASTRUCTURE,
+        ),
+        ServiceConfig(
+            id="other-test",
+            name="Other Test",
+            widget_type="must-not-be-called",
+            url="http://localhost:9001",
+            category=ServiceCategory.INFRASTRUCTURE,
+        ),
+    ]
+    group = ServiceGroup(name="Infrastructure", services=services)
+    layout = DashboardLayout(groups=[group])
+    config_manager.save(layout)
+
+    agg = Aggregator(registry=registry, config_manager=config_manager)
+    monkeypatch.setattr(gateway_api, "_aggregator", agg)
+
+    results = await gateway_api.fetch_dashboard_subset({"portainer-test"})
+
+    assert set(results) == {"portainer-test"}
+    assert results["portainer-test"].status == "healthy"
+
+    # An explicitly empty subscription fetches nothing.
+    empty_results = await gateway_api.fetch_dashboard_subset(set())
+    assert empty_results == {}
