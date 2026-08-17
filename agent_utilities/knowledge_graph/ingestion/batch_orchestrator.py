@@ -18,8 +18,15 @@ Design (Phase-4 scale-out of ``.specify/specs/ecosystem-evolution``):
     in-flight depth (``KG_INGEST_INFLIGHT``) from the native WorkItem queue, so
     the auto-scaling workers and the Rust engine stay within their op budget.
   - **Idempotent submit** — ``engine.submit_task`` already dedupes in-flight by
-    target; the manifest is recorded at submit time keyed by ``head_sha`` so a
-    re-run with the same HEAD is a no-op.
+    target. The bulk-prefilter watermark (CONCEPT:AU-KG.ingest.exact-parser-acknowledgement)
+    is recorded by the structural ingest itself (``ingestion/engine.py``'s
+    ``_run_codebase_structural``) only after a verified, fully-acknowledged
+    parse — NEVER here at submit time. Recording it at submission (as this
+    module used to) means a repo whose ingest then crashes, fails, or is
+    rejected by the parser-acknowledgement gate would already read back as
+    "unchanged" on the next batch call and be silently skipped forever — the
+    same "no watermark advance on error" authority the per-file/HEAD
+    watermarks enforce, applied to this coarse dir-digest prefilter too.
 
 The same path serves incremental re-ingest: a push webhook resolves to a single
 :class:`RepoRef` whose ``head_sha`` moved, and ``submit_batch`` re-queues exactly
@@ -166,10 +173,14 @@ class RepoBatchIngestor:
                 continue
             progress.submitted += 1
             progress.job_ids.append(job_id)
-            if ref.head_sha:
-                self.manifest.record(
-                    self.graph_name, _CATEGORY, ref.clone_path, ref.head_sha
-                )
+            # No manifest.record here (CONCEPT:AU-KG.ingest.exact-parser-acknowledgement):
+            # submitting a task only enqueues it -- it proves nothing about
+            # whether the ingest will ever actually run or succeed. The
+            # bulk-prefilter watermark is recorded ONLY by the structural
+            # ingest itself, after a verified, fully-acknowledged parse
+            # (ingestion/engine.py's _run_codebase_structural). Recording it
+            # here would let a repo whose ingest crashes or is rejected read
+            # back as "unchanged" and be silently skipped forever.
             if inflight is not None:
                 inflight += 1
         return progress

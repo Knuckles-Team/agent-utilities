@@ -335,7 +335,21 @@ def _claim_request(
     )
 
 
-def _normalize_native_claim(raw: Any) -> dict[str, Any] | None:
+def _normalize_native_claim(
+    raw: Any, *, tenant: str | None = None
+) -> dict[str, Any] | None:
+    """Normalize a native ``ClaimWorkItem`` response into the claim dict this
+    module's callers pass around.
+
+    The wire response deliberately omits ``tenant`` (it was already verified
+    at admission, and a claim is not re-admission). ``tenant`` here is the
+    CALLER-supplied, already-verified admission tenant for this exact item —
+    never trust an absent wire field as license to fabricate an untenanted
+    claim. Passing ``tenant=None`` (the default) preserves that field as
+    unknown for a caller that genuinely cannot supply it yet; every call site
+    in this module that CAN resolve the real tenant before or immediately
+    after the native call does so and passes it through.
+    """
     try:
         result = ClaimWorkItemResult.model_validate(raw)
     except (TypeError, ValueError) as exc:
@@ -361,7 +375,7 @@ def _normalize_native_claim(raw: Any) -> dict[str, Any] | None:
     return {
         "work_item_id": str(resolved_id),
         "kind": result.kind,
-        "tenant": None,
+        "tenant": tenant,  # caller-verified admission tenant, never the (absent) wire field
         "payload_ref": result.payload_ref,
         "depends_on": [],
         "lease_owner": result.lease_holder_ref,
@@ -1209,7 +1223,10 @@ def claim_specific(
         ),
     )
     # A negative response is authoritative. There is no scan/CAS fallback.
-    return _normalize_native_claim(native)
+    # ``item["tenant"]`` was already verified truthy above -- pass it through
+    # as the claim's tenant rather than letting the wire's (deliberately
+    # tenant-omitting) response normalize to an untenanted claim.
+    return _normalize_native_claim(native, tenant=item.get("tenant"))
 
 
 def claim_next(
@@ -1259,7 +1276,15 @@ def claim_next(
     if claimed is None:
         return None
     claimed_item_id = claimed["work_item_id"]
+    # A blind claim cannot know the tenant before the engine selects an item,
+    # so it is not yet available to pass into _normalize_native_claim above.
+    # This readback already happens (for the consent gate); reuse it to
+    # backfill the durably-admitted tenant onto the claim rather than leaving
+    # it None -- a later fenced call (heartbeat/checkpoint/commit) must never
+    # lose tenant authority just because this was a blind claim.
     item = get_work_item(engine, claimed_item_id)
+    if item is not None:
+        claimed["tenant"] = item.get("tenant")
     if _consent_still_live(item, now=now):
         return claimed
     try:
@@ -2133,9 +2158,18 @@ def ensure_ingest_task_work_item(
     ``prio_bucket``/``resource_class``/``fairness_group`` mirror the
     ingestion queue's own lane/priority/admission at submission time, so
     they're visible on the authoritative WorkItem too.
+
+    Returns the job id only after a durable admission readback through the
+    SAME control authority confirms the WorkItem it just admitted actually
+    persisted with the requested execution authority (kind, payload
+    reference, and — when the caller pinned one — tenant).
+    ``submit_work_item`` returning without raising is not itself proof of a
+    durable, observable admission; this closes that gap for the one caller
+    (the ingestion-job admission path) where an unobservable "accepted but
+    not there" WorkItem would silently strand a job.
     """
     item_id = ingest_task_work_item_id(job_id)
-    return submit_work_item(
+    submitted_id = submit_work_item(
         engine,
         kind="ingest_task",
         payload_ref=job_id,
@@ -2152,6 +2186,22 @@ def ensure_ingest_task_work_item(
         idempotency_key=item_id,
         now=now,
     )
+    admitted = get_work_item(engine, submitted_id)
+    if admitted is None:
+        raise WorkItemBackendUnavailable(
+            f"durable admission readback failed for ingest task {job_id!r}: "
+            f"WorkItem {submitted_id!r} not found immediately after submit"
+        )
+    if admitted.get("kind") != "ingest_task" or admitted.get("payload_ref") != job_id:
+        raise WorkItemBackendUnavailable(
+            f"durable admission readback mismatch for ingest task {job_id!r}: "
+            f"kind={admitted.get('kind')!r} payload_ref={admitted.get('payload_ref')!r}"
+        )
+    if tenant and str(admitted.get("tenant") or "") != _work_tenant(tenant):
+        raise WorkItemBackendUnavailable(
+            f"durable admission readback tenant mismatch for ingest task {job_id!r}"
+        )
+    return submitted_id
 
 
 def claim_ingest_task_work_item(

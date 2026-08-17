@@ -15,6 +15,22 @@ from typing import Any
 
 from ..models import CodeEntity, EnrichmentEdge, ExtractionResult, TestEntity
 
+
+class IncompleteParse(RuntimeError):
+    """A native parse/index response did not exactly acknowledge every
+    requested input, or a per-file parse could not be verified.
+
+    Raised instead of ever converting a partial, malformed, unknown-identity,
+    duplicate-identity, or genuinely failed parse into an indistinguishable
+    empty *successful* :class:`~agent_utilities.knowledge_graph.enrichment.models.ExtractionResult`.
+    A caller (:class:`~agent_utilities.knowledge_graph.enrichment.pipeline.EnrichmentPipeline`)
+    MUST NOT persist a per-file content hash or advance a repository watermark
+    for the batch this was raised from — "no entities found" (a verified,
+    count-covered empty parse) is a distinct outcome from "omitted"/"failed"/
+    "malformed", and only the former is a safe basis for a watermark advance.
+    """
+
+
 # A parse function: (file_path, source_bytes) -> Rust ParseResult dict
 ParseFn = Callable[[str, bytes], dict[str, Any]]
 # A batched parse function: [(file_path, source_bytes), ...] -> [ParseResult dict, ...]
@@ -163,7 +179,41 @@ def entities_from_index_result(
     bound to definitions, not name-matched in Python. ``CALLS`` stays code→code
     (test coverage is the separate name-resolved ``COVERS`` edge); resolved-edge
     properties (``strategy``/``confidence``) ride on each edge.
+
+    Exact acknowledgement: ``content_hashes`` is also the REQUEST set (its keys
+    are every input file's logical identity). This function raises
+    :class:`IncompleteParse` — leaving the caller nothing to persist — when the
+    response cannot be trusted to cover exactly that set:
+
+    * ``index["files_parsed"]`` does not equal the number of requested files
+      (a truncated/miscounted/stale response).
+    * a ``SYMBOL`` node names a file that was never requested (unknown
+      identity).
+
+    A requested file with **no** ``SYMBOL`` node in the response is *not*
+    silently dropped: once ``files_parsed`` has confirmed the engine actually
+    processed the full requested set, that file's absence can only mean a
+    verified, genuinely empty parse (CONCEPT:AU-KG.ingest.exact-parser-acknowledgement)
+    — it is emitted as an explicit zero-entity :class:`ExtractionResult`
+    (its ``content_hash`` locally computed, never trusted from the wire), so
+    the caller's hash/watermark bookkeeping accounts for every requested file
+    exactly once, distinguishing "parsed, found nothing" from "never
+    acknowledged".
     """
+    requested = set(content_hashes)
+    files_parsed = index.get("files_parsed")
+    try:
+        files_parsed_int = int(files_parsed)
+    except (TypeError, ValueError) as exc:
+        raise IncompleteParse(
+            f"index result files_parsed={files_parsed!r} is not an integer"
+        ) from exc
+    if files_parsed_int != len(requested):
+        raise IncompleteParse(
+            f"index result files_parsed={files_parsed_int} does not match the "
+            f"{len(requested)} requested input(s)"
+        )
+
     nodes = index.get("nodes", []) or []
     by_file: dict[str, list[dict[str, Any]]] = {}
     engine_to_entity: dict[str, str] = {}
@@ -173,6 +223,10 @@ def entities_from_index_result(
             continue
         props = node.get("properties", {}) or {}
         fp = props.get("file_path", "")
+        if fp not in requested:
+            raise IncompleteParse(
+                f"index result references unrequested file {fp!r}"
+            )
         by_file.setdefault(fp, []).append(node)
         mapped = _entity_id_for(props, fp)
         if mapped is not None:
@@ -186,6 +240,11 @@ def entities_from_index_result(
         )
         for fp, file_nodes in by_file.items()
     ]
+    # Verified-empty files: requested, count-covered, but zero SYMBOL nodes.
+    for fp in requested - set(by_file):
+        results.append(
+            ExtractionResult(file_path=fp, content_hash=content_hashes.get(fp, ""))
+        )
 
     edges: list[EnrichmentEdge] = []
     seen: set[tuple[str, str, str]] = set()
@@ -219,13 +278,18 @@ def extract_source(file_path: str, source: str, parse_fn: ParseFn) -> Extraction
 
     The Rust engine dispatches on file extension, so Python/JS/TS/Go/Rust/Java/
     C/C++/C# all flow through here; the ``language`` is carried on each entity.
+
+    A ``parse_fn`` failure is REJECTED (raises :class:`IncompleteParse`), never
+    silently converted into an empty *successful* result — a genuinely empty
+    file and a failed parse must stay distinguishable to the caller's
+    hash/watermark bookkeeping (CONCEPT:AU-KG.ingest.exact-parser-acknowledgement).
     """
     raw = source.encode("utf-8", "surrogatepass")
     content_hash = hashlib.sha256(raw).hexdigest()
     try:
         parsed = parse_fn(file_path, raw)
-    except Exception:
-        return ExtractionResult(file_path=file_path, content_hash=content_hash)
+    except Exception as exc:
+        raise IncompleteParse(f"parse failed for {file_path!r}: {exc}") from exc
     return entities_from_parse_result(file_path, content_hash, parsed or {})
 
 
@@ -237,21 +301,29 @@ def extract_source_files(
     ``files`` is ``[(file_path, source_text), ...]``; ``batch_parse_fn`` takes
     ``[(file_path, source_bytes), ...]`` and returns one ParseResult dict per file
     in order. Returns one :class:`ExtractionResult` per input file, in input
-    order. A file whose parse failed or is missing from the response degrades to
-    an empty result (its ``content_hash`` is still recorded), mirroring the
-    per-file fault tolerance of :func:`extract_source`. (CONCEPT:EG-KG.compute.graph-compute-engine)
+    order. Raises :class:`IncompleteParse` — rather than degrading a
+    failed/missing slot into an indistinguishable empty successful result — when
+    the batch call itself fails, or when the response does not contain exactly
+    one result per requested input. (CONCEPT:EG-KG.compute.graph-compute-engine,
+    CONCEPT:AU-KG.ingest.exact-parser-acknowledgement)
     """
     raw = [(fp, src.encode("utf-8", "surrogatepass")) for fp, src in files]
     hashes = [hashlib.sha256(b).hexdigest() for _, b in raw]
     try:
         parsed_list = batch_parse_fn(raw)
-    except Exception:
-        parsed_list = []
-    out: list[ExtractionResult] = []
-    for i, (fp, _src) in enumerate(files):
-        parsed = parsed_list[i] if i < len(parsed_list) else None
-        out.append(entities_from_parse_result(fp, hashes[i], parsed or {}))
-    return out
+    except Exception as exc:
+        raise IncompleteParse(
+            f"batch parse failed for {len(files)} file(s): {exc}"
+        ) from exc
+    if len(parsed_list) != len(files):
+        raise IncompleteParse(
+            f"batch parse returned {len(parsed_list)} result(s) for "
+            f"{len(files)} requested file(s)"
+        )
+    return [
+        entities_from_parse_result(fp, hashes[i], parsed_list[i] or {})
+        for i, (fp, _src) in enumerate(files)
+    ]
 
 
 def resolve_covers(results: list[ExtractionResult]) -> list[EnrichmentEdge]:

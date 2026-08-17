@@ -29,6 +29,7 @@ from .cards import CapabilityCard, LLMFn, generate_symbol_cards
 from .classify import TestThresholds, classify_test
 from .extractors.code_test import (
     BatchParseFn,
+    IncompleteParse,
     IndexFn,
     ParseFn,
     entities_from_index_result,
@@ -418,7 +419,10 @@ class EnrichmentPipeline:
         # The ingest root's name is the best-effort hint for the deployed service a
         # route is servedBy (CONCEPT:AU-KG.enrichment.http-route-extraction).
         return self.enrich_files(
-            files, service_hint=Path(target_path).name, iac_files=iac
+            files,
+            service_hint=Path(target_path).name,
+            iac_files=iac,
+            source_root=target_path,
         )
 
     def enrich_files(
@@ -426,8 +430,28 @@ class EnrichmentPipeline:
         files: Iterable[Path],
         service_hint: str = "",
         iac_files: list[tuple[str, str]] | None = None,
+        source_root: str | Path | None = None,
     ) -> EnrichmentSummary:
+        """Enrich an explicit file set.
+
+        ``source_root``, when supplied, is the repository-relative containment
+        root (CONCEPT:AU-KG.ingest.exact-parser-acknowledgement): every input's
+        resolved real path must stay inside it, or the whole batch is rejected
+        (:class:`IncompleteParse`) rather than silently ingesting content a
+        symlink smuggled in from outside the repository. Any raised
+        :class:`IncompleteParse` — from root containment, an unreadable file,
+        duplicate request identity, or a downstream parser acknowledgement
+        failure — leaves ``self._hash_seen`` and this batch's writes entirely
+        unpersisted, so a caller MUST NOT advance a per-file hash or repository
+        watermark for it.
+        """
         summary = EnrichmentSummary()
+        root_real: Path | None = None
+        if source_root is not None:
+            try:
+                root_real = Path(source_root).resolve(strict=False)
+            except OSError:
+                root_real = Path(source_root)
 
         # Phase 1 — pre-hash filter (CONCEPT:EG-KG.storage.nonblocking-checkpoint): hash the raw bytes BEFORE
         # parsing so an unchanged file costs one local sha256, not a Rust-engine
@@ -435,11 +459,23 @@ class EnrichmentPipeline:
         # content_hash`` (same ``surrogatepass`` encoding), so the skip is exact.
         pending: list[tuple[str, str]] = []  # (file_path, source_text)
         pending_hashes: dict[str, str] = {}  # file_path -> content_hash
+        unreadable: list[str] = []
         for fp in files:
             summary.files_seen += 1
+            p = Path(fp)
+            if root_real is not None:
+                try:
+                    real = p.resolve(strict=False)
+                except OSError:
+                    real = p
+                if real != root_real and root_real not in real.parents:
+                    raise IncompleteParse(
+                        f"file escapes source root {root_real}: {fp}"
+                    )
             try:
-                source = Path(fp).read_text(encoding="utf-8", errors="surrogatepass")
+                source = p.read_text(encoding="utf-8", errors="surrogatepass")
             except (OSError, UnicodeDecodeError):
+                unreadable.append(str(fp))
                 continue
             content_hash = hashlib.sha256(
                 source.encode("utf-8", "surrogatepass")
@@ -449,6 +485,19 @@ class EnrichmentPipeline:
                 continue
             pending.append((str(fp), source))
             pending_hashes[str(fp)] = content_hash
+
+        if unreadable:
+            raise IncompleteParse(
+                f"{len(unreadable)} of {summary.files_seen} requested file(s) "
+                f"could not be read: {unreadable[:5]}"
+                + (" ..." if len(unreadable) > 5 else "")
+            )
+        if len(pending) != len(pending_hashes):
+            raise IncompleteParse(
+                "duplicate identity in the requested input set: "
+                f"{len(pending)} input(s) resolved to only "
+                f"{len(pending_hashes)} unique file(s)"
+            )
 
         # Phase 2 — parse + resolve the changed files. PRIMARY path (CONCEPT:EG-KG.compute.type-scope-resolved-call):
         # one ``index_repository`` round-trip both parses every file and resolves
@@ -464,14 +513,24 @@ class EnrichmentPipeline:
                     (fp, src.encode("utf-8", "surrogatepass")) for fp, src in pending
                 ]
                 index = self.index_fn(raw)
+            except Exception as exc:  # noqa: BLE001 — the RPC itself failed or is
+                # unsupported by this engine build: degrade to the per-file parse
+                # path, which independently re-verifies every file rather than
+                # trusting anything from the failed call.
+                logger.debug(
+                    "index_repository call failed (%s); parse fallback", exc
+                )
+                results = []
+            else:
+                # A response WAS received: exact acknowledgement validation
+                # (entities_from_index_result) is authoritative from here.
+                # IncompleteParse — partial/unknown-identity/miscounted — MUST
+                # propagate rather than be silently smoothed over by the parse
+                # fallback below: a native response that answered but cannot be
+                # trusted is a defect to surface, not mask.
                 results, resolved = entities_from_index_result(index, pending_hashes)
                 call_edges = [e for e in resolved if e.rel_type == "CALLS"]
                 struct_edges = [e for e in resolved if e.rel_type != "CALLS"]
-            except Exception as exc:  # noqa: BLE001 — degrade to the parse path
-                logger.debug(
-                    "index_repository resolve failed (%s); parse fallback", exc
-                )
-                results = []
         if not results:
             if self.batch_parse_fn is not None and pending:
                 results = extract_source_files(pending, self.batch_parse_fn)

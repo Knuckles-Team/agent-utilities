@@ -142,6 +142,7 @@ def test_entities_from_index_result_maps_symbols_and_resolved_edges():
                 "properties": {"name": "Base"},
             },
         ],
+        "files_parsed": 2,
     }
     results, edges = entities_from_index_result(index, {"app.py": "h1", "m.py": "h2"})
 
