@@ -572,14 +572,28 @@ def _write_work_item_provenance(
     evidence: Any,
     policy_decision_node: Any,
     grant_id: str | None,
-) -> None:
-    """Write provenance for one executed WorkItem.
+) -> str:
+    """Persist one WorkItem's Observation/Claim/Action/Trace as ONE atomic batch.
 
-    Best-effort (mirrors ``action_policy._audit``'s posture: an audit-write
-    failure never unwinds the decision/execution that already happened).
+    BUG-015/GOC-20 (B8, ``decisions/GOC-20-atomic-outcome-provenance.md``):
+    previously this wrote four nodes with four separate, non-atomic
+    ``engine.add_node`` calls and returned ``None`` on both total success and
+    total failure -- the caller (:func:`execute_work_item_turn`) never
+    inspected the return value at all, so a WorkItem could report
+    ``"completed"`` with zero provenance nodes. It now returns
+    ``"written"``/``"unavailable"``/``"failed"`` -- never ``None`` -- mirroring
+    ``agent_runner._persist_execution_provenance_batch``'s established
+    contract, and commits all four nodes through the engine's native
+    all-or-nothing typed batch instead of four independent writes. There is
+    no serial per-node fallback: an all-or-nothing failure must never be
+    reinterpreted as a partial write.
     """
     if engine is None:
-        return
+        return "unavailable"
+    batch_write = getattr(engine, "batch_typed_mutations", None)
+    if not callable(batch_write):
+        return "unavailable"
+
     from agent_utilities.messaging.bus_privacy import bus_reference
     from agent_utilities.models.knowledge_graph import (
         ActionNode,
@@ -618,7 +632,6 @@ def _write_work_item_provenance(
         obs_props = observation.to_graph_properties(exclude={"id"})
         obs_props["work_item_id"] = work_item_id
         obs_props["lease_id"] = lease_id
-        engine.add_node(obs_id, "Observation", properties=obs_props)
 
         policy_claim = ClaimNode(
             id=claim_node_id,
@@ -633,7 +646,6 @@ def _write_work_item_provenance(
         claim_props = policy_claim.to_graph_properties(exclude={"id"})
         claim_props["work_item_id"] = work_item_id
         claim_props["policy_decision_id"] = policy_decision_node.id
-        engine.add_node(claim_node_id, "Claim", properties=claim_props)
 
         action = ActionNode(
             id=action_id,
@@ -648,7 +660,6 @@ def _write_work_item_provenance(
         action_props["policy_decision_id"] = policy_decision_node.id
         action_props["capability_grant_id"] = grant_id or ""
         action_props["agent_id"] = agent_ref
-        engine.add_node(action_id, "Action", properties=action_props)
 
         trace = TraceNode(
             id=trace_id,
@@ -660,9 +671,39 @@ def _write_work_item_provenance(
         )
         trace_props = trace.to_graph_properties(exclude={"id"})
         trace_props["lease_id"] = lease_id
-        engine.add_node(trace_id, "Trace", properties=trace_props)
-    except Exception as e:  # noqa: BLE001 — provenance is audit, never blocks the outcome
-        logger.warning("work-item provenance write failed (%s)", type(e).__name__)
+
+        mutations = [
+            {
+                "kind": "node",
+                "id": obs_id,
+                "node_type": "Observation",
+                "properties": obs_props,
+            },
+            {
+                "kind": "node",
+                "id": claim_node_id,
+                "node_type": "Claim",
+                "properties": claim_props,
+            },
+            {
+                "kind": "node",
+                "id": action_id,
+                "node_type": "Action",
+                "properties": action_props,
+            },
+            {
+                "kind": "node",
+                "id": trace_id,
+                "node_type": "Trace",
+                "properties": trace_props,
+            },
+        ]
+        ok = batch_write(mutations)
+    except Exception as e:  # noqa: BLE001 — an all-or-nothing batch failure, never
+        # reinterpreted as a partial write (BUG-015/GOC-20 B8).
+        logger.warning("work-item provenance batch failed (%s)", type(e).__name__)
+        return "failed"
+    return "written" if ok else "unavailable"
 
 
 def _finalize_work_item(
@@ -674,7 +715,23 @@ def _finalize_work_item(
     reward: float,
     feedback_text: str,
 ) -> str:
-    """Commit the WorkItem, then append non-authoritative outcome evidence."""
+    """Commit the WorkItem, then durably append its OutcomeEvaluation.
+
+    BUG-015/GOC-20 (B7, ``decisions/GOC-20-atomic-outcome-provenance.md``): the
+    WorkItem status CAS (:func:`~agent_utilities.orchestration.work_item
+    .commit_execution_work_item`) is the existing atomic, fenced B6 boundary —
+    one redb transaction with its outbox row, CAS'd on lease epoch/fencing
+    token — and is unchanged here. The OutcomeEvaluation append that follows
+    it is no longer best-effort-and-silent: previously a failed append was
+    caught, logged at ``warning``, and never surfaced, so this function
+    returned ``"committed"`` (or the terminal status) whether or not the
+    OutcomeEvaluation node actually landed. It now returns ``"degraded"``
+    instead whenever that append does not durably land (no native typed-batch
+    capability, or the batch itself fails) — a caller can no longer read the
+    WorkItem's own committed status as proof its OutcomeEvaluation exists.
+    There is no serial fallback: a batch that cannot commit atomically is
+    reported, never silently reattempted node-by-node.
+    """
     if engine is None:
         return "missing"
     from agent_utilities.models.knowledge_graph import OutcomeEvaluationNode
@@ -695,25 +752,40 @@ def _finalize_work_item(
         return str(committed)
 
     outcome_id = f"outcome:work_item:{work_item_id}:{secrets.token_hex(16)}"
-    try:
-        clean_feedback, _privacy_report = PersistencePrivacyGuard().sanitize_text(
-            feedback_text
-        )
-        outcome = OutcomeEvaluationNode(
-            id=outcome_id,
-            name=f"Outcome: {work_item_id}",
-            reward=reward,
-            feedback_text=clean_feedback,
-            lease_id=claim.get("lease_id", ""),
-            dag_id=claim.get("dag_id", ""),
-        )
-        engine.add_node(
-            outcome_id,
-            "OutcomeEvaluation",
-            properties=outcome.to_graph_properties(exclude={"id"}),
-        )
-    except Exception as e:  # noqa: BLE001 — writeback is durable-best-effort
-        logger.warning("work-item outcome append failed (%s)", type(e).__name__)
+    batch_write = getattr(engine, "batch_typed_mutations", None)
+    outcome_written = False
+    if callable(batch_write):
+        try:
+            clean_feedback, _privacy_report = PersistencePrivacyGuard().sanitize_text(
+                feedback_text
+            )
+            outcome = OutcomeEvaluationNode(
+                id=outcome_id,
+                name=f"Outcome: {work_item_id}",
+                reward=reward,
+                feedback_text=clean_feedback,
+                lease_id=claim.get("lease_id", ""),
+                dag_id=claim.get("dag_id", ""),
+            )
+            outcome_written = bool(
+                batch_write(
+                    [
+                        {
+                            "kind": "node",
+                            "id": outcome_id,
+                            "node_type": "OutcomeEvaluation",
+                            "properties": outcome.to_graph_properties(exclude={"id"}),
+                        }
+                    ]
+                )
+            )
+        except Exception as e:  # noqa: BLE001 — a failed OutcomeEvaluation write must
+            # DEGRADE the reported status, never be swallowed as if it landed
+            # (BUG-015/GOC-20 B7).
+            logger.warning("work-item outcome append failed (%s)", type(e).__name__)
+            outcome_written = False
+    if not outcome_written:
+        return "degraded"
     return str(committed or "blocked")
 
 
@@ -748,7 +820,12 @@ def execute_work_item_turn(
     ``reward=0.0``, AU-P0-3 fail-closed), ``"fenced"`` (this holder's lease
     was reclaimed by a newer holder before it could commit — the commit is
     rejected, no writeback happens, AU-P0-3 fencing), ``"completed"`` |
-    ``"failed"`` (the executor ran; writeback recorded). Never raises — an
+    ``"failed"`` (the executor ran; writeback recorded), ``"degraded"``
+    (BUG-015/GOC-20: the WorkItem status itself committed, but its required
+    OutcomeEvaluation and/or Observation/Claim/Action/Trace provenance did
+    NOT durably land — the caller must not treat this as a clean
+    ``"completed"``/``"failed"``/``"blocked"``/``"denied"`` outcome; see
+    ``decisions/GOC-20-atomic-outcome-provenance.md``). Never raises — an
     executor exception is caught and recorded as a failed outcome, mirroring
     :func:`_execute_orchestrator_turn`'s durable failure path.
 
@@ -842,7 +919,7 @@ def execute_work_item_turn(
             lease.close()
         if finalization in {"fenced", "missing", "conflict"}:
             return "fenced"
-        _write_work_item_provenance(
+        provenance_status = _write_work_item_provenance(
             engine,
             work_item_id=work_item_id,
             claim=claim,
@@ -853,6 +930,12 @@ def execute_work_item_turn(
             policy_decision_node=policy_decision_node,
             grant_id=None,
         )
+        # BUG-015/GOC-20 (B7/B8): the WorkItem's OutcomeEvaluation and its
+        # Observation/Claim/Action/Trace provenance are both REQUIRED — a
+        # terminal report may not claim a clean outcome while either is
+        # missing. See decisions/GOC-20-atomic-outcome-provenance.md.
+        if finalization == "degraded" or provenance_status != "written":
+            return "degraded"
         return "blocked" if status == "blocked" else "denied"
 
     # Capability grant — resolve an existing grant, or self-issue a bootstrap
@@ -928,7 +1011,7 @@ def execute_work_item_turn(
         lease.close()
     if finalization in {"fenced", "missing", "conflict"}:
         return "fenced"
-    _write_work_item_provenance(
+    provenance_status = _write_work_item_provenance(
         engine,
         work_item_id=work_item_id,
         claim=claim,
@@ -939,6 +1022,11 @@ def execute_work_item_turn(
         policy_decision_node=policy_decision_node,
         grant_id=grant_id,
     )
+    # BUG-015/GOC-20 (B7/B8): a WorkItem may not report "completed"/"failed"
+    # while its OutcomeEvaluation or Observation/Claim/Action/Trace provenance
+    # did not durably land. See decisions/GOC-20-atomic-outcome-provenance.md.
+    if finalization == "degraded" or provenance_status != "written":
+        return "degraded"
     return status
 
 
