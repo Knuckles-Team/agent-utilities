@@ -836,6 +836,11 @@ class QueryMixin(_Base):
                 mode=mode if mode in ("hyde", "standard", "deep") else "hyde",
                 self_correct=self_correct,
                 corpus_id=corpus_id,
+                # GOC-83-W04: thread through so each sub-query's own
+                # retrieve_hybrid ACL-filters its raw pool before internal
+                # trim, same as the non-hyde/deep branch below. No-op when
+                # `session` is None.
+                session=session,
             )
             # ``plan_and_retrieve`` may return either the node list or a wrapper
             # dict ({results|nodes: [...]}); normalize to the node list.
@@ -852,6 +857,13 @@ class QueryMixin(_Base):
                 target_paths=target_paths,
                 corpus_id=corpus_id,
                 as_of=as_of,
+                # GOC-83-W04: thread the session down so `retrieve_hybrid`
+                # ACL-filters its OWN raw candidate pools before its internal
+                # sort/rerank/trim — closing the crowd-out channel that lives
+                # inside the retriever, not just at this method's own return
+                # (see `retrieve_hybrid`'s `session` docstring). No-op when
+                # `session` is None, matching every other caller exactly.
+                session=session,
             )
         # U-107/U-132 (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval): ACL/owner/
         # scope enforcement runs on the RAW candidate set, before archive trimming,
