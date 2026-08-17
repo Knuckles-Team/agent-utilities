@@ -67,6 +67,7 @@ __all__ = [
     "submit_work_item",
     "submit_work_item_atomic",
     "get_work_item",
+    "find_work_item_by_idempotency_key",
     "claim_specific",
     "claim_next",
     "current_work_item_claim",
@@ -629,6 +630,43 @@ def get_work_item(engine: Any, item_id: str) -> dict[str, Any] | None:
     return row
 
 
+def find_work_item_by_idempotency_key(
+    engine: Any, *, tenant: str, idempotency_key: str
+) -> str | None:
+    """Return the id of an existing WorkItem carrying this ``(tenant,
+    idempotency_key)`` pair, or ``None`` if none exists.
+
+    Closes GOC-19's flagged gap (CONCEPT:AU-ORCH.dispatch.workitem-idempotency-key-dedup):
+    :func:`_submit_work_item`'s dedup previously matched only on a caller-supplied
+    ``work_item_id`` — a caller relying on ``idempotency_key`` alone (the
+    ordinary HTTP-``Idempotency-Key`` shape: a fresh id per attempt, a stable
+    key across retries) got NO dedup at all, and each retry silently created a
+    second WorkItem. Every current in-repo caller of ``idempotency_key=`` also
+    passes a deterministic ``work_item_id`` and so never hit the gap; this
+    closes it for the general contract, not just those callers.
+
+    Scoped to ``tenant`` so two tenants may legitimately reuse the same
+    idempotency key without colliding (GOC-15's ``(tenant, actor_id)``
+    isolation key). Best-effort like the existing ``get_work_item``-then-create
+    dedup this augments: a plain read-then-write, not an atomic engine
+    primitive — two concurrent first attempts with the same key can both miss
+    and both create (an already-documented, pre-existing limitation of this
+    module's non-atomic submit path; ``submit_work_item_atomic`` remains the
+    primitive for callers that need a true single-writer guarantee).
+    """
+    if not idempotency_key:
+        return None
+    rows = _authority(engine).query_cypher(
+        f"MATCH (w:{_NODE_LABEL} {{tenant: $tenant, idempotency_key: $idempotency_key}}) "
+        "RETURN w.id AS id LIMIT 1",
+        {"tenant": tenant, "idempotency_key": idempotency_key},
+    )
+    if not rows:
+        return None
+    found = rows[0].get("id")
+    return str(found) if found else None
+
+
 def tenant_in_flight_count(engine: Any, tenant: str) -> int:
     """Count of this tenant's non-terminal WorkItems (the per-tenant quota check)."""
     rows = _authority(engine).query_cypher(
@@ -793,6 +831,13 @@ def _submit_work_item(
     the engine's atomic membership-test-and-insert primitive.  It never
     overwrites a concurrent winner; callers must read and compare the winner's
     immutable input before treating a duplicate as idempotent.
+
+    A caller that supplies ``idempotency_key`` but no ``work_item_id`` (the
+    ordinary HTTP-``Idempotency-Key`` shape: fresh id per attempt, stable key
+    across retries) is deduplicated against any existing WorkItem sharing that
+    ``(tenant, idempotency_key)`` pair — see
+    :func:`find_work_item_by_idempotency_key`. A caller that supplies
+    ``work_item_id`` keeps the original id-keyed dedup unchanged.
     """
     from agent_utilities.knowledge_graph.core.engine_tasks import _coerce_prio_bucket
     from agent_utilities.models.knowledge_graph import WorkItemNode
@@ -800,6 +845,14 @@ def _submit_work_item(
 
     now = now if now is not None else _now()
     tenant = _work_tenant(tenant)
+
+    if idempotency_key and not work_item_id:
+        existing_id = find_work_item_by_idempotency_key(
+            engine, tenant=tenant, idempotency_key=idempotency_key
+        )
+        if existing_id is not None:
+            return (existing_id, False) if return_created else existing_id
+
     item_id = work_item_id or new_work_item_id()
 
     if get_work_item(engine, item_id) is not None:
@@ -971,6 +1024,11 @@ def submit_work_item(
     ``consent_basis``/``consent_granted_at`` (and, if the grant has an explicit
     lifetime, ``consent_expires_at``); see :func:`claim_specific`/:func:`claim_next`
     for the enforcement this then engages.
+
+    Also idempotent when ``idempotency_key`` is caller-supplied and
+    ``work_item_id`` is NOT — replay with a fresh id but the same key returns
+    the existing WorkItem instead of creating a duplicate (see
+    :func:`find_work_item_by_idempotency_key`).
     """
     result = _submit_work_item(
         engine,
