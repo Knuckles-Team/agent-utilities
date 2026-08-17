@@ -86,6 +86,61 @@ def test_api_provider_server_resolves_deployed_mcp_alias(
     assert connector._client_target() == {"mcpServers": {"servicenow-mcp": deployed}}
 
 
+def test_client_target_refuses_inline_command_when_stdio_prohibited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """MCP_STDIO_PROHIBITED refuses an explicit inline ``command=`` target with
+    a stated reason -- this connector backs agent-webui's ``call_mcp_tool``/
+    ``read_mcp_resource`` helpers, so it is a real, independent stdio-spawn
+    chokepoint distinct from the multiplexer's."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "mcp_stdio_prohibited", True)
+    connector = McpToolSourceConnector(command="graph-os", tool="graph_query")
+
+    with pytest.raises(RuntimeError, match="stdio transport is not permitted"):
+        connector._client_target()
+
+
+def test_client_target_refuses_resolved_stdio_server_when_prohibited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``server=`` name that resolves (via mcp_config.json) to a bare-command
+    (stdio) entry is refused the same way as an inline command."""
+    from agent_utilities.core.config import config
+    from agent_utilities.protocols.source_connectors.connectors import mcp_tool
+
+    monkeypatch.setattr(config, "mcp_stdio_prohibited", True)
+    monkeypatch.setattr(
+        mcp_tool,
+        "_load_mcp_config",
+        lambda: {"ansible-tower-mcp": {"command": "ansible-tower-mcp", "args": []}},
+    )
+    connector = McpToolSourceConnector(server="ansible-tower-mcp", tool="list_jobs")
+
+    with pytest.raises(RuntimeError, match="stdio transport is not permitted"):
+        connector._client_target()
+
+
+def test_client_target_allows_resolved_remote_server_when_stdio_prohibited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The prohibition is stdio-specific -- a resolved remote (``url``) catalog
+    entry is unaffected even when MCP_STDIO_PROHIBITED is set."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "mcp_stdio_prohibited", True)
+    deployed = {"url": "https://servicenow.example.test/mcp"}
+    from agent_utilities.protocols.source_connectors.connectors import mcp_tool
+
+    monkeypatch.setattr(
+        mcp_tool, "_load_mcp_config", lambda: {"servicenow-mcp": deployed}
+    )
+    connector = McpToolSourceConnector(server="servicenow-api", tool="incidents")
+
+    assert connector._client_target() == {"mcpServers": {"servicenow-mcp": deployed}}
+
+
 def make_sql_server(rows: list[dict] | None = None, page_size: int = 2) -> FastMCP:
     """A fake sql-mcp: keyset-paginated sql_query + sql_schema columns."""
     table = (

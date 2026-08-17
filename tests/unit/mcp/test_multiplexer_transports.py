@@ -157,6 +157,76 @@ async def test_child_initialization_honors_configured_connect_budget(
     assert observed == [91.0]
 
 
+# ── MCP_STDIO_PROHIBITED (stdio children refused, fail closed + loudly) ────
+
+
+@pytest.mark.asyncio
+async def test_stdio_child_refused_when_prohibited(transports, tmp_path, monkeypatch):
+    """MCP_STDIO_PROHIBITED refuses a stdio child at ``_open_one_session`` --
+    the single chokepoint ``_start_child`` and ``probe_server`` both share --
+    instead of ever constructing ``StdioServerParameters``/``stdio_client``."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "mcp_stdio_prohibited", True)
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    res = await mux._start_child("graph-os", {"command": "graph-os", "args": []})
+    assert res is None
+    assert not transports["stdio"]
+
+
+@pytest.mark.asyncio
+async def test_open_one_session_raises_stated_reason_when_stdio_prohibited(
+    tmp_path, monkeypatch
+):
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "mcp_stdio_prohibited", True)
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    with pytest.raises(RuntimeError, match="stdio transport is not permitted"):
+        async with contextlib.AsyncExitStack() as stack:
+            await mux._open_one_session(
+                "graph-os", {"command": "graph-os", "args": []}, stack
+            )
+
+
+@pytest.mark.asyncio
+async def test_probe_server_reports_stdio_prohibited_as_stated_reason(
+    tmp_path, monkeypatch
+):
+    """``probe_server`` backs the WebUI's "Manage MCP tools" / catalog surface
+    -- it must report the exact reason in ``error``, never an empty tool list
+    indistinguishable from a healthy zero-tool server (the fail-closed rule:
+    a degraded read must never look like a healthy result)."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "mcp_stdio_prohibited", True)
+    config_path = tmp_path / "c.json"
+    config_path.write_text(
+        '{"mcpServers": {"graph-os": {"command": "graph-os", "args": []}}}'
+    )
+    mux = MCPMultiplexer(config_path)
+    info = await mux.probe_server("graph-os", force=True)
+    assert info["tools"] == []
+    assert info["error"] is not None
+    assert "stdio transport is not permitted" in info["error"]
+
+
+@pytest.mark.asyncio
+async def test_remote_child_unaffected_by_stdio_prohibition(
+    transports, tmp_path, monkeypatch
+):
+    """The prohibition is stdio-specific -- a remote (HTTP) child is untouched."""
+    from agent_utilities.core.config import config
+
+    monkeypatch.setattr(config, "mcp_stdio_prohibited", True)
+    mux = MCPMultiplexer(tmp_path / "c.json")
+    res = await mux._start_child(
+        "egeria-mcp", {"url": "http://egeria-mcp.example/mcp"}
+    )
+    assert res is not None
+    assert len(transports["http"]) == 1 and not transports["stdio"]
+
+
 @pytest.mark.asyncio
 async def test_child_initialization_rejects_unbounded_timeout(transports, tmp_path):
     mux = MCPMultiplexer(tmp_path / "c.json")

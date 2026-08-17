@@ -54,6 +54,27 @@ def test_mcp_connector_requires_tool_without_preset():
         build_connector("mcp", {"package": "unknown-pkg"})
 
 
+def test_default_call_tool_refuses_stdio_when_prohibited(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """This connector's production caller ALWAYS spawns a stdio child (no
+    remote branch exists) -- MCP_STDIO_PROHIBITED must refuse it up front,
+    with a stated reason, before ``mcp_config.json`` is even consulted for a
+    command."""
+    from agent_utilities.core.config import config
+    from agent_utilities.protocols.source_connectors.connectors import mcp_package
+
+    monkeypatch.setattr(config, "mcp_stdio_prohibited", True)
+    monkeypatch.setattr(
+        mcp_package,
+        "_load_mcp_config",
+        lambda: {"ansible-tower-mcp": {"command": "ansible-tower-mcp", "args": []}},
+    )
+
+    with pytest.raises(RuntimeError, match="stdio transport is not permitted"):
+        mcp_package._default_call_tool("ansible-tower-mcp")
+
+
 @pytest.mark.concept("AU-P0-4")
 def test_mcp_package_connector_defaults_to_quarantined_not_public():
     """This connector has no ACL surface at all -> fail-closed default (CONCEPT:AU-P0-4).
