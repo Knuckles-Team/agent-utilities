@@ -826,12 +826,19 @@ class GraphMaintainer:
             TOOL_CALL_NODE_LABEL,
             TRACE_NODE_LABEL,
         )
+        from agent_utilities.security.identifiers import validate_identifier
 
         cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).strftime(
             "%Y-%m-%dT%H:%M:%SZ"
         )
         swept = 0
-        for label in (TRACE_NODE_LABEL, TOOL_CALL_NODE_LABEL, OUTCOME_NODE_LABEL):
+        for raw_label in (TRACE_NODE_LABEL, TOOL_CALL_NODE_LABEL, OUTCOME_NODE_LABEL):
+            # These three are fixed module-level constants (never caller/ontology-
+            # supplied), but this gate has no cross-module constant tracking for
+            # imported names bound to a lowercase loop variable — validate anyway
+            # so the interpolation below is guarded the same way every other
+            # label-scoped query in this codebase is (agent_utilities.security.identifiers).
+            label = validate_identifier(raw_label, kind="label")
             query = f"""
             MATCH (n:{label})
             WHERE n.timestamp < $cutoff

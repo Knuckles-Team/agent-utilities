@@ -492,8 +492,28 @@ repos:
     always_run: true
   - id: check-cli-help
     name: check cli help
+    # A hook that cannot run is worse than no hook -- it reports red forever
+    # and gets SKIP=-listed. Two independent defects fixed here:
+    # (1) the `find` walked the ENTIRE tree including `.git/`, which on this
+    # host carries stale pytest-basetemp debris under
+    # `.git/agent-lanes/lanes/<lane>/pytest/**/demo-mcp/demo_mcp/mcp_server.py`
+    # (a test double for MCP-config-sync tests, not a real server) -- `find`
+    # is not git-aware, so nothing about "not tracked" excluded it. A leading
+    # "./.git/..." match, once slashes become dots, starts with a literal
+    # dot -- `python -m .git.agent-lanes....mcp_server` -- which Python's
+    # `-m` refuses as a relative module name ("Relative module names not
+    # supported"), aborting the WHOLE hook before it ever reaches a real
+    # target. Excluding `.git/` (and `.venv*` generically, so the `.venv-base`
+    # selection `uv_workspace.py` creates for an extras-less run is covered
+    # too, not just `.venv`) removes the debris from candidacy structurally.
+    # (2) the run omitted `--all-extras`, so a real target resolved against
+    # the bare/base selection and failed on a missing dependency
+    # (`ModuleNotFoundError: pydantic_ai_harness` observed) that IS present
+    # once the full extras set is synced -- the same class of false
+    # "environment-blocked" verdict AGENTS.md's Quality Bar section warns
+    # against (measure with the instrument the target actually needs).
     entry: |-
-      bash -c 'for f in $(find . -type f \( -name "mcp_server.py" -o -name "agent_server.py" \) -not -path "*/\.venv/*" -not -path "*/__pycache__/*"); do mod=$(echo "$f" | sed -e "s/^\.\///" -e "s/\.py$//" -e "s/\//./g"); python3 scripts/uv_workspace.py run python -m "$mod" --help >/dev/null || exit 1; done'
+      bash -c 'for f in $(find . -type f \( -name "mcp_server.py" -o -name "agent_server.py" \) -not -path "*/\.venv*/*" -not -path "*/\.git/*" -not -path "*/__pycache__/*"); do mod=$(echo "$f" | sed -e "s/^\.\///" -e "s/\.py$//" -e "s/\//./g"); python3 scripts/uv_workspace.py run --all-extras python -m "$mod" --help >/dev/null || exit 1; done'
     language: system
     pass_filenames: false
     always_run: true

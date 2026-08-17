@@ -291,6 +291,8 @@ def _internal_endpoint_in_line(line: str) -> bool:
         not _is_reserved_hostname(match.group(0))
         for match in _BARE_INTERNAL_HOSTNAME_RE.finditer(line)
     )
+
+
 _PRIVATE_KEY_LINE_RE = re.compile(r"^\s*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----\s*$")
 _CREDENTIAL_URI_RE = re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:(?P<secret>[^\s/@]+)"
@@ -434,6 +436,30 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     only, so a caller that has not opted in loses no coverage (the real
     absolute-homelab-path leak D-GDI-1 caught stays caught either way; that
     detector is independent of this identifier set).
+
+    ``git log -1 --format=%an%n%ae`` (HEAD's own committer identity) is
+    deliberately NOT one of the candidate sources below -- it was removed
+    2026-08-17 after it produced a ~450-line-across-~180-file false-positive
+    flood, the same D-ORC-57 shape (a wrong ambient value substring-matching
+    ordinary prose) but from a different source. ``git config user.name``/
+    ``user.email`` capture the CALLING PROCESS's own stable, deliberately-set
+    identity -- what this docstring means by "the current account". HEAD's
+    last-commit author is not that: it is whichever identity committed most
+    recently, which in this repo's own multi-agent-authored history rotates
+    per commit and is, at the moment this was fixed, literally the single
+    word "claude" (``git log -1 --format=%an`` on `main`) -- an ordinary,
+    extremely common word in a Claude-focused agent-framework codebase, so
+    every doc/comment/design-note that so much as names the tool became a
+    manufactured leak. Unlike the "Guard Test" incident, adding it to
+    ``_GENERIC_IDENTIFIERS`` would not fix this class -- the next commit's
+    author could just as easily be "codex", "sonnet", "opus", or any other
+    tool/model name, each requiring its own reactive exclusion. ``git
+    config``'s two sources remain and already capture the real, stable
+    developer identity (proven: this checkout's ``user.name``/``user.email``
+    resolve to a real name + email, independent of whatever authored HEAD),
+    so removing the HEAD-author fallback loses no genuine detection here --
+    it only removes a signal that was never "the current account" in the
+    first place.
     """
     override = os.environ.get("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", "").strip()
     if override:
@@ -472,7 +498,6 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
     for command in (
         ["git", "config", "--get", "user.name"],
         ["git", "config", "--get", "user.email"],
-        ["git", "log", "-1", "--format=%an%n%ae"],
     ):
         try:
             result = subprocess.run(
@@ -940,7 +965,7 @@ def _write_baseline(violations: list[Violation]) -> None:
         "# BUG-241 (2026-08-16, OWNER-SECURITY): 29 more entries added here.\n"
         "# The runtime-source internal-endpoint pass required a URL scheme\n"
         "# (`https?://`) before the host, so a BARE hostname literal (a YAML\n"
-        "# `ingress_host: graph-os.arpa` value, a Python `\"vllm.arpa\"` string) was\n"
+        '# `ingress_host: graph-os.arpa` value, a Python `"vllm.arpa"` string) was\n'
         "# structurally invisible to it -- proven with a planted two-line canary\n"
         "# where the schemed form was caught and the bare form was not. Closing\n"
         "# that pattern gap surfaces real production hostnames already tracked in\n"
@@ -951,7 +976,7 @@ def _write_baseline(violations: list[Violation]) -> None:
         "# allowlists, loopback-bind checks, endpoint resolvers) -- already named\n"
         "# as known, deferred debt in `_is_runtime_source_path`'s docstring. The\n"
         "# one occurrence that was a genuinely real, non-fixture leak in a test\n"
-        "# (`tests/unit/core/test_airgap_mode.py:53`'s `\"vllm.arpa\"`) was fixed\n"
+        '# (`tests/unit/core/test_airgap_mode.py:53`\'s `"vllm.arpa"`) was fixed\n'
         "# directly, not baselined -- it is not in this file.\n"
         "#\n"
         "# TAB-separated: path\\tline\\tcategory\\tcontent_hash\\tordinal. The KEY is\n"
