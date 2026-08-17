@@ -173,6 +173,9 @@ def build_manifest(
         signature_algorithm=signer.algorithm,
         signing_public_key=signer.public_key,
         signature=None,
+        # GOC-84/GOC-16: binds the frozen dependency-lock state into what gets
+        # signed, so a lock drift after generation is provable, not assumed.
+        dependency_lock_digest=ontology_integrity.dependency_lock_digest(),
     )
     unsigned = placeholder.model_copy(update={"provenance": provenance})
     manifest_hash = ontology_integrity.canonical_manifest_hash(unsigned)

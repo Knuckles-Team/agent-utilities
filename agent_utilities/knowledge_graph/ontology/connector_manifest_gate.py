@@ -792,6 +792,44 @@ def _signature_violations(manifest: Any, *, label: str) -> list[str]:
     return []
 
 
+def _dependency_lock_violations(manifest: Any, *, label: str) -> list[str]:
+    """Fail closed when the LIVE ``uv.lock`` disagrees with the signed pin.
+
+    CONCEPT:AU-KG.ontology.connector-manifest-gate — GOC-84/GOC-16's "dependency-lock
+    drift" adversarial case: a connector's behavior can depend on a third-party
+    library version even when neither the manifest YAML nor the connector's own
+    source changed a single byte. ``ProvenanceSpec.dependency_lock_digest`` is part
+    of the canonical manifest hash the signature covers (:func:`ontology_integrity.
+    canonical_manifest_hash`), so a manifest hand-edited to restate a *new* digest
+    without a real re-sign is already caught as a `[signature]` violation — this
+    check additionally catches the case where the signature is untouched but the
+    *live* lock has moved since generation, which the signature alone cannot see
+    (the signature only proves the manifest is internally self-consistent, not that
+    it still matches the running dependency state).
+
+    Manifests signed before this field existed carry ``dependency_lock_digest=None``
+    and are not retroactively required to match — this is intentionally additive,
+    not a new mandatory gate on every already-signed manifest in the fleet.
+    """
+    pinned = manifest.provenance.dependency_lock_digest
+    if not pinned:
+        return []
+    from . import ontology_integrity
+
+    try:
+        live = ontology_integrity.dependency_lock_digest()
+    except ontology_integrity.ReleaseSigningError as exc:
+        return [f"[dependency-lock] {label}: live dependency lock is unavailable ({exc})"]
+    if live != pinned:
+        return [
+            f"[dependency-lock] {label}: live uv.lock digest {live} != signed "
+            f"provenance.dependency_lock_digest {pinned} — the dependency lock has "
+            "drifted since this manifest was generated and signed. Regenerate via "
+            "scripts/generate_connector_manifests.py against the frozen lock."
+        ]
+    return []
+
+
 def _native_provider_violations(manifest: Any, *, path: Path, label: str) -> list[str]:
     """Verify the in-package connector registry against its signed source pins."""
 
@@ -1021,6 +1059,7 @@ def _check_manifest_bytes(
             "the manifest was hand-edited after signing, or is stale. Regenerate via "
             "scripts/generate_connector_manifests.py."
         )
+    violations.extend(_dependency_lock_violations(manifest, label=label))
     if require_signature:
         violations.extend(_signature_violations(manifest, label=label))
     if require_provider:
