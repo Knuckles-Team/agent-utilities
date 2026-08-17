@@ -499,6 +499,12 @@ sources represent the same real-world thing. Weaker than owl:sameAs.""" ;
     rdfs:comment "The sha256:<hex> digest of an Artifact's or Fragment's normalized content — the REVISION identity, distinct from the stable address. CONCEPT:AU-KG.ingest.stable-fragment-address." ;
     rdfs:range xsd:string .
 
+:contradicts a owl:ObjectProperty ;
+    rdfs:label "contradicts" ;
+    rdfs:comment "Links an Evidence node (or other supporting entity) to a belief/claim it contradicts (CONTRADICTS edge convention — mirrors epistemic-graph's eg-alignment::AlignmentRelation::ContradictsClaim). CONCEPT:AU-KG.identity.evidence-spine-convergence." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
 :corrects a owl:ObjectProperty ;
     rdfs:label "corrects" ;
     rdfs:comment "Links a Correction to the node/output it corrects." ;
@@ -519,6 +525,12 @@ necessarily depends on what it extends.""" ;
     rdfs:domain :Concept ;
     rdfs:range :Concept ;
     rdfs:subPropertyOf :dependsOn .
+
+:extractedFrom a owl:ObjectProperty ;
+    rdfs:label "extracted from" ;
+    rdfs:comment "Links an Evidence node to the AssetOccurrence it was extracted from. CONCEPT:AU-KG.identity.evidence-spine-convergence." ;
+    rdfs:domain :Evidence ;
+    rdfs:range :AssetOccurrence .
 
 :fragmentAddress a owl:DatatypeProperty ;
     rdfs:label "fragment address" ;
@@ -558,6 +570,12 @@ necessarily depends on what it extends.""" ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :derivedFrom .
 
+:hasBlob a owl:ObjectProperty ;
+    rdfs:label "has blob" ;
+    rdfs:comment "Links an AssetOccurrence or Rendition to its own content-addressed Blob. CONCEPT:AU-KG.identity.asset-occurrence." ;
+    rdfs:domain bfo:0000031 ;
+    rdfs:range :Blob .
+
 :hasChild a owl:ObjectProperty ;
     rdfs:label "has child" ;
     rdfs:comment "Direct child/derivative. Inverse of hasParent." ;
@@ -573,6 +591,12 @@ necessarily depends on what it extends.""" ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :hasAncestor .
 
+:hasOccurrence a owl:ObjectProperty ;
+    rdfs:label "has occurrence" ;
+    rdfs:comment "Links a SourceObject to a captured AssetOccurrence of it. CONCEPT:AU-KG.identity.evidence-spine-convergence." ;
+    rdfs:domain :SourceObject ;
+    rdfs:range :AssetOccurrence .
+
 :hasPart a owl:ObjectProperty,
         owl:TransitiveProperty ;
     rdfs:label "has part" ;
@@ -580,6 +604,12 @@ necessarily depends on what it extends.""" ;
     rdfs:domain bfo:0000001 ;
     rdfs:range bfo:0000001 ;
     owl:inverseOf :partOf .
+
+:hasRendition a owl:ObjectProperty ;
+    rdfs:label "has rendition" ;
+    rdfs:comment "Links an AssetOccurrence to a normalized/derived Rendition of it. CONCEPT:AU-KG.identity.asset-occurrence." ;
+    rdfs:domain :AssetOccurrence ;
+    rdfs:range :Rendition .
 
 :hasSibling a owl:ObjectProperty,
         owl:SymmetricProperty ;
@@ -644,6 +674,12 @@ necessarily depends on what it extends.""" ;
     rdfs:range :TemporalFact ;
     rdfs:subPropertyOf prov:wasRevisionOf .
 
+:supports a owl:ObjectProperty ;
+    rdfs:label "supports" ;
+    rdfs:comment "Links an Evidence node (or other supporting entity) to a belief/claim it supports (SUPPORTS edge convention — mirrors epistemic-graph's eg-alignment::AlignmentRelation::SupportsClaim). CONCEPT:AU-KG.identity.evidence-spine-convergence." ;
+    rdfs:domain bfo:0000001 ;
+    rdfs:range bfo:0000001 .
+
 :taggedWithHashtag a owl:ObjectProperty ;
     rdfs:label "tagged with hashtag" ;
     rdfs:comment "Links a Document to a Hashtag mined from the document's own structured entity metadata, deterministically at ingestion time before any LLM call (CONCEPT:AU-KG.ingest.deterministic-social-entity-mining)." ;
@@ -688,6 +724,13 @@ necessarily depends on what it extends.""" ;
     rdfs:label "Belief" ;
     rdfs:comment "A claim-with-confidence held by an agent. BFO:SpecificallyDependentContinuant." ;
     rdfs:subClassOf bfo:0000020 .
+
+:Blob a owl:Class ;
+    rdfs:label "Blob" ;
+    rdfs:comment """A content-addressed byte blob, keyed by its digest and
+deduplicated across occurrences/renditions/tenants/owners — never independently
+owned (see hasBlob). CONCEPT:AU-KG.identity.asset-occurrence.""" ;
+    rdfs:subClassOf bfo:0000031 .
 
 :Code a owl:Class ;
     rdfs:label "Code" ;
@@ -742,6 +785,15 @@ necessarily depends on what it extends.""" ;
     rdfs:seeAlso time:ProperInterval ;
     rdfs:subClassOf bfo:0000008 .
 
+:Rendition a owl:Class ;
+    rdfs:label "Rendition" ;
+    rdfs:comment """A normalized/derived representation of an AssetOccurrence (a
+transcode, extraction, or decode) carrying its own content digest and derivation
+lineage — hasBlob its own content, derivedFrom the source Blob it was produced
+from. Mirrors epistemic-graph's eg_modality::Rendition.
+CONCEPT:AU-KG.identity.asset-occurrence.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
 :Server a owl:Class ;
     rdfs:label "Server" ;
     rdfs:subClassOf [ a owl:Restriction ;
@@ -756,6 +808,15 @@ necessarily depends on what it extends.""" ;
             owl:allValuesFrom :Skill ;
             owl:onProperty :dependsOn ],
         bfo:0000004 .
+
+:SourceObject a owl:Class ;
+    rdfs:label "Source Object" ;
+    rdfs:comment """The stable, document/table/image-level identity a located
+Evidence node and its AssetOccurrence both hang off (hasOccurrence). Distinct from
+:Artifact/:Fragment (the text-chunk citation spine) — a SourceObject is the
+addressable media-level subject a governed EvidenceLocus resolves against.
+CONCEPT:AU-KG.identity.evidence-spine-convergence.""" ;
+    rdfs:subClassOf bfo:0000031 .
 
 :blocksTask a owl:ObjectProperty ;
     rdfs:label "blocks task" ;
@@ -835,14 +896,6 @@ Works for versions, phases, events, role transitions, etc.""" ;
     rdfs:label "Domain Entity" ;
     rdfs:comment "Base class for cross-domain associative reasoning." ;
     rdfs:subClassOf bfo:0000004 .
-
-:Evidence a owl:Class ;
-    rdfs:label "Evidence" ;
-    rdfs:comment "A claim or finding grounded in source material." ;
-    rdfs:subClassOf [ a owl:Restriction ;
-            owl:onProperty :derivedFrom ;
-            owl:someValuesFrom bfo:0000001 ],
-        bfo:0000031 .
 
 :GovernanceRule a owl:Class ;
     rdfs:label "Governance Rule" ;
@@ -956,6 +1009,24 @@ bfo:0000008 a owl:Class ;
     rdfs:comment "An autonomous software agent. BFO:IndependentContinuant, aligned to prov:SoftwareAgent." ;
     rdfs:subClassOf bfo:0000004 ;
     owl:equivalentClass prov:SoftwareAgent .
+
+:AssetOccurrence a owl:Class ;
+    rdfs:label "Asset Occurrence" ;
+    rdfs:comment """A captured occurrence of a media asset (document, image, audio,
+video, or other binary) recorded through the evidence-spine media store — content
+digest, media/mime type, byte size, retention/legal-hold, and owning tenant. The
+subject a governed Evidence locus resolves against (extractedFrom) and a
+SourceObject's hasOccurrence target. Mirrors epistemic-graph's
+eg_modality::Occurrence. CONCEPT:AU-KG.identity.evidence-spine-convergence.""" ;
+    rdfs:subClassOf bfo:0000031 .
+
+:Evidence a owl:Class ;
+    rdfs:label "Evidence" ;
+    rdfs:comment "A claim or finding grounded in source material." ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty :derivedFrom ;
+            owl:someValuesFrom bfo:0000001 ],
+        bfo:0000031 .
 
 :System a owl:Class ;
     rdfs:label "System" ;
