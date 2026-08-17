@@ -1955,7 +1955,9 @@ class IngestionEngine:
                         len(changed_files),
                         prior_sha[:8] if prior_sha else "?",
                     )
-                    summary = pipe.enrich_files(changed_files)
+                    summary = pipe.enrich_files(
+                        changed_files, source_root=source_path
+                    )
                 else:
                     summary = pipe.enrich(source_path)
         finally:
@@ -1975,6 +1977,26 @@ class IngestionEngine:
                 self.manifest.record(write_graph, git_cat, repo_key, head_sha)
             except Exception:  # noqa: BLE001
                 logger.debug("codebase git-sha manifest persist failed", exc_info=True)
+            # Bulk-prefilter dir-digest watermark (CONCEPT:AU-KG.ingest.exact-parser-acknowledgement):
+            # this is the SAME watermark ``batch_orchestrator.BatchOrchestrator.
+            # submit_batch`` reads back to skip an unchanged repo on the next
+            # fan-out call. It is recorded HERE -- after this structural ingest
+            # has already verified/acknowledged the parse and reached this
+            # success point -- never at submission time, so a repo whose
+            # ingest crashes or is rejected can never be silently skipped as
+            # "already done" on a resumed batch run. Keyed on the UNRESOLVED
+            # ``source_path`` (not ``repo_key``) to match exactly the
+            # ``ref.clone_path`` key the orchestrator submitted and reads back.
+            try:
+                from .batch_orchestrator import _CATEGORY as _bulk_prefilter_category
+
+                self.manifest.record(
+                    write_graph, _bulk_prefilter_category, source_path, head_sha
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug(
+                    "codebase bulk-prefilter manifest persist failed", exc_info=True
+                )
 
         # Persist per-file content hashes back to the durable manifest so the
         # per-file skip survives restarts.

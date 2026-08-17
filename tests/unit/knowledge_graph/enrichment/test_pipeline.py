@@ -407,6 +407,7 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
             "calls_resolved": 1,
             "inherits_edges": 1,
             "similar_edges": 1,
+            "files_parsed": 2,
         }
 
     backend = PropBackend()
@@ -568,3 +569,410 @@ def test_enrich_documents_stamps_ownership_when_actor_is_bound(tmp_path):
     # self.backend is restored to the real backend after the call (no leaked
     # _BatchedBackend swap across calls).
     assert pipe.backend is backend
+
+
+# ── U-23 — exact parser acknowledgement and watermark authority ───────────
+#
+# ``files_parsed`` used to be a bare incremented ``int`` with no per-input
+# acknowledgement: a partial/malformed/unknown-identity native response was
+# accepted, only the returned files were hashed, and a caller (the ingestion
+# engine's git-HEAD watermark) could advance past files that were never
+# actually verified. A file with zero SYMBOL nodes (a genuinely empty file)
+# was ALSO silently dropped from the result set — indistinguishable from a
+# file the engine failed to acknowledge at all.
+#
+# Every case below proves the invariant INDIVIDUALLY (not one aggregate
+# test): the whole defect was that distinct failure modes were being
+# collapsed into a single "succeeded" signal. ``IncompleteParse`` is the one
+# raised on every rejection; each test proves BOTH that it raises AND that
+# NOTHING was persisted to ``pipe._hash_seen`` for the batch (the "no
+# watermark advance on error" guarantee — the ingestion engine only persists
+# a repository's HEAD/per-file hashes after ``enrich_files``/``enrich``
+# returns without raising).
+
+from agent_utilities.knowledge_graph.enrichment.pipeline import IncompleteParse
+
+
+def _index_sym(file_path: str, name: str = "fn") -> dict:
+    return {
+        "node_id": f"symbol:{file_path}:{name}",
+        "node_type": "SYMBOL",
+        "properties": {
+            "symbol_type": "Function",
+            "name": name,
+            "line": "1",
+            "ast_hash": "h",
+            "file_path": file_path,
+            "is_test": "false",
+        },
+    }
+
+
+def test_full_success_response_acknowledges_every_file_and_advances_hash_seen(
+    tmp_path,
+):
+    """PASS case: every requested file has a SYMBOL node, files_parsed matches
+    — all files land in hash_seen (the delta-skip state the ingestion engine
+    persists as the watermark basis)."""
+    a = tmp_path / "a.py"
+    b = tmp_path / "b.py"
+    a.write_text("def fn():\n    pass\n")
+    b.write_text("def fn2():\n    pass\n")
+
+    def index_fn(_files):
+        return {
+            "nodes": [_index_sym(str(a)), _index_sym(str(b), "fn2")],
+            "edges": [],
+            "files_parsed": 2,
+        }
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.files_parsed == 2
+    assert pipe._hash_seen[str(a)] and pipe._hash_seen[str(b)]
+
+
+def test_legitimate_empty_file_is_recorded_verified_not_dropped(tmp_path):
+    """A file with content but ZERO symbols must still be acknowledged: its
+    hash lands in hash_seen exactly like a non-empty file, distinguishing
+    "parsed, found nothing" from "never acknowledged"."""
+    empty = tmp_path / "empty.py"
+    nonempty = tmp_path / "app.py"
+    empty.write_text("# just a comment, no symbols\n")
+    nonempty.write_text("def fn():\n    pass\n")
+
+    def index_fn(_files):
+        return {
+            # Only app.py gets a SYMBOL node -- empty.py is requested but
+            # genuinely has nothing to report.
+            "nodes": [_index_sym(str(nonempty))],
+            "edges": [],
+            "files_parsed": 2,
+        }
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.files_parsed == 2
+    assert str(empty) in pipe._hash_seen, (
+        "a verified-empty file must still be acknowledged in hash_seen, "
+        "never silently dropped"
+    )
+    assert str(nonempty) in pipe._hash_seen
+
+
+def test_mixed_success_response_records_every_file_exactly_once(tmp_path):
+    """A batch with both a symbol-bearing file and a verified-empty file is a
+    single successful acknowledgement set -- both land in hash_seen, neither
+    twice, and no IncompleteParse is raised."""
+    busy = tmp_path / "busy.py"
+    quiet = tmp_path / "quiet.py"
+    busy.write_text("def fn():\n    pass\n")
+    quiet.write_text("PLACEHOLDER = 1\n")  # no functions/classes -> no SYMBOL
+
+    def index_fn(_files):
+        return {
+            "nodes": [_index_sym(str(busy))],
+            "edges": [],
+            "files_parsed": 2,
+        }
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.files_parsed == 2
+    assert list(pipe._hash_seen) == sorted(pipe._hash_seen)  # sanity: no dupes
+    assert len(pipe._hash_seen) == 2
+
+
+def test_partial_response_is_rejected_and_advances_nothing(tmp_path):
+    """KNOWN-BAD: files_parsed undercounts the request (a truncated/partial
+    native response). Must raise and leave hash_seen untouched for the WHOLE
+    batch -- not just the file that went missing."""
+    a = tmp_path / "a.py"
+    b = tmp_path / "b.py"
+    a.write_text("def fn():\n    pass\n")
+    b.write_text("def fn2():\n    pass\n")
+
+    def index_fn(_files):
+        return {
+            "nodes": [_index_sym(str(a))],
+            "edges": [],
+            "files_parsed": 1,  # only acknowledges 1 of the 2 requested inputs
+        }
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+
+    with pytest.raises(IncompleteParse):
+        pipe.enrich(tmp_path)
+    assert pipe._hash_seen == {}
+
+
+def test_unknown_identity_response_is_rejected_and_advances_nothing(tmp_path):
+    """KNOWN-BAD: the response's SYMBOL node names a file that was never in
+    the request set. Must raise, never silently accept an out-of-scope file."""
+    a = tmp_path / "a.py"
+    a.write_text("def fn():\n    pass\n")
+
+    def index_fn(_files):
+        return {
+            "nodes": [_index_sym("/etc/not-requested.py")],
+            "edges": [],
+            "files_parsed": 1,
+        }
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+
+    with pytest.raises(IncompleteParse):
+        pipe.enrich(tmp_path)
+    assert pipe._hash_seen == {}
+
+
+def test_malformed_files_parsed_is_rejected(tmp_path):
+    """KNOWN-BAD: ``files_parsed`` is not a usable integer (a malformed wire
+    response). Must raise, never coerce/ignore it."""
+    a = tmp_path / "a.py"
+    a.write_text("def fn():\n    pass\n")
+
+    def index_fn(_files):
+        return {
+            "nodes": [_index_sym(str(a))],
+            "edges": [],
+            "files_parsed": "not-a-number",
+        }
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+
+    with pytest.raises(IncompleteParse):
+        pipe.enrich(tmp_path)
+    assert pipe._hash_seen == {}
+
+
+def test_duplicate_identity_in_request_is_rejected(tmp_path):
+    """KNOWN-BAD: the SAME logical file is submitted twice in one batch (a
+    caller-side duplicate-identity defect). Must raise before the native
+    engine is even called -- no ambiguous double acknowledgement is possible."""
+    a = tmp_path / "a.py"
+    a.write_text("def fn():\n    pass\n")
+    calls = []
+
+    def index_fn(files):
+        calls.append(files)
+        return {"nodes": [_index_sym(str(a))], "edges": [], "files_parsed": 1}
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+
+    with pytest.raises(IncompleteParse):
+        pipe.enrich_files([a, a], source_root=tmp_path)
+    assert not calls, "the native engine must never be called on a duplicate-identity request"
+    assert pipe._hash_seen == {}
+
+
+def test_symlink_escape_is_rejected(tmp_path):
+    """KNOWN-BAD: a symlink inside the source root resolves to a file OUTSIDE
+    it. Must raise before the escaped file's content is ever read/parsed."""
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    secret = outside_dir / "secret.py"
+    secret.write_text("def leaked():\n    pass\n")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    link = repo / "vendored.py"
+    link.symlink_to(secret)
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory())
+
+    with pytest.raises(IncompleteParse):
+        pipe.enrich_files([link], source_root=repo)
+    assert pipe._hash_seen == {}
+    assert backend.nodes == {}
+
+
+def test_unreadable_file_is_rejected_not_silently_skipped(tmp_path):
+    """KNOWN-BAD: a file that cannot be read (e.g. deleted mid-walk, a
+    permission race). Must raise the whole batch rather than silently
+    proceeding as if that file did not exist."""
+    a = tmp_path / "a.py"
+    missing = tmp_path / "missing.py"
+    a.write_text("def fn():\n    pass\n")
+    # Never created -- read_text() raises OSError.
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory())
+
+    with pytest.raises(IncompleteParse):
+        pipe.enrich_files([a, missing])
+    assert pipe._hash_seen == {}
+
+
+def test_parser_exception_in_fallback_path_is_rejected_not_silently_empty(
+    tmp_path,
+):
+    """KNOWN-BAD: the per-file parse fallback (no index_fn) hits a genuine
+    parse exception for one file. Must raise for the whole batch, not
+    degrade that file into an indistinguishable empty-but-successful result
+    -- and must not record ANY file's hash for this batch, including a
+    sibling file that parsed fine."""
+    good = tmp_path / "good.py"
+    bad = tmp_path / "bad.py"
+    good.write_text("def fn():\n    pass\n")
+    bad.write_text("def other():\n    pass\n")
+
+    def parse_fn(file_path, _source):
+        if file_path.endswith("bad.py"):
+            raise RuntimeError("native parse crashed")
+        return {
+            "nodes": [
+                {
+                    "node_id": "symbol:good",
+                    "node_type": "SYMBOL",
+                    "properties": {
+                        "symbol_type": "Function",
+                        "name": "fn",
+                        "line": "1",
+                        "ast_hash": "h",
+                        "file_path": file_path,
+                        "is_test": "false",
+                    },
+                }
+            ]
+        }
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, parse_fn)  # no index_fn -> per-file path
+
+    with pytest.raises(IncompleteParse):
+        pipe.enrich(tmp_path)
+    assert pipe._hash_seen == {}
+
+
+def test_batch_parse_fn_partial_response_is_rejected(tmp_path):
+    """KNOWN-BAD: a batch_parse_fn response with fewer entries than requested
+    files (mirrors the index_fn partial-response case for the OTHER
+    fallback path). Must raise, not silently pad missing slots as empty."""
+    a = tmp_path / "a.py"
+    b = tmp_path / "b.py"
+    a.write_text("def fn():\n    pass\n")
+    b.write_text("def fn2():\n    pass\n")
+
+    def batch_parse_fn(files):
+        return [{"nodes": []}]  # only 1 result for 2 requested files
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(
+        backend, _parse_fn_factory(), batch_parse_fn=batch_parse_fn
+    )
+
+    with pytest.raises(IncompleteParse):
+        pipe.enrich(tmp_path)
+    assert pipe._hash_seen == {}
+
+
+def test_recorded_hash_is_always_locally_computed_never_trusted_from_wire(
+    tmp_path,
+):
+    """A "hash mismatch" attack is structurally impossible here: the recorded
+    content_hash always comes from the caller's own local sha256 of the bytes
+    it sent, never from anything the native response echoes back (the wire
+    result carries no per-file hash field at all). Proven by a response with
+    no hash-like content and confirming the recorded hash still matches the
+    independently-computed local sha256."""
+    import hashlib
+
+    a = tmp_path / "a.py"
+    source_text = "def fn():\n    pass\n"
+    a.write_text(source_text)
+    expected_hash = hashlib.sha256(
+        source_text.encode("utf-8", "surrogatepass")
+    ).hexdigest()
+
+    def index_fn(_files):
+        return {"nodes": [_index_sym(str(a))], "edges": [], "files_parsed": 1}
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
+    pipe.enrich(tmp_path)
+
+    assert pipe._hash_seen[str(a)] == expected_hash
+
+
+def test_native_call_failure_still_degrades_safely_to_verified_fallback(
+    tmp_path,
+):
+    """Regression: when the index_fn RPC itself fails (engine unreachable/
+    unsupported -- not a malformed response), the existing safe degrade to
+    the per-file fallback still applies and still succeeds and records
+    hashes -- only a TRUSTED-but-wrong response (IncompleteParse) must abort,
+    never a failed call."""
+    f = tmp_path / "app.py"
+    f.write_text("def compute():\n    pass\n")
+
+    def boom(_files):
+        raise RuntimeError("engine without resolver")
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=boom)
+    summary = pipe.enrich(tmp_path)
+
+    assert summary.files_parsed == 1
+    assert str(f) in pipe._hash_seen
+
+
+def test_explicit_only_files_subset_is_reflected_in_hash_seen_not_whole_repo(
+    tmp_path,
+):
+    """A caller enriching an explicit file SUBSET (mirrors the ingestion
+    engine's ``only_files``/git-delta callers) only records hashes for the
+    files it was actually given -- the pipeline itself never has a notion of
+    "the whole repo", so it cannot silently claim coverage beyond its input.
+    (The whole-repository HEAD watermark decision belongs to the caller --
+    ``ingestion/engine.py``'s ``_run_codebase_structural`` already gates that
+    on ``not explicit`` and on this call not raising.)"""
+    a = tmp_path / "a.py"
+    b = tmp_path / "b.py"
+    a.write_text("def fn():\n    pass\n")
+    b.write_text("def fn2():\n    pass\n")
+
+    backend = FakeBackend()
+    pipe = EnrichmentPipeline(backend, _parse_fn_factory())
+
+    summary = pipe.enrich_files([a], source_root=tmp_path)
+
+    assert summary.files_parsed == 1
+    assert str(a) in pipe._hash_seen
+    assert str(b) not in pipe._hash_seen
+
+
+def test_idempotent_replay_reproduces_identical_hash_seen(tmp_path):
+    """Replaying the exact same acknowledged batch is a no-op the second
+    time (unchanged-content skip) and never re-raises or double-records."""
+    a = tmp_path / "a.py"
+    a.write_text("def fn():\n    pass\n")
+
+    def index_fn(_files):
+        return {"nodes": [_index_sym(str(a))], "edges": [], "files_parsed": 1}
+
+    backend = FakeBackend()
+    seen: dict[str, str] = {}
+    pipe = EnrichmentPipeline(
+        backend, _parse_fn_factory(), index_fn=index_fn, hash_seen=seen
+    )
+
+    first = pipe.enrich(tmp_path)
+    assert first.files_parsed == 1
+    hash_after_first = dict(pipe._hash_seen)
+
+    second = pipe.enrich(tmp_path)
+    assert second.files_parsed == 0
+    assert second.files_skipped_unchanged == 1
+    assert dict(pipe._hash_seen) == hash_after_first
