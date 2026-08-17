@@ -5886,6 +5886,14 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/query_tools.py
   doc: read-only SQL over the KG via the engine
+- id: AU-KG.query.readiness-canary-snapshot
+  name: AU-KG.query.readiness-canary-snapshot
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/readiness.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: AU-KG.query.readiness-canary-snapshot
 - id: AU-KG.query.register-each-user-table
   name: does the
   pillar: AU-KG
