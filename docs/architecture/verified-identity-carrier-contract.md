@@ -39,7 +39,7 @@ CONCEPT:AU-OS.identity.verified-carrier-contract
    Promoting this schema to "v3" (as an earlier lane plan proposed) would be
    formalizing a projection nothing uses, while the *actual* wire carrier
    (below) stays undocumented. This lane does not wire that dead model into a
-   live path — see [What this lane did NOT do](#what-this-lane-did-not-do).
+   live path — see [What this lane did NOT do](#what-this-lane-did-not-do-and-why).
 
 ## The carrier that is actually live today
 

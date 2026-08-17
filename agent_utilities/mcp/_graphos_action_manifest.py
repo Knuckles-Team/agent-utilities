@@ -2369,6 +2369,22 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_traces", "action": "get", "name": "graph_traces_get"},
     {"tool": "graph_traces", "action": "search", "name": "graph_traces_search"},
     {"tool": "graph_traces", "action": "waterfall", "name": "graph_traces_waterfall"},
+    {
+        "tool": "graph_viz",
+        "action": "capability_matrix",
+        "name": "graph_viz_capability_matrix",
+    },
+    {
+        "tool": "graph_viz",
+        "action": "describe_chart",
+        "name": "graph_viz_describe_chart",
+    },
+    {"tool": "graph_viz", "action": "export_chart", "name": "graph_viz_export_chart"},
+    {
+        "tool": "graph_viz",
+        "action": "plot_from_query",
+        "name": "graph_viz_plot_from_query",
+    },
     {"tool": "graph_workflows", "action": "compile", "name": "graph_workflows_compile"},
     {
         "tool": "graph_workflows",

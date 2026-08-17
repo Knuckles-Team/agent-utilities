@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-379 publishable pages · 189 direct nav targets · 125 public capabilities · 845 action rows · 562 typed configuration fields · 365 runtime-only call-site inputs.
+384 publishable pages · 193 direct nav targets · 126 public capabilities · 849 action rows · 562 typed configuration fields · 365 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -188,10 +188,12 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Failure-Driven Evolution (CONCEPT:AU-AHE.harness.failure-evolution)](../architecture/failure_driven_evolution.md) — direct nav
 - [fastmcp 4 as the default MCP stack (CONCEPT:AU-ECO.mcp.protocol-compat-bridge)](../architecture/fastmcp4-default.md) — direct nav
 - [Fleet Autonomy Control Plane (OS-5.24 — AU-OS.config.health-gated-deploy-rollback, OS-5.29)](../architecture/fleet_autonomy.md) — direct nav
+- [FrontendContribution.v1 — package-authored WebUI descriptors (GOC-24)](../architecture/frontend-contributions.md) — direct nav
 - [Gateway daemon — the one host process and everything it runs](../architecture/gateway_daemon.md) — direct nav
 - [Scaling the Gateway](../architecture/gateway_scaling.md) — direct nav
 - [Genesis k8s deployment inputs + named environment profiles](../architecture/genesis-environment-profiles.md) — direct nav
 - [Global Workspace Attention (GWT)](../architecture/global_workspace_attention.md) — direct nav
+- [GOC-44 dependency/runtime compatibility — baseline revalidation (2026-08-16)](../architecture/goc-44-dependency-runtime-compatibility-baseline.md) — catalog
 - [Governed JSON-OCEL exchange](../architecture/governed_ocel.md) — direct nav
 - [Graph Authority Convergence](../architecture/graph-authority-convergence.md) — direct nav
 - [Graph Backend Architecture](../architecture/graph_backends_architecture.md) — direct nav
@@ -199,6 +201,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [graph-os Horizontal Scaling — the HPA Blocker, Precisely](../architecture/graphos-horizontal-scaling.md) — direct nav
 - [graph-os Self-Hosting Cutover — Design (EXECUTED 2026-07-26)](../architecture/graphos-self-hosting-cutover.md) — direct nav
 - [Harness Foundry — assimilate + surpass HarnessX (arXiv:2606.14249)](../architecture/harness_foundry.md) — direct nav
+- [Staged httpx → httpx2 migration (GOC-87)](../architecture/httpx_httpx2_migration.md) — direct nav
 - [IdP-Agnostic Role Inheritance & Identity-Scoped Resource Auto-Load](../architecture/identity-inheritance.md) — direct nav
 - [In-House Training Substrate](../architecture/in_house_training_substrate.md) — direct nav
 - [Ingestion Throughput — lanes that never starve, ticks that never pile up](../architecture/ingestion_throughput.md) — direct nav
@@ -267,6 +270,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Universal external graph connectors](../architecture/universal-external-graph-connectors.md) — direct nav
 - [HNSW Vector Index Lifecycle](../architecture/vector_index_lifecycle.md) — catalog
 - [Vendor-Neutral Enterprise Ontology](../architecture/vendor_neutral_enterprise_ontology.md) — direct nav
+- [Verified Identity Carrier Contract (GOC-15)](../architecture/verified-identity-carrier-contract.md) — direct nav
 - [Governed Warm-Fork Sandboxes](../architecture/warm-fork-sandboxes.md) — direct nav
 
 ## Pillars
@@ -408,6 +412,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 - [Exact release train and production certification](../release/compatibility-and-certification.md) — direct nav
 - [Connector live certification](../release/connector-live-certification.md) — direct nav
+- [Connector-manifest signing custody path (GOC-16 / BUG-234 / GOC-84)](../release/connector-manifest-signing-custody.md) — direct nav
 - [Exact-artifact closure evidence](../release/exact-artifact-closure.md) — direct nav
 - [Exact installed local certification](../release/exact-local-gates.md) — direct nav
 - [Exact local GraphOS releases](../release/exact-local-release.md) — direct nav

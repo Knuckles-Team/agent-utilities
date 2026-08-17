@@ -1,6 +1,6 @@
 {
-  "cached_at": "2026-08-15T06:52:24Z",
-  "row_count": 389,
+  "cached_at": "2026-08-17T13:26:40Z",
+  "row_count": 390,
   "rows": {
     "AddEdge": {
       "audited": "true",
@@ -418,6 +418,17 @@
       "method": "CancelWorkItem",
       "mutates": "true",
       "note": "pending cancellation never steals an active lease",
+      "txn_participation": "Atomic"
+    },
+    "CasWorkItemMetadata": {
+      "audited": "true",
+      "authz_action": "work:write",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "CasWorkItemMetadata",
+      "mutates": "true",
+      "note": "BUG-111: atomic single-field CAS on non-authority scheduling metadata (checkpoint_id/metadata/prio_bucket); status/lease/tenant are fenced but never written",
       "txn_participation": "Atomic"
     },
     "CatalogAssign": {

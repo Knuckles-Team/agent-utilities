@@ -80,6 +80,13 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         # -- the same act(produces an artifact)/ask(inspect) split as
         # engine_graphlearn just above.
         "engine_viz": ("act", "ask"),
+        # GOC-88/D-VZ-1 V5: the ergonomic wrapper over engine_viz -- SQL query
+        # -> InlineColumns -> render ('plot_from_query'), an explicit
+        # spec+dataset pass-through ('export_chart'), an LLM-facing summary of
+        # an already-rendered ViewResult ('describe_chart'), and the read-only
+        # 'capability_matrix'. Same act(produces an artifact)/ask(inspect)
+        # split as engine_viz just above.
+        "graph_viz": ("act", "ask"),
         "graph_ops_causal": ("why", "ask"),
         "graph_traces": ("ask", "why"),
         "graph_audit": ("why", "ask"),
