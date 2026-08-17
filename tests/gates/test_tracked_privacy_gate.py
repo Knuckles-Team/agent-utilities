@@ -89,6 +89,45 @@ def test_labelled_fake_internal_hostname_passes() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# D-W12-AU-EXCEPTIONS-3: "someone" was a stray, undocumented entry in
+# ``_RESERVED_HOME_USERS`` (BUG-228, ``ee3814af7``) -- not one of that set's
+# own documented categories (generic role noun / "example" family /
+# alice-bob personas / ``*-account`` idiom / single-letter stand-in) -- which
+# silently hid tests/gates/test_docs_contract_gate.py's positive
+# "/home/" + "someone" detection fixture. Both directions must hold: a
+# generic, non-reserved home-path username is still DETECTED (the fix), and
+# a genuinely-documented reserved placeholder is still NOT flagged (BUG-228's
+# ~130-false-positive flood must not re-land, per that fix's own lesson).
+# --------------------------------------------------------------------------- #
+
+
+def _flags_home_path(gate: ModuleType, line: str) -> bool:
+    categories = gate.classify_runtime_source_line(line, identifiers=frozenset())
+    return any("machine-specific home path" in category for category in categories)
+
+
+def test_generic_home_username_is_detected_not_reserved() -> None:
+    """The exact regression: a home path under an arbitrary, non-reserved
+    username must be flagged. Built via runtime concatenation, not one
+    matchable source literal, so this test file does not itself become a
+    tracked-source finding the moment it is committed (the same
+    self-referential trap ``test_docs_contract_gate.py``'s sibling fixture
+    documents)."""
+    gate = _gate_module()
+    home_user = "some" + "one"
+    assert _flags_home_path(gate, f"path: /home/{home_user}/state/tree") is True
+
+
+def test_documented_reserved_home_username_still_passes() -> None:
+    """A genuinely-documented reserved placeholder (the RFC 2606 "example"
+    word, explicitly covered by ``_RESERVED_HOME_USERS``'s own docstring)
+    must stay exempt -- proves the fix narrowed the stray entry only, not the
+    whole reserved-placeholder mechanism BUG-228 relies on."""
+    gate = _gate_module()
+    assert _flags_home_path(gate, "path: /home/example/state/tree") is False
+
+
+# --------------------------------------------------------------------------- #
 # The two-line canary from the bug report, reproduced as a regression test.
 # --------------------------------------------------------------------------- #
 

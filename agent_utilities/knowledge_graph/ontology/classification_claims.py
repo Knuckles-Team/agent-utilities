@@ -611,7 +611,12 @@ def claim_from_raw(
         evidence_refs = raw["evidence_refs"]
         method = str(raw.get("method", "observed"))
     except (KeyError, TypeError) as exc:
-        logger.debug("claim_from_raw: malformed record dropped: %s", exc)
+        # A DEBUG-only cause is invisible in production (D-SWG-2) -- this is
+        # a documented best-effort degrade (see the docstring above), not a
+        # silent swallow, so the real cause is logged at WARNING where an
+        # operator actually watches, while still returning None rather than
+        # raising into the caller's batch loop.
+        logger.warning("claim_from_raw: malformed record dropped: %s", exc)
         return None
     if not subject_id or not category or not evidence_refs:
         logger.debug("claim_from_raw: malformed record dropped (empty required field)")
@@ -659,7 +664,10 @@ def claim_from_raw(
             policy_approved=policy_approved,
         )
     except (ValueError, PermissionError) as exc:
-        logger.debug("claim_from_raw: record rejected by constructor: %s", exc)
+        # Same rationale as the parsing except above: keep the best-effort
+        # None-return contract, but make the real cause visible at WARNING
+        # instead of a DEBUG level nobody watches in production.
+        logger.warning("claim_from_raw: record rejected by constructor: %s", exc)
         return None
 
 

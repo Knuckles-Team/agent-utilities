@@ -71,6 +71,7 @@ import httpx
 from fastmcp.utilities.logging import get_logger
 
 from agent_utilities.core._env import setting
+from agent_utilities.security.log_redaction import redact_for_log
 
 logger = get_logger(name="MultiplexerClientAuth")
 
@@ -325,11 +326,19 @@ class RotatingFileBearerAuth(httpx.Auth):
             try:
                 fresh = read_rotating_bearer_token(self._token_path)
             except Exception as exc:  # pragma: no cover - degrade to the 401
+                # This module's logger is fastmcp.MultiplexerClientAuth, OUTSIDE
+                # the agent_utilities.* privacy boundary installed by
+                # agent_utilities/core/log_privacy.py (only loggers named
+                # "agent_utilities"/"agent_utilities.*" get their record
+                # sanitized) — so the path and exception text are redacted by
+                # hand here, matching the established convention at
+                # agent_utilities/mcp/child_resilience.py.
                 logger.warning(
                     "rotating bearer token re-read failed after a 401 for %s; "
-                    "degrading to the original 401 response: %s",
-                    self._token_path,
-                    exc,
+                    "degrading to the original 401 response (%s: %s)",
+                    redact_for_log(self._token_path),
+                    type(exc).__name__,
+                    redact_for_log(exc),
                 )
                 return
             request.headers["Authorization"] = f"Bearer {fresh}"
@@ -353,11 +362,14 @@ class RotatingFileBearerAuth(httpx.Auth):
                     read_rotating_bearer_token, self._token_path
                 )
             except Exception as exc:  # pragma: no cover - degrade to the 401
+                # See the sync _flow() branch above: this logger sits outside
+                # the agent_utilities.* privacy boundary, so redact by hand.
                 logger.warning(
                     "rotating bearer token re-read failed after a 401 for %s; "
-                    "degrading to the original 401 response: %s",
-                    self._token_path,
-                    exc,
+                    "degrading to the original 401 response (%s: %s)",
+                    redact_for_log(self._token_path),
+                    type(exc).__name__,
+                    redact_for_log(exc),
                 )
                 return
             request.headers["Authorization"] = f"Bearer {fresh}"

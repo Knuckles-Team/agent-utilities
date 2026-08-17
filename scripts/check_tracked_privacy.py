@@ -80,6 +80,23 @@ _HOME_PATH_RE = re.compile(_HOME_PATH_PATTERN, re.IGNORECASE)
 # :func:`derive_local_identifiers` derives (the actual current account) and
 # a handful of specific real names (e.g. the developer account, the real
 # workspace root) do that, and those are NOT in this set on purpose.
+#
+# D-W12-AU-EXCEPTIONS-3: "someone" was in this set from BUG-228 through
+# 2026-08-16 but was never actually named in this comment's own rationale
+# above (it does not fit "generic role noun", the "example" family, the
+# alice/bob personas, the ``*-account``/agent-user idiom, or a single-letter
+# stand-in) -- a stray addition, not a documented convention. It silently
+# regressed tests/gates/test_docs_contract_gate.py's
+# ``test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff``,
+# whose ``/home/someone/state/tree`` fixture exists specifically to prove
+# ``classify_runtime_source_line`` detects an arbitrary, non-reserved home
+# path -- reserving that exact username made the positive fixture invisible,
+# the same "verdict narrower than its name" failure mode BUG-241 named. A
+# repo-wide sweep at fix time found zero remaining ``/home/someone`` sites
+# depending on the reservation, so removing it does not reopen BUG-228's
+# ~130-false-positive flood; if a genuine ``/home/someone`` placeholder
+# fixture is ever needed again, use one of the ALREADY-reserved words above
+# instead of re-adding this one.
 _RESERVED_HOME_USERS = frozenset(
     {
         "a",
@@ -98,7 +115,6 @@ _RESERVED_HOME_USERS = frozenset(
         "person",
         "sensitive-account",
         "some-account",
-        "someone",
         "u",
         "user",
     }
