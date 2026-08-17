@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1185
+total_concepts: 1189
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2444,7 +2444,9 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/security/error_surface.py
@@ -2554,6 +2556,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: Multi-Connection Graph Registry. The engine has always been
@@ -5039,6 +5042,20 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/lifecycle.py
   - agent_utilities/mcp/tools/ontology_tools.py
   doc: Ontology-Playground coverage row
+- id: AU-KG.ontology.classification-claim-multi-category
+  name: AU-KG.ontology.classification-claim-multi-category
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/classification_claims.py
+  doc: AU-KG.ontology.classification-claim-multi-category
+- id: AU-KG.ontology.classification-claim-promotion-lifecycle
+  name: AU-KG.ontology.classification-claim-promotion-lifecycle
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/classification_claims.py
+  doc: AU-KG.ontology.classification-claim-promotion-lifecycle
 - id: AU-KG.ontology.competency-query-regression
   name: Intentionally
   pillar: AU-KG
@@ -5100,6 +5117,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ontology/interfaces.py
   doc: connector→skill synthesis proposal shapes
+- id: AU-KG.ontology.cross-source-identity-proposal
+  name: AU-KG.ontology.cross-source-identity-proposal
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/classification_claims.py
+  doc: AU-KG.ontology.cross-source-identity-proposal
 - id: AU-KG.ontology.dedicated-tbox-graph
   name: see the module docstring for why mixing TBox
   pillar: AU-KG
@@ -5560,6 +5584,13 @@ concepts:
   - agent_utilities/security/cli_secrets.py
   - agent_utilities/security/secrets_client.py
   doc: the release trust anchor lives in
+- id: AU-KG.ontology.repository-provenance-snapshot
+  name: AU-KG.ontology.repository-provenance-snapshot
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ontology/repository_provenance.py
+  doc: AU-KG.ontology.repository-provenance-snapshot
 - id: AU-KG.ontology.sampling-profile-coupling
   name: LLM inference sampling knobs temperature top_p top_k min_p repetition_penalty max_tokens and penalties
     as SHACL-bounded ontology value types plus the two-surface sampling-profile tool
