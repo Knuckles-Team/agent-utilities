@@ -193,13 +193,17 @@ def relax_permissions_for_foreign_uid(
     :func:`write_inputs` (and, if the socket already exists, after :func:`start_bridge`) from any
     backend whose child is a container. Same-uid backends (forkserver) must NOT call this.
     """
-    os.chmod(run_dir, 0o777)
+    # nosec B103 - deliberate, per this function's own docstring: a foreign-uid
+    # container child has no DAC_OVERRIDE and cannot open owner-only files even
+    # though the bind mount succeeded, and the bridge token (not filesystem
+    # permission) is the real access control here.
+    os.chmod(run_dir, 0o777)  # nosec B103
     for name in ("context.json", "usercode.py", "runner.py"):
         with contextlib.suppress(FileNotFoundError):
             os.chmod(run_dir / name, 0o644)
     if sock_path is not None:
         with contextlib.suppress(FileNotFoundError):
-            os.chmod(sock_path, 0o777)
+            os.chmod(sock_path, 0o777)  # nosec B103
 
 
 def read_result(run_dir: Path) -> tuple[str, str | None, bool]:

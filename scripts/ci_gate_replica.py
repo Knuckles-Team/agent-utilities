@@ -177,6 +177,16 @@ WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
                 "run scripts/check_import_safety.py by hand if you need a "
                 "Linux-side proxy."
             ),
+            "connector-manifest-diff": (
+                "gated `if: github.event_name == 'workflow_dispatch'` — it never "
+                "runs on a push/PR, only on an operator's deliberate manual "
+                "trigger, so it is out of scope for a replica that mirrors the "
+                "automatic gate set. `continue-on-error: true` and report-only "
+                "(never blocks; touches no signing key). Run "
+                "`python3 scripts/release/regenerate_and_sign_connector_manifests.py "
+                "--frozen-sha $(git rev-parse HEAD)` by hand if you need a local "
+                "proxy for this job specifically."
+            ),
         },
     ),
 }

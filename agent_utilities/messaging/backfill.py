@@ -293,7 +293,12 @@ def _build_connector(
     allowed_private_hosts: list[str] | None = None,
 ) -> RestJsonConnector:
     if fetch_fn is not None:
-        creds: _Credentials = _Credentials(token="", url="", user="")
+        # Not a credential: a caller-supplied fetch_fn replaces the built-in
+        # credential-based fetch entirely (headers is set to None right below),
+        # so this placeholder is never read for authentication.
+        creds: _Credentials = _Credentials(
+            token="", url="", user=""
+        )  # nosec B106
         headers = None
     else:
         creds = _resolve_credentials(platform, preset)

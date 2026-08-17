@@ -57,7 +57,7 @@ BUILTIN_ENVIRONMENTS_DIR = (
 
 #: ``genesis.yaml`` — read as data (not imported) so this module has no dependency
 #: on the generator and no circular-import risk; see design doc "reuses genesis.yaml
-#: instead of re-declaring its enums".
+#: instead of redeclaring its enums".
 _GENESIS_MANIFEST_PATH = Path(__file__).resolve().parents[2] / "genesis.yaml"
 
 _SECRET_REF_RE = re.compile(
@@ -794,8 +794,8 @@ def load_environment_profile(name: str) -> EnvironmentProfile:
 def _genesis_run_plan(key: str) -> list[str]:
     """Read one ``run_plan.<key>`` enum straight out of ``genesis.yaml``.
 
-    Composes the existing manifest instead of re-declaring a second copy of its
-    enums (design doc: "reuses genesis.yaml instead of re-declaring its enums").
+    Composes the existing manifest instead of redeclaring a second copy of its
+    enums (design doc: "reuses genesis.yaml instead of redeclaring its enums").
     """
     if not _GENESIS_MANIFEST_PATH.is_file():
         raise EnvironmentProfileError(
