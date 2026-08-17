@@ -196,6 +196,50 @@ def test_dispatch_rejects_before_workitem_when_queue_is_full(monkeypatch) -> Non
         )
 
 
+def test_enqueue_rejects_envelope_tenant_that_differs_from_caller_session(
+    monkeypatch,
+) -> None:
+    """KNOWN-BAD PROOF (GOC-18): a caller-supplied ``envelope.tenant`` that
+    disagrees with the caller's own authenticated ``GraphSession`` must be
+    REJECTED before any durable WorkItem or queue write — never silently
+    trusted, never silently coerced to the session's tenant. This is the
+    admission-time half of the dispatch/delivery authentication contract
+    (``agent_dispatch.py:enqueue_agent_turn``'s ``PermissionError`` gate);
+    the consumer-side half is
+    ``test_consumer_loop_dead_letters_tenant_mismatched_envelope`` below.
+    """
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.session.resolve_session",
+        lambda **_kwargs: SimpleNamespace(tenant="tenant-legit"),
+    )
+    with pytest.raises(PermissionError, match="tenant"):
+        agent_dispatch.enqueue_agent_turn(
+            AgentTurnEnvelope(session_id="session-ref", tenant="tenant-attacker")
+        )
+
+
+def test_enqueue_rejects_unauthenticated_caller(monkeypatch) -> None:
+    """KNOWN-BAD PROOF (GOC-18): a caller with no verified ambient
+    ``GraphSession`` (no authenticated identity at all) must be rejected
+    before any durable WorkItem or queue write — ``enqueue_agent_turn`` has
+    no anonymous/unauthenticated admission path."""
+    from agent_utilities.knowledge_graph.core.session import SessionRequiredError
+
+    def _no_ambient_session(**_kwargs):
+        raise SessionRequiredError(
+            "A verified ambient GraphSession is required for this graph operation"
+        )
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.session.resolve_session",
+        _no_ambient_session,
+    )
+    with pytest.raises(SessionRequiredError):
+        agent_dispatch.enqueue_agent_turn(
+            AgentTurnEnvelope(session_id="session-ref", tenant="tenant-x")
+        )
+
+
 def test_lease_guard_heartbeats_during_long_execution(monkeypatch) -> None:
     calls: list[float] = []
 
@@ -791,6 +835,136 @@ def test_consumer_loop_acks_poison_envelope(dispatch_db, fake_queue):
     assert item is not None
     assert item["status"] in _wi.TERMINAL_WORK_ITEM_STATUSES
     assert item["kind"] == "dispatch_poison"
+
+
+def test_consumer_loop_dead_letters_tenant_mismatched_envelope(
+    dispatch_db, fake_queue, queued_goal
+):
+    """KNOWN-BAD PROOF (GOC-18): a well-formed envelope whose wire ``tenant``
+    disagrees with the tenant the durable WorkItem was ADMITTED under (e.g. a
+    forged/tampered broker delivery reusing a legitimate ``job_id``) must be
+    REJECTED — durably dead-lettered — before the worker ever claims or
+    executes it. The queue transport carries no signed per-message carrier
+    yet (GOC-15's envelope-carrier contract is deferred), so this is the
+    consumer-side re-check that closes the gap left by admission-time-only
+    verification (``test_enqueue_rejects_envelope_tenant_that_differs_from
+    _caller_session`` above covers the producer side)."""
+    import threading
+
+    from agent_utilities.core import sessions as _sessions
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+    from agent_utilities.orchestration import work_item as _wi
+
+    goal_id = queued_goal["goal_id"]
+    real_item_id, real_payload = fake_queue.get()
+    assert real_payload.get("tenant") != "tenant:attacker"  # sanity: genuine mismatch
+    fake_queue.ack(real_item_id)  # drop the genuine delivery ("get" only peeks)
+    tampered = dict(real_payload, tenant="tenant:attacker")
+    fake_queue.put(tampered)  # the only delivery left in the queue
+
+    stop = threading.Event()
+    real_get = fake_queue.get
+
+    def _get():
+        item = real_get()
+        if item is None:
+            stop.set()
+        return item
+
+    fake_queue.get = _get
+    worker.run_dispatch_consumer_loop(fake_queue, stop, idle_sleep_s=0.01)
+    assert fake_queue.get_queue_size() == 0  # rejected, but never wedges the loop
+
+    # The goal must NEVER have executed under the forged tenant.
+    node = _goal_node(goal_id)
+    assert node["status"] != "completed"
+
+    # A durable dead-letter record for the REJECTED delivery must exist
+    # BEFORE the ack above could have legally happened.
+    poison_id = worker.poison_work_item_id(tampered)
+    engine = _sessions._goal_engine()
+    item = _wi.get_work_item(engine, poison_id)
+    assert item is not None
+    assert item["status"] in _wi.TERMINAL_WORK_ITEM_STATUSES
+    assert item["kind"] == "dispatch_poison"
+
+    # The original dispatch WorkItem (admitted under the real tenant) was
+    # never claimed by this rejected delivery.
+    dispatch_item_id = f"workitem:dispatch:{real_payload['job_id']}"
+    dispatch_item = _wi.get_work_item(engine, dispatch_item_id)
+    assert dispatch_item is not None
+    assert dispatch_item["status"] not in _wi.TERMINAL_WORK_ITEM_STATUSES
+
+
+def test_consumer_loop_rejects_tenant_mismatch_before_claiming(monkeypatch) -> None:
+    """Engine-independent proof of the SAME contract as
+    ``test_consumer_loop_dead_letters_tenant_mismatched_envelope`` above
+    (which needs a real epistemic-graph engine and is skipped without one,
+    e.g. in this sandbox): the tenant-mismatch check fires and dead-letters
+    the delivery BEFORE ``execute_agent_turn`` (claim/execute) is ever
+    invoked, and the ONLY ack chokepoint used is
+    ``_ack_after_durable_outcome`` -- never a raw ``queue.ack``."""
+    import threading
+
+    from agent_utilities.knowledge_graph.core.queue_backend import MemoryQueueBackend
+    from agent_utilities.orchestration import agent_dispatch_worker as worker
+
+    queue = MemoryQueueBackend()
+    payload = AgentTurnEnvelope(
+        session_id="session-ref",
+        kind=KIND_GOAL_LOOP,
+        payload_ref="goal-ref",
+        tenant="tenant-attacker",
+    ).to_item()
+    queue.put(payload)
+
+    monkeypatch.setattr(
+        "agent_utilities.orchestration.work_item.get_work_item",
+        lambda _engine, _item_id: {"tenant": "tenant-legit"},
+    )
+
+    dead_lettered: list[tuple[dict, BaseException]] = []
+
+    def _fake_dlq(_engine, _payload, *, error):
+        dead_lettered.append((_payload, error))
+        return "workitem:dispatch:poison:fake"
+
+    monkeypatch.setattr(worker, "_dead_letter_poison_envelope", _fake_dlq)
+
+    acked: list[str | None] = []
+
+    def _fake_ack(_queue, item_id, _engine, work_item_id):
+        acked.append(work_item_id)
+        _queue.ack(item_id)
+        return True
+
+    monkeypatch.setattr(worker, "_ack_after_durable_outcome", _fake_ack)
+
+    def _never(*_args, **_kwargs):
+        raise AssertionError(
+            "execute_agent_turn must never run for a rejected tenant-mismatched delivery"
+        )
+
+    monkeypatch.setattr(worker, "execute_agent_turn", _never)
+
+    stop = threading.Event()
+    real_get = queue.get
+
+    def _get():
+        item = real_get()
+        if item is None:
+            stop.set()
+        return item
+
+    queue.get = _get
+    worker.run_dispatch_consumer_loop(queue, stop, engine=object(), idle_sleep_s=0.01)
+
+    assert len(dead_lettered) == 1
+    payload_seen, error_seen = dead_lettered[0]
+    assert payload_seen == payload
+    assert isinstance(error_seen, worker.TenantMismatchError)
+    assert acked == ["workitem:dispatch:poison:fake"]
+    assert queue.get_queue_size() == 0
 
 
 def test_two_workers_one_session_execute_serially(dispatch_db, fake_queue, monkeypatch):
