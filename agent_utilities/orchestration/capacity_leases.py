@@ -272,7 +272,16 @@ class CapacityLease:
     idempotency_key: str
     state: str = LeaseState.ACTIVE
     renewed_count: int = 0
-    cost_budget: float | None = None
+    #: Spend ceiling in micro-units (1e-6) of the deployment's accounting
+    #: currency -- an exact integer, never a float. Was ``float | None``, which
+    #: admitted ``nan``/``inf``/negative ceilings that nothing validated: a
+    #: budget is a control, and a control accepting a value that compares false
+    #: against everything fails open. ``nan`` is also not JSON-representable
+    #: (``json.dumps`` emits a bare ``NaN`` token that strict parsers reject),
+    #: so a non-finite ceiling broke interop with the engine, not just
+    #: arithmetic. Mirrors ``eg-types`` ``CapacityLease::cost_budget_micros``
+    #: exactly. ``None`` is unbounded; ``0`` means "may spend nothing".
+    cost_budget_micros: int | None = None
     token_budget: int | None = None
 
     def is_expired(self, now_ms: int) -> bool:
