@@ -338,13 +338,29 @@ def dependency_lock_digest(lock_path: str | Path | None = None) -> str:
         is_editable = isinstance(source, dict) and "editable" in source
         if version is None and is_editable:
             # Editable/path workspace members (this repo itself, sibling crates
-            # such as epistemic-graph) carry a dynamic version resolved from local
-            # build-backend metadata (``dynamic = ["version"]`` in pyproject.toml),
-            # not a pinned registry release — uv.lock legitimately omits
-            # ``version`` for them. They are not the third-party drift risk this
-            # digest defends against (their own source is already covered by
-            # ``canonical_hash``); skip pinning a fabricated version rather than
-            # treat the intentional absence as lock corruption.
+            # such as epistemic-graph) carry a dynamic version resolved from
+            # local build-backend metadata, not a pinned registry release, so
+            # uv.lock legitimately omits ``version`` -- demanding one treated a
+            # VALID lock as corrupt and made this digest unsatisfiable against
+            # the repo's own lock.
+            #
+            # Pin them on their SOURCE PATH rather than skipping them. Skipping
+            # is tempting (their content is already covered by canonical_hash)
+            # but it makes the digest BLIND to a real change: relocating a
+            # member from "." to ".uv-workspace-siblings/agent-utilities" is a
+            # different source tree being built, and a skip-based digest yields
+            # the IDENTICAL value across that move -- so an existing signature
+            # would stay valid over it. For a RELEASE-SIGNING digest that is the
+            # wrong direction to fail: a signed-but-stale artifact is worse than
+            # an unsigned one, because it manufactures trust nothing reviewed.
+            # Pinning the path keeps the digest sensitive to which tree is in
+            # play without fabricating a version that does not exist.
+            editable_ref = source.get("editable")
+            if not isinstance(editable_ref, str) or not editable_ref:
+                raise ReleaseSigningError(
+                    "dependency lock contains an invalid package identity"
+                )
+            pins.append((name, f"editable:{editable_ref}"))
             continue
         if not isinstance(version, str) or not version:
             raise ReleaseSigningError(
