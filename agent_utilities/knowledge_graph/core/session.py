@@ -277,6 +277,16 @@ class GraphSession:
         priority = current_priority()
         if priority is not None:
             context["priority"] = priority.value
+        # GOC-15 carrier contract (CONCEPT:AU-OS.identity.verified-carrier-contract,
+        # docs/architecture/verified-identity-carrier-contract.md): this dict IS
+        # the wire carrier every `eg2.` call sends. Self-check its shape against
+        # the one canonical field set before it ever leaves this process — a
+        # regression here (a renamed/omitted required claim, an unrecognized
+        # extra key) is exactly the class of defect that would otherwise only
+        # surface as an opaque engine-side `deny_unknown_fields` rejection.
+        from agent_utilities.security.request_identity import validate_carrier_claims
+
+        validate_carrier_claims(context)
         return context
 
     @staticmethod

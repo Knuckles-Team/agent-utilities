@@ -103,6 +103,82 @@ SERVED_TRANSPORTS: frozenset[str] = frozenset({"streamable-http", "sse"})
 # administration; a generic application role named ``admin`` is not equivalent.
 _GRAPH_AUTH_SCOPES: frozenset[str] = frozenset({"kg:read", "kg:write", "kg:admin"})
 
+# The exact claim-key shape of the ONE live verified-identity carrier this
+# codebase ships (GOC-15 carrier contract,
+# CONCEPT:AU-OS.identity.verified-carrier-contract): the dict
+# `GraphSession.engine_verified_context()` produces and
+# `crates/eg-types/src/acl.rs::RequestContextClaims` deserializes
+# (`#[serde(deny_unknown_fields)]` on the Rust side — an unrecognized key is a
+# hard reject there, so a caller-supplied claims dict with an extra key would
+# already fail on the wire; this validator gives Python-side callers the same
+# fail-closed shape check *before* they propagate a claims dict to a new
+# adapter, e.g. an auxiliary SPARQL/federation/observability surface, instead
+# of the engine round-trip being the first place a malformed carrier is
+# caught). See docs/architecture/verified-identity-carrier-contract.md for
+# the full field-level contract, including why request/trace ids and
+# expiry are deliberately NOT part of this set.
+CARRIER_CLAIM_FIELDS: frozenset[str] = frozenset(
+    {
+        "principal",
+        "tenant",
+        "audience",
+        "agent_id",
+        "roles",
+        "scopes",
+        "delegation",
+        "policy_version",
+    }
+)
+
+# Present only when applicable; never required, never rejected for being
+# absent. Present together they form the full key set a claims dict may use.
+OPTIONAL_CARRIER_CLAIM_FIELDS: frozenset[str] = frozenset(
+    {"node", "priority", "oidc_token"}
+)
+
+
+def validate_carrier_claims(claims: dict[str, Any]) -> None:
+    """Fail closed if ``claims`` is not a well-formed verified-carrier dict.
+
+    This checks **shape** (required keys present and non-empty, no
+    unrecognized key), not cryptographic validity — it is not a substitute
+    for the engine's own MAC/audience/tenant/policy verification. It exists
+    for a new adapter (SPARQL/federation/observability, GOC-18/19/20/GOC-85)
+    that needs to confirm a claims dict it is about to propagate is actually
+    carrier-shaped before forwarding it, without hand-copying the key list
+    from :func:`GraphSession.engine_verified_context`'s docstring.
+
+    Raises:
+        ValueError: ``claims`` is missing a required field, a required field
+            is empty/wrong-typed, or an unrecognized key is present.
+    """
+    if not isinstance(claims, dict):
+        raise ValueError("carrier claims must be a dict")
+    allowed = CARRIER_CLAIM_FIELDS | OPTIONAL_CARRIER_CLAIM_FIELDS
+    unknown = set(claims) - allowed
+    if unknown:
+        raise ValueError(
+            f"carrier claims contain unrecognized field(s): {sorted(unknown)}"
+        )
+    missing = CARRIER_CLAIM_FIELDS - set(claims)
+    if missing:
+        raise ValueError(f"carrier claims missing required field(s): {sorted(missing)}")
+    scalar_fields = ("principal", "tenant", "audience", "agent_id", "policy_version")
+    for scalar_field in scalar_fields:
+        value = claims[scalar_field]
+        if not isinstance(value, str) or not value.strip():
+            raise ValueError(
+                f"carrier claim {scalar_field!r} must be a non-empty string"
+            )
+    for list_field in ("roles", "scopes", "delegation"):
+        value = claims[list_field]
+        is_str_list = isinstance(value, list) and all(
+            isinstance(item, str) for item in value
+        )
+        if not is_str_list:
+            raise ValueError(f"carrier claim {list_field!r} must be a list of strings")
+
+
 _LOCAL_PROCESS_ISSUER = "urn:agent-utilities:graph-os:local-process"
 _LOCAL_PROCESS_AUDIENCE = "graph-os-local"
 _LOCAL_PROCESS_POLICY_VERSION = "local-ephemeral-v1"
@@ -723,7 +799,9 @@ class ActorIdentityMiddleware:
 
 __all__ = [
     "ActorIdentityMiddleware",
+    "CARRIER_CLAIM_FIELDS",
     "HEALTH_PATHS",
+    "OPTIONAL_CARRIER_CLAIM_FIELDS",
     "SERVED_TRANSPORTS",
     "UNAUTHENTICATED_PATHS",
     "acquire_process_identity_token",
@@ -735,4 +813,5 @@ __all__ = [
     "mint_graph_session",
     "mint_actor_from_token_sync",
     "system_write_session",
+    "validate_carrier_claims",
 ]
