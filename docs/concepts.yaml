@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1208
+total_concepts: 1210
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -9850,6 +9850,20 @@ concepts:
   - agent_utilities/security/conformance/surface_inventory.py
   - agent_utilities/security/conformance/surface_manifest.py
   doc: see this package
+- id: AU-OS.identity.tenant-rbac-admission
+  name: root-cause fix for the P0
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/security/tenant_rbac_admission.py
+  doc: root-cause fix for the P0
+- id: AU-OS.identity.tenant-rbac-admission-deploy-bridge
+  name: AU-OS.identity.tenant-rbac-admission-deploy-bridge
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/security/tenant_admission_cli.py
+  doc: AU-OS.identity.tenant-rbac-admission-deploy-bridge
 - id: AU-OS.identity.verified-carrier-contract
   name: the dict
   pillar: AU-OS
