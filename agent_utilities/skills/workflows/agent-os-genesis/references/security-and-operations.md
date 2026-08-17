@@ -35,6 +35,51 @@ Discover or create a trust hierarchy according to the plan. Distribute only the
 required trust bundle. Test internal and external TLS names, expiry monitoring, and
 rotation before cutover.
 
+### Workload identity must be provisioned, not assumed
+
+"Prefer workload identity" above is a day-0 provisioning step, not a property a
+Vault-compatible store has by default. A store can hold every secret correctly and
+still have **no way for a workload to prove who it is** — in which case every
+consumer falls back to a static token, and any design that requires workload
+identity is silently unrunnable.
+
+Verify, do not assume: list the store's enabled auth methods. If only a token
+method is mounted, workload identity does not exist yet regardless of what any
+runbook claims. A store fronted by an external-secrets operator is *not* evidence —
+that operator commonly authenticates with a static token reference of its own.
+
+Provisioning it is four ordered steps, and each must be verified by reading it back:
+
+1. **Enable the Kubernetes auth method** on the store.
+2. **Configure it** with the cluster API host and CA. Sourcing both from the store
+   pod's own projected ServiceAccount avoids hand-copied values drifting.
+3. **Write a policy scoped to exactly the one secret path** the workload needs —
+   never the whole mount. A signing workload needs one secret, not `apps/data/*`.
+4. **Bind a role to exactly one ServiceAccount in one namespace**, and set the
+   **audience** to match the audience on the workload's projected token. An
+   unset audience silently accepts any token that satisfies the other bindings;
+   a mismatched one fails at run time with an opaque auth error.
+
+Only then can a controlled job read a credential live at use time instead of having
+it materialized into a cluster Secret. That distinction is the point: a materialized
+Secret persists the value at rest for its whole lifetime and adds a second custody
+surface, and in this workspace a hand-patched externally-managed Secret is silently
+reverted by the operator that owns it.
+
+**Signing keys specifically:** a key that signs release artifacts belongs in a
+controlled job, never in an interactive session. Expect a correctly-built signer to
+*refuse* an environment-variable reference and accept only a versioned store
+reference — that refusal is the control working. Expect it to fail closed rather
+than fall back to an ephemeral key, and expect a keyless "review" run to be
+impossible if the generator resolves its signer at build time. Budget for a **built
+artifact at the frozen commit** as a prerequisite; a source-tree install is
+deliberately rejected, because the thing being signed must be the thing that was
+reviewed.
+
+The rule that makes all of this worth the effort: **a signed-but-stale artifact is
+strictly worse than an unsigned one, because it manufactures trust nothing
+reviewed.** Never regenerate signatures over drifted content to make a gate pass.
+
 ## Network and permissions
 
 Default-deny inbound and egress where the runtime supports it. Allow only declared
