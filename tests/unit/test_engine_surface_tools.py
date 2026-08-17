@@ -92,6 +92,7 @@ _EXPECTED_ROUTES = {
     "graph_logs": "/graph/logs",
     "graph_gis": "/graph/gis",
     "graph_memory": "/graph/memory",
+    "graph_viz": "/graph/viz",
 }
 
 # The full 18-action graph_mine surface (CONCEPT:EG-KG.mining.frequent-itemset-mining
@@ -2169,3 +2170,290 @@ def test_kg_2_310_logs_unknown_action_is_reported(tools):
 
 
 # ── graph_gis ────────────────────────────────────────────────────────────────
+
+
+
+
+# ── graph_viz (GOC-88, D-VZ-1 lane V5) ─────────────────────────────────────────
+def _viz_args(**overrides) -> dict:
+    """Every ``graph_viz`` kwarg with its declared default, explicitly -- the raw
+    tool function's ``Field(default=...)`` sentinels are only resolved when
+    invoked through FastMCP's own binding layer, so a direct call (as every test
+    in this file makes) must supply every argument itself, exactly like the
+    ``graph_promql``/``graph_gis`` tests above already do."""
+    args = {
+        "action": "capability_matrix",
+        "query": "",
+        "mark": "scatter",
+        "x_field": "",
+        "y_field": "",
+        "color_field": "",
+        "size_field": "",
+        "title": "",
+        "spec_json": "",
+        "dataset_json": "",
+        "view_result_json": "",
+        "format": "png",
+        "width_px": 900,
+        "height_px": 560,
+        "max_primitives": 200_000,
+        "max_bytes": 50_000_000,
+        "row_limit": 200_000,
+        "dataset_ref": "graph_viz",
+        "graph": "",
+    }
+    args.update(overrides)
+    return args
+
+
+def _fake_render(calls: list):
+    def _render(spec, dataset, **kwargs):
+        calls.append((spec, dataset, kwargs))
+        return {
+            "view_result": {"row_count": 0, "lod_tier": "Direct", "exact": True, "reduction": "None", "wall_time_ms": 3},
+            "format": kwargs.get("format", "png"),
+            "content_type": "image/png",
+            "bytes": b"\x89PNG\r\n\x1a\n-fake-",
+        }
+
+    return _render
+
+
+def test_graph_viz_capability_matrix_dispatches(monkeypatch, tools):
+    """graph_viz(action='capability_matrix') calls client.viz.capability_matrix, no query/render involved."""
+    viz = SimpleNamespace(
+        capability_matrix=lambda: {"entries": [{"mark": "scatter"}]},
+        render=lambda *a, **k: pytest.fail("render should not be called"),
+    )
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client(viz=viz))
+    out = json.loads(tools["graph_viz"](**_viz_args(action="capability_matrix")))
+    assert out["surface"] == "viz"
+    assert out["result"]["entries"] == [{"mark": "scatter"}]
+
+
+def test_graph_viz_export_chart_dispatches_and_round_trips_bytes(monkeypatch, tools):
+    """export_chart passes spec_json/dataset_json straight to client.viz.render; PNG bytes survive as base64."""
+    calls: list = []
+    viz = SimpleNamespace(render=_fake_render(calls))
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client(viz=viz))
+    spec = {
+        "version": 1,
+        "marks": [{"kind": "scatter", "data_ref": "d", "encodings": {"x": {"field": "x"}, "y": {"field": "y"}}}],
+    }
+    dataset = {"InlineColumns": {"columns": {"x": {"F64": [1.0, 2.0]}, "y": {"F64": [3.0, 4.0]}}}}
+    out = json.loads(
+        tools["graph_viz"](
+            **_viz_args(action="export_chart", spec_json=json.dumps(spec), dataset_json=json.dumps(dataset))
+        )
+    )
+    assert out["result"]["format"] == "png"
+    assert out["result"]["bytes"]["__bytes_b64__"]
+    decoded = base64.b64decode(out["result"]["bytes"]["__bytes_b64__"])
+    assert decoded.startswith(b"\x89PNG")
+    assert len(calls) == 1
+    assert calls[0][0] == spec
+    assert calls[0][1] == dataset
+
+
+def test_graph_viz_export_chart_requires_both_spec_and_dataset(tools):
+    out = json.loads(tools["graph_viz"](**_viz_args(action="export_chart", spec_json="", dataset_json="")))
+    assert "error" in out
+
+
+def test_graph_viz_plot_from_query_renders_real_query_rows(monkeypatch, tools):
+    """plot_from_query: real query rows -> InlineColumns -> render; rows_returned/rendered reported honestly."""
+    render_calls: list = []
+    viz = SimpleNamespace(render=_fake_render(render_calls))
+    rows = [{"a": 1.0, "b": 10.0}, {"a": 2.0, "b": 20.0}, {"a": 3.0, "b": 30.0}]
+    query_client = SimpleNamespace(sql=lambda q: rows)
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(viz=viz, query=query_client)
+    )
+    out = json.loads(
+        tools["graph_viz"](
+            **_viz_args(
+                action="plot_from_query",
+                query="SELECT a, b FROM nodes",
+                mark="scatter",
+                x_field="a",
+                y_field="b",
+            )
+        )
+    )
+    assert out["rows_returned"] == 3
+    assert out["rows_rendered"] == 3
+    assert render_calls[0][1] == {
+        "InlineColumns": {"columns": {"a": {"F64": [1.0, 2.0, 3.0]}, "b": {"F64": [10.0, 20.0, 30.0]}}}
+    }
+    assert render_calls[0][0]["marks"][0]["kind"] == "scatter"
+
+
+def test_graph_viz_plot_from_query_missing_data_is_unavailable_not_a_fabricated_chart(monkeypatch, tools):
+    """A query with 0 usable rows answers 'unavailable' -- render is NEVER called, so nothing is fabricated."""
+    render_calls: list = []
+    viz = SimpleNamespace(render=_fake_render(render_calls))
+    # Every row is missing 'b' -- 0 rows survive the required-fields filter.
+    rows = [{"a": 1.0, "b": None}, {"a": 2.0}]
+    query_client = SimpleNamespace(sql=lambda q: rows)
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(viz=viz, query=query_client)
+    )
+    out = json.loads(
+        tools["graph_viz"](
+            **_viz_args(
+                action="plot_from_query",
+                query="SELECT a, b FROM nodes",
+                mark="scatter",
+                x_field="a",
+                y_field="b",
+            )
+        )
+    )
+    assert out["unavailable"] is True
+    assert render_calls == []  # never fabricated a chart from partial/missing data
+
+
+def test_graph_viz_plot_from_query_empty_result_set_is_unavailable(monkeypatch, tools):
+    viz = SimpleNamespace(render=lambda *a, **k: pytest.fail("render should not be called"))
+    query_client = SimpleNamespace(sql=lambda q: [])
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(viz=viz, query=query_client)
+    )
+    out = json.loads(
+        tools["graph_viz"](
+            **_viz_args(
+                action="plot_from_query",
+                query="SELECT * FROM nodes WHERE 0=1",
+                mark="line",
+                x_field="a",
+                y_field="b",
+            )
+        )
+    )
+    assert out["unavailable"] is True
+
+
+def test_graph_viz_plot_from_query_bounded_by_row_limit_not_result_size(monkeypatch, tools):
+    """The wire payload is bounded by row_limit regardless of how many rows the query returned."""
+    render_calls: list = []
+    viz = SimpleNamespace(render=_fake_render(render_calls))
+    rows = [{"a": float(i), "b": float(i)} for i in range(10_000)]
+    query_client = SimpleNamespace(sql=lambda q: rows)
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(viz=viz, query=query_client)
+    )
+    out = json.loads(
+        tools["graph_viz"](
+            **_viz_args(
+                action="plot_from_query",
+                query="SELECT a, b FROM nodes",
+                mark="scatter",
+                x_field="a",
+                y_field="b",
+                row_limit=100,
+            )
+        )
+    )
+    assert out["rows_returned"] == 10_000
+    assert out["rows_rendered"] == 100
+    assert len(render_calls[0][1]["InlineColumns"]["columns"]["a"]["F64"]) == 100
+
+
+def test_graph_viz_plot_from_query_row_limit_is_clamped_to_a_hard_max(monkeypatch, tools):
+    """A caller-requested row_limit above the hard safety cap is clamped, never honored verbatim."""
+    render_calls: list = []
+    viz = SimpleNamespace(render=_fake_render(render_calls))
+    rows = [{"a": float(i), "b": float(i)} for i in range(5)]
+    query_client = SimpleNamespace(sql=lambda q: rows)
+    monkeypatch.setattr(
+        engine_surface_tools, "_client", lambda graph: _fake_client(viz=viz, query=query_client)
+    )
+    out = json.loads(
+        tools["graph_viz"](
+            **_viz_args(
+                action="plot_from_query",
+                query="q",
+                mark="scatter",
+                x_field="a",
+                y_field="b",
+                row_limit=999_999_999,
+            )
+        )
+    )
+    assert out["rows_returned"] == 5
+    assert out["rows_rendered"] == 5  # the fixture has only 5 rows -- the clamp just didn't blow up
+
+
+def test_graph_viz_plot_from_query_rejects_graph_mark(tools):
+    """'graph' (node-link) needs a node/edge dataset a flat query result can't shape -- refused, not silently misrendered."""
+    out = json.loads(
+        tools["graph_viz"](
+            **_viz_args(action="plot_from_query", query="SELECT * FROM nodes", mark="graph", x_field="a", y_field="b")
+        )
+    )
+    assert "error" in out
+    assert "graph" in out["error"]
+
+
+def test_graph_viz_plot_from_query_requires_fields(tools):
+    out = json.loads(
+        tools["graph_viz"](**_viz_args(action="plot_from_query", query="SELECT 1", x_field="", y_field=""))
+    )
+    assert "error" in out
+
+
+def test_graph_viz_degrades_when_viz_surface_absent(monkeypatch, tools):
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client())
+    out = json.loads(tools["graph_viz"](**_viz_args(action="capability_matrix")))
+    assert out["degraded"] is True
+
+
+def test_graph_viz_describe_chart_summarizes_an_exact_render_without_any_engine_call(monkeypatch, tools):
+    """describe_chart never touches the engine client -- a pure function of the ViewResult already in hand."""
+
+    def _boom(graph):
+        raise AssertionError("describe_chart must not resolve an engine client")
+
+    monkeypatch.setattr(engine_surface_tools, "_client", _boom)
+    view_result = {"row_count": 500, "lod_tier": "Direct", "exact": True, "reduction": "None", "wall_time_ms": 4}
+    spec = {"marks": [{"kind": "scatter"}]}
+    out = json.loads(
+        tools["graph_viz"](
+            **_viz_args(
+                action="describe_chart",
+                view_result_json=json.dumps(view_result),
+                spec_json=json.dumps(spec),
+            )
+        )
+    )
+    assert out["result"]["exact"] is True
+    assert out["result"]["mark"] == "scatter"
+    assert "Exact" in out["result"]["summary"]
+    assert "500" in out["result"]["summary"]
+
+
+def test_graph_viz_describe_chart_flags_an_approximated_render(tools):
+    view_result = {
+        "row_count": 5_000_000,
+        "lod_tier": "Density",
+        "exact": False,
+        "reduction": "Density",
+        "wall_time_ms": 5048,
+    }
+    out = json.loads(
+        tools["graph_viz"](**_viz_args(action="describe_chart", view_result_json=json.dumps(view_result)))
+    )
+    assert out["result"]["exact"] is False
+    assert "Approximated" in out["result"]["summary"]
+    assert "trend" in out["result"]["summary"].lower()
+
+
+def test_graph_viz_describe_chart_requires_view_result(tools):
+    out = json.loads(tools["graph_viz"](**_viz_args(action="describe_chart", view_result_json="")))
+    assert "error" in out
+
+
+def test_graph_viz_unknown_action_is_a_clean_error(monkeypatch, tools):
+    monkeypatch.setattr(engine_surface_tools, "_client", lambda graph: _fake_client(viz=SimpleNamespace()))
+    out = json.loads(tools["graph_viz"](**_viz_args(action="bogus")))
+    assert out["error"] == "unknown action 'bogus'"
