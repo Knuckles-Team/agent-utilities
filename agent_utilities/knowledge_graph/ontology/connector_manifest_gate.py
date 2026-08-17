@@ -644,9 +644,8 @@ def bundled_provider_contract(
     from .connector_manifest import ConnectorManifest
 
     try:
-        manifest = ConnectorManifest.model_validate(
-            yaml.safe_load(path.read_text(encoding="utf-8"))
-        )
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        manifest = ConnectorManifest.model_validate(raw)
     except Exception as exc:  # noqa: BLE001 - path-free fail-closed boundary
         raise ValueError("bundled provider manifest is invalid") from exc
     if manifest.connector.casefold() != normalized:
@@ -654,6 +653,7 @@ def bundled_provider_contract(
     signature_violations = _signature_violations(
         manifest,
         label=_manifest_label(path),
+        raw=raw if isinstance(raw, dict) else None,
     )
     if signature_violations:
         raise ValueError("bundled provider manifest is not release-pinned")
@@ -736,8 +736,29 @@ def _manifest_lock_entry(manifest: Any) -> dict[str, Any]:
     return dict(lock.get(f"agents/{manifest.connector}/connector_manifest.yml") or {})
 
 
-def _signature_violations(manifest: Any, *, label: str) -> list[str]:
-    """Verify the full manifest against Ed25519 evidence and its release pin."""
+def _signature_violations(
+    manifest: Any, *, label: str, raw: dict[str, Any] | None = None
+) -> list[str]:
+    """Verify the full manifest against Ed25519 evidence and its release pin.
+
+    Hashes ``raw`` (the literal YAML-parsed document) when the caller has it,
+    rather than re-dumping the validated ``manifest`` model. A field added to
+    :class:`ProvenanceSpec` (or any nested model) after a manifest was generated
+    and signed is absent from that manifest's own YAML; ``model_validate`` fills
+    it with the schema default, and ``model.model_dump()`` then writes that
+    default back out, injecting a byte the original signer never saw into the
+    hash pre-image -- a false "signature invalid" verdict for every already-
+    signed manifest in the fleet the day such a field is added (measured:
+    ``dependency_lock_digest``, GOC-16/BUG-234, broke all 68). Hashing the raw
+    document instead is exact by construction: at generation time the signed
+    hash is computed from a fully-populated model whose ``model_dump()`` output
+    *is* what gets written to the YAML file, so the file's literal parsed
+    content is always byte-identical to what was signed, for both an old
+    manifest predating a field and a new one carrying it. A tampered document
+    still changes the raw dict and still changes the hash -- this only removes
+    the *reload* round-trip's opportunity to inject un-signed defaults; it does
+    not widen what content is covered by the signature.
+    """
     from . import ontology_integrity
 
     provenance = manifest.provenance
@@ -746,7 +767,9 @@ def _signature_violations(manifest: Any, *, label: str) -> list[str]:
     if provenance.signer not in ontology_integrity.DEFAULT_TRUSTED_SIGNERS:
         return [f"[signature] {label}: signer {provenance.signer!r} is not trusted"]
 
-    manifest_hash = ontology_integrity.canonical_manifest_hash(manifest)
+    manifest_hash = ontology_integrity.canonical_manifest_hash(
+        raw if raw is not None else manifest
+    )
     pin = _manifest_lock_entry(manifest)
     pinned_key = pin.get("signing_public_key")
     trusted_keys = (
@@ -1061,7 +1084,13 @@ def _check_manifest_bytes(
         )
     violations.extend(_dependency_lock_violations(manifest, label=label))
     if require_signature:
-        violations.extend(_signature_violations(manifest, label=label))
+        violations.extend(
+            _signature_violations(
+                manifest,
+                label=label,
+                raw=data if isinstance(data, dict) else None,
+            )
+        )
     if require_provider:
         violations.extend(_provider_violations(manifest, path=path, label=label))
     return violations
