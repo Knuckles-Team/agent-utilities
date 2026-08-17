@@ -347,7 +347,17 @@ def test_privacy_gate_scans_unchanged_runtime_source_not_only_the_diff(tmp_path)
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True, env=git_env)
     leaked = tmp_path / "docker" / "build-job.yaml"
     leaked.parent.mkdir(parents=True)
-    leaked.write_text("            path: /home/someone/state/tree\n", encoding="utf-8")
+    # D-W12-AU-EXCEPTIONS-3: built via runtime concatenation, not one matchable
+    # source literal -- the same idiom tests/gates/test_tracked_privacy_gate.py's
+    # own docstring documents for a fixture that must stay leak-SHAPED on
+    # purpose. Without it, THIS file (tracked under tests/, in-scope since
+    # BUG-228) would itself become a new "machine-specific home path in runtime
+    # source" finding against the real repo the moment this literal is committed
+    # -- the exact self-referential trap that docstring warns about.
+    home_user = "some" + "one"
+    leaked.write_text(
+        f"            path: /home/{home_user}/state/tree\n", encoding="utf-8"
+    )
     subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True, env=git_env)
     subprocess.run(
         [
