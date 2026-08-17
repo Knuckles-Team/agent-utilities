@@ -13,6 +13,11 @@ from scripts._git_scan import tracked_or_walked  # noqa: E402
 
 PACKAGE = ROOT / "agent_utilities"
 FACTORY = Path("agent_utilities/core/http_client.py")
+# GOC-87 staged httpx -> httpx2 migration: the ONLY module allowed to
+# construct httpx2.Client/AsyncClient directly. Every other consumer goes
+# through agent_utilities.httpsupport.transport_factory, which selects this
+# adapter per call family (see that module's docstring).
+HTTPX2_FACTORY = Path("agent_utilities/httpsupport/httpx2_adapter.py")
 
 
 def _tracked_or_walked_py_files(package: Path) -> list[Path]:
@@ -49,7 +54,15 @@ _ALLOWLIST = {
 # blocked constructor — skip the alias-collection + call-scan walks for it.
 # Purely a redundant-work cut: it never narrows what a real match requires,
 # and ``ast.parse``'s own syntax-error detection still runs unconditionally.
-_TRIGGER_MARKERS = ("aiohttp", "requests", "httpx", "urllib3", "urllib", "http.client")
+_TRIGGER_MARKERS = (
+    "aiohttp",
+    "requests",
+    "httpx",
+    "httpx2",
+    "urllib3",
+    "urllib",
+    "http.client",
+)
 
 _BLOCKED = {
     "aiohttp.ClientSession",
@@ -57,6 +70,8 @@ _BLOCKED = {
     "http.client.HTTPSConnection",
     "httpx.AsyncClient",
     "httpx.Client",
+    "httpx2.AsyncClient",
+    "httpx2.Client",
     "requests.Session",
     "requests.delete",
     "requests.get",
@@ -123,7 +138,7 @@ def validate(package: Path = PACKAGE) -> list[str]:
             relative = path.relative_to(ROOT)
         except ValueError:
             relative = Path(package.name) / path.relative_to(package)
-        if relative == FACTORY or "__pycache__" in relative.parts:
+        if relative in (FACTORY, HTTPX2_FACTORY) or "__pycache__" in relative.parts:
             continue
         try:
             source = path.read_text(encoding="utf-8")

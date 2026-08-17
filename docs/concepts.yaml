@@ -1613,6 +1613,10 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/httpsupport/client_protocol.py
+  - agent_utilities/httpsupport/httpx2_adapter.py
+  - agent_utilities/httpsupport/httpx_adapter.py
+  - agent_utilities/httpsupport/transport_factory.py
   - agent_utilities/mcp/httpx_boundary.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/protocol_compat.py
@@ -2444,7 +2448,9 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/security/error_surface.py
@@ -2554,6 +2560,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: Multi-Connection Graph Registry. The engine has always been
