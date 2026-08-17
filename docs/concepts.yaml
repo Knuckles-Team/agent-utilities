@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1195
+total_concepts: 1196
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2260,6 +2260,13 @@ concepts:
   - agent_utilities/httpsupport/rate_limit.py
   - agent_utilities/httpsupport/redaction.py
   doc: Fleet HTTP Client Library
+- id: AU-ECO.ui.frontend-contribution
+  name: AU-ECO.ui.frontend-contribution
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/core/frontend_providers.py
+  doc: AU-ECO.ui.frontend-contribution
 - id: AU-ECO.ui.mcp-apps-host
   name: the MCP Apps entry-point tool + its
   pillar: AU-ECO
