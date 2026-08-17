@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import TypedDict
 
 from agent_utilities.core.config import AgentConfig
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
@@ -8,6 +9,23 @@ from agent_utilities.knowledge_graph.integrations.sparql_ingestor import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class SyncCycleOutcome(TypedDict, total=False):
+    """Typed return contract for :meth:`EpistemicSyncWorkflow.run_sync_cycle`
+    (CONCEPT:AU-AHE.evaluation.no-untyped-seam) — a plain ``dict[str, Any]``
+    return here is exactly the producer/consumer key-drift shape this repo's
+    liveness ratchet flags (a producer writes ``ingested_count``, a consumer
+    reads ``ingestedCount`` and silently gets nothing). ``total=False`` because
+    the key set genuinely differs by branch: success carries
+    ``ingested_count``/``flushed_count``, failure carries ``error`` — ``status``
+    is the only key present on both.
+    """
+
+    status: str  # "completed" | "failed"
+    ingested_count: int
+    flushed_count: int
+    error: str
 
 
 class EpistemicSyncWorkflow:
@@ -30,8 +48,20 @@ class EpistemicSyncWorkflow:
 
         self.backend = LadybugBackend()
 
-    async def run_sync_cycle(self) -> None:
-        """Executes a single synchronization cycle against external authoritative graphs."""
+    async def run_sync_cycle(self) -> SyncCycleOutcome:
+        """Executes a single synchronization cycle against external authoritative graphs.
+
+        CONCEPT:AU-AHE.evaluation.return-none-on-failure — this used to swallow
+        every exception and always return ``None``, so a caller (e.g. the
+        ``graph_analyze(action="epistemic_sync")`` MCP tool) had no way to tell
+        an ingest+flush that actually ran from one that raised immediately —
+        both looked identical (``None``) at the call site. Now returns an
+        honest outcome: ``status="completed"`` with the real counts on
+        success, ``status="failed"`` with the exception type on failure. The
+        cycle itself stays retry-safe/idempotent (:meth:`run_forever` simply
+        tries again next interval on a reported failure), so this does not
+        change WHEN a failure is recoverable, only whether a caller can see it.
+        """
         logger.info(
             f"Starting Epistemic Sync cycle across {len(self.config.sparql_endpoints)} SPARQL endpoints..."
         )
@@ -56,6 +86,13 @@ class EpistemicSyncWorkflow:
 
         except Exception as e:
             logger.error(f"Epistemic Sync cycle failed: {e}", exc_info=True)
+            return {"status": "failed", "error": type(e).__name__}
+
+        return {
+            "status": "completed",
+            "ingested_count": ingested_count,
+            "flushed_count": flushed_count,
+        }
 
     async def run_forever(self, interval_seconds: int = 3600) -> None:
         """Daemon loop to trigger the sync intermittently."""

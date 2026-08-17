@@ -573,19 +573,29 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     now_unix = time.time()
     minute_key = int(now.replace(second=0, microsecond=0).timestamp())
     fired: list[str] = []
+    reconciling: list[str] = []
     for spec in _load_all(engine):
         if not _is_due(spec, now, now_unix):
             continue
-        # Advance run state FIRST (at-most-once on crash), then enqueue.
+        # CONCEPT:AU-OS.state.durable-schedule-outbox (GOC-22 gate 3) — the run
+        # state advance is computed here but NOT persisted yet. Persisting it
+        # before the enqueue is confirmed (the prior order) is a
+        # write-then-mark-seen defect: any enqueue failure — not only a hard
+        # process crash — silently and PERMANENTLY lost that due tick, because
+        # ``_upsert`` had already recorded the tick as consumed before
+        # ``engine.submit_task`` was even attempted. State only advances below
+        # once the enqueue (or a legitimate coalesce-skip) is confirmed.
         if spec.trigger == "cron":
-            spec.last_minute = minute_key
+            advanced_last_minute = minute_key
+            advanced_next_run_unix = spec.next_run_unix
         else:
             interval = spec.interval_s or 60.0
             if spec.trigger == "adaptive" and spec.consecutive_failures:
                 mult = min(2**spec.consecutive_failures, _ADAPTIVE_MAX_BACKOFF_MULT)
                 interval *= mult
-            spec.next_run_unix = now_unix + interval
-        _upsert(engine, spec)
+            advanced_last_minute = spec.last_minute
+            advanced_next_run_unix = now_unix + interval
+
         # Coalesce: if the previous tick for this schedule hasn't been consumed
         # yet, do NOT pile another. A scheduled job is an interval tick, not a
         # backlog item — running a stale missed tick later adds no value. Without
@@ -593,6 +603,8 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
         # unbounded backlog of duplicate ticks (one per due-minute, per schedule).
         # Cheap top-level ``schedule``-property probe (not the O(N) metadata
         # dedupe scan). (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent)
+        # This IS a legitimate reason to advance the run state: the interval is
+        # genuinely covered by the still-in-flight prior tick, not lost.
         work = engine._ingest_work_item_index()
         if any(
             (item.get("metadata") or {}).get("schedule") == spec.name
@@ -600,7 +612,18 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
             not in {"succeeded", "failed", "cancelled", "dead_letter"}
             for item in work.values()
         ):
+            spec.last_minute = advanced_last_minute
+            spec.next_run_unix = advanced_next_run_unix
+            _upsert(engine, spec)
             continue
+
+        # Enqueue FIRST, using the deterministic ``sched:<name>:<minute>`` job
+        # id. ``submit_task``/``ensure_ingest_task_work_item`` is an idempotent
+        # create-or-reuse keyed on that id with a durable admission readback
+        # (agent_utilities/orchestration/work_item.py::ensure_ingest_task_work_item),
+        # so re-attempting the SAME due tick on the next scheduler evaluation
+        # after a failed/crashed attempt is safe — it can never double-fire.
+        # Only a CONFIRMED enqueue may advance/persist the run state.
         job_id = f"sched:{spec.name}:{minute_key}"
         try:
             engine.submit_task(
@@ -616,13 +639,32 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
                 job_id=job_id,
                 extra_meta={"schedule": spec.name, "payload": spec.payload},
             )
-            fired.append(spec.name)
         except Exception as exc:  # noqa: BLE001 — one schedule's enqueue failure never blocks the tick
-            logger.error("schedule enqueue failed: %s", exc)
+            # Do NOT advance/persist run state: this due tick stays due and is
+            # retried on the NEXT scheduler evaluation instead of being
+            # silently and permanently lost.
+            logger.error(
+                "schedule enqueue failed, tick left due for retry (name=%s): %s",
+                spec.name,
+                exc,
+            )
+            reconciling.append(spec.name)
+            continue
+
+        spec.last_minute = advanced_last_minute
+        spec.next_run_unix = advanced_next_run_unix
+        _upsert(engine, spec)
+        fired.append(spec.name)
     if fired:
         logger.info("scheduler fired schedule(s) (count=%d)", len(fired))
+    if reconciling:
+        logger.warning(
+            "scheduler left due tick(s) for retry (count=%d, schedules=%s)",
+            len(reconciling),
+            reconciling,
+        )
     logger.info("[OS-5.44] scheduler tick: end (fired=%d)", len(fired))
-    return {"fired": fired, "count": len(fired)}
+    return {"fired": fired, "count": len(fired), "reconciling": reconciling}
 
 
 def _job_outcome(status: str | None, ok: bool) -> str:

@@ -162,6 +162,53 @@ async def test_resume_localized_with_no_dag_edges_reruns_only_the_failed_step(
     assert ran == ["mergeA"]
 
 
+async def test_resume_localized_fails_safe_when_edge_read_is_flaky(
+    _fake_agent, monkeypatch
+):
+    """CONCEPT:AU-AHE.evaluation.return-none-on-failure — a transient graph-read
+    failure while walking TRANSITION_TO edges from the failed step must never
+    be silently treated as 'no downstream edges' (which would wrongly PRESERVE
+    branchB/mergeB — steps whose validity relative to this failure was never
+    actually confirmed). Proves the real ``resume_localized`` entrypoint: a
+    flaky ``out_edges`` forces a full re-run rather than a narrow, unverified
+    one.
+    """
+    ran, _efforts = _fake_agent
+    engine = FakeEngine()
+    runner = WorkflowRunner()
+    r1 = await runner._execute_plan_via_agents(
+        _diamond_plan(), engine, "ci_repair_wf", trace_session="run-localized-flaky"
+    )
+    assert r1.status == "completed"
+    ran.clear()
+
+    engine.link_nodes("branchA", "mergeA", "TRANSITION_TO")
+
+    def _flaky_out_edges(node_id, data=False):
+        if node_id == "branchA":
+            raise RuntimeError("simulated transient graph read failure")
+        return engine.graph.out_edges(node_id, data=data)
+
+    monkeypatch.setattr(engine, "out_edges", _flaky_out_edges)
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.workflow_store.WorkflowStore.load_workflow",
+        lambda self, name: _diamond_plan(),
+    )
+
+    r2 = await runner.resume_localized(
+        "ci_repair_wf",
+        engine,
+        "run-localized-flaky",
+        failed_step="branchA",
+        prior_result=r1,
+    )
+
+    assert r2.status == "completed"
+    # Fails SAFE: the whole plan re-ran instead of preserving branchB/mergeB
+    # on an unconfirmed (read-failed) region.
+    assert set(ran) == {"prep", "branchA", "mergeA", "branchB", "mergeB"}
+
+
 async def test_model_tier_hint_routes_reasoning_effort(_fake_agent):
     """A step tagged model_tier='small' threads a reduced reasoning_effort into
     run_agent (paper idea #3); an untagged step passes None through unchanged."""

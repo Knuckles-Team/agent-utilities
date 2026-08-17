@@ -368,9 +368,16 @@ async def background_processor(agent: Any):
                     and (now - t.last_run).total_seconds() / 60 >= t.interval_minutes
                 ):
                     due.append(t)
-                    t.last_run = now
 
         for task in due:
+            # Advance ``last_run`` per-task, immediately before its own attempt
+            # — never for the whole ``due`` batch up front. Stamping the whole
+            # batch before any of it ran was a write-then-mark-seen shape: a
+            # crash (or unhandled failure) while executing an EARLY task in the
+            # batch left every LATER task in that same batch marked as "just
+            # ran" despite never being dispatched at all, silently skipping a
+            # full interval for work that was never attempted.
+            task.last_run = now
             try:
                 if task.prompt.startswith("__internal:"):
                     cmd = task.prompt.split(":", 1)[1]
