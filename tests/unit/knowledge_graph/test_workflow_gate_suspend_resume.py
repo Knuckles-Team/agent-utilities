@@ -115,6 +115,34 @@ async def test_gate_pending_suspends_the_run(_fake_agent):
     assert "workflowrun:run-gate-1" in engine.graph.nodes
 
 
+async def test_gate_suspend_fails_closed_when_persist_fails(_fake_agent):
+    """CONCEPT:AU-ORCH.execution.workflow-dag-validation (GOC-22 gate 2) —
+    write-then-mark-seen regression: a suspended run's ``status="suspended"``
+    is a durability PROMISE that :meth:`resume` can safely pick up from here.
+    If the ``:WorkflowRun`` persist write actually fails, returning
+    "suspended" anyway would let a later :meth:`resume` silently restart the
+    whole plan and re-run ``prep`` again. Proves the real entrypoint
+    (``_execute_plan_via_agents``) refuses to make that promise on an
+    unverified write — it raises instead of returning a fake-durable result.
+    """
+
+    class _FailingPersistEngine(FakeEngine):
+        def add_node(self, node_id, node_type, properties=None, **props):
+            if node_type == "WorkflowRun":
+                raise RuntimeError("simulated durable-write failure")
+            super().add_node(node_id, node_type, properties, **props)
+
+    engine = _FailingPersistEngine()
+    runner = WorkflowRunner()
+    with pytest.raises(runner_mod.WorkflowSuspendPersistError):
+        await runner._execute_plan_via_agents(
+            _plan_with_gate(), engine, "governed_deploy", trace_session="run-gate-fail"
+        )
+    # The failed-persist attempt must not have left a stale in-memory record
+    # that a caller could mistake for a durably suspended run.
+    assert "run-gate-fail" not in runner_mod._active_workflows
+
+
 async def test_gate_resumes_on_approval(_fake_agent, monkeypatch):
     """Once the gate's :satisfiedBy edge is recorded, resume drives the DAG to
     completion WITHOUT re-running the already-completed upstream step."""

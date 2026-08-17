@@ -92,8 +92,57 @@ def test_no_engine_is_a_noop_beyond_the_failed_node():
     out = localized_repair_region("A", engine=None)
     assert out["invalidated"] == ["A"]
     assert out["preserved"] == []
+    assert out["degraded"] is False
 
 
 def test_empty_failed_node_yields_empty_region():
     out = localized_repair_region("", engine=_FakeEngine())
     assert out["invalidated"] == []
+
+
+# --- CONCEPT:AU-AHE.evaluation.return-none-on-failure: a failed edge read must
+# never be silently indistinguishable from "confirmed no downstream edges" ---
+
+
+class _FlakyEngine:
+    """out_edges raises for one specific node, serves normally otherwise."""
+
+    def __init__(self, edges: list[tuple[str, str, str]], *, raises_for: str) -> None:
+        self._edges = edges
+        self._raises_for = raises_for
+
+    def out_edges(self, node_id: str, data: bool = False):
+        if node_id == self._raises_for:
+            raise RuntimeError("simulated transient graph read failure")
+        return [(s, t, {"rel_type": r}) for (s, r, t) in self._edges if s == node_id]
+
+
+def test_edge_read_failure_widens_invalidated_to_full_node_set_when_known():
+    """Regression: a swallowed out_edges exception used to be indistinguishable
+    from 'B has no downstream edges', silently under-invalidating the repair
+    region — letting resume_localized preserve (never re-run) C/D even though
+    B's TRUE downstream shape was never actually confirmed. With the full node
+    set known, a failed read must widen invalidated rather than narrow it."""
+    engine = _FlakyEngine(_diamond_with_sibling_branch(), raises_for="B")
+    all_nodes = ["A", "B", "C", "D", "X", "Y"]
+    out = localized_repair_region("B", engine=engine, all_nodes=all_nodes)
+    assert out["degraded"] is True
+    # Fails SAFE: invalidates everything rather than guessing B is a leaf.
+    assert out["invalidated"] == ["A", "B", "C", "D", "X", "Y"]
+    assert out["preserved"] == []
+
+
+def test_edge_read_failure_without_all_nodes_flags_degraded_not_silently_ok():
+    """Without a known universe there is nothing to widen to, but the result
+    must still be flagged untrustworthy rather than silently reported clean."""
+    engine = _FlakyEngine(_diamond_with_sibling_branch(), raises_for="B")
+    out = localized_repair_region("B", engine=engine)
+    assert out["degraded"] is True
+    assert "B" in out["invalidated"]
+
+
+def test_clean_read_never_reports_degraded():
+    engine = _FakeEngine(_diamond_with_sibling_branch())
+    out = localized_repair_region("B", engine=engine, all_nodes=["A", "B", "C", "D"])
+    assert out["degraded"] is False
+    assert out["invalidated"] == ["B", "D"]

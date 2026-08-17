@@ -107,6 +107,42 @@ class TestZeroStepExecutionNeverSilentlySucceeds:
         assert "CallableResource" in message
         assert "graph_orchestrate" in message
 
+    async def test_execute_parallel_engine_bridge_does_not_report_completed_for_zero_steps(
+        self, monkeypatch
+    ):
+        """D-WS-7 — the OTHER execution chokepoint (``WorkflowRunner.execute()``,
+        the ``ParallelEngine`` bridge) shared the same trivial-success-on-zero-
+        steps shape as the ``execute_by_name`` path this module already fixed
+        (D-FSR-1): an empty ``GraphPlan`` produces zero waves, and
+        ``ParallelEngine``/``ExecutionManifest`` vacuously report nothing
+        failed, so ``execute()`` would return ``status="completed"`` having run
+        zero steps. Proves the real entrypoint — no mocked
+        ``execute_via_parallel_engine`` here, the guard must fire BEFORE it is
+        ever called.
+        """
+        called = False
+
+        async def _fail_if_called(self_, plan, engine, workflow_name="", query=""):
+            nonlocal called
+            called = True
+            raise AssertionError("execute_via_parallel_engine must not be reached")
+
+        monkeypatch.setattr(
+            WorkflowRunner, "execute_via_parallel_engine", _fail_if_called
+        )
+
+        engine = FakeEngine()
+        runner = WorkflowRunner()
+        plan = GraphPlan(steps=[], metadata={})
+
+        with pytest.raises(WorkflowHasNoStepsError) as excinfo:
+            await runner.execute(plan, engine, workflow_name="empty_bridge_flow")
+
+        assert not called
+        message = str(excinfo.value).lower()
+        assert "empty_bridge_flow" in message
+        assert "step" in message
+
     async def test_workflow_not_found_still_raises_as_before(self, monkeypatch):
         """Sanity check the existing not-found contract is untouched."""
         from agent_utilities.knowledge_graph.workflow_store import WorkflowStore

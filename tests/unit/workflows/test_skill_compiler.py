@@ -143,6 +143,40 @@ Do step 2 task.
             assert outcome["workflow_id"] is not None
             assert outcome["team_config_id"] == "test_team"
 
+    def test_register_in_kg_reports_honest_failure_not_fake_success(self) -> None:
+        """CONCEPT:AU-AHE.evaluation.return-none-on-failure — a REAL engine whose
+        KG write actually raises must report registered=False and
+        workflow_id=None, never a fabricated `wf_<name>` id masquerading as a
+        successful registration (the exact 'component that cannot do its job
+        returning something its caller reads as success' shape). Uses a plain
+        (non-Mock-named) engine class so the real save path — not the
+        Mock-detection simulated branch — is exercised.
+        """
+
+        class _RealLookingEngine:
+            def add_node(self, *a, **kw):
+                raise RuntimeError("simulated KG write failure")
+
+            def link_nodes(self, *a, **kw):
+                raise RuntimeError("simulated KG write failure")
+
+        with tempfile.TemporaryDirectory() as td:
+            skill_dir = Path(td)
+            with open(skill_dir / "SKILL.md", "w") as f:
+                f.write("### Step 1: test\ndo")
+
+            with patch(
+                "agent_utilities.knowledge_graph.workflow_store.WorkflowStore.save_workflow",
+                side_effect=RuntimeError("simulated KG write failure"),
+            ):
+                outcome = SkillCompiler.register_in_kg(
+                    _RealLookingEngine(), skill_dir
+                )
+
+        assert outcome["registered"] is False
+        assert outcome["workflow_id"] is None
+        assert outcome["error"] == "RuntimeError"
+
     def test_lossless_roundtrip_update(self) -> None:
         """Verify that SkillCompiler.update_markdown retains formatting and updates steps correctly."""
         original_markdown = """---

@@ -735,6 +735,65 @@ async def test_background_processor_runs_due_task(
 
 
 @pytest.mark.asyncio
+async def test_background_processor_never_marks_unattempted_sibling_as_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CONCEPT:AU-OS.state.cognitive-scheduler-preemption — write-then-mark-seen
+    regression: ``last_run`` used to be stamped for the WHOLE due batch before
+    any task in it was actually attempted. A crash (or any exception the
+    per-task ``try/except Exception`` does not catch, e.g. cancellation)
+    while running an EARLY task in the batch left every LATER, never-even-
+    dispatched task marked as "just ran" — silently skipping a full interval
+    of work that was never attempted. Proves the real ``background_processor``
+    entrypoint: task 2's ``last_run`` must be untouched when task 1's failure
+    aborts the batch before task 2 is ever reached.
+    """
+
+    async def instant_sleep(n: float) -> None:  # noqa: ARG001
+        if not hasattr(instant_sleep, "_calls"):
+            instant_sleep._calls = 0  # type: ignore[attr-defined]
+        instant_sleep._calls += 1  # type: ignore[attr-defined]
+        if instant_sleep._calls >= 2:  # type: ignore[attr-defined]
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(asyncio, "sleep", instant_sleep)
+    monkeypatch.setattr(scheduler, "reload_cron_tasks", AsyncMock(return_value=None))
+    monkeypatch.setattr(scheduler, "resolve_prompt", lambda s: s)
+
+    original_last_run = datetime.now() - timedelta(minutes=10)
+    task1 = PeriodicTask(
+        id="t1",
+        name="First",
+        interval_minutes=1,
+        prompt="say hi",
+        last_run=original_last_run,
+        active=True,
+    )
+    task2 = PeriodicTask(
+        id="t2",
+        name="Second",
+        interval_minutes=1,
+        prompt="say bye",
+        last_run=original_last_run,
+        active=True,
+    )
+    scheduler.tasks.append(task1)
+    scheduler.tasks.append(task2)
+
+    fake_agent = MagicMock()
+    # Simulates a crash/cancellation escaping the per-task ``except Exception``
+    # (asyncio.CancelledError is a BaseException, not an Exception) while
+    # running task 1 — task 2 in the same batch never gets dispatched at all.
+    fake_agent.run = AsyncMock(side_effect=asyncio.CancelledError)
+
+    with pytest.raises(asyncio.CancelledError):
+        await scheduler.background_processor(fake_agent)
+
+    assert task1.last_run > original_last_run  # task 1 WAS attempted
+    assert task2.last_run == original_last_run  # task 2 was NEVER attempted
+
+
+@pytest.mark.asyncio
 async def test_background_processor_handles_internal_cleanup(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

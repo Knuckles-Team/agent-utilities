@@ -42,15 +42,28 @@ def _rel(props: Any) -> str:
     return ""
 
 
-def _out_targets(engine: Any, node_id: str, edge_type: str) -> list[str]:
-    """The targets of ``node_id``'s outgoing ``edge_type`` edges, best-effort."""
+_READ_FAILED = object()  # sentinel: distinguishes "edge read failed" from "no edges"
+
+
+def _out_targets(engine: Any, node_id: str, edge_type: str) -> list[str] | object:
+    """The targets of ``node_id``'s outgoing ``edge_type`` edges.
+
+    Returns :data:`_READ_FAILED` (never an empty list) when the read itself
+    raised — a transient ``out_edges`` failure must never be silently
+    indistinguishable from "this node genuinely has no downstream edges", the
+    exact CONCEPT:AU-AHE.evaluation.return-none-on-failure shape: the caller's
+    BFS uses "no outgoing edges" to mean "this is a leaf, nothing downstream to
+    repair", so a swallowed read failure would silently UNDER-invalidate the
+    repair region and let :meth:`~agent_utilities.workflows.runner.WorkflowRunner.resume_localized`
+    preserve (skip re-running) a step whose validity was never actually confirmed.
+    """
     if engine is None or not node_id:
         return []
     try:
         raw = engine.out_edges(node_id, data=True) or []
-    except Exception as exc:  # noqa: BLE001 — read is best-effort
-        logger.debug("localized_repair: out_edges(%s) failed: %s", node_id, exc)
-        return []
+    except Exception as exc:  # noqa: BLE001 — surfaced via the sentinel, not swallowed
+        logger.warning("localized_repair: out_edges(%s) failed: %s", node_id, exc)
+        return _READ_FAILED
     return [tgt for _src, tgt, props in raw if _rel(props) == edge_type]
 
 
@@ -74,21 +87,46 @@ def localized_repair_region(
     ``all_nodes`` (the caller doesn't know/care about the full DAG — e.g. a bare
     CI job failure with no modeled sibling steps), ``preserved`` is ``[]``.
 
-    Best-effort: a missing engine or a node with no outgoing ``edge_type`` edges
-    yields ``invalidated == [failed_node]`` — never raises.
+    A missing engine or a node with a CONFIRMED-empty outgoing-edge set yields
+    ``invalidated == [failed_node]`` — that is a legitimate leaf. But if any
+    edge READ during the walk actually failed (as opposed to confirming zero
+    edges), the true downstream shape is unknown, so this never narrows the
+    region on a guess: with ``all_nodes`` given, ``invalidated`` widens to
+    the FULL node set (forcing a complete re-run — safe, if wasteful) rather
+    than silently preserving a step whose validity was never confirmed;
+    without ``all_nodes`` the partial (possibly incomplete) region is still
+    returned, but ``degraded=True`` flags it as not fully trustworthy so the
+    caller can choose not to skip re-running anything. Never raises.
     """
     invalidated: set[str] = {failed_node} if failed_node else set()
+    degraded = False
     if engine is not None and failed_node:
         frontier = [failed_node]
         seen = {failed_node}
         while frontier:
             cur = frontier.pop()
-            for nxt in _out_targets(engine, cur, edge_type):
+            targets = _out_targets(engine, cur, edge_type)
+            if targets is _READ_FAILED:
+                degraded = True
+                continue
+            for nxt in targets:
                 if nxt in seen:
                     continue
                 seen.add(nxt)
                 invalidated.add(nxt)
                 frontier.append(nxt)
+
+    if degraded and all_nodes is not None:
+        # Cannot trust the partial walk to say what's safe to preserve —
+        # fail safe by invalidating everything rather than under-invalidating.
+        invalidated = set(all_nodes) | invalidated
+        logger.warning(
+            "localized_repair: edge read failed mid-walk from %r; widening "
+            "invalidated region to the full %d-node set rather than risk "
+            "preserving an unconfirmed step.",
+            failed_node,
+            len(invalidated),
+        )
 
     preserved: list[str] = []
     if all_nodes is not None:
@@ -98,4 +136,5 @@ def localized_repair_region(
         "failed": failed_node,
         "invalidated": sorted(invalidated),
         "preserved": preserved,
+        "degraded": degraded,
     }

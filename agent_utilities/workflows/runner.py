@@ -155,6 +155,23 @@ class WorkflowDagInvalidError(ValueError):
     """
 
 
+class WorkflowSuspendPersistError(RuntimeError):
+    """Raised when a gate-suspended run's state could not be durably persisted.
+
+    CONCEPT:AU-ORCH.execution.workflow-dag-validation (GOC-22 gate 2) — a run
+    that pends on a gate returns ``status="suspended"`` to tell the caller
+    "call :meth:`WorkflowRunner.resume` later and it continues from here".
+    That promise is only true if :meth:`WorkflowRunner._persist_run_state`
+    actually wrote the ``:WorkflowRun`` node. Returning a "suspended" result on
+    an unverified/failed write would let :meth:`resume` silently restart the
+    WHOLE plan from scratch and re-execute already-completed (possibly
+    non-idempotent) steps — the same "advance state on an unverified write"
+    shape BUG-014 already fixed for the DAG-fallback wave, applied here to gate
+    suspension. Never proceed on a guess: a crash here is strictly better than
+    a silent false promise, because a crash is visible and retriable.
+    """
+
+
 def _callable_resource_skill_hint(engine: Any, workflow_name: str) -> str:
     """Best-effort: does a ``CallableResource(AGENT_SKILL)`` share this name?
 
@@ -467,6 +484,21 @@ class WorkflowRunner:
 
         CONCEPT:AU-ORCH.execution.workflow-lifecycle-management — Plan Execution
         """
+        if not plan.steps:
+            # D-WS-7 / D-FSR-1 — this ParallelEngine bridge shared the exact
+            # trivial-success-on-zero-steps shape already fixed for the named-
+            # workflow chokepoint (:class:`WorkflowHasNoStepsError` at
+            # ``_execute_plan_via_agents``): an empty plan produces zero waves,
+            # ``ParallelEngine``/``ExecutionManifest`` report nothing failed
+            # (vacuously ``success=True``), and this method would return
+            # ``status="completed"`` having executed nothing. Refuse instead —
+            # the same "a run that would do nothing must never report success"
+            # invariant applies regardless of which executor bridge is used.
+            raise WorkflowHasNoStepsError(
+                f"Workflow '{workflow_name}' has no executable steps "
+                "(0 GraphPlan steps) — refusing to report success for a "
+                "run that would do nothing."
+            )
         session_id = trace_session or f"wf-{uuid.uuid4().hex}"
 
         exec_res = await self.execute_via_parallel_engine(
@@ -840,6 +872,19 @@ class WorkflowRunner:
             all_nodes=all_step_ids,
         )
         invalidated = set(region["invalidated"]) | {failed_step}
+        if region.get("degraded"):
+            # localized_repair_region already failed safe (widened invalidated
+            # to the full step set rather than risk preserving an unconfirmed
+            # step's stale result) — surface it so a degraded-graph-read repair
+            # is diagnosable, not indistinguishable from a normal localized one.
+            logger.warning(
+                "[ORCH.repair] workflow %s localized repair from %s: edge read "
+                "failed mid-walk; invalidated widened to the full %d-step plan "
+                "instead of trusting a partial region.",
+                workflow_name,
+                failed_step,
+                len(invalidated),
+            )
 
         if prior_result is not None:
             prior_completed = {
@@ -898,15 +943,30 @@ class WorkflowRunner:
         completed: dict[str, StepResult],
         satisfied: set[str],
         blocked_on: list[str],
-    ) -> None:
-        """Best-effort persist a run's step state so it can be resumed after a gate.
+    ) -> bool:
+        """Persist a run's step state so it can be resumed after a gate.
 
         Writes a ``:WorkflowRun`` node keyed on the session id carrying JSON of the
         completed step outputs + statuses, the satisfied set, and the blocked gate
-        ids. Never raises — persistence must not fail a suspend.
+        ids. Returns whether the write actually succeeded.
+
+        CONCEPT:AU-ORCH.execution.workflow-dag-validation (GOC-22 gate 2) — this
+        used to swallow the exception and always return ``None``, and its sole
+        caller (the gate-suspend branch of :meth:`_execute_plan_via_agents`)
+        returned a ``status="suspended"`` :class:`WorkflowResult` unconditionally,
+        regardless of whether the write it just attempted actually landed. A
+        caller reading ``status="suspended"`` reasonably infers "call
+        :meth:`resume` later and it will pick up from here" — but if the write
+        silently failed, :meth:`resume`/:meth:`_load_run_state` finds no
+        persisted state and restarts the WHOLE plan from scratch, silently
+        RE-EXECUTING every already-completed step, including any non-idempotent
+        ones. That is the write-then-mark-seen shape this module already fixed
+        for BUG-014 (advancing/reporting state the write never actually backed),
+        applied to gate suspension: the caller must never be told a run is
+        durably suspended on an unverified write.
         """
         if engine is None:
-            return
+            return False
         try:
             payload = {
                 sid: {"output": r.output, "status": r.status, "node_id": r.node_id}
@@ -924,8 +984,10 @@ class WorkflowRunner:
                     "blocked_on_json": json.dumps(sorted(blocked_on)),
                 },
             )
-        except Exception as exc:  # noqa: BLE001 — persistence is best-effort
-            logger.debug("[ORCH.gate] run-state persist skipped: %s", exc)
+        except Exception as exc:  # noqa: BLE001 — surfaced to the caller via the bool return, not swallowed
+            logger.warning("[ORCH.gate] run-state persist failed: %s", exc)
+            return False
+        return True
 
     def _load_run_state(self, engine: Any, session_id: str) -> dict[str, Any]:
         """Reload a suspended run's persisted step state (``{}`` if none)."""
@@ -1270,8 +1332,7 @@ class WorkflowRunner:
                 if hasattr(plan, "to_mermaid")
                 else "",
             )
-            _active_workflows[session_id] = result
-            await run_blocking_ordered(
+            persisted = await run_blocking_ordered(
                 self._persist_run_state,
                 engine,
                 session_id,
@@ -1281,6 +1342,18 @@ class WorkflowRunner:
                 satisfied,
                 [suspended_gate],
             )
+            if not persisted:
+                # Do NOT return a "suspended" result the caller would read as
+                # safely resumable — the write it depends on never landed.
+                # Fail closed rather than let resume() silently restart the
+                # whole plan and re-run already-completed non-idempotent steps.
+                raise WorkflowSuspendPersistError(
+                    f"Workflow '{workflow_name}' session {session_id} suspended "
+                    f"on gate '{suspended_gate}' but its run state failed to "
+                    "persist durably; refusing to report status=suspended for "
+                    "a resume that would silently restart from scratch."
+                )
+            _active_workflows[session_id] = result
             logger.info(
                 "[ORCH.gate] workflow %s suspended on gate %s (session %s)",
                 workflow_name,

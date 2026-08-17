@@ -169,6 +169,78 @@ def test_tick_coalesces_unconsumed_prior() -> None:
     assert len(eng.submitted) == 1
 
 
+def test_failed_enqueue_leaves_tick_due_for_retry_not_lost() -> None:
+    # CONCEPT:AU-OS.state.durable-schedule-outbox (GOC-22 gate 3) — regression
+    # for the write-then-mark-seen shape: run state used to be advanced+
+    # persisted BEFORE ``submit_task`` was attempted, so any enqueue failure
+    # (not only a hard process crash) permanently lost that due tick. Proves
+    # the real ``run_scheduler_tick`` entrypoint: a failing enqueue must NOT
+    # advance ``last_minute``, must surface the schedule in ``reconciling``,
+    # and the SAME due tick must fire successfully once the enqueue recovers
+    # — no silent, permanent loss.
+    class _FlakyEngine(_FakeEngine):
+        def __init__(self):
+            super().__init__()
+            self.fail_next = True
+
+        def submit_task(self, **kw):
+            if self.fail_next:
+                raise RuntimeError("transient enqueue failure")
+            return super().submit_task(**kw)
+
+    eng = _FlakyEngine()
+    se.register_schedule(
+        eng,
+        se.ScheduleSpec(
+            name="flaky",
+            payload={"kind": "maint", "ref": "compaction"},
+            trigger="cron",
+            cron="0 4 * * *",
+        ),
+    )
+    res = se.run_scheduler_tick(eng, now=_at(4, 0))
+    assert res["fired"] == []
+    assert res["reconciling"] == ["flaky"]
+    assert eng.submitted == []
+    # The schedule node's run state was NOT advanced on the failed attempt —
+    # last_minute stays 0, so the SAME due minute is still due on the next tick.
+    persisted = se._load_one(eng, "flaky")
+    assert persisted is not None
+    assert persisted.last_minute == 0
+
+    # Enqueue recovers; retrying the SAME tick (same minute) now succeeds and
+    # is the only chance to fire — proving the due work was retried, not lost.
+    eng.fail_next = False
+    res2 = se.run_scheduler_tick(eng, now=_at(4, 0))
+    assert res2["fired"] == ["flaky"]
+    assert res2["reconciling"] == []
+    assert len(eng.submitted) == 1
+    assert eng.submitted[0]["job_id"].startswith("sched:flaky:")
+
+
+def test_coalesce_skip_still_advances_run_state() -> None:
+    # The coalesce-skip path is a LEGITIMATE reason to advance run state (the
+    # interval is genuinely covered by the still-in-flight prior tick) — only
+    # a failed/unconfirmed enqueue must withhold the advance.
+    eng = _FakeEngine()
+    se.register_schedule(
+        eng,
+        se.ScheduleSpec(
+            name="cw2",
+            payload={"kind": "maint", "ref": "compaction"},
+            trigger="cron",
+            cron="* * * * *",
+        ),
+    )
+    assert se.run_scheduler_tick(eng, now=_at(4, 0))["fired"] == ["cw2"]
+    res = se.run_scheduler_tick(eng, now=_at(4, 1))
+    assert res["fired"] == []
+    assert res["reconciling"] == []
+    persisted = se._load_one(eng, "cw2")
+    assert persisted is not None
+    assert persisted.last_minute == int(_at(4, 1).replace(second=0).timestamp())
+
+
 def test_disabled_schedule_does_not_fire() -> None:
     eng = _FakeEngine()
     se.register_schedule(

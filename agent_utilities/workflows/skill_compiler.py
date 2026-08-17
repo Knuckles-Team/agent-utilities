@@ -447,13 +447,19 @@ tags: [evolved]
                     skill_reference(skill_dir.name),
                     type(exc).__name__,
                 )
-                # Fallback to simulated registration if any DB/OML error happens
-                outcome["registered"] = True
-                outcome["workflow_id"] = f"wf_{skill_dir.name}"
-                if team_config:
-                    outcome["team_config_id"] = team_config.get(
-                        "name", f"team_{skill_dir.name}"
-                    )
+                # CONCEPT:AU-AHE.evaluation.return-none-on-failure — a REAL
+                # KG write (save_workflow/add_node/link_nodes) just failed.
+                # This used to report registered=True with a fabricated
+                # `wf_<name>` id that names no actual WorkflowDefinition node —
+                # a caller checking outcome["registered"] would believe the
+                # skill was wired into the KG when it was not, the exact
+                # "component that cannot do its job returning something its
+                # caller reads as success" shape. Report the failure honestly:
+                # registered stays False, workflow_id stays None (never a fake
+                # id), and the exception type is surfaced for diagnosis.
+                outcome["registered"] = False
+                outcome["workflow_id"] = None
+                outcome["error"] = type(exc).__name__
         else:
             # Simulated successful registration structure for testing/dry-runs
             outcome["registered"] = True
