@@ -192,13 +192,22 @@ def test_privacy_gate_rejects_bundled_connector_profiles():
     )
 
 
-def test_privacy_gate_changed_source_scope_excludes_adversarial_tests():
+def test_privacy_gate_changed_source_scope_includes_tests_since_bug_228():
+    """BUG-228 (``ee3814af7``) deliberately WIDENED the runtime-source scope to
+    include ``tests/`` -- a test fixture that copies a REAL internal FQDN/IdP
+    realm discloses exactly as much as the same literal in shipped source (see
+    ``_is_runtime_source_path``'s own docstring). This test used to assert the
+    opposite (pre-BUG-228) behavior under the name
+    ``..._excludes_adversarial_tests`` and had gone stale against the code it
+    was pinning; corrected to assert the current, documented-intentional scope
+    instead of re-narrowing the gate back to the coverage gap BUG-228 closed.
+    """
     privacy = _load_script("check_tracked_privacy.py")
     assert privacy._is_runtime_source_path(Path("agent_utilities/core/config.py"))
     assert privacy._is_runtime_source_path(
         Path("agent_utilities/skills/graph-query-and-explanation/SKILL.md")
     )
-    assert not privacy._is_runtime_source_path(Path("tests/test_privacy.py"))
+    assert privacy._is_runtime_source_path(Path("tests/test_privacy.py"))
     assert not privacy._is_runtime_source_path(Path("scripts/check_tracked_privacy.py"))
 
 
