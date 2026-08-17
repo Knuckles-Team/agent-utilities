@@ -316,9 +316,7 @@ def dependency_lock_digest(lock_path: str | Path | None = None) -> str:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError as exc:
-        raise ReleaseSigningError(
-            f"dependency lock is unreadable: {path}"
-        ) from exc
+        raise ReleaseSigningError(f"dependency lock is unreadable: {path}") from exc
     try:
         document = tomllib.loads(text)
     except (tomllib.TOMLDecodeError, ValueError) as exc:
@@ -332,7 +330,23 @@ def dependency_lock_digest(lock_path: str | Path | None = None) -> str:
             raise ReleaseSigningError("dependency lock package inventory is invalid")
         name = item.get("name")
         version = item.get("version")
-        if not isinstance(name, str) or not isinstance(version, str) or not name or not version:
+        if not isinstance(name, str) or not name:
+            raise ReleaseSigningError(
+                "dependency lock contains an invalid package identity"
+            )
+        source = item.get("source")
+        is_editable = isinstance(source, dict) and "editable" in source
+        if version is None and is_editable:
+            # Editable/path workspace members (this repo itself, sibling crates
+            # such as epistemic-graph) carry a dynamic version resolved from local
+            # build-backend metadata (``dynamic = ["version"]`` in pyproject.toml),
+            # not a pinned registry release — uv.lock legitimately omits
+            # ``version`` for them. They are not the third-party drift risk this
+            # digest defends against (their own source is already covered by
+            # ``canonical_hash``); skip pinning a fabricated version rather than
+            # treat the intentional absence as lock corruption.
+            continue
+        if not isinstance(version, str) or not version:
             raise ReleaseSigningError(
                 "dependency lock contains an invalid package identity"
             )
