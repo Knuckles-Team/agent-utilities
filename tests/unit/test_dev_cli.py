@@ -174,6 +174,69 @@ def test_main_deploy_plan_live_path(monkeypatch, capsys):
     assert "agent-utilities:test" in out["artifacts"]["compose.yml"]
 
 
+def test_main_voice_model_license_and_status_live_path(monkeypatch, tmp_path, capsys):
+    """LIVE-PATH (Wire-First): ``agent-utilities voice-model license`` and
+    ``voice-model status`` drive the real GOC-36 acquisition package
+    (record_license_decision / is_ready_for_promotion_handoff) through main() end to
+    end, not a mock — the CLI is this package's live, non-test caller."""
+    from agent_utilities.protocols.voice_supply_chain import acquisition as voice_acq
+    from agent_utilities.protocols.voice_supply_chain.manifest import (
+        VoiceManifestStatus,
+        VoiceModelManifest,
+    )
+
+    monkeypatch.setattr(voice_acq, "data_dir", lambda: tmp_path)
+
+    manifest = VoiceModelManifest(
+        manifest_id="a" * 64,
+        source_host="huggingface.co",
+        source_repository="rhasspy/piper-voices",
+        source_revision="b" * 40,
+        source_path="en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+        source_url="https://huggingface.co/x",
+        byte_length=1,
+        sha256="a" * 64,
+        status=VoiceManifestStatus.VERIFIED,
+    )
+    (voice_acq.manifest_index_dir() / f"{manifest.manifest_id}.json").write_text(
+        manifest.model_dump_json()
+    )
+
+    rc = cli.main(
+        [
+            "--json",
+            "voice-model",
+            "license",
+            "--asset-id",
+            manifest.manifest_id,
+            "--declared-license",
+            "MIT",
+            "--counsel-decision",
+            "approved",
+            "--reviewer",
+            "counsel@example.invalid",
+        ]
+    )
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["license_decision"]["counsel_decision"] == "approved"
+
+    rc = cli.main(["--json", "voice-model", "status", "--asset-id", manifest.manifest_id])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert out["ready_for_promotion_handoff"] is True
+
+
+def test_main_voice_model_status_unknown_asset_reports_error(monkeypatch, tmp_path, capsys):
+    from agent_utilities.protocols.voice_supply_chain import acquisition as voice_acq
+
+    monkeypatch.setattr(voice_acq, "data_dir", lambda: tmp_path)
+    rc = cli.main(["--json", "voice-model", "status", "--asset-id", "does-not-exist"])
+    assert rc == 0
+    out = json.loads(capsys.readouterr().out)
+    assert "error" in out
+
+
 def test_context_glossary_present():
     from pathlib import Path
 

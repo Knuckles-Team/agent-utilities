@@ -105,6 +105,11 @@ class MediaAttachment(BaseModel):
         size_bytes: File size in bytes.
         alt_text: Accessibility description.
         thumbnail_url: Optional thumbnail for previews.
+        auth_header: Optional request header(s) (e.g. ``{"Authorization": "Bearer …"}``)
+            required to download ``url`` — some platforms (Slack, Mattermost) serve
+            attachments from an authenticated endpoint, unlike Telegram's pre-signed
+            file URLs. Populated by the owning backend at receive time from its own
+            bot credential; never persisted or logged (CONCEPT:AU-ECO.messaging.voice-attachment-fallback).
     """
 
     media_type: MediaType = MediaType.FILE
@@ -114,6 +119,7 @@ class MediaAttachment(BaseModel):
     size_bytes: int = 0
     alt_text: str = ""
     thumbnail_url: str = ""
+    auth_header: dict[str, str] = Field(default_factory=dict)
 
 
 class Channel(BaseModel):

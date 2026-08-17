@@ -606,13 +606,33 @@ async def create_planner_handler(
             return  # Only handle messages
 
         content = event.content or (event.message.content if event.message else "")
+        had_audio = False
         if not content:
             # CONCEPT:AU-ECO.messaging.voice-attachment-fallback — no text? transcribe a voice/audio attachment and use that.
-            content = await _transcribe_attachments(event)
+            content, had_audio = await _transcribe_attachments(event)
             if content and event.message is not None:
                 event.message.content = content
                 event.content = content
         if not content:
+            if had_audio:
+                # CONCEPT:AU-ECO.messaging.voice-attachment-fallback — an audio/voice attachment
+                # WAS present but produced no usable transcript (disabled, download failure, or
+                # the ASR backend returned nothing). This must never look like "no message" — a
+                # silently dropped voice note is exactly the degraded-read-as-success defect this
+                # codebase's Fail-Closed discipline forbids. Tell the sender explicitly instead of
+                # routing them through the normal (LLM-authored) reply path, which a broken ASR
+                # backend must not gate.
+                try:
+                    await backend.send_message(
+                        event.channel_id,
+                        "I couldn't transcribe that voice/audio message — please try again or send it as text.",
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.error(
+                        "[CONCEPT:AU-ECO.messaging.voice-attachment-fallback] Failed to send the "
+                        "explicit transcription-failure notice: %s",
+                        e,
+                    )
             return
 
         svc = MessagingService.instance(knowledge_engine)
@@ -982,20 +1002,41 @@ async def _persist_audio_segment_evidence(
         )
 
 
-async def _transcribe_attachments(event: Any) -> str:
-    """Transcribe any voice/audio attachments to text (CONCEPT:AU-ECO.messaging.voice-attachment-fallback)."""
+async def _transcribe_attachments(event: Any) -> tuple[str, bool]:
+    """Transcribe any voice/audio attachments to text (CONCEPT:AU-ECO.messaging.voice-attachment-fallback).
+
+    Returns ``(text, had_audio_attachment)``. ``had_audio_attachment`` lets the caller
+    distinguish "there was nothing to transcribe" (``False`` — a normal no-op, e.g. a
+    sticker or unsupported attachment) from "an audio/voice attachment was present but
+    transcription produced no usable text" (``True`` with ``text == ""``) — the latter
+    MUST surface as an explicit, visible failure to the sender rather than a silently
+    dropped message (CONCEPT:AU-ECO.messaging.voice-attachment-fallback; the fail-closed
+    "a degraded read must never grant permission [to silence]" discipline in AGENTS.md
+    applies just as much to a dropped reply as to a security gate).
+    """
     msg = getattr(event, "message", None)
-    urls = [
-        att.url
+    audio_attachments = [
+        att
         for att in getattr(msg, "attachments", None) or []
         if str(getattr(att, "media_type", "")) in ("voice_note", "audio") and att.url
     ]
-    if not urls:
-        return ""
+    if not audio_attachments:
+        return "", False
     from agent_utilities.messaging.voice import transcribe_voice
 
-    parts = [t for t in [await transcribe_voice(u) for u in urls] if t]
-    return "\n".join(parts)
+    parts = [
+        t
+        for t in [
+            await transcribe_voice(
+                att.url,
+                headers=(att.auth_header or None),
+                mime_type=att.mime_type,
+            )
+            for att in audio_attachments
+        ]
+        if t
+    ]
+    return "\n".join(parts), True
 
 
 async def _fetch_image_parts(urls: list[str]) -> list[Any]:
