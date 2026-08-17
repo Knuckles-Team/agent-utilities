@@ -257,19 +257,29 @@ Designed and recorded, **not yet implemented**:
   bounded by a pod service-account `ClusterRole` that only grants the
   `impersonate` verb — so RBAC *inside* an entitled environment is the
   caller's own, not a shared server identity's.
-- **graph-os on-behalf-of token exchange in `execute_agent`.** Today,
-  delegated/spawned agent execution runs under a fixed service account —
-  `apply_tool_scope` (`agent_utilities/graph/executor.py`) narrows a spawned
-  agent's *tool names* via `invoker_allowed_tools`, but it does not carry the
-  originating caller's *identity* to whatever it calls downstream. The
-  planned follow-on performs an RFC 8693 token exchange (the fleet already
-  has an RFC 8693 implementation for downstream API delegation —
-  `agent_utilities/mcp/delegated_auth.py`, `ENABLE_DELEGATION` — see
-  [OAuth/SSO](../guides/oauth_sso.md)) so a delegated `execute_agent` call
-  reaches downstream MCP servers as the original caller, not the service
-  account; `apply_tool_scope` would then additionally intersect the
-  delegated call against the caller's own `base_capabilities()` ceiling, not
-  just the invoker's tool allow-list.
+
+**Implemented since this section was last written** (GOC-15 correction,
+2026-08-16 — verified against `main`, do not re-plan this item):
+
+- **graph-os on-behalf-of token exchange in `execute_agent`.** This *was*
+  deferred when this doc was written (commit `3e13feeec`), but per-agent
+  delegated identity landed in commit `df3b69b90`
+  (`feat(identity): per-agent on-behalf-of delegation — connect the three
+  primitives (W2.1)`) and is live: `agent_utilities/security/delegation.py`
+  (`SpawnDelegation`, `ENABLE_DELEGATED_IDENTITY = off|warn|on`, default
+  `warn`) plus `GraphSession.engine_verified_context()`'s
+  `_apply_spawn_delegation` helper
+  (`agent_utilities/knowledge_graph/core/session.py`) stamp the ordered
+  `delegation` chain (principal-first, agent-last, `len ≥ 2`) onto every
+  engine call a spawn makes under `on`, and forward an RFC 8693 exchanged
+  `oidc_token` claim when the ambient `SpawnDelegation` carries one (W2.1-1) —
+  the engine independently RSA/JWKS-verifies that token and cross-checks its
+  subject/tenant against the same request context
+  (`server::auth::bind_verified_identity`). The chain is only emitted when
+  its ultimate principal matches the session's own authenticated principal,
+  so a spawn can never forge a chain for an identity it does not run under.
+  Full field-level carrier contract, including this claim:
+  [Verified identity carrier contract](verified-identity-carrier-contract.md).
 
 ## Config reference
 

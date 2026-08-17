@@ -255,6 +255,7 @@ nav:
       - fastmcp 4 as the Default (MCP SDK v2 protocol bridge): architecture/fastmcp4-default.md
       - Staged httpx to httpx2 Migration (transport-factory strangler): architecture/httpx_httpx2_migration.md
       - IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load: architecture/identity-inheritance.md
+      - Verified Identity Carrier Contract (GOC-15): architecture/verified-identity-carrier-contract.md
       - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
       - Capacity Model: scaling/capacity_model.md
   - Reference:
