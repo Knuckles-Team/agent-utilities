@@ -854,6 +854,13 @@ def build_agent_app(
 
                 helpers.update(webui_mcp_delegation_helpers())
 
+                # Same shape, for POST /voice/transcribe: refuses (501)
+                # without a host-injected transcribe_voice helper.
+                # CONCEPT:AU-ECO.mcp.webui-voice-transcription-delegation
+                from .webui_voice_delegation import webui_voice_delegation_helpers
+
+                helpers.update(webui_voice_delegation_helpers())
+
                 # Pydantic AI always includes the Agent's configured model.
                 # Passing the same model again as a provider string would create
                 # a second provider client and bypass this Agent's already-bound
