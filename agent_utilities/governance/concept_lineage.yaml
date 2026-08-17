@@ -248,6 +248,14 @@ parents:
       decision — extract targeted fact edits rather than dump transcripts, and persist them as bi-temporal
       mutations instead of Quarq's history-losing rewrite/hard-delete — is documented for the parent at
       learning_engine.py:166-220.
+  AU-KG.ontology.classification-claim-promotion-lifecycle:
+    parent: AU-KG.ontology.classification-claim-multi-category
+    rationale: same cluster head document (kgo-classification-claim-multi-category) covers the promotion
+      FSM as Decision 3 — one design, three markers on the same module.
+  AU-KG.ontology.cross-source-identity-proposal:
+    parent: AU-KG.ontology.classification-claim-multi-category
+    rationale: same cluster head document (kgo-classification-claim-multi-category) covers cross-source
+      identity as Decision 4 — one design, three markers on the same module.
   AU-ORCH.routing.confidence-gated-routing-log:
     parent: AU-ORCH.routing.adaptive-role-routing
     rationale: The tier-shift primitive (_tier_down/_tier_up/_effective_tier, model_registry.py:474-570)
@@ -313,21 +321,20 @@ parents:
       inherited; the parent's design doc (.specify/design/au-kv-persistence-authority/design.md) owns
       that choice, and this marker only names where it lands on the engine boundary
 renamed:
-  AU-OS.supply-chain.mutable-image-refs:
-    reason: supply-chain was never registered in the OS pillar closed vocabulary
-      (agent_utilities/governance/domain_vocab.yaml) and check_domain_vocab.py fails the
-      build on it -- the same shape as the AU-KG.history rename recorded above. The
-      decision it names (pin a compose image ref to an operator-supplied digest rather
-      than a mutable :latest tag) is deployment integrity, so it moves onto the already
-      registered `deployment` domain rather than registering a new one
-      (Extend-Before-Invent). Behaviour is unchanged; only the id moves.
-    to: AU-OS.deployment.mutable-image-refs
   AU-KG.history.scoped-conversation-search:
     reason: history was never registered in the KG pillar closed vocabulary (agent_utilities/governance/domain_vocab.yaml)
       and check_domain_vocab.py fails the build on it (D-CC-9); the marker names a real decision (scope-aware
       conversation-history traversal) that survives whole under a legal domain — retrieval already lists
       search/recall as signals and is the closest existing home for a search-shaped decision.
     to: AU-KG.retrieval.scoped-conversation-search
+  AU-OS.supply-chain.mutable-image-refs:
+    reason: supply-chain was never registered in the OS pillar closed vocabulary (agent_utilities/governance/domain_vocab.yaml)
+      and check_domain_vocab.py fails the build on it -- the same shape as the AU-KG.history rename recorded
+      above. The decision it names (pin a compose image ref to an operator-supplied digest rather than
+      a mutable :latest tag) is deployment integrity, so it moves onto the already registered `deployment`
+      domain rather than registering a new one (Extend-Before-Invent). Behaviour is unchanged; only the
+      id moves.
+    to: AU-OS.deployment.mutable-image-refs
 retired:
   AU-KG.compute.automates:
     reason: a single generic verb naming an ontology EDGE TYPE (AUTOMATES), not a decision; the connector-to-skill
