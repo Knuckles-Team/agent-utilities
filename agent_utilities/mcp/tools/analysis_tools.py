@@ -2342,6 +2342,58 @@ def register_analysis_tools(mcp):
                     ),
                     default=str,
                 )
+            elif action == "readiness":
+                # CONCEPT:AU-KG.query.readiness-canary-snapshot (GOC-02) — the ONE
+                # truthful graphos.readiness.v1 snapshot: engine reachability,
+                # identity/policy carrier, canonical-route catalog, source-sync
+                # coverage, dense/sparse index signal, and a REAL synthetic
+                # code_context query — never readiness from liveness alone. An
+                # independent audit of this program found readiness/health can
+                # report green before the graph can actually answer a query
+                # (BUG-004); the governing rule recorded eleven times in this
+                # program's incident history: never trust a signal about state,
+                # check state. `query`/`node_id` optionally override the
+                # synthetic-query canary's probe text/anchor. Uses the module-level
+                # ``json`` import (not the ``_json`` alias some sibling branches
+                # locally bind — that alias is only defined inside THOSE branches'
+                # own scope and referencing it here would raise UnboundLocalError,
+                # since Python treats a name assigned anywhere in a function as
+                # local to the whole function).
+                from agent_utilities.knowledge_graph.core.session import (
+                    current_session,
+                )
+                from agent_utilities.knowledge_graph.readiness import (
+                    collect_readiness_snapshot,
+                    is_snapshot_ready,
+                )
+
+                session = current_session()
+                actor = getattr(session, "actor", None)
+                snapshot = collect_readiness_snapshot(
+                    engine,
+                    session=session,
+                    subject=getattr(actor, "actor_id", "") or "",
+                    tenant=getattr(session, "tenant", "") or "",
+                    policy_epoch=getattr(session, "policy_version", 0) or 0,
+                    synthetic_query=query or "graphos readiness canary",
+                    synthetic_node_id=node_id,
+                    deadline_s=10.0,
+                )
+                if not is_snapshot_ready(snapshot):
+                    # The one place readiness's own rollup gates something real:
+                    # a non-ready snapshot is always logged loudly server-side
+                    # (never only visible to a client that happens to inspect
+                    # `overall`), so a degraded/unavailable probe leaves an
+                    # operator-facing trail even when nobody is watching the
+                    # dashboard at the moment it happened.
+                    logger.warning(
+                        "graphos readiness snapshot %s is NOT ready (overall=%s, "
+                        "required_failures=%s)",
+                        snapshot.get("snapshot_id"),
+                        snapshot.get("overall"),
+                        snapshot.get("required_failures"),
+                    )
+                return json.dumps(snapshot, default=str)
             else:
                 return f"Error: Unknown analyze action '{action}'"
         except Exception as e:
@@ -2358,7 +2410,10 @@ def register_analysis_tools(mcp):
             "infra_sweep | security_scan | distill_memory (KG-2.316/2.318 — "
             "export consolidated/procedural memory to a SFT/DPO/GRPO corpus and "
             "optionally submit=true to dispatch a live data-science-mcp train; "
-            "poll_job_id=<id> reads a submitted job's status back). Use graph_code, "
+            "poll_job_id=<id> reads a submitted job's status back) | readiness "
+            "(GOC-02 — the graphos.readiness.v1 truthful engine/identity/catalog/"
+            "source-sync/index/synthetic-query snapshot; readiness is never "
+            "reported from liveness alone). Use graph_code, "
             "graph_research, graph_evaluate, graph_explain, or graph_observe for "
             "their focused domains. Returns the sole typed EvidenceBundle response."
         ),
@@ -2367,7 +2422,7 @@ def register_analysis_tools(mcp):
     async def graph_analyze(
         action: str = Field(
             default="inspect",
-            description="inspect | enrichment_coverage | process_writeback | placement_plan | infra_sweep | security_scan | distill_memory",
+            description="inspect | enrichment_coverage | process_writeback | placement_plan | infra_sweep | security_scan | distill_memory | readiness",
         ),
         query: str = Field(default="", description="Query or path for the analysis."),
         top_k: int = Field(default=10, description="Result or complexity bound."),
@@ -2391,6 +2446,11 @@ def register_analysis_tools(mcp):
             "infra_sweep",
             "security_scan",
             "distill_memory",
+            # GOC-02: the graphos.readiness.v1 snapshot (engine, identity/policy,
+            # catalog, source_sync, dense/sparse index, synthetic query canary —
+            # see readiness.py's module docstring). Structural/operational, so it
+            # lives on this surface rather than one of the five focused domains.
+            "readiness",
         }
         if action not in allowed:
             return EvidenceBundle.from_payload(

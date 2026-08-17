@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1185
+total_concepts: 1186
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2444,7 +2444,9 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/mcp/kg_server.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   - agent_utilities/security/error_surface.py
@@ -2554,6 +2556,7 @@ concepts:
   - agent_utilities/knowledge_graph/core/connection_registry.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/analysis_tools.py
+  - agent_utilities/mcp/tools/ontology_tools.py
   - agent_utilities/mcp/tools/query_tools.py
   - agent_utilities/mcp/tools/write_ingest_tools.py
   doc: Multi-Connection Graph Registry. The engine has always been
@@ -5871,6 +5874,14 @@ concepts:
   code_paths:
   - agent_utilities/mcp/tools/query_tools.py
   doc: read-only SQL over the KG via the engine
+- id: AU-KG.query.readiness-canary-snapshot
+  name: AU-KG.query.readiness-canary-snapshot
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/readiness.py
+  - agent_utilities/mcp/tools/analysis_tools.py
+  doc: AU-KG.query.readiness-canary-snapshot
 - id: AU-KG.query.register-each-user-table
   name: does the
   pillar: AU-KG
