@@ -3847,7 +3847,10 @@ class GraphComputeEngine:
         )
 
     def owl_reason(
-        self, ontology: str | None = None, target_class: str | None = None
+        self,
+        ontology: str | None = None,
+        target_class: str | None = None,
+        class_base: str | None = None,
     ) -> dict[str, Any]:
         """Run the engine's native OWL 2 (EL+/RL) reasoner over the live graph.
 
@@ -3856,11 +3859,33 @@ class GraphComputeEngine:
         entailments, returning ``{"subclasses", "instances", "consistent",
         "unsatisfiable"}`` (confidence/decay-weighted, read-only -- does NOT mutate the
         graph). ``target_class`` restricts ``instances`` to that class's inferred
-        members. Raises if the engine/op is unavailable (server built without the
+        members and is EMPTY-OK ("all classes") by design.
+
+        ``class_base`` is the absolute namespace a bare string node ``type`` (e.g.
+        ``"Agent"``) is bridged into before classification -- independent of
+        ``target_class`` (BUG-281: the engine used to derive the bridge namespace ONLY
+        from ``target_class``, so an empty ``target_class`` -- its own documented "all
+        classes" case -- could never also supply one, and every caller wanting "reason
+        over everything" hit ``OwlReason requires an absolute target class``).
+        **Defaults to empty = identity**, mirroring the engine's own
+        ``sparql::Projection::raw()`` convention ("no ``base_iri`` configured -> keys
+        emitted verbatim"): a bare ``type`` classifies under its own bare label rather
+        than being silently bridged into a namespace the caller never asked for. This
+        is what :class:`~agent_utilities.knowledge_graph.core.owl_bridge.OWLBridge`'s
+        lightweight reasoning wants -- it compares inferred ``rdf:type`` objects
+        against the graph's own bare type labels. Pass the ``au:`` namespace (see
+        :meth:`sparql`'s ``base_iri``) explicitly to bridge bare types into absolute
+        class IRIs the way the SPARQL by-class projection does.
+
+        Raises if the engine/op is unavailable (server built without the
         ``owl`` feature) so callers can fall back to the Python/owlready2 path.
         """
         return dict(
-            self._client.rdf.owl_reason(ontology=ontology, target_class=target_class)
+            self._client.rdf.owl_reason(
+                ontology=ontology,
+                target_class=target_class,
+                class_base=class_base or "",
+            )
         )
 
     def add_triples(
