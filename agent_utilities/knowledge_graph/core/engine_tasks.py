@@ -1104,6 +1104,23 @@ class _ControlPlaneWorkItemEngine:
         with self._control_session_scope():
             return self._native_work_item_method("defer_work_item")(request)
 
+    def cas_work_item_metadata(self, request: dict[str, Any]) -> Any:
+        """Atomic compare-and-set on a control-plane WorkItem's non-authority
+        scheduling metadata (checkpoint_id/metadata/prio_bucket) -- BUG-111.
+
+        Sibling of :meth:`GraphComputeEngine.cas_work_item_metadata`
+        (``knowledge_graph/core/graph_compute.py``): this adapter had the other
+        five native WorkItem verbs (``claim``/``renew``/``commit``/``cancel``/
+        ``defer``) wired through ``_native_work_item_method`` but never picked
+        up this sixth one when BUG-111 added it, so ``checkpoint_work_item``/
+        ``request_work_item_input``/``set_work_item_priority`` against a
+        control-plane (ingestion-queue) WorkItem raised
+        ``NativeWorkItemRequired`` even though the connected engine build
+        supports the RPC.
+        """
+        with self._control_session_scope():
+            return self._native_work_item_method("cas_work_item_metadata")(request)
+
 
 class TaskManagerMixin(GraphEngineProtocol):
     """Mixin for the native persistent WorkItem queue.
