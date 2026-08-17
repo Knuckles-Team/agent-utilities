@@ -1238,8 +1238,15 @@ def execute_agent_task_turn(
 # ── execution (the existing bodies, relocated) ─────────────────────────────
 
 
-def _execute_goal_turn(spec: dict[str, Any]) -> str:
-    """Run the claimed goal via the EXISTING ``run_goal_loop`` body."""
+def _execute_goal_turn(spec: dict[str, Any], engine: Any = None) -> str:
+    """Run the claimed goal via the EXISTING ``run_goal_loop`` body.
+
+    ``engine``, when the caller already holds one (``execute_agent_turn``
+    resolves it via ``sessions._goal_engine()`` before calling here), is
+    threaded through to ``run_goal_loop`` instead of letting it independently
+    derive a second one via ``IntelligenceGraphEngine.get_or_create()`` — see
+    ``run_goal_loop``'s docstring (D-03/GOC-39).
+    """
     import asyncio
 
     from agent_utilities.core.resource_priority import (
@@ -1267,6 +1274,7 @@ def _execute_goal_turn(spec: dict[str, Any]) -> str:
                 validation_cmd=spec.get("validation_cmd", ""),
                 max_iterations=int(spec.get("max_iterations", 20)),
                 constraints=list(spec.get("constraints", [])),
+                engine=engine,
             )
         )
     return "completed"
@@ -1479,7 +1487,7 @@ def execute_agent_turn(
                     )
                     if spec is not None:
                         lease.require_current()
-                        outcome = _execute_goal_turn(spec)
+                        outcome = _execute_goal_turn(spec, engine=engine)
                 elif envelope.kind == KIND_ORCHESTRATOR_TASK:
                     claim = lease.side_effect(
                         claim_orchestrator_work_item,
@@ -1827,7 +1835,9 @@ def run_dispatch_consumer_loop(
                     f"envelope tenant does not match the WorkItem {dispatch_item_id} "
                     "was admitted under"
                 )
-                poison_id = _dead_letter_poison_envelope(engine, payload, error=mismatch)
+                poison_id = _dead_letter_poison_envelope(
+                    engine, payload, error=mismatch
+                )
                 _record_turn_outcome(
                     "tenant_mismatch" if poison_id else "tenant_mismatch_unrecorded"
                 )
