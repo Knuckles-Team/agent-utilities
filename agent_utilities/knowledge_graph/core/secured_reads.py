@@ -12,6 +12,7 @@ agent runner via ``use_actor``); callers may override per-call.
 """
 
 import json
+import logging
 from typing import TYPE_CHECKING, Any
 
 from ...security.brain_context import ActorContext, current_actor
@@ -19,6 +20,8 @@ from .company_brain_runtime import get_company_brain
 
 if TYPE_CHECKING:
     from ...models.company_brain import DataClassification
+
+logger = logging.getLogger(__name__)
 
 
 def _verified_actor(actor: ActorContext | None) -> ActorContext:
@@ -341,11 +344,32 @@ def scope(
         parameter, not a string-literal splice). The caller MUST merge
         ``extra_params`` into whatever params dict it executes
         ``scoped_cypher`` with.
+
+    A :class:`~.cypher_scoping.UnscopableQueryError` (or any other
+    ``PermissionError``) raised underneath is propagated AS-IS — it is
+    already a deliberately-typed, specific fail-closed decision, and
+    re-wrapping it here would flatten its actionable message (e.g. "every
+    node pattern in the first `MATCH` clause is anonymous") into the generic
+    "Tenant query scoping failed", making a query-shape problem
+    indistinguishable from every other denial. Anything else (an
+    infrastructure failure inside the tenancy manager/company brain) is
+    still logged with its full cause and wrapped as ``PermissionError`` —
+    that failure mode is a deliberate "cannot verify scope, so deny"
+    fail-closed posture, not a code defect, so it keeps denying rather than
+    surfacing as an internal-error type.
     """
     actor = _verified_actor(actor)
     try:
         return get_company_brain().tenancy.scope_cypher_query(cypher, actor.tenant_id)
+    except PermissionError:
+        raise
     except Exception as exc:  # pragma: no cover - defensive boundary
+        logger.error(
+            "Tenant query scoping failed: %s: %s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
         raise PermissionError("Tenant query scoping failed") from exc
 
 

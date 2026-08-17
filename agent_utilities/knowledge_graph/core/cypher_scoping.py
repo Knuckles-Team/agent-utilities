@@ -75,6 +75,7 @@ because none of them close two further holes real callers actually hit:
 import re
 
 __all__ = [
+    "QueryScopingError",
     "UnscopableQueryError",
     "first_bound_node_variable",
     "inject_and_predicate",
@@ -122,6 +123,34 @@ class UnscopableQueryError(PermissionError):
     subclass so existing ``except PermissionError`` boundaries (e.g.
     :func:`~agent_utilities.knowledge_graph.core.secured_reads.scope`) still
     catch it and surface a typed denial rather than an unhandled exception.
+
+    This is a genuine, intentional fail-closed DECISION (the query's shape
+    means no safe scoping predicate can be written), not a defect — see
+    :class:`QueryScopingError` for the complementary case.
+    """
+
+
+class QueryScopingError(RuntimeError):
+    """The query-scoping pipeline itself failed for a reason that is NOT an
+    authorization decision.
+
+    Distinguishes a CODE DEFECT inside the scoping machinery (a missing
+    attribute on a caller-supplied actor object, a ``TypeError``/``KeyError``
+    bug in ``scope()``/``apply_visibility()``/the tenancy manager, an
+    unexpected internal state) from :class:`UnscopableQueryError` and
+    :class:`PermissionError` generally, which represent a genuine, intentional
+    fail-closed denial (e.g. "this query's shape cannot be safely scoped" or
+    "this actor is not authorized").
+
+    Both kinds of failure still refuse the read — a scoping failure of either
+    kind must never fall through to executing an unscoped query — but only
+    one of them is actually about permissions. Reproduced incident this type
+    exists to stop: an actor object missing ``ensure_credential_current``
+    (a wiring/code defect, nothing to do with who the actor is or what they
+    are allowed to read) previously raised the exact same
+    ``PermissionError("Graph query scoping failed")`` as a real denial,
+    actively misdirecting debugging toward the authorization layer instead of
+    the actual broken code.
     """
 
 

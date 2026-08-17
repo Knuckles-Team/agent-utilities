@@ -267,8 +267,56 @@ class QueryMixin(_Base):
                         scoped_query, session.actor, graph_name, var=agg_var
                     )
                     params.update(catalog_params)
+        except PermissionError as exc:
+            # A genuine, already-typed fail-closed scoping/authorization
+            # decision reached here — e.g. `cypher_scoping.UnscopableQueryError`
+            # (the query binds no node variable a tenant/visibility predicate
+            # can be written against) or `secured_reads.scope()`'s own
+            # verified-actor/infrastructure denial. Propagate the SAME
+            # exception: its specific type and message are the only thing
+            # that lets an operator tell "this query's shape can't be safely
+            # scoped" apart from "this actor lacks permission" apart from any
+            # other denial. Re-wrapping it into one generic "Graph query
+            # scoping failed" — the bug this replaces — made a pure
+            # query-shape problem (``MATCH ()-[r]->() RETURN count(r)``, which
+            # binds no node variable at all) indistinguishable from an actual
+            # authorization denial.
+            from agent_utilities.core.log_privacy import sanitize_log_text
+
+            logger.error(
+                "Graph query scoping denied: %s | query=%s",
+                sanitize_log_text(_describe_secured_read_failure(exc)),
+                sanitize_log_text(str(query))[:240],
+            )
+            raise
         except Exception as exc:
-            raise PermissionError("Graph query scoping failed") from exc
+            # NOT an authorization decision: an `AttributeError`/`TypeError`/
+            # etc. raised INSIDE the scoping pipeline itself (e.g. a
+            # caller-supplied actor object missing an expected method) is a
+            # CODE DEFECT, not a permission denial. Failing closed is still
+            # correct here — `scoped_query`/`params` are never used past this
+            # point on this path, so a defect here can never fall through to
+            # executing an unscoped read — but labeling it `PermissionError`
+            # actively misdirects debugging toward the authorization layer.
+            # Reproduced: an actor object missing `ensure_credential_current`
+            # alone raised the exact same "Graph query scoping failed" a real
+            # denial would.
+            from agent_utilities.core.log_privacy import sanitize_log_text
+            from agent_utilities.knowledge_graph.core.cypher_scoping import (
+                QueryScopingError,
+            )
+
+            logger.error(
+                "Graph query scoping raised a non-authorization failure "
+                "before a scope could be established (code defect, not a "
+                "permission denial): %s | query=%s",
+                sanitize_log_text(_describe_secured_read_failure(exc)),
+                sanitize_log_text(str(query))[:240],
+            )
+            raise QueryScopingError(
+                "Graph query scoping failed due to an internal defect, not "
+                "an authorization denial"
+            ) from exc
 
         # CONCEPT:AU-KG.backend.schedule-on-control-graph — control/content read
         # isolation. A query containing only current control-plane labels must
