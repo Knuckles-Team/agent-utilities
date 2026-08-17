@@ -166,6 +166,20 @@ def _is_reserved_hostname(host: str) -> bool:
     Covers example.com/.net/.org and any ``*.test``/``*.example``/
     ``*.invalid``/``*.localhost`` name (RFC 2606, 6761), plus the RFC
     5737/3927/3849 documentation address blocks and bare ``localhost``.
+
+    BUG-241: also covers this repo's own extension of the RFC 2606
+    convention -- a hostname whose LEADING label IS ``example`` or is
+    prefixed ``example-`` (e.g. ``example-host-prod.internal.arpa``, the
+    adversarial-fixture convention already used in
+    ``tests/unit/mcp/test_compliance_tools.py``, and mirroring the existing
+    ``_RESERVED_HOME_USERS`` "example"/"example-user" handling for home
+    paths). Scoped to the FIRST label only, never any label anywhere in the
+    name: a multi-label internal-looking value can legitimately carry
+    "example" as an unrelated interior segment (a pre-existing fixture in
+    ``tests/gates/test_docs_contract_gate.py`` builds
+    ``svc.internal.example.svc.cluster.local`` this way to prove a genuine
+    leak is still caught) -- only the convention's actual signal position,
+    the label that names the fake host itself, counts.
     """
     candidate = host.strip().rstrip(".").casefold()
     if not candidate:
@@ -176,7 +190,10 @@ def _is_reserved_hostname(host: str) -> bool:
         candidate.endswith(f".{domain}") for domain in _RESERVED_EXAMPLE_DOMAINS
     ):
         return True
-    last_label = candidate.rsplit(".", 1)[-1]
+    labels = candidate.split(".")
+    if labels[0] == "example" or labels[0].startswith("example-"):
+        return True
+    last_label = labels[-1]
     if last_label in _RESERVED_DOCUMENTATION_TLDS:
         return True
     try:
@@ -189,17 +206,6 @@ def _is_reserved_hostname(host: str) -> bool:
     return any(address in network for network in networks)
 
 
-_URL_HOST_RE = re.compile(
-    r"(?i)\b[a-z][a-z0-9+.-]*://(?:[^\s/@\"'<>]+@)?(?P<host>[^\s/@:\"'<>]+)"
-)
-
-
-def _is_reserved_endpoint_url(url_fragment: str) -> bool:
-    """True if the FIRST URL found in ``url_fragment`` has a reserved host."""
-    match = _URL_HOST_RE.search(url_fragment)
-    if not match:
-        return False
-    return _is_reserved_hostname(match.group("host"))
 _PERSISTED_FIELD_RE = re.compile(
     r"[\"']?(?P<field>workspace_path|source_path|skill_path|local_path|source_file|"
     r"eg_ledger_path)[\"']?\s*[:=]\s*(?P<value>.+)",
@@ -214,10 +220,61 @@ _INTERNAL_ENDPOINT_RE = re.compile(
     r"\b(?:10(?:\.\d{1,3}){3}|192\.168(?:\.\d{1,3}){2}|"
     r"172\.(?:1[6-9]|2\d|3[01])(?:\.\d{1,3}){2})\b"
 )
-_SOURCE_INTERNAL_URL_RE = re.compile(
-    r"(?i)https?://[^\s\"'<>]*(?:\.(?:arpa|internal|corp|lan)\b|"
-    r"\.svc\.cluster\.local\b)"
+# BUG-241: the internal-endpoint pass used to be ``_SOURCE_INTERNAL_URL_RE``,
+# which required a URL scheme (``https?://``) before the host -- so a BARE
+# hostname literal (no ``scheme://`` prefix at all, e.g. a YAML
+# ``ingress_host: graph-os.arpa`` value or a Python string literal
+# ``"vllm.arpa"``) was structurally invisible to it. A scheme is not what
+# makes a hostname sensitive; the hostname is. This pattern drops the scheme
+# requirement entirely and matches the hostname shape wherever it appears on
+# the line -- inside a URL, a bare literal, an f-string, a YAML scalar, all
+# of it -- covering the same suffix family the docs-path
+# ``_INTERNAL_ENDPOINT_RE`` already recognizes bare (``.arpa``/``.internal``)
+# plus the two extra suffixes (``.corp``/``.lan``) the old scheme-gated
+# pattern additionally covered, so nothing already-caught regresses. At
+# least one label must precede ``arpa``/``internal``/``corp``/``lan`` (a
+# bare "internal" is an ordinary English word, not a hostname), while
+# ``svc.cluster.local`` is specific enough on its own to match with zero or
+# more leading labels, same as the docs-path pattern.
+#
+# Deliberately CASE-SENSITIVE on the suffix (no ``(?i)``): a first corpus run
+# of this pattern with ``(?i)`` produced 19 false positives, every one of
+# them ``DataClassification.INTERNAL``/``SomeEnum.INTERNAL`` -- a Python
+# UPPER_SNAKE_CASE enum member access, not a hostname (``DataClassification``
+# is itself a syntactically valid DNS label, so nothing about the identifier
+# shape alone rules it out). Every genuine hostname literal in this corpus,
+# real or synthetic, is written lowercase (``graph-os.arpa``, ``vllm.arpa``,
+# ``host.docker.internal``, ``model.internal``, ...) -- matching DNS/hostname
+# convention -- while every enum-attribute access in this codebase is
+# UPPER_SNAKE_CASE by convention, so requiring an exact-case lowercase
+# suffix separates the two shapes cleanly without a Python-syntax-aware
+# parse. The preceding label(s) stay case-insensitive (a hostname label
+# itself may legitimately mix case), only the fixed suffix word is
+# case-locked.
+_HOSTNAME_LABEL_RE = r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+_BARE_INTERNAL_HOSTNAME_RE = re.compile(
+    r"(?<![A-Za-z0-9_.-])"
+    r"(?:"
+    rf"(?:{_HOSTNAME_LABEL_RE}\.)+(?:arpa|internal|corp|lan)"
+    r"|"
+    rf"(?:{_HOSTNAME_LABEL_RE}\.)*svc\.cluster\.local"
+    r")"
+    r"(?![A-Za-z0-9_.-])"
 )
+
+
+def _internal_endpoint_in_line(line: str) -> bool:
+    """True if ``line`` contains a non-reserved internal-hostname literal.
+
+    Scans EVERY candidate match, not just the first, so a reserved
+    placeholder earlier on the line (e.g. ``example-host-prod.internal.arpa``
+    used in an adversarial-fixture comment) never masks a real leak later on
+    the same line.
+    """
+    return any(
+        not _is_reserved_hostname(match.group(0))
+        for match in _BARE_INTERNAL_HOSTNAME_RE.finditer(line)
+    )
 _PRIVATE_KEY_LINE_RE = re.compile(r"^\s*-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----\s*$")
 _CREDENTIAL_URI_RE = re.compile(
     r"(?i)\b[a-z][a-z0-9+.-]*://[^\s/@:]+:(?P<secret>[^\s/@]+)"
@@ -503,8 +560,7 @@ def classify_runtime_source_line(
         for value in identifiers
     ):
         categories.add("local account or host identifier in runtime source")
-    endpoint_match = _SOURCE_INTERNAL_URL_RE.search(line)
-    if endpoint_match and not _is_reserved_endpoint_url(endpoint_match.group(0)):
+    if _internal_endpoint_in_line(line):
         categories.add("hard-coded internal endpoint in runtime source")
     credential_match = _CREDENTIAL_URI_RE.search(line)
     if credential_match and not _is_credential_exempt(credential_match):
@@ -864,6 +920,23 @@ def _write_baseline(violations: list[Violation]) -> None:
         "# lane-release-0801); the rest are internal endpoints and shared-account\n"
         "# paths. GitHub is public-facing and gets STRICT standards, so this file\n"
         "# must reach zero before the repository is pushed.\n"
+        "#\n"
+        "# BUG-241 (2026-08-16, OWNER-SECURITY): 29 more entries added here.\n"
+        "# The runtime-source internal-endpoint pass required a URL scheme\n"
+        "# (`https?://`) before the host, so a BARE hostname literal (a YAML\n"
+        "# `ingress_host: graph-os.arpa` value, a Python `\"vllm.arpa\"` string) was\n"
+        "# structurally invisible to it -- proven with a planted two-line canary\n"
+        "# where the schemed form was caught and the bare form was not. Closing\n"
+        "# that pattern gap surfaces real production hostnames already tracked in\n"
+        "# `deploy/`/`docker/` config (not new leaks -- newly SEEN, same as the\n"
+        "# D-CIP-10 debt above) plus a family of test fixtures that deliberately\n"
+        "# use a hostname-shaped literal (`model.internal`, `gl.corp`, ...) to\n"
+        "# exercise OTHER gates'/modules' own host-detection logic (private-host\n"
+        "# allowlists, loopback-bind checks, endpoint resolvers) -- already named\n"
+        "# as known, deferred debt in `_is_runtime_source_path`'s docstring. The\n"
+        "# one occurrence that was a genuinely real, non-fixture leak in a test\n"
+        "# (`tests/unit/core/test_airgap_mode.py:53`'s `\"vllm.arpa\"`) was fixed\n"
+        "# directly, not baselined -- it is not in this file.\n"
         "#\n"
         "# TAB-separated: path\\tline\\tcategory\\tcontent_hash\\tordinal. The KEY is\n"
         "# (path, category, content_hash, ordinal) -- content_hash is an\n"

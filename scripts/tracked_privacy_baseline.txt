@@ -15,26 +15,59 @@
 # paths. GitHub is public-facing and gets STRICT standards, so this file
 # must reach zero before the repository is pushed.
 #
+# BUG-241 (2026-08-16, OWNER-SECURITY): 29 more entries added here.
+# The runtime-source internal-endpoint pass required a URL scheme
+# (`https?://`) before the host, so a BARE hostname literal (a YAML
+# `ingress_host: graph-os.arpa` value, a Python `"vllm.arpa"` string) was
+# structurally invisible to it -- proven with a planted two-line canary
+# where the schemed form was caught and the bare form was not. Closing
+# that pattern gap surfaces real production hostnames already tracked in
+# `deploy/`/`docker/` config (not new leaks -- newly SEEN, same as the
+# D-CIP-10 debt above) plus a family of test fixtures that deliberately
+# use a hostname-shaped literal (`model.internal`, `gl.corp`, ...) to
+# exercise OTHER gates'/modules' own host-detection logic (private-host
+# allowlists, loopback-bind checks, endpoint resolvers) -- already named
+# as known, deferred debt in `_is_runtime_source_path`'s docstring. The
+# one occurrence that was a genuinely real, non-fixture leak in a test
+# (`tests/unit/core/test_airgap_mode.py:53`'s `"vllm.arpa"`) was fixed
+# directly, not baselined -- it is not in this file.
+#
 # TAB-separated: path\tline\tcategory\tcontent_hash\tordinal. The KEY is
 # (path, category, content_hash, ordinal) -- content_hash is an
-# irreversible fingerprint of the offending line, so an entry is stable
+# irreversible fingerprint of the offending line, so the entry is stable
 # under pure line motion elsewhere in the file (D-W2P: this file used to
-# key on (path, line, category) alone and reported moved-not-new leaks as
-# phantom NEW findings). `line` is informational only, for a human to
-# locate the site; it is never compared. A NEW leak (not listed here)
-# FAILS the gate. Fixing a listed site shrinks this file on the next
+# key on line number alone and reported moved-not-new leaks as phantom
+# NEW findings). `line` is informational only, for a human to locate the
+# site; it is never compared. A NEW leak (not listed here) FAILS the
+# gate. Fixing a listed site shrinks this file on the next
 # --update-baseline; never hand-add an entry to make a real leak
 # disappear.
-#
-# Currently EMPTY (0 known leaks): the 17 entries this file carried were
-# all resolved by lane-push-0802 -- the 9 deploy/k8s/graphos-homelab-*
-# leaks were removed by relocating those two runbooks out of the public
-# repo, the remaining 8 hard-coded-endpoint/credential-URI sites in
-# base_utilities.py / nl_planner.py / server_factory.py / deploy_wizard.py
-# were fixed at the source, and deploy_wizard.py's remaining CHANGEME
-# template placeholders are now recognized as non-credentials by
-# _is_credential_placeholder() rather than flagged. Re-scanned after
-# merging both fixes: check_tracked_privacy.py reports 0 violations.
-# An empty file is still keyed on the scheme above -- the NEXT entry
-# written here (via --update-baseline) must follow it, not the old
-# (path, line, category) shape.
+agent_utilities/base_utilities.py	237	hard-coded internal endpoint in runtime source	2644ad9fcc5c89ef	0
+agent_utilities/gateway/daemon.py	73	hard-coded internal endpoint in runtime source	7b99fba182be9aa3	0
+agent_utilities/skills/skill_graphs/agent-utilities/SKILL.md	59	hard-coded internal endpoint in runtime source	910c9fb69a247e2d	0
+deploy/environments/dev.yaml	96	hard-coded internal endpoint in runtime source	9f3c89a989cfeb61	0
+deploy/environments/prod.yaml	126	hard-coded internal endpoint in runtime source	9f455fab6546258c	0
+deploy/environments/test.yaml	100	hard-coded internal endpoint in runtime source	a09994f022b57347	0
+deploy/k8s/production-cell/mesh-security.yaml	25	hard-coded internal endpoint in runtime source	cb0fa33f5d5ae260	0
+deploy/k8s/production-cell/mesh-security.yaml	77	hard-coded internal endpoint in runtime source	cb0fa33f5d5ae260	1
+docker/egeria.compose.yml	50	hard-coded internal endpoint in runtime source	cdce5632ec1b91a8	0
+docker/mcp.compose.yml	30	hard-coded internal endpoint in runtime source	cdce5632ec1b91a8	0
+tests/gates/test_docs_contract_gate.py	115	hard-coded internal endpoint in runtime source	c06d7816b86c4b75	0
+tests/unit/core/test_model_capacity_autoscale.py	86	hard-coded internal endpoint in runtime source	5f55217e2ad1ac36	0
+tests/unit/core/test_model_capacity_autoscale.py	91	hard-coded internal endpoint in runtime source	98a30a526d86a7e7	0
+tests/unit/core/test_transport_security.py	608	hard-coded internal endpoint in runtime source	2cd56f2e963931c6	0
+tests/unit/core/test_transport_security.py	615	hard-coded internal endpoint in runtime source	8bcc1a5e451abbf7	0
+tests/unit/knowledge_graph/backends/test_source_partition.py	28	hard-coded internal endpoint in runtime source	62157772ccc4bce0	0
+tests/unit/knowledge_graph/backends/test_source_partition.py	27	hard-coded internal endpoint in runtime source	7c82e9abce3d849d	0
+tests/unit/knowledge_graph/core/test_engine_resolver.py	105	hard-coded internal endpoint in runtime source	2d6419e7419653e1	0
+tests/unit/knowledge_graph/core/test_engine_resolver.py	99	hard-coded internal endpoint in runtime source	3e41773d54bc35f3	0
+tests/unit/knowledge_graph/test_change_envelope.py	36	hard-coded internal endpoint in runtime source	cac01b6b3b6353d8	0
+tests/unit/knowledge_graph/test_change_envelope.py	42	hard-coded internal endpoint in runtime source	cac01b6b3b6353d8	1
+tests/unit/knowledge_graph/test_change_envelope.py	51	hard-coded internal endpoint in runtime source	cac01b6b3b6353d8	2
+tests/unit/knowledge_graph/test_change_envelope.py	59	hard-coded internal endpoint in runtime source	cac01b6b3b6353d8	3
+tests/unit/knowledge_graph/test_skill_graph_pipeline.py	421	hard-coded internal endpoint in runtime source	2ab0e12144301958	0
+tests/unit/knowledge_graph/test_skill_graph_pipeline.py	414	hard-coded internal endpoint in runtime source	fc965c9a5de083e2	0
+tests/unit/knowledge_graph/test_structure_router.py	48	hard-coded internal endpoint in runtime source	2a74fd12a5573b8f	0
+tests/unit/knowledge_graph/test_structure_router.py	188	hard-coded internal endpoint in runtime source	7639cc6ff6884338	0
+tests/unit/messaging/test_alert_intake_security.py	35	hard-coded internal endpoint in runtime source	5d09c1f7140c985d	0
+tests/unit/observability/test_runtime_health.py	223	hard-coded internal endpoint in runtime source	b7e2c18ec32b32b9	0
