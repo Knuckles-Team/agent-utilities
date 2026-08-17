@@ -899,6 +899,7 @@ async def run_goal_loop(
     validation_cmd: str,
     max_iterations: int,
     constraints: list[str],
+    engine: Any = None,
 ):
     """Durable goal execution — a thin adapter onto the unified LoopController.
 
@@ -909,6 +910,22 @@ async def run_goal_loop(
     adapter registers the goal as a ``develop`` Loop, wires the goal's observability
     (the goals table + the session console turns) and the fleet desired-state signal
     to the controller, and lets it own execution. No separate durable loop remains.
+
+    ``engine``, when the caller already holds a resolved engine (e.g.
+    ``agent_dispatch_worker.execute_agent_turn`` resolves one via
+    ``sessions._goal_engine()`` before ever reaching this adapter, through
+    ``_execute_goal_turn``), is reused as-is instead of independently deriving
+    a second one through ``IntelligenceGraphEngine.get_or_create()``. Callers
+    with no engine already in hand (``None``, the default) get the same
+    ``_goal_engine() or get_or_create()`` fallback as before — additive, not a
+    behavior change for them.
+
+    D-03/GOC-39: the bare ``get_or_create()`` fallback here constructed its
+    own engine independent of whatever the caller already resolved — merely
+    redundant in production (both resolve the same process singleton) but a
+    real bug under test doubles / concurrent test-engine lifecycles, where it
+    raced the test's own isolated engine instead of reusing the one the
+    caller already verified was reachable.
     """
     active_goals[goal_id] = {
         "goal_id": goal_id,
@@ -926,7 +943,6 @@ async def run_goal_loop(
     }
     _set_session_status(session_id, "running", guard_desired=True)
 
-    engine = None
     try:
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
         from agent_utilities.knowledge_graph.research.loop_controller import (
@@ -934,7 +950,11 @@ async def run_goal_loop(
         )
         from agent_utilities.knowledge_graph.research.loops import submit_loop
 
-        engine = _goal_engine() or IntelligenceGraphEngine.get_or_create()
+        engine = (
+            engine
+            if engine is not None
+            else (_goal_engine() or IntelligenceGraphEngine.get_or_create())
+        )
         # Register the goal as a first-class develop Loop so it is visible to and
         # advanced by the one controller (CONCEPT:AU-KG.research.these-properties-carry).
         submit_loop(
