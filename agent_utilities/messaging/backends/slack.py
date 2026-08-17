@@ -33,6 +33,8 @@ from agent_utilities.messaging.models import (
     Channel,
     EventType,
     InboundEvent,
+    MediaAttachment,
+    MediaType,
     Message,
     MessageDirection,
     MessagingConfig,
@@ -42,6 +44,49 @@ from agent_utilities.messaging.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _slack_attachments(
+    message: dict[str, Any], bot_token: str
+) -> list[MediaAttachment]:
+    """Turn a Slack message event's ``files`` array into :class:`MediaAttachment`\\s.
+
+    CONCEPT:AU-ECO.messaging.voice-attachment-fallback — Slack file uploads (including
+    voice-note/clip recordings, which Slack delivers as an ordinary audio file upload —
+    there is no separate "voice message" object in the Events API) previously went
+    entirely unparsed here, so a voice note sent over Slack never reached the core
+    transcription path (``messaging/voice.py`` via ``router._transcribe_attachments``).
+    Classifies by ``mimetype`` (``audio/*`` -> :attr:`MediaType.AUDIO`; everything else
+    -> :attr:`MediaType.FILE``), never by filename/extension guessing.
+
+    Slack serves file bytes from an authenticated endpoint (``url_private_download``),
+    unlike Telegram's pre-signed Bot-API URL — so each attachment carries the bot's
+    bearer token as its ``auth_header`` for the core transcription path to forward.
+    """
+    attachments: list[MediaAttachment] = []
+    for f in message.get("files") or []:
+        if not isinstance(f, dict):
+            continue
+        url = f.get("url_private_download") or f.get("url_private") or ""
+        if not url:
+            continue
+        mime_type = str(f.get("mimetype", ""))
+        media_type = (
+            MediaType.AUDIO if mime_type.startswith("audio/") else MediaType.FILE
+        )
+        attachments.append(
+            MediaAttachment(
+                media_type=media_type,
+                url=url,
+                filename=str(f.get("name", "")),
+                mime_type=mime_type,
+                size_bytes=int(f.get("size", 0) or 0),
+                auth_header={"Authorization": f"Bearer {bot_token}"}
+                if bot_token
+                else {},
+            )
+        )
+    return attachments
 
 
 class SlackBackend(MessagingBackend):
@@ -104,6 +149,7 @@ class SlackBackend(MessagingBackend):
                     author_id=message.get("user", ""),
                     platform=PlatformId.SLACK,
                     direction=MessageDirection.INBOUND,
+                    attachments=_slack_attachments(message, self.config.token),
                 ),
                 raw=message,
             )

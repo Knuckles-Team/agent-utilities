@@ -410,6 +410,70 @@ async def test_inbound_reply_path_not_blocked_by_slow_kg() -> None:
     assert elapsed < 1.0, f"reply path blocked on KG writes ({elapsed:.2f}s)"
 
 
+# ── Untranscribable voice attachment must fail visibly, not silently drop (ECO) ──
+
+
+@pytest.mark.asyncio
+async def test_untranscribable_voice_attachment_gets_explicit_failure_notice(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CONCEPT:AU-ECO.messaging.voice-attachment-fallback — an audio/voice attachment that
+    fails to transcribe (disabled, download error, empty ASR result) must produce an
+    explicit, visible reply — never a silently dropped message. Mirrors this repo's
+    fail-closed rule that a degraded read must never be read by its caller as success.
+    """
+    from agent_utilities.messaging import voice
+    from agent_utilities.messaging.models import MediaAttachment, MediaType, Message
+    from agent_utilities.messaging.router import create_planner_handler
+
+    MessagingService._instance = None
+
+    async def _fails(
+        url: str, *, headers: dict[str, str] | None = None, mime_type: str = ""
+    ) -> str:
+        return ""
+
+    monkeypatch.setattr(voice, "transcribe_voice", _fails)
+
+    handler = await create_planner_handler(knowledge_engine=_Eng())
+    backend = _FakeBackend("telegram")
+    ev = InboundEvent(
+        event_type=EventType.MESSAGE,
+        platform="telegram",
+        channel_id="42",
+        user_id="u1",
+        message=Message(
+            attachments=[MediaAttachment(media_type=MediaType.VOICE_NOTE, url="u")]
+        ),
+    )
+
+    await handler(ev, backend)
+
+    assert len(backend.sent) == 1, backend.sent
+    channel_id, text = backend.sent[0]
+    assert channel_id == "42"
+    assert "couldn't transcribe" in text.lower()
+
+
+@pytest.mark.asyncio
+async def test_no_attachment_and_no_text_is_a_silent_noop() -> None:
+    """A message with neither text nor an audio attachment (e.g. a bare reaction/sticker
+    the model layer doesn't carry as an attachment) is correctly a no-op — this must NOT
+    regress into sending a spurious failure notice for every non-text event."""
+    from agent_utilities.messaging.router import create_planner_handler
+
+    MessagingService._instance = None
+    handler = await create_planner_handler(knowledge_engine=_Eng())
+    backend = _FakeBackend("telegram")
+    ev = InboundEvent(
+        event_type=EventType.MESSAGE, platform="telegram", channel_id="42", user_id="u1"
+    )
+
+    await handler(ev, backend)
+
+    assert backend.sent == []
+
+
 # ── Continuity via the CORE memory — two turns share a session (ECO-4.78) ──
 
 

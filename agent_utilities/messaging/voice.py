@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import mimetypes
 import os
 import tempfile
 from typing import Any
@@ -19,6 +20,25 @@ from typing import Any
 from agent_utilities.core.config import setting
 
 logger = logging.getLogger(__name__)
+
+# Telegram voice notes have no explicit mime_type on the attachment (the file extension
+# alone identifies them), so ".ogg" stays the default suffix when none is known — the
+# CPU decoder (ffmpeg/av, via faster-whisper) sniffs the real container regardless of
+# extension, but a correct suffix keeps diagnostics/temp-file naming honest.
+_DEFAULT_SUFFIX = ".ogg"
+
+
+def _suffix_for_mime(mime_type: str) -> str:
+    """Best-effort file suffix for a downloaded attachment's mime type.
+
+    Falls back to :data:`_DEFAULT_SUFFIX` (Telegram's OGG/Opus container) when the
+    mime type is absent or unrecognized — never raises, this is cosmetic only.
+    """
+    if not mime_type:
+        return _DEFAULT_SUFFIX
+    guessed = mimetypes.guess_extension(mime_type.split(";", 1)[0].strip())
+    return guessed or _DEFAULT_SUFFIX
+
 
 _backend: Any = None  # cached Whisper backend (model loaded once)
 
@@ -135,8 +155,20 @@ async def _transcribe_bytes_full(content: bytes, *, suffix: str = ".ogg") -> dic
             pass
 
 
-async def transcribe_voice(url: str) -> str:
-    """Download a voice/audio attachment and return its transcript ("" on failure)."""
+async def transcribe_voice(
+    url: str, *, headers: dict[str, str] | None = None, mime_type: str = ""
+) -> str:
+    """Download a voice/audio attachment and return its transcript ("" on failure).
+
+    Args:
+        url: The attachment URL (Telegram's Bot-API file URL already embeds the token).
+        headers: Optional request headers (e.g. ``Authorization: Bearer …``) needed to
+            fetch ``url`` — Slack/Mattermost serve attachments from an authenticated
+            endpoint, unlike Telegram. Forwarded verbatim to the governed HTTP fetch;
+            never logged.
+        mime_type: Optional attachment mime type, used only to pick a faithful temp-file
+            suffix for the decoder (cosmetic; the decoder sniffs the real container).
+    """
     if not _enabled() or not url:
         return ""
     try:
@@ -146,9 +178,11 @@ async def transcribe_voice(url: str) -> str:
         )
 
         content, _encoding = await safe_get_bytes_async(
-            url, timeout=30.0, **configured_source_http_policy()
+            url, headers=headers, timeout=30.0, **configured_source_http_policy()
         )
-        result = await _transcribe_bytes_full(content)
+        result = await _transcribe_bytes_full(
+            content, suffix=_suffix_for_mime(mime_type)
+        )
         return str(result.get("text", "")).strip()
     except Exception as e:  # noqa: BLE001
         logger.warning(

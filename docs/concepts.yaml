@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1203
+total_concepts: 1204
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -2058,6 +2058,10 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/messaging/backends/discord.py
+  - agent_utilities/messaging/backends/mattermost.py
+  - agent_utilities/messaging/backends/slack.py
+  - agent_utilities/messaging/models.py
   - agent_utilities/messaging/router.py
   doc: no text? transcribe a voice/audio attachment and use that
 - id: AU-ECO.messaging.whisper-transcription
@@ -4583,6 +4587,13 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   doc: AU-KG.ingest.verbatim-extraction-before-fragmenting
+- id: AU-KG.ingest.voice-model-acquisition
+  name: Governed, digest-verified, pinned-revision
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/protocols/voice_supply_chain/__init__.py
+  doc: Governed, digest-verified, pinned-revision
 - id: AU-KG.ingest.web-fetch-front-door
   name: Pluggable web fetching. One front door that both the ingestion
   pillar: AU-KG

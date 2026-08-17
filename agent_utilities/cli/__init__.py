@@ -329,6 +329,76 @@ def build_parser() -> argparse.ArgumentParser:
         help="KEY=VALUE backend-specific override (repeatable), e.g. "
         "--param image=ghcr.io/org/agent-utilities:1.2.3 --param namespace=graphos",
     )
+
+    # CONCEPT:AU-KG.ingest.voice-model-acquisition — GOC-36 governed Piper voice-model
+    # acquisition. Operator-driven by design (the lane doc's Authority and invariants:
+    # acquisition/license decisions are reviewed actions, not agent-facing capability),
+    # so a CLI entry point — not an MCP tool — is this package's live caller.
+    vm = sub.add_parser(
+        "voice-model",
+        help="GOC-36 governed Piper voice-model acquisition, config pairing, and "
+        "license-decision recording (quarantine only — no promotion authority)",
+    )
+    vm_sub = vm.add_subparsers(dest="voice_model_action", required=True)
+
+    def _pinned_source_args(parser: argparse.ArgumentParser) -> None:
+        parser.add_argument(
+            "--repo-id", required=True, help="Hugging Face 'owner/name' repository"
+        )
+        parser.add_argument(
+            "--revision", required=True, help="exact 40-char pinned commit SHA"
+        )
+        parser.add_argument("--path", required=True, help="exact path within the repo")
+        parser.add_argument(
+            "--sha256", required=True, help="expected SHA-256 of the downloaded bytes"
+        )
+        parser.add_argument(
+            "--byte-length",
+            type=int,
+            default=None,
+            help="optional expected byte length (extra fail-closed check)",
+        )
+
+    acquire_p = vm_sub.add_parser(
+        "acquire", help="fetch+verify+quarantine a pinned Piper .onnx model file"
+    )
+    _pinned_source_args(acquire_p)
+
+    acquire_cfg_p = vm_sub.add_parser(
+        "acquire-config",
+        help="fetch+verify+pair-validate a pinned Piper .onnx.json/.json config",
+    )
+    _pinned_source_args(acquire_cfg_p)
+    acquire_cfg_p.add_argument(
+        "--model-manifest-id",
+        required=True,
+        help="manifest id (sha256) of a previously acquired model to pair with",
+    )
+
+    license_p = vm_sub.add_parser(
+        "license", help="record a license/consent decision for an acquired asset"
+    )
+    license_p.add_argument("--asset-id", required=True, help="asset manifest id")
+    license_p.add_argument("--declared-license", default="", help="e.g. 'MIT'")
+    license_p.add_argument("--spdx-id", default="", help="SPDX identifier, if known")
+    license_p.add_argument(
+        "--gpl-flag",
+        action="store_true",
+        help="flag as GPL/copyleft — does not change the fail-closed default",
+    )
+    license_p.add_argument(
+        "--counsel-decision",
+        default="pending",
+        choices=["approved", "blocked", "pending"],
+    )
+    license_p.add_argument("--reviewer", default="", help="reviewer identity")
+    license_p.add_argument("--rationale", default="")
+
+    status_p = vm_sub.add_parser(
+        "status", help="whether an asset is ready for EG-registry promotion handoff"
+    )
+    status_p.add_argument("--asset-id", required=True, help="asset manifest id")
+
     return p
 
 
@@ -726,6 +796,83 @@ def _deploy_plan(args: argparse.Namespace) -> dict[str, Any]:
     }
 
 
+def _voice_model(args: argparse.Namespace) -> dict[str, Any]:
+    """GOC-36 governed Piper voice-model acquisition CLI dispatch.
+
+    Live caller for :mod:`agent_utilities.protocols.voice_supply_chain` (Wire-First):
+    an operator runs ``agent-utilities voice-model <action>`` to acquire/verify a
+    pinned asset, record a license decision, or check promotion-handoff readiness.
+    Errors from the package's typed exceptions (digest mismatch, unsupported format,
+    source-pin conflict) are reported as a JSON envelope, never a raw traceback —
+    this command is meant to be scripted.
+    """
+    import asyncio
+
+    from agent_utilities.protocols.voice_supply_chain import (
+        acquisition as voice_acq,
+    )
+    from agent_utilities.protocols.voice_supply_chain import (
+        license_registry as voice_lic,
+    )
+    from agent_utilities.protocols.voice_supply_chain.manifest import (
+        VoiceLicenseDecision,
+    )
+
+    action = args.voice_model_action
+    try:
+        if action in ("acquire", "acquire-config"):
+            source = voice_acq.PinnedVoiceSource(
+                repo_id=args.repo_id,
+                revision=args.revision,
+                path=args.path,
+                expected_sha256=args.sha256,
+                expected_byte_length=args.byte_length,
+            )
+            if action == "acquire":
+                manifest = asyncio.run(voice_acq.acquire_voice_model(source))
+                return {"model_manifest": manifest.model_dump(mode="json")}
+            model_manifest = voice_acq.get_model_manifest(args.model_manifest_id)
+            if model_manifest is None:
+                return {
+                    "error": f"no quarantined model manifest {args.model_manifest_id!r}"
+                }
+            config_manifest = asyncio.run(
+                voice_acq.acquire_voice_config(source, model_manifest=model_manifest)
+            )
+            return {"config_manifest": config_manifest.model_dump(mode="json")}
+        if action == "license":
+            decision = voice_lic.record_license_decision(
+                VoiceLicenseDecision(
+                    asset_manifest_id=args.asset_id,
+                    declared_license=args.declared_license,
+                    spdx_id=args.spdx_id or None,
+                    is_gpl_or_copyleft_flagged=args.gpl_flag,
+                    counsel_decision=args.counsel_decision,
+                    reviewer=args.reviewer,
+                    rationale=args.rationale,
+                )
+            )
+            return {"license_decision": decision.model_dump(mode="json")}
+        if action == "status":
+            manifest = voice_acq.get_model_manifest(args.asset_id)
+            if manifest is None:
+                return {"error": f"no quarantined manifest {args.asset_id!r}"}
+            ready, reason = voice_lic.is_ready_for_promotion_handoff(manifest)
+            return {
+                "asset_id": args.asset_id,
+                "ready_for_promotion_handoff": ready,
+                "reason": reason,
+            }
+    except (
+        voice_acq.UnsupportedVoiceAssetFormat,
+        voice_acq.VoiceAssetDigestMismatch,
+        voice_acq.VoiceSourcePinConflict,
+        ValueError,
+    ) as exc:
+        return {"error": str(exc), "error_type": type(exc).__name__}
+    return {"error": f"unknown voice-model action {action!r}"}
+
+
 def main(argv: list[str] | None = None) -> int:
     raw_argv = list(argv) if argv is not None else sys.argv[1:]
     if raw_argv[:1] == ["graph-os"]:
@@ -765,6 +912,8 @@ def main(argv: list[str] | None = None) -> int:
         out = _merge_queue(args)
     elif args.command == "deploy-plan":
         out = _deploy_plan(args)
+    elif args.command == "voice-model":
+        out = _voice_model(args)
     else:
         # start/stop/logs/inspect orchestrate the existing console-scripts; report intent + namespace.
         out = {

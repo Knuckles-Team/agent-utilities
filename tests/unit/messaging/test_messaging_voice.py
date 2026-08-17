@@ -18,7 +18,7 @@ from agent_utilities.messaging.models import (
 async def test_transcribe_attachments_uses_voice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake(url: str) -> str:
+    async def _fake(url: str, *, headers: dict[str, str] | None = None, mime_type: str = "") -> str:
         return "hello from voice"
 
     monkeypatch.setattr(voice, "transcribe_voice", _fake)
@@ -30,7 +30,48 @@ async def test_transcribe_attachments_uses_voice(
             attachments=[MediaAttachment(media_type=MediaType.VOICE_NOTE, url="u")]
         ),
     )
-    assert await router._transcribe_attachments(ev) == "hello from voice"
+    assert await router._transcribe_attachments(ev) == ("hello from voice", True)
+
+
+@pytest.mark.asyncio
+async def test_transcribe_attachments_forwards_auth_header_and_mime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CONCEPT:AU-ECO.messaging.voice-attachment-fallback — Slack/Mattermost attachments
+    carry a per-attachment auth header (their file endpoints require it, unlike
+    Telegram's pre-signed URL); the core path must forward it, not drop it."""
+    seen: dict[str, object] = {}
+
+    async def _fake(url: str, *, headers: dict[str, str] | None = None, mime_type: str = "") -> str:
+        seen["url"] = url
+        seen["headers"] = headers
+        seen["mime_type"] = mime_type
+        return "transcribed"
+
+    monkeypatch.setattr(voice, "transcribe_voice", _fake)
+    ev = InboundEvent(
+        event_type=EventType.MESSAGE,
+        platform="slack",
+        channel_id="C1",
+        message=Message(
+            attachments=[
+                MediaAttachment(
+                    media_type=MediaType.AUDIO,
+                    url="https://files.slack.com/x",
+                    mime_type="audio/ogg",
+                    auth_header={"Authorization": "Bearer xoxb-x"},
+                )
+            ]
+        ),
+    )
+    text, had_audio = await router._transcribe_attachments(ev)
+    assert text == "transcribed"
+    assert had_audio is True
+    assert seen == {
+        "url": "https://files.slack.com/x",
+        "headers": {"Authorization": "Bearer xoxb-x"},
+        "mime_type": "audio/ogg",
+    }
 
 
 @pytest.mark.asyncio
@@ -43,7 +84,30 @@ async def test_transcribe_attachments_none_without_audio() -> None:
             attachments=[MediaAttachment(media_type=MediaType.IMAGE, url="img")]
         ),
     )
-    assert await router._transcribe_attachments(ev) == ""
+    assert await router._transcribe_attachments(ev) == ("", False)
+
+
+@pytest.mark.asyncio
+async def test_transcribe_attachments_had_audio_true_on_empty_transcript(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CONCEPT:AU-ECO.messaging.voice-attachment-fallback — a present-but-failed/empty
+    transcription must still report ``had_audio=True`` so the caller can surface an
+    explicit failure instead of silently dropping the message."""
+
+    async def _fails(url: str, *, headers: dict[str, str] | None = None, mime_type: str = "") -> str:
+        return ""
+
+    monkeypatch.setattr(voice, "transcribe_voice", _fails)
+    ev = InboundEvent(
+        event_type=EventType.MESSAGE,
+        platform="telegram",
+        channel_id="42",
+        message=Message(
+            attachments=[MediaAttachment(media_type=MediaType.VOICE_NOTE, url="u")]
+        ),
+    )
+    assert await router._transcribe_attachments(ev) == ("", True)
 
 
 @pytest.mark.asyncio

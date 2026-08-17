@@ -138,9 +138,18 @@ class DiscordBackend(MessagingBackend):
                     direction=MessageDirection.INBOUND,
                     attachments=[
                         MediaAttachment(
-                            media_type=MediaType.FILE,
+                            # CONCEPT:AU-ECO.messaging.voice-attachment-fallback — classify by
+                            # discord.py's own content_type so a voice-note/audio upload
+                            # reaches the core transcription path; Discord's CDN attachment
+                            # URL is already directly fetchable (no auth header needed).
+                            media_type=MediaType.AUDIO
+                            if str(getattr(a, "content_type", "") or "").startswith(
+                                "audio/"
+                            )
+                            else MediaType.FILE,
                             url=a.url,
                             filename=a.filename,
+                            mime_type=str(getattr(a, "content_type", "") or ""),
                             size_bytes=a.size,
                         )
                         for a in message.attachments

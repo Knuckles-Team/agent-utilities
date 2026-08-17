@@ -153,6 +153,53 @@ def test_normalize_posted_frame() -> None:
     assert event.message and event.message.id == "p1"
 
 
+def test_normalize_posted_frame_with_audio_attachment() -> None:
+    """CONCEPT:AU-ECO.messaging.voice-attachment-fallback — a voice/audio upload's
+    ``metadata.files`` FileInfo becomes a MediaAttachment the core transcription path
+    (``router._transcribe_attachments``) can act on, with a bearer auth header since
+    Mattermost serves file bytes from an authenticated endpoint."""
+    from agent_utilities.messaging.models import MediaType
+
+    b = _backend()
+    b._bot_user_id = "BOT123"
+    b._files_base_url = "https://mm.example.com/api/v4"
+    frame = {
+        "event": "posted",
+        "data": {
+            "post": json.dumps(
+                {
+                    "id": "p2",
+                    "user_id": "USER9",
+                    "channel_id": "chan1",
+                    "root_id": "",
+                    "message": "",
+                    "metadata": {
+                        "files": [
+                            {
+                                "id": "file1",
+                                "name": "voice.webm",
+                                "mime_type": "audio/webm",
+                                "size": 1234,
+                            }
+                        ]
+                    },
+                }
+            ),
+            "sender_name": "@alice",
+            "channel_type": "D",
+        },
+    }
+    event = b._normalize_post_event(frame)
+    assert event is not None
+    assert event.message is not None
+    assert len(event.message.attachments) == 1
+    att = event.message.attachments[0]
+    assert att.media_type == MediaType.AUDIO
+    assert att.url == "https://mm.example.com/api/v4/files/file1"
+    assert att.mime_type == "audio/webm"
+    assert att.auth_header == {"Authorization": "Bearer bot-token"}
+
+
 def test_drops_bot_own_post_no_echo_loop() -> None:
     b = _backend()
     b._bot_user_id = "BOT123"

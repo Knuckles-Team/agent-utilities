@@ -49,6 +49,8 @@ from agent_utilities.messaging.models import (
     Channel,
     EventType,
     InboundEvent,
+    MediaAttachment,
+    MediaType,
     Message,
     MessageDirection,
     MessagingConfig,
@@ -74,6 +76,9 @@ class MattermostBackend(MessagingBackend):
         self._event_queue: asyncio.Queue[InboundEvent] = asyncio.Queue()
         self._listening = False
         self._bot_user_id: str = ""
+        # Base ``.../api/v4`` URL for authenticated file downloads (CONCEPT:AU-ECO.messaging.voice-attachment-fallback);
+        # set in :meth:`connect` from the same parsed MATTERMOST_URL the driver uses.
+        self._files_base_url: str = ""
 
     @property
     def id(self) -> str:
@@ -122,6 +127,7 @@ class MattermostBackend(MessagingBackend):
                 "verify": True,
             }
         )
+        self._files_base_url = f"{scheme}://{host}:{port}{basepath}"
         await asyncio.to_thread(self._driver.login)
 
         # Resolve the bot's own user id so the inbound stream can drop its own posts.
@@ -276,6 +282,42 @@ class MattermostBackend(MessagingBackend):
                 )
         return channels
 
+    def _post_attachments(self, post: dict[str, Any]) -> list[MediaAttachment]:
+        """Turn a Mattermost post's ``metadata.files`` into :class:`MediaAttachment`\\s.
+
+        CONCEPT:AU-ECO.messaging.voice-attachment-fallback — the server populates
+        ``metadata.files`` with the full ``FileInfo`` array on every ``posted`` WebSocket
+        event (so this needs no extra REST round trip); previously unparsed here, so a
+        voice-note/audio upload never reached the core transcription path
+        (``messaging/voice.py`` via ``router._transcribe_attachments``). Classifies by
+        ``mime_type`` (``audio/*`` -> :attr:`MediaType.AUDIO`); Mattermost's voice-message
+        recorder posts an ordinary audio file, there is no separate voice-note object.
+        File content is served from an authenticated endpoint, so each attachment carries
+        the bot token as its ``auth_header``.
+        """
+        attachments: list[MediaAttachment] = []
+        files = ((post.get("metadata") or {}).get("files")) or []
+        for f in files:
+            if not isinstance(f, dict) or not f.get("id"):
+                continue
+            mime_type = str(f.get("mime_type", ""))
+            media_type = (
+                MediaType.AUDIO if mime_type.startswith("audio/") else MediaType.FILE
+            )
+            attachments.append(
+                MediaAttachment(
+                    media_type=media_type,
+                    url=f"{self._files_base_url}/files/{f['id']}",
+                    filename=str(f.get("name", "")),
+                    mime_type=mime_type,
+                    size_bytes=int(f.get("size", 0) or 0),
+                    auth_header={"Authorization": f"Bearer {self.config.token}"}
+                    if self.config.token
+                    else {},
+                )
+            )
+        return attachments
+
     def _normalize_post_event(self, raw: dict[str, Any]) -> InboundEvent | None:
         """Turn a Mattermost ``posted`` WebSocket frame into an :class:`InboundEvent`.
 
@@ -323,6 +365,7 @@ class MattermostBackend(MessagingBackend):
                 author_name=sender,
                 platform=PlatformId.MATTERMOST,
                 direction=MessageDirection.INBOUND,
+                attachments=self._post_attachments(post),
             ),
             raw={"channel_type": data.get("channel_type", "")},
         )
