@@ -98,6 +98,7 @@ from typing import TYPE_CHECKING, Any
 from agent_utilities.core.contextual_model import GroundingPolicy, use_grounding_policy
 from agent_utilities.core.event_loop import run_blocking_ordered
 from agent_utilities.models.graph import GraphPlan
+from agent_utilities.models.sdd import Tasks
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
@@ -127,6 +128,30 @@ class WorkflowHasNoStepsError(ValueError):
     those already wrap the call in ``try/except Exception`` and degrade to a
     failed/skipped result, so raising here turns a fake success into the
     correctly-surfaced failure at every one of them, not just this MCP tool.
+    """
+
+
+class WorkflowDagInvalidError(ValueError):
+    """Raised when a stored ``WorkflowDefinition``'s ``depends_on`` graph is not
+    a valid DAG over its own step ids.
+
+    CONCEPT:AU-ORCH.execution.workflow-dag-validation (BUG-014) -- the wave loop
+    in :meth:`WorkflowRunner._execute_plan_via_agents` computes ``ready`` as the
+    steps whose dependencies are all satisfied; when a dependency cycle or a
+    dangling dependency (naming an id that is not any step in the plan) makes
+    that set empty while unfinished steps remain, there is no legitimate
+    fallback -- the graph itself is malformed, and running "the rest as one
+    wave" would dispatch steps whose declared ordering was never honored,
+    silently, and could still resolve to a reported "completed" run.
+
+    So this is checked ONCE, up front, against the plan as loaded -- before any
+    step of ANY wave is dispatched -- using the same cycle/dangling-dependency
+    detector already shipped for SDD task graphs
+    (:meth:`agent_utilities.models.sdd.Tasks.validate_dependencies`). Raised
+    from the same choke point as :class:`WorkflowHasNoStepsError`
+    (``_execute_plan_via_agents``), so every caller documented there
+    (including the four that bypass the MCP-boundary-only
+    ``workflow_gate.gate_workflow_execution`` shape gate) is covered.
     """
 
 
@@ -993,6 +1018,22 @@ class WorkflowRunner:
             if hint:
                 message = f"{message} {hint}"
             raise WorkflowHasNoStepsError(message)
+
+        # CONCEPT:AU-ORCH.execution.workflow-dag-validation (BUG-014) -- validate the
+        # dependency graph ONCE, up front, against the plan as loaded, before any step
+        # of any wave is dispatched. A cycle or a dangling dependency must refuse the
+        # entire run, not fall through to the wave loop's "no step is ready" branch
+        # below (which used to run the remaining steps as one wave instead).
+        dag_errors = Tasks(tasks=list(steps)).validate_dependencies()
+        if dag_errors:
+            hint = _callable_resource_skill_hint(engine, workflow_name)
+            message = (
+                f"Workflow '{workflow_name}' has an invalid dependency graph "
+                f"({len(dag_errors)} problem(s)): " + "; ".join(dag_errors)
+            )
+            if hint:
+                message = f"{message} {hint}"
+            raise WorkflowDagInvalidError(message)
         # Resolve per-step (agent_name, task) from the canonical WorkflowStep shape:
         # step.id is the resolvable agent/skill/server name, step.refined_subtask the
         # task (falling back to the step description / the workflow-level task).
@@ -1061,9 +1102,21 @@ class WorkflowRunner:
                 )
             ]
             if not ready:
-                # A dependency cycle / dangling dep — run the rest as one wave rather
-                # than deadlock (the SHACL gate upstream guards malformed DAGs).
-                ready = list(remaining)
+                # CONCEPT:AU-ORCH.execution.workflow-dag-validation (BUG-014) -- the
+                # upfront ``Tasks.validate_dependencies()`` check above rejects any
+                # cycle/dangling dependency before this loop starts, so a valid DAG
+                # always has at least one ready step among its remaining (incomplete)
+                # steps. Reaching here means that invariant broke some other way (e.g.
+                # a resume_state naming ids the loaded plan no longer has) -- fail
+                # closed rather than resurrect the old "run the rest as one wave"
+                # fallback, which used to dispatch an unvalidated remainder in one
+                # pass and could report a whole cyclic/dangling run "completed".
+                stuck_ids = [getattr(s, "id", "") or "?" for s in remaining]
+                raise WorkflowDagInvalidError(
+                    f"Workflow '{workflow_name}' has {len(stuck_ids)} remaining "
+                    f"step(s) with no ready step to dispatch ({stuck_ids!r}); "
+                    "refusing to run them as a fallback wave (BUG-014)."
+                )
 
             # Gate/approval steps are resolved by the gate_checker, not an agent.
             gate_steps = [s for s in ready if _is_gate_step(s)]
