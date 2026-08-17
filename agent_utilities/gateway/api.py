@@ -10,11 +10,12 @@ Mountable by agent-webui (and any other FastAPI backend)::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -152,6 +153,39 @@ async def get_full_dashboard() -> DashboardResponse:
     layout = aggregator.get_layout()
     data = await aggregator.fetch_all()
     return DashboardResponse(layout=layout, data=data)
+
+
+async def fetch_dashboard_subset(widget_ids: set[str]) -> dict[str, WidgetData]:
+    """Fetch data for exactly the named widgets, concurrently, via
+    :meth:`Aggregator.fetch_one` (the same per-service call ``GET
+    /api/dashboard/data/{service_id}`` uses).
+
+    BUG-019 (GOC-29): the dashboard websocket's subscribe-scoping fix wired
+    the *wire* payload to the subscribed widget set but still called
+    ``get_full_dashboard()`` -- which polls every configured service via
+    ``fetch_all()`` -- and filtered afterward, leaving the original "fetches
+    all widgets and filters after subscription" defect intact on the compute
+    side even though the client no longer saw the extra bytes. This gives a
+    caller that already knows its subscribed set a way to fetch only that
+    set, so an unsubscribed (e.g. collapsed) widget group is never computed
+    at all, not merely never sent.
+    """
+    aggregator = _get_aggregator()
+    ordered_ids = list(widget_ids)
+    results = await asyncio.gather(
+        *(aggregator.fetch_one(widget_id) for widget_id in ordered_ids)
+    )
+    return dict(zip(ordered_ids, results, strict=True))
+
+
+@dashboard_router.get("/data-subset")
+async def get_dashboard_subset(
+    widget_id: list[str] = Query([]),
+) -> dict[str, WidgetData]:
+    """REST twin of ``fetch_dashboard_subset`` (Two-Surfaces-by-default) --
+    fetch exactly the named widgets in one call, e.g.
+    ``?widget_id=jellyfin&widget_id=pihole``."""
+    return await fetch_dashboard_subset(set(widget_id))
 
 
 @dashboard_router.get("/widgets")
