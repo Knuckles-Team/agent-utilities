@@ -207,6 +207,49 @@ def test_boot_skill_ingest_sanitizes_instruction_body(tmp_path, monkeypatch):
     assert node["instruction_digest"] == runnable_skill_digest(node["system_prompt"])
 
 
+def test_boot_skill_ingest_batches_existing_disabled_lookup(tmp_path, monkeypatch):
+    """One engine round trip covers the whole batch, not one per skill.
+
+    Regression for the 2026-08-16 GraphOS cold-start incident: the prior
+    implementation called ``get_existing_disabled`` (one ``query_cypher`` per
+    skill) inside the per-skill loop, so N skills cost N round trips against
+    the out-of-process engine — the "batch, never per-element" rule this
+    codebase's own AGENTS.md and the epistemic-graph engine's design both
+    state explicitly. This test does NOT monkeypatch ``get_existing_disabled``
+    (unlike the other tests in this file) so it observes the real lookup path.
+    """
+    root = tmp_path / "skills"
+    skill_count = 12
+    for i in range(skill_count):
+        skill = root / f"synthetic-skill-{i:02d}"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            f"---\nname: synthetic-skill-{i:02d}\ndescription: Synthetic {i}.\n---\n"
+            f"# Synthetic skill {i}\n",
+            encoding="utf-8",
+        )
+    engine = RecordingEngine()
+    query_cypher = MagicMock(wraps=engine.query_cypher)
+    monkeypatch.setattr(engine, "query_cypher", query_cypher)
+
+    assert (
+        kg_server._ingest_skill_capabilities(engine, "synthetic-provider", root)
+        == skill_count
+    )
+
+    # Exactly one call resolves every skill's prior `disabled` state, not one
+    # per skill (12 skills -> 1 batched lookup, not 12 individual ones).
+    disabled_lookup_calls = [
+        call
+        for call in query_cypher.call_args_list
+        if "n.disabled AS disabled" in call.args[0]
+    ]
+    assert len(disabled_lookup_calls) == 1
+    assert disabled_lookup_calls[0].args[1]["node_ids"] == [
+        f"resource:skill:synthetic-skill-{i:02d}" for i in range(skill_count)
+    ]
+
+
 def test_all_bundled_skills_are_runnable_and_resolve_by_body_digest(monkeypatch):
     from agent_utilities.skills import BUNDLED_SKILLS
 

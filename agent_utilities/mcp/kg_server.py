@@ -404,6 +404,49 @@ def get_existing_disabled(engine, node_id: str) -> bool:
     return False
 
 
+def get_existing_disabled_batch(engine, node_ids: list[str]) -> dict[str, bool]:
+    """Batched form of :func:`get_existing_disabled` — ONE round trip for many ids.
+
+    The boot skill-ingestion loop (:func:`_ingest_skill_capabilities`) used to
+    call ``get_existing_disabled`` once per skill file — N engine round trips
+    for N skills against the out-of-process engine, the per-element-loop shape
+    the engine's own design rule forbids ("batch, never per-element"). This
+    resolves every id's prior ``disabled`` flag in a single ``query_cypher``
+    call (falling back to the in-memory ``graph_compute`` cache per id first,
+    exactly like the single-id helper, when that cache is available).
+    """
+    result: dict[str, bool] = {}
+    remaining = list(dict.fromkeys(node_ids))  # de-dupe, preserve order
+    if not remaining:
+        return result
+    try:
+        if hasattr(engine, "graph_compute") and hasattr(engine.graph_compute, "graph"):
+            graph = engine.graph_compute.graph
+            still_remaining = []
+            for node_id in remaining:
+                if node_id in graph:
+                    result[node_id] = bool(graph.nodes[node_id].get("disabled", False))
+                else:
+                    still_remaining.append(node_id)
+            remaining = still_remaining
+        if remaining:
+            res = engine.query_cypher(
+                "MATCH (n) WHERE n.id IN $node_ids "
+                "RETURN n.id AS id, n.disabled AS disabled",
+                {"node_ids": remaining},
+            )
+            for row in res or []:
+                if isinstance(row, dict) and row.get("id"):
+                    result[str(row["id"])] = bool(row.get("disabled", False))
+    except Exception as exc:  # noqa: BLE001 — disabled-state lookup is best-effort
+        logger.debug(
+            "get_existing_disabled_batch(%d ids) lookup failed: %s",
+            len(remaining),
+            type(exc).__name__,
+        )
+    return result
+
+
 def safe_json_load(s: Any) -> Any:
     if hasattr(s, "model_dump"):
         return s.model_dump()
@@ -2777,18 +2820,33 @@ def _ingest_skill_capabilities(
     include_names: frozenset[str] | None = None,
     skip_names: frozenset[str] = frozenset(),
 ) -> int:
-    """Persist provider skills as runnable resources without retaining paths."""
+    """Persist provider skills as runnable resources without retaining paths.
+
+    The prior-``disabled`` lookup used to be one ``get_existing_disabled``
+    engine round trip PER skill file inside this loop — for the full fleet
+    skill catalog (hundreds of ``SKILL.md`` files under
+    ``resolve_skill_provider_dirs()``) that is exactly the per-element engine
+    call this codebase's own design rule forbids ("batch, never per-element;
+    N elements in a loop = N round-trips = catastrophic" — see
+    ``epistemic-graph`` AGENTS.md). It was the dominant contributor to the
+    measured GraphOS cold-boot incident (2026-08-16): hundreds of sequential
+    ``HasNode``/``GetNodeProperties``/``BatchUpdate`` round trips against a
+    contended engine, each taking 1-15s under load. Every candidate's local
+    ``SKILL.md`` is now parsed first (cheap, no engine call), then the
+    "already ingested / disabled" state for the WHOLE batch is resolved with
+    ONE :func:`get_existing_disabled_batch` call before any per-skill write.
+    """
     from agent_utilities.core.providers import is_skill_graph_reference_path
     from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
         ingest_runnable_skill,
         skill_reference,
     )
+    from agent_utilities.security.persistence_privacy import persistence_reference
 
     root = Path(skills_path)
     if not root.is_dir():
         return 0
 
-    ingested = 0
     skill_files = (
         [root / "SKILL.md"]
         if (root / "SKILL.md").is_file()
@@ -2798,10 +2856,10 @@ def _ingest_skill_capabilities(
             if not is_skill_graph_reference_path(skill_md, root)
         )
     )
+
+    declarations: list[tuple[Path, str, str, str, str]] = []
     for skill_md in skill_files:
-        skill_dir = skill_md.parent
-        fallback_name = skill_dir.name
-        stage = "declaration"
+        fallback_name = skill_md.parent.name
         try:
             name, description, instructions = _read_skill_capability(skill_md)
             if include_names is not None and name not in include_names:
@@ -2810,23 +2868,10 @@ def _ingest_skill_capabilities(
                 continue
             skill_slug = skill_reference(name).removeprefix("skill://")
             resource_id = f"resource:skill:{skill_slug}"
-            stage = "state"
-            disabled = get_existing_disabled(engine, resource_id)
-            stage = "write"
-            ingest_runnable_skill(
-                engine,
-                name=name,
-                description=description,
-                instructions=instructions,
-                provider=provider,
-                disabled=disabled,
+            declarations.append(
+                (skill_md, name, description, instructions, resource_id)
             )
-            ingested += 1
         except Exception as exc:  # noqa: BLE001 - one malformed skill cannot block boot
-            from agent_utilities.security.persistence_privacy import (
-                persistence_reference,
-            )
-
             # ``exc.args[0]`` (not ``str(exc)``/``exc`` itself, and no
             # ``exc_info=True``) preserves the real cause for the operator
             # (test_boot_skill_failure_log_uses_neutral_reference) while
@@ -2840,7 +2885,57 @@ def _ingest_skill_capabilities(
                 persistence_reference(
                     "skill", fallback_name, namespace="skill-provider-ingest"
                 ),
-                stage,
+                "declaration",
+                type(exc).__name__,
+                exc.args[0] if exc.args else "",
+            )
+
+    if not declarations:
+        return 0
+
+    disabled_by_resource = get_existing_disabled_batch(
+        engine, [resource_id for *_unused, resource_id in declarations]
+    )
+
+    total = len(declarations)
+    # Make an in-progress boot pass observable: this loop was previously
+    # indistinguishable, in the container logs, from a hung process — an
+    # operator saw only individual engine-op trace lines with no running
+    # count or total, exactly the ambiguity that turned the 2026-08-16
+    # cold-start incident into an 11-minute unattributed stall before the
+    # startup probe killed the container. A bounded item count up front plus
+    # a periodic "N/total" line lets "still working" be told apart from
+    # "stuck" without reading engine wire traces.
+    logger.info("GraphOS ingesting %d %s skill(s) from %s", total, provider, root)
+    ingested = 0
+    for index, (skill_md, name, description, instructions, resource_id) in enumerate(
+        declarations, start=1
+    ):
+        fallback_name = skill_md.parent.name
+        try:
+            ingest_runnable_skill(
+                engine,
+                name=name,
+                description=description,
+                instructions=instructions,
+                provider=provider,
+                disabled=disabled_by_resource.get(resource_id, False),
+            )
+            ingested += 1
+            if index % 25 == 0 or index == total:
+                logger.info(
+                    "GraphOS skill ingestion progress: %d/%d (%s)",
+                    index,
+                    total,
+                    provider,
+                )
+        except Exception as exc:  # noqa: BLE001 - one malformed skill cannot block boot
+            logger.error(
+                "Failed to ingest %s (stage=%s %s: %s)",
+                persistence_reference(
+                    "skill", fallback_name, namespace="skill-provider-ingest"
+                ),
+                "write",
                 type(exc).__name__,
                 exc.args[0] if exc.args else "",
             )
