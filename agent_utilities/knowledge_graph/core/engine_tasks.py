@@ -5195,18 +5195,43 @@ class TaskManagerMixin(GraphEngineProtocol):
                 # job_id; the worker runs it to completion here. ``target`` is the
                 # corpus root, or the ``"universal-skills"`` sentinel = default
                 # installed package.
+                #
+                # Also runs the atomic-skill sibling leg (CONCEPT:AU-KG.ingest.skill-workflow-ingestion) on the
+                # SAME job: ``package_install_ingest.py::_ingest_skills_leg`` already
+                # pairs ``ingest_skill_workflows``+``ingest_atomic_skills`` on its one
+                # watermarked ``:Schedule`` tick, but that is this corpus's ONLY
+                # automatic trigger and it fires solely on a package-install manifest
+                # change -- a deployment whose skill corpus is baked into the image
+                # rather than installed via the universal-installer never produces
+                # that manifest, so the atomic leg never ran here. This on-demand
+                # action was already the corpus's manual full-sweep entrypoint for
+                # workflows; pairing the same two primitives here (reused verbatim,
+                # no new ingestion path) gives atomic skills the same manually- and
+                # background-job-triggerable reach workflows already had.
                 from agent_utilities.knowledge_graph.core.engine import (
                     IntelligenceGraphEngine,
                 )
                 from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+                    ingest_atomic_skills,
                     ingest_skill_workflows,
                 )
 
                 root = None if str(target) == "universal-skills" else str(target)
                 # ``self`` is the engine (this mixin is mixed into it).
-                summary = ingest_skill_workflows(
-                    cast(IntelligenceGraphEngine, self), root=root
-                )
+                typed_engine = cast(IntelligenceGraphEngine, self)
+                summary = ingest_skill_workflows(typed_engine, root=root)
+                try:
+                    atomic_summary = ingest_atomic_skills(typed_engine, root=root)
+                except Exception as ae:  # noqa: BLE001 — the workflow leg already ran/reported
+                    logger.error(
+                        "[KG-2.97] atomic-skill leg failed inside skill_workflows job: %s",
+                        type(ae).__name__,
+                    )
+                    atomic_summary = {
+                        "skills": 0,
+                        "errors": 1,
+                        "error_detail": [type(ae).__name__],
+                    }
                 self._update_task_status(
                     job_id,
                     "completed",
@@ -5216,6 +5241,10 @@ class TaskManagerMixin(GraphEngineProtocol):
                         "skill_links": summary.get("skill_links", 0),
                         "skipped": summary.get("skipped", 0),
                         "errors": summary.get("errors", 0),
+                        "atomic_skills": atomic_summary.get("skills", 0),
+                        "atomic_skipped": atomic_summary.get("skipped", 0),
+                        "atomic_not_skill": atomic_summary.get("not_skill", 0),
+                        "atomic_errors": atomic_summary.get("errors", 0),
                         "target": str(target),
                         "type": "skill_workflows",
                     },
