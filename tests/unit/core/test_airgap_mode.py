@@ -50,7 +50,7 @@ def test_is_local_host_true_for_loopback_private_link_local(host):
         "example.com",
         "8.8.8.8",
         "93.184.216.34",
-        "vllm.arpa",  # hostname — no DNS lookup performed, treated as non-local
+        "internal-host.example.invalid",  # hostname — no DNS lookup performed, treated as non-local
         "",
     ],
 )
