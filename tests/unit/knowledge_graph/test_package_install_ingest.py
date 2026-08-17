@@ -159,6 +159,67 @@ def test_ontologies_leg_catches_its_own_exception(monkeypatch):
     assert "ontology backend unavailable" in result["reason"]
 
 
+def test_skills_leg_drives_both_the_workflow_and_atomic_skill_corpus(monkeypatch):
+    """The one gap this whole module names explicitly (see its own docstring's
+    "skills" bullet): the automatic, watermarked ``package_install`` schedule
+    used to re-drive ONLY ``ingest_skill_workflows`` -- a ``skill_type: skill``
+    file got no recurring KG-ingestion path at all. ``_ingest_skills_leg`` must
+    now call BOTH siblings on every tick, unmocked at this boundary so a
+    regression that silently drops one of the two calls fails here."""
+    calls: list[str] = []
+
+    def _wf(engine):
+        calls.append("workflows")
+        return {"status": "ok", "workflows": 3}
+
+    def _atomic(engine):
+        calls.append("atomic_skills")
+        return {"status": "ok", "skills": 5}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_skill_workflows",
+        _wf,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_atomic_skills",
+        _atomic,
+    )
+
+    result = pii._ingest_skills_leg(_FakeEngine())
+    assert calls == ["workflows", "atomic_skills"]
+    assert result["status"] == "ok"
+    assert result["workflows"]["workflows"] == 3
+    assert result["atomic_skills"]["skills"] == 5
+
+
+def test_skills_leg_isolates_one_failing_sub_leg_from_the_other(monkeypatch):
+    """A regression in the workflow leg must not also silence atomic-skill
+    ingestion (or vice versa) -- each sub-leg's exception is caught and
+    reported independently, matching every other leg in this module."""
+
+    def _wf(engine):
+        raise RuntimeError("workflow corpus unreadable")
+
+    def _atomic(engine):
+        return {"status": "ok", "skills": 5}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_skill_workflows",
+        _wf,
+    )
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_atomic_skills",
+        _atomic,
+    )
+
+    result = pii._ingest_skills_leg(_FakeEngine())
+    assert result["status"] == "partial"
+    assert result["workflows"]["status"] == "error"
+    assert "workflow corpus unreadable" in result["workflows"]["reason"]
+    # the atomic leg still ran and its result is still reported
+    assert result["atomic_skills"]["skills"] == 5
+
+
 def test_a_failing_leg_is_isolated_and_reported(tmp_path, monkeypatch):
     """`sync_package_install` never crashes on one bad leg — each leg function
 

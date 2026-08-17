@@ -37,10 +37,14 @@ anything unchanged:
   (the same federation-runtime reload ``graph_ontology action='sync_packages'``
   and graph-os boot already call).
 * **skills**     -> :func:`agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_skill_workflows`
-  (the corpus-wide workflow-skill leg -- the one existing "*.md skill corpus ->
-  KG" ingestion path). The manifest itself does not yet itemize atomic
-  (non-workflow) skills per provider -- a documented upstream gap in the
-  installer, not something this module papers over with new ingestion logic.
+  AND :func:`agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_atomic_skills`
+  (the corpus-wide workflow-skill leg, plus its atomic-skill sibling -- the
+  two existing "*.md skill corpus -> KG" ingestion paths, run together so
+  BOTH ``skill_type: workflow`` and ``skill_type: skill`` files land in the
+  KG on the same watermarked schedule). The manifest itself still does not
+  itemize skills per provider by name -- both legs re-sweep the whole
+  installed corpus, same as before; that remains a documented upstream gap in
+  the installer, not something this module papers over with new logic.
 
 Registered as source ``"package_install"`` in
 :data:`agent_utilities.knowledge_graph.core.source_sync._DELTA_HANDLERS`
@@ -132,18 +136,42 @@ def _ingest_ontologies_leg(engine: Any) -> dict[str, Any]:
 
 
 def _ingest_skills_leg(engine: Any) -> dict[str, Any]:
-    """Re-drive the existing workflow-skill corpus reload."""
-    try:
-        from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
-            ingest_skill_workflows,
-        )
+    """Re-drive the workflow AND atomic-skill corpus reloads.
 
-        report = ingest_skill_workflows(engine)
-        report.setdefault("status", "ok")
-        return report
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("package_install: skills leg failed: %s", exc)
-        return {"status": "error", "reason": str(exc)}
+    Both legs run on this ONE automatic, watermarked schedule so neither
+    ``skill_type`` is left depending on a manual full-pipeline trigger to get
+    a KG node -- see the module docstring's "skills" bullet and
+    ``skill_workflow_ingest.ingest_atomic_skills``'s docstring for the gap
+    this closes. Each leg fails closed independently (one bad leg's
+    exception is reported, never silently dropped, and never blocks the
+    other) so a workflow-side regression can't also hide atomic-skill
+    ingestion, or vice versa.
+    """
+    from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+        ingest_atomic_skills,
+        ingest_skill_workflows,
+    )
+
+    result: dict[str, Any] = {}
+    sub_failed = 0
+    try:
+        result["workflows"] = ingest_skill_workflows(engine)
+    except Exception as exc:  # noqa: BLE001 — the atomic leg must still run
+        logger.warning("package_install: workflow-skill leg failed: %s", exc)
+        result["workflows"] = {"status": "error", "reason": str(exc)}
+        sub_failed += 1
+    try:
+        result["atomic_skills"] = ingest_atomic_skills(engine)
+    except Exception as exc:  # noqa: BLE001 — the workflow leg above already ran
+        logger.warning("package_install: atomic-skill leg failed: %s", exc)
+        result["atomic_skills"] = {"status": "error", "reason": str(exc)}
+        sub_failed += 1
+    # "error" only when NEITHER sub-leg produced anything (matches the prior
+    # single-call contract's meaning of "error" for this leg); "partial" when
+    # exactly one did, so ``failed_legs`` upstream still flags a real problem
+    # without hiding that the other half of the corpus DID get ingested.
+    result["status"] = "error" if sub_failed == 2 else "partial" if sub_failed else "ok"
+    return result
 
 
 def sync_package_install(
