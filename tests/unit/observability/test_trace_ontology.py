@@ -26,9 +26,11 @@ from agent_utilities.observability.trace_ontology import (
     TRACE_USED_TOOL_EDGE,
     TraceCursor,
     load_trace_cursor,
+    outcome_id,
     outcome_properties,
     save_trace_cursor,
     tool_call_properties,
+    trace_id,
     trace_properties,
 )
 from agent_utilities.security.brain_context import ActorContext, use_actor
@@ -339,3 +341,79 @@ def test_lifecycle_hooks_cannot_write_a_parallel_tool_trace_shape() -> None:
         assert forbidden not in hooks_source
     assert "auto_graph_trace" not in factory_source
     assert "class ToolCallNode" not in model_source
+
+
+def test_trace_id_rejects_an_empty_or_missing_run_id() -> None:
+    """Known-bad proof (CONCEPT:AU-KG.audit.trace-id-assigned-at-emission, GOC-09): a
+    caller with no real trace identity is REJECTED, never silently handed a fabricated
+    but valid-looking id derived from hashing an empty string."""
+    for empty in ("", None, "   ", "trace:"):
+        with pytest.raises(ValueError, match="non-empty run_id"):
+            trace_id(cast(str, empty))
+    with pytest.raises(ValueError, match="non-empty run_id"):
+        outcome_id("")
+
+
+def test_trace_id_still_derives_deterministically_from_a_real_run_id() -> None:
+    """Known-good regression: a genuinely minted run_id (the emission-time identity —
+    e.g. ``orchestration.run_identity.new_run_id()``) resolves exactly as before."""
+    first = trace_id("run:abc123")
+    second = trace_id("run:abc123")
+    assert first == second
+    assert first.startswith("trace:")
+    # The "trace:" prefix is idempotently stripped/reapplied, not double-hashed.
+    assert trace_id("trace:run:abc123") == first
+
+
+def test_is_permanent_legal_hold_flag_is_off_by_default_and_opt_in() -> None:
+    """CONCEPT:AU-KG.audit.trace-retention-legal-hold (GOC-09) — trace_properties/
+    tool_call_properties/outcome_properties reuse the SAME generic ``is_permanent``
+    protection flag ``prune_low_importance_nodes`` already established, rather than a
+    second field. Default is unset (byte-identical to every pre-existing caller);
+    ``is_permanent=True`` stamps it explicitly."""
+    default_trace = trace_properties(
+        run_id="fixture-hold-default",
+        agent_name="a",
+        task="t",
+        status="completed",
+        timestamp="2026-01-01T00:00:00Z",
+    )
+    assert "is_permanent" not in default_trace
+
+    held_trace = trace_properties(
+        run_id="fixture-hold-on",
+        agent_name="a",
+        task="t",
+        status="completed",
+        timestamp="2026-01-01T00:00:00Z",
+        is_permanent=True,
+    )
+    assert held_trace["is_permanent"] is True
+
+    held_call = tool_call_properties(
+        run_id="fixture-hold-on",
+        tool_name="t",
+        args={},
+        result="",
+        error=None,
+        status="ok",
+        sequence=0,
+        timestamp="2026-01-01T00:00:00Z",
+        is_permanent=True,
+    )
+    assert held_call["is_permanent"] is True
+
+    held_outcome = outcome_properties(
+        run_id="fixture-hold-on",
+        status="completed",
+        timestamp="2026-01-01T00:00:00Z",
+        event_sequence=1,
+        is_permanent=True,
+    )
+    assert held_outcome["is_permanent"] is True
+
+    # Every emitted key, held or not, stays within the declared schema columns.
+    columns = {table.name: set(table.columns) for table in SCHEMA.nodes}
+    assert set(held_trace) <= columns["RunTrace"]
+    assert set(held_call) <= columns["ToolCall"]
+    assert set(held_outcome) <= columns["OutcomeEvaluation"]
