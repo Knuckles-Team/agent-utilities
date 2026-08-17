@@ -412,11 +412,31 @@ repos:
     always_run: true
   # Anti-drift check for the ci-gate-replica hook (pre-push/manual, below) —
   # pure YAML parse, no venv sync/build, <1s, so it runs on EVERY commit
-  # rather than waiting for a push to discover release.yml grew a job
-  # ci_gate_replica.py doesn't know how to classify.
+  # rather than waiting for a push to discover a workflow grew a job
+  # ci_gate_replica.py doesn't know how to classify. Covers EVERY workflow
+  # file under .github/workflows/ (release.yml AND advisory.yml — a new
+  # workflow file with no WORKFLOW_REGISTRY entry fails this too, not just
+  # a new job in a known one), and also fails if .cargo/config.toml (should
+  # this repo ever gain one) adds an external-binary build dependency
+  # (rustc-wrapper/linker/runner) no workflow file ever installs — the
+  # exact shape of epistemic-graph's sccache/mold CI break (commit
+  # 652f91c): cargo hard-errors when a configured rustc-wrapper is missing
+  # rather than soft-falling-back, and a build host having the tool already
+  # installed hides it from any command-equivalence-only check.
   - id: ci-gate-replica-consistency
-    name: CI gate replica — anti-drift check (release.yml jobs all classified)
+    name: CI gate replica — anti-drift check (all workflow jobs classified + build-tool deps installable)
     entry: python3 scripts/ci_gate_replica.py --consistency-check
+    language: system
+    pass_filenames: false
+    always_run: true
+  # Authoritative "is it safe to skip the heavy ci-gate-replica hook for
+  # this diff" check — see scripts/ci_gate_replica.py's BUILD_AFFECTING_FILE_PATTERNS
+  # and --skip-safe. Not itself a gate (informational only, always exits 0)
+  # so a human/agent choosing SKIP=ci-gate-replica has one authoritative
+  # answer instead of an ad-hoc grep over changed files.
+  - id: ci-gate-replica-skip-advisory
+    name: CI gate replica — skip-safety advisory (informational; never fails the commit)
+    entry: bash -c 'python3 scripts/ci_gate_replica.py --skip-safe HEAD || true'
     language: system
     pass_filenames: false
     always_run: true
@@ -902,22 +922,27 @@ repos:
   # are each a hand-derived mirror of ONE release.yml/pipeline.yml step,
   # added one lane at a time — real coverage, but not provably COMPLETE, and
   # each one can silently drift the moment release.yml changes and nobody
-  # updates its local twin. This hook instead PARSES
-  # .github/workflows/release.yml at run time (scripts/ci_gate_replica.py)
-  # and executes every step of its `gates` + `build` jobs verbatim — a step
-  # added there is run here with NO change to this file. Its own
-  # --consistency-check fails loudly if release.yml grows a job this script
-  # doesn't know how to classify (see the meta-tests in
+  # updates its local twin. This hook instead PARSES EVERY workflow file
+  # under .github/workflows/ at run time (scripts/ci_gate_replica.py) and
+  # executes every step of every job it has classified as executable
+  # (release.yml's `gates` + `build`; advisory.yml's `advisory`) verbatim —
+  # a step added there is run here with NO change to this file. advisory.yml
+  # failures are reported loudly but never fail this hook (matching that
+  # workflow's own `continue-on-error: true` contract); release.yml
+  # failures do. Its own --consistency-check fails loudly if any workflow
+  # file grows a job this script doesn't know how to classify, or gains an
+  # unregistered workflow file entirely (see the meta-tests in
   # tests/unit/scripts/test_ci_gate_replica_consistency_check.py).
   # `numeric-runtime-gate` (installs the published wheel's declared
   # epistemic-graph[full] FROM PyPI — currently unpublishable, see
-  # scripts/release/check_eg_pypi_resolvable.py) and the tag-gated publish
-  # jobs are NOT executable locally and are reported "NOT VALIDATED LOCALLY"
-  # with a reason in the run's summary rather than omitted — run
+  # scripts/release/check_eg_pypi_resolvable.py; matrix-expanded per OS
+  # leg), the tag-gated publish jobs, and advisory.yml's `pages`/`windows`
+  # jobs are NOT executable locally and are reported "NOT VALIDATED
+  # LOCALLY" with a reason in the run's summary rather than omitted — run
   # `scripts/ci_gate_replica.sh --dry-run` to see the full plan without
   # executing anything.
   - id: ci-gate-replica
-    name: CI gate replica — parses release.yml, runs its gates+build jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — pre-push/manual)
+    name: CI gate replica — parses every workflow file, runs its executable jobs, reports NOT VALIDATED LOCALLY for the rest (HEAVY — pre-push/manual)
     entry: bash -c 'bash scripts/ci_gate_replica.sh'
     language: system
     pass_filenames: false
