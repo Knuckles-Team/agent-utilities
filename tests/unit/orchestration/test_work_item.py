@@ -1266,6 +1266,19 @@ class CasEngine:
                 return []
             return [{"id": params["id"], "status": node.get("status")}]
 
+        if q.startswith(
+            "MATCH (w:WorkItem {tenant: $tenant, idempotency_key: $idempotency_key})"
+        ):
+            for nid, node in self.nodes.items():
+                if node.get("label") != "WorkItem":
+                    continue
+                if node.get("tenant") != params["tenant"]:
+                    continue
+                if node.get("idempotency_key") != params["idempotency_key"]:
+                    continue
+                return [{"id": nid}]
+            return []
+
         raise AssertionError(f"CasEngine: unrecognized query: {q[:160]!r}")
 
 
@@ -1328,6 +1341,134 @@ def test_submit_is_idempotent_upsert_on_explicit_id(cas_engine: CasEngine) -> No
     assert first == second == fixed_id
     item = wi.get_work_item(cas_engine, fixed_id)
     assert item["payload_ref"] == "a"  # second submit was a no-op, not an overwrite
+
+
+def test_submit_replays_idempotency_key_without_an_explicit_work_item_id(
+    cas_engine: CasEngine,
+) -> None:
+    """GOC-19 flagged this exact gap: replaying an ``idempotency_key`` with a
+    FRESH ``work_item_id`` each attempt (the ordinary HTTP-``Idempotency-Key``
+    retry shape) must dedup against the first WorkItem, not silently create a
+    second one.
+
+    Known-bad proof: BEFORE the fix, ``_submit_work_item`` deduped only on
+    ``work_item_id`` — since no caller here ever supplies one, every call
+    generated a fresh random id, ``get_work_item(engine, item_id)`` always
+    missed, and a second, THIRD, ... node was created per retry despite the
+    identical ``idempotency_key``. This test fails against that prior
+    behavior (two distinct ids, two WorkItem nodes) and passes only once
+    replay is deduped by ``(tenant, idempotency_key)``.
+    """
+    first = wi.submit_work_item(
+        cas_engine,
+        kind="ingest_task",
+        payload_ref="attempt-1",
+        tenant="tenant-a",
+        idempotency_key="client-retry-key-1",
+    )
+    second = wi.submit_work_item(
+        cas_engine,
+        kind="ingest_task",
+        payload_ref="attempt-2-a-retry-with-a-fresh-random-id",
+        tenant="tenant-a",
+        idempotency_key="client-retry-key-1",
+    )
+
+    assert first == second, (
+        "replaying the same idempotency_key with no explicit work_item_id "
+        "must return the SAME WorkItem id, not mint a new one"
+    )
+    work_item_nodes = [
+        node
+        for node in cas_engine.nodes.values()
+        if node.get("label") == "WorkItem" and node.get("tenant") == "tenant-a"
+    ]
+    assert len(work_item_nodes) == 1, (
+        "exactly one WorkItem must exist after a replayed submission — a "
+        f"second node means the replay was NOT deduplicated: {work_item_nodes!r}"
+    )
+    item = wi.get_work_item(cas_engine, first)
+    assert item is not None
+    # the replay was a no-op, not an overwrite
+    assert item["payload_ref"] == "attempt-1"
+
+
+def test_submit_idempotency_key_replay_is_tenant_scoped(
+    cas_engine: CasEngine,
+) -> None:
+    """Two different tenants reusing the same idempotency key must NOT
+    collide — dedup is scoped to ``(tenant, idempotency_key)``, matching
+    GOC-15's ``(tenant, actor_id)`` isolation key."""
+    tenant_a_id = wi.submit_work_item(
+        cas_engine,
+        kind="ingest_task",
+        tenant="tenant-a",
+        idempotency_key="shared-key",
+    )
+    tenant_b_id = wi.submit_work_item(
+        cas_engine,
+        kind="ingest_task",
+        tenant="tenant-b",
+        idempotency_key="shared-key",
+    )
+    assert tenant_a_id != tenant_b_id
+    assert wi.get_work_item(cas_engine, tenant_a_id)["tenant"] == "tenant-a"
+    assert wi.get_work_item(cas_engine, tenant_b_id)["tenant"] == "tenant-b"
+
+
+def test_find_work_item_by_idempotency_key_direct(cas_engine: CasEngine) -> None:
+    """Direct unit coverage of the new lookup primitive: absent before
+    submission, resolves after, empty key is always a bypass (never a
+    wildcard match)."""
+    assert (
+        wi.find_work_item_by_idempotency_key(
+            cas_engine, tenant="tenant-a", idempotency_key="key-x"
+        )
+        is None
+    )
+    item_id = wi.submit_work_item(
+        cas_engine, kind="generic", tenant="tenant-a", idempotency_key="key-x"
+    )
+    assert (
+        wi.find_work_item_by_idempotency_key(
+            cas_engine, tenant="tenant-a", idempotency_key="key-x"
+        )
+        == item_id
+    )
+    assert (
+        wi.find_work_item_by_idempotency_key(
+            cas_engine, tenant="tenant-a", idempotency_key=""
+        )
+        is None
+    )
+
+
+def test_submit_with_explicit_work_item_id_ignores_idempotency_key_lookup(
+    cas_engine: CasEngine,
+) -> None:
+    """When ``work_item_id`` IS supplied, dedup stays purely id-keyed — the
+    new idempotency_key lookup must not change that existing, already-tested
+    contract (no regression for every current in-repo caller, which all pass
+    both fields together)."""
+    first_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        tenant="tenant-a",
+        work_item_id="workitem:explicit-1",
+        idempotency_key="reused-key",
+    )
+    # A different explicit id reusing the SAME idempotency_key is a distinct
+    # WorkItem, because an explicit work_item_id bypasses the key lookup.
+    second_id = wi.submit_work_item(
+        cas_engine,
+        kind="generic",
+        tenant="tenant-a",
+        work_item_id="workitem:explicit-2",
+        idempotency_key="reused-key",
+    )
+    assert first_id == "workitem:explicit-1"
+    assert second_id == "workitem:explicit-2"
+    assert first_id != second_id
 
 
 def test_tenant_quota_exceeded_raises(cas_engine: CasEngine) -> None:
