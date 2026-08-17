@@ -799,6 +799,56 @@ class GraphMaintainer:
         logger.info(f"Pruned non-permanent nodes with importance below {threshold}.")
         return 1
 
+    def prune_expired_traces(self, retention_days: int = 90) -> int:
+        """Delete durable ``RunTrace``/``ToolCall``/``OutcomeEvaluation`` provenance
+        (``observability.trace_ontology``) older than the retention window, honoring
+        each node's own ``is_permanent`` legal-hold flag (CONCEPT:AU-KG.audit.trace-retention-legal-hold,
+        GOC-09).
+
+        BUG-016's ledger explicitly deferred this: trace/tool-call/outcome provenance had
+        NO retention sweep at all — ``prune_low_importance_nodes`` never reaches these
+        types because they carry no ``importance_score`` (they are append-only audit
+        records, not decaying memory). This is the time-based sweep that fills that gap.
+
+        Reuses the SAME exemption clause ``prune_low_importance_nodes`` already
+        established (``n.is_permanent IS NULL OR n.is_permanent = False``) — legal hold
+        is modeled as that existing generic protection flag, not a second field/concept —
+        checked in the SAME ``DETACH DELETE`` query as the age filter, never as a
+        separate best-effort pass, so a held node can never race a sweep that already
+        decided to delete it. Age is judged by the ontology's own ``timestamp`` field
+        (ISO-8601, stamped once at write time), never a mutable score.
+        """
+        if not self.engine.backend:
+            return 0
+
+        from agent_utilities.observability.trace_ontology import (
+            OUTCOME_NODE_LABEL,
+            TOOL_CALL_NODE_LABEL,
+            TRACE_NODE_LABEL,
+        )
+
+        cutoff = (datetime.now(UTC) - timedelta(days=retention_days)).strftime(
+            "%Y-%m-%dT%H:%M:%SZ"
+        )
+        swept = 0
+        for label in (TRACE_NODE_LABEL, TOOL_CALL_NODE_LABEL, OUTCOME_NODE_LABEL):
+            query = f"""
+            MATCH (n:{label})
+            WHERE n.timestamp < $cutoff
+            AND (n.is_permanent IS NULL OR n.is_permanent = False)
+            DETACH DELETE n
+            """
+            self.engine.backend.execute(query, {"cutoff": cutoff})
+            swept += 1
+
+        logger.info(
+            "[CONCEPT:AU-KG.audit.trace-retention-legal-hold] pruned RunTrace/ToolCall/"
+            "OutcomeEvaluation provenance older than %d days (is_permanent=True nodes "
+            "excluded).",
+            retention_days,
+        )
+        return swept
+
     def _count_protected_conversational_nodes(
         self, threshold: float, protect_types: tuple[str, ...]
     ) -> int:

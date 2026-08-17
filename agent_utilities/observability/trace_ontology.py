@@ -168,11 +168,28 @@ def content_digest(value: Any) -> str:
 
 
 def trace_id(run_id: str) -> str:
-    """Canonical trace node id; run identifiers are always opaque refs."""
+    """Canonical trace node id; run identifiers are always opaque refs.
 
-    value = str(run_id or "")
+    CONCEPT:AU-KG.audit.trace-id-assigned-at-emission (GOC-09) — a trace's identity is
+    the ``run_id`` minted where the work started (``orchestration.run_identity.new_run_id()``
+    at ``run_agent``'s entry, or the equivalent session/root-span id in
+    ``workflows.runner``/``harness.tracing``), never reconstructed here after the fact.
+    This function's ONLY job is to derive the durable, privacy-opaque node id from that
+    already-minted identity — it must never fabricate a fresh one from an absent/empty
+    caller-supplied value, or a span/run written without a real ``run_id`` would silently
+    get a valid-looking but meaningless trace id instead of failing loudly. Fail closed
+    (raise) rather than hash an empty string into a deterministic-but-fabricated id.
+    """
+
+    value = str(run_id or "").strip()
     if value.startswith("trace:"):
         value = value.removeprefix("trace:")
+    if not value:
+        raise ValueError(
+            "trace_id requires a non-empty run_id — a span/run emitted with no trace "
+            "identity must be rejected, never silently assigned a fabricated one "
+            "(CONCEPT:AU-KG.audit.trace-id-assigned-at-emission)"
+        )
     return f"trace:{persistence_reference('run', value, namespace='trace')}"
 
 
@@ -207,6 +224,7 @@ def trace_properties(
     graph_execution_evidence: Mapping[str, Any] | None = None,
     grounding_status: str = "",
     grounding_reason: str = "",
+    is_permanent: bool = False,
 ) -> dict[str, Any]:
     """Build the canonical, persistence-sanitized ``RunTrace`` properties.
 
@@ -218,6 +236,14 @@ def trace_properties(
     default ``"required"`` policy never reaches this trace with a degraded status —
     it raises and the run is recorded as ``status="failed"`` instead). Queryable
     after the fact so a degraded run is never indistinguishable from a normal one.
+
+    ``is_permanent`` (CONCEPT:AU-KG.audit.trace-retention-legal-hold, GOC-09) is the
+    established generic node-protection flag every node type already carries in the
+    schema (``GraphMaintainer.prune_low_importance_nodes``'s own exemption clause) —
+    reused here as the legal-hold marker rather than inventing a second field/concept.
+    Default ``False`` is a no-op (byte-identical to every existing caller); set it
+    ``True`` to make this ``RunTrace`` un-deletable by ``GraphMaintainer.prune_expired_traces``
+    until explicitly cleared.
     """
 
     seq = int(event_sequence or next_event_sequence())
@@ -267,6 +293,8 @@ def trace_properties(
         props["grounding_status"] = str(grounding_status)
     if grounding_reason:
         props["grounding_reason"] = str(grounding_reason)[:500]
+    if is_permanent:
+        props["is_permanent"] = True
     if graph_execution_evidence:
         from agent_utilities.models.graph import GraphExecutionEvidence
 
@@ -303,8 +331,13 @@ def tool_call_properties(
     sequence: int,
     timestamp: str,
     event_sequence: int | None = None,
+    is_permanent: bool = False,
 ) -> dict[str, Any]:
-    """Build canonical ToolCall properties without raw identity fields."""
+    """Build canonical ToolCall properties without raw identity fields.
+
+    ``is_permanent`` — see ``trace_properties``'s docstring; the same reused
+    retention/legal-hold exemption flag (CONCEPT:AU-KG.audit.trace-retention-legal-hold).
+    """
 
     seq = int(event_sequence or next_event_sequence())
     _clean, privacy = _privacy_safe(
@@ -314,7 +347,7 @@ def tool_call_properties(
             "error": str(error or "")[:1000],
         }
     )
-    return {
+    props: dict[str, Any] = {
         "trace_schema_version": TRACE_SCHEMA_VERSION,
         "run_id": trace_id(run_id),
         "tool_name": str(tool_name or ""),
@@ -334,6 +367,9 @@ def tool_call_properties(
         "event_cursor": seq,
         **privacy,
     }
+    if is_permanent:
+        props["is_permanent"] = True
+    return props
 
 
 def outcome_properties(
@@ -344,15 +380,20 @@ def outcome_properties(
     event_sequence: int,
     feedback: str = "",
     reward: float | None = None,
+    is_permanent: bool = False,
 ) -> dict[str, Any]:
-    """Build the one normalized outcome attached to a ``RunTrace``."""
+    """Build the one normalized outcome attached to a ``RunTrace``.
+
+    ``is_permanent`` — see ``trace_properties``'s docstring; the same reused
+    retention/legal-hold exemption flag (CONCEPT:AU-KG.audit.trace-retention-legal-hold).
+    """
 
     normalized = str(status or "unknown").lower()
     succeeded = normalized in {"completed", "success", "succeeded", "ok"}
     if reward is None:
         reward = 1.0 if succeeded else (0.25 if normalized == "degraded" else 0.0)
     _clean, privacy = _privacy_safe({"feedback_text": str(feedback or "")[:1000]})
-    return {
+    props: dict[str, Any] = {
         "trace_schema_version": TRACE_SCHEMA_VERSION,
         "trace_id": trace_id(run_id),
         "status": normalized,
@@ -367,6 +408,9 @@ def outcome_properties(
         "event_cursor": int(event_sequence),
         **privacy,
     }
+    if is_permanent:
+        props["is_permanent"] = True
+    return props
 
 
 def trace_candidate_quality(node: Mapping[str, Any]) -> float | None:

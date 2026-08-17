@@ -170,6 +170,33 @@ def test_record_event_sanitizes_content_and_rejects_unsafe_identity():
     assert "contact@example.test" not in kg.nodes
 
 
+def test_record_event_rejects_a_span_with_no_trace_id_rather_than_fabricating_one():
+    """Known-bad proof (CONCEPT:AU-KG.audit.trace-id-assigned-at-emission, GOC-09): a
+    span emitted with an empty/missing trace_id must be REJECTED — never silently
+    indexed under a shared ``""``/``None`` bucket that would merge every unattributed
+    caller's spans together."""
+    kg = _FakeKG()
+    be = KGTraceBackend(backend=kg)
+
+    for missing in ("", None):
+        be.record_event(
+            trace_id=missing,  # type: ignore[arg-type]
+            span_id="orphan",
+            name="unattributed",
+            is_root=True,
+        )
+
+    assert be.get_trace("") is None
+    assert be.get_trace(None) is None  # type: ignore[arg-type]
+    assert be._traces == {}, "no bucket of any kind was created for the missing trace_id"
+    assert kg.nodes == {}, "nothing was persisted for an unattributed span"
+
+    # A real trace_id right after the rejected calls still works normally (the guard
+    # doesn't wedge the sink).
+    be.record_event(trace_id="trace:attributed", span_id="root", name="ok", is_root=True)
+    assert be.get_trace("trace:attributed") is not None
+
+
 def test_emit_trace_sanitizes_batch_nodes_before_persistence():
     kg = _FakeKG()
     be = KGTraceBackend(backend=kg)

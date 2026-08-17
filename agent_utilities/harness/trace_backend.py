@@ -972,6 +972,18 @@ class KGTraceBackend(TraceBackend):
         """
         privacy = self._privacy
 
+        # CONCEPT:AU-KG.audit.trace-id-assigned-at-emission (GOC-09) — a span/event with no
+        # trace identity must be REJECTED, never silently indexed under an empty/``None``
+        # key: that would merge every unattributed caller into one shared bucket instead of
+        # failing loudly. ``span_id`` has no such requirement (a root trace event's own
+        # ``span_id`` legitimately keys the trace itself), so only ``trace_id`` is checked.
+        if not trace_id:
+            logger.warning(
+                "KGTraceBackend event rejected: missing trace_id (span_id=%r) — refusing "
+                "to fabricate or merge into an unattributed bucket",
+                span_id,
+            )
+            return
         for identifier in (trace_id, span_id, parent_span_id):
             if identifier is None:
                 continue
