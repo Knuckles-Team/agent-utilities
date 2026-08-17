@@ -110,6 +110,14 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "ontology_derive": ("write",),
         "ontology_link_materialize": ("write",),
         "ontology_leanix_sync": ("write",),
+        # Records a claim/reviews-promotes-rejects-supersedes it (write) or
+        # queries the claim/history/evidence surface (ask) — same read+write
+        # split as object_edits/engine_nodes above.
+        "ontology_classification_claims": ("write", "ask"),
+        # Every action constructs one typed provenance node and commits it
+        # through the shared envelope-ingest write path — write-only, same
+        # shape as graph_etl/ontology_derive above.
+        "ontology_repository_provenance": ("write",),
         "document_process": ("write",),
         "graph_media_sidecar": ("write", "act"),
         "spec_ticket": ("write", "ask"),

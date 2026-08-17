@@ -52,7 +52,15 @@ deploy/k8s/production-cell/mesh-security.yaml	25	hard-coded internal endpoint in
 deploy/k8s/production-cell/mesh-security.yaml	77	hard-coded internal endpoint in runtime source	cb0fa33f5d5ae260	1
 docker/egeria.compose.yml	50	hard-coded internal endpoint in runtime source	cdce5632ec1b91a8	0
 docker/mcp.compose.yml	30	hard-coded internal endpoint in runtime source	cdce5632ec1b91a8	0
+docs/architecture/goc-44-dependency-runtime-compatibility-baseline.md	13	local account or host identifier	e1f3a9082a7eb6b3	0
+docs/architecture/goc-44-dependency-runtime-compatibility-baseline.md	9	machine-specific home path	015bae208bf6ebd2	0
+docs/architecture/goc-44-dependency-runtime-compatibility-baseline.md	15	machine-specific home path	95aa2183ada96a4c	0
+docs/architecture/goc-44-dependency-runtime-compatibility-baseline.md	247	machine-specific home path	cd743a37d5326dcc	0
+docs/architecture/goc-44-dependency-runtime-compatibility-baseline.md	150	machine-specific home path	f9ee3f8ec49e6081	0
+docs/architecture/goc-44-dependency-runtime-compatibility-baseline.md	13	machine-specific host identifier	e1f3a9082a7eb6b3	0
 tests/gates/test_docs_contract_gate.py	115	hard-coded internal endpoint in runtime source	c06d7816b86c4b75	0
+tests/tools/hermetic_harness/test_manifest.py	153	machine-specific home path in runtime source	456a9120df060e9d	0
+tests/tools/hermetic_harness/test_manifest.py	152	machine-specific home path in runtime source	ecc8763cf889deb2	0
 tests/unit/core/test_model_capacity_autoscale.py	86	hard-coded internal endpoint in runtime source	5f55217e2ad1ac36	0
 tests/unit/core/test_model_capacity_autoscale.py	91	hard-coded internal endpoint in runtime source	98a30a526d86a7e7	0
 tests/unit/core/test_transport_security.py	608	hard-coded internal endpoint in runtime source	2cd56f2e963931c6	0

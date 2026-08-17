@@ -302,16 +302,24 @@ def test_privacy_gate_ordinal_disambiguates_duplicate_lines_in_one_file(tmp_path
     privacy = _load_script("check_tracked_privacy.py")
     runtime_dir = tmp_path / "agent_utilities" / "core"
     runtime_dir.mkdir(parents=True)
-    # BUG-228: assembled from fragments, none of which alone contain a
-    # complete URL-plus-internal-suffix span, so this file's own tracked
-    # source is not itself a matchable leak literal for
-    # check_tracked_privacy.py's widened runtime-source pass -- the exact
-    # same string is still written to the nested fixture file below, which
-    # is what the NESTED ``privacy.scan()`` call two lines down must still
-    # catch (that catch is the entire point of this test).
+    # BUG-228: assembled from fragments via `+` (never adjacent string
+    # literals -- ruff-format is free to collapse those back into one
+    # literal on reformat, which is exactly what silently re-created this
+    # file's own matchable leak literal once already), so no single
+    # fragment nor the formatter's own output contains a complete
+    # URL-plus-internal-suffix span -- this file's own tracked source is not
+    # itself a matchable leak literal for check_tracked_privacy.py's widened
+    # runtime-source pass. The exact same string is still written to the
+    # nested fixture file below, which is what the NESTED ``privacy.scan()``
+    # call two lines down must still catch (that catch is the entire point
+    # of this test).
     leak_line = (
-        "ENDPOINT = " '"https://svc.' "internal" ".example.svc.cluster."
-        "local" '/api"'
+        "ENDPOINT = "
+        + '"https://svc.'
+        + "internal"
+        + ".example.svc.cluster."
+        + "local"
+        + '/api"'
     )
     (runtime_dir / "sample.py").write_text(
         f"{leak_line}\nX = 1\n{leak_line}\n", encoding="utf-8"
@@ -558,3 +566,58 @@ def test_privacy_gate_identifiers_are_deterministic_with_declared_override(
     second = privacy.derive_local_identifiers()
 
     assert first == second == frozenset({"declared-identity"})
+
+
+def test_privacy_gate_ignores_head_committer_identity(monkeypatch):
+    """2026-08-17 regression: ``derive_local_identifiers`` used to also shell
+    out to ``git log -1 --format=%an%n%ae`` (HEAD's own committer identity)
+    as a THIRD ambient candidate source, alongside ``git config
+    user.name``/``user.email``. That source is not "the current account" the
+    gate's own docstring says it derives from -- it is whichever identity
+    committed most recently, which in this repo's multi-agent-authored
+    history rotates per commit. Reproduced live: HEAD's author was the
+    single word "claude", an ordinary word throughout a Claude-focused
+    agent-framework codebase, so every doc/comment that names the tool
+    became a manufactured "local account or host identifier" leak (~450
+    findings across ~180 files, the same D-ORC-57 shape from a different
+    source). Fixed by dropping the ``git log -1`` source entirely -- ``git
+    config``'s two sources remain and still surface the real, deliberately-
+    set developer identity (proven by the second assertion below).
+    """
+    privacy = _load_script("check_tracked_privacy.py")
+    monkeypatch.delenv("AGENT_UTILITIES_PRIVACY_IDENTIFIERS", raising=False)
+    monkeypatch.setattr(privacy.getpass, "getuser", lambda: "sandbox-three")
+    monkeypatch.setattr(
+        privacy.pwd,
+        "getpwuid",
+        lambda _uid: type("_Pw", (), {"pw_name": "sandbox-three"})(),
+    )
+
+    def _fake_run(command, **_kwargs):
+        if command[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        if command == ["git", "config", "--get", "user.name"]:
+            return subprocess.CompletedProcess(
+                command, 0, stdout="Real Developer\n", stderr=""
+            )
+        if command == ["git", "config", "--get", "user.email"]:
+            return subprocess.CompletedProcess(
+                command, 0, stdout="dev@example.invalid\n", stderr=""
+            )
+        if command == ["git", "log", "-1", "--format=%an%n%ae"]:
+            # If the gate ever calls this again, prove the regression would
+            # still be caught: a common English word as HEAD's author must
+            # NOT leak into the identifier set.
+            return subprocess.CompletedProcess(
+                command, 0, stdout="claude\nnoreply@anthropic.com\n", stderr=""
+            )
+        raise AssertionError(f"unexpected subprocess.run command: {command}")
+
+    monkeypatch.setattr(privacy.subprocess, "run", _fake_run)
+    identifiers = privacy.derive_local_identifiers()
+
+    assert "claude" not in identifiers
+    assert "noreply@anthropic.com" not in identifiers
+    # git config's own identity is still the real, stable source.
+    assert "real developer" in identifiers
+    assert "dev@example.invalid" in identifiers

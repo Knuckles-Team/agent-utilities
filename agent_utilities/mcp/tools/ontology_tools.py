@@ -1556,6 +1556,369 @@ def register_ontology_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_etl"] = graph_etl
 
     @mcp.tool(
+        name="ontology_classification_claims",
+        description=(
+            "Typed, provenance-bearing multi-category classification claims (U-47, "
+            "CONCEPT:AU-KG.ontology.classification-claim-multi-category / "
+            "classification-claim-promotion-lifecycle / cross-source-identity-proposal). "
+            "One subject can carry several simultaneous, independently true-or-false "
+            "classifications (e.g. 'this file is code AND security-critical'), each with "
+            "its own method (declared/observed/derived/generated) and promotion state "
+            "(candidate -> reviewed -> promoted/rejected/superseded). "
+            "action='record' (build + persist one claim from `claim_json`, a raw record "
+            "with subject_id/category/value/evidence_refs/method/source_snapshot — "
+            "idempotent on the claim's own content-addressed id), "
+            "'query' (list claims for `subject_id`, optionally filtered by `status`/"
+            "`category`), 'categories' (the set of currently-promoted categories for "
+            "`subject_id`), 'history' (every claim ever made for one `subject_id` + "
+            "`category` pair, across every snapshot), 'resolve_evidence' (a claim's "
+            "evidence Fragments, clearance-redacted per `viewer_clearance`), "
+            "'review'/'promote'/'reject' (governed promotion-lifecycle transitions on "
+            "the claim in `claim_json`, via ClassificationPromotionLedger), 'supersede' "
+            "(retire the claim in `claim_json` in favor of `new_claim_json`, both "
+            "retained), 'lifecycle_history' (a `claim_id`'s full transition history), "
+            "'propose_identity' (a cross-source-identity claim between `artifact_a_id` "
+            "and `artifact_b_id`, recorded via the same evidence-required machinery)."
+        ),
+        tags=["graph-os", "ontology", "classification"],
+    )
+    def ontology_classification_claims(
+        action: str = Field(
+            default="query",
+            description=(
+                "record | query | categories | history | resolve_evidence | review | "
+                "promote | reject | supersede | lifecycle_history | propose_identity."
+            ),
+        ),
+        subject_id: str = Field(
+            default="", description="For query/categories/history."
+        ),
+        category: str = Field(default="", description="For query/history."),
+        status: str = Field(default="", description="For query: filter by status."),
+        claim_json: str = Field(
+            default="",
+            description=(
+                "For record: a raw claim record (subject_id/category/value/"
+                "evidence_refs/method/source_snapshot/...) as JSON. For review/"
+                "promote/reject/supersede/resolve_evidence: the FULL claim object "
+                "(as returned by a prior record/query call) as JSON."
+            ),
+        ),
+        new_claim_json: str = Field(
+            default="",
+            description="For supersede: the successor claim, same shape as claim_json.",
+        ),
+        source_snapshot: str = Field(
+            default="", description="For record/propose_identity."
+        ),
+        policy_approved: bool = Field(
+            default=False,
+            description="For record: pre-cleared a candidate/generated claim through action_policy already.",
+        ),
+        reviewer: str = Field(default="", description="For promote/reject."),
+        reason: str = Field(
+            default="", description="For review/promote/reject/supersede."
+        ),
+        viewer_clearance: str = Field(
+            default="internal", description="For resolve_evidence."
+        ),
+        claim_id: str = Field(default="", description="For lifecycle_history."),
+        artifact_a_id: str = Field(default="", description="For propose_identity."),
+        artifact_b_id: str = Field(default="", description="For propose_identity."),
+        evidence_refs_json: str = Field(
+            default="[]",
+            description="For propose_identity: JSON array of Fragment ids.",
+        ),
+        extractor_ref: str = Field(
+            default="", description="For record (via claim_json)/propose_identity."
+        ),
+        confidence: float = Field(
+            default=-1.0,
+            description="For propose_identity: 0.0-1.0, or omit (-1.0 sentinel) for an explicit abstain.",
+        ),
+        tenant: str = Field(default="", description="For record/propose_identity."),
+    ) -> str:
+        """Record / query / promote classification claims through the governed lifecycle."""
+        import dataclasses
+
+        from agent_utilities.knowledge_graph.ontology.classification_claims import (
+            ClassificationClaim,
+            ClassificationPromotionLedger,
+            claim_from_raw,
+            propose_cross_source_identity,
+            query_categories,
+            query_claim_history,
+            query_claims,
+            record_claim,
+            resolve_claim_evidence,
+        )
+
+        def _claim_from_json(raw: str) -> ClassificationClaim:
+            data = dict(json.loads(raw))
+            data["evidence_refs"] = tuple(data.get("evidence_refs") or ())
+            return ClassificationClaim(**data)
+
+        def _claim_dict(claim: ClassificationClaim) -> dict[str, Any]:
+            row = dataclasses.asdict(claim)
+            row["evidence_refs"] = list(row["evidence_refs"])
+            return row
+
+        try:
+            engine = kg_server._get_engine()
+        except Exception:  # noqa: BLE001
+            engine = None
+        if engine is None:
+            return json.dumps({"status": "error", "error": "active engine required"})
+
+        try:
+            if action == "record":
+                claim = claim_from_raw(
+                    json.loads(claim_json) if claim_json else {},
+                    source_snapshot=source_snapshot,
+                    policy_approved=bool(policy_approved),
+                )
+                if claim is None:
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "error": "claim_json is malformed or rejected",
+                        }
+                    )
+                record_claim(engine, claim)
+                return json.dumps({"status": "success", "claim": _claim_dict(claim)})
+
+            if action == "query":
+                claims = query_claims(
+                    engine,
+                    subject_id,
+                    status=status or None,
+                    category=category or None,
+                )
+                return json.dumps({"claims": [_claim_dict(c) for c in claims]})
+
+            if action == "categories":
+                return json.dumps(
+                    {"categories": sorted(query_categories(engine, subject_id))}
+                )
+
+            if action == "history":
+                claims = query_claim_history(engine, subject_id, category)
+                return json.dumps({"claims": [_claim_dict(c) for c in claims]})
+
+            if action == "resolve_evidence":
+                claim = _claim_from_json(claim_json)
+                evidence = resolve_claim_evidence(
+                    engine, claim, viewer_clearance=viewer_clearance or "internal"
+                )
+                return json.dumps({"evidence": evidence})
+
+            ledger = ClassificationPromotionLedger(engine)
+            if action == "review":
+                updated = ledger.review(
+                    _claim_from_json(claim_json), reason=reason or "under review"
+                )
+                return json.dumps({"status": "success", "claim": _claim_dict(updated)})
+            if action == "promote":
+                updated = ledger.promote(
+                    _claim_from_json(claim_json),
+                    reviewer=reviewer,
+                    reason=reason or "promoted after review",
+                )
+                return json.dumps({"status": "success", "claim": _claim_dict(updated)})
+            if action == "reject":
+                updated = ledger.reject(
+                    _claim_from_json(claim_json), reviewer=reviewer, reason=reason
+                )
+                return json.dumps({"status": "success", "claim": _claim_dict(updated)})
+            if action == "supersede":
+                old_updated, new_claim = ledger.supersede(
+                    _claim_from_json(claim_json),
+                    _claim_from_json(new_claim_json),
+                    reason=reason or "superseded by a newer extraction",
+                )
+                return json.dumps(
+                    {
+                        "status": "success",
+                        "old_claim": _claim_dict(old_updated),
+                        "new_claim": _claim_dict(new_claim),
+                    }
+                )
+            if action == "lifecycle_history":
+                return json.dumps({"events": ledger.history(claim_id)})
+
+            if action == "propose_identity":
+                claim = propose_cross_source_identity(
+                    artifact_a_id=artifact_a_id,
+                    artifact_b_id=artifact_b_id,
+                    evidence_refs=json.loads(evidence_refs_json or "[]"),
+                    source_snapshot=source_snapshot,
+                    extractor_ref=extractor_ref,
+                    confidence=None if confidence < 0 else confidence,
+                    tenant=tenant,
+                )
+                record_claim(engine, claim)
+                return json.dumps({"status": "success", "claim": _claim_dict(claim)})
+
+            return json.dumps(
+                {"status": "error", "error": f"unknown action {action!r}"}
+            )
+        except Exception as e:  # noqa: BLE001
+            return public_error_json(e)
+
+    kg_server.REGISTERED_TOOLS["ontology_classification_claims"] = (
+        ontology_classification_claims
+    )
+
+    @mcp.tool(
+        name="ontology_repository_provenance",
+        description=(
+            "Git identity and history anchors (U-47, CONCEPT:AU-KG.ontology."
+            "repository-provenance-snapshot), additive to the existing :Commit/"
+            ":Author/:File model git_history already ingests. Each action writes ONE "
+            "node type onto the SAME 'commit:<sha>' id convention through the shared "
+            "envelope-ingest write path, so a ClassificationClaim's `source_snapshot` "
+            "has a real, queryable node to point at instead of an opaque string. "
+            "action='snapshot' (RepositorySnapshot — the state of `repo_id` at "
+            "`commit_sha`, optionally naming the `ref` it was captured at), "
+            "'branch' (Branch — a named, moving pointer: `name` -> `commit_sha`), "
+            "'tag' (Tag — a named, fixed pointer: `name` -> `commit_sha`, optional "
+            "`annotation`), 'change_event' (ChangeEvent — one repo-scoped historical "
+            "event of `kind` at `commit_sha`, optionally naming the `subject_id` — "
+            "file/entity — it concerns). All four are read-only projections of git "
+            "metadata already present in the repository; none modifies source truth."
+        ),
+        tags=["graph-os", "ontology", "provenance"],
+    )
+    def ontology_repository_provenance(
+        action: str = Field(
+            default="snapshot", description="snapshot | branch | tag | change_event."
+        ),
+        repo_id: str = Field(default="", description="Required for every action."),
+        commit_sha: str = Field(
+            default="", description="Required for snapshot/branch/tag/change_event."
+        ),
+        ref: str = Field(
+            default="", description="For snapshot: the ref name captured."
+        ),
+        name: str = Field(
+            default="", description="For branch/tag: the pointer's name."
+        ),
+        annotation: str = Field(
+            default="", description="For tag: optional annotation."
+        ),
+        kind: str = Field(
+            default="commit",
+            description="For change_event: commit | branch_move | tag_cut | ...",
+        ),
+        occurred_at: str = Field(
+            default="",
+            description="For change_event: ISO-8601 timestamp; defaults to now.",
+        ),
+        subject_id: str = Field(
+            default="",
+            description="For change_event: the file/entity this event concerns.",
+        ),
+    ) -> str:
+        """Record repository provenance (RepositorySnapshot/Branch/Tag/ChangeEvent) into the KG."""
+        from datetime import UTC, datetime
+
+        from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+            ingest_graph_slice,
+        )
+        from agent_utilities.knowledge_graph.ontology.repository_provenance import (
+            Branch,
+            ChangeEvent,
+            RepositorySnapshot,
+            Tag,
+        )
+
+        try:
+            engine = kg_server._get_engine()
+        except Exception:  # noqa: BLE001
+            engine = None
+        if engine is None:
+            return json.dumps({"status": "error", "error": "active engine required"})
+        if not repo_id:
+            return json.dumps({"status": "error", "error": "repo_id is required"})
+
+        try:
+            if action == "snapshot":
+                if not commit_sha:
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "error": "commit_sha is required for action='snapshot'",
+                        }
+                    )
+                obj: Any = RepositorySnapshot(
+                    repo_id=repo_id, commit_sha=commit_sha, ref=ref
+                )
+                node_id = obj.snapshot_id
+            elif action == "branch":
+                if not name or not commit_sha:
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "error": "name and commit_sha are required for action='branch'",
+                        }
+                    )
+                obj = Branch(repo_id=repo_id, name=name, head_commit_sha=commit_sha)
+                node_id = obj.branch_node_id
+            elif action == "tag":
+                if not name or not commit_sha:
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "error": "name and commit_sha are required for action='tag'",
+                        }
+                    )
+                obj = Tag(
+                    repo_id=repo_id,
+                    name=name,
+                    commit_sha=commit_sha,
+                    annotation=annotation,
+                )
+                node_id = obj.tag_node_id
+            elif action == "change_event":
+                if not commit_sha or not kind:
+                    return json.dumps(
+                        {
+                            "status": "error",
+                            "error": "commit_sha and kind are required for action='change_event'",
+                        }
+                    )
+                obj = ChangeEvent(
+                    repo_id=repo_id,
+                    commit_sha=commit_sha,
+                    kind=kind,
+                    occurred_at=occurred_at or datetime.now(UTC).isoformat(),
+                    subject_id=subject_id,
+                )
+                node_id = obj.event_id
+            else:
+                return json.dumps(
+                    {"status": "error", "error": f"unknown action {action!r}"}
+                )
+
+            entities, relationships = obj.to_graph_slice()
+            result = ingest_graph_slice(
+                engine,
+                "repository_provenance",
+                entities,
+                relationships,
+                source_instance=repo_id,
+            )
+            return json.dumps(
+                {"status": "success", "id": node_id, "result": result}, default=str
+            )
+        except Exception as e:  # noqa: BLE001
+            return public_error_json(e)
+
+    kg_server.REGISTERED_TOOLS["ontology_repository_provenance"] = (
+        ontology_repository_provenance
+    )
+
+    @mcp.tool(
         name="ontology_function",
         description="Typed, versioned ontology functions: list or invoke through the governed runtime (CONCEPT:AU-KG.ontology.default-runtime-bound-import).",
         tags=["graph-os", "ontology"],

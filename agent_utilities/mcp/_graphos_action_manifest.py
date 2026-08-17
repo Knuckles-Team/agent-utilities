@@ -1292,6 +1292,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "action": "process_writeback",
         "name": "graph_analyze_process_writeback",
     },
+    {"tool": "graph_analyze", "action": "readiness", "name": "graph_analyze_readiness"},
     {
         "tool": "graph_analyze",
         "action": "security_scan",
@@ -2485,6 +2486,61 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {"tool": "object_set", "action": "subtract", "name": "object_set_subtract"},
     {"tool": "object_set", "action": "union", "name": "object_set_union"},
+    {
+        "tool": "ontology_classification_claims",
+        "action": "categories",
+        "name": "ontology_classification_claims_categories",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "history",
+        "name": "ontology_classification_claims_history",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "lifecycle_history",
+        "name": "ontology_classification_claims_lifecycle_history",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "promote",
+        "name": "ontology_classification_claims_promote",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "propose_identity",
+        "name": "ontology_classification_claims_propose_identity",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "query",
+        "name": "ontology_classification_claims_query",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "record",
+        "name": "ontology_classification_claims_record",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "reject",
+        "name": "ontology_classification_claims_reject",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "resolve_evidence",
+        "name": "ontology_classification_claims_resolve_evidence",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "review",
+        "name": "ontology_classification_claims_review",
+    },
+    {
+        "tool": "ontology_classification_claims",
+        "action": "supersede",
+        "name": "ontology_classification_claims_supersede",
+    },
     {"tool": "ontology_derive", "action": "compute", "name": "ontology_derive_compute"},
     {
         "tool": "ontology_derive",
@@ -2581,6 +2637,26 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "ontology_property_types",
         "action": "validate",
         "name": "ontology_property_types_validate",
+    },
+    {
+        "tool": "ontology_repository_provenance",
+        "action": "branch",
+        "name": "ontology_repository_provenance_branch",
+    },
+    {
+        "tool": "ontology_repository_provenance",
+        "action": "change_event",
+        "name": "ontology_repository_provenance_change_event",
+    },
+    {
+        "tool": "ontology_repository_provenance",
+        "action": "snapshot",
+        "name": "ontology_repository_provenance_snapshot",
+    },
+    {
+        "tool": "ontology_repository_provenance",
+        "action": "tag",
+        "name": "ontology_repository_provenance_tag",
     },
     {
         "tool": "ontology_sampling_profile",
