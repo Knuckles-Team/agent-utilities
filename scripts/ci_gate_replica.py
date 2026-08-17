@@ -1,68 +1,100 @@
 #!/usr/bin/env python3
-"""Local replica of .github/workflows/release.yml's RELEASE-BLOCKING checks.
+"""Local replica of every workflow under .github/workflows/.
 
-WHY THIS PARSES release.yml INSTEAD OF HAND-COPYING ITS STEPS: a hand-copied
-step list silently drifts from the real workflow the moment either changes —
-exactly the failure mode this script exists to close (epistemic-graph's
-sibling repo shipped two red releases on a step no local pre-push hook ever
-ran). So this script reads the workflow file itself, at run time, and
-classifies every step it finds:
+WHY THIS PARSES THE WORKFLOW FILES INSTEAD OF HAND-COPYING THEIR STEPS: a
+hand-copied step list silently drifts from the real workflow the moment
+either changes — exactly the failure mode this script exists to close
+(epistemic-graph's sibling repo shipped two red releases on a step no local
+pre-push hook ever ran). So this script reads every workflow file itself, at
+run time, and classifies every step it finds:
 
-  * a step with a `run:` shell block in an EXECUTABLE_JOBS job is executed
-    VERBATIM (its literal shell text, `${{ ... }}` GitHub Actions expressions
-    stripped to empty — see _strip_gha_expressions), with $GITHUB_ENV/
-    $GITHUB_OUTPUT/$GITHUB_PATH shimmed the same way GH Actions threads state
-    between steps of one job. A new `run:` step added to release.yml is
-    executed by this script with NO code change here.
+  * a step with a `run:` shell block in a job this repo has marked EXECUTABLE
+    (see WORKFLOW_REGISTRY below) is executed VERBATIM (its literal shell
+    text, `${{ ... }}` GitHub Actions expressions stripped to empty — see
+    _strip_gha_expressions — except `${{ matrix.* }}` references inside a
+    `strategy.matrix` job, which are substituted with the real per-leg value
+    first, see _substitute_matrix), with $GITHUB_ENV/$GITHUB_OUTPUT/
+    $GITHUB_PATH shimmed the same way GH Actions threads state between steps
+    of one job. A new `run:` step added to a known job is run here with NO
+    code change.
   * a step with `uses:` naming a known environment-setup action (checkout,
     setup-python, setup-uv) is a silent no-op locally — the dev machine
     already has these tools.
   * a step with `uses:` naming an artifact-transfer action (upload/download-
     artifact) is a silent no-op — it moves files between CI jobs, not logic.
-  * any other `uses:` step (a marketplace action with no local equivalent)
-    is reported LOUDLY as "NOT VALIDATED LOCALLY", never silently skipped
-    and never counted toward a pass.
-  * an entire JOB can be marked out-of-scope (JOB_SKIP_REASONS below) when
-    NONE of its steps can run locally at all (the Windows/Linux matrix that
-    installs the published wheel from PyPI, a tag-gated publish) — every one
-    of its steps still shows up in the summary as NOT VALIDATED LOCALLY,
-    with the reason.
+  * any other `uses:` step (a marketplace action with no local equivalent, or
+    a job that calls a reusable workflow with no `steps:` at all) is
+    reported LOUDLY as "NOT VALIDATED LOCALLY", never silently skipped and
+    never counted toward a pass.
+  * an entire JOB can be marked out-of-scope (a WORKFLOW_REGISTRY entry's
+    job_skip_reasons) when NONE of its steps can run locally at all (the
+    Windows/Linux matrix that installs the published wheel from PyPI, a
+    windows-latest-only job on this Linux dev host, a tag-gated publish) —
+    every one of its steps still shows up in the summary as NOT VALIDATED
+    LOCALLY, with the reason. A `strategy.matrix` job (executable or
+    skip-reasoned) is expanded per matrix leg (see _matrix_combinations) so
+    e.g. numeric-runtime-gate's ubuntu/windows matrix shows up as 2 distinct
+    rows, not one.
 
-advisory.yml is out of scope entirely (it is wholly `continue-on-error: true`
-and never blocks a release, per that file's own header) — this script only
-ever reads release.yml.
+EVERY workflow file under .github/workflows/ is covered — not just the
+release-blocking one. WORKFLOW_REGISTRY carries a `blocking` flag per
+workflow (release.yml's jobs block the pre-push gate on failure; advisory.yml
+never blocks, matching that file's own `continue-on-error: true` contract on
+every step) — but "advisory" only changes whether a red step FAILS the
+overall run, never whether it RUNS or gets REPORTED. Before this redesign,
+this script only replayed release.yml, so advisory.yml's ~40-check job, its
+Windows coverage job, and its Pages job were never validated locally at all,
+invisible until a push broke one of them in GitHub-hosted CI.
 
-THE ANTI-DRIFT GUARANTEE (--consistency-check): every job release.yml
-declares must be classified as either EXECUTABLE or explicitly skip-reasoned.
-A job that is neither (a brand new top-level job, or a renamed one) makes the
-consistency check — and therefore the whole run — FAIL LOUDLY rather than
-silently ignoring it. See
-tests/unit/scripts/test_ci_gate_replica_consistency_check.py for a proof
-this actually fires on an injected new job.
+THE ANTI-DRIFT GUARANTEE (--consistency-check): every workflow file present
+under .github/workflows/ must be registered in WORKFLOW_REGISTRY, and every
+job each registered workflow declares must be classified as either
+EXECUTABLE or explicitly skip-reasoned. A workflow file with no registry
+entry, or a job that is neither classified (a brand new top-level job, or a
+renamed one), makes the consistency check — and therefore the whole run —
+FAIL LOUDLY rather than silently ignoring it. The same check also parses
+.cargo/config.toml, if this repo ever gains one, for an external-binary
+build dependency (rustc-wrapper, a target linker/runner, a
+`-fuse-ld=<x>`/`-C linker=<x>` in rustflags) that no workflow file ever
+installs — the exact class of break epistemic-graph's commit 652f91c
+shipped (`rustc-wrapper = "sccache"` with no workflow step that installs
+sccache; cargo hard-errors at the first invocation because it does not
+soft-fall-back when a configured rustc-wrapper is missing). agent-utilities
+has no Rust build of its own today, so this is currently a no-op (an absent
+.cargo/config.toml is not a finding) — kept here so the two repos' identical
+copies of this script stay identical, and so it activates automatically the
+day this repo's build does depend on one. See the module docstring tests in
+tests/unit/scripts/test_ci_gate_replica_consistency_check.py for proof both
+classes of drift actually fire.
 
 Usage:
   scripts/ci_gate_replica.py                    # full run (heavy — pre-push/manual only)
   scripts/ci_gate_replica.py --dry-run           # print the plan, execute nothing
   scripts/ci_gate_replica.py --consistency-check # only the anti-drift check
-  scripts/ci_gate_replica.py --workflow PATH     # override the workflow file (testing)
+  scripts/ci_gate_replica.py --skip-safe [REF]   # is it safe to skip this gate for the diff vs REF (default HEAD)?
+  scripts/ci_gate_replica.py --workflows-dir DIR # override the workflows directory (testing)
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime
+import fnmatch
 import os
+import posixpath
 import re
 import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "release.yml"
+WORKFLOWS_DIR = REPO_ROOT / ".github" / "workflows"
+CARGO_CONFIG_PATH = REPO_ROOT / ".cargo" / "config.toml"
 
 # ─────────────────────────────────────────────────────────────────────────
 # Per-repo configuration. This is the ONLY hand-maintained classification
@@ -70,40 +102,82 @@ DEFAULT_WORKFLOW_PATH = REPO_ROOT / ".github" / "workflows" / "release.yml"
 # list short and job-scoped (not step-scoped) is what makes the consistency
 # check a real drift guard rather than just documentation: a new *step* in
 # an already-known job is auto-classified (RUN if it has `run:`); only a new
-# *job* requires a human to add an entry here, and failing to do so is
-# exactly what --consistency-check catches.
+# *job*, or a new *workflow file*, requires a human to add an entry here,
+# and failing to do so is exactly what --consistency-check catches.
 # ─────────────────────────────────────────────────────────────────────────
 
-# Jobs whose steps this script actually executes locally.
-EXECUTABLE_JOBS = {"gates", "build"}
 
-# Jobs this script deliberately does NOT execute, with the reason surfaced
-# in the summary as "NOT VALIDATED LOCALLY — <reason>" for every one of
-# their steps.
-JOB_SKIP_REASONS = {
-    "numeric-runtime-gate": (
-        "installs the exact built wheel with its declared "
-        "epistemic-graph[full] floor FROM PyPI, on a matrix of "
-        "ubuntu-latest + windows-latest. epistemic-graph's current floor is "
-        "not resolvable on PyPI today (this is exactly what the gates job's "
-        "own scripts/release/check_eg_pypi_resolvable.py step, which THIS "
-        "script DOES run, is asserting), so this job cannot succeed "
-        "locally regardless of environment, and its Windows leg cannot run "
-        "on this host at all."
+@dataclass(frozen=True)
+class WorkflowSpec:
+    filename: str
+    # True: a failing RUN step in this workflow fails the overall replica
+    # run (release.yml — release-blocking). False: a failing RUN step is
+    # still executed and reported loudly, but does not fail the run
+    # (advisory.yml — every step there already carries its own
+    # `continue-on-error: true` in the real workflow; this mirrors that).
+    blocking: bool
+    executable_jobs: frozenset[str]
+    job_skip_reasons: dict[str, str] = field(default_factory=dict)
+
+
+WORKFLOW_REGISTRY: dict[str, WorkflowSpec] = {
+    "release.yml": WorkflowSpec(
+        filename="release.yml",
+        blocking=True,
+        executable_jobs=frozenset({"gates", "build"}),
+        job_skip_reasons={
+            "numeric-runtime-gate": (
+                "installs the exact built wheel with its declared "
+                "epistemic-graph[full] floor FROM PyPI, on a matrix of "
+                "ubuntu-latest + windows-latest. epistemic-graph's current floor is "
+                "not resolvable on PyPI today (this is exactly what the gates job's "
+                "own scripts/release/check_eg_pypi_resolvable.py step, which THIS "
+                "script DOES run, is asserting), so this job cannot succeed "
+                "locally regardless of environment, and its Windows leg cannot run "
+                "on this host at all."
+            ),
+            "publish-pypi": (
+                "requires an explicit vX.Y.Z release tag on the published commit "
+                "plus PYPI_API_TOKEN. Publishing must never happen from a local "
+                "pre-push hook."
+            ),
+            "docker-publish-approval": (
+                "a GitHub Environment (docker-publish) approval checkpoint — no "
+                "local equivalent."
+            ),
+            "publish-docker": (
+                "a reusable workflow (Knuckles-Team/pipelines container_pipeline.yml) "
+                "that pushes to a Docker registry via DOCKER_* secrets. Publishing "
+                "must never happen from a local pre-push hook."
+            ),
+        },
     ),
-    "publish-pypi": (
-        "requires an explicit vX.Y.Z release tag on the published commit "
-        "plus PYPI_API_TOKEN. Publishing must never happen from a local "
-        "pre-push hook."
-    ),
-    "docker-publish-approval": (
-        "a GitHub Environment (docker-publish) approval checkpoint — no "
-        "local equivalent."
-    ),
-    "publish-docker": (
-        "a reusable workflow (Knuckles-Team/pipelines container_pipeline.yml) "
-        "that pushes to a Docker registry via DOCKER_* secrets. Publishing "
-        "must never happen from a local pre-push hook."
+    "advisory.yml": WorkflowSpec(
+        filename="advisory.yml",
+        blocking=False,
+        # Previously NOT REPLICATED AT ALL — this is the whole of GAP 1: the
+        # ~40-check `advisory` job (architecture/contract gates, SBOM/license
+        # audit, CodeQL, concept governance) was invisible locally.
+        executable_jobs=frozenset({"advisory"}),
+        job_skip_reasons={
+            "pages": (
+                "installs this checkout via `pip install -e .`, which resolves the "
+                "same epistemic-graph[full] floor gated by release.yml's `gates` job "
+                "and known PyPI-unresolvable per numeric-runtime-gate's skip reason "
+                "above — its Build-Docs / Documentation-contract / Tracked-privacy "
+                "steps are already duplicated by the `advisory` job above, and its "
+                "Deploy step needs the GitHub Pages environment/actions with no "
+                "local equivalent."
+            ),
+            "windows": (
+                "runs on windows-latest — this Linux dev host cannot execute it "
+                "directly. Its steps (cross-platform import-safety check, a "
+                "bounded cross-platform-relevant pytest subset) are real "
+                "Windows-only coverage this script does not attempt to simulate; "
+                "run scripts/check_import_safety.py by hand if you need a "
+                "Linux-side proxy."
+            ),
+        },
     ),
 }
 
@@ -119,9 +193,10 @@ ENV_SETUP_ACTIONS = (
 # `uses:` actions that only move files between CI jobs — no logic to run.
 ARTIFACT_IO_ACTIONS = ("actions/upload-artifact", "actions/download-artifact")
 
-# Local-only execution-environment adjustments. NOT derived from release.yml
-# (CI gets these properties for free from an ephemeral runner) — documented
-# here, not hidden, and never silently substituted for a release.yml value.
+# Local-only execution-environment adjustments. NOT derived from any
+# workflow file (CI gets these properties for free from an ephemeral
+# runner) — documented here, not hidden, and never silently substituted for
+# a workflow-declared value.
 LOCAL_ENV_OVERRIDES = {
     "TMPDIR": os.environ.get("CI_GATE_TMPDIR", "/var/tmp/au-ci-gate-tmp"),
 }
@@ -129,22 +204,120 @@ LOCAL_ENV_OVERRIDES = {
 STEP_TIMEOUT_SECS = int(os.environ.get("CI_GATE_STEP_TIMEOUT_SECS", "3600"))
 
 GHA_EXPR_RE = re.compile(r"\$\{\{.*?\}\}")
+MATRIX_EXPR_RE = re.compile(r"\$\{\{\s*matrix\.([\w.-]+)\s*\}\}")
 
 # Statuses that are NOT a pass but also NOT a fail — visible, honest, and
 # excluded from the pass/fail tally per design (never silently omitted,
 # never counted as passing).
 NON_BLOCKING_STATUSES = {"ENV_SETUP", "ARTIFACT_IO", "NOT_VALIDATED_LOCALLY", "DRY_RUN"}
 
+# ─────────────────────────────────────────────────────────────────────────
+# GAP 3 — the authoritative "does this diff affect the build" file set.
+# Defined ONCE, here, so a human or another script has one place to ask "is
+# skipping the (heavy, pre-push-only) ci-gate-replica hook safe for this
+# diff" instead of an ad-hoc grep. agent-utilities' build surface is Python
+# packaging (setuptools + a custom PEP 517 backend), not Rust — this is the
+# analogous authoritative set for THIS repo's actual build inputs, kept as
+# its own list rather than literally copying epistemic-graph's Rust-shaped
+# one (`.rs`/Cargo.* mean nothing here; pyproject.toml/uv.lock/build_backend.py
+# do).
+# ─────────────────────────────────────────────────────────────────────────
+BUILD_AFFECTING_FILE_PATTERNS: tuple[str, ...] = (
+    "pyproject.toml",
+    "uv.lock",
+    "requirements*.txt",
+    "build_backend.py",
+    "MANIFEST.in",
+    ".python-version",
+    ".cargo/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    ".github/workflows/**",
+    ".pre-commit-config.yaml",
+)
+
 
 def _strip_gha_expressions(text: str) -> tuple[str, list[str]]:
-    """Replace every `${{ ... }}` GitHub Actions expression with the empty
-    string. Outside an Actions runner these contexts (github.*, matrix.*,
+    """Replace every remaining `${{ ... }}` GitHub Actions expression with
+    the empty string. Outside an Actions runner these contexts (github.*,
     env.*, secrets.*) do not exist; stripping to empty is the closest honest
-    local analogue (e.g. the secret-history step's base-SHA expression
-    stripped to empty falls through to its own HEAD~1 fallback, same as the
-    real workflow does on a repo's first push)."""
+    local analogue. Call this AFTER _substitute_matrix so `${{ matrix.* }}`
+    references are resolved to real values first, not blanked."""
     found = GHA_EXPR_RE.findall(text)
     return GHA_EXPR_RE.sub("", text), found
+
+
+def _substitute_matrix(text: str, combo: dict) -> str:
+    """Replace `${{ matrix.a.b }}` with the real value from this matrix
+    leg's combo dict (dotted path lookup). Anything unresolved (typo'd path,
+    or genuinely not present in this combo) is left alone for
+    _strip_gha_expressions to blank afterward — never a KeyError."""
+    if not combo:
+        return text
+
+    def repl(m: re.Match) -> str:
+        value: object = combo
+        for part in m.group(1).split("."):
+            if isinstance(value, dict) and part in value:
+                value = value[part]
+            else:
+                return m.group(0)
+        return "" if value is None else str(value)
+
+    return MATRIX_EXPR_RE.sub(repl, text)
+
+
+def _matrix_combinations(matrix: dict | None) -> list[dict]:
+    """Cartesian-expand a `strategy.matrix` block into concrete per-leg
+    combo dicts: one entry per (axis-value-combination ∪ include-entry).
+    Deliberately does not implement GitHub's `exclude:` or the richer
+    axis-matching `include:` merge semantics — none of this repo's
+    workflows use them, and an unsupported shape degrading to "run the leg
+    anyway with best-effort substitution" is safer here than silently
+    dropping a leg."""
+    if not matrix:
+        return [{}]
+    axes = {
+        k: v
+        for k, v in matrix.items()
+        if k not in ("include", "exclude") and isinstance(v, list)
+    }
+    combos: list[dict] = []
+    if axes:
+        combos = [{}]
+        for key, values in axes.items():
+            combos = [dict(c, **{key: v}) for c in combos for v in values]
+    for extra in matrix.get("include", []) or []:
+        if isinstance(extra, dict):
+            combos.append(dict(extra))
+    return combos or [{}]
+
+
+def _combo_label(combo: dict) -> str:
+    """Human label suffix for one matrix leg, e.g. '#ubuntu-latest'. Prefers
+    a top-level or nested 'name' field; falls back to joining raw values."""
+    if not combo:
+        return ""
+    if "name" in combo and not isinstance(combo["name"], dict):
+        return f"#{combo['name']}"
+    parts = []
+    for v in combo.values():
+        parts.append(str(v.get("name", v)) if isinstance(v, dict) else str(v))
+    return "#" + "-".join(parts) if parts else ""
+
+
+def _apply_matrix(step: dict, combo: dict) -> dict:
+    """Return a copy of `step` with `${{ matrix.* }}` references in its
+    string fields resolved against this leg's combo. A no-op (returns the
+    same object) when there is no matrix, so non-matrix jobs pay no cost."""
+    if not combo:
+        return step
+    new_step = dict(step)
+    for f in ("run", "name", "uses"):
+        val = new_step.get(f)
+        if isinstance(val, str):
+            new_step[f] = _substitute_matrix(val, combo)
+    return new_step
 
 
 def _action_name(uses: str) -> str:
@@ -161,6 +334,29 @@ def _step_label(step: dict) -> str:
     run = step.get("run", "")
     first_line = run.strip().splitlines()[0] if run.strip() else "<empty step>"
     return first_line[:60]
+
+
+def _job_steps(job: dict) -> list[dict]:
+    """Steps for a job — or, for a job that IS a reusable-workflow call
+    (`uses:` at job level with no `steps:` key at all, valid GH Actions job
+    syntax), a single synthetic step so it is still classified and reported
+    instead of silently contributing zero plan rows."""
+    if "steps" in job:
+        return job.get("steps") or []
+    if job.get("uses"):
+        return [
+            {
+                "uses": job["uses"],
+                "name": job.get("name") or f"(reusable workflow: {job['uses']})",
+            }
+        ]
+    return []
+
+
+def discover_workflow_files(workflows_dir: Path = WORKFLOWS_DIR) -> list[Path]:
+    if not workflows_dir.is_dir():
+        return []
+    return sorted(workflows_dir.glob("*.yml")) + sorted(workflows_dir.glob("*.yaml"))
 
 
 def load_workflow(path: Path) -> dict:
@@ -188,88 +384,372 @@ def classify_step(step: dict) -> tuple[str, str]:
         return "ENV_SETUP", uses
     if name in ARTIFACT_IO_ACTIONS:
         return "ARTIFACT_IO", uses
+    if ".github/workflows/" in uses:
+        return (
+            "SKIP_LOUD",
+            f"reusable workflow '{uses}' has no local runner equivalent — not executed here",
+        )
     return (
         "SKIP_LOUD",
         f"marketplace action '{uses}' has no local equivalent — not executed here",
     )
 
 
-def build_plan(doc: dict) -> tuple[list[dict], list[str], list[str]]:
-    """Returns (plan, unclassified_jobs, stale_config_job_ids).
-
-    unclassified_jobs: jobs present in release.yml that are neither in
-      EXECUTABLE_JOBS nor JOB_SKIP_REASONS — the drift this script exists to
-      catch.
-    stale_config_job_ids: job ids in EXECUTABLE_JOBS/JOB_SKIP_REASONS that no
-      longer exist in release.yml — the opposite drift (config outlived the
-      workflow), also a consistency failure.
-    """
+def build_plan_for_workflow(
+    spec: WorkflowSpec, doc: dict
+) -> tuple[list[dict], list[str], list[str]]:
+    """Returns (plan, unclassified_jobs, stale_config_job_ids) for one
+    workflow. unclassified_jobs: jobs present in the workflow that are
+    neither in spec.executable_jobs nor spec.job_skip_reasons — the drift
+    this script exists to catch. stale_config_job_ids: job ids in the spec
+    that no longer exist in the workflow (the opposite drift), also a
+    consistency failure."""
     jobs = doc.get("jobs", {}) or {}
     plan: list[dict] = []
     unclassified: list[str] = []
 
     for job_id, job in jobs.items():
-        steps = (job or {}).get("steps", []) or []
-        if job_id in EXECUTABLE_JOBS:
+        job = job or {}
+        steps = _job_steps(job)
+        matrix = ((job.get("strategy") or {}).get("matrix")) or None
+        combos = _matrix_combinations(matrix)
+
+        if job_id in spec.executable_jobs:
+            skip_mode = False
+        elif job_id in spec.job_skip_reasons:
+            skip_mode = True
+        else:
+            unclassified.append(job_id)
+            continue
+
+        for combo in combos:
+            job_label = job_id + _combo_label(combo)
             for step in steps:
-                mode, detail = classify_step(step)
+                step2 = _apply_matrix(step, combo)
+                if skip_mode:
+                    mode, detail = "SKIP_LOUD", spec.job_skip_reasons[job_id]
+                else:
+                    mode, detail = classify_step(step2)
                 plan.append(
                     {
-                        "job": job_id,
-                        "name": _step_label(step),
+                        "workflow": spec.filename,
+                        "blocking": spec.blocking,
+                        "job": job_label,
+                        "name": _step_label(step2),
                         "mode": mode,
                         "detail": detail,
                     }
                 )
-        elif job_id in JOB_SKIP_REASONS:
-            reason = JOB_SKIP_REASONS[job_id]
-            for step in steps:
-                plan.append(
-                    {
-                        "job": job_id,
-                        "name": _step_label(step),
-                        "mode": "SKIP_LOUD",
-                        "detail": reason,
-                    }
-                )
-        else:
-            unclassified.append(job_id)
 
-    known = EXECUTABLE_JOBS | set(JOB_SKIP_REASONS)
+    known = spec.executable_jobs | set(spec.job_skip_reasons)
     stale = sorted(j for j in known if j not in jobs)
     return plan, sorted(unclassified), stale
 
 
-def consistency_check(doc: dict, *, verbose: bool = True) -> bool:
-    plan, unclassified, stale = build_plan(doc)
+# ─────────────────────────────────────────────────────────────────────────
+# GAP 2 — external build-tool dependency check.
+#
+# A replica that only checks COMMAND equivalence (does the same shell text
+# run locally and in CI) can never catch "you depend on a binary the CI
+# runner doesn't have" — the exact class of epistemic-graph's sccache/mold
+# break: that build host has both installed, so the failing command
+# SUCCEEDS there. This check parses .cargo/config.toml (if present — most
+# Python repos, including this one today, have none) for anything that
+# makes a cargo invocation hard-depend on an external binary and verifies
+# the binary is mentioned SOMEWHERE in the workflow YAML that would run
+# cargo — in practice, an explicit install step. Deliberately not
+# special-cased to any one tool name.
+# ─────────────────────────────────────────────────────────────────────────
+
+_TOML_SECTION_RE = re.compile(r"^\[(?P<name>[^\]]+)\]\s*$")
+_TOML_KV_RE = re.compile(r"^(?P<key>[A-Za-z0-9_.'\"-]+)\s*=\s*(?P<value>.+?)\s*$")
+_FUSE_LD_RE = re.compile(r"-fuse-ld=([A-Za-z0-9_.+-]+)")
+_C_LINKER_RE = re.compile(r"-C\s*linker=([^\s\"']+)")
+
+
+def _parse_cargo_config_sections(text: str) -> list[tuple[str, str, str]]:
+    """Deliberately narrow, non-general TOML reader: yields
+    (section, key, raw_value) for every `key = value` line found, tagged
+    with the `[section]` header it falls under (empty string before the
+    first header). NOT a full TOML parser — cargo config files are a
+    narrow, well-known dialect (flat key=value under bracketed sections)
+    and this only needs to find a handful of well-known keys, not
+    round-trip arbitrary TOML. A `#`-comment is stripped outside of a
+    multi-line array; a `rustflags = [\\n  "...",\\n]` array is reassembled
+    onto one logical line via a bracket-depth counter before matching."""
+    section = ""
+    results: list[tuple[str, str, str]] = []
+    pending_key: str | None = None
+    pending_value = ""
+    depth = 0
+    for raw_line in text.splitlines():
+        if depth == 0:
+            line = raw_line.split("#", 1)[0]
+            stripped = line.strip()
+            m = _TOML_SECTION_RE.match(stripped)
+            if m:
+                section = m.group("name").strip("'\" ")
+                continue
+            if not stripped:
+                continue
+            kv = _TOML_KV_RE.match(stripped)
+            if not kv:
+                continue
+            key, value = kv.group("key"), kv.group("value")
+            depth += value.count("[") - value.count("]")
+            if depth > 0:
+                pending_key, pending_value = key, value
+                continue
+            results.append((section, key.strip("'\""), value))
+        else:
+            stripped = raw_line.split("#", 1)[0].strip()
+            pending_value += " " + stripped
+            depth += stripped.count("[") - stripped.count("]")
+            if depth <= 0:
+                results.append(
+                    (section, (pending_key or "").strip("'\""), pending_value)
+                )
+                pending_key, pending_value, depth = None, "", 0
+    return results
+
+
+def find_required_build_binaries(cargo_config_path: Path) -> list[tuple[str, str]]:
+    """Scan .cargo/config.toml for external binaries the build hard-depends
+    on. Returns (binary_name, human-readable source description) pairs.
+    Returns [] if the file does not exist — most repos have no
+    .cargo/config.toml at all (this one included, today), which is not a
+    finding, just nothing to check."""
+    if not cargo_config_path.is_file():
+        return []
+    text = cargo_config_path.read_text(encoding="utf-8")
+    found: list[tuple[str, str]] = []
+    for section, key, raw_value in _parse_cargo_config_sections(text):
+        value = raw_value.strip()
+        if key == "rustc-wrapper" and section in ("build", ""):
+            name = value.strip("'\"")
+            if name:
+                found.append((name, f"[{section or 'build'}] rustc-wrapper"))
+        if key.upper() == "RUSTC_WRAPPER" and section == "env":
+            m = re.search(r"[\"']([^\"']+)[\"']", value)
+            if m:
+                found.append((m.group(1), "[env] RUSTC_WRAPPER"))
+        if key == "linker" and section.startswith("target."):
+            name = value.strip("'\"")
+            if name:
+                found.append((Path(name).name, f"[{section}] linker"))
+        if key == "runner" and section.startswith("target."):
+            tokens = value.strip("'\"").split()
+            if tokens:
+                found.append((Path(tokens[0]).name, f"[{section}] runner"))
+        if key == "rustflags" and section.startswith("target."):
+            for m in _FUSE_LD_RE.finditer(value):
+                found.append((m.group(1), f"[{section}] rustflags -fuse-ld"))
+            for m in _C_LINKER_RE.finditer(value):
+                found.append(
+                    (Path(m.group(1)).name, f"[{section}] rustflags -C linker")
+                )
+    return found
+
+
+def _binary_referenced_in_workflow(binary: str, workflow_text: str) -> bool:
+    """True if `binary` appears anywhere in a workflow file's raw YAML text
+    — in practice this means an explicit install step (`apt-get install
+    <bin>`, a `<bin>-action` marketplace action, `cargo install <bin>`,
+    etc.). Deliberately a broad substring-on-word-boundary match rather
+    than trying to parse every possible install-step shape: if a build tool
+    never appears in a workflow's text AT ALL, nothing in that workflow
+    ever installs it, full stop."""
+    return re.search(rf"\b{re.escape(binary)}\b", workflow_text) is not None
+
+
+def check_build_tool_dependencies(
+    cargo_config_path: Path, workflow_texts: dict[str, str]
+) -> list[str]:
+    """Returns a list of human-readable problems (empty = clean). Each
+    problem names the missing binary, where the .cargo/config.toml
+    dependency comes from, and which workflow file(s) run cargo but never
+    mention the binary anywhere in their YAML."""
+    binaries = find_required_build_binaries(cargo_config_path)
+    if not binaries:
+        return []
+    problems = []
+    for binary, source in binaries:
+        missing_in = sorted(
+            wf
+            for wf, text in workflow_texts.items()
+            if re.search(r"\bcargo\b", text)
+            and not _binary_referenced_in_workflow(binary, text)
+        )
+        if missing_in:
+            try:
+                display_path = cargo_config_path.relative_to(REPO_ROOT)
+            except ValueError:
+                display_path = cargo_config_path
+            problems.append(
+                f"'{binary}' (required by {source} in {display_path}) is never "
+                f"installed or otherwise referenced in: {', '.join(missing_in)}. cargo hard-errors "
+                f"(does not soft-fall-back) if a configured rustc-wrapper/linker/runner binary is "
+                f"not on PATH — add an explicit install step to those workflow(s), or remove the "
+                f"{source} setting."
+            )
+    return problems
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# GAP 3 — is skipping the replica safe for a given diff?
+# ─────────────────────────────────────────────────────────────────────────
+
+
+def _pattern_matches(relpath: str, pattern: str) -> bool:
+    """Match one BUILD_AFFECTING_FILE_PATTERNS entry against a repo-relative
+    path. A small, deliberately restricted glob dialect:
+      - "DIR/**"  -> path is DIR itself or nested under DIR/
+      - "**/X"    -> the "**/" prefix is stripped; X is then matched against
+                     either the full relative path or just its basename, so
+                     it applies at any depth
+      - otherwise -> matched against the full relative path OR the
+                     basename via fnmatch, so "requirements*.txt" matches
+                     both requirements.txt and requirements-dev.txt
+                     anywhere in the tree
+    fnmatch's `*` already matches across `/` (it has no path-separator
+    awareness), so this needs no manual recursive-descent matching once
+    "**/" is stripped."""
+    relpath = relpath.replace(os.sep, "/")
+    if pattern.endswith("/**"):
+        root = pattern[:-3]
+        return relpath == root or relpath.startswith(root + "/")
+    if pattern.startswith("**/"):
+        pattern = pattern[3:]
+    basename = posixpath.basename(relpath)
+    return fnmatch.fnmatch(relpath, pattern) or fnmatch.fnmatch(basename, pattern)
+
+
+def is_build_affecting(path: str) -> bool:
+    return any(_pattern_matches(path, p) for p in BUILD_AFFECTING_FILE_PATTERNS)
+
+
+def build_affecting_files(paths: list[str]) -> list[str]:
+    return [p for p in paths if is_build_affecting(p)]
+
+
+def diff_touches_build_affecting_files(
+    base_ref: str, repo_root: Path = REPO_ROOT
+) -> tuple[bool, list[str]]:
+    """(is_it_safe_to_skip, matched_paths). Compares the working tree
+    (including staged and unstaged changes) against base_ref. Safe to skip
+    means the diff touches NONE of BUILD_AFFECTING_FILE_PATTERNS."""
+    out = subprocess.run(
+        ["git", "diff", "--name-only", base_ref],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    changed = [line.strip() for line in out.splitlines() if line.strip()]
+    hits = build_affecting_files(changed)
+    return (len(hits) == 0, hits)
+
+
+def consistency_check(
+    *,
+    verbose: bool = True,
+    workflows_dir: Path = WORKFLOWS_DIR,
+    workflow_docs: dict[str, dict] | None = None,
+    cargo_config_path: Path | None = None,
+    workflow_texts: dict[str, str] | None = None,
+) -> bool:
+    if cargo_config_path is None:
+        cargo_config_path = CARGO_CONFIG_PATH
     ok = True
-    if unclassified:
+
+    found_files = {p.name for p in discover_workflow_files(workflows_dir)}
+    registered = set(WORKFLOW_REGISTRY)
+    unregistered = sorted(found_files - registered)
+    stale_registrations = sorted(registered - found_files)
+
+    if unregistered:
         ok = False
         if verbose:
             print(
-                "CONSISTENCY CHECK FAILED — release.yml has job(s) this replica does not classify:"
+                "CONSISTENCY CHECK FAILED — workflow file(s) present but not in WORKFLOW_REGISTRY:"
             )
-            for j in unclassified:
-                print(f"  - {j!r} is in neither EXECUTABLE_JOBS nor JOB_SKIP_REASONS")
+            for f in unregistered:
+                print(f"  - {f!r}")
             print(
-                "Update scripts/ci_gate_replica.py's EXECUTABLE_JOBS/JOB_SKIP_REASONS to cover it."
+                "Add a WorkflowSpec entry for it in scripts/ci_gate_replica.py's WORKFLOW_REGISTRY."
             )
-    if stale:
+    if stale_registrations:
         ok = False
         if verbose:
             print(
-                "CONSISTENCY CHECK FAILED — configured job(s) no longer exist in release.yml (stale config):"
+                "CONSISTENCY CHECK FAILED — WORKFLOW_REGISTRY names workflow file(s) that no longer exist:"
             )
-            for j in stale:
-                print(f"  - {j!r}")
-            print("Remove the stale entry from EXECUTABLE_JOBS/JOB_SKIP_REASONS.")
+            for f in stale_registrations:
+                print(f"  - {f!r}")
+            print("Remove the stale entry from WORKFLOW_REGISTRY.")
+
+    total_jobs = 0
+    total_steps = 0
+    for fname, spec in WORKFLOW_REGISTRY.items():
+        if workflow_docs is not None and fname in workflow_docs:
+            doc = workflow_docs[fname]
+        else:
+            path = workflows_dir / fname
+            if not path.is_file():
+                continue  # already reported above as a stale registration
+            doc = load_workflow(path)
+
+        plan, unclassified, stale_jobs = build_plan_for_workflow(spec, doc)
+        total_jobs += len(doc.get("jobs", {}) or {})
+        total_steps += len(plan)
+
+        if unclassified:
+            ok = False
+            if verbose:
+                print(
+                    f"CONSISTENCY CHECK FAILED — {fname} has job(s) this replica does not classify:"
+                )
+                for j in unclassified:
+                    print(
+                        f"  - {j!r} is in neither executable_jobs nor job_skip_reasons for {fname}"
+                    )
+                print(f"Update WORKFLOW_REGISTRY[{fname!r}] to cover it.")
+        if stale_jobs:
+            ok = False
+            if verbose:
+                print(
+                    f"CONSISTENCY CHECK FAILED — WORKFLOW_REGISTRY[{fname!r}] names job(s) no longer in {fname}:"
+                )
+                for j in stale_jobs:
+                    print(f"  - {j!r}")
+                print(f"Remove the stale entry from WORKFLOW_REGISTRY[{fname!r}].")
+
+    # GAP 2, folded into the same fast, pure, every-commit check.
+    if workflow_texts is None:
+        workflow_texts = {
+            fname: (workflows_dir / fname).read_text(encoding="utf-8")
+            for fname in WORKFLOW_REGISTRY
+            if (workflows_dir / fname).is_file()
+        }
+    build_tool_problems = check_build_tool_dependencies(
+        cargo_config_path, workflow_texts
+    )
+    if build_tool_problems:
+        ok = False
+        if verbose:
+            print(
+                "CONSISTENCY CHECK FAILED — a build-config external-binary dependency "
+                "is never installed by the workflow(s) that would need it:"
+            )
+            for p in build_tool_problems:
+                print(f"  - {p}")
+
     if ok and verbose:
-        all_jobs = doc.get("jobs", {}) or {}
         print(
-            f"CONSISTENCY CHECK PASSED — {len(all_jobs)} job(s) in release.yml, all classified "
-            f"({len(EXECUTABLE_JOBS)} executable: {sorted(EXECUTABLE_JOBS)}; "
-            f"{len(JOB_SKIP_REASONS)} explicitly skip-reasoned: {sorted(JOB_SKIP_REASONS)}); "
-            f"{len(plan)} step(s) total."
+            f"CONSISTENCY CHECK PASSED — {len(WORKFLOW_REGISTRY)} workflow(s) registered "
+            f"({sorted(WORKFLOW_REGISTRY)}), {total_jobs} job(s), all classified, "
+            f"{total_steps} step(s) total across all matrix legs; no unresolved build-tool "
+            f"dependency found."
         )
     return ok
 
@@ -336,10 +816,10 @@ def _job_base_env(doc: dict, job_id: str) -> dict:
 
 def _local_hygiene() -> None:
     """Remove stale glob-ambiguous artifacts from a PREVIOUS local run of
-    this script. NOT a release.yml step — CI starts every job from a fresh
+    this script. NOT a workflow step — CI starts every job from a fresh
     checkout, so this only exists to give a repeated local run the same
     "exactly one matching wheel" property the real workflow gets for free.
-    Printed loudly so it is never mistaken for a release.yml step."""
+    Printed loudly so it is never mistaken for a workflow step."""
     import shutil
 
     removed = []
@@ -349,7 +829,7 @@ def _local_hygiene() -> None:
             shutil.rmtree(p, ignore_errors=True)
             removed.append(pattern)
     if removed:
-        print(f"[local-only hygiene, NOT a release.yml step] removed stale: {removed}")
+        print(f"[local-only hygiene, NOT a workflow step] removed stale: {removed}")
 
 
 def main() -> int:
@@ -363,15 +843,35 @@ def main() -> int:
         "--dry-run", action="store_true", help="print the execution plan; run nothing"
     )
     ap.add_argument(
-        "--workflow",
+        "--skip-safe",
+        nargs="?",
+        const="HEAD",
+        metavar="BASE_REF",
+        help="print whether skipping this gate is safe for the diff vs BASE_REF (default HEAD); exit 0 if safe, 1 if not",
+    )
+    ap.add_argument(
+        "--workflows-dir",
         type=Path,
-        default=DEFAULT_WORKFLOW_PATH,
-        help="override the workflow path (testing)",
+        default=WORKFLOWS_DIR,
+        help="override the workflows directory (testing)",
     )
     args = ap.parse_args()
 
-    doc = load_workflow(args.workflow)
-    ok = consistency_check(doc)
+    if args.skip_safe is not None:
+        safe, hits = diff_touches_build_affecting_files(args.skip_safe)
+        if safe:
+            print(
+                f"SKIP-SAFE: no build-affecting files changed vs {args.skip_safe!r}; skipping ci-gate-replica is safe."
+            )
+            return 0
+        print(
+            f"NOT SKIP-SAFE: build-affecting file(s) changed vs {args.skip_safe!r}; do NOT skip ci-gate-replica:"
+        )
+        for h in hits:
+            print(f"  - {h}")
+        return 1
+
+    ok = consistency_check(workflows_dir=args.workflows_dir)
 
     if args.consistency_check:
         return 0 if ok else 1
@@ -385,65 +885,87 @@ def main() -> int:
         )
         return 1
 
-    plan, _, _ = build_plan(doc)
+    all_plan: list[dict] = []
+    docs: dict[str, dict] = {}
+    for fname, spec in WORKFLOW_REGISTRY.items():
+        path = args.workflows_dir / fname
+        if not path.is_file():
+            continue
+        doc = load_workflow(path)
+        docs[fname] = doc
+        plan, _, _ = build_plan_for_workflow(spec, doc)
+        all_plan.extend(plan)
 
     if not args.dry_run:
         _local_hygiene()
 
-    job_envs = {
-        job_id: _job_base_env(doc, job_id)
-        for job_id in EXECUTABLE_JOBS
-        if job_id in doc.get("jobs", {})
-    }
+    job_envs: dict[tuple[str, str], dict] = {}
+
+    def env_for(item: dict) -> dict:
+        base_job_id = item["job"].split("#", 1)[0]
+        key = (item["workflow"], item["job"])
+        if key not in job_envs:
+            job_envs[key] = _job_base_env(docs[item["workflow"]], base_job_id)
+        return job_envs[key]
 
     print(
         f"=== ci_gate_replica.py START {datetime.datetime.now(datetime.UTC).isoformat()} nproc={os.cpu_count()} ==="
     )
 
-    results: list[tuple[str, str, object, float]] = []
-    for item in plan:
-        job_id, name, mode, detail = (
-            item["job"],
-            item["name"],
-            item["mode"],
-            item["detail"],
-        )
+    results: list[dict] = []
+    for item in all_plan:
+        mode = item["mode"]
         if mode == "RUN":
             if args.dry_run:
-                print(f"[DRY-RUN] would RUN [{job_id}] {name}")
-                results.append((job_id, name, "DRY_RUN", 0.0))
+                print(
+                    f"[DRY-RUN] would RUN [{item['workflow']}:{item['job']}] {item['name']}"
+                )
+                results.append({**item, "status": "DRY_RUN", "elapsed": 0.0})
                 continue
-            print(f"\n############### STEP [{job_id}] {name} ###############")
-            status, elapsed = _run_step(detail, job_envs[job_id])
             print(
-                f"### STEP_RESULT job={job_id} name={name!r} exit={status} secs={elapsed:.1f}"
+                f"\n############### STEP [{item['workflow']}:{item['job']}] {item['name']} ###############"
             )
-            results.append((job_id, name, status, elapsed))
+            status, elapsed = _run_step(item["detail"], env_for(item))
+            print(
+                f"### STEP_RESULT job={item['job']} name={item['name']!r} exit={status} secs={elapsed:.1f}"
+            )
+            results.append({**item, "status": status, "elapsed": elapsed})
         elif mode == "ENV_SETUP":
-            results.append((job_id, name, "ENV_SETUP", 0.0))
+            results.append({**item, "status": "ENV_SETUP", "elapsed": 0.0})
         elif mode == "ARTIFACT_IO":
-            results.append((job_id, name, "ARTIFACT_IO", 0.0))
+            results.append({**item, "status": "ARTIFACT_IO", "elapsed": 0.0})
         else:
             print(
-                f"\n### NOT VALIDATED LOCALLY [{job_id}] {name}\n    reason: {detail}"
+                f"\n### NOT VALIDATED LOCALLY [{item['workflow']}:{item['job']}] {item['name']}\n    reason: {item['detail']}"
             )
-            results.append((job_id, name, "NOT_VALIDATED_LOCALLY", 0.0))
+            results.append({**item, "status": "NOT_VALIDATED_LOCALLY", "elapsed": 0.0})
 
     print("\n################ SUMMARY ################")
-    fail = False
-    for job_id, name, status, elapsed in results:
+    blocking_fail = False
+    advisory_fail = False
+    for r in results:
+        status = r["status"]
+        label = f"{r['workflow']}:{r['job']}"
         print(
-            f"{job_id:22s} {name[:64]:64s} status={str(status):22s} secs={elapsed:8.1f}"
+            f"{label:36s} {r['name'][:56]:56s} status={str(status):22s} secs={r['elapsed']:8.1f}"
         )
-        if isinstance(status, str) and status not in NON_BLOCKING_STATUSES:
-            fail = True
-        elif isinstance(status, int) and status != 0:
-            fail = True
-    print(f"OVERALL_FAIL={'1' if fail else '0'}")
+        bad = (isinstance(status, str) and status not in NON_BLOCKING_STATUSES) or (
+            isinstance(status, int) and status != 0
+        )
+        if bad:
+            if r["blocking"]:
+                blocking_fail = True
+            else:
+                advisory_fail = True
+    print(f"BLOCKING_FAIL={'1' if blocking_fail else '0'}")
+    print(
+        f"ADVISORY_FAIL={'1' if advisory_fail else '0'} (never fails the pre-push gate — reported loudly only)"
+    )
+    print(f"OVERALL_FAIL={'1' if blocking_fail else '0'}")
     print(
         f"=== SENTINEL_COMPLETE {datetime.datetime.now(datetime.UTC).isoformat()} ==="
     )
-    return 1 if fail else 0
+    return 1 if blocking_fail else 0
 
 
 if __name__ == "__main__":
