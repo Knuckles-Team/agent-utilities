@@ -68,8 +68,10 @@ class VideoSidecarResult:
 
 def _shot_bounds(shot: dict[str, Any]) -> tuple[int, int] | None:
     try:
-        start_ms = int(shot.get("start_ms"))
-        end_ms = int(shot.get("end_ms"))
+        start_raw: Any = shot.get("start_ms")
+        end_raw: Any = shot.get("end_ms")
+        start_ms = int(start_raw)
+        end_ms = int(end_raw)
     except (TypeError, ValueError):
         return None
     if start_ms < 0 or end_ms <= start_ms:
@@ -79,8 +81,10 @@ def _shot_bounds(shot: dict[str, Any]) -> tuple[int, int] | None:
 
 def _frame_bounds(keyframe: dict[str, Any]) -> tuple[int, int] | None:
     try:
-        start_frame = int(keyframe.get("start_frame", keyframe.get("frame_number")))
-        end_frame = int(keyframe.get("end_frame", keyframe.get("frame_number")))
+        start_raw: Any = keyframe.get("start_frame", keyframe.get("frame_number"))
+        end_raw: Any = keyframe.get("end_frame", keyframe.get("frame_number"))
+        start_frame = int(start_raw)
+        end_frame = int(end_raw)
     except (TypeError, ValueError):
         return None
     if start_frame <= 0 or end_frame < start_frame:

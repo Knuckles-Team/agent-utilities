@@ -42,10 +42,21 @@ def _rel(props: Any) -> str:
     return ""
 
 
-_READ_FAILED = object()  # sentinel: distinguishes "edge read failed" from "no edges"
+class _ReadFailed:
+    """Sentinel type: distinguishes "edge read failed" from "no edges".
+
+    A distinct type rather than a bare ``object()`` so the ``list[str] | _ReadFailed``
+    union is narrowable -- a bare sentinel collapses the union to ``object`` and makes
+    the post-check iteration untypeable.
+    """
+
+    __slots__ = ()
 
 
-def _out_targets(engine: Any, node_id: str, edge_type: str) -> list[str] | object:
+_READ_FAILED = _ReadFailed()
+
+
+def _out_targets(engine: Any, node_id: str, edge_type: str) -> list[str] | _ReadFailed:
     """The targets of ``node_id``'s outgoing ``edge_type`` edges.
 
     Returns :data:`_READ_FAILED` (never an empty list) when the read itself
@@ -106,7 +117,7 @@ def localized_repair_region(
         while frontier:
             cur = frontier.pop()
             targets = _out_targets(engine, cur, edge_type)
-            if targets is _READ_FAILED:
+            if isinstance(targets, _ReadFailed):
                 degraded = True
                 continue
             for nxt in targets:

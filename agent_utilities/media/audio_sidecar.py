@@ -60,8 +60,10 @@ class AudioSidecarResult:
 
 def _segment_bounds(segment: dict[str, Any]) -> tuple[int, int] | None:
     try:
-        start_ms = int(segment.get("start_ms"))
-        end_ms = int(segment.get("end_ms"))
+        start_raw: Any = segment.get("start_ms")
+        end_raw: Any = segment.get("end_ms")
+        start_ms = int(start_raw)
+        end_ms = int(end_raw)
     except (TypeError, ValueError):
         return None
     if start_ms < 0 or end_ms <= start_ms:

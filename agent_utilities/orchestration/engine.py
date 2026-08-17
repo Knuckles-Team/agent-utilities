@@ -907,10 +907,59 @@ class AgentOrchestrationEngine:
                 result.tool_calls = list(state.tool_calls)
             return result.model_dump()
 
+        # Guard: graph.run() returned bare ``None`` instead of an End[GraphResponse] or a
+        # node-label string. This is the decision-node "no results" termination —
+        # ``dispatcher_step`` returns ``None`` when the plan is complete but both
+        # ``results_registry`` and ``exploration_notes`` are empty (its own "Plan completed
+        # but NO execution results found in registry" case, `_router_impl.py`), and
+        # ``dispatcher_route``'s ``type(None)`` branch sends that straight to ``g.end_node``
+        # with no payload. pydantic-graph then returns ``End(data=None)``, which unwraps to
+        # ``result is None`` above — NOT a string, so it must be caught here, before the
+        # catch-all at the bottom of this function, which used to stringify it into
+        # ``results.output == "None"`` under ``status="completed"``. That reported a turn
+        # where NO specialist/verifier/synthesizer node — and therefore no model — ever ran
+        # as an ordinary successful reply whose answer happened to be the four characters
+        # "None". Per this repo's fail-closed doctrine (AGENTS.md "Fail closed — a degraded
+        # read must never grant permission": make failure a distinct value, never an empty
+        # success), report it as a genuine, honest failure instead.
+        if result is None:
+            logger.error(
+                "run_graph: graph terminated with no output — a decision branch routed "
+                "directly to the end node with no End[GraphResponse] payload, so no "
+                "specialist/verifier/synthesizer node (and no model) ever ran. "
+                "Registry keys: %s",
+                list(state.results_registry.keys()),
+            )
+            return GraphResponse(
+                status="failed",
+                error=(
+                    "The orchestration graph completed without invoking any specialist "
+                    "or model for this turn — no answer was generated."
+                ),
+                results={
+                    "output": (
+                        "I couldn't produce a response for this turn: the orchestration "
+                        "graph ended before any model ran. Please try again."
+                    )
+                },
+                mermaid=mermaid_prefix if mermaid_prefix else None,
+                metadata={
+                    "run_id": run_id,
+                    "domain": state.routed_domain,
+                    "degraded": True,
+                    "outcome": "empty_graph_termination",
+                    "execution_mode": "pydantic_graph",
+                },
+                tool_calls=list(getattr(state, "tool_calls", []) or []),
+                execution_evidence=graph_evidence.evidence(state=state),
+            ).model_dump()
+
         # Guard: graph.run() returned a plain string (node label) instead of GraphResponse.
-        # This happens when the graph exits without hitting End[GraphResponse] — e.g. when
-        # dispatcher returns None with an empty results_registry. Extract the best available
-        # result from state before wrapping.
+        # This happens when the graph exits without hitting End[GraphResponse] via some other
+        # decision branch whose matched node has no further outgoing edge (the ``None``
+        # termination above is the one documented case of this; this guard is the general
+        # fallback for any other stray string result). Extract the best available result
+        # from state before wrapping.
         if isinstance(result, str):
             logger.error(
                 f"run_graph: graph.run() returned node label '{result}' instead of GraphResponse. "
