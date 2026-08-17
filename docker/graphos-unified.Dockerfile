@@ -106,9 +106,9 @@ ENV UV_SYSTEM_PYTHON=1 \
 #    back at it with `--find-links` so a re-resolution of `epistemic-graph[full]>=2.23.2`
 #    lands on THIS staged artifact rather than walking off to PyPI (which tops out at
 #    2.23.0, below the floor). It is removed after step 2 instead.
-COPY build-artifacts/eg-wheel/epistemic_graph-2.23.2-py3-none-linux_x86_64.whl /tmp/wheels/
+COPY build-artifacts/eg-wheel/epistemic_graph-2.26.1-py3-none-linux_x86_64.whl /tmp/wheels/
 RUN uv pip install --system --break-system-packages \
-        "/tmp/wheels/epistemic_graph-2.23.2-py3-none-linux_x86_64.whl[full]"
+        "/tmp/wheels/epistemic_graph-2.26.1-py3-none-linux_x86_64.whl[full]"
 
 # 2) au itself — EDITABLE install from the local worktree source (the "editable-source
 #    install model": a deployer can still bind-mount fresher source over
