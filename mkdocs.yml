@@ -106,6 +106,7 @@ nav:
       - Repository-development WorkItem authority: architecture/repository-workitem-authority.md
       - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
       - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
+      - FrontendContribution.v1 (package-authored WebUI descriptors): architecture/frontend-contributions.md
       - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md
       - Enterprise Trust — Epistemic Audit & Compliance: guides/epistemic-audit-compliance.md
       - Workspace Manifest (workspace.yml): guides/workspace-config.md
