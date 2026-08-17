@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1196
+total_concepts: 1202
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1621,6 +1621,13 @@ concepts:
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/protocol_compat.py
   doc: closes D-OB-18
+- id: AU-ECO.mcp.remote-oauth-broker
+  name: AU-ECO.mcp.remote-oauth-broker
+  pillar: AU-ECO
+  status: live
+  code_paths:
+  - agent_utilities/mcp/remote_oauth_broker.py
+  doc: AU-ECO.mcp.remote-oauth-broker
 - id: AU-ECO.mcp.shared-multiplexer-singleton
   name: GOC-60-W03/W04b
   pillar: AU-ECO
@@ -2358,6 +2365,22 @@ concepts:
   - agent_utilities/orchestration/agent_runner.py
   - agent_utilities/orchestration/manager.py
   doc: AU-KG.audit.tool-call-acted-on-reverse-index
+- id: AU-KG.audit.trace-id-assigned-at-emission
+  name: AU-KG.audit.trace-id-assigned-at-emission
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/harness/trace_backend.py
+  - agent_utilities/observability/trace_ontology.py
+  doc: AU-KG.audit.trace-id-assigned-at-emission
+- id: AU-KG.audit.trace-retention-legal-hold
+  name: pruned RunTrace/ToolCall/
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/maintainer.py
+  - agent_utilities/observability/trace_ontology.py
+  doc: pruned RunTrace/ToolCall/
 - id: AU-KG.backend.age-postgresql-tier
   name: the durable PostgreSQL graph tier executed via a bounded regex
   pillar: AU-KG
@@ -4263,10 +4286,12 @@ concepts:
   - agent_utilities/knowledge_graph/etl/lineage.py
   - agent_utilities/mcp/tools/media_sidecar_tools.py
   - agent_utilities/media/__init__.py
+  - agent_utilities/media/audio_sidecar.py
   - agent_utilities/media/image_sidecar.py
   - agent_utilities/media/pdf_sidecar.py
   - agent_utilities/media/sidecar_contract.py
   - agent_utilities/media/sidecar_delegate.py
+  - agent_utilities/media/video_sidecar.py
   doc: CAS blob-ref input, fail-closed capability manifest, PROV-O governance
 - id: AU-KG.ingest.mine-git-history-files
   name: mine git history for files that change together
@@ -7209,6 +7234,13 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: gate the claim through the
+- id: AU-ORCH.dispatch.workitem-command-log
+  name: AU-ORCH.dispatch.workitem-command-log
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/work_item_command.py
+  doc: AU-ORCH.dispatch.workitem-command-log
 - id: AU-ORCH.dispatch.workitem-consent-gate
   name: a WorkItem is bound only to
   pillar: AU-ORCH
@@ -7881,6 +7913,13 @@ concepts:
   - agent_utilities/graph/executor.py
   - agent_utilities/models/sdd.py
   doc: Visibility allow-list of upstream step ids whose results
+- id: AU-ORCH.execution.workflow-dag-validation
+  name: AU-ORCH.execution.workflow-dag-validation
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/workflows/runner.py
+  doc: AU-ORCH.execution.workflow-dag-validation
 - id: AU-ORCH.execution.workflow-engine-wiring
   name: wires the EXISTING
   pillar: AU-ORCH
@@ -8641,6 +8680,13 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: external connector delta syncs
+- id: AU-ORCH.scheduling.distributed-capacity-fair-scheduling
+  name: AU-ORCH.scheduling.distributed-capacity-fair-scheduling
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/capacity_leases.py
+  doc: AU-ORCH.scheduling.distributed-capacity-fair-scheduling
 - id: AU-ORCH.scheduling.hard-io-deadline
   name: the fleet MCP tool-schema probe
   pillar: AU-ORCH
