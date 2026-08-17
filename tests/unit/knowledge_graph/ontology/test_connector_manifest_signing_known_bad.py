@@ -48,6 +48,7 @@ from agent_utilities.knowledge_graph.ontology.manifest_compiler import (
 from agent_utilities.knowledge_graph.ontology.ontology_integrity import (
     DEFAULT_SIGNER_ID,
     ReleaseSigner,
+    ReleaseSigningError,
     canonical_hash,
     canonical_manifest_hash,
     dependency_lock_digest,
@@ -375,3 +376,50 @@ def test_dependency_lock_digest_is_stable_and_sensitive_to_real_drift(
     )
     drifted = dependency_lock_digest(lock)
     assert drifted != first
+
+
+def test_dependency_lock_digest_accepts_editable_workspace_members_without_a_version(
+    tmp_path: Path,
+) -> None:
+    """BUG-234 re-verification regression: this repo's OWN ``uv.lock`` has exactly
+    this shape (``agent-utilities`` and its ``epistemic-graph`` workspace sibling
+    are ``source = { editable = "..." }`` with no ``version`` key — legitimate uv
+    schema for a workspace-local package, not a corrupt lock) and, before this fix,
+    :func:`dependency_lock_digest` raised :class:`ReleaseSigningError` unconditionally
+    the moment it was exercised against the real lock — an additional real blocker
+    on top of the operator-held signing key BUG-234 otherwise names.
+    """
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        '[[package]]\nname = "widget"\nversion = "1.0.0"\n\n'
+        '[[package]]\nname = "agent-utilities"\nsource = { editable = "." }\n',
+        encoding="utf-8",
+    )
+    digest = dependency_lock_digest(lock)
+    assert len(digest) == 64
+
+    # Still sensitive to a genuine change in which editable member is present.
+    lock.write_text(
+        '[[package]]\nname = "widget"\nversion = "1.0.0"\n\n'
+        '[[package]]\nname = "agent-utilities"\n'
+        'source = { editable = ".uv-workspace-siblings/agent-utilities" }\n',
+        encoding="utf-8",
+    )
+    moved = dependency_lock_digest(lock)
+    assert moved != digest
+
+
+def test_dependency_lock_digest_still_fails_closed_on_a_genuinely_missing_version(
+    tmp_path: Path,
+) -> None:
+    """The editable-package carve-out must not become a blanket "version optional"
+    rule: a registry-sourced (or source-less) package with no version is still a
+    genuinely invalid lock entry and must still raise.
+    """
+    lock = tmp_path / "uv.lock"
+    lock.write_text(
+        '[[package]]\nname = "widget"\nsource = { registry = "https://pypi.org/simple" }\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ReleaseSigningError):
+        dependency_lock_digest(lock)
