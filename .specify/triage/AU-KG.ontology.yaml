@@ -1,9 +1,10 @@
 domain: AU-KG.ontology
-generated_at: '2026-08-01T18:04:24+00:00'
+generated_at: '2026-08-17T01:46:40+00:00'
 generator: scripts/concept_domain_triage.py
-how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | keep. `parent` needs
-  `parent:` + `rationale:`; `retire` needs `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run)
-  and `apply --write`.'
+how_to_use: 'Set `decision` on each concept to one of: document | parent | retire | rename | keep. `parent`
+  needs `parent:` + `rationale:`; `retire` needs `reason:`; `rename` needs `rename_to:` (a valid id whose
+  domain IS in the closed vocab) + `reason:`; `keep` needs `reason:`. Then run `apply` (dry-run) and `apply
+  --write`.'
 clusters:
   AU-KG.ontology.a2a-card-generation:
   - AU-KG.ontology.a2a-card-generation
@@ -17,9 +18,6 @@ clusters:
   AU-KG.ontology.anti-sprawl-gate:
   - AU-KG.ontology.anti-sprawl-gate
   - AU-KG.ontology.package-owned-ontology
-  AU-KG.ontology.capability-node-aliases-lexical:
-  - AU-KG.ontology.capability-node-aliases-lexical
-  - AU-KG.ontology.connector-manifest-gate
   AU-KG.ontology.catalogue-browse:
   - AU-KG.ontology.catalogue-browse
   - AU-KG.ontology.conformance-check
@@ -40,6 +38,10 @@ clusters:
   - AU-KG.ontology.stardog-catalog-import
   - AU-KG.ontology.stardog-catalog-overwrite
   - AU-KG.ontology.value-type-shacl-load
+  AU-KG.ontology.classification-claim-multi-category:
+  - AU-KG.ontology.classification-claim-multi-category
+  - AU-KG.ontology.classification-claim-promotion-lifecycle
+  - AU-KG.ontology.cross-source-identity-proposal
   AU-KG.ontology.competency-query-regression:
   - AU-KG.ontology.competency-query-regression
   - AU-KG.ontology.negative-results-queryable
@@ -75,36 +77,41 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - scripts/generate_connector_capability_bundles.py
       - scripts/generate_connector_manifests.py
       test_files:
       - tests/unit/scripts/test_a2a_card_generation.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-d1-a2a-card-generation/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-d1-a2a-card-generation/design.md:3
+      - .specify/design/kgo-d1-a2a-card-generation/design.md:31
       - scripts/generate_connector_capability_bundles.py:404
       - scripts/generate_connector_manifests.py:133
       - scripts/generate_connector_manifests.py:170
       - scripts/generate_connector_manifests.py:283
       - scripts/generate_connector_manifests.py:295
-      - scripts/generate_connector_manifests.py:851
+      - scripts/generate_connector_manifests.py:854
       - tests/unit/scripts/test_a2a_card_generation.py:2
   AU-KG.ontology.activation-fails-closed:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.activation-icv-fallback
     suggestion_why: 'clusters with 4 sibling(s) around AU-KG.ontology.activation-icv-fallback; shares
@@ -117,6 +124,7 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/lifecycle.py
       test_files:
       - tests/unit/knowledge_graph/ontology/test_lifecycle_retract.py
+      - tests/unit/mcp/test_ontology_catalogue_live_path.py
       doc_files:
       - .specify/design/ontology-governed-evolution/design.md
       introduced: '00089171 2026-07-30 feat(kg): unblock ontology activation + govern ontology change
@@ -134,13 +142,15 @@ concepts:
       truncated_marker: ''
       sites:
       - .specify/design/ontology-governed-evolution/design.md:10
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:607
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:682
       - tests/unit/knowledge_graph/ontology/test_lifecycle_retract.py:92
+      - tests/unit/mcp/test_ontology_catalogue_live_path.py:215
   AU-KG.ontology.activation-icv-fallback:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 5-concept cluster — the siblings are proposed as pointers at this one,
@@ -170,24 +180,26 @@ concepts:
       sites:
       - .specify/design/ontology-governed-evolution/design.md:11
       - agent_utilities/knowledge_graph/ontology/lifecycle.py:15
-      - pyproject.toml:336
-      - pyproject.toml:401
+      - pyproject.toml:377
+      - pyproject.toml:446
   AU-KG.ontology.anti-sprawl-gate:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - scripts/check_ontology.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-d1-anti-sprawl-gate/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.authoritative-tbox
@@ -246,19 +258,21 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-d1-anti-sprawl-gate/design.md:3
       - scripts/check_ontology.py:4
   AU-KG.ontology.authoritative-tbox:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 10 marker site(s))'
+      file(s), 11 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/core/config.py
       - agent_utilities/knowledge_graph/core/engine_tasks.py
@@ -267,6 +281,7 @@ concepts:
       - tests/unit/core/test_config.py
       - tests/unit/test_fuseki_publish_tick.py
       doc_files:
+      - .specify/design/kgo-e1-authoritative-tbox-fuseki/design.md
       - docs/architecture/configuration.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -326,14 +341,15 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/config.py:3684
-      - agent_utilities/core/config.py:3698
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:2532
+      - .specify/design/kgo-e1-authoritative-tbox-fuseki/design.md:3
+      - agent_utilities/core/config.py:3858
+      - agent_utilities/core/config.py:3872
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:2926
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:16
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:447
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:499
-      - docs/architecture/configuration.md:315
-      - tests/unit/core/test_config.py:845
+      - docs/architecture/configuration.md:318
+      - tests/unit/core/test_config.py:843
       - tests/unit/test_fuseki_publish_tick.py:1
       - tests/unit/test_fuseki_publish_tick.py:65
   AU-KG.ontology.batch-actions-executor:
@@ -341,13 +357,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
-      file(s), 24 marker site(s))'
+      file(s), 26 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/actions/builtins.py
       - agent_utilities/knowledge_graph/actions/dispatch.py
@@ -359,6 +376,7 @@ concepts:
       - tests/unit/knowledge_graph/test_enterprise_ontology_imports.py
       - tests/unit/knowledge_graph/test_fleet_writeback.py
       doc_files:
+      - .specify/design/kgo-e1-ontology-action-system/design.md
       - docs/pillars/2_epistemic_knowledge_graph.md
       - docs/pillars/2_epistemic_knowledge_graph/KG-2.59-MCP_Tool_Source_Connector.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -419,6 +437,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-ontology-action-system/design.md:4
+      - .specify/design/kgo-e1-ontology-action-system/design.md:40
       - agent_utilities/knowledge_graph/actions/builtins.py:131
       - agent_utilities/knowledge_graph/actions/dispatch.py:4
       - agent_utilities/knowledge_graph/actions/dispatch.py:44
@@ -448,6 +468,7 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (7 source
@@ -527,19 +548,19 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/facade.py:81
-      - agent_utilities/knowledge_graph/facade.py:277
-      - agent_utilities/knowledge_graph/facade.py:303
+      - agent_utilities/knowledge_graph/facade.py:82
+      - agent_utilities/knowledge_graph/facade.py:278
+      - agent_utilities/knowledge_graph/facade.py:304
       - agent_utilities/knowledge_graph/ontology/__init__.py:329
       - agent_utilities/knowledge_graph/ontology/indexing/__init__.py:4
       - agent_utilities/knowledge_graph/ontology/indexing/funnel.py:4
       - agent_utilities/knowledge_graph/ontology/indexing/funnel.py:676
       - agent_utilities/knowledge_graph/ontology/indexing/staleness.py:4
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23454
-      - agent_utilities/mcp/tools/ontology_tools.py:1892
-      - docs/capabilities-power.json:23454
-      - docs/capabilities-power.md:109
-      - docs/capabilities-power.md:4106
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25283
+      - agent_utilities/mcp/tools/ontology_tools.py:1969
+      - docs/capabilities-power.json:25283
+      - docs/capabilities-power.md:115
+      - docs/capabilities-power.md:4409
       - docs/pillars/2_epistemic_knowledge_graph.md:116
       - tests/ontology/test_indexing.py:4
   AU-KG.ontology.capability-card-backfill-lane:
@@ -547,13 +568,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 14 marker site(s))'
+      file(s), 15 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/core/schedule_engine.py
       - agent_utilities/knowledge_graph/core/engine_tasks.py
@@ -562,7 +584,8 @@ concepts:
       - tests/unit/core/test_background_throttle.py
       - tests/unit/core/test_schedule_engine.py
       - tests/unit/knowledge_graph/test_worker_scheduler.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-capability-card-backfill-lane/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -621,16 +644,17 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/core/schedule_engine.py:243
-      - agent_utilities/core/schedule_engine.py:399
-      - agent_utilities/core/schedule_engine.py:442
-      - agent_utilities/core/schedule_engine.py:469
-      - agent_utilities/core/schedule_engine.py:605
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:491
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:1214
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:1336
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4245
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4315
+      - .specify/design/kgo-e1-capability-card-backfill-lane/design.md:3
+      - agent_utilities/core/schedule_engine.py:248
+      - agent_utilities/core/schedule_engine.py:404
+      - agent_utilities/core/schedule_engine.py:447
+      - agent_utilities/core/schedule_engine.py:474
+      - agent_utilities/core/schedule_engine.py:610
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:631
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1551
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:1673
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4794
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:4864
       - agent_utilities/knowledge_graph/core/task_lanes.py:106
       - tests/unit/core/test_background_throttle.py:279
       - tests/unit/core/test_schedule_engine.py:188
@@ -640,10 +664,11 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
-    suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
-      so this is the decision that has to be written down
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
+      file(s), 8 marker site(s))'
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -713,10 +738,10 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/engine.py:538
+      - agent_utilities/knowledge_graph/core/engine.py:621
       - agent_utilities/knowledge_graph/core/source_sync.py:218
       - agent_utilities/knowledge_graph/core/source_sync.py:323
-      - agent_utilities/knowledge_graph/core/source_sync.py:771
+      - agent_utilities/knowledge_graph/core/source_sync.py:792
       - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:93
       - docs/architecture/ontology-native-classification.md:3
       - tests/unit/knowledge_graph/core/test_fleet_capabilities.py:1
@@ -726,14 +751,15 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/gateway/ontology_api.py, agent_utilities/knowledge_graph/retrieval/capabilities-power.json,
+      agent_utilities/mcp/tools/ontology_tools.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/ontology/lifecycle.py
@@ -741,6 +767,7 @@ concepts:
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files: []
       doc_files:
+      - .specify/design/kgo-cat-arbitrary-catalogue/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: '11e37e06 2026-07-20 feat(kg): ontology import/export REST twins + catalogue browse
@@ -749,18 +776,69 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-arbitrary-catalogue/design.md:4
+      - .specify/design/kgo-cat-arbitrary-catalogue/design.md:35
       - agent_utilities/gateway/ontology_api.py:325
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:571
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:663
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:17844
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:646
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:739
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:19535
       - agent_utilities/mcp/tools/ontology_tools.py:577
-      - docs/capabilities-power.json:17844
-      - docs/capabilities-power.md:3058
+      - docs/capabilities-power.json:19535
+      - docs/capabilities-power.md:3345
+  AU-KG.ontology.classification-claim-multi-category:
+    decision: document
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/ontology/classification_claims.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ontology/classification_claims.py:3
+  AU-KG.ontology.classification-claim-promotion-lifecycle:
+    decision: parent
+    parent: AU-KG.ontology.classification-claim-multi-category
+    rationale: same cluster head document (kgo-classification-claim-multi-category)
+      covers the promotion FSM as Decision 3 — one design, three markers on the
+      same module.
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ontology.classification-claim-multi-category
+    suggestion_why: clusters with 2 sibling(s) around AU-KG.ontology.classification-claim-multi-category;
+      shares agent_utilities/knowledge_graph/ontology/classification_claims.py
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/ontology/classification_claims.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ontology/classification_claims.py:4
   AU-KG.ontology.competency-query-regression:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 3-concept cluster — the siblings are proposed as pointers at this one,
@@ -794,14 +872,16 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/gateway/ontology_api.py, agent_utilities/knowledge_graph/ontology/__init__.py, agent_utilities/knowledge_graph/retrieval/capabilities-power.json;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/ontology/__init__.py
@@ -815,6 +895,7 @@ concepts:
       - tests/ontology/test_interfaces.py
       - tests/ontology/test_ontology_live_path.py
       doc_files:
+      - .specify/design/kgo-cat-interface-conformance/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       - docs/pillars/2_epistemic_knowledge_graph.md
@@ -876,6 +957,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-interface-conformance/design.md:3
       - agent_utilities/gateway/ontology_api.py:89
       - agent_utilities/knowledge_graph/ontology/__init__.py:15
       - agent_utilities/knowledge_graph/ontology/interfaces.py:6
@@ -897,12 +979,12 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/interfaces.py:1191
       - agent_utilities/knowledge_graph/ontology/interfaces.py:1203
       - agent_utilities/knowledge_graph/ontology/object_set.py:592
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24369
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26198
       - agent_utilities/knowledge_graph/standardization/standards.py:8
       - agent_utilities/mcp/tools/ontology_tools.py:210
-      - agent_utilities/mcp/tools/state_tools.py:1258
-      - docs/capabilities-power.json:24369
-      - docs/capabilities-power.md:4295
+      - agent_utilities/mcp/tools/state_tools.py:1260
+      - docs/capabilities-power.json:26198
+      - docs/capabilities-power.md:4598
       - docs/pillars/2_epistemic_knowledge_graph.md:102
       - tests/ontology/test_interfaces.py:4
       - tests/ontology/test_ontology_live_path.py:19
@@ -911,14 +993,15 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('# skill-workflow PROPOSALS (CONCEPT·AU-KG.ontology.connector-agnostic-proposal/2.83).
       Conn') — the id itself reads like a real name, so the marker text needs cleaning either way; decide
       whether the concept survives that cleanup
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       - agent_utilities/knowledge_graph/distillation/skill_synthesizer.py
@@ -929,6 +1012,7 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/test_skill_synthesizer.py
       doc_files:
+      - .specify/design/kgo-e1-governance-process-normalization/design.md
       - docs/architecture/knowledge_distillation_skill_graphs.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -989,16 +1073,17 @@ concepts:
       truncated_marker: '# skill-workflow PROPOSALS (CONCEPT·AU-KG.ontology.connector-agnostic-proposal/2.83).
         Connector-agnostic over'
       sites:
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:349
+      - .specify/design/kgo-e1-governance-process-normalization/design.md:3
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:374
       - agent_utilities/knowledge_graph/distillation/skill_synthesizer.py:3
       - agent_utilities/knowledge_graph/distillation/skill_synthesizer.py:195
       - agent_utilities/knowledge_graph/governance_import.py:3
       - agent_utilities/knowledge_graph/governance_import.py:90
       - agent_utilities/knowledge_graph/governance_import.py:487
       - agent_utilities/knowledge_graph/ontology/ops_causal_crosswalk.py:228
-      - agent_utilities/knowledge_graph/research/loop_controller.py:464
-      - agent_utilities/knowledge_graph/research/loop_controller.py:2174
-      - agent_utilities/models/knowledge_graph.py:492
+      - agent_utilities/knowledge_graph/research/loop_controller.py:468
+      - agent_utilities/knowledge_graph/research/loop_controller.py:2178
+      - agent_utilities/models/knowledge_graph.py:494
       - docs/architecture/knowledge_distillation_skill_graphs.md:4
       - docs/architecture/knowledge_distillation_skill_graphs.md:141
       - tests/unit/knowledge_graph/test_skill_synthesizer.py:1
@@ -1007,18 +1092,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/manifest_compiler.py
       - agent_utilities/knowledge_graph/ontology_native_source_connector.ttl
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-c1-connector-manifest-compiler/design.md
       introduced: 'a8b9965e 2026-07-09 feat(ontology): connector-manifest compiler + supply-chain integrity
         (C5 + X6)'
       cohort:
@@ -1026,6 +1113,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-c1-connector-manifest-compiler/design.md:3
       - agent_utilities/knowledge_graph/ontology/manifest_compiler.py:1
       - agent_utilities/knowledge_graph/ontology/manifest_compiler.py:121
       - agent_utilities/knowledge_graph/ontology/manifest_compiler.py:129
@@ -1036,22 +1124,24 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: parent
-    suggested_parent: AU-KG.ontology.capability-node-aliases-lexical
-    suggestion_why: clusters with 1 sibling(s) around AU-KG.ontology.capability-node-aliases-lexical;
-      shares agent_utilities/knowledge_graph/core/source_sync.py, agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py;
-      the candidate parent already has a design document
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
+      file(s), 10 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/source_sync.py
       - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
+      - agent_utilities/knowledge_graph/ontology/ontology_integrity.py
       - scripts/check_connector_manifests.py
       - scripts/inject_ontology_integrity_hook.py
       test_files:
       - tests/unit/knowledge_graph/ontology/test_connector_manifest_gate.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-d1-connector-manifest-gate/design.md
       introduced: 'bc17a19e 2026-07-09 feat(ontology): C5 fleet rollout — D15 lock, D16 hub-crosswalk
         residue, D17 sync gate'
       cohort:
@@ -1059,56 +1149,67 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/source_sync.py:1342
-      - agent_utilities/knowledge_graph/core/source_sync.py:4560
+      - .specify/design/kgo-d1-connector-manifest-gate/design.md:3
+      - agent_utilities/knowledge_graph/core/source_sync.py:1363
+      - agent_utilities/knowledge_graph/core/source_sync.py:4601
       - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:11
       - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:716
+      - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py:798
+      - agent_utilities/knowledge_graph/ontology/ontology_integrity.py:299
       - scripts/check_connector_manifests.py:2
       - scripts/inject_ontology_integrity_hook.py:5
-      - tests/unit/knowledge_graph/ontology/test_connector_manifest_gate.py:475
+      - tests/unit/knowledge_graph/ontology/test_connector_manifest_gate.py:561
   AU-KG.ontology.connector-manifest-generator:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.a2a-card-generation
-    suggestion_why: clusters with 1 sibling(s) around AU-KG.ontology.a2a-card-generation; shares scripts/generate_connector_manifests.py
+    suggestion_why: clusters with 1 sibling(s) around AU-KG.ontology.a2a-card-generation; shares scripts/generate_connector_manifests.py;
+      the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - scripts/generate_connector_manifests.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-d1-a2a-card-generation/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-d1-a2a-card-generation/design.md:4
+      - .specify/design/kgo-d1-a2a-card-generation/design.md:10
       - scripts/generate_connector_manifests.py:2
   AU-KG.ontology.connector-manifest-schema:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 4 marker site(s))'
+      file(s), 5 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/connector_manifest.py
       test_files:
       - tests/unit/knowledge_graph/ontology/test_connector_manifest.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-connector-manifest-schema/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-connector-manifest-schema/design.md:3
       - agent_utilities/knowledge_graph/ontology/connector_manifest.py:1
       - agent_utilities/knowledge_graph/ontology/connector_manifest.py:28
       - agent_utilities/knowledge_graph/ontology/connector_manifest.py:66
@@ -1118,17 +1219,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 2 marker site(s))'
+      file(s), 4 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/interfaces.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-governance-process-normalization/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -1187,19 +1290,46 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-governance-process-normalization/design.md:4
+      - .specify/design/kgo-e1-governance-process-normalization/design.md:56
       - agent_utilities/knowledge_graph/ontology/interfaces.py:894
       - agent_utilities/knowledge_graph/ontology/interfaces.py:1145
+  AU-KG.ontology.cross-source-identity-proposal:
+    decision: parent
+    parent: AU-KG.ontology.classification-claim-multi-category
+    rationale: same cluster head document (kgo-classification-claim-multi-category)
+      covers cross-source identity as Decision 4 — one design, three markers on
+      the same module.
+    reason: ''
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ontology.classification-claim-multi-category
+    suggestion_why: clusters with 2 sibling(s) around AU-KG.ontology.classification-claim-multi-category;
+      shares agent_utilities/knowledge_graph/ontology/classification_claims.py
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/ontology/classification_claims.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ontology/classification_claims.py:5
   AU-KG.ontology.dedicated-tbox-graph:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: 'clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/knowledge_graph/ontology/evolution.py, agent_utilities/knowledge_graph/retrieval/capabilities-power.json,
-      agent_utilities/mcp/tools/ontology_tools.py; both introduced by 00089171 (feat(kg): unblock ontology
-      activation + govern ontology chan); the candidate parent already has a design document'
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
+      the candidate parent already has a design document
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -1231,30 +1361,30 @@ concepts:
       - .specify/design/ontology-governed-evolution/design.md:13
       - agent_utilities/knowledge_graph/ontology/evolution.py:323
       - agent_utilities/knowledge_graph/ontology/lifecycle.py:19
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:70
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:304
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:374
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18045
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18189
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:72
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:306
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:376
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:19787
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:19931
       - agent_utilities/mcp/tools/ontology_tools.py:598
       - agent_utilities/mcp/tools/ontology_tools.py:685
-      - docs/capabilities-power.json:18045
-      - docs/capabilities-power.json:18189
-      - docs/capabilities-power.md:3099
+      - docs/capabilities-power.json:19787
+      - docs/capabilities-power.json:19931
+      - docs/capabilities-power.md:3394
       - tests/unit/knowledge_graph/ontology/test_lifecycle_retract.py:141
   AU-KG.ontology.default-runtime-bound-import:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 19-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/ontology/__init__.py
@@ -1268,6 +1398,7 @@ concepts:
       test_files:
       - tests/ontology/test_functions.py
       doc_files:
+      - .specify/design/kgo-cat-functions-on-objects/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       - docs/pillars/2_epistemic_knowledge_graph.md
@@ -1329,6 +1460,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-functions-on-objects/design.md:3
       - agent_utilities/gateway/ontology_api.py:416
       - agent_utilities/knowledge_graph/ontology/__init__.py:20
       - agent_utilities/knowledge_graph/ontology/functions/__init__.py:4
@@ -1342,11 +1474,11 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/functions/runtime.py:55
       - agent_utilities/knowledge_graph/ontology/functions/runtime.py:99
       - agent_utilities/knowledge_graph/ontology/functions/runtime.py:249
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24217
-      - agent_utilities/mcp/tools/ontology_tools.py:1483
-      - agent_utilities/mcp/tools/state_tools.py:1260
-      - docs/capabilities-power.json:24217
-      - docs/capabilities-power.md:4261
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26046
+      - agent_utilities/mcp/tools/ontology_tools.py:1560
+      - agent_utilities/mcp/tools/state_tools.py:1262
+      - docs/capabilities-power.json:26046
+      - docs/capabilities-power.md:4564
       - docs/pillars/2_epistemic_knowledge_graph.md:109
       - tests/ontology/test_functions.py:1
   AU-KG.ontology.deprecation-workflow:
@@ -1354,6 +1486,7 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.activation-icv-fallback
     suggestion_why: clusters with 4 sibling(s) around AU-KG.ontology.activation-icv-fallback; shares agent_utilities/knowledge_graph/ontology/lifecycle.py;
@@ -1365,29 +1498,31 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/lifecycle.py
       test_files: []
       doc_files:
+      - .specify/design/kgo-cat-arbitrary-catalogue/design.md
       - .specify/design/ontology-governed-evolution/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-arbitrary-catalogue/design.md:49
       - .specify/design/ontology-governed-evolution/design.md:14
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:670
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:919
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:746
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:999
   AU-KG.ontology.derived-compatibility-band:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
-    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 6 marker site(s))'
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
+      file(s), 5 marker site(s))'
     evidence:
       has_design_doc: true
       in_baseline: false
       source_files:
-      - .bumpversion.cfg
       - agent_utilities/knowledge_graph/integrations/connector_source_attestation.py
       - scripts/check_version_consistency.py
       test_files:
@@ -1403,7 +1538,6 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - .bumpversion.cfg:60
       - .specify/design/drift-proof-release/design.md:12
       - agent_utilities/knowledge_graph/integrations/connector_source_attestation.py:7
       - scripts/check_version_consistency.py:21
@@ -1414,14 +1548,16 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/knowledge_graph/ontology/__init__.py, agent_utilities/knowledge_graph/retrieval/capabilities-power.json,
+      agent_utilities/mcp/tools/ontology_tools.py; both introduced by c5f21018 (OKF-CIS atomic cutover
+      on agent-utilities (AU-OS.governance.); the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/__init__.py
       - agent_utilities/knowledge_graph/ontology/derived_properties.py
@@ -1431,6 +1567,7 @@ concepts:
       test_files:
       - tests/ontology/test_derived_properties.py
       doc_files:
+      - .specify/design/kgo-cat-derived-properties/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       - docs/pillars/2_epistemic_knowledge_graph.md
@@ -1492,6 +1629,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-derived-properties/design.md:3
       - agent_utilities/knowledge_graph/ontology/__init__.py:22
       - agent_utilities/knowledge_graph/ontology/derived_properties.py:4
       - agent_utilities/knowledge_graph/ontology/derived_properties.py:68
@@ -1501,11 +1639,11 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/derived_properties.py:324
       - agent_utilities/knowledge_graph/ontology/derived_properties.py:384
       - agent_utilities/knowledge_graph/ontology/derived_properties.py:766
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24034
-      - agent_utilities/mcp/tools/ontology_tools.py:1538
-      - agent_utilities/mcp/tools/state_tools.py:1261
-      - docs/capabilities-power.json:24034
-      - docs/capabilities-power.md:4224
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25863
+      - agent_utilities/mcp/tools/ontology_tools.py:1615
+      - agent_utilities/mcp/tools/state_tools.py:1263
+      - docs/capabilities-power.json:25863
+      - docs/capabilities-power.md:4527
       - docs/pillars/2_epistemic_knowledge_graph.md:107
       - tests/ontology/test_derived_properties.py:4
   AU-KG.ontology.descriptive-process-world-gains:
@@ -1513,13 +1651,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (5 source
-      file(s), 11 marker site(s))'
+      file(s), 12 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       - agent_utilities/knowledge_graph/enrichment/extractors/aris.py
@@ -1529,6 +1668,7 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/enrichment/test_camunda_extractor.py
       doc_files:
+      - .specify/design/kgo-e1-aris-epc-step-lift/design.md
       - docs/architecture/camunda_aris_kg_integration.md
       - docs/examples/ontology-to-workflow.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -1589,7 +1729,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:508
+      - .specify/design/kgo-e1-aris-epc-step-lift/design.md:3
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:533
       - agent_utilities/knowledge_graph/enrichment/extractors/aris.py:13
       - agent_utilities/knowledge_graph/enrichment/extractors/aris.py:265
       - agent_utilities/knowledge_graph/enrichment/extractors/camunda.py:16
@@ -1599,18 +1740,19 @@ concepts:
       - docs/architecture/camunda_aris_kg_integration.md:13
       - docs/examples/ontology-to-workflow.md:5
       - examples/ontology_workflow/lift_sample_process.py:15
-      - tests/unit/knowledge_graph/enrichment/test_camunda_extractor.py:132
+      - tests/unit/knowledge_graph/enrichment/test_camunda_extractor.py:130
   AU-KG.ontology.do-not-auto-merge:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: retire
     suggested_parent: ''
     suggestion_why: the id reads as a slugified prose fragment (do-not-auto-merge)
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/extraction/schema_discovery.py
       - agent_utilities/knowledge_graph/ontology/evolution.py
@@ -1621,6 +1763,9 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/test_schema_discovery.py
       doc_files:
+      - .specify/design/kgo-cat-no-auto-merge/design.md
+      - .specify/design/kgo-d1-import-export-rest/design.md
+      - .specify/design/kgo-e1-governance-process-normalization/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -1681,33 +1826,38 @@ concepts:
       artifact_id: reads as a slugified prose fragment (do-not-auto-merge)
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-no-auto-merge/design.md:3
+      - .specify/design/kgo-cat-no-auto-merge/design.md:35
+      - .specify/design/kgo-d1-import-export-rest/design.md:39
+      - .specify/design/kgo-e1-governance-process-normalization/design.md:26
       - agent_utilities/knowledge_graph/extraction/schema_discovery.py:1
       - agent_utilities/knowledge_graph/extraction/schema_discovery.py:226
       - agent_utilities/knowledge_graph/extraction/schema_discovery.py:297
       - agent_utilities/knowledge_graph/ontology/evolution.py:16
       - agent_utilities/knowledge_graph/ontology/evolution.py:457
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24089
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24125
-      - agent_utilities/mcp/tools/ontology_tools.py:1546
-      - agent_utilities/orchestration/action_policy.py:214
-      - deploy/action-policy.default.yml:137
-      - docs/capabilities-power.json:24089
-      - docs/capabilities-power.json:24125
-      - docs/capabilities-power.md:4243
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25918
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25954
+      - agent_utilities/mcp/tools/ontology_tools.py:1623
+      - agent_utilities/orchestration/action_policy.py:222
+      - deploy/action-policy.default.yml:144
+      - docs/capabilities-power.json:25918
+      - docs/capabilities-power.json:25954
+      - docs/capabilities-power.md:4546
       - tests/unit/knowledge_graph/test_schema_discovery.py:1
   AU-KG.ontology.edit-ledger-writeback:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: 'the marker text is truncated by the grammar (''# ── Objects: read + edit history
       (CONCEPT·AU-KG.ontology.edit-ledger-writeback/2.45) ────'') — the id itself reads like a real name,
       so the marker text needs cleaning either way; decide whether the concept survives that cleanup'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/core/owl_bridge.py
@@ -1721,6 +1871,8 @@ concepts:
       test_files:
       - tests/ontology/test_edits.py
       doc_files:
+      - .specify/design/kgo-cat-edit-ledger/design.md
+      - .specify/design/kgo-e1-ontology-action-system/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       - docs/pillars/2_epistemic_knowledge_graph.md
@@ -1783,10 +1935,13 @@ concepts:
       truncated_marker: '# ── Objects: read + edit history (CONCEPT·AU-KG.ontology.edit-ledger-writeback/2.45)
         ──────────────────────'
       sites:
+      - .specify/design/kgo-cat-edit-ledger/design.md:3
+      - .specify/design/kgo-cat-edit-ledger/design.md:11
+      - .specify/design/kgo-e1-ontology-action-system/design.md:62
       - agent_utilities/gateway/ontology_api.py:437
       - agent_utilities/gateway/ontology_api.py:452
       - agent_utilities/gateway/ontology_api.py:463
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:339
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:364
       - agent_utilities/knowledge_graph/ontology/__init__.py:325
       - agent_utilities/knowledge_graph/ontology/__init__.py:472
       - agent_utilities/knowledge_graph/ontology/__init__.py:496
@@ -1800,13 +1955,13 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/edits/writeback.py:14
       - agent_utilities/knowledge_graph/ontology/edits/writeback.py:70
       - agent_utilities/knowledge_graph/ontology/edits/writeback.py:122
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23232
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23423
-      - agent_utilities/mcp/tools/ontology_tools.py:1723
-      - docs/capabilities-power.json:23232
-      - docs/capabilities-power.json:23423
-      - docs/capabilities-power.md:108
-      - docs/capabilities-power.md:4065
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25061
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25252
+      - agent_utilities/mcp/tools/ontology_tools.py:1800
+      - docs/capabilities-power.json:25061
+      - docs/capabilities-power.json:25252
+      - docs/capabilities-power.md:114
+      - docs/capabilities-power.md:4368
       - docs/pillars/2_epistemic_knowledge_graph.md:114
       - tests/ontology/test_edits.py:4
   AU-KG.ontology.emits-database-ontology-entities:
@@ -1814,44 +1969,49 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 4 marker site(s))'
+      file(s), 5 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/pipeline/phases/parse.py
       - agent_utilities/models/knowledge_graph.py
       test_files:
       - tests/unit/test_sql_ddl_replay.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-sql-ddl-ontology/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/pipeline/phases/parse.py:54
-      - agent_utilities/knowledge_graph/pipeline/phases/parse.py:179
-      - agent_utilities/models/knowledge_graph.py:34
+      - .specify/design/kgo-e1-sql-ddl-ontology/design.md:3
+      - agent_utilities/knowledge_graph/pipeline/phases/parse.py:56
+      - agent_utilities/knowledge_graph/pipeline/phases/parse.py:181
+      - agent_utilities/models/knowledge_graph.py:36
       - tests/unit/test_sql_ddl_replay.py:3
   AU-KG.ontology.enterprise-governance-validation:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 2 marker site(s))'
+      file(s), 3 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/shacl_validator.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-shacl-governance-validation/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -1910,6 +2070,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-shacl-governance-validation/design.md:3
       - agent_utilities/knowledge_graph/core/shacl_validator.py:4
       - agent_utilities/knowledge_graph/core/shacl_validator.py:27
   AU-KG.ontology.enterprise-ontology-distribution:
@@ -1917,18 +2078,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/ontology_loader.py
       - agent_utilities/knowledge_graph/core/ontology_publisher.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-c1-enterprise-ontology-federation/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -1987,6 +2150,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-c1-enterprise-ontology-federation/design.md:3
+      - .specify/design/kgo-c1-enterprise-ontology-federation/design.md:10
       - agent_utilities/knowledge_graph/core/ontology_loader.py:4
       - agent_utilities/knowledge_graph/core/ontology_loader.py:98
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:4
@@ -1996,10 +2161,12 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: document
-    suggested_parent: ''
-    suggestion_why: the head of a 19-concept cluster — the siblings are proposed as pointers at this one,
-      so this is the decision that has to be written down
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
+      the candidate parent already has a design document
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -2032,12 +2199,12 @@ concepts:
       sites:
       - .specify/design/ontology-governed-evolution/design.md:15
       - agent_utilities/knowledge_graph/ontology/evolution.py:2
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:17844
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:19535
       - agent_utilities/mcp/tools/ontology_tools.py:586
-      - agent_utilities/orchestration/action_policy.py:206
-      - deploy/action-policy.default.yml:129
-      - docs/capabilities-power.json:17844
-      - docs/capabilities-power.md:3058
+      - agent_utilities/orchestration/action_policy.py:214
+      - deploy/action-policy.default.yml:136
+      - docs/capabilities-power.json:19535
+      - docs/capabilities-power.md:3345
       - tests/unit/knowledge_graph/ontology/test_evolution.py:1
       - tests/unit/mcp/test_ontology_proposal_live_path.py:2
   AU-KG.ontology.external-graph-profiling:
@@ -2045,17 +2212,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/connection_profiler.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-external-graph-profiling/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -2114,19 +2283,21 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-external-graph-profiling/design.md:3
       - agent_utilities/knowledge_graph/core/connection_profiler.py:1
   AU-KG.ontology.federation-provider-leg:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 7 marker site(s))'
+      file(s), 10 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
       - agent_utilities/knowledge_graph/core/ontology_federation.py
@@ -2134,6 +2305,7 @@ concepts:
       - scripts/scaffold_ontology_leg.py
       test_files: []
       doc_files:
+      - .specify/design/kgo-d1-package-federation-migration/design.md
       - docs/architecture/ontology_library.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
@@ -2193,11 +2365,14 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:342
+      - .specify/design/kgo-d1-package-federation-migration/design.md:4
+      - .specify/design/kgo-d1-package-federation-migration/design.md:8
+      - .specify/design/kgo-d1-package-federation-migration/design.md:36
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:364
       - agent_utilities/knowledge_graph/core/ontology_federation.py:2
       - agent_utilities/knowledge_graph/core/ontology_federation.py:141
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:468
-      - docs/architecture/ontology_library.md:101
+      - docs/architecture/ontology_library.md:102
       - scripts/scaffold_ontology_leg.py:4
       - scripts/scaffold_ontology_leg.py:60
   AU-KG.ontology.federation-resolution:
@@ -2205,18 +2380,21 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.enterprise-ontology-distribution
     suggestion_why: clusters with 1 sibling(s) around AU-KG.ontology.enterprise-ontology-distribution;
       shares agent_utilities/knowledge_graph/core/ontology_loader.py; both introduced by c5f21018 (OKF-CIS
-      atomic cutover on agent-utilities (AU-OS.governance.)
+      atomic cutover on agent-utilities (AU-OS.governance.); the candidate parent already has a design
+      document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/ontology_loader.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-c1-enterprise-ontology-federation/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -2275,6 +2453,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-c1-enterprise-ontology-federation/design.md:4
+      - .specify/design/kgo-c1-enterprise-ontology-federation/design.md:31
       - agent_utilities/knowledge_graph/core/ontology_loader.py:275
       - agent_utilities/knowledge_graph/core/ontology_loader.py:301
   AU-KG.ontology.federation-runtime:
@@ -2282,20 +2462,23 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
       agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
       - agent_utilities/mcp/kg_server.py
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files: []
       doc_files:
+      - .specify/design/kgo-cat-federation-runtime/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -2356,29 +2539,32 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:17844
-      - agent_utilities/mcp/kg_server.py:1288
-      - agent_utilities/mcp/kg_server.py:4116
+      - .specify/design/kgo-cat-federation-runtime/design.md:3
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:19535
+      - agent_utilities/mcp/kg_server.py:1404
+      - agent_utilities/mcp/kg_server.py:4444
       - agent_utilities/mcp/tools/ontology_tools.py:55
       - agent_utilities/mcp/tools/ontology_tools.py:591
-      - docs/capabilities-power.json:17844
-      - docs/capabilities-power.md:3058
+      - docs/capabilities-power.json:19535
+      - docs/capabilities-power.md:3345
   AU-KG.ontology.graph-integrity-validator:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 8 marker site(s))'
+      file(s), 9 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/security/graph_validator.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-tiered-graph-integrity/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -2437,6 +2623,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-tiered-graph-integrity/design.md:3
       - agent_utilities/knowledge_graph/security/graph_validator.py:4
       - agent_utilities/knowledge_graph/security/graph_validator.py:28
       - agent_utilities/knowledge_graph/security/graph_validator.py:158
@@ -2450,20 +2637,21 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: parent
-    suggested_parent: AU-KG.ontology.rdf-materialization
-    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.rdf-materialization; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
-      candidate parent already has a design document
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: the head of a 9-concept cluster — the siblings are proposed as pointers at this one,
+      so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/harness/harness_gate.py
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       test_files:
       - tests/unit/harness/test_harness_gate.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-har-harness-as-ontology/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -2522,31 +2710,34 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-har-harness-as-ontology/design.md:3
       - agent_utilities/harness/harness_gate.py:45
       - agent_utilities/harness/harness_gate.py:61
       - agent_utilities/harness/harness_gate.py:75
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:87
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:405
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:406
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:112
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:430
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:431
       - tests/unit/harness/test_harness_gate.py:74
   AU-KG.ontology.harness-ontology:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.rdf-materialization
-    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.rdf-materialization; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
+    suggested_parent: AU-KG.ontology.harness-gate
+    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.harness-gate; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
       both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
       candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       test_files:
       - tests/unit/knowledge_graph/test_harness_ontology.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-har-harness-as-ontology/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -2605,49 +2796,58 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:80
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:395
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:659
+      - .specify/design/kgo-har-harness-as-ontology/design.md:4
+      - .specify/design/kgo-har-harness-as-ontology/design.md:33
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:105
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:420
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:684
       - tests/unit/knowledge_graph/test_harness_ontology.py:1
   AU-KG.ontology.import-export-rest-surface:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.standalone-generation
-    suggestion_why: clusters with 1 sibling(s) around AU-KG.ontology.standalone-generation; shares agent_utilities/gateway/ontology_api.py
+    suggestion_why: clusters with 1 sibling(s) around AU-KG.ontology.standalone-generation; shares agent_utilities/gateway/ontology_api.py;
+      the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-d1-import-export-rest/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-d1-import-export-rest/design.md:3
+      - .specify/design/kgo-d1-import-export-rest/design.md:10
       - agent_utilities/gateway/ontology_api.py:249
   AU-KG.ontology.inference-profile-implementers:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 4 marker site(s))'
+      file(s), 5 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/interfaces.py
       - agent_utilities/models/knowledge_graph.py
       - agent_utilities/models/model_registry.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-inference-profile-implementers/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -2706,27 +2906,30 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-inference-profile-implementers/design.md:3
       - agent_utilities/knowledge_graph/ontology/interfaces.py:1043
       - agent_utilities/knowledge_graph/ontology/interfaces.py:1177
-      - agent_utilities/models/knowledge_graph.py:500
+      - agent_utilities/models/knowledge_graph.py:502
       - agent_utilities/models/model_registry.py:740
   AU-KG.ontology.kg-2:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: retire
     suggested_parent: ''
     suggestion_why: the id is a bare legacy pillar reference (kg-2) — a citation of the old KG-N.NN numbering,
       not a name anyone chose
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/research_objects.py
       test_files:
       - tests/unit/knowledge_graph/test_research_ontology.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-research-ontology-kg2/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -2786,6 +2989,7 @@ concepts:
         not a name anyone chose
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-research-ontology-kg2/design.md:3
       - agent_utilities/knowledge_graph/ontology/research_objects.py:4
       - agent_utilities/knowledge_graph/ontology/research_objects.py:18
       - agent_utilities/knowledge_graph/ontology/research_objects.py:42
@@ -2795,18 +2999,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: retire
     suggested_parent: ''
     suggestion_why: the id is a bare legacy pillar reference (kg-3) — a citation of the old KG-N.NN numbering,
       not a name anyone chose
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/etl/lineage.py
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-etl-lineage-kg3/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -2866,48 +3072,55 @@ concepts:
         not a name anyone chose
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-etl-lineage-kg3/design.md:3
       - agent_utilities/knowledge_graph/etl/lineage.py:5
-      - agent_utilities/mcp/tools/ontology_tools.py:1361
+      - agent_utilities/mcp/tools/ontology_tools.py:1438
   AU-KG.ontology.knowledge-packs:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/models/knowledge_pack.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-knowledge-packs/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-knowledge-packs/design.md:3
       - agent_utilities/models/knowledge_pack.py:6
   AU-KG.ontology.kyle-insider-stealth-surveillance:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.rdf-materialization
-    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.rdf-materialization; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
+    suggested_parent: AU-KG.ontology.harness-gate
+    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.harness-gate; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
       both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
       candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       - agent_utilities/knowledge_graph/ontology/finance_objects.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-governance-process-normalization/design.md
+      - .specify/design/kgo-har-kyle-surveillance/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -2966,7 +3179,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:345
+      - .specify/design/kgo-e1-governance-process-normalization/design.md:27
+      - .specify/design/kgo-har-kyle-surveillance/design.md:3
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:370
       - agent_utilities/knowledge_graph/ontology/finance_objects.py:4
       - agent_utilities/knowledge_graph/ontology/finance_objects.py:22
       - agent_utilities/knowledge_graph/ontology/finance_objects.py:46
@@ -2975,36 +3190,40 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
       which is usually a retirement but occasionally a real decision recorded only in prose
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files: []
       test_files: []
       doc_files:
+      - .specify/design/kgo-f1-ontology-school-curriculum/design.md
       - docs/learn/manifest.yaml
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-ontology-school-curriculum/design.md:3
       - docs/learn/manifest.yaml:1
   AU-KG.ontology.link-type-pivot:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: 'the marker text is truncated by the grammar (''"one_line": "Object Set Service (CONCEPT·AU-KG.ontology.link-type-pivot/2.38):
       search/filt'') — the id itself reads like a real name, so the marker text needs cleaning either
       way; decide whether the concept survives that cleanup'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/__init__.py
       - agent_utilities/knowledge_graph/ontology/object_set.py
@@ -3014,6 +3233,7 @@ concepts:
       - tests/ontology/test_object_set.py
       - tests/unit/knowledge_graph/test_object_set_type_alias.py
       doc_files:
+      - .specify/design/kgo-cat-object-set-service/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       - docs/pillars/2_epistemic_knowledge_graph.md
@@ -3077,6 +3297,7 @@ concepts:
         search/filter/search_around/pivot/aggregate and union/intersect/subtract over Foundry-style object
         sets. action=''path''",'
       sites:
+      - .specify/design/kgo-cat-object-set-service/design.md:3
       - agent_utilities/knowledge_graph/ontology/__init__.py:509
       - agent_utilities/knowledge_graph/ontology/object_set.py:6
       - agent_utilities/knowledge_graph/ontology/object_set.py:85
@@ -3097,13 +3318,13 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/object_set.py:1022
       - agent_utilities/knowledge_graph/ontology/object_set.py:1036
       - agent_utilities/knowledge_graph/ontology/object_set.py:1060
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23745
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24003
-      - agent_utilities/mcp/tools/ontology_tools.py:2037
-      - docs/capabilities-power.json:23745
-      - docs/capabilities-power.json:24003
-      - docs/capabilities-power.md:111
-      - docs/capabilities-power.md:4174
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25574
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25832
+      - agent_utilities/mcp/tools/ontology_tools.py:2114
+      - docs/capabilities-power.json:25574
+      - docs/capabilities-power.json:25832
+      - docs/capabilities-power.md:117
+      - docs/capabilities-power.md:4477
       - docs/pillars/2_epistemic_knowledge_graph.md:118
       - tests/ontology/test_object_set.py:1
       - tests/unit/knowledge_graph/test_object_set_type_alias.py:8
@@ -3112,14 +3333,16 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
       agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/lifecycle.py
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
@@ -3127,6 +3350,7 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/ontology/test_lifecycle.py
       doc_files:
+      - .specify/design/kgo-cat-arbitrary-catalogue/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -3187,21 +3411,24 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-arbitrary-catalogue/design.md:3
+      - .specify/design/kgo-cat-arbitrary-catalogue/design.md:13
       - agent_utilities/knowledge_graph/ontology/lifecycle.py:2
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:431
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:17844
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:18270
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:475
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:19535
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:20015
       - agent_utilities/mcp/tools/ontology_tools.py:570
-      - docs/capabilities-power.json:17844
-      - docs/capabilities-power.json:18270
-      - docs/capabilities-power.md:83
-      - docs/capabilities-power.md:3058
+      - docs/capabilities-power.json:19535
+      - docs/capabilities-power.json:20015
+      - docs/capabilities-power.md:89
+      - docs/capabilities-power.md:3345
       - tests/unit/knowledge_graph/ontology/test_lifecycle.py:1
   AU-KG.ontology.manage-arbitrary-273:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker exists only in prose/doc files — nothing in the shipped tree realises it,
@@ -3224,14 +3451,15 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/gateway/ontology_api.py, agent_utilities/knowledge_graph/retrieval/capabilities-power.json,
+      agent_utilities/mcp/tools/ontology_tools.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
@@ -3242,6 +3470,7 @@ concepts:
       test_files:
       - tests/unit/core/test_model_profile.py
       doc_files:
+      - .specify/design/kgo-cat-model-profile-resource/design.md
       - docs/architecture/model_registry_graph_resources.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
@@ -3251,23 +3480,25 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-model-profile-resource/design.md:3
       - agent_utilities/gateway/ontology_api.py:390
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24829
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26658
       - agent_utilities/mcp/tools/ontology_tools.py:478
-      - agent_utilities/models/knowledge_graph.py:80
-      - agent_utilities/models/knowledge_graph.py:1780
-      - agent_utilities/models/knowledge_graph.py:1859
+      - agent_utilities/models/knowledge_graph.py:82
+      - agent_utilities/models/knowledge_graph.py:1821
+      - agent_utilities/models/knowledge_graph.py:1900
       - agent_utilities/models/model_profile.py:3
       - agent_utilities/models/model_registry.py:786
       - docs/architecture/model_registry_graph_resources.md:2
-      - docs/capabilities-power.json:24829
-      - docs/capabilities-power.md:4400
+      - docs/capabilities-power.json:26658
+      - docs/capabilities-power.md:4703
       - tests/unit/core/test_model_profile.py:1
   AU-KG.ontology.negative-results-queryable:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.competency-query-regression
     suggestion_why: 'clusters with 2 sibling(s) around AU-KG.ontology.competency-query-regression; shares
@@ -3299,46 +3530,81 @@ concepts:
       - .specify/design/ontology-governed-evolution/design.md:16
       - agent_utilities/knowledge_graph/ontology/evolution.py:55
       - agent_utilities/knowledge_graph/ontology/evolution.py:608
-      - tests/unit/knowledge_graph/ontology/test_evolution.py:488
+      - tests/unit/knowledge_graph/ontology/test_evolution.py:497
+  AU-KG.ontology.node-type-casing-convergence:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 4 marker site(s))'
+    evidence:
+      has_design_doc: true
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/core/engine_tasks.py
+      test_files:
+      - tests/unit/knowledge_graph/core/test_control_plane_work_item_node_type_casing.py
+      doc_files:
+      - .specify/design/work-item-node-type-casing-convergence/design.md
+      introduced: '1007e428 2026-08-06 feat(kg): cross-process fleet prompt harvest + WorkItem node_type
+        casing convergence'
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - .specify/design/work-item-node-type-casing-convergence/design.md:3
+      - .specify/design/work-item-node-type-casing-convergence/design.md:30
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:977
+      - tests/unit/knowledge_graph/core/test_control_plane_work_item_node_type_casing.py:4
   AU-KG.ontology.object-path-finder:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/mcp/tools/ontology_tools.py; the candidate parent already has a design document
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/gateway/ontology_api.py, agent_utilities/mcp/tools/ontology_tools.py; the candidate
+      parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/ontology/object_path.py
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-cat-object-path-finder/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-object-path-finder/design.md:3
       - agent_utilities/gateway/ontology_api.py:473
       - agent_utilities/knowledge_graph/ontology/object_path.py:3
-      - agent_utilities/mcp/tools/ontology_tools.py:2037
+      - agent_utilities/mcp/tools/ontology_tools.py:2114
   AU-KG.ontology.one-source:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
       agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/etl/__init__.py
       - agent_utilities/knowledge_graph/etl/pipeline.py
@@ -3347,6 +3613,7 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/test_etl_lineage.py
       doc_files:
+      - .specify/design/kgo-cat-unified-etl/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -3407,26 +3674,28 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-unified-etl/design.md:3
       - agent_utilities/knowledge_graph/etl/__init__.py:2
       - agent_utilities/knowledge_graph/etl/pipeline.py:4
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:12544
-      - agent_utilities/mcp/tools/ontology_tools.py:1346
-      - docs/capabilities-power.json:12544
-      - docs/capabilities-power.md:59
-      - docs/capabilities-power.md:2077
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:13889
+      - agent_utilities/mcp/tools/ontology_tools.py:1423
+      - docs/capabilities-power.json:13889
+      - docs/capabilities-power.md:64
+      - docs/capabilities-power.md:2311
       - tests/unit/knowledge_graph/test_etl_lineage.py:1
   AU-KG.ontology.ontology-action-system:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (10 source
-      file(s), 18 marker site(s))'
+      file(s), 19 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/actions/__init__.py
       - agent_utilities/knowledge_graph/actions/builtins.py
@@ -3440,7 +3709,8 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/functions/runtime.py
       test_files:
       - tests/unit/knowledge_graph/test_ontology_actions.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-ontology-action-system/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -3499,6 +3769,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-ontology-action-system/design.md:3
       - agent_utilities/knowledge_graph/actions/__init__.py:4
       - agent_utilities/knowledge_graph/actions/__init__.py:76
       - agent_utilities/knowledge_graph/actions/builtins.py:4
@@ -3509,10 +3780,10 @@ concepts:
       - agent_utilities/knowledge_graph/actions/models.py:253
       - agent_utilities/knowledge_graph/actions/registry.py:4
       - agent_utilities/knowledge_graph/actions/registry.py:26
-      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:38
-      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:193
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:160
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:586
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:60
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:215
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:185
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:611
       - agent_utilities/knowledge_graph/core/shacl_validator.py:97
       - agent_utilities/knowledge_graph/ontology/functions/__init__.py:27
       - agent_utilities/knowledge_graph/ontology/functions/runtime.py:25
@@ -3522,17 +3793,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.activation-icv-fallback
     suggestion_why: clusters with 4 sibling(s) around AU-KG.ontology.activation-icv-fallback; shares agent_utilities/knowledge_graph/ontology/lifecycle.py;
       the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/lifecycle.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-c1-ontology-lifecycle-crud/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -3591,21 +3864,25 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:793
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:820
+      - .specify/design/kgo-c1-ontology-lifecycle-crud/design.md:3
+      - .specify/design/kgo-c1-ontology-lifecycle-crud/design.md:10
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:871
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:899
   AU-KG.ontology.ontology-property-types:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/gateway/ontology_api.py, agent_utilities/knowledge_graph/ontology/__init__.py, agent_utilities/knowledge_graph/retrieval/capabilities-power.json;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/ontology/__init__.py
@@ -3616,6 +3893,7 @@ concepts:
       test_files:
       - tests/ontology/test_property_types.py
       doc_files:
+      - .specify/design/kgo-cat-property-types/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       - docs/pillars/2_epistemic_knowledge_graph.md
@@ -3677,6 +3955,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-property-types/design.md:3
       - agent_utilities/gateway/ontology_api.py:69
       - agent_utilities/knowledge_graph/ontology/__init__.py:9
       - agent_utilities/knowledge_graph/ontology/property_types.py:6
@@ -3684,11 +3963,11 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/property_types.py:77
       - agent_utilities/knowledge_graph/ontology/property_types.py:444
       - agent_utilities/knowledge_graph/ontology/property_types.py:799
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24956
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26785
       - agent_utilities/mcp/tools/ontology_tools.py:112
-      - agent_utilities/mcp/tools/state_tools.py:1256
-      - docs/capabilities-power.json:24956
-      - docs/capabilities-power.md:4433
+      - agent_utilities/mcp/tools/state_tools.py:1258
+      - docs/capabilities-power.json:26785
+      - docs/capabilities-power.md:4736
       - docs/pillars/2_epistemic_knowledge_graph.md:122
       - tests/ontology/test_property_types.py:2
   AU-KG.ontology.ops-causal-crosswalk:
@@ -3696,6 +3975,7 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
@@ -3722,20 +4002,23 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
       agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/retrieval/capabilities-power.json
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files:
       - tests/unit/mcp/test_object_edits_compare_and_set.py
       doc_files:
+      - .specify/design/kgo-cat-edit-ledger/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -3796,15 +4079,17 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23335
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23388
-      - agent_utilities/mcp/tools/ontology_tools.py:1727
-      - agent_utilities/mcp/tools/ontology_tools.py:1765
-      - agent_utilities/mcp/tools/ontology_tools.py:1774
-      - agent_utilities/mcp/tools/ontology_tools.py:1819
-      - docs/capabilities-power.json:23335
-      - docs/capabilities-power.json:23388
-      - docs/capabilities-power.md:4092
+      - .specify/design/kgo-cat-edit-ledger/design.md:4
+      - .specify/design/kgo-cat-edit-ledger/design.md:27
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25164
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25217
+      - agent_utilities/mcp/tools/ontology_tools.py:1804
+      - agent_utilities/mcp/tools/ontology_tools.py:1842
+      - agent_utilities/mcp/tools/ontology_tools.py:1851
+      - agent_utilities/mcp/tools/ontology_tools.py:1896
+      - docs/capabilities-power.json:25164
+      - docs/capabilities-power.json:25217
+      - docs/capabilities-power.md:4395
       - tests/unit/mcp/test_object_edits_compare_and_set.py:1
       - tests/unit/mcp/test_object_edits_compare_and_set.py:76
   AU-KG.ontology.optional-populated-from:
@@ -3812,6 +4097,7 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: retire
     suggested_parent: ''
     suggestion_why: the id reads as a slugified prose fragment (optional-populated-from)
@@ -3891,18 +4177,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.rdf-materialization
-    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.rdf-materialization; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
+    suggested_parent: AU-KG.ontology.harness-gate
+    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.harness-gate; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
       both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
       candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-har-harness-as-ontology/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -3961,23 +4249,28 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:661
+      - .specify/design/kgo-har-harness-as-ontology/design.md:5
+      - .specify/design/kgo-har-harness-as-ontology/design.md:47
+      - .specify/design/kgo-har-harness-as-ontology/design.md:52
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:686
   AU-KG.ontology.owl-closure-native:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/maintenance/owl_closure.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-owl-closure-native/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -4036,24 +4329,27 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-owl-closure-native/design.md:3
       - agent_utilities/knowledge_graph/maintenance/owl_closure.py:103
   AU-KG.ontology.owl-durable-backfeed:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.rdf-materialization
-    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.rdf-materialization; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
+    suggested_parent: AU-KG.ontology.harness-gate
+    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.harness-gate; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
       both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
       candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-har-durable-backfeed/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -4112,29 +4408,32 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:324
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:592
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:601
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1156
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1286
+      - .specify/design/kgo-har-durable-backfeed/design.md:3
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:349
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:617
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:626
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1187
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1317
   AU-KG.ontology.owl-rdf-bridge:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.rdf-materialization
-    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.rdf-materialization; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
+    suggested_parent: AU-KG.ontology.harness-gate
+    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.harness-gate; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
       both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
       candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-har-pluggable-owl-backend/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -4193,28 +4492,31 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:151
-      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:275
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:306
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:570
+      - .specify/design/kgo-har-pluggable-owl-backend/design.md:3
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:173
+      - agent_utilities/knowledge_graph/backends/owl/owlready2_backend.py:297
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:331
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:595
   AU-KG.ontology.owl-screen-bridge:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.rdf-materialization
-    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.rdf-materialization; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
+    suggested_parent: AU-KG.ontology.harness-gate
+    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.harness-gate; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
       both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
       candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/graph_compute.py
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-har-screen-observation/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -4273,30 +4575,35 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/graph_compute.py:3150
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:145
+      - .specify/design/kgo-har-screen-observation/design.md:3
+      - agent_utilities/knowledge_graph/core/graph_compute.py:3383
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:170
   AU-KG.ontology.pack-identity-rules:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 4 marker site(s))'
+      file(s), 6 marker site(s))'
     evidence:
-      has_design_doc: false
+      has_design_doc: true
       in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/assimilation/identity_candidates.py
       - agent_utilities/models/schema_pack.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-schema-packs/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-schema-packs/design.md:4
+      - .specify/design/kgo-e1-schema-packs/design.md:31
       - agent_utilities/knowledge_graph/assimilation/identity_candidates.py:59
       - agent_utilities/knowledge_graph/assimilation/identity_candidates.py:337
       - agent_utilities/models/schema_pack.py:118
@@ -4306,13 +4613,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (4 source
-      file(s), 12 marker site(s))'
+      file(s), 14 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       - agent_utilities/knowledge_graph/ontology/links.py
@@ -4320,7 +4628,8 @@ concepts:
       - agent_utilities/models/schema_packs/research.py
       test_files:
       - tests/knowledge_graph/test_pack_owl_closure.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-schema-packs/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -4379,13 +4688,15 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:722
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:818
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:828
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:861
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:869
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:908
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:961
+      - .specify/design/kgo-e1-schema-packs/design.md:5
+      - .specify/design/kgo-e1-schema-packs/design.md:44
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:747
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:843
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:853
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:886
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:894
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:933
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:986
       - agent_utilities/knowledge_graph/ontology/links.py:150
       - agent_utilities/models/schema_pack.py:167
       - agent_utilities/models/schema_pack.py:361
@@ -4396,25 +4707,28 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.workspace-provider-discovery
     suggestion_why: clusters with 1 sibling(s) around AU-KG.ontology.workspace-provider-discovery; shares
       agent_utilities/knowledge_graph/core/ontology_federation.py; the candidate parent already has a
       design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/ontology_federation.py
       test_files:
       - tests/unit/knowledge_graph/test_standard_ontology.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-d1-package-federation-migration/design.md
       introduced: '25817878 2026-07-04 chore(concepts): adopt OKF-CIS ids (AU-ECO.mcp.kg-skill-verb-coverage,
         AU-KG.ontology.package-federation-migration) + regen concepts.yaml'
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-d1-package-federation-migration/design.md:3
       - agent_utilities/knowledge_graph/core/ontology_federation.py:56
       - tests/unit/knowledge_graph/test_standard_ontology.py:57
       - tests/unit/knowledge_graph/test_standard_ontology.py:84
@@ -4423,17 +4737,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.anti-sprawl-gate
     suggestion_why: clusters with 1 sibling(s) around AU-KG.ontology.anti-sprawl-gate; shares scripts/check_ontology.py;
-      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.)
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - scripts/check_ontology.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-d1-anti-sprawl-gate/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -4492,22 +4809,25 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - scripts/check_ontology.py:251
-      - scripts/check_ontology.py:276
-      - scripts/check_ontology.py:301
-      - scripts/check_ontology.py:459
+      - .specify/design/kgo-d1-anti-sprawl-gate/design.md:4
+      - .specify/design/kgo-d1-anti-sprawl-gate/design.md:31
+      - scripts/check_ontology.py:253
+      - scripts/check_ontology.py:278
+      - scripts/check_ontology.py:303
+      - scripts/check_ontology.py:474
   AU-KG.ontology.populated-at-import-real-3:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (10 source
-      file(s), 23 marker site(s))'
+      file(s), 24 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/__init__.py
       - agent_utilities/knowledge_graph/research/loop_controller.py
@@ -4522,6 +4842,7 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/test_standardization.py
       doc_files:
+      - .specify/design/kgo-f1-enterprise-standards-registry/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -4582,13 +4903,14 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-enterprise-standards-registry/design.md:3
       - agent_utilities/knowledge_graph/ontology/__init__.py:307
       - agent_utilities/knowledge_graph/ontology/__init__.py:417
       - agent_utilities/knowledge_graph/research/loop_controller.py:56
-      - agent_utilities/knowledge_graph/research/loop_controller.py:484
-      - agent_utilities/knowledge_graph/research/loop_controller.py:3109
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24451
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:24502
+      - agent_utilities/knowledge_graph/research/loop_controller.py:488
+      - agent_utilities/knowledge_graph/research/loop_controller.py:3126
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26280
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26331
       - agent_utilities/knowledge_graph/standardization/__init__.py:4
       - agent_utilities/knowledge_graph/standardization/__init__.py:64
       - agent_utilities/knowledge_graph/standardization/cohorts.py:4
@@ -4599,28 +4921,30 @@ concepts:
       - agent_utilities/knowledge_graph/standardization/standards.py:222
       - agent_utilities/mcp/tools/ontology_tools.py:212
       - agent_utilities/mcp/tools/ontology_tools.py:242
-      - agent_utilities/models/knowledge_graph.py:473
-      - agent_utilities/models/knowledge_graph.py:784
-      - docs/capabilities-power.json:24451
-      - docs/capabilities-power.json:24502
-      - docs/capabilities-power.md:4320
+      - agent_utilities/models/knowledge_graph.py:475
+      - agent_utilities/models/knowledge_graph.py:786
+      - docs/capabilities-power.json:26280
+      - docs/capabilities-power.json:26331
+      - docs/capabilities-power.md:4623
       - tests/unit/knowledge_graph/test_standardization.py:2
   AU-KG.ontology.preload-tbox:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/server/app.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-preload-tbox/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -4679,16 +5003,19 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/server/app.py:469
+      - .specify/design/kgo-f1-preload-tbox/design.md:3
+      - agent_utilities/server/app.py:488
   AU-KG.ontology.rdf-materialization:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
-    suggestion: document
-    suggested_parent: ''
-    suggestion_why: the head of a 9-concept cluster — the siblings are proposed as pointers at this one,
-      so this is the decision that has to be written down
+    rename_to: ''
+    suggestion: parent
+    suggested_parent: AU-KG.ontology.harness-gate
+    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.harness-gate; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
       has_design_doc: true
       in_baseline: false
@@ -4754,29 +5081,30 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:247
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:260
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:293
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:296
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:299
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:303
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:501
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:521
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:552
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:555
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:559
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:561
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:565
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1106
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1269
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:272
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:285
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:318
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:321
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:324
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:328
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:526
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:546
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:577
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:580
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:584
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:586
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:590
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1137
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1300
   AU-KG.ontology.rdf-materialization-iri-safe:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.rdf-materialization
-    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.rdf-materialization; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
+    suggested_parent: AU-KG.ontology.harness-gate
+    suggestion_why: clusters with 8 sibling(s) around AU-KG.ontology.harness-gate; shares agent_utilities/knowledge_graph/core/owl_bridge.py;
       the candidate parent already has a design document
     evidence:
       has_design_doc: true
@@ -4792,19 +5120,20 @@ concepts:
       truncated_marker: ''
       sites:
       - .specify/design/ontology-governed-evolution/design.md:17
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:1305
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:1336
   AU-KG.ontology.redact-object-materialize-restricted:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (6 source
-      file(s), 17 marker site(s))'
+      file(s), 18 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/owl_bridge.py
       - agent_utilities/knowledge_graph/facade.py
@@ -4818,6 +5147,7 @@ concepts:
       - tests/retrieval/test_context_compiler_mandatory.py
       - tests/retrieval/test_context_compiler_serving.py
       doc_files:
+      - .specify/design/kgo-f1-object-permissioning/design.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
       - docs/pillars/2_epistemic_knowledge_graph.md
@@ -4879,16 +5209,17 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:341
-      - agent_utilities/knowledge_graph/facade.py:311
-      - agent_utilities/knowledge_graph/facade.py:330
+      - .specify/design/kgo-f1-object-permissioning/design.md:3
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:366
+      - agent_utilities/knowledge_graph/facade.py:312
+      - agent_utilities/knowledge_graph/facade.py:331
       - agent_utilities/knowledge_graph/ontology/permissioning.py:4
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:23576
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25405
       - agent_utilities/knowledge_graph/retrieval/context_compiler.py:62
-      - agent_utilities/mcp/tools/ontology_tools.py:1931
-      - docs/capabilities-power.json:23576
-      - docs/capabilities-power.md:110
-      - docs/capabilities-power.md:4138
+      - agent_utilities/mcp/tools/ontology_tools.py:2008
+      - docs/capabilities-power.json:25405
+      - docs/capabilities-power.md:116
+      - docs/capabilities-power.md:4441
       - docs/pillars/2_epistemic_knowledge_graph.md:120
       - tests/retrieval/test_context_compiler.py:6
       - tests/retrieval/test_context_compiler.py:36
@@ -4901,6 +5232,7 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.release-key-rotation
     suggestion_why: 'clusters with 1 sibling(s) around AU-KG.ontology.release-key-rotation; both introduced
@@ -4933,7 +5265,7 @@ concepts:
       - agent_utilities/orchestration/fleet_reconciler.py:177
       - scripts/check_connector_source_presets.py:4
       - scripts/generate_connector_manifests.py:603
-      - tests/unit/knowledge_graph/ontology/test_connector_manifest_gate.py:340
+      - tests/unit/knowledge_graph/ontology/test_connector_manifest_gate.py:426
       - tests/unit/scripts/test_check_connector_capability_bundles.py:76
       - tests/unit/scripts/test_connector_server_alias_drift.py:3
       - tests/unit/scripts/test_generate_connector_capability_bundles.py:55
@@ -4944,6 +5276,7 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
@@ -4975,40 +5308,65 @@ concepts:
       truncated_marker: ''
       sites:
       - .specify/design/drift-proof-release/design.md:14
-      - agent_utilities/knowledge_graph/ontology/ontology_integrity.py:178
-      - agent_utilities/knowledge_graph/ontology/ontology_integrity.py:265
-      - agent_utilities/knowledge_graph/ontology/ontology_integrity.py:293
+      - agent_utilities/knowledge_graph/ontology/ontology_integrity.py:180
+      - agent_utilities/knowledge_graph/ontology/ontology_integrity.py:267
+      - agent_utilities/knowledge_graph/ontology/ontology_integrity.py:349
       - agent_utilities/security/cli_secrets.py:28
       - agent_utilities/security/secrets_client.py:68
       - agent_utilities/security/secrets_client.py:586
       - agent_utilities/security/secrets_client.py:746
       - docs/architecture/drift_proof_release.md:147
-      - pyproject.toml:428
+      - pyproject.toml:473
       - scripts/update_ontology_lock.py:132
       - tests/unit/knowledge_graph/ontology/test_release_key_custody.py:3
-      - tests/unit/scripts/test_connector_server_alias_drift.py:78
-      - tests/unit/scripts/test_generate_connector_capability_bundles.py:209
+      - tests/unit/scripts/test_connector_server_alias_drift.py:80
+      - tests/unit/scripts/test_generate_connector_capability_bundles.py:213
       - tests/unit/scripts/test_generate_connector_manifests.py:122
       - tests/unit/scripts/test_update_ontology_lock.py:83
       - tests/unit/security/test_openbao_signing_custody.py:3
+  AU-KG.ontology.repository-provenance-snapshot:
+    decision: PENDING
+    parent: ''
+    rationale: ''
+    reason: ''
+    rename_to: ''
+    suggestion: document
+    suggested_parent: ''
+    suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
+      file(s), 1 marker site(s))'
+    evidence:
+      has_design_doc: false
+      in_baseline: false
+      source_files:
+      - agent_utilities/knowledge_graph/ontology/repository_provenance.py
+      test_files: []
+      doc_files: []
+      introduced: ''
+      cohort: []
+      artifact_id: ''
+      truncated_marker: ''
+      sites:
+      - agent_utilities/knowledge_graph/ontology/repository_provenance.py:3
   AU-KG.ontology.sampling-profile-coupling:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: the marker text is truncated by the grammar ('later **evolved** (CONCEPT·AU-AHE.harness.evolvable-sampling-profiles)
       and **projected to ') — the id itself reads like a real name, so the marker text needs cleaning
       either way; decide whether the concept survives that cleanup
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/agent/sampling_profile.py
       - agent_utilities/knowledge_graph/ontology/value_types.py
       test_files: []
       doc_files:
+      - .specify/design/kgo-f1-sampling-profile-owl-coupling/design.md
       - docs/architecture/ontology_system.md
       - docs/architecture/sampling_profiles.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
@@ -5070,6 +5428,7 @@ concepts:
       truncated_marker: later **evolved** (CONCEPT·AU-AHE.harness.evolvable-sampling-profiles) and **projected
         to OWL** (CONCEPT·AU-KG.ontology.sampling-profile-coupling/2.94).
       sites:
+      - .specify/design/kgo-f1-sampling-profile-owl-coupling/design.md:3
       - agent_utilities/agent/sampling_profile.py:18
       - agent_utilities/knowledge_graph/ontology/value_types.py:574
       - agent_utilities/knowledge_graph/ontology/value_types.py:691
@@ -5081,24 +5440,28 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/mcp/tools/ontology_tools.py; the candidate parent already has a design document
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/gateway/ontology_api.py, agent_utilities/mcp/tools/ontology_tools.py; the candidate
+      parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/ontology/schema_graph.py
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-cat-schema-graph-viz/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-schema-graph-viz/design.md:3
       - agent_utilities/gateway/ontology_api.py:118
       - agent_utilities/knowledge_graph/ontology/schema_graph.py:4
       - agent_utilities/mcp/tools/ontology_tools.py:218
@@ -5107,13 +5470,14 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (3 source
-      file(s), 8 marker site(s))'
+      file(s), 10 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/engine.py
       - agent_utilities/models/schema_pack_audit.py
@@ -5121,7 +5485,8 @@ concepts:
       test_files:
       - tests/knowledge_graph/test_schema_pack_audit.py
       - tests/knowledge_graph/test_schema_pack_loader.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-schema-packs/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -5180,10 +5545,12 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-schema-packs/design.md:6
+      - .specify/design/kgo-e1-schema-packs/design.md:63
       - agent_utilities/knowledge_graph/core/engine.py:205
-      - agent_utilities/knowledge_graph/core/engine.py:733
-      - agent_utilities/knowledge_graph/core/engine.py:920
-      - agent_utilities/knowledge_graph/core/engine.py:1003
+      - agent_utilities/knowledge_graph/core/engine.py:842
+      - agent_utilities/knowledge_graph/core/engine.py:1077
+      - agent_utilities/knowledge_graph/core/engine.py:1160
       - agent_utilities/models/schema_pack_audit.py:4
       - agent_utilities/models/schema_pack_loader.py:6
       - tests/knowledge_graph/test_schema_pack_audit.py:5
@@ -5193,18 +5560,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 6 marker site(s))'
+      file(s), 7 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/models/schema_pack.py
       - agent_utilities/models/schema_packs/__init__.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-schema-packs/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -5263,6 +5632,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-schema-packs/design.md:3
       - agent_utilities/models/schema_pack.py:6
       - agent_utilities/models/schema_pack.py:55
       - agent_utilities/models/schema_pack.py:193
@@ -5274,52 +5644,60 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 2 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/semantic_subsumption.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-semantic-subsumption/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-semantic-subsumption/design.md:3
       - agent_utilities/knowledge_graph/core/semantic_subsumption.py:4
   AU-KG.ontology.shacl-report-passthrough:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.activation-icv-fallback
     suggestion_why: clusters with 4 sibling(s) around AU-KG.ontology.activation-icv-fallback; shares agent_utilities/knowledge_graph/ontology/lifecycle.py;
       the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/lifecycle.py
       test_files:
       - tests/unit/knowledge_graph/ontology/test_lifecycle.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-c1-ontology-lifecycle-crud/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
-      - agent_utilities/knowledge_graph/ontology/lifecycle.py:178
+      - .specify/design/kgo-c1-ontology-lifecycle-crud/design.md:4
+      - .specify/design/kgo-c1-ontology-lifecycle-crud/design.md:34
+      - agent_utilities/knowledge_graph/ontology/lifecycle.py:180
       - tests/unit/knowledge_graph/ontology/test_lifecycle.py:158
   AU-KG.ontology.shadow-graph-gc:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.competency-query-regression
     suggestion_why: clusters with 2 sibling(s) around AU-KG.ontology.competency-query-regression; shares
@@ -5341,12 +5719,13 @@ concepts:
       sites:
       - .specify/design/ontology-governed-evolution/design.md:19
       - agent_utilities/knowledge_graph/ontology/evolution.py:574
-      - tests/unit/knowledge_graph/ontology/test_evolution.py:302
+      - tests/unit/knowledge_graph/ontology/test_evolution.py:305
   AU-KG.ontology.single-source-full-drain:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: review
     suggested_parent: ''
     suggestion_why: 'the marker text is truncated by the grammar (''- **Chunked async drain** (`CONCEPT·AU-KG.ontology.single-source-full-drain/2.302`):
@@ -5431,35 +5810,38 @@ concepts:
       - agent_utilities/knowledge_graph/core/chunked_drain.py:3
       - agent_utilities/knowledge_graph/core/chunked_drain.py:236
       - agent_utilities/knowledge_graph/core/chunked_drain.py:445
-      - agent_utilities/knowledge_graph/core/engine_tasks.py:4885
-      - agent_utilities/knowledge_graph/core/source_sync.py:4639
+      - agent_utilities/knowledge_graph/core/engine_tasks.py:5443
+      - agent_utilities/knowledge_graph/core/source_sync.py:4680
       - agent_utilities/knowledge_graph/core/task_lanes.py:59
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:26121
-      - agent_utilities/mcp/tools/ontology_tools.py:1304
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:27950
+      - agent_utilities/mcp/tools/ontology_tools.py:1381
       - docs/architecture/chunked-async-drain.md:6
       - docs/architecture/chunked-async-drain.md:45
       - docs/architecture/north-star-architecture.md:72
-      - docs/capabilities-power.json:26121
-      - docs/capabilities-power.md:4668
+      - docs/capabilities-power.json:27950
+      - docs/capabilities-power.md:4971
       - tests/unit/knowledge_graph/test_chunked_drain.py:3
   AU-KG.ontology.standalone-generation:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
       so this is the decision that has to be written down
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/extraction/schema_discovery.py
       test_files:
       - tests/unit/mcp/test_ontology_generate_live_path.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-cat-no-auto-merge/design.md
+      - .specify/design/kgo-d1-import-export-rest/design.md
       introduced: 'c6000d37 2026-07-20 feat(kg): from-scratch ontology generator (Ontology-Playground
         row #13)'
       cohort:
@@ -5467,6 +5849,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-no-auto-merge/design.md:33
+      - .specify/design/kgo-d1-import-export-rest/design.md:4
+      - .specify/design/kgo-d1-import-export-rest/design.md:30
       - agent_utilities/gateway/ontology_api.py:151
       - agent_utilities/knowledge_graph/extraction/schema_discovery.py:135
       - tests/unit/mcp/test_ontology_generate_live_path.py:3
@@ -5475,19 +5860,21 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
       agent_utilities/mcp/tools/ontology_tools.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/ontology_publisher.py
       - agent_utilities/mcp/kg_server.py
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-cat-stardog-roundtrip/design.md
       introduced: 'd597c507 2026-07-10 kg/ontology: surface Stardog catalog overwrite + import on MCP
         and REST (Two-surfaces)'
       cohort:
@@ -5495,21 +5882,24 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-stardog-roundtrip/design.md:3
+      - .specify/design/kgo-cat-stardog-roundtrip/design.md:13
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:377
-      - agent_utilities/mcp/kg_server.py:1325
+      - agent_utilities/mcp/kg_server.py:1441
       - agent_utilities/mcp/tools/ontology_tools.py:826
   AU-KG.ontology.stardog-catalog-overwrite:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
       agent_utilities/mcp/tools/ontology_tools.py; the candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/core/ontology_publisher.py
       - agent_utilities/mcp/kg_server.py
@@ -5517,7 +5907,8 @@ concepts:
       test_files:
       - tests/unit/knowledge_graph/core/test_ontology_stardog_overwrite_import.py
       - tests/unit/mcp/test_ontology_stardog_surface.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-cat-stardog-roundtrip/design.md
       introduced: 'd597c507 2026-07-10 kg/ontology: surface Stardog catalog overwrite + import on MCP
         and REST (Two-surfaces)'
       cohort:
@@ -5525,10 +5916,12 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-stardog-roundtrip/design.md:4
+      - .specify/design/kgo-cat-stardog-roundtrip/design.md:31
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:187
       - agent_utilities/knowledge_graph/core/ontology_publisher.py:234
-      - agent_utilities/mcp/kg_server.py:1303
-      - agent_utilities/mcp/kg_server.py:4122
+      - agent_utilities/mcp/kg_server.py:1419
+      - agent_utilities/mcp/kg_server.py:4450
       - agent_utilities/mcp/tools/ontology_tools.py:809
       - tests/unit/knowledge_graph/core/test_ontology_stardog_overwrite_import.py:3
       - tests/unit/mcp/test_ontology_stardog_surface.py:3
@@ -5537,23 +5930,26 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 2 marker site(s))'
+      file(s), 3 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/style_lint.py
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-style-lint/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-style-lint/design.md:3
       - agent_utilities/knowledge_graph/ontology/style_lint.py:4
       - agent_utilities/mcp/tools/ontology_tools.py:221
   AU-KG.ontology.submission-criteria-gate:
@@ -5561,17 +5957,19 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 2 marker site(s))'
+      file(s), 4 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/actions/effects.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-ontology-action-system/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -5630,6 +6028,8 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-ontology-action-system/design.md:5
+      - .specify/design/kgo-e1-ontology-action-system/design.md:55
       - agent_utilities/knowledge_graph/actions/effects.py:4
       - agent_utilities/knowledge_graph/actions/effects.py:121
   AU-KG.ontology.supply-chain-integrity:
@@ -5637,19 +6037,22 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
     suggested_parent: AU-KG.ontology.connector-manifest-compiler
     suggestion_why: 'clusters with 1 sibling(s) around AU-KG.ontology.connector-manifest-compiler; shares
       agent_utilities/knowledge_graph/ontology/manifest_compiler.py; both introduced by a8b9965e (feat(ontology):
-      connector-manifest compiler + supply-chain i)'
+      connector-manifest compiler + supply-chain i); the candidate parent already has a design document'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/manifest_compiler.py
       - agent_utilities/knowledge_graph/ontology/ontology_integrity.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-c1-connector-manifest-compiler/design.md
+      - .specify/design/kgo-d1-a2a-card-generation/design.md
       introduced: 'a8b9965e 2026-07-09 feat(ontology): connector-manifest compiler + supply-chain integrity
         (C5 + X6)'
       cohort:
@@ -5657,6 +6060,9 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-c1-connector-manifest-compiler/design.md:4
+      - .specify/design/kgo-c1-connector-manifest-compiler/design.md:30
+      - .specify/design/kgo-d1-a2a-card-generation/design.md:26
       - agent_utilities/knowledge_graph/ontology/manifest_compiler.py:205
       - agent_utilities/knowledge_graph/ontology/ontology_integrity.py:3
   AU-KG.ontology.typed-ontology-links-binding:
@@ -5664,18 +6070,20 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (2 source
-      file(s), 2 marker site(s))'
+      file(s), 3 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/ontology/links.py
       - agent_utilities/models/knowledge_graph.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-f1-typed-links-binding/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -5734,21 +6142,24 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-f1-typed-links-binding/design.md:3
       - agent_utilities/knowledge_graph/ontology/links.py:526
-      - agent_utilities/models/knowledge_graph.py:990
+      - agent_utilities/models/knowledge_graph.py:992
   AU-KG.ontology.value-type-shacl-load:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: parent
-    suggested_parent: AU-KG.ontology.evolution-governed-loop
-    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.evolution-governed-loop; shares
-      agent_utilities/knowledge_graph/retrieval/capabilities-power.json, agent_utilities/mcp/tools/ontology_tools.py;
-      the candidate parent already has a design document
+    suggested_parent: AU-KG.ontology.default-runtime-bound-import
+    suggestion_why: clusters with 18 sibling(s) around AU-KG.ontology.default-runtime-bound-import; shares
+      agent_utilities/gateway/ontology_api.py, agent_utilities/knowledge_graph/ontology/__init__.py, agent_utilities/knowledge_graph/retrieval/capabilities-power.json;
+      both introduced by c5f21018 (OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.); the
+      candidate parent already has a design document
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/ontology_api.py
       - agent_utilities/knowledge_graph/core/shacl_validator.py
@@ -5761,6 +6172,7 @@ concepts:
       test_files:
       - tests/ontology/test_value_types.py
       doc_files:
+      - .specify/design/kgo-cat-value-types/design.md
       - docs/architecture/owl_rdf_layer.md
       - docs/capabilities-power.json
       - docs/capabilities-power.md
@@ -5823,6 +6235,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-value-types/design.md:3
       - agent_utilities/gateway/ontology_api.py:53
       - agent_utilities/knowledge_graph/core/shacl_validator.py:217
       - agent_utilities/knowledge_graph/ontology/__init__.py:12
@@ -5835,13 +6248,13 @@ concepts:
       - agent_utilities/knowledge_graph/ontology/value_types.py:750
       - agent_utilities/knowledge_graph/ontology/value_types.py:767
       - agent_utilities/knowledge_graph/pipeline/phases/shacl_gate.py:165
-      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:25268
+      - agent_utilities/knowledge_graph/retrieval/capabilities-power.json:27097
       - agent_utilities/mcp/tools/ontology_tools.py:160
-      - agent_utilities/mcp/tools/state_tools.py:1257
+      - agent_utilities/mcp/tools/state_tools.py:1259
       - docs/architecture/owl_rdf_layer.md:40
       - docs/architecture/owl_rdf_layer.md:83
-      - docs/capabilities-power.json:25268
-      - docs/capabilities-power.md:4505
+      - docs/capabilities-power.json:27097
+      - docs/capabilities-power.md:4808
       - docs/pillars/2_epistemic_knowledge_graph.md:104
       - tests/ontology/test_value_types.py:2
   AU-KG.ontology.vendor-writeback-action:
@@ -5849,34 +6262,39 @@ concepts:
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: 'a singleton: no sibling shares its source footprint or introducing commit (1 source
-      file(s), 1 marker site(s))'
+      file(s), 3 marker site(s))'
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/knowledge_graph/actions/fleet_writeback.py
       test_files: []
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-ontology-action-system/design.md
       introduced: ''
       cohort: []
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-ontology-action-system/design.md:6
+      - .specify/design/kgo-e1-ontology-action-system/design.md:69
       - agent_utilities/knowledge_graph/actions/fleet_writeback.py:3
   AU-KG.ontology.verified-by-implemented-by:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: retire
     suggested_parent: ''
     suggestion_why: the id reads as a slugified prose fragment (verified-by-implemented-by)
     evidence:
-      has_design_doc: false
-      in_baseline: true
+      has_design_doc: true
+      in_baseline: false
       source_files:
       - agent_utilities/gateway/research_api.py
       - agent_utilities/knowledge_graph/core/owl_bridge.py
@@ -5892,7 +6310,9 @@ concepts:
       - agent_utilities/models/knowledge_graph.py
       test_files:
       - tests/unit/knowledge_graph/test_ara_exploration_lrm.py
-      doc_files: []
+      doc_files:
+      - .specify/design/kgo-e1-ara-forensic-grounding/design.md
+      - .specify/design/kgo-e1-schema-packs/design.md
       introduced: c5f21018 2026-07-03 OKF-CIS atomic cutover on agent-utilities (AU-OS.governance.okf-cis-standard)
       cohort:
       - AU-KG.ontology.anti-sprawl-gate
@@ -5951,11 +6371,13 @@ concepts:
       artifact_id: reads as a slugified prose fragment (verified-by-implemented-by)
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-e1-ara-forensic-grounding/design.md:3
+      - .specify/design/kgo-e1-schema-packs/design.md:52
       - agent_utilities/gateway/research_api.py:4
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:169
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:642
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:651
-      - agent_utilities/knowledge_graph/core/owl_bridge.py:723
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:194
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:667
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:676
+      - agent_utilities/knowledge_graph/core/owl_bridge.py:748
       - agent_utilities/knowledge_graph/ontology/interfaces.py:841
       - agent_utilities/knowledge_graph/ontology/links.py:490
       - agent_utilities/knowledge_graph/ontology/value_types.py:563
@@ -5968,14 +6390,15 @@ concepts:
       - agent_utilities/knowledge_graph/research/ara/seal.py:4
       - agent_utilities/knowledge_graph/research/ara/seal.py:55
       - agent_utilities/knowledge_graph/research/ara/service.py:4
-      - agent_utilities/models/knowledge_graph.py:482
-      - agent_utilities/models/knowledge_graph.py:970
+      - agent_utilities/models/knowledge_graph.py:484
+      - agent_utilities/models/knowledge_graph.py:972
       - tests/unit/knowledge_graph/test_ara_exploration_lrm.py:1
   AU-KG.ontology.workspace-provider-discovery:
     decision: PENDING
     parent: ''
     rationale: ''
     reason: ''
+    rename_to: ''
     suggestion: document
     suggested_parent: ''
     suggestion_why: the head of a 2-concept cluster — the siblings are proposed as pointers at this one,
@@ -5988,6 +6411,7 @@ concepts:
       - agent_utilities/mcp/tools/ontology_tools.py
       test_files: []
       doc_files:
+      - .specify/design/kgo-cat-federation-runtime/design.md
       - .specify/design/ontology-governed-evolution/design.md
       introduced: '00089171 2026-07-30 feat(kg): unblock ontology activation + govern ontology change
         as a proposal'
@@ -6003,6 +6427,7 @@ concepts:
       artifact_id: ''
       truncated_marker: ''
       sites:
+      - .specify/design/kgo-cat-federation-runtime/design.md:14
       - .specify/design/ontology-governed-evolution/design.md:18
       - agent_utilities/knowledge_graph/core/ontology_federation.py:207
       - agent_utilities/mcp/tools/ontology_tools.py:61
