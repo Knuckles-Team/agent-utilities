@@ -58,6 +58,12 @@ on:
   push:
     branches:
       - 'main'
+  # GOC-84/GOC-16/BUG-234: on-demand, operator-invoked connector-manifest freeze +
+  # diff report (see the `connector-manifest-diff` job below). Never runs
+  # automatically -- regenerating the fleet is a deliberate check, not a per-push
+  # cost, and this trigger touches no signing key (report only, same as every other
+  # job in this file).
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -562,3 +568,78 @@ jobs:
           echo "and why (engine/live/slow/certification/quarantine markers," >> "$GITHUB_STEP_SUMMARY"
           echo "AF_UNIX/systemd/Docker/self-hosted-host-dependent tests, and CI-minute" >> "$GITHUB_STEP_SUMMARY"
           echo "cost-scoping of the remaining ~90%)." >> "$GITHUB_STEP_SUMMARY"
+
+  # ── GOC-84/GOC-16 -- connector-manifest freeze + diff report (BUG-234) ──────
+  #
+  # This is the KEYLESS half of the connector-manifest-signing custody path: it
+  # regenerates the in-tree native connector manifest (no external fleet checkout,
+  # no signing key needed -- `regenerate_and_sign_connector_manifests.py` without
+  # --sign runs every generator in its existing --dry-run/temp-output mode) and
+  # publishes exactly the frozen commit SHA + dependency-lock digest an operator
+  # needs to run the REAL signing step. Signing itself never happens in GitHub
+  # Actions -- it happens in the separate, human-triggered Kubernetes Job
+  # (deploy/release/connector-manifest-signing-job.yaml), which holds the real key
+  # via OpenBao workload identity, never a GitHub Actions secret. See
+  # docs/release/connector-manifest-signing-custody.md for the full runbook this
+  # job's output feeds.
+  #
+  # workflow_dispatch-only (see the `on:` block above): an operator runs this when
+  # they want a fresh drift report, not on every push/PR -- regenerating the fleet
+  # is a deliberate check, not a routine cost.
+  connector-manifest-diff:
+    name: Connector-manifest freeze + diff report (report only, never blocks, no key)
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: '0.11.7'
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync environment (owl extra for manifest compile)
+        run: |
+          uv sync --frozen --extra test --extra owl \
+            --no-install-package epistemic-graph \
+            --no-install-package langfuse-agent
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+
+      - name: Freeze + regenerate (no key, no fleet -- native manifest only)
+        id: diff
+        continue-on-error: true
+        run: |
+          FROZEN_SHA="$(git rev-parse HEAD)"
+          echo "frozen_sha=$FROZEN_SHA" >> "$GITHUB_OUTPUT"
+          python3 scripts/release/regenerate_and_sign_connector_manifests.py \
+            --frozen-sha "$FROZEN_SHA" | tee /tmp/connector-manifest-diff-report.json # noqa
+
+      - name: Upload diff report artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: connector-manifest-diff-report
+          path: /tmp/connector-manifest-diff-report.json
+          retention-days: 30
+
+      - name: Job summary -- what the operator does next
+        if: always()
+        run: |
+          echo "## Connector-manifest freeze + diff report" >> "$GITHUB_STEP_SUMMARY"
+          echo "Frozen commit: \`${{ steps.diff.outputs.frozen_sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "This job never touches the release signing key. To actually sign a" >> "$GITHUB_STEP_SUMMARY"
+          echo "regenerated manifest, review the uploaded diff report artifact, then" >> "$GITHUB_STEP_SUMMARY"
+          echo "an operator applies \`deploy/release/connector-manifest-signing-job.yaml\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "with this run's frozen commit SHA — see" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`docs/release/connector-manifest-signing-custody.md\` for the exact steps." >> "$GITHUB_STEP_SUMMARY"

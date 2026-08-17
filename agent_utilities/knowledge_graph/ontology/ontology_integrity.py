@@ -30,6 +30,8 @@ __all__ = [
     "canonical_hash",
     "canonical_manifest_hash",
     "canonical_signed_document_hash",
+    "default_dependency_lock_path",
+    "dependency_lock_digest",
     "DURABLE_SECRET_SCHEMES",
     "ReleaseSigner",
     "ReleaseSigningError",
@@ -283,6 +285,60 @@ def assert_signing_key_matches_locks(
 
 #: Reference schemes whose custody is *versioned*, so an overwrite is recoverable.
 DURABLE_SECRET_SCHEMES = ("vault://", "secret://")
+
+
+def default_dependency_lock_path() -> Path:
+    """The ecosystem-workspace ``uv.lock`` this repo's own dependency pins live in."""
+
+    return Path(__file__).resolve().parents[3] / "uv.lock"
+
+
+def dependency_lock_digest(lock_path: str | Path | None = None) -> str:
+    """Deterministic SHA-256 over the exact ``(name, version)`` pins in a ``uv.lock``.
+
+    CONCEPT:AU-KG.ontology.connector-manifest-gate — GOC-84 names "dependency-lock
+    drift" as one of the adversarial cases a signed connector manifest must catch:
+    a connector's declared behavior can depend on a third-party library version even
+    when neither the manifest YAML nor the connector's own source changed a single
+    byte. Binding this digest into ``ProvenanceSpec`` (and therefore into the signed
+    ``canonical_manifest_hash``) makes that class of drift provable, not assumed.
+
+    Hashes the *parsed* ``(name, version)`` pairs from every ``[[package]]`` table,
+    sorted, rather than the raw file bytes — invariant to comment/whitespace/
+    reordering churn in the lock file, while any real dependency add/remove/version
+    change still changes the digest. Raises :class:`ReleaseSigningError` if the lock
+    cannot be read or parsed: a manifest must never be signed (or verified) against
+    dependency state nobody could actually confirm.
+    """
+    import tomllib
+
+    path = Path(lock_path) if lock_path is not None else default_dependency_lock_path()
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise ReleaseSigningError(
+            f"dependency lock is unreadable: {path}"
+        ) from exc
+    try:
+        document = tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, ValueError) as exc:
+        raise ReleaseSigningError(f"dependency lock is malformed: {path}") from exc
+    packages = document.get("package")
+    if not isinstance(packages, list):
+        raise ReleaseSigningError("dependency lock package inventory is invalid")
+    pins: list[tuple[str, str]] = []
+    for item in packages:
+        if not isinstance(item, dict):
+            raise ReleaseSigningError("dependency lock package inventory is invalid")
+        name = item.get("name")
+        version = item.get("version")
+        if not isinstance(name, str) or not isinstance(version, str) or not name or not version:
+            raise ReleaseSigningError(
+                "dependency lock contains an invalid package identity"
+            )
+        pins.append((name, version))
+    payload = json.dumps(sorted(pins), separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def release_signer_for_publication(

@@ -123,6 +123,7 @@ nav:
       - Exact OCI-layout Export: release/oci-layout-export.md
       - Exact Local GraphOS Releases: release/exact-local-release.md
       - Source-Freeze Release Gate: release/source-freeze-gates.md
+      - Connector-Manifest Signing Custody: release/connector-manifest-signing-custody.md
       - Enabling Autonomous Evolution: guides/autonomous-evolution.md
       - AGI→ASI Implementation Guide: guides/agi-to-asi-implementation.md
       - Graph Engine (Authority + Mirrors): guides/graph_engine.md

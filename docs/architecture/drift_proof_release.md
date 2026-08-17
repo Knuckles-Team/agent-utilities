@@ -163,3 +163,13 @@ key the newest entry designates, so a new trust anchor becomes trusted by being
 **recorded**, never by merely being present.
 
 **Test:** `tests/unit/knowledge_graph/ontology/test_release_key_custody.py`.
+
+**The controlled release job (GOC-16/BUG-234).** This section documents the *read path*
+mechanism; it does not by itself give any real pipeline a way to reach OpenBao with the
+right identity. `docs/release/connector-manifest-signing-custody.md` is the operator
+runbook that closes that gap for connector-manifest signing specifically: the exact
+OpenBao policy/Vault-Kubernetes-auth-role commands, the Kubernetes Job
+(`deploy/release/connector-manifest-signing-job.yaml`) that holds the key via workload
+identity only (never a materialized k8s `Secret`, never a GitHub Actions secret), and the
+keyless diff/freeze report (`connector-manifest-diff` in `.github/workflows/advisory.yml`)
+that gives the operator the exact frozen commit + dependency-lock digest to sign against.

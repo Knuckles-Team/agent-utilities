@@ -1,0 +1,115 @@
+# Controlled release job for GOC-84 / BUG-234 connector-manifest signing.
+#
+# This is the ONLY place the real ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY may be reached
+# from — never an interactive agent session, never a long-lived shared CI runner
+# identity. The Job authenticates to OpenBao with its OWN dedicated, narrowly-scoped
+# Kubernetes ServiceAccount (workload identity only, no static Vault token anywhere in
+# this manifest or in any secret), reads the key transiently via a live KV v2 API call
+# at sign time, and never persists it to a k8s Secret, volume, log, or artifact.
+#
+# Operator preconditions (see docs/release/connector-manifest-signing-custody.md for
+# the exact commands): the `agent-utilities-connector-manifest-signer` Vault
+# Kubernetes-auth role and its read-only policy must already exist in OpenBao, bound to
+# this namespace + ServiceAccount name. This manifest does not create them — OpenBao
+# policy/role provisioning is an operator action against the live cluster, out of
+# scope for anything applied from a repository checkout.
+#
+# Usage: operator reviews the diff artifact from the (keyless)
+# `connector-manifest-release.yml` GitHub Actions workflow first, then applies this Job
+# with the frozen commit SHA + expected lock digest substituted in, and deletes it
+# after it completes (it is intentionally NOT a CronJob — every run is a deliberate,
+# reviewed, one-shot operator action, never a schedule).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: release-tooling
+  labels:
+    agent-utilities.io/purpose: controlled-release-signing
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: connector-manifest-signer
+  namespace: release-tooling
+  labels:
+    agent-utilities.io/workload-identity: connector-manifest-signer
+automountServiceAccountToken: false
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Substitute a unique suffix per run (e.g. the frozen commit's short SHA) — this is
+  # a one-shot job, never reused across runs.
+  name: connector-manifest-sign-REPLACE_WITH_RUN_ID
+  namespace: release-tooling
+  labels:
+    agent-utilities.io/operation: connector-manifest-signing
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: connector-manifest-signer
+        agent-utilities.io/operation: connector-manifest-signing
+    spec:
+      serviceAccountName: connector-manifest-signer
+      automountServiceAccountToken: false
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: {type: RuntimeDefault}
+      containers:
+        - name: sign
+          # The image built from the FROZEN commit this run signs — never `:latest`,
+          # never a floating tag. Substitute the digest-pinned reference for the
+          # reviewed commit before applying.
+          image: REPLACE_WITH_FROZEN_COMMIT_IMAGE_DIGEST
+          command: ["python3", "scripts/release/regenerate_and_sign_connector_manifests.py"]
+          args:
+            - "--frozen-sha"
+            - "REPLACE_WITH_FROZEN_SHA"
+            - "--expected-lock-digest"
+            - "REPLACE_WITH_EXPECTED_LOCK_DIGEST"
+            - "--agents-root"
+            - "/fleet/agents"
+            - "--require-built-artifact"
+            - "--sign"
+          env:
+            # Workload-identity-only OpenBao custody (docs/architecture/drift_proof_release.md §4,
+            # docs/release/connector-manifest-signing-custody.md). No VAULT_TOKEN anywhere.
+            - {name: SECRETS_BACKEND, value: vault}
+            - {name: SECRETS_VAULT_URL, value: "https://openbao.platform.svc:8200"}
+            - {name: SECRETS_VAULT_MOUNT, value: apps}
+            - {name: VAULT_AUTH_METHOD, value: kubernetes}
+            - {name: VAULT_ROLE, value: agent-utilities-connector-manifest-signer}
+            - {name: VAULT_K8S_SA_TOKEN_PATH, value: /var/run/secrets/tokens/vault-token}
+            - {name: ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF,
+               value: "vault://agent-utilities#ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY@2"}
+          volumeMounts:
+            - {name: workload-identity, mountPath: /var/run/secrets/tokens, readOnly: true}
+            - {name: fleet, mountPath: /fleet, readOnly: true}
+            - {name: tmp, mountPath: /tmp}
+          resources:
+            requests: {cpu: "500m", memory: 1Gi}
+            limits: {cpu: "2", memory: 4Gi}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: {drop: ["ALL"]}
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+      volumes:
+        - name: workload-identity
+          projected:
+            defaultMode: 0440
+            sources:
+              # Audience MUST match the Vault Kubernetes auth role's configured
+              # bound audience — see the custody doc.
+              - serviceAccountToken: {audience: "openbao", expirationSeconds: 600, path: vault-token}
+        # The provider-fleet checkout at the SAME frozen commit as the container
+        # image, so `--agents-root` sees exactly the reviewed connector packages —
+        # never a live/mutable mount.
+        - name: fleet
+          emptyDir: {sizeLimit: 2Gi}
+        - {name: tmp, emptyDir: {sizeLimit: 1Gi}}

@@ -361,6 +361,14 @@ class ProvenanceSpec(BaseModel):
     signature_algorithm: str | None = None
     signing_public_key: str | None = None
     signature: str | None = None
+    dependency_lock_digest: str | None = None
+    """SHA-256 over the frozen ``uv.lock`` (name, version) pins at generation time
+    (:func:`ontology_integrity.dependency_lock_digest`, GOC-84/GOC-16). Optional and
+    back-compatible: manifests signed before this field existed carry ``None`` and are
+    not retroactively required to match it (see ``_dependency_lock_violations`` in
+    ``connector_manifest_gate.py``). A manifest regenerated after this field shipped
+    always populates it, so drift becomes provable going forward rather than assumed.
+    """
 
 
 class PolicySpec(BaseModel):
