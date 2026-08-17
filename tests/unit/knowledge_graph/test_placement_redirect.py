@@ -7,7 +7,13 @@ import contextlib
 import contextvars
 
 import pytest
-from epistemic_graph.client import ChangeEnvelopeClient, StaleRouteError
+
+# The compiled epistemic_graph client package must be present for these tests;
+# skip the whole module cleanly when it isn't, rather than erroring out collection
+# (BUG-026 un-blinding: the lean CI `gates` env deliberately excludes epistemic-graph).
+_epistemic_graph_client = pytest.importorskip("epistemic_graph.client")
+ChangeEnvelopeClient = _epistemic_graph_client.ChangeEnvelopeClient
+StaleRouteError = _epistemic_graph_client.StaleRouteError
 
 from agent_utilities.knowledge_graph.core import placement_catalog
 from agent_utilities.knowledge_graph.core.graph_compute import (

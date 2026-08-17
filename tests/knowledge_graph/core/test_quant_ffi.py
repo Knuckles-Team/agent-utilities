@@ -3,8 +3,12 @@
 CONCEPT:AU-KG.retrieval.evidence-weighted-memory
 """
 
-import epistemic_graph.quant as eq
 import pytest
+
+# The compiled Rust core (epistemic_graph.quant) must be built for these tests;
+# skip the whole module cleanly when it isn't, rather than erroring out collection
+# (BUG-026 un-blinding: the lean CI `gates` env deliberately excludes epistemic-graph).
+eq = pytest.importorskip("epistemic_graph.quant")
 
 
 def test_quant_moving_averages_and_variance():
