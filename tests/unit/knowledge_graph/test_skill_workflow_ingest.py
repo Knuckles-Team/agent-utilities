@@ -17,11 +17,16 @@ import textwrap
 import pytest
 
 from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
+    discover_atomic_skill_files,
     discover_workflow_skill_files,
+    ingest_atomic_skills,
     ingest_one,
     ingest_skill_workflows,
     parse_workflow_skill,
 )
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+from agent_utilities.models.company_brain import ActorType
+from agent_utilities.security.brain_context import ActorContext, use_actor
 
 pytestmark = pytest.mark.concept("AU-KG.ingest.skill-workflow-corpus")
 
@@ -556,6 +561,145 @@ def test_explicit_root_does_not_mint_workflowdefinition_for_declared_atomic_skil
     assert not any(
         d.get("name") == "servicenow-incident-management" for d in defs.values()
     )
+
+
+# --------------------------------------------------------------------------- #
+# Atomic-skill leg: the sibling closing the "left for its own ingester" gap.   #
+# --------------------------------------------------------------------------- #
+
+
+class _RunnableEngine:
+    """Records typed writes the way ``ingest_runnable_skill`` needs
+    (``_upsert_node`` + ``link_nodes``) — mirrors ``_Engine`` in
+    ``test_fleet_skill_harvest.py``, the sibling primitive's own test double.
+    """
+
+    def __init__(self) -> None:
+        self.nodes: dict[str, dict] = {}
+        self.edges: list[tuple[str, str, str]] = []
+        self.backend = self
+
+    def _upsert_node(self, node_type: str, node_id: str, properties: dict) -> None:
+        self.nodes[node_id] = {"type": node_type, **properties}
+
+    def link_nodes(self, source: str, target: str, relationship: str, **_kw) -> None:
+        self.edges.append((source, target, relationship))
+
+    def of_type(self, t: str) -> dict[str, dict]:
+        return {k: v for k, v in self.nodes.items() if v.get("type") == t}
+
+
+@pytest.fixture()
+def authority():
+    """A verified session/actor — ``ingest_runnable_skill`` requires
+    ``resolve_session(required_scope="kg:write")`` (fail-closed identity)."""
+    actor = ActorContext(
+        actor_id="skill-ingest-test",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id="tenant_test",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant="tenant_test",
+        scopes=frozenset({"kg:read", "kg:write"}),
+        graph="g",
+        policy_version="v1",
+        audience="test",
+    )
+    with use_actor(actor), use_session(session):
+        yield
+
+
+def test_discover_atomic_skill_files_walks_the_whole_package(tmp_path):
+    """Unlike ``discover_workflow_skill_files``' default sweep (confined to
+    ``<domain>-workflows/`` categories), the atomic discoverer must find a
+    plain ``<domain>/<name>/SKILL.md`` — that is where every atomic skill
+    actually lives, so a default-root call that missed it would silently
+    reproduce the exact gap this leg exists to close.
+    """
+    root = tmp_path / "skills"
+    atomic_dir = root / "infra" / "some-atomic-skill"
+    atomic_dir.mkdir(parents=True)
+    (atomic_dir / "SKILL.md").write_text(
+        "---\nname: some-atomic-skill\nskill_type: skill\n---\nbody",
+        encoding="utf-8",
+    )
+    files = discover_atomic_skill_files(root=str(root))
+    assert {f.parent.name for f in files} == {"some-atomic-skill"}
+
+
+def test_ingest_atomic_skills_creates_a_runnable_callable_resource(
+    tmp_path, authority
+):
+    """The exact real-prod shape (``servicenow-incident-management``): a
+    ``skill_type: skill`` file must land as a ``CallableResource`` carrying
+    ``resource_type='AGENT_SKILL'`` — the field the registry UI's
+    KG-authoritative classification reads
+    (``agent_webui.api_extensions._fetch_kg_skill_classification``) — not be
+    left with no KG node at all.
+    """
+    root = tmp_path / "skills"
+    atomic = root / "servicenow-incident-management"
+    atomic.mkdir(parents=True)
+    (atomic / "SKILL.md").write_text(_ATOMIC_SKILL, encoding="utf-8")
+
+    eng = _RunnableEngine()
+    report = ingest_atomic_skills(eng, root=str(root))
+
+    assert report["skills"] == 1
+    assert report["not_skill"] == 0
+    assert report["errors"] == 0
+
+    resources = eng.of_type("CallableResource")
+    assert len(resources) == 1
+    (resource,) = resources.values()
+    assert resource["resource_type"] == "AGENT_SKILL"
+    assert resource["name"] == "servicenow-incident-management"
+
+
+def test_ingest_atomic_skills_skips_declared_workflows_and_graphs(tmp_path, authority):
+    """D-SNV-1 mirror of the workflow leg's own gate: a file that declares
+    ``skill_type: workflow`` (or ``graph``, or is silent -- "assume workflow"
+    by the same convention ``ingest_skill_workflows`` uses) must NOT be
+    minted as a ``CallableResource`` here — that would double-classify it
+    against whatever its own ingester lands, or claim a workflow/skill-graph
+    is atomically runnable when it never declared itself so.
+    """
+    root = tmp_path / "skills"
+    wf = root / "tiny-infra-deploy"
+    wf.mkdir(parents=True)
+    (wf / "SKILL.md").write_text(_INFRA_WF, encoding="utf-8")
+    graph_dir = root / "some-skill-graph"
+    graph_dir.mkdir(parents=True)
+    (graph_dir / "SKILL.md").write_text(
+        "---\nname: some-skill-graph\nskill_type: graph\n---\nbody",
+        encoding="utf-8",
+    )
+
+    eng = _RunnableEngine()
+    report = ingest_atomic_skills(eng, root=str(root))
+
+    assert report["skills"] == 0
+    assert report["not_skill"] == 2
+    assert not eng.of_type("CallableResource")
+
+
+def test_ingest_atomic_skills_is_idempotent(tmp_path, authority):
+    """A re-run (the recurring ``package_install`` schedule tick) must upsert
+    in place, not duplicate — matches ``ingest_runnable_skill``'s own stable,
+    content-addressed id contract."""
+    root = tmp_path / "skills"
+    atomic = root / "servicenow-incident-management"
+    atomic.mkdir(parents=True)
+    (atomic / "SKILL.md").write_text(_ATOMIC_SKILL, encoding="utf-8")
+
+    eng = _RunnableEngine()
+    ingest_atomic_skills(eng, root=str(root))
+    ingest_atomic_skills(eng, root=str(root))
+
+    assert len(eng.of_type("CallableResource")) == 1
 
 
 # --------------------------------------------------------------------------- #

@@ -47,6 +47,27 @@ atomic, MCP-tool-backed skill — see ``ingest_runnable_skill`` above) or
 ``skill_type: graph`` (a skill-graph) is skipped here and left for its own
 ingester, so it is never forced into the wrong node shape just because it
 shares a directory with real workflows.
+
+ATOMIC-SKILL GAP (closed by ``ingest_atomic_skills``, below): the corpus's own
+``skill_type: skill`` files were "left for its own ingester" in name only —
+that ingester (``ingest_runnable_skill``, the same primitive this module
+already uses) was never actually *driven* over the atomic-skill corpus on any
+recurring path. ``package_install_ingest.py``'s ``package_install`` connector
+— the ONE automatic, watermarked, always-on schedule that keeps this corpus
+fresh in the KG — re-drove only ``ingest_skill_workflows`` (its own docstring
+names this "a documented upstream gap"). The atomic leg existed only inside
+the multi-phase ``PipelineRunner`` (``pipeline/phases/knowledge_base.py``),
+which nothing schedules automatically. Net effect: every ``skill_type:
+workflow`` file gets a fresh ``WorkflowDefinition`` node on every
+``package_install`` tick, while every ``skill_type: skill`` file gets a
+``CallableResource(resource_type='AGENT_SKILL')`` node ONLY on a manual full
+pipeline run — so in steady state a real fraction of the atomic-skill corpus
+has no KG node at all, and the registry UI's KG-authoritative classification
+(``agent_webui.api_extensions._fetch_kg_skill_classification``) correctly,
+honestly reports them ``Unclassified`` rather than guessing. ``ingest_atomic_skills``
+gives atomic skills the exact same native, scheduled treatment workflows
+already have, through the same existing seam — see its call site in
+``package_install_ingest.py::_ingest_skills_leg``.
 """
 
 from __future__ import annotations
@@ -793,6 +814,144 @@ def ingest_skill_workflows(
         report["skill_links"],
         report["skipped"],
         report["not_workflow"],
+        report["errors"],
+        report["scanned"],
+    )
+    return report
+
+
+def discover_atomic_skill_files(root: str | None = None) -> list[Path]:
+    """Locate every ``SKILL.md`` in the ATOMIC-skill corpus, full-tree.
+
+    Sibling of :func:`discover_workflow_skill_files`, but deliberately walks
+    the WHOLE installed ``universal_skills`` package rather than only
+    ``<domain>-workflows/`` categories — atomic skills (``skill_type: skill``)
+    are not confined to any one directory shape; they live under every
+    ``<domain>/<name>/SKILL.md`` category. As with the workflow discoverer,
+    this only enumerates candidate PATHS (D-SNV-1: a directory does not assert
+    a file's own declared type) — :func:`ingest_atomic_skills` is what reads
+    each file's frontmatter and excludes anything that does not declare
+    ``skill_type: skill``.
+
+    Args:
+        root: optional explicit corpus root, searched recursively as-is (same
+            contract as ``discover_workflow_skill_files``' explicit-root case).
+            Defaults to the installed ``universal_skills`` package.
+    """
+    roots: list[Path] = []
+    if root:
+        roots.append(Path(root))
+    else:
+        try:
+            import universal_skills
+
+            roots.append(Path(next(iter(universal_skills.__path__))))
+        except Exception as exc:  # noqa: BLE001 — package may be absent
+            logger.warning(
+                "[KG-2.97] universal_skills not importable (%s)", _error_kind(exc)
+            )
+
+    seen: set[Path] = set()
+    files: list[Path] = []
+    for r in roots:
+        if not r.exists():
+            continue
+        for f in sorted(r.rglob("SKILL.md")):
+            rf = f.resolve()
+            if rf not in seen:
+                seen.add(rf)
+                files.append(f)
+    return files
+
+
+def ingest_atomic_skills(
+    engine: IntelligenceGraphEngine, root: str | None = None
+) -> dict[str, Any]:
+    """Ingest every universal-skills ATOMIC skill as a runnable ``CallableResource``.
+
+    CONCEPT:AU-KG.ingest.skill-workflow-ingestion (atomic-skill leg). Sibling
+    of :func:`ingest_skill_workflows`, closing the gap that function's own
+    docstring and ``package_install_ingest.py`` both name explicitly: the
+    ``package_install`` connector — the one automatic, watermarked schedule
+    that keeps this corpus fresh in the KG — re-drove only the workflow leg,
+    so a ``skill_type: skill`` file never got a ``CallableResource`` on any
+    recurring path (only a manually-triggered full ``PipelineRunner`` run
+    did). This reuses the exact same primitive (``ingest_runnable_skill``) the
+    package's own boot path and programmatic skill ingestion already use, so
+    an atomic skill lands in the identical node shape either way — this just
+    makes sure it is actually reached automatically for the whole corpus.
+
+    Args:
+        engine: the live ``IntelligenceGraphEngine``.
+        root: optional explicit corpus root (see
+            :func:`discover_atomic_skill_files`). A file is still excluded
+            unless its own frontmatter declares ``skill_type: skill`` — a
+            content-level check, not a directory-shape one, so it applies to
+            both the default and explicit-root cases (mirrors D-SNV-1).
+
+    Returns:
+        Report dict: ``{skills, skipped, not_skill, not_skill_detail, errors,
+        error_detail, scanned}``.
+    """
+    files = discover_atomic_skill_files(root)
+    report: dict[str, Any] = {
+        "skills": 0,
+        "skipped": 0,
+        "errors": 0,
+        "error_detail": [],
+        # Files this sweep discovered but whose OWN frontmatter does not
+        # declare ``skill_type: skill`` (a workflow, a skill-graph, or a file
+        # silent on skill_type — the latter is "assume workflow" by the same
+        # convention ``ingest_skill_workflows`` documents, so it is left for
+        # that ingester rather than claimed here too).
+        "not_skill": 0,
+        "not_skill_detail": [],
+        "scanned": len(files),
+    }
+    for f in files:
+        try:
+            parsed = parse_workflow_skill(f)
+            if parsed is None:
+                report["errors"] += 1
+                report["error_detail"].append(
+                    f"{skill_reference(f.parent.name)}: parse failed"
+                )
+                continue
+            declared_type = parsed.get("skill_type")
+            if declared_type != "skill":
+                report["not_skill"] += 1
+                report["not_skill_detail"].append(
+                    f"{parsed['source_ref']}: skill_type={declared_type!r}"
+                )
+                continue
+            body = str(parsed.get("body") or "").strip()
+            if not body:
+                report["skipped"] += 1
+                continue
+            ingest_runnable_skill(
+                engine,
+                name=parsed["name"],
+                description=parsed["description"],
+                instructions=body,
+                provider="universal-skills",
+            )
+            report["skills"] += 1
+        except Exception as exc:  # noqa: BLE001 — one bad file must not abort the run
+            report["errors"] += 1
+            ref = skill_reference(f.parent.name)
+            report["error_detail"].append(f"{ref}: {_error_kind(exc)}")
+            logger.error(
+                "[KG-2.97] atomic-skill ingest failed for %s (%s)",
+                ref,
+                _error_kind(exc),
+            )
+
+    logger.info(
+        "[KG-2.97] atomic-skill ingest: %d skills, %d skipped, %d not-skill "
+        "(D-SNV-1), %d errors (of %d scanned)",
+        report["skills"],
+        report["skipped"],
+        report["not_skill"],
         report["errors"],
         report["scanned"],
     )
