@@ -305,6 +305,52 @@ class RepositoryEngine:
             )
             return {"status": "deferred"}
 
+    def cas_work_item_metadata(self, request: dict[str, Any]) -> dict[str, Any]:
+        """In-memory double for the native ``CasWorkItemMetadata`` RPC
+        (BUG-111), mirroring ``tests/unit/orchestration/test_work_item.py``'s
+        ``NativeEngine.cas_work_item_metadata``: the same three outcomes
+        (``applied``/``conflict``/``not_found``), atomically compare-and-set
+        against ``self.nodes`` under ``self._lock``.
+        """
+        with self._lock:
+            node = self.nodes.get(request["work_item_id"])
+            if node is None:
+                return {"outcome": "not_found"}
+            if node.get("tenant") != request["tenant"]:
+                return {"outcome": "conflict"}
+            if node.get("status") not in set(request["expected_status"]):
+                return {"outcome": "conflict"}
+            lease = request.get("expected_lease")
+            if lease is not None and not self._owns(
+                node,
+                {
+                    "worker_ref": lease["worker_ref"],
+                    "expected_epoch": lease["lease_epoch"],
+                    "fencing_token": lease["fencing_token"],
+                },
+            ):
+                return {"outcome": "conflict"}
+            if request.get("set_checkpoint_id") is not None:
+                if node.get("checkpoint_id") != request.get("expected_checkpoint_id"):
+                    return {"outcome": "conflict"}
+                node["checkpoint_id"] = request["set_checkpoint_id"]
+            elif request.get("set_metadata") is not None:
+                if (node.get("metadata") or {}) != (
+                    request.get("expected_metadata") or {}
+                ):
+                    return {"outcome": "conflict"}
+                node["metadata"] = request["set_metadata"]
+            elif request.get("set_prio_bucket") is not None:
+                if int(node.get("prio_bucket") or 0) != int(
+                    request.get("expected_prio_bucket") or 0
+                ):
+                    return {"outcome": "conflict"}
+                node["prio_bucket"] = request["set_prio_bucket"]
+            else:
+                raise AssertionError("cas_work_item_metadata: no set_* field given")
+            node["updated_at"] = float(request["now_ms"]) / 1000.0
+            return {"outcome": "applied"}
+
     def _row(self, item_id: str, node: dict[str, Any]) -> dict[str, Any]:
         return {
             "id": item_id,
