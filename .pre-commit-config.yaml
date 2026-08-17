@@ -614,6 +614,27 @@ repos:
     # tracked" can be proven not to miss one. Left whole-repo per the
     # explicit carve-out for security/privacy-critical invariant checks.
     always_run: true
+  - id: guardrail-pre-commit-patch-safety
+    name: Guardrail — no live uncommitted work parked in the pre-commit patch cache (BUG-067)
+    # pre-commit's OWN stash mechanism -- not `git stash` -- parks any unstaged
+    # changes in $PRE_COMMIT_HOME/patch<timestamp>-<pid> (default
+    # ~/.cache/pre-commit) before every run and restores them after. If the run
+    # is killed between the stash and the restore (OOM, `timeout`, a session
+    # ending), the working tree has ALREADY been blanked (`git checkout -- .`)
+    # and that patch file is the ONLY surviving copy of the work. A killed run
+    # once left 19 such files (332 KB) behind; a disk-reclaim sweep that
+    # treated the cache dir as disposable came within one `rm -rf` of
+    # destroying a worker's live diff. This is an investigative check ("is it
+    # currently safe to touch the cache"), not a per-commit invariant, so it is
+    # staged manual/pre-push rather than run on every commit. Run it via:
+    #   pre-commit run guardrail-pre-commit-patch-safety --hook-stage manual --all-files
+    # ALWAYS run it (or `python3 scripts/check_pre_commit_patch_safety.py`)
+    # before any $PRE_COMMIT_HOME/~/.cache/pre-commit reclaim.
+    entry: python3 scripts/check_pre_commit_patch_safety.py
+    language: system
+    pass_filenames: false
+    always_run: true
+    stages: [manual, pre-push]
   - id: guardrail-kg-skill-coverage
     name: Guardrail — every Graph-OS verb has domain-skill coverage
     # CONCEPT:AU-ECO.mcp.kg-skill-verb-coverage — third parity leg: every live
