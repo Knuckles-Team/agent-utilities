@@ -209,9 +209,13 @@ SIDECAR_CAPABILITIES: dict[str, SidecarCapability] = {
             "AudioSegment loci, mirroring messaging/router.py's existing "
             "local-transcription AudioSegment producer but via the fleet "
             "sidecar instead of the in-process faster-whisper reader. "
-            "GOC-07: adapter wired in audio_sidecar.py; the fleet tool "
-            "action (audio-transcriber-mcp's transcribe_media) is not yet "
-            "live — tracked in reports/issue-register.md."
+            "GOC-07: adapter wired in audio_sidecar.py. The fleet tool action "
+            "(audio-transcriber-mcp's transcribe_media, action=transcribe_segments) "
+            "is LIVE as of the voice-program backend closure: it verifies the "
+            "caller's digest, delegates to a pluggable ASR provider seam "
+            "(audio_transcriber.asr_providers -- faster-whisper today, with an "
+            "entry-point group for a future native epistemic-graph provider), "
+            "and never fabricates a transcript on failure."
         ),
     ),
     "video": SidecarCapability(
