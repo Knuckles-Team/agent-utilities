@@ -201,7 +201,7 @@ def entities_from_index_result(
     acknowledged".
     """
     requested = set(content_hashes)
-    files_parsed = index.get("files_parsed")
+    files_parsed: Any = index.get("files_parsed")
     try:
         files_parsed_int = int(files_parsed)
     except (TypeError, ValueError) as exc:
@@ -224,9 +224,7 @@ def entities_from_index_result(
         props = node.get("properties", {}) or {}
         fp = props.get("file_path", "")
         if fp not in requested:
-            raise IncompleteParse(
-                f"index result references unrequested file {fp!r}"
-            )
+            raise IncompleteParse(f"index result references unrequested file {fp!r}")
         by_file.setdefault(fp, []).append(node)
         mapped = _entity_id_for(props, fp)
         if mapped is not None:

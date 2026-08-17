@@ -335,8 +335,7 @@ def dependency_lock_digest(lock_path: str | Path | None = None) -> str:
                 "dependency lock contains an invalid package identity"
             )
         source = item.get("source")
-        is_editable = isinstance(source, dict) and "editable" in source
-        if version is None and is_editable:
+        if version is None and isinstance(source, dict) and "editable" in source:
             # Editable/path workspace members (this repo itself, sibling crates
             # such as epistemic-graph) carry a dynamic version resolved from
             # local build-backend metadata, not a pinned registry release, so

@@ -167,6 +167,37 @@ async def test_run_graph_terminal_error_recovery_dict_surfaces_as_failed(mock_gr
 
 
 @pytest.mark.asyncio
+async def test_run_graph_none_result_surfaces_as_failed_not_literal_none(mock_graph):
+    """A decision branch routing straight to ``g.end_node`` with no payload (e.g.
+    ``dispatcher_step`` returning ``None`` when the plan is complete but
+    ``results_registry``/``exploration_notes`` are both empty — no specialist/verifier/
+    synthesizer, and therefore no model, ever ran) makes ``graph.run()`` return
+    ``End(data=None)``, which unwraps to bare ``None`` here. Before this fix that fell
+    through every guard into the catch-all, which stringified it into
+    ``results.output == "None"`` under ``status="completed"`` — an empty/never-invoked
+    turn reported to the caller as an ordinary successful reply whose answer happened to
+    be the four characters "None" (this exact shape reached the agent-webui chat UI).
+    It must now surface as a failed/degraded GraphResponse with a real `error` and a
+    coherent, non-fabricated `results.output` — never the literal string "None"."""
+    mock_graph.run.return_value = None
+
+    deps = MagicMock()
+    deps.mcp_toolsets = []
+    deps.tag_prompts = {}
+    deps.event_queue = None
+    config = {"deps": deps}
+
+    response = await runner().execute_graph(mock_graph, config, query="Test")
+
+    assert response["status"] == "failed"
+    assert response["results"]["output"] != "None"
+    assert "None" not in response["results"]["output"].split()
+    assert response["error"]
+    assert response["metadata"]["degraded"] is True
+    assert response["metadata"]["outcome"] == "empty_graph_termination"
+
+
+@pytest.mark.asyncio
 async def test_execute_graph_constructs_permission_context_on_deps(mock_graph):
     kernel = object()
     identity = object()
