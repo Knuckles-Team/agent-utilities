@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1193
+total_concepts: 1195
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4072,6 +4072,16 @@ concepts:
   - agent_utilities/knowledge_graph/ontology/document_processing.py
   - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
   doc: one retrieved source object
+- id: AU-KG.ingest.exact-parser-acknowledgement
+  name: every input
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
+  - agent_utilities/knowledge_graph/ingestion/engine.py
+  doc: every input
 - id: AU-KG.ingest.external-graph-federation
   name: External Graph Federation
   pillar: AU-KG
@@ -9743,6 +9753,14 @@ concepts:
   - agent_utilities/security/conformance/surface_inventory.py
   - agent_utilities/security/conformance/surface_manifest.py
   doc: see this package
+- id: AU-OS.identity.verified-carrier-contract
+  name: the dict
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/session.py
+  - agent_utilities/security/request_identity.py
+  doc: the dict
 - id: AU-OS.measurement.background-run
   name: AU-OS.measurement.background-run
   pillar: AU-OS
