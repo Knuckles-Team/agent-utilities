@@ -43,6 +43,15 @@ consumed by a stateless dispatch-worker fleet (sibling of the KG-2.57
   (:func:`_dead_letter_poison_envelope`, keyed by delivery digest for
   idempotent redelivery) before it may be acked; a turn-execution exception
   is durably committed as ``failed`` before its message may be acked.
+* **Wire tenant is untrusted until re-checked at claim time.**
+  ``enqueue_agent_turn`` verifies ``envelope.tenant`` against the caller's
+  authenticated ``GraphSession`` at admission (fail closed, ``PermissionError``
+  on mismatch) — but the ``agent_turns`` queue transport carries no signed
+  per-message carrier yet (:class:`TenantMismatchError`'s docstring; GOC-15's
+  envelope-carrier contract is deferred). Before claiming, the consumer loop
+  re-reads the durable WorkItem this ``job_id`` was admitted under and rejects
+  (dead-letters, never silently executes) a delivery whose wire tenant
+  disagrees with it.
 
 Run::
 
@@ -263,6 +272,23 @@ def _work_item_fence_still_valid(
 
 class WorkItemLeaseLost(RuntimeError):
     """The current worker no longer owns a renewable WorkItem lease."""
+
+
+class TenantMismatchError(RuntimeError):
+    """A delivered envelope's wire ``tenant`` disagrees with the WorkItem it
+    was admitted under (CONCEPT: GOC-18 consumer-side defense in depth).
+
+    ``enqueue_agent_turn`` already verifies ``envelope.tenant`` against an
+    authenticated ``GraphSession`` at ADMISSION time
+    (``agent_dispatch.py``'s ``PermissionError`` gate) — but the
+    ``agent_turns`` queue transport itself carries no signed per-message
+    carrier yet (GOC-15's envelope-carrier contract is still deferred; see
+    this module's docstring). A delivery is therefore untrusted wire data on
+    the CONSUMER side even for a syntactically well-formed envelope: a
+    tampered/forged broker message reusing a legitimate ``job_id`` but
+    asserting a different ``tenant`` must never be silently trusted or
+    silently executed.
+    """
 
 
 class WorkItemLeaseGuard:
@@ -1688,6 +1714,39 @@ def run_dispatch_consumer_loop(
             continue
 
         dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
+
+        # CONCEPT: GOC-18 defense in depth — reject a wire tenant that
+        # disagrees with the tenant this WorkItem was durably admitted under,
+        # BEFORE ever claiming or executing it. Reads the WorkItem directly
+        # (never the claim response — ``work_item.claim_specific``'s
+        # ``_normalize_native_claim`` does not yet surface tenant on the
+        # claim itself; that gap is tracked separately) so this check is
+        # unaffected by that surface. A missing WorkItem or a missing/blank
+        # envelope tenant is not a mismatch — the existing claim/skip and
+        # producer-side admission checks own those cases.
+        if engine is not None and envelope.tenant:
+            from agent_utilities.orchestration import work_item as _wi
+
+            admitted_item = _wi.get_work_item(engine, dispatch_item_id)
+            admitted_tenant = admitted_item.get("tenant") if admitted_item else None
+            if admitted_tenant and envelope.tenant != admitted_tenant:
+                logger.error(
+                    "agent-dispatch tenant mismatch for %s: wire tenant "
+                    "disagrees with the admitted WorkItem — rejecting delivery",
+                    dispatch_item_id,
+                )
+                mismatch = TenantMismatchError(
+                    f"envelope tenant does not match the WorkItem {dispatch_item_id} "
+                    "was admitted under"
+                )
+                poison_id = _dead_letter_poison_envelope(engine, payload, error=mismatch)
+                _record_turn_outcome(
+                    "tenant_mismatch" if poison_id else "tenant_mismatch_unrecorded"
+                )
+                if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
+                    time.sleep(idle_sleep_s)
+                continue
+
         outcome = "failed"
         try:
             active[:] = [envelope.session_id]
