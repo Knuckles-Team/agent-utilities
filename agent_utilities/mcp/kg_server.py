@@ -798,6 +798,49 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
 BASE_ACTION_TOOL_ROUTES = MappingProxyType(dict(ACTION_TOOL_ROUTES))
 
 
+def _is_engine_dispatch_client_error(parsed: Any) -> bool:
+    """U-74 (GOC-83-W05): does a parsed ``engine_<domain>`` dispatch result
+    represent a CALLER-caused parameter mistake, rather than a real result or
+    a genuine server-side/engine-side failure?
+
+    ``engine_tools._dispatch`` is the ONE dispatcher every ``engine_<domain>``
+    tool shares; it never raises for an unknown action name, an unknown/
+    duplicate/wrong-type/missing parameter to the target EG method, or a
+    malformed ``params_json`` — it catches all of those and returns a JSON
+    STRING error payload instead, by design, so an MCP tool caller always gets
+    data back (never an exception it has to unwrap). That is the right
+    contract for the MCP surface, but the generic REST twin
+    (:func:`_make_tool_endpoint`) unconditionally wrapped ANY such string in
+    ``{"status": "success", ...}`` at HTTP 200 — a client-caused parameter
+    mistake was indistinguishable, over REST, from a real result. This
+    recognizes the two client-error shapes ``_dispatch`` emits (an unknown/
+    non-callable action name — a bare ``error: str``; or an
+    ``error.code == "invalid_request"`` structured payload from
+    ``public_error_json`` — unknown/duplicate/wrong-type/missing parameter, or
+    an undecodable ``params_json``), scoped ONLY to ``engine_*`` REST
+    responses (checked by the caller) so no other tool's REST status-code
+    contract changes. A ``dependency_unavailable`` (engine unreachable) or
+    unclassified ``operation_failed`` payload is NOT a client mistake and is
+    deliberately left at 200, matching prior behavior exactly.
+    """
+    if not isinstance(parsed, dict):
+        return False
+    error = parsed.get("error")
+    if isinstance(error, str):
+        # `_dispatch`'s two pre-call, action-name-level rejections: {"error":
+        # "unknown action ...", "actions": [...]} / {"error": "engine_<domain>
+        # has no callable action ..."} — both are a caller supplying an action
+        # name the domain doesn't have, i.e. exactly as client-caused as an
+        # unsupported top-level field.
+        return True
+    if isinstance(error, dict) and error.get("code") == "invalid_request":
+        # `public_error_json(..., code="invalid_request")` — raised for an
+        # undecodable `params_json`, or a `TypeError` from calling the target
+        # EG method with an unknown/duplicate/wrong-type/missing argument.
+        return True
+    return False
+
+
 def _make_tool_endpoint(tool_name: str):
     """Build a thin REST handler that dispatches a JSON body to an MCP tool.
 
@@ -809,6 +852,8 @@ def _make_tool_endpoint(tool_name: str):
     served by this.
     """
 
+    is_engine_domain_tool = tool_name.startswith("engine_")
+
     async def _handler(request: Request) -> JSONResponse:
         try:
             body = await request.json()
@@ -816,7 +861,18 @@ def _make_tool_endpoint(tool_name: str):
             body = {}
         try:
             res = await _execute_tool(tool_name, **body)
-            return JSONResponse({"status": "success", "result": safe_json_load(res)})
+            parsed = safe_json_load(res)
+            # U-74 (GOC-83-W05): an `engine_<domain>` action-name or
+            # parameter mistake never raises (see `_is_engine_dispatch_
+            # client_error`'s docstring) — surface it as a deterministic 4xx
+            # instead of an HTTP 200 that hides a caller-caused failure behind
+            # `"status": "success"`. Scoped to `engine_*` tools only; every
+            # other tool's REST status-code contract is unchanged.
+            if is_engine_domain_tool and _is_engine_dispatch_client_error(parsed):
+                return JSONResponse(
+                    {"status": "failed", "result": parsed}, status_code=400
+                )
+            return JSONResponse({"status": "success", "result": parsed})
         except UnsupportedToolFieldError as e:
             # U-74: a caller-supplied field the tool doesn't accept is a
             # client-side schema mismatch, not a server fault — deterministic

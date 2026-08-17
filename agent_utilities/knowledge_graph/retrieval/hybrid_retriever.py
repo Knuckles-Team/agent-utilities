@@ -73,6 +73,22 @@ _NEIGHBOR_FETCH_CONCURRENCY = 6
 # neighbours strictly dominate none.
 _MAX_NEIGHBOR_EXPANSIONS = 24
 
+# GOC-83-W04 (U-107/U-132, CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
+# when `retrieve_hybrid` is called WITH a `session`, its raw vector-arm and
+# keyword-fallback candidate pools are overfetched by this bounded factor
+# before ACL filtering runs (and before this method's own internal sort/
+# rerank/trim-to-`context_window` cut) — a fixed, small multiple, never an
+# unbounded retry loop chasing a full `context_window` of authorized results
+# at any cost. A denied row consuming one of only `context_window` raw slots
+# would silently starve an authorized lower-scored candidate from ever
+# reaching this method's return value at all (and therefore from ever
+# reaching `search_hybrid`'s OWN ACL pass); widening the raw pool gives ACL
+# filtering room to remove denied rows while still leaving up to a full
+# `context_window` of authorized candidates for the downstream rank/trim to
+# work with. No effect when `session` is `None` (the default, and the only
+# behavior every pre-existing caller ever sees).
+_ACL_RETRIEVAL_OVERFETCH = 5
+
 
 class _EmbeddingCircuitOpenError(Exception):
     """Sentinel: the embedding endpoint's circuit breaker is already OPEN.
@@ -719,6 +735,7 @@ class HybridRetriever:
         active_task: str | None = None,
         as_of: str | None = None,
         query_analysis: bool = False,
+        session: Any | None = None,
     ) -> list[dict[str, Any]]:
         """Perform a hybrid search using both vector similarity and graph topology.
 
@@ -734,9 +751,25 @@ class HybridRetriever:
                 relative to this reference time, enabling knowledge-state-as-of-date-D
                 retrieval over bi-temporal ``event_time``. Defaults to now
                 (CONCEPT:EG-KG.compute.rust-native-training-loss, CONCEPT:AU-KG.temporal.bi-temporal-memory-layers).
-
-        Returns:
-            A list of nodes with extended graph context.
+            session (GOC-83-W04, CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
+                optional explicit ``GraphSession``. ``None`` (the default) is a
+                **no-op** — identical to prior behavior for the ~50 existing
+                internal/test callers that never pass one. When supplied, the
+                RAW vector-arm and keyword-fallback candidate pools are
+                overfetched (a bounded multiple of ``context_window``) and ACL-
+                filtered via the SAME ``QueryMixin._enforce_acl_on_results``
+                boundary ``search_hybrid`` already applies to its own final
+                result — but run HERE, before this method's own internal
+                sort/rerank/trim-to-``context_window`` cut, not after it.
+                ``search_hybrid``'s own ACL pass (which still runs on this
+                method's return value) closes the top-k/ranking/score-
+                normalization channels at ITS layer; without ALSO closing
+                them here, a denied high-score candidate could already have
+                consumed one of the ``context_window`` slots INSIDE this
+                method — before ``search_hybrid`` ever saw it — silently
+                starving an authorized lower-scored candidate that never
+                makes it into this method's return value at all, so no
+                downstream ACL pass could ever recover it.
         """
         # Query analysis (CONCEPT:AU-ECO.connector.apply-any-query-analysis) — opt-in. Derive a time window
         # (``as_of``) and source-type restriction from the natural-language query.
@@ -783,6 +816,33 @@ class HybridRetriever:
             except Exception as e:  # noqa: BLE001 — the relational-intent arm is explicitly a zero-LLM optional arm (comment above); relational_nodes stays at its initialized [] so the semantic/keyword arms below still run
                 logger.debug("Relational-intent arm failed: %s", e)
 
+        # GOC-83-W04: when a session is present, gather a WIDER raw candidate
+        # pool than `context_window` — a bounded overfetch, not unbounded — so
+        # ACL filtering (applied below, BEFORE this method's own internal
+        # sort/rerank/trim) still has enough authorized candidates left to
+        # fill a full `context_window` after denied rows are removed. `None`
+        # (no session) keeps the EXACT prior fetch size for every existing
+        # caller — zero behavior change when this feature isn't opted into.
+        _acl_fetch_window = (
+            context_window * _ACL_RETRIEVAL_OVERFETCH
+            if session is not None
+            else context_window
+        )
+
+        def _acl_filter_keyword_fallback(
+            nodes: list[dict[str, Any]],
+        ) -> list[dict[str, Any]]:
+            """ACL-filter an overfetched keyword-fallback pool, then re-trim to
+            `context_window` — the keyword-fallback branches assign straight
+            to `base_nodes` (they never pass through `_rerank_candidates`'s
+            own trim), so this method must re-trim itself after overfetching."""
+            if session is None:
+                return nodes
+            governed = self.engine._enforce_acl_on_results(
+                nodes, session=session, summary="hybrid-retrieve-keyword"
+            )
+            return governed[:context_window]
+
         # 1. Semantic Search (Vector) — ONE engine unified plan.
         # The vector neighbourhood is computed by the engine's native ANN inside a
         # single costed cross-modal plan (filter + vector ``Rank``), NOT by an O(N)
@@ -818,11 +878,24 @@ class HybridRetriever:
                 )
                 scored_nodes = self._engine_vector_search(
                     query_emb,
-                    context_window,
+                    _acl_fetch_window,
                     threshold=threshold,
                     target_paths=target_paths,
                     corpus_doc_ids=corpus_doc_ids,
                 )
+                # GOC-83-W04 (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
+                # ACL-filter the RAW vector-arm candidate pool before ANY
+                # fusion/boost/rank/trim step below — not just before
+                # `search_hybrid`'s own final return. Without this, a denied
+                # high-score row could consume one of the `_acl_fetch_window`
+                # (nee `context_window`) slots that `_rerank_candidates`
+                # later trims down to, starving an authorized lower-scored
+                # candidate before `search_hybrid` ever sees either row.
+                # No-op when `session` is None — identical prior behavior.
+                if session is not None:
+                    scored_nodes = self.engine._enforce_acl_on_results(
+                        scored_nodes, session=session, summary="hybrid-retrieve-vector"
+                    )
                 for node in scored_nodes:
                     node["_score"] *= self._compute_query_weight(query)
 
@@ -907,11 +980,13 @@ class HybridRetriever:
                     )
                 else:
                     logger.debug("No semantic matches found, falling back to keyword")
-                    base_nodes = self.engine._search_keyword(
-                        query, top_k=context_window
+                    base_nodes = _acl_filter_keyword_fallback(
+                        self.engine._search_keyword(query, top_k=_acl_fetch_window)
                     )
             except _EmbeddingCircuitOpenError:
-                base_nodes = self.engine._search_keyword(query, top_k=context_window)
+                base_nodes = _acl_filter_keyword_fallback(
+                    self.engine._search_keyword(query, top_k=_acl_fetch_window)
+                )
             except Exception as e:
                 if _embed_breaker is not None:
                     _embed_breaker.record(ok=False, status=_http_status_of(e))
@@ -919,10 +994,14 @@ class HybridRetriever:
                     "Vector search failed, falling back to keyword: %s",
                     _describe_embedding_failure(e),
                 )
-                base_nodes = self.engine._search_keyword(query, top_k=context_window)
+                base_nodes = _acl_filter_keyword_fallback(
+                    self.engine._search_keyword(query, top_k=_acl_fetch_window)
+                )
         else:
             # Fallback to keyword search
-            base_nodes = self.engine._search_keyword(query, top_k=context_window)
+            base_nodes = _acl_filter_keyword_fallback(
+                self.engine._search_keyword(query, top_k=_acl_fetch_window)
+            )
 
         # 1d. Merge the relational-intent arm (CONCEPT:AU-KG.retrieval.relational-intent-retrieval) additively: typed-edge
         # hits are prepended (high priority) without displacing the vector arm, so
@@ -1499,6 +1578,7 @@ class HybridRetriever:
         hard_negatives: set[str] | None = None,
         active_task: str | None = None,
         with_ledger: bool = False,
+        session: Any | None = None,
     ) -> list[dict[str, Any]] | dict[str, Any]:
         """Memory-first retrieval: HyDE plan → dual-threshold multi-query → gated 2nd pass.
 
@@ -1554,6 +1634,7 @@ class HybridRetriever:
                 hard_negatives=hard_negatives,
                 relevance_threshold=threshold,
                 active_task=active_task,
+                session=session,  # GOC-83-W04: thread through, no-op when None
             )
             for q in queries
         ]
@@ -1572,6 +1653,7 @@ class HybridRetriever:
                     hard_negatives=hard_negatives,
                     relevance_threshold=deep_threshold,
                     active_task=active_task,
+                    session=session,  # GOC-83-W04: thread through, no-op when None
                 )
                 for q in queries
             ]
