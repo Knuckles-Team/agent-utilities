@@ -177,3 +177,12 @@ the opaque job id and an opaque partition reference.
 Architecture guard tests enforce the direct-connect allowlist, the served-route
 session boundary, the absence of AgentLease writers, and the WorkItem-only
 backend normalization.
+
+## Field-level carrier contract
+
+The exact claim keys `GraphSession.engine_verified_context()` emits, their
+required/optional status, per-surface (Iceberg/SPARQL/observability/WebUI)
+carrier coverage, and the explicit consumer handoff for lanes minting or
+verifying a caller identity (GOC-15) are frozen in
+[Verified Identity Carrier Contract](verified-identity-carrier-contract.md) —
+this document's field-level companion.

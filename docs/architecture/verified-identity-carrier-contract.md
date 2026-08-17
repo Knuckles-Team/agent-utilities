@@ -9,6 +9,15 @@ CONCEPT:AU-OS.identity.verified-carrier-contract
 > that circulated in planning before this lane verified `main`; see
 > [Premise corrections](#premise-corrections-read-first) before designing
 > anything against this contract.
+>
+> **Relationship to [Graph Authority Convergence](graph-authority-convergence.md):**
+> that document is the narrative architecture of the `GraphSession`/`eg2`
+> boundary (why it exists, how minting/routing/work-state relate). This
+> document is its **field-level companion** — the exact claim keys, their
+> required/optional status, per-surface carrier coverage, and the explicit
+> consumer handoff. Read Convergence for the "why", this for the "exactly
+> what bytes." Neither supersedes the other; extend both together when the
+> carrier's fields or surface coverage change.
 
 ## Premise corrections (read first)
 
