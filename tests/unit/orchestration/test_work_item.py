@@ -2015,3 +2015,230 @@ def test_team_task_status_view_maps_canonical_vocabulary(cas_engine: CasEngine) 
 
     wi.commit_result(cas_engine, claim["work_item_id"], claim, outcome="succeeded")
     assert wi.team_task_status_view(cas_engine, "task_1") == "completed"
+
+
+# ---------------------------------------------------------------------------
+# U-24 — immutable WorkItem admission and terminal-result authority
+# ---------------------------------------------------------------------------
+#
+# Two confirmed defects on this tree (verified against the audit's design
+# intent, not applied as a literal patch -- the upstream diff targets a
+# different result-metadata shape this tree never had):
+#
+# 1. ``_normalize_native_claim`` hardcoded ``"tenant": None`` -- the native
+#    ClaimWorkItem response deliberately omits tenant (it was verified at
+#    admission), but the claim dict callers pass to heartbeat/checkpoint/
+#    commit_result never carried it forward from anywhere. Two existing call
+#    sites already papered over this with an ``claim.get("tenant") or
+#    item.get("tenant")`` fallback, but ``_normalize_native_claim`` itself --
+#    the single place that SHOULD have produced the right value -- always
+#    produced ``None``, which is fragile: any future direct reader of
+#    ``claim["tenant"]`` (with no fallback) would silently get an untenanted
+#    claim.
+# 2. ``ensure_ingest_task_work_item`` returned a job id straight from
+#    ``submit_work_item`` with no readback proving the WorkItem it just
+#    admitted is durably observable through the same control authority.
+#
+# The "hostile metadata.result key collision" half of the audit's design
+# intent does NOT apply here: this tree has no function that merges
+# worker/caller-controlled data into TOP-LEVEL WorkItem metadata at all --
+# ``request_work_item_input``/``submit_work_item_input`` confine caller data
+# to the single namespaced ``metadata["pending_input_request"]``/
+# ``["pending_input_response"]`` keys, and ``checkpoint_work_item``/
+# ``set_work_item_priority`` write dedicated typed fields
+# (``checkpoint_id``/``prio_bucket``), never a generic metadata merge. That
+# vulnerability class is refuted below with a hostile-key test proving the
+# structural containment holds, rather than "fixed" by adding a namespace
+# nothing writes outside of.
+
+
+def test_claim_specific_preserves_tenant_for_later_fenced_calls(
+    cas_engine: CasEngine,
+) -> None:
+    """KNOWN-BAD (pre-fix): ``_normalize_native_claim`` always returned
+    ``tenant=None`` regardless of the item's real, already-verified tenant.
+    A later fenced call (heartbeat/checkpoint/commit_result) reading
+    ``claim["tenant"]`` directly -- with no ad-hoc fallback -- would lose
+    tenant authority. This proves the claim itself now carries it."""
+    item_id = wi.submit_work_item(
+        cas_engine, kind="generic", payload_ref="p", tenant="acme-corp"
+    )
+    claim = wi.claim_specific(cas_engine, item_id, token="host:1", now=1000.0)
+    assert claim is not None
+    assert claim["tenant"] == "acme-corp"
+
+
+def test_claim_next_preserves_tenant_for_later_fenced_calls(
+    cas_engine: CasEngine,
+) -> None:
+    """Same invariant as above for the BLIND claim path (claim_next), which
+    cannot know the tenant before the engine selects an item -- the fix
+    backfills it from the same readback the consent gate already performs,
+    at no extra round trip."""
+    item_id = wi.submit_work_item(
+        cas_engine, kind="generic", payload_ref="p", tenant="beta-inc", now=1.0
+    )
+    claim = wi.claim_next(cas_engine, now=1000.0)
+    assert claim is not None
+    assert claim["work_item_id"] == item_id
+    assert claim["tenant"] == "beta-inc"
+
+
+def test_reclaim_after_stale_lease_also_preserves_tenant(
+    cas_engine: CasEngine,
+) -> None:
+    """The reclaim-under-a-different-worker path (existing fencing coverage:
+    test_claim_specific_reclaims_after_stale_lease_bumps_fencing) must ALSO
+    carry the correct tenant through to the new claimer, not just a fresh
+    fencing token."""
+    item_id = wi.submit_work_item(
+        cas_engine, kind="generic", payload_ref="p", tenant="gamma-llc"
+    )
+    first = wi.claim_specific(
+        cas_engine, item_id, token="host:1", now=1000.0, lease_ttl_s=10.0
+    )
+    assert first["tenant"] == "gamma-llc"
+
+    second = wi.claim_specific(
+        cas_engine, item_id, token="host:2", now=1011.0, lease_ttl_s=3600.0
+    )
+    assert second is not None
+    assert second["fence_token"] == 2
+    assert second["tenant"] == "gamma-llc"
+
+
+def test_hostile_request_input_keys_never_escape_the_namespaced_result(
+    engine: NativeEngine,
+) -> None:
+    """Refutes the "hostile metadata.result key collision" defect class
+    against this tree's ACTUAL surface: the only worker-facing metadata
+    writer (request_work_item_input) confines caller data to
+    metadata["pending_input_request"]. A hostile dict naming reserved
+    admission fields (tenant/kind/payload_ref/physical_graph/status) must
+    stay trapped inside that one namespaced key -- never overwrite the
+    WorkItem's own admission-authority fields, and never leak as sibling
+    top-level metadata keys."""
+    item_id = wi.submit_work_item(
+        engine, kind="generic", payload_ref="original-payload", tenant="tenant-a"
+    )
+    claim = wi.claim_and_start(engine, item_id, token="worker", now=10.0)
+    assert claim is not None
+
+    hostile = {
+        "tenant": "attacker-tenant",
+        "kind": "hijacked_kind",
+        "payload_ref": "attacker-payload",
+        "physical_graph": "attacker-graph",
+        "status": "succeeded",
+    }
+    assert wi.request_work_item_input(
+        engine, item_id, claim, request=hostile, now=11.0
+    )
+    item = wi.get_work_item(engine, item_id)
+    assert item["tenant"] == "tenant-a"
+    assert item["kind"] == "generic"
+    assert item["payload_ref"] == "original-payload"
+    assert item["status"] in {"leased", "running"}
+    assert item["metadata"]["pending_input_request"] == hostile
+    assert "physical_graph" not in item["metadata"]
+    assert "tenant" not in item["metadata"]
+    assert "kind" not in item["metadata"]
+
+
+def test_ensure_ingest_task_work_item_readback_confirms_admission(
+    cas_engine: CasEngine,
+) -> None:
+    """PASS case: the durable admission readback confirms kind/payload_ref
+    and does not reject a normal, correctly-admitted ingest task."""
+    item_id = wi.ensure_ingest_task_work_item(
+        cas_engine, "job-readback-ok", tenant="tenant-x"
+    )
+    assert item_id == wi.ingest_task_work_item_id("job-readback-ok")
+    item = wi.get_work_item(cas_engine, item_id)
+    assert item["kind"] == "ingest_task"
+    assert item["payload_ref"] == "job-readback-ok"
+    assert item["tenant"] == "tenant-x"
+
+
+class SilentAdmissionEngine(CasEngine):
+    """``add_node`` reports success (no exception) but never actually
+    persists the row -- simulates an admission write that crashed/was lost
+    between commit and durable observability, so an immediate readback
+    finds nothing."""
+
+    def add_node(self, node_id, node_type, properties=None, ephemeral=False):
+        return {}  # accepted, nothing stored
+
+
+def test_ensure_ingest_task_work_item_fails_when_admission_is_unobservable() -> None:
+    """KNOWN-BAD: submit_work_item did not raise, but the WorkItem it claims
+    to have admitted is not durably observable through the same control
+    authority. Must raise rather than hand back a job id for a WorkItem that
+    does not durably exist -- an "accepted but unobservable" job."""
+    engine = SilentAdmissionEngine()
+    with pytest.raises(wi.WorkItemBackendUnavailable):
+        wi.ensure_ingest_task_work_item(engine, "job-silent")
+
+
+def test_ensure_ingest_task_work_item_rejects_a_mismatched_tenant_on_reuse(
+    cas_engine: CasEngine,
+) -> None:
+    """KNOWN-BAD: idempotent reuse of the deterministic ingest-task WorkItem
+    id must still readback-verify the ADMITTED tenant matches what THIS call
+    asked for -- a caller must not silently believe it admitted a job under
+    its own tenant when the durable row actually belongs to another."""
+    wi.ensure_ingest_task_work_item(cas_engine, "job-tenant-mismatch", tenant="real-owner")
+    with pytest.raises(wi.WorkItemBackendUnavailable):
+        wi.ensure_ingest_task_work_item(
+            cas_engine, "job-tenant-mismatch", tenant="different-tenant"
+        )
+
+
+class ResultCommitCrashEngine(CasEngine):
+    """``commit_work_item_result`` raises BEFORE writing anything to the
+    node -- simulates a worker/transport crash during the single native RPC
+    that atomically persists ``result_ref``/``error_ref`` together with the
+    terminal status transition.
+
+    This tree has no Python-side two-phase "write result metadata, then
+    commit terminal status" -- ``commit_result`` makes exactly one
+    ``commit_work_item_result`` native call carrying both the result
+    reference and the outcome, so "crash between result persistence and
+    terminal commit" cannot produce a partially-committed WorkItem: either
+    that one call lands (both together) or it doesn't (neither). This proves
+    the "doesn't" side: a raise leaves status/result_ref exactly as they
+    were pre-call, never a result recorded against a non-terminal item or a
+    terminal item with no result.
+    """
+
+    def commit_work_item_result(self, request: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("transport dropped mid-call")
+
+
+def test_crash_during_commit_leaves_no_partial_result_or_terminal_state(
+) -> None:
+    """KNOWN-BAD class: crash-between-result-and-terminal-commit. On this
+    tree the two are not separable RPCs, so the only reachable failure mode
+    is "the single atomic call never landed" -- proven here by asserting the
+    WorkItem is untouched (still running, no result_ref, no terminal
+    status) after the native call raises. A caller retrying commit_result
+    afterward reuses the same idempotency key, so no duplicate/partial
+    commit is possible on retry either."""
+    engine = ResultCommitCrashEngine()
+    item_id = wi.submit_work_item(engine, kind="generic", payload_ref="p")
+    claim = wi.claim_and_start(engine, item_id, token="host:1", now=1000.0)
+    assert claim is not None
+
+    before = wi.get_work_item(engine, item_id)
+    assert before["status"] in {"leased", "running"}
+    assert before.get("result_ref") is None
+
+    with pytest.raises(RuntimeError):
+        wi.commit_result(
+            engine, item_id, claim, outcome="succeeded", result_ref="ref:1", now=1010.0
+        )
+
+    after = wi.get_work_item(engine, item_id)
+    assert after["status"] == before["status"]
+    assert after.get("result_ref") is None
+    assert after.get("status") not in wi.TERMINAL_WORK_ITEM_STATUSES
