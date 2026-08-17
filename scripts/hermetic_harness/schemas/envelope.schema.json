@@ -1,0 +1,270 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-packages.local/schemas/goc-38/envelope.schema.json",
+  "title": "GOC-38 hermetic evidence envelope",
+  "description": "Interface freeze for GOC-39 and GOC-40 (GOC-PG-GREEN-TIER-AUTHORIZATION-2026-08-16). Consumers reject an envelope missing any required field or failing the enum/pattern constraints below rather than treating an absent field as green.",
+  "type": "object",
+  "required": [
+    "envelope_version", "envelope_id", "manifest_digest", "state", "state_history",
+    "candidate", "environment", "command", "resources", "leases", "collection",
+    "streams", "exit", "contamination", "redaction", "verdict", "audit"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "envelope_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "envelope_id": {"type": "string", "minLength": 1},
+    "manifest_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "state": {
+      "type": "string",
+      "enum": ["DECLARED", "ADMITTED", "COLLECTED", "EXECUTING", "ASSERTED",
+               "TEARDOWN", "EVIDENCE-FLUSHED", "FAILED", "BLOCKED", "EXPIRED"]
+    },
+    "state_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["state", "at"],
+        "properties": {
+          "state": {"type": "string"},
+          "at": {"type": "string"},
+          "reason": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["repo", "git_sha", "branch", "dirty"],
+      "properties": {
+        "repo": {"type": "string"},
+        "git_sha": {"type": "string"},
+        "branch": {"type": "string"},
+        "dirty": {"type": "boolean"}
+      }
+    },
+    "environment": {
+      "type": "object",
+      "required": [
+        "sys_executable", "sys_prefix", "venv_pyvenv_cfg_digest", "interpreter_version",
+        "lock_digest", "lockfile_path", "package_count", "expected_venv_path",
+        "venv_identity_match", "env_allowlist", "env_rejected_vars", "temp_root",
+        "host", "os"
+      ],
+      "properties": {
+        "sys_executable": {
+          "type": "string",
+          "description": "sys.executable verbatim. Never realpath()'d -- realpath() on a uv .venv/bin/python3 always resolves OUT of the venv (D-CIP-19B class defect); identity is decided by venv_identity_match below, not by path resolution."
+        },
+        "sys_prefix": {"type": "string"},
+        "venv_pyvenv_cfg_digest": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Digest of the venv's pyvenv.cfg content -- the identity check, used instead of realpath."
+        },
+        "interpreter_version": {"type": "string"},
+        "lock_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "lockfile_path": {"type": "string"},
+        "package_count": {"type": "integer", "minimum": 0},
+        "expected_venv_path": {"type": "string"},
+        "venv_identity_match": {
+          "type": "boolean",
+          "description": "False when sys.executable/sys.prefix does not resolve to expected_venv_path's own pyvenv.cfg identity -- e.g. a bare `uv run pytest` silently running the system interpreter. False forces verdict.green=false."
+        },
+        "env_allowlist": {"type": "array", "items": {"type": "string"}},
+        "env_rejected_vars": {
+          "type": "array",
+          "items": {"type": "string"},
+          "description": "Env vars present in the parent process but stripped before exec because they are not on env_allowlist -- e.g. an inherited UV_PROJECT_ENVIRONMENT that would otherwise let a child test rebuild the lane's real venv as its own fixture."
+        },
+        "temp_root": {"type": "string", "pattern": "^/var/tmp/"},
+        "host": {"type": "string"},
+        "os": {"type": "string"}
+      }
+    },
+    "command": {
+      "type": "object",
+      "required": ["argv", "shell", "cwd", "adapter"],
+      "properties": {
+        "argv": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "shell": {
+          "const": false,
+          "description": "Always false. A shell/pipeline invocation makes $? ambiguous (last-command-only); the launcher always execs argv directly and reads the exact child's wait status."
+        },
+        "cwd": {"type": "string"},
+        "adapter": {"type": "string", "enum": ["pytest", "cargo", "pre-commit", "shell", "live-engine"]}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "required": [
+        "process_group_leader_pid", "process_group_start_time", "descendant_pids_observed",
+        "deadline_seconds", "grace_seconds", "cancellation", "survivor_check",
+        "rss_peak_bytes", "cpu_time_seconds", "io_wait_seconds", "open_files_peak", "disk_delta_bytes"
+      ],
+      "properties": {
+        "process_group_leader_pid": {"type": "integer"},
+        "process_group_start_time": {"type": "string"},
+        "descendant_pids_observed": {"type": "array", "items": {"type": "integer"}},
+        "deadline_seconds": {"type": "number"},
+        "grace_seconds": {"type": "number"},
+        "cancellation": {
+          "type": "object",
+          "required": ["fired", "signal_sequence", "escalated"],
+          "properties": {
+            "fired": {"type": "boolean"},
+            "signal_sequence": {
+              "type": "array",
+              "items": {"type": "string"},
+              "description": "e.g. ['SIGTERM->group','SIGKILL->group']. Never a bare signal.alarm()/pytest-timeout style single-thread signal -- those cannot interrupt a blocked anyio worker thread calling a live engine (D-CIP-19 class defect); the launcher always signals the owned process GROUP."
+            },
+            "escalated": {"type": "boolean"}
+          }
+        },
+        "survivor_check": {
+          "type": "object",
+          "required": ["performed", "survivors_before_kill", "survivors_after_kill", "clean"],
+          "properties": {
+            "performed": {"type": "boolean"},
+            "survivors_before_kill": {"type": "array", "items": {"type": "integer"}},
+            "survivors_after_kill": {"type": "array", "items": {"type": "integer"}},
+            "clean": {
+              "type": "boolean",
+              "description": "False if any PID sharing the launched process-group id is still alive after the grace interval. A passed assertion line is not green when clean=false."
+            }
+          }
+        },
+        "rss_peak_bytes": {"type": ["integer", "null"]},
+        "cpu_time_seconds": {"type": ["number", "null"]},
+        "io_wait_seconds": {"type": ["number", "null"]},
+        "open_files_peak": {"type": ["integer", "null"]},
+        "disk_delta_bytes": {"type": ["integer", "null"]}
+      }
+    },
+    "leases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "epoch", "holder", "wait_seconds", "expiry", "release_result"],
+        "properties": {
+          "name": {"type": "string"},
+          "epoch": {"type": "integer"},
+          "holder": {"type": "string"},
+          "wait_seconds": {"type": "number"},
+          "expiry": {"type": ["string", "null"]},
+          "release_result": {"type": "string", "enum": ["released", "expired", "denied", "not_acquired"]}
+        }
+      }
+    },
+    "collection": {
+      "type": "object",
+      "required": ["collection_count", "deselection_count", "quarantine_count", "selection_digest", "collection_source"],
+      "properties": {
+        "collection_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Recorded separately from deselection_count. A collection_count of 0 forces verdict.outcome=VACUOUS and verdict.green=false regardless of exit code (the git-ls-files-empty-universe class of false-green: a gate that silently measured nothing)."
+        },
+        "deselection_count": {"type": "integer", "minimum": 0},
+        "quarantine_count": {"type": "integer", "minimum": 0},
+        "selection_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+        "collection_source": {"type": "string"}
+      }
+    },
+    "streams": {
+      "type": "object",
+      "required": ["stdout", "stderr"],
+      "properties": {
+        "stdout": {"$ref": "#/$defs/stream"},
+        "stderr": {"$ref": "#/$defs/stream"}
+      }
+    },
+    "exit": {
+      "type": "object",
+      "required": ["adapter_native_exit_code", "signal", "normalized_outcome", "assertion_summary", "provenance"],
+      "properties": {
+        "adapter_native_exit_code": {"type": ["integer", "null"]},
+        "signal": {"type": ["string", "null"]},
+        "normalized_outcome": {
+          "type": "string",
+          "enum": ["PASSED", "FAILED", "ERROR", "TIMEOUT", "CRASHED", "BLOCKED", "VACUOUS"]
+        },
+        "assertion_summary": {
+          "type": "object",
+          "properties": {
+            "passed": {"type": "integer"},
+            "failed": {"type": "integer"},
+            "errors": {"type": "integer"},
+            "skipped": {"type": "integer"}
+          }
+        },
+        "provenance": {
+          "type": "string",
+          "description": "How adapter_native_exit_code was obtained -- always the direct wait status of the exact launched process group leader (e.g. 'direct_waitpid'), never '$?' after a shell pipeline, where only the last command's status survives."
+        }
+      }
+    },
+    "contamination": {
+      "type": "object",
+      "required": ["pre_snapshot", "post_snapshot", "findings", "invalidated"],
+      "properties": {
+        "pre_snapshot": {"type": "object"},
+        "post_snapshot": {"type": "object"},
+        "findings": {"type": "array", "items": {"type": "string"}},
+        "invalidated": {
+          "type": "boolean",
+          "description": "True invalidates the attempt's assertions before they are trusted, even if they passed -- venv overwrite, cache-lock race, or daemon-lease bleed are recorded, not erased by a later clean run."
+        }
+      }
+    },
+    "redaction": {
+      "type": "object",
+      "required": ["policy", "redacted_patterns", "applied"],
+      "properties": {
+        "policy": {"type": "string"},
+        "redacted_patterns": {"type": "array", "items": {"type": "string"}},
+        "applied": {"type": "boolean"}
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "required": ["outcome", "green", "reasons", "falsifiable"],
+      "properties": {
+        "outcome": {"type": "string", "enum": ["PASSED", "FAILED", "BLOCKED", "EXPIRED", "VACUOUS"]},
+        "green": {"type": "boolean"},
+        "reasons": {"type": "array", "items": {"type": "string"}},
+        "falsifiable": {
+          "type": "boolean",
+          "description": "True only when collection_count>0 AND venv_identity_match AND contamination.invalidated=false AND no stream is truncated without a verified digest. A reader must be able to tell a real pass from a vacuous one from this envelope alone."
+        }
+      }
+    },
+    "audit": {
+      "type": "object",
+      "required": ["actor", "lane", "reviewer", "created_at", "flushed_at"],
+      "properties": {
+        "actor": {"type": "string"},
+        "lane": {"type": "string"},
+        "reviewer": {"type": ["string", "null"]},
+        "created_at": {"type": "string"},
+        "flushed_at": {"type": ["string", "null"]}
+      }
+    }
+  },
+  "$defs": {
+    "stream": {
+      "type": "object",
+      "required": ["byte_count", "truncated", "truncation_marker", "digest", "retention_class", "path"],
+      "properties": {
+        "byte_count": {"type": "integer", "minimum": 0},
+        "truncated": {"type": "boolean"},
+        "truncation_marker": {"type": ["string", "null"]},
+        "digest": {
+          "type": ["string", "null"],
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Never inferred success from an empty capture -- byte_count=0 with digest of the empty string is recorded explicitly, distinct from a capture that was never wired up (digest=null)."
+        },
+        "retention_class": {"type": "string"},
+        "path": {"type": "string"}
+      }
+    }
+  }
+}

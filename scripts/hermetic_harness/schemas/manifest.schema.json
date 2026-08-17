@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-packages.local/schemas/goc-38/manifest.schema.json",
+  "title": "GOC-38 hermetic run manifest",
+  "description": "Frozen for GOC-39 and GOC-40 by the GOC-PG-GREEN-TIER-AUTHORIZATION-2026-08-16 decision record. Every field is required; a manifest missing one fails validation rather than defaulting.",
+  "type": "object",
+  "required": [
+    "manifest_version",
+    "candidate_sha",
+    "repo",
+    "test_selection",
+    "lock_digest",
+    "interpreter_digest",
+    "expected_venv_path",
+    "env_allowlist",
+    "resource_limits",
+    "timeout_seconds",
+    "grace_seconds",
+    "lease_scope",
+    "redaction_policy",
+    "temp_root"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "manifest_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$"},
+    "candidate_sha": {"type": "string", "minLength": 7},
+    "repo": {"type": "string", "minLength": 1},
+    "test_selection": {
+      "type": "object",
+      "required": ["paths", "markers", "deselect"],
+      "additionalProperties": false,
+      "properties": {
+        "paths": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+        "markers": {"type": "array", "items": {"type": "string"}},
+        "deselect": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "lock_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "interpreter_digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "expected_venv_path": {"type": "string", "minLength": 1},
+    "env_allowlist": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+    "resource_limits": {
+      "type": "object",
+      "required": ["rss_mb", "fd", "processes", "disk_mb"],
+      "additionalProperties": false,
+      "properties": {
+        "rss_mb": {"type": "integer", "minimum": 1},
+        "fd": {"type": "integer", "minimum": 1},
+        "processes": {"type": "integer", "minimum": 1},
+        "disk_mb": {"type": "integer", "minimum": 1}
+      }
+    },
+    "timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
+    "grace_seconds": {"type": "number", "minimum": 0},
+    "lease_scope": {"type": "array", "items": {"type": "string"}},
+    "redaction_policy": {"type": "string", "minLength": 1},
+    "temp_root": {
+      "type": "string",
+      "pattern": "^/var/tmp/",
+      "description": "Never /tmp -- it is RAM-backed tmpfs on this host and a bulk run ENOSPC'd a session (au-test-suite-destroys-its-own-venv / tmp-is-tmpfs-use-var-tmp)."
+    }
+  }
+}
