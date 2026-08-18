@@ -353,7 +353,42 @@ def _privacy_safe(text: str) -> str:
     return safe
 
 
-def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
+def _write_fleet_relational(
+    engine: Any, catalog: dict[str, dict], *, configs: dict[str, dict] | None = None
+) -> dict[str, Any]:
+    """Mirror the probed ``catalog`` into the relational fleet-catalog tables.
+
+    CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables. Runs FIRST, from the
+    SAME probed ``catalog`` the KG entities below are built from, so the
+    relational rows and the KG nodes can never observe a different fleet
+    state. This is the cheap, synchronous half the frontend should read —
+    best-effort and independently wrapped so a failure here (e.g. the engine
+    SQL surface is unavailable) is reported but never blocks the KG write
+    that follows, and — just as important — the reverse: the KG write's own
+    ACL gate (``IsolationLayer::check_access`` on
+    ``tenant__homelab____commons__``) is a SEPARATE, currently-broken gate
+    this write does not share (see ``fleet_catalog_tables`` module docstring),
+    so this table gets populated even while that Cypher write is denied.
+    """
+    from .fleet_catalog_tables import write_fleet_catalog
+
+    try:
+        return write_fleet_catalog(engine, catalog, configs=configs)
+    except Exception as exc:  # noqa: BLE001 — relational write is best-effort
+        logger.error(
+            "fleet catalog relational write failed (%s: %s)",
+            type(exc).__name__,
+            exc,
+        )
+        return {"status": "error", "reason": str(exc)}
+
+
+def _write_fleet_nodes(
+    engine: Any,
+    catalog: dict[str, dict],
+    *,
+    configs: dict[str, dict] | None = None,
+) -> dict[str, Any]:
     """Write a probed multiplexer catalog into the KG as capability nodes.
 
     ``catalog`` is the ``{server: {"tools": [{name, description, ...}],
@@ -378,6 +413,12 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
     testable without spawning any servers.
     """
     from ..ingestion.skill_workflow_ingest import skill_reference
+
+    # Relational write FIRST (see CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables
+    # docstring on :func:`_write_fleet_relational`) — cheap, synchronous, and
+    # independent of the KG write below succeeding, failing, or being rejected
+    # by the engine's Cypher ACL gate.
+    relational = _write_fleet_relational(engine, catalog, configs=configs)
 
     entities: list[dict[str, Any]] = []
     relationships: list[dict[str, Any]] = []
@@ -522,6 +563,7 @@ def _write_fleet_nodes(engine: Any, catalog: dict[str, dict]) -> dict[str, Any]:
         "tools_written": sum(1 for item in entities if item["type"] == "Tool"),
         "skills_written": sum(1 for item in entities if item["type"] == "Skill"),
         "unreachable": unreachable,
+        "relational": relational,
         **harvest,
     }
 
@@ -802,6 +844,7 @@ def _sync_fleet(
     so the declared universe is visible alongside what was actually probed.
     """
     catalog = client if isinstance(client, dict) else None
+    configs: dict[str, dict] | None = None
     if catalog is None:
         try:
             from ...mcp.multiplexer import MCPMultiplexer
@@ -833,8 +876,15 @@ def _sync_fleet(
             )
         except Exception as exc:  # noqa: BLE001 — probe is best-effort
             return {"status": "error", "source": "fleet", "reason": str(exc)}
+        try:
+            # Best-effort transport/url metadata for the relational
+            # ``mcp_servers`` rows (see ``fleet_catalog_tables.write_fleet_catalog``);
+            # never fatal to the sync if the config can't be re-read.
+            configs = mux.load_catalog()
+        except Exception:  # noqa: BLE001 — server-row transport/url is best-effort
+            configs = None
 
-    counts = _write_fleet_nodes(engine, catalog)
+    counts = _write_fleet_nodes(engine, catalog, configs=configs)
     return {
         "status": "ok",
         "source": "fleet",

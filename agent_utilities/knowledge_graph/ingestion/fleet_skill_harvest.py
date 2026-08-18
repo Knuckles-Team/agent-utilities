@@ -242,6 +242,11 @@ def promote_one(
         instructions=instructions,
         provider=f"mcp:{server_name}",
         mcp_server=server_name,
+        # A fleet-harvested skill has no local SKILL.md frontmatter to read
+        # ``skill_type`` from — it is, by construction, an atomic runnable
+        # skill served over Skills-over-MCP, so it is classified explicitly
+        # rather than defaulted (CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables).
+        skill_type="mcp_skill",
     )
     session = resolve_session(required_scope="kg:write")
     server_node_id = f"mcp_server_{server_name}"

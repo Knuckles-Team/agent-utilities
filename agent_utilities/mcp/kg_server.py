@@ -2787,8 +2787,16 @@ class GraphOSStartupReadinessError(RuntimeError):
     """Stable, environment-free failure raised before GraphOS starts serving."""
 
 
-def _read_skill_capability(skill_md) -> tuple[str, str, str]:
-    """Read one bounded skill declaration without retaining its discovery path."""
+def _read_skill_capability(skill_md) -> tuple[str, str, str, str | None]:
+    """Read one bounded skill declaration without retaining its discovery path.
+
+    Returns ``(name, description, instructions, skill_type)`` — ``skill_type``
+    is the frontmatter's own ``skill_type`` declaration (or ``None`` when
+    absent), threaded through to :func:`~agent_utilities.knowledge_graph.
+    ingestion.skill_workflow_ingest.ingest_runnable_skill` so classification is
+    a stored column rather than a value dropped on the floor at read time
+    (CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables).
+    """
     import yaml
 
     path = Path(skill_md)
@@ -2809,9 +2817,11 @@ def _read_skill_capability(skill_md) -> tuple[str, str, str]:
     fallback_name = path.parent.name
     name = str(frontmatter.get("name") or fallback_name).strip()
     description = str(frontmatter.get("description") or "").strip()
+    raw_skill_type = frontmatter.get("skill_type")
+    skill_type = str(raw_skill_type).strip().lower() or None if raw_skill_type else None
     if not name or not instructions.strip():
         raise ValueError("skill declaration is incomplete")
-    return name, description, instructions
+    return name, description, instructions, skill_type
 
 
 def _ingest_skill_capabilities(
@@ -2859,11 +2869,13 @@ def _ingest_skill_capabilities(
         )
     )
 
-    declarations: list[tuple[Path, str, str, str, str]] = []
+    declarations: list[tuple[Path, str, str, str, str, str | None]] = []
     for skill_md in skill_files:
         fallback_name = skill_md.parent.name
         try:
-            name, description, instructions = _read_skill_capability(skill_md)
+            name, description, instructions, skill_type = _read_skill_capability(
+                skill_md
+            )
             if include_names is not None and name not in include_names:
                 continue
             if name in skip_names:
@@ -2871,7 +2883,7 @@ def _ingest_skill_capabilities(
             skill_slug = skill_reference(name).removeprefix("skill://")
             resource_id = f"resource:skill:{skill_slug}"
             declarations.append(
-                (skill_md, name, description, instructions, resource_id)
+                (skill_md, name, description, instructions, resource_id, skill_type)
             )
         except Exception as exc:  # noqa: BLE001 - one malformed skill cannot block boot
             # ``exc.args[0]`` (not ``str(exc)``/``exc`` itself, and no
@@ -2896,7 +2908,7 @@ def _ingest_skill_capabilities(
         return 0
 
     disabled_by_resource = get_existing_disabled_batch(
-        engine, [resource_id for *_unused, resource_id in declarations]
+        engine, [declaration[4] for declaration in declarations]
     )
 
     total = len(declarations)
@@ -2910,9 +2922,14 @@ def _ingest_skill_capabilities(
     # "stuck" without reading engine wire traces.
     logger.info("GraphOS ingesting %d %s skill(s) from %s", total, provider, root)
     ingested = 0
-    for index, (skill_md, name, description, instructions, resource_id) in enumerate(
-        declarations, start=1
-    ):
+    for index, (
+        skill_md,
+        name,
+        description,
+        instructions,
+        resource_id,
+        skill_type,
+    ) in enumerate(declarations, start=1):
         fallback_name = skill_md.parent.name
         try:
             ingest_runnable_skill(
@@ -2922,6 +2939,7 @@ def _ingest_skill_capabilities(
                 instructions=instructions,
                 provider=provider,
                 disabled=disabled_by_resource.get(resource_id, False),
+                skill_type=skill_type,
             )
             ingested += 1
             if index % 25 == 0 or index == total:
@@ -2959,7 +2977,7 @@ def _bundled_skill_contract() -> tuple[Path, dict[str, str]]:
     expected: dict[str, str] = {}
     try:
         for bundled_name in BUNDLED_SKILLS:
-            name, _description, instructions = _read_skill_capability(
+            name, _description, instructions, _skill_type = _read_skill_capability(
                 root / bundled_name / "SKILL.md"
             )
             if name != bundled_name:

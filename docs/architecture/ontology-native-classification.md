@@ -31,6 +31,41 @@
 >   tools --> disp["dispatcher _fetch_tools: MATCH (t:Tool) → specialist"]
 > ```
 
+> **Addendum (relational tier, `CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables`):**
+> the KG write above (`:MCPServer`/`:Tool`/`:Skill` via Cypher) was, until now, the
+> **only** persisted shape of the fleet catalog — no relational table existed, so a
+> frontend wanting "list the servers/tools" had nothing cheap to read and instead
+> live-probed the multiplexer across the whole fleet on every request (slow, and a
+> stdio-child-spawn cost risk at scale). `agent_utilities/knowledge_graph/core/
+> fleet_catalog_tables.py` adds the missing relational read model — ordinary
+> Postgres-style tables (`mcp_servers`, `mcp_tools`, `mcp_prompts`, `mcp_resources`,
+> `skills`), written through the engine's own SQL surface
+> (`GraphComputeEngine.sql_exec`, the same primitive `knowledge_graph/core/
+> table_ingest.py` already established for connector mirroring) — and it is now
+> the **primary, cheap read path**; the KG nodes above and any vectorization are
+> secondary enrichment. `source_sync._write_fleet_nodes` calls the relational write
+> FIRST, from the same probed catalog, so the two representations can never diverge;
+> the relational write is independently wrapped so it is unaffected by the KG
+> write's own engine-side ACL gate (`IsolationLayer::check_access` on
+> `tenant__homelab____commons__` — a SEPARATE gate the owner-scoped SQL user-table
+> surface does not share; see that module's docstring). Unlike the KG write (which
+> skips an unreachable server entirely), the relational `mcp_servers` row is written
+> for EVERY probed server, honestly marked `reachable=false` with `last_error` —
+> "unavailable" is never indistinguishable from "empty". `skills.skill_type` /
+> `skills.classification` are also now a **stored column**, populated at every
+> `ingest_runnable_skill` call site (boot ingest, atomic-skill sweep, fleet-skill
+> harvest) from the corpus's own frontmatter — closing the "256/324 skills render
+> Unclassified" gap without a runtime KG-dependent lookup.
+> ```mermaid
+> flowchart LR
+>   cat["probed catalog\n(servers/tools/skills/prompts)"] --> rel["fleet_catalog_tables.write_fleet_catalog\n(engine.sql_exec — cheap, sync)"]
+>   cat --> kg["_write_fleet_nodes entities loop\n(Cypher ApplyChangeEnvelope)"]
+>   rel --> tabs[("mcp_servers / mcp_tools / mcp_prompts\nmcp_resources / skills")]
+>   kg --> nodes[(":MCPServer / :Tool / :Skill")]
+>   tabs -.->|"primary read path\n(sibling lane: API + frontend)"| ui["agent-webui"]
+>   nodes -.->|"secondary enrichment\n(KG queries, reasoning)"| enrich["KG / vector enrichment"]
+> ```
+
 ---
 
 ## 0. Session context — what we did and why (the road to this plan)
