@@ -1,102 +1,65 @@
-# Design Document: The hard numpy/scipy drop
-
-> One decision, authored in `agent_utilities/numeric/__init__.py` and its module
-> header. Backfilled under the concept-lineage rule
-> (CONCEPT:AU-OS.governance.concept-lineage-parent-doc): four sibling
-> `AU-KG.compute` markers are surfaces of this one decision and point here.
+# Design: native numeric-kernel boundary
 
 CONCEPT:AU-KG.compute.numpy-scipy-drop
 
-## KG Analysis (Required)
+## Decision
 
-### Nearest Existing Concepts
+`agent_utilities.numeric.xp` is a thin, explicit adapter over the certified
+`epistemic_graph.numeric` extension. The engine is the only numeric authority.
+AU performs only scalar/list conversion and direct calls to an allowlisted
+native method. It does not define an array class or reproduce broadcasting,
+arithmetic, reductions, indexing, random, linalg, or persistence in Python.
 
-| Concept ID | Name | Similarity | Pillar |
-|---|---|---|---|
-| `AU-KG.compute.graph-compute-engine` | the other half of "the engine is the runtime"; different subsystem, same conviction | 0.40 | KG |
-| `AU-OS.deployment.workspace-venv-reconciler` | shares the failure mode this creates — a hard runtime dependency on a compiled wheel | 0.30 | OS |
+Absence is loud: a missing kernel raises `ImportError`, and an operation that is
+not in the allowlist raises `UnsupportedNumericOperationError`. The adapter
+never discovers private modules or dispatches to a kernel-owned implementation
+table.
 
-### Extension Analysis
+## Boundary and ownership
 
-- **Primary Extension Point**: `agent_utilities/numeric/` (the `xp` namespace).
-- **Extension Strategy**: new surface, replacing a dependency.
-- **New Concept Required?**: No new ones. This names the decision the markers
-  already carried.
+1. A caller supplies scalars or bounded builtin list/tuple trees.
+2. The adapter recursively validates/converts those values.
+3. The native extension validates shape/size and performs computation.
+4. Native scalar/list/tuple results cross back unchanged in kind.
 
-## The decision
+Container semantics, numerical algorithms, error behavior, and resource bounds
+are engine responsibilities. Arrow/list conversion may be added only when an
+existing supported producer boundary requires it; it is not a license to add a
+Python array runtime.
 
-numpy and scipy are **fully removed** from agent-utilities. The package imports
-numpy nowhere and declares it in no dependency file. The compiled
-`epistemic_graph.numeric` kernel (pure-Rust `faer` + `ndarray`, BLAS/LAPACK-free)
-is the sole numeric backend, and it is a **hard** requirement: importing
-`agent_utilities.numeric` raises `ImportError` when the kernel is absent.
+## Missing native primitives
 
-### The alternative that was rejected, explicitly
+The AU production audit currently identifies these engine-level gaps:
 
-**A numpy fallback.** It is the safe design and it was refused on purpose:
-"there is no alternate-module or numpy fallback". A fallback would mean the
-compiled kernel's numerical behaviour and numpy's could silently diverge on the
-same input, and nobody would find out until a result was wrong rather than
-missing. `tests/test_numeric_parity.py` exists precisely because the two must
-agree; a fallback would make the parity test optional in production.
+- constructors and container operations: `array`, `asarray`, `zeros`, `ones`,
+  `empty`, `full`, `arange`, `eye`, `diag`, `fill_diagonal`, `diff`,
+  `concatenate`, `stack`, `vstack`, `reshape`, `sort`;
+- shape/size/indexing/slicing, arithmetic/broadcasting, transpose, and
+  axis-aware reductions needed by existing callers;
+- `cov`, `corrcoef`, `roll`, `triu_indices`, `log2`, `any`, and `all`;
+- legacy linalg result/error compatibility, notably the `lstsq` tuple contract.
 
-The cost is a hard deployment coupling — an environment without
-`epistemic-graph[full]` cannot import the module at all. That is deliberate:
-loud absence over quiet divergence.
+These are reported for engine or call-site design. They are intentionally not
+implemented in AU. A bounded stateful seeded generator (`xp.random.default_rng`/
+`RandomState`, delegating every draw to native `normal`/`uniform`/`integers`/
+`choice_indices`/`permutation_indices` calls and keeping only a seed/draw
+counter in Python) and a bounded artifact seam (`save_numeric_artifact` /
+`load_numeric_artifact`, deliberately not full `numpy.save`/`.load`
+compatibility) are already implemented in `agent_utilities/numeric/__init__.py`.
 
-### The subtlety this decision turns on
+## Dependency and parity policy
 
-numpy still *runs*; agent-utilities just does not *depend* on it. The kernel is
-a rust-numpy container: numpy lives inside the numeric component of the
-`epistemic-graph[full]` runtime as the kernel's own zero-copy interop
-dependency, and the compiled module re-exports numpy's array primitives. For
-inputs outside the kernel's deliberately narrow compiled fast-path (contiguous
-1-D/2-D `float64` for element-wise and linalg; general for reductions/stats) the
-shim delegates to the numpy module **the kernel itself already loaded**,
-obtained via `sys.modules[_KERNEL.ndarray.__module__]` — never through an
-`import numpy` statement here.
+The AU base, numeric acceptance, and default test/guardrail profiles contain no
+direct external array dependency. The current lock still carries the legacy
+`epistemic-graph` package edge; the EG NumPy-retirement change must land before
+the final AU lock regeneration removes that transitive native-profile edge. The
+parity oracle is an explicit developer test selected by
+`AU_ENABLE_NUMERIC_PARITY=1`; it is not project metadata and cannot become a
+runtime fallback. Optional finance/dataframe dependencies keep their own
+isolated profile and do not define the native numeric contract.
 
-This is the part that reads as contradictory from outside and is why the
-decision needs a document rather than a marker: "we removed numpy" and "numpy
-executes our N-D element-wise ops" are both true, and the reconciliation is the
-dependency edge, not the call graph.
+## Verification
 
-## What the pointers to this decision are
-
-- `surface-analytics-program` — Surface A of the Analytics Program's "one
-  kernel, two surfaces"; the `xp` namespace mirroring the subset of the numpy
-  API that the 598-site audit found agent-utilities actually uses.
-- `numeric-kernel` — the engine-side surface of that same pair.
-- `ufunc-method-surface` — `xp.maximum`/`xp.minimum` as small `_Ufunc` wrappers
-  so `.accumulate`/`.reduce`/`.outer`/`.at` route to the kernel's cumulative op
-  on a bare 1-D float64 input. A shape detail of the shim, not a separate choice.
-- `executed-p2-p3-rollout` — the mechanical call-site migration
-  (`from agent_utilities.numeric import xp as np`). A rollout record, not a
-  decision; its id is a past-tense sentence fragment, and it is retired rather
-  than pointed.
-- `is-installed-kernel-discovery` — a CI job description in
-  `docs/guides/numeric-kernel.md` that gates the kernel against numpy. It exists
-  only in prose, its id is a sentence fragment, and the parity contract it
-  describes is stated above; retired.
-
-## Data Flow
-
-1. **ORCH**: none.
-2. **KG**: every numeric path in the KG (embeddings, spectral analysis, scoring)
-   flows through this one module.
-3. **AHE**: the harness's compiled-kernel note in `harness/__init__.py`.
-4. **ECO**: none.
-5. **OS**: the runtime contract is a pinned `epistemic-graph[full]` range — see
-   `docs/guides/numeric-kernel.md`.
-
-## Risk Assessment
-
-- **Blast Radius**: every numpy call site in the package (598 audited).
-- **Backward Compatible**: at the call-site level yes (the `np` alias is kept, so
-  expression bodies are unchanged); at the *environment* level no.
-- **Breaking Changes**: an environment without the compiled kernel cannot import
-  `agent_utilities.numeric`. This is the intended behaviour, not a regression.
-- **Known hazard**: published wheels have shipped without the numeric kernel
-  before (the 2.14.0-2.23.0 packaging regression), and this decision converts
-  that from a degraded mode into a hard import failure. The pinned certified
-  protocol range in `docs/guides/numeric-kernel.md` is the mitigation.
+`tests/unit/test_numeric_facade.py` proves direct native dispatch, boundary
+conversion, and fail-closed unsupported attributes. `tests/unit/test_numeric_parity.py`
+is an opt-in external comparison corpus and contains no fallback assertions.

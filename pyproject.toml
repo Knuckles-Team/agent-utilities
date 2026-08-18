@@ -120,7 +120,7 @@ email = "maintainers@example.invalid"
 # is a wheel BUILD variant, not a pip extra (absent from the published CPU wheel).
 #
 # Floor `>=2.23.2` — the compatibility-matrix release used by this ecosystem
-# workspace; it includes the published `[full]` extra and the full Surface-A
+# workspace; it includes the published `[full]` extra and the native numeric
 # operation set. Never an exact pin. See docs/guides/numeric-kernel.md.
 #
 # WHO ACTUALLY NEEDS THIS (see the module-load audit in the GOC-73 report): every
