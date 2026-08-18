@@ -132,6 +132,7 @@ def ingest_runnable_skill(
     provider: str,
     disabled: bool = False,
     mcp_server: str = "",
+    skill_type: str | None = None,
 ) -> str:
     """Persist one skill and its executable resource without local paths.
 
@@ -146,6 +147,15 @@ def ingest_runnable_skill(
     child names that child so the dispatcher can bind the toolset the skill's
     instructions actually direct it to call; a locally-installed skill leaves
     it empty and the property is simply absent.
+
+    ``skill_type`` is the corpus's own frontmatter self-declaration
+    (``skill``/``workflow``/``graph``) or a caller-assigned kind
+    (``mcp_skill`` for a fleet-harvested skill) — CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables.
+    It is stored BOTH on the ``Skill`` node and, via
+    :func:`~..core.fleet_catalog_tables.write_skill_row`, as a stored column
+    in the relational ``skills`` table (never left to fall back to
+    "Unclassified" at read time — see that module for why). This call is
+    best-effort and never allowed to fail the KG write above it.
 
     Returns the runnable resource id.
     """
@@ -175,6 +185,9 @@ def ingest_runnable_skill(
     skill_id = f"skill:{slug}"
     resource_id = f"resource:{skill_id}"
     provenance_id = f"provenance:skill:{digest}"
+    from ..core.fleet_catalog_tables import classify_skill_type
+
+    normalized_skill_type, _classification = classify_skill_type(skill_type)
     governance = {
         "tenant_id": session.tenant,
         "classification": DataClassification.PUBLIC.value,
@@ -188,6 +201,7 @@ def ingest_runnable_skill(
         "provider_ref": provider_ref,
         "instruction_digest": digest,
         "disabled": bool(disabled),
+        "skill_type": normalized_skill_type,
         "privacy_redactions": description_privacy.redactions + body_privacy.redactions,
     }
     if str(mcp_server).strip():
@@ -227,6 +241,28 @@ def ingest_runnable_skill(
         engine.link_nodes(skill_id, resource_id, "BINDS_RUNNABLE", session=session)
         engine.link_nodes(skill_id, provenance_id, "DERIVED_FROM", session=session)
         engine.link_nodes(resource_id, provenance_id, "DERIVED_FROM", session=session)
+
+    from ..core.fleet_catalog_tables import write_skill_row
+
+    try:
+        write_skill_row(
+            engine,
+            skill_id=skill_id,
+            name=normalized_name,
+            description=safe_description,
+            uri=source_ref,
+            provider=safe_provider,
+            mcp_server=str(common.get("mcp_server", "")),
+            skill_type=normalized_skill_type,
+            disabled=bool(disabled),
+        )
+    except Exception as exc:  # noqa: BLE001 — relational write is best-effort,
+        # never allowed to fail a runnable-skill KG write that already succeeded.
+        logger.warning(
+            "skill relational row write failed for %s (%s)",
+            source_ref,
+            type(exc).__name__,
+        )
     return resource_id
 
 
@@ -934,6 +970,7 @@ def ingest_atomic_skills(
                 description=parsed["description"],
                 instructions=body,
                 provider="universal-skills",
+                skill_type=declared_type,
             )
             report["skills"] += 1
         except Exception as exc:  # noqa: BLE001 — one bad file must not abort the run

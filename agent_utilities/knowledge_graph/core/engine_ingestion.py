@@ -413,6 +413,7 @@ class IngestionMixin(_Base):
             description=str(frontmatter.get("description") or ""),
             instructions=body,
             provider=provider,
+            skill_type=frontmatter.get("skill_type"),
         )
 
     def ingest_external_batch(

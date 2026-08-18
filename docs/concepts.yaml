@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1210
+total_concepts: 1211
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4193,6 +4193,17 @@ concepts:
   - agent_utilities/knowledge_graph/research/cohort.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: fetch only the requested ids per-id — avoids the
+- id: AU-KG.ingest.fleet-catalog-relational-tables
+  name: Runs FIRST, from the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/fleet_catalog_tables.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
+  - agent_utilities/knowledge_graph/ingestion/fleet_skill_harvest.py
+  - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py
+  - agent_utilities/mcp/kg_server.py
+  doc: Runs FIRST, from the
 - id: AU-KG.ingest.fleet-sync-rejected-row-cache
   name: best-effort local
   pillar: AU-KG
@@ -4512,6 +4523,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/ingestion/skill_workflow_ingest.py
   doc: Skill-Workflow Ingestion
 - id: AU-KG.ingest.source-id-naming-schema
