@@ -1,26 +1,48 @@
 # GraphOS deployment assets
 
-`k8s/production-cell/` is the production reference topology. It separates a
+`k8s/production-cell/` is the production topology authority. It separates a
 stateless global control plane from one cell data plane, keeps authoritative graph
 state in a three-member MultiRaft StatefulSet, and assigns independent resource
 partitions to dispatch, ingestion and analytics workers. The previous single-owner,
 unmounted-volume manifest was removed.
 
+The checked-in YAML is a reviewable template, not live or one-million-user evidence.
 Do not apply the template directory directly. Its image names intentionally point
 to a non-resolving registry. A release is deployable only after the compatibility
-gate verifies every component signature and the renderer substitutes exact OCI
-digests:
+gate verifies every component signature, a separately retained measured
+`production-input.json` passes the topology validator, and the renderer substitutes
+exact OCI digests and authority bindings:
 
 ```sh
 check-graphos-compatibility \
   --manifest RELEASE_MANIFEST
 python scripts/release/render_production_cell.py \
   --manifest RELEASE_MANIFEST \
+  --topology-input /secure/evidence/graphos/production-input.json \
   --output RENDERED_DIRECTORY
 python scripts/deployment/check_production_assets.py \
   --directory RENDERED_DIRECTORY --rendered
 kubectl apply -k RENDERED_DIRECTORY
 ```
+
+Rollback is rendered from the same measured input and its previous immutable
+digests; it is a separate reviewed artifact:
+
+```sh
+python scripts/release/render_production_cell.py \
+  --manifest RELEASE_MANIFEST \
+  --topology-input /secure/evidence/graphos/production-input.json \
+  --rollback --output ROLLBACK_DIRECTORY
+```
+
+The input and renderer under [`k8s/production-cell/`](k8s/production-cell/)
+are the only sizing authority. They require measured ResourcePool capacity,
+exact workload/engine identities, current and rollback image digests, OIDC and
+engine TLS/discovery evidence, retained ConfigMap/Secret/session/action-audit
+authorities, Prometheus Adapter evidence, and rollout/rollback evidence. The
+example input is synthetic; it is not inventory or deployment proof. Historical
+W3/reference artifacts remain recoverable but are subordinate and cannot be
+applied as an alternate topology.
 
 The uppercase operands above are runtime/operator inputs, not committed local
 paths. Generated release and certification evidence must remain outside the source

@@ -1,0 +1,136 @@
+{
+  "$schema": "./topology-input.schema.json",
+  "apiVersion": "agent-utilities.io/v1",
+  "kind": "GraphOSProductionCellTopologyInput",
+  "authority": "agent-utilities/deploy/k8s/production-cell",
+  "environment": "production",
+  "engine_identity_contract": {
+    "ref": "services/epistemic-graph/k8s/production/engine-identity-contract.v1.json",
+    "digest": "sha256:63153c7a9a5800b87290fc45302964972a85598648aaa2d9d6ec3d94135fde8d"
+  },
+  "resource_pool": {
+    "id": "graphos-production-measured-pool",
+    "measured_at": "2026-08-19T00:00:00Z",
+    "evidence_ref": "resourcepool://production/graphos/measurement/example",
+    "nodes": [
+      {"ordinal": 0, "id": "node-a", "hostname": "graphos-a", "zone": "zone-a", "allocatable": {"cpu_millicores": 120000, "memory_bytes": 549755813888}},
+      {"ordinal": 1, "id": "node-b", "hostname": "graphos-b", "zone": "zone-b", "allocatable": {"cpu_millicores": 120000, "memory_bytes": 549755813888}},
+      {"ordinal": 2, "id": "node-c", "hostname": "graphos-c", "zone": "zone-c", "allocatable": {"cpu_millicores": 120000, "memory_bytes": 549755813888}}
+    ]
+  },
+  "engine": {
+    "statefulset_name": "epistemic-graph-raft",
+    "client_service_name": "epistemic-graph-coordinator",
+    "peer_service_name": "epistemic-graph-raft",
+    "namespace": "graphos-cell",
+    "client_port": 9101,
+    "raft_port": 9100,
+    "metrics_port": 9102,
+    "tls_server_name": "epistemic-graph-raft.graphos-cell.svc.cluster.local",
+    "tls_verified": true,
+    "discovery_ref": "evidence://epistemic-graph/production-service-discovery/example",
+    "discovery_verified": true,
+    "replicas": 3,
+    "raft_groups": 20,
+    "current_image": "registry.example.invalid/epistemic-graph@sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "rollback_image": "registry.example.invalid/epistemic-graph@sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "resources": {"cpu_request_millicores": 8000, "cpu_limit_millicores": 32000, "memory_request_bytes": 51539607552, "memory_limit_bytes": 103079215104},
+    "pdb_max_unavailable": 1,
+    "termination_grace_seconds": 180,
+    "pre_stop_seconds": 30
+  },
+  "oidc": {
+    "issuer": "https://keycloak.arpa/realms/homelab",
+    "jwks_url": "https://keycloak.arpa/realms/homelab/protocol/openid-connect/certs",
+    "audience": "agent-services",
+    "client_id": "graph-os",
+    "verified": true
+  },
+  "authorities": {
+    "control_configmap_name": "graphos-security-contract",
+    "cell_configmap_name": "graphos-cell-contract",
+    "configmap_retention": "Retain",
+    "control_configmap_ref": "evidence://graphos/config-authority/control/example",
+    "cell_configmap_ref": "evidence://graphos/config-authority/cell/example",
+    "secret_name": "graphos-runtime-secrets",
+    "secret_retention": "Retain",
+    "secret_ref": "evidence://graphos/credential-authority/example",
+    "session_store": {
+      "kind": "external",
+      "service_name": "graphos-session-store",
+      "namespace": "graphos-control",
+      "authority_ref": "evidence://graphos/session-authority/example",
+      "retention": "Retain"
+    },
+    "action_audit": {
+      "authority_ref": "evidence://graphos/action-audit-authority/example",
+      "retention": "Retain",
+      "graph": "__control__",
+      "kind": "ActionDecision"
+    }
+  },
+  "release": {
+    "current_manifest_ref": "evidence://graphos/release/current/example",
+    "rollback_manifest_ref": "evidence://graphos/release/previous/example",
+    "rollout_evidence_ref": "evidence://graphos/rollout-preflight/example",
+    "rollback_evidence_ref": "evidence://graphos/rollback-preflight/example"
+  },
+  "workloads": {
+    "gateway": {
+      "name": "graphos-front",
+      "namespace": "graphos-control",
+      "entrypoint": "graph-os",
+      "component": "agent-utilities",
+      "current_image": "registry.example.invalid/agent-utilities@sha256:123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+      "rollback_image": "registry.example.invalid/agent-utilities@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "replicas": {"min": 3, "desired": 3, "max": 6, "scale_up_step": 2, "scale_down_step": 1, "up_stabilization_seconds": 30, "down_stabilization_seconds": 300},
+      "resources": {"cpu_request_millicores": 500, "cpu_limit_millicores": 4000, "memory_request_bytes": 1073741824, "memory_limit_bytes": 4294967296},
+      "pdb_max_unavailable": 0,
+      "termination_grace_seconds": 60,
+      "pre_stop_seconds": 15,
+      "metric": {"mode": "hpa", "name": "agent_utilities_gateway_in_flight_requests", "target": "50", "adapter_ref": "evidence://prometheus-adapter/graphos-gateway/example"}
+    },
+    "dispatch": {
+      "name": "graphos-dispatch-worker",
+      "namespace": "graphos-cell",
+      "entrypoint": "agent-dispatch-worker",
+      "component": "agent-utilities",
+      "current_image": "registry.example.invalid/agent-utilities@sha256:123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+      "rollback_image": "registry.example.invalid/agent-utilities@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "replicas": {"min": 3, "desired": 3, "max": 12, "scale_up_step": 2, "scale_down_step": 1, "up_stabilization_seconds": 30, "down_stabilization_seconds": 300},
+      "resources": {"cpu_request_millicores": 1000, "cpu_limit_millicores": 4000, "memory_request_bytes": 2147483648, "memory_limit_bytes": 8589934592},
+      "pdb_max_unavailable": 0,
+      "termination_grace_seconds": 120,
+      "pre_stop_seconds": 30,
+      "metric": {"mode": "hpa", "name": "agent_utilities_dispatch_queue_depth", "target": "25", "adapter_ref": "evidence://prometheus-adapter/graphos-dispatch/example"}
+    },
+    "ingest": {
+      "name": "graphos-ingest-worker",
+      "namespace": "graphos-cell",
+      "entrypoint": "kg-ingest-worker",
+      "component": "agent-utilities",
+      "current_image": "registry.example.invalid/agent-utilities@sha256:123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+      "rollback_image": "registry.example.invalid/agent-utilities@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "replicas": {"min": 3, "desired": 3, "max": 9, "scale_up_step": 2, "scale_down_step": 1, "up_stabilization_seconds": 30, "down_stabilization_seconds": 300},
+      "resources": {"cpu_request_millicores": 2000, "cpu_limit_millicores": 8000, "memory_request_bytes": 4294967296, "memory_limit_bytes": 17179869184},
+      "pdb_max_unavailable": 0,
+      "termination_grace_seconds": 300,
+      "pre_stop_seconds": 60,
+      "metric": {"mode": "hpa", "name": "agent_utilities_kg_ingest_queue_depth", "target": "200", "adapter_ref": "evidence://prometheus-adapter/graphos-ingest/example"}
+    },
+    "mining": {
+      "name": "graphos-analytics-worker",
+      "namespace": "graphos-cell",
+      "entrypoint": "graph-os-analytics-worker",
+      "component": "agent-utilities",
+      "current_image": "registry.example.invalid/agent-utilities@sha256:123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0",
+      "rollback_image": "registry.example.invalid/agent-utilities@sha256:fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+      "replicas": {"min": 1, "desired": 1, "max": 1, "scale_up_step": 1, "scale_down_step": 1, "up_stabilization_seconds": 0, "down_stabilization_seconds": 300},
+      "resources": {"cpu_request_millicores": 1000, "cpu_limit_millicores": 4000, "memory_request_bytes": 2147483648, "memory_limit_bytes": 8589934592},
+      "pdb_max_unavailable": 0,
+      "termination_grace_seconds": 300,
+      "pre_stop_seconds": 60,
+      "metric": {"mode": "fixed", "reason": "No bounded mining queue metric is currently published; do not invent one."}
+    }
+  }
+}

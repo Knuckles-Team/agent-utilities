@@ -1,5 +1,9 @@
 # Production cell runbook
 
+Status vocabulary: the checked-in cell is a **renderable production candidate**;
+it is not deployed, live, or one-million-user certification. A separately retained
+measured topology input and a signed release are required before any apply.
+
 The production reference is a global GraphOS control plane plus one or more cell
 data planes. A cell is the failure and recovery boundary; a tenant placement maps to
 one cell and one of 20 MultiRaft groups. Every group has three replicas spread across
@@ -10,22 +14,30 @@ atomic route cutover; two application/protocol versions never serve concurrently
 
 Before rendering a release, verify all of these conditions:
 
-1. Three zones are schedulable and the engine anti-affinity/PVC requirements fit.
-2. Istio injection and native sidecars are available. Both GraphOS namespaces must
+1. Capture a measured ResourcePool input with a timestamp and non-secret evidence
+   reference. The renderer is the sole source of replica/resource bounds; the
+   checked-in example and older W3/reference manifests are not inventory.
+2. Three zones are schedulable and the engine anti-affinity/PVC requirements fit.
+3. Istio injection and native sidecars are available. Both GraphOS namespaces must
    show `PeerAuthentication` in `STRICT` mode before application traffic is admitted.
    Label the mesh control-plane namespace
    `graphos.network/role=service-mesh-control` so default-deny egress still permits
    certificate issuance and rotation.
-3. `graphos-retained-rwo` retains 512 Gi engine claims.
+4. `graphos-retained-rwo` retains 512 Gi engine claims.
    `graphos-cross-cell-object-rwx` is backed by versioned, cross-cell replicated
    object storage, not node-local disk.
-4. Prometheus Operator, Prometheus Adapter and the metrics pipeline are healthy.
+5. Prometheus Operator, Prometheus Adapter and the metrics pipeline are healthy;
+   the adapter evidence binds the exact `graphos_workload` selectors and
+   `agent_utilities_gateway_in_flight_requests`,
+   `agent_utilities_dispatch_queue_depth`, and
+   `agent_utilities_kg_ingest_queue_depth` names. Mining stays fixed until a
+   bounded signal is published.
    The mesh-injected observability namespace is named `graphos-observability` and
    carries `graphos.network/role=observability`.
-5. The secret synchronizer has created `graphos-runtime-secrets` and
+6. The secret synchronizer has created `graphos-runtime-secrets` and
    `graphos-trust-bundle` in both namespaces, plus `graphos-engine-tls` in the
    data-plane namespace. No secret value belongs in Git.
-6. OIDC, the event backbone, PostgreSQL state/usage storage, OTLP, Langfuse, ingress,
+7. OIDC, the event backbone, PostgreSQL state/usage storage, OTLP, Langfuse, ingress,
    observability and controlled egress are reachable through the permitted namespaces.
 
 The runtime Secret supplies the engine authentication secret, the
@@ -59,12 +71,24 @@ signed exact release:
 ```sh
 check-graphos-compatibility --manifest RELEASE_MANIFEST
 python scripts/release/render_production_cell.py \
-  --manifest RELEASE_MANIFEST --output RENDERED_DIRECTORY
+  --manifest RELEASE_MANIFEST \
+  --topology-input /secure/evidence/graphos/production-input.json \
+  --output RENDERED_DIRECTORY
 python scripts/deployment/check_production_assets.py \
   --directory RENDERED_DIRECTORY --rendered
 # after the write fence, signed snapshot, and one-time migration gate:
 kubectl apply -k RENDERED_DIRECTORY
 ```
+
+The topology input must also bind exact current and rollback image digests,
+engine Service/TLS/discovery identities, OIDC discovery, retained ConfigMap,
+Secret, external session-store and action-audit authorities, and separate
+rollout/rollback evidence references. The renderer emits an immutable
+`graphos-topology-contract` alongside `graphos-release-pins`; inspect both
+before apply. It refuses to render on missing capacity, wrong identity or port,
+unverified TLS/discovery/OIDC, digest drift, non-retained authority, or an
+unbounded metric. Run the rollback renderer with `--rollback` and review it as a
+separate artifact; it never changes a live cluster by itself.
 
 The compatibility gate verifies exact Epistemic Operations schemas, Epistemic Graph,
 Agent Utilities, connector catalog, the ten consolidated skills, ontology lock and

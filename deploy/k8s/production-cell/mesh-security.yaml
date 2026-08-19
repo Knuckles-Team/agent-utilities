@@ -56,17 +56,17 @@ spec:
               - cluster.local/ns/graphos-cell/sa/graphos-analytics
               - cluster.local/ns/graphos-cell/sa/graphos-backup
       to:
-        - operation: {ports: ["9100"]}
+        - operation: {ports: ["9101"]}
     - from:
         - source:
             principals:
               - cluster.local/ns/graphos-cell/sa/graphos-engine
       to:
-        - operation: {ports: ["9200"]}
+        - operation: {ports: ["9100"]}
     - from:
         - source: {namespaces: ["graphos-observability"]}
       to:
-        - operation: {ports: ["9101"]}
+        - operation: {ports: ["9102"]}
 ---
 apiVersion: networking.istio.io/v1
 kind: DestinationRule

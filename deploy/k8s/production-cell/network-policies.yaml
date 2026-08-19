@@ -50,7 +50,7 @@ spec:
           podSelector:
             matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
       ports:
-        - {port: 9100, protocol: TCP}
+        - {port: 9101, protocol: TCP}
     - to:
         - namespaceSelector:
             matchLabels: {graphos.network/role: egress-gateway}
@@ -105,18 +105,17 @@ spec:
           podSelector:
             matchLabels: {app.kubernetes.io/name: graphos-front}
       ports:
-        - {port: 9100, protocol: TCP}
+        - {port: 9101, protocol: TCP}
     - from:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
       ports:
         - {port: 9100, protocol: TCP}
-        - {port: 9200, protocol: TCP}
     - from:
         - namespaceSelector:
             matchLabels: {graphos.network/role: observability}
       ports:
-        - {port: 9101, protocol: TCP}
+        - {port: 9102, protocol: TCP}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -131,7 +130,7 @@ spec:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
       ports:
-        - {port: 9100, protocol: TCP}
+        - {port: 9101, protocol: TCP}
     - to:
         - namespaceSelector:
             matchLabels: {graphos.network/role: event-backbone}
@@ -177,4 +176,4 @@ spec:
         - podSelector:
             matchLabels: {app.kubernetes.io/name: epistemic-graph-raft}
       ports:
-        - {port: 9200, protocol: TCP}
+        - {port: 9100, protocol: TCP}

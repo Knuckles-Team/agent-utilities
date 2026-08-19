@@ -10,6 +10,7 @@ never accepted as committed manifest data.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from collections.abc import Iterable
@@ -93,6 +94,49 @@ _CERTIFICATION_SCENARIOS = {
     "regional-recovery",
     "policy-and-deletion-propagation",
 }
+_ENGINE_IDENTITY_REF = "services/epistemic-graph/k8s/production/engine-identity-contract.v1.json"
+_ENGINE_IDENTITY_DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _engine_identity_contract(directory: Path) -> dict[str, Any]:
+    path = directory / "engine-identity-contract.v1.json"
+    try:
+        contract = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProductionAssetError("canonical engine identity contract is absent or malformed") from exc
+    if not isinstance(contract, dict):
+        raise ProductionAssetError("canonical engine identity contract must be an object")
+    if contract.get("authority") != _ENGINE_IDENTITY_REF:
+        raise ProductionAssetError("engine identity contract authority is not canonical")
+    if contract.get("$schema") != "https://agent-utilities.invalid/schemas/engine-identity-contract-v1.json" or contract.get("apiVersion") != "agent-utilities.io/engine-identity/v1" or contract.get("kind") != "EngineIdentityContract" or contract.get("contract_version") != "engine-identity.v1":
+        raise ProductionAssetError("engine identity contract version or schema is not canonical")
+    digest = str(contract.get("digest") or "")
+    if not _ENGINE_IDENTITY_DIGEST_RE.fullmatch(digest):
+        raise ProductionAssetError("engine identity contract digest is not sha256")
+    payload = {key: value for key, value in contract.items() if key != "digest"}
+    expected = "sha256:" + hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+    if digest != expected:
+        raise ProductionAssetError("engine identity contract digest does not match canonical content")
+    if contract.get("live_authority") is True:
+        raise ProductionAssetError("engine identity contract cannot opt into an unbounded live authority")
+    expected = {
+        "namespace": "graphos-cell",
+        "statefulset_name": "epistemic-graph-raft",
+        "peer_service_name": "epistemic-graph-raft",
+        "client_service_name": "epistemic-graph-coordinator",
+        "peer_port": 9100,
+        "client_port": 9101,
+        "metrics_port": 9102,
+        "tls_server_name": "epistemic-graph-raft.graphos-cell.svc.cluster.local",
+        "discovery_identity": "epistemic-graph-raft.graphos-cell.svc.cluster.local",
+        "transport": "length-prefixed-msgpack-tls",
+    }
+    if any(contract.get(key) != value for key, value in expected.items()):
+        raise ProductionAssetError("engine identity contract values are not canonical")
+    aliases = contract.get("compatibility_aliases") or []
+    if not aliases or any(not isinstance(alias, dict) or alias.get("status") != "migration-only" or alias.get("live_authority") is not False for alias in aliases):
+        raise ProductionAssetError("engine identity compatibility aliases must remain migration-only")
+    return contract
 
 
 def _documents(directory: Path) -> list[dict[str, Any]]:
@@ -216,7 +260,12 @@ def _validate_workload(value: dict[str, Any]) -> None:
             )
 
 
-def _validate_config(documents: list[dict[str, Any]]) -> None:
+def _validate_config(
+    documents: list[dict[str, Any]],
+    *,
+    topology: dict[str, Any] | None = None,
+    identity: dict[str, Any] | None = None,
+) -> None:
     configs = {
         _identity(value)[1]: value.get("data") or {}
         for value in documents
@@ -264,8 +313,9 @@ def _validate_config(documents: list[dict[str, Any]]) -> None:
     }.items():
         if str(control.get(key)) != expected:
             raise ProductionAssetError(f"control contract must set {key}={expected}")
+    topology_data = topology.get("data") if topology else {}
     expected_cell = {
-        "EPISTEMIC_GRAPH_RAFT_GROUPS": "20",
+        "EPISTEMIC_GRAPH_RAFT_GROUPS": str(topology_data.get("ENGINE_RAFT_GROUPS", "20")),
         "EPISTEMIC_GRAPH_REQUIRE_VERIFIED_CONTEXT": "1",
         "EPISTEMIC_GRAPH_REQUIRE_SIGNED": "1",
         "EPISTEMIC_GRAPH_RLS_DEFAULT_DENY": "1",
@@ -275,7 +325,7 @@ def _validate_config(documents: list[dict[str, Any]]) -> None:
     for key, expected in expected_cell.items():
         if str(cell.get(key)) != expected:
             raise ProductionAssetError(f"cell contract must set {key}={expected}")
-    coordinator = "tls://epistemic-graph-coordinator.graphos-cell.svc:9100"
+    coordinator = str(topology_data.get("ENGINE_ENDPOINT", "tls://epistemic-graph-coordinator.graphos-cell.svc.cluster.local:9101"))
     if cell.get("GRAPH_SERVICE_ENDPOINTS") != coordinator:
         raise ProductionAssetError(
             "all clients must use the replicated TLS graph service"
@@ -295,9 +345,12 @@ def _validate_config(documents: list[dict[str, Any]]) -> None:
         raise ProductionAssetError(
             "control plane must use the TLS coordinator authority"
         )
+    if identity is not None:
+        if cell.get("ENGINE_IDENTITY_CONTRACT_REF") != _ENGINE_IDENTITY_REF or cell.get("ENGINE_IDENTITY_CONTRACT_DIGEST") != identity.get("digest"):
+            raise ProductionAssetError("cell contract does not bind the canonical engine identity contract")
 
 
-def _validate_engine(documents: list[dict[str, Any]]) -> None:
+def _validate_engine(documents: list[dict[str, Any]], *, identity: dict[str, Any]) -> None:
     engines = [
         value
         for value in documents
@@ -307,6 +360,21 @@ def _validate_engine(documents: list[dict[str, Any]]) -> None:
         raise ProductionAssetError(
             "exactly one authoritative engine StatefulSet is required"
         )
+    if identity.get("statefulset_name") != "epistemic-graph-raft" or identity.get("peer_service_name") != "epistemic-graph-raft" or identity.get("client_service_name") != "epistemic-graph-coordinator":
+        raise ProductionAssetError("engine identity contract names are not the canonical production names")
+    services = {
+        _identity(value)[:2]: value
+        for value in documents
+        if value.get("kind") == "Service"
+    }
+    peer_service = services.get(("Service", identity["peer_service_name"]))
+    client_service = services.get(("Service", identity["client_service_name"]))
+    if peer_service is None or client_service is None:
+        raise ProductionAssetError("engine identity contract services are absent")
+    peer_ports = {entry.get("name"): int(entry.get("port")) for entry in (peer_service.get("spec") or {}).get("ports") or ()}
+    client_ports = {entry.get("name"): int(entry.get("port")) for entry in (client_service.get("spec") or {}).get("ports") or ()}
+    if peer_ports.get("rpc") != identity.get("client_port") or peer_ports.get("raft") != identity.get("peer_port") or peer_ports.get("metrics") != identity.get("metrics_port") or client_ports.get("rpc") != identity.get("client_port"):
+        raise ProductionAssetError("engine Service ports disagree with the canonical identity contract")
     engine = engines[0]
     if engine.get("spec", {}).get("replicas") != 3:
         raise ProductionAssetError(
@@ -354,7 +422,7 @@ def _validate_engine(documents: list[dict[str, Any]]) -> None:
         raise ProductionAssetError(
             "native engine server identity is not runtime-mounted"
         )
-    if not str(env.get("GRAPH_SERVICE_TLS_SERVER_NAME") or "").strip():
+    if str(env.get("GRAPH_SERVICE_TLS_SERVER_NAME") or "") != identity.get("tls_server_name"):
         raise ProductionAssetError("native engine TLS server name is absent")
     command_text = " ".join(str(value) for value in container.get("args") or ())
     if "ALLOW_PLAINTEXT" in command_text or "allow-plaintext" in command_text:
@@ -407,7 +475,7 @@ def _validate_engine(documents: list[dict[str, Any]]) -> None:
         )
 
 
-def _validate_worker_autoscaling(documents: list[dict[str, Any]]) -> None:
+def _validate_worker_autoscaling(documents: list[dict[str, Any]], *, topology: dict[str, Any] | None = None) -> None:
     expected_commands = {
         "graphos-front": "graph-os",
         "graphos-dispatch-worker": "agent-dispatch-worker",
@@ -420,11 +488,33 @@ def _validate_worker_autoscaling(documents: list[dict[str, Any]]) -> None:
         "graphos-ingest-worker": "agent_utilities_kg_ingest_consumer_lag",
         "graphos-analytics-worker": "epistemic_graph_analytics_jobs_ready",
     }
+    topology_data = topology.get("data") if topology else {}
+    if topology_data:
+        expected_metrics = {
+            "graphos-front": str(topology_data.get("WORKLOAD_GATEWAY_METRIC_NAME") or ""),
+            "graphos-dispatch-worker": str(topology_data.get("WORKLOAD_DISPATCH_METRIC_NAME") or ""),
+            "graphos-ingest-worker": str(topology_data.get("WORKLOAD_INGEST_METRIC_NAME") or ""),
+            "graphos-analytics-worker": str(topology_data.get("WORKLOAD_MINING_METRIC_NAME") or ""),
+        }
+        metric_modes = {
+            "graphos-front": str(topology_data.get("WORKLOAD_GATEWAY_METRIC_MODE") or ""),
+            "graphos-dispatch-worker": str(topology_data.get("WORKLOAD_DISPATCH_METRIC_MODE") or ""),
+            "graphos-ingest-worker": str(topology_data.get("WORKLOAD_INGEST_METRIC_MODE") or ""),
+            "graphos-analytics-worker": str(topology_data.get("WORKLOAD_MINING_METRIC_MODE") or ""),
+        }
+    else:
+        metric_modes = {name: "hpa" for name in expected_metrics}
     by_identity = {_identity(value): value for value in documents}
     for name, command in expected_commands.items():
         namespace = "graphos-control" if name == "graphos-front" else "graphos-cell"
         deployment = by_identity.get(("Deployment", name, namespace)) or {}
-        if deployment.get("spec", {}).get("strategy") != {"type": "Recreate"}:
+        strategy = deployment.get("spec", {}).get("strategy")
+        if topology_data:
+            if strategy is None or strategy.get("type") != "RollingUpdate" or (strategy.get("rollingUpdate") or {}).get("maxUnavailable") != 0:
+                raise ProductionAssetError(
+                    f"{name} must use bounded RollingUpdate activation"
+                )
+        elif strategy != {"type": "Recreate"}:
             raise ProductionAssetError(
                 f"{name} must use exact-release Recreate activation"
             )
@@ -438,7 +528,12 @@ def _validate_worker_autoscaling(documents: list[dict[str, Any]]) -> None:
             )
     for name, metric_name in expected_metrics.items():
         namespace = "graphos-control" if name == "graphos-front" else "graphos-cell"
-        hpa = by_identity.get(("HorizontalPodAutoscaler", name, namespace)) or {}
+        hpa = by_identity.get(("HorizontalPodAutoscaler", name, namespace))
+        if metric_modes[name] == "fixed":
+            if hpa is not None:
+                raise ProductionAssetError(f"HorizontalPodAutoscaler/{name} must be absent for fixed scaling")
+            continue
+        hpa = hpa or {}
         metrics = (hpa.get("spec") or {}).get("metrics") or ()
         external_names = {
             ((metric.get("external") or {}).get("metric") or {}).get("name")
@@ -449,6 +544,19 @@ def _validate_worker_autoscaling(documents: list[dict[str, Any]]) -> None:
             raise ProductionAssetError(
                 f"HorizontalPodAutoscaler/{name} lacks its authority signal"
             )
+        if topology_data:
+            expected_workload = {
+                "graphos-front": "gateway",
+                "graphos-dispatch-worker": "dispatch",
+                "graphos-ingest-worker": "ingest",
+                "graphos-analytics-worker": "mining",
+            }[name]
+            if not any(
+                metric.get("type") == "External"
+                and ((metric.get("external") or {}).get("metric") or {}).get("selector", {}).get("matchLabels", {}).get("graphos_workload") == expected_workload
+                for metric in metrics
+            ):
+                raise ProductionAssetError(f"HorizontalPodAutoscaler/{name} lacks its graphos_workload selector")
 
 
 def _validate_storage(documents: list[dict[str, Any]]) -> None:
@@ -570,7 +678,7 @@ def _validate_network_boundaries(documents: list[dict[str, Any]]) -> None:
     for rule in (engine_ingress.get("spec") or {}).get("ingress") or ():
         ports = {int(port.get("port")) for port in rule.get("ports") or ()}
         sources = rule.get("from") or ()
-        if 9100 in ports and any(
+        if 9101 in ports and any(
             (source.get("podSelector") or {})
             .get("matchLabels", {})
             .get("graphos.io/operation")
@@ -578,7 +686,7 @@ def _validate_network_boundaries(documents: list[dict[str, Any]]) -> None:
             for source in sources
         ):
             backup_allowed = True
-        if 9200 in ports:
+        if 9100 in ports:
             raft_isolated = len(sources) == 1 and (
                 (sources[0].get("podSelector") or {})
                 .get("matchLabels", {})
@@ -593,7 +701,7 @@ def _validate_network_boundaries(documents: list[dict[str, Any]]) -> None:
 
     common_egress = policies.get(("cell-egress", "graphos-cell")) or {}
     if any(
-        int(port.get("port")) == 9200
+        int(port.get("port")) == 9100
         for rule in (common_egress.get("spec") or {}).get("egress") or ()
         for port in rule.get("ports") or ()
     ):
@@ -603,7 +711,7 @@ def _validate_network_boundaries(documents: list[dict[str, Any]]) -> None:
     if selector.get("matchLabels", {}).get(
         "app.kubernetes.io/name"
     ) != "epistemic-graph-raft" or not any(
-        int(port.get("port")) == 9200
+        int(port.get("port")) == 9100
         for rule in (raft_egress.get("spec") or {}).get("egress") or ()
         for port in rule.get("ports") or ()
     ):
@@ -721,9 +829,25 @@ def check(directory: Path, *, rendered: bool, repository_root: Path) -> dict[str
         raise ProductionAssetError(
             "static workload certificates must not bypass mesh certificate rotation"
         )
+    identity = _engine_identity_contract(directory)
     documents = _documents(directory)
     identities = {_identity(value) for value in documents}
-    missing = sorted(_REQUIRED_OBJECTS - identities)
+    topology_contract = next(
+        (
+            value
+            for value in documents
+            if _identity(value) == ("ConfigMap", "graphos-topology-contract", "graphos-control")
+        ),
+        None,
+    )
+    required_objects = set(_REQUIRED_OBJECTS)
+    if topology_contract is not None:
+        if topology_contract.get("immutable") is not True or (topology_contract.get("metadata") or {}).get("annotations", {}).get("graphos.io/authority-retention") != "Retain":
+            raise ProductionAssetError("topology contract must be immutable and retained")
+        required_objects.add(("ConfigMap", "graphos-topology-contract", "graphos-control"))
+        if str((topology_contract.get("data") or {}).get("WORKLOAD_MINING_METRIC_MODE")) == "fixed":
+            required_objects.discard(("HorizontalPodAutoscaler", "graphos-analytics-worker", "graphos-cell"))
+    missing = sorted(required_objects - identities)
     if missing:
         raise ProductionAssetError(f"production resource set is incomplete: {missing}")
     if any(value.get("kind") == "Secret" for value in documents):
@@ -731,9 +855,9 @@ def check(directory: Path, *, rendered: bool, repository_root: Path) -> dict[str
     for value in documents:
         if value.get("kind") in _WORKLOAD_KINDS:
             _validate_workload(value)
-    _validate_config(documents)
-    _validate_engine(documents)
-    _validate_worker_autoscaling(documents)
+    _validate_config(documents, topology=topology_contract, identity=identity)
+    _validate_engine(documents, identity=identity)
+    _validate_worker_autoscaling(documents, topology=topology_contract)
     _validate_storage(documents)
     _validate_backup_restore(documents)
     _validate_mesh(documents)

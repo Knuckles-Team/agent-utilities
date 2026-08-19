@@ -1,0 +1,13 @@
+{
+  "$schema": "../topology-input.schema.json",
+  "apiVersion": "agent-utilities.io/v1",
+  "kind": "GraphOSProductionCellTopologyInput",
+  "authority": "agent-utilities/deploy/k8s/production-cell",
+  "environment": "production",
+  "resource_pool": {
+    "id": "negative-resource-pool",
+    "measured_at": "2026-08-19T00:00:00Z",
+    "evidence_ref": "resourcepool://negative/example",
+    "nodes": [{"ordinal": 0, "id": "only-node", "hostname": "only-node", "zone": "zone-a", "allocatable": {"cpu_millicores": 1, "memory_bytes": 1}}]
+  }
+}

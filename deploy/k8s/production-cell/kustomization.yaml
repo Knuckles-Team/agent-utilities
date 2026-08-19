@@ -15,7 +15,7 @@ resources:
   - backup-dr.yaml
   - observability.yaml
 
-# The release renderer replaces both sentinel tags with exact OCI digests from
+# The release renderer requires a measured topology input and replaces both sentinel tags with exact OCI digests from
 # the verified release manifest.  Applying the template directly fails closed:
 # the sentinel registry is intentionally non-resolving.
 images:

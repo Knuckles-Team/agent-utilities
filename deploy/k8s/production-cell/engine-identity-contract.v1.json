@@ -1,0 +1,28 @@
+{
+  "$schema": "https://agent-utilities.invalid/schemas/engine-identity-contract-v1.json",
+  "apiVersion": "agent-utilities.io/engine-identity/v1",
+  "kind": "EngineIdentityContract",
+  "authority": "services/epistemic-graph/k8s/production/engine-identity-contract.v1.json",
+  "contract_version": "engine-identity.v1",
+  "namespace": "graphos-cell",
+  "statefulset_name": "epistemic-graph-raft",
+  "peer_service_name": "epistemic-graph-raft",
+  "client_service_name": "epistemic-graph-coordinator",
+  "peer_port": 9100,
+  "client_port": 9101,
+  "metrics_port": 9102,
+  "tls_server_name": "epistemic-graph-raft.graphos-cell.svc.cluster.local",
+  "tls_sans": ["epistemic-graph-raft.graphos-cell.svc.cluster.local"],
+  "discovery_identity": "epistemic-graph-raft.graphos-cell.svc.cluster.local",
+  "transport": "length-prefixed-msgpack-tls",
+  "compatibility_aliases": [
+    {
+      "peer_service_name": "epistemic-graph-peer",
+      "client_service_name": "epistemic-graph",
+      "namespace": "platform",
+      "status": "migration-only",
+      "live_authority": false
+    }
+  ],
+  "digest": "sha256:63153c7a9a5800b87290fc45302964972a85598648aaa2d9d6ec3d94135fde8d"
+}

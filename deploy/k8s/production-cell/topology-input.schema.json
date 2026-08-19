@@ -1,0 +1,213 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-utilities.invalid/schemas/production-cell-topology-input-v1.json",
+  "title": "Agent Utilities GraphOS production-cell topology input",
+  "description": "Measured capacity, immutable release identities, and retained external authority references used to render the production-cell template.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "authority", "environment", "engine_identity_contract", "resource_pool", "engine", "oidc", "authorities", "release", "workloads"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "apiVersion": {"const": "agent-utilities.io/v1"},
+    "kind": {"const": "GraphOSProductionCellTopologyInput"},
+    "authority": {"const": "agent-utilities/deploy/k8s/production-cell"},
+    "environment": {"const": "production"},
+    "engine_identity_contract": {"$ref": "#/$defs/engineIdentityBinding"},
+    "resource_pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "measured_at", "evidence_ref", "nodes"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "measured_at": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})$"},
+        "evidence_ref": {"type": "string", "minLength": 1},
+        "nodes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ordinal", "id", "hostname", "zone", "allocatable"],
+            "properties": {
+              "ordinal": {"type": "integer", "minimum": 0},
+              "id": {"type": "string", "minLength": 1},
+              "hostname": {"type": "string", "minLength": 1},
+              "zone": {"type": "string", "minLength": 1},
+              "allocatable": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["cpu_millicores", "memory_bytes"],
+                "properties": {
+                  "cpu_millicores": {"type": "integer", "minimum": 1},
+                  "memory_bytes": {"type": "integer", "minimum": 1}
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["statefulset_name", "client_service_name", "peer_service_name", "namespace", "client_port", "raft_port", "metrics_port", "tls_server_name", "tls_verified", "discovery_ref", "discovery_verified", "replicas", "raft_groups", "current_image", "rollback_image", "resources", "pdb_max_unavailable", "termination_grace_seconds", "pre_stop_seconds"],
+      "properties": {
+        "statefulset_name": {"type": "string", "minLength": 1},
+        "client_service_name": {"type": "string", "minLength": 1},
+        "peer_service_name": {"type": "string", "minLength": 1},
+        "namespace": {"type": "string", "minLength": 1},
+        "client_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "raft_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "metrics_port": {"type": "integer", "minimum": 1, "maximum": 65535},
+        "tls_server_name": {"type": "string", "minLength": 1},
+        "tls_verified": {"const": true},
+        "discovery_ref": {"type": "string", "minLength": 1},
+        "discovery_verified": {"const": true},
+        "replicas": {"const": 3},
+        "raft_groups": {"type": "integer", "minimum": 1},
+        "current_image": {"type": "string", "pattern": "^.+@sha256:[0-9a-f]{64}$"},
+        "rollback_image": {"type": "string", "pattern": "^.+@sha256:[0-9a-f]{64}$"},
+        "resources": {"$ref": "#/$defs/resources"},
+        "pdb_max_unavailable": {"type": "integer", "minimum": 0},
+        "termination_grace_seconds": {"type": "integer", "minimum": 1},
+        "pre_stop_seconds": {"type": "integer", "minimum": 0}
+      }
+    },
+    "oidc": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["issuer", "jwks_url", "audience", "client_id", "verified"],
+      "properties": {
+        "issuer": {"type": "string", "pattern": "^https://[^ ]+$"},
+        "jwks_url": {"type": "string", "pattern": "^https://[^ ]+$"},
+        "audience": {"type": "string", "minLength": 1},
+        "client_id": {"type": "string", "minLength": 1},
+        "verified": {"const": true}
+      }
+    },
+    "authorities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control_configmap_name", "cell_configmap_name", "configmap_retention", "control_configmap_ref", "cell_configmap_ref", "secret_name", "secret_retention", "secret_ref", "session_store", "action_audit"],
+      "properties": {
+        "control_configmap_name": {"type": "string", "minLength": 1},
+        "cell_configmap_name": {"type": "string", "minLength": 1},
+        "configmap_retention": {"const": "Retain"},
+        "control_configmap_ref": {"type": "string", "minLength": 1},
+        "cell_configmap_ref": {"type": "string", "minLength": 1},
+        "secret_name": {"type": "string", "minLength": 1},
+        "secret_retention": {"const": "Retain"},
+        "secret_ref": {"type": "string", "minLength": 1},
+        "session_store": {"$ref": "#/$defs/retainedAuthority"},
+        "action_audit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["authority_ref", "retention", "graph", "kind"],
+          "properties": {
+            "authority_ref": {"type": "string", "minLength": 1},
+            "retention": {"const": "Retain"},
+            "graph": {"type": "string", "minLength": 1},
+            "kind": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["current_manifest_ref", "rollback_manifest_ref", "rollout_evidence_ref", "rollback_evidence_ref"],
+      "properties": {
+        "current_manifest_ref": {"type": "string", "minLength": 1},
+        "rollback_manifest_ref": {"type": "string", "minLength": 1},
+        "rollout_evidence_ref": {"type": "string", "minLength": 1},
+        "rollback_evidence_ref": {"type": "string", "minLength": 1}
+      }
+    },
+    "workloads": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["gateway", "dispatch", "ingest", "mining"],
+      "properties": {
+        "gateway": {"$ref": "#/$defs/workload"},
+        "dispatch": {"$ref": "#/$defs/workload"},
+        "ingest": {"$ref": "#/$defs/workload"},
+        "mining": {"$ref": "#/$defs/workload"}
+      }
+    }
+  },
+  "$defs": {
+    "engineIdentityBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ref", "digest"],
+      "properties": {
+        "ref": {"const": "services/epistemic-graph/k8s/production/engine-identity-contract.v1.json"},
+        "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"}
+      }
+    },
+    "resources": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu_request_millicores", "cpu_limit_millicores", "memory_request_bytes", "memory_limit_bytes"],
+      "properties": {
+        "cpu_request_millicores": {"type": "integer", "minimum": 1},
+        "cpu_limit_millicores": {"type": "integer", "minimum": 1},
+        "memory_request_bytes": {"type": "integer", "minimum": 1},
+        "memory_limit_bytes": {"type": "integer", "minimum": 1}
+      }
+    },
+    "replicas": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "desired", "max", "scale_up_step", "scale_down_step", "up_stabilization_seconds", "down_stabilization_seconds"],
+      "properties": {
+        "min": {"type": "integer", "minimum": 1},
+        "desired": {"type": "integer", "minimum": 1},
+        "max": {"type": "integer", "minimum": 1},
+        "scale_up_step": {"type": "integer", "minimum": 1},
+        "scale_down_step": {"type": "integer", "minimum": 1},
+        "up_stabilization_seconds": {"type": "integer", "minimum": 0},
+        "down_stabilization_seconds": {"type": "integer", "minimum": 0}
+      }
+    },
+    "metric": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        {"required": ["mode", "name", "target", "adapter_ref"], "properties": {"mode": {"const": "hpa"}, "name": {"type": "string", "minLength": 1}, "target": {"type": "string", "pattern": "^[0-9]+(?:m)?$"}, "adapter_ref": {"type": "string", "minLength": 1}}},
+        {"required": ["mode", "reason"], "properties": {"mode": {"const": "fixed"}, "reason": {"type": "string", "minLength": 1}}}
+      ]
+    },
+    "workload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "namespace", "entrypoint", "component", "current_image", "rollback_image", "replicas", "resources", "pdb_max_unavailable", "termination_grace_seconds", "pre_stop_seconds", "metric"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "namespace": {"type": "string", "minLength": 1},
+        "entrypoint": {"type": "string", "minLength": 1},
+        "component": {"enum": ["agent-utilities"]},
+        "current_image": {"type": "string", "pattern": "^.+@sha256:[0-9a-f]{64}$"},
+        "rollback_image": {"type": "string", "pattern": "^.+@sha256:[0-9a-f]{64}$"},
+        "replicas": {"$ref": "#/$defs/replicas"},
+        "resources": {"$ref": "#/$defs/resources"},
+        "pdb_max_unavailable": {"type": "integer", "minimum": 0},
+        "termination_grace_seconds": {"type": "integer", "minimum": 1},
+        "pre_stop_seconds": {"type": "integer", "minimum": 0},
+        "metric": {"$ref": "#/$defs/metric"}
+      }
+    },
+    "retainedAuthority": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "service_name", "namespace", "authority_ref", "retention"],
+      "properties": {
+        "kind": {"const": "external"},
+        "service_name": {"type": "string", "minLength": 1},
+        "namespace": {"type": "string", "minLength": 1},
+        "authority_ref": {"type": "string", "minLength": 1},
+        "retention": {"const": "Retain"}
+      }
+    }
+  }
+}

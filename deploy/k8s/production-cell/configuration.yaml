@@ -42,7 +42,12 @@ data:
   # provides PERSISTENCE_IDENTITY_HMAC_KEY to the process environment.
   PERSISTENCE_IDENTITY_HMAC_KEY_REF: env://PERSISTENCE_IDENTITY_HMAC_KEY
   # Every contact serves the same replicated graph, job, and reasoning authorities.
-  GRAPH_SERVICE_ENDPOINTS: tls://epistemic-graph-coordinator.graphos-cell.svc:9100
+  GRAPH_SERVICE_ENDPOINTS: tls://epistemic-graph-coordinator.graphos-cell.svc.cluster.local:9101
+  ENGINE_IDENTITY_CONTRACT_REF: services/epistemic-graph/k8s/production/engine-identity-contract.v1.json
+  ENGINE_IDENTITY_CONTRACT_DIGEST: sha256:63153c7a9a5800b87290fc45302964972a85598648aaa2d9d6ec3d94135fde8d
+  ENGINE_CLIENT_PORT: "9101"
+  ENGINE_PEER_PORT: "9100"
+  ENGINE_METRICS_PORT: "9102"
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -51,7 +56,12 @@ metadata:
   namespace: graphos-cell
 data:
   APP_PROFILE: production
-  GRAPH_SERVICE_ENDPOINTS: tls://epistemic-graph-coordinator.graphos-cell.svc:9100
+  GRAPH_SERVICE_ENDPOINTS: tls://epistemic-graph-coordinator.graphos-cell.svc.cluster.local:9101
+  ENGINE_IDENTITY_CONTRACT_REF: services/epistemic-graph/k8s/production/engine-identity-contract.v1.json
+  ENGINE_IDENTITY_CONTRACT_DIGEST: sha256:63153c7a9a5800b87290fc45302964972a85598648aaa2d9d6ec3d94135fde8d
+  ENGINE_CLIENT_PORT: "9101"
+  ENGINE_PEER_PORT: "9100"
+  ENGINE_METRICS_PORT: "9102"
   KG_DAEMON_ROLE: client
   TASK_QUEUE_BACKEND: kafka
   AGENT_BUS_LOG_BACKEND: engine
