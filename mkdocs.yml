@@ -245,6 +245,7 @@ nav:
       - Queue-Driven Agent Dispatch: architecture/agent_dispatch.md
       - Non-Blocking Hierarchical Execution: architecture/non-blocking-execution.md
       - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
+      - Scaling Authority Contract (NE-164): architecture/scaling-authority.md
       - Unattended Claude Code Harness: architecture/unattended_claude_harness.md
       - Messaging Reach (Telegram + agents): architecture/messaging_reach.md
       - Gateway Daemon (all runtime components): architecture/gateway_daemon.md
