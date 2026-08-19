@@ -27,6 +27,18 @@
 > `workload_contract.yml` fields directly (see that file's `# anchor:` comments)
 > so the contract and this model cannot silently drift apart —
 > `tests/scale/test_workload_contract.py` cross-checks them.
+>
+> The loader is an exact authority boundary: the population must be exactly
+> 1,000,000, all rate/byte/availability values must be finite and non-negative,
+> rates must agree with concurrency and duration, p99 byte bounds must be no
+> smaller than their averages, and RTO must cover RPO. A loaded contract carries
+> a content digest. Certification evidence must bind that digest to immutable
+> release, deployment-topology, and workload-image digests and declare exactly
+> one execution mode (`live` or `mock`). Live evidence without a live authority,
+> or evidence that leaves mock/live authority ambiguous, is rejected; a mock run
+> is never promoted to a live capacity claim. The service/loadgen integration
+> still needs to supply those runtime digests and live-authority observation
+> before a deployment can claim the full-scale result.
 
 ## The measured anchor
 

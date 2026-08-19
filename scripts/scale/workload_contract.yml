@@ -16,6 +16,12 @@
 # population/rate axes by a factor in (0, 1] for a CI-sized or dev-sized run; the SLO
 # percentile targets and per-unit sizes do NOT scale (an SLO is a per-operation
 # contract, not a population-dependent one).
+#
+# The loader requires the exact 1,000,000 population and validates finite,
+# non-negative, internally coherent rates, byte bounds, availability, RPO/RTO,
+# and SLO values. Runtime certification evidence is supplied separately and
+# must bind the loaded contract digest to release/topology/image digests with an
+# explicit, unambiguous `live` or `mock` authority.
 
 name: "agent-utilities 1M-resident workload contract"
 version: 1

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 import pytest
@@ -153,3 +154,129 @@ def test_elephant_tenant_gets_disproportionate_weight():
     # handled via the explicit residents/active/messages fractions).
     assert scaled.tenant_weight(elephant_idx) == 0.0
     assert scaled.tenant_weight(1) > scaled.tenant_weight(2)  # zipf: earlier rank wins
+
+
+# --------------------------------------------------------------------------- #
+# NE-188 authority hardening
+# --------------------------------------------------------------------------- #
+
+
+def _contract_variant(tmp_path, mutate):
+    contract = wc.load_workload_contract(_CONTRACT_YAML_PATH)
+    raw = deepcopy(contract.raw)
+    mutate(raw)
+    import yaml
+
+    path = tmp_path / "variant.yml"
+    path.write_text(yaml.safe_dump(raw))
+    return path
+
+
+def test_population_must_be_exactly_one_million(tmp_path):
+    path = _contract_variant(
+        tmp_path,
+        lambda raw: raw["population"].update(registered_agents=999_999),
+    )
+    with pytest.raises(wc.WorkloadContractError, match="exactly 1,000,000"):
+        wc.load_workload_contract(path)
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value", "message"),
+    [
+        ("rates", "graph_mutations_per_sec", -1, "finite and non-negative"),
+        ("rates", "messages_per_sec", float("nan"), "finite"),
+        ("per_agent", "media_bytes_avg", -1, "non-negative byte"),
+        ("availability", "rto_seconds", 30, "rto_seconds must be >="),
+    ],
+)
+def test_nonfinite_negative_and_availability_invariants_fail_closed(
+    tmp_path, section, field, value, message
+):
+    path = _contract_variant(tmp_path, lambda raw: raw[section].update({field: value}))
+    with pytest.raises(wc.WorkloadContractError, match=message):
+        wc.load_workload_contract(path)
+
+
+def test_rate_coherence_is_required(tmp_path):
+    path = _contract_variant(
+        tmp_path,
+        lambda raw: raw["rates"].update(turns_per_sec=1),
+    )
+    with pytest.raises(wc.WorkloadContractError, match="incoherent"):
+        wc.load_workload_contract(path)
+
+
+def test_p99_byte_bound_must_not_be_below_average(tmp_path):
+    path = _contract_variant(
+        tmp_path,
+        lambda raw: raw["per_agent"].update(media_bytes_p99=1),
+    )
+    with pytest.raises(wc.WorkloadContractError, match="media_bytes_p99"):
+        wc.load_workload_contract(path)
+
+
+def _evidence(contract, **overrides):
+    value = {
+        "execution_mode": "live",
+        "live_authority": True,
+        "mock_authority": False,
+        "contract_digest": contract.contract_digest,
+        "release_digest": "sha256:" + "1" * 64,
+        "topology_digest": "sha256:" + "2" * 64,
+        "image_digest": "sha256:" + "3" * 64,
+    }
+    value.update(overrides)
+    return value
+
+
+def test_evidence_binds_contract_release_topology_and_image_digests():
+    contract = wc.load_workload_contract(_CONTRACT_YAML_PATH)
+    evidence = wc.bind_workload_evidence(contract, _evidence(contract))
+    assert evidence.contract_digest == contract.contract_digest
+    assert evidence.release_digest.startswith("sha256:")
+    assert evidence.topology_digest.startswith("sha256:")
+    assert evidence.image_digest.startswith("sha256:")
+    assert evidence.live_authority is True
+    assert evidence.mock_authority is False
+
+
+def test_missing_live_authority_fails_closed():
+    contract = wc.load_workload_contract(_CONTRACT_YAML_PATH)
+    value = _evidence(contract)
+    value.pop("live_authority")
+    with pytest.raises(wc.WorkloadContractError, match="missing required fields"):
+        wc.bind_workload_evidence(contract, value)
+
+
+def test_mock_live_ambiguity_fails_closed():
+    contract = wc.load_workload_contract(_CONTRACT_YAML_PATH)
+    with pytest.raises(wc.WorkloadContractError, match="ambiguous"):
+        wc.bind_workload_evidence(
+            contract,
+            _evidence(contract, mock_authority=True),
+        )
+
+
+def test_mock_run_requires_explicit_mock_authority():
+    contract = wc.load_workload_contract(_CONTRACT_YAML_PATH)
+    evidence = wc.bind_workload_evidence(
+        contract,
+        _evidence(
+            contract,
+            execution_mode="mock",
+            live_authority=False,
+            mock_authority=True,
+        ),
+    )
+    assert evidence.execution_mode == "mock"
+    assert evidence.mock_authority is True
+
+
+def test_evidence_contract_digest_mismatch_fails_closed():
+    contract = wc.load_workload_contract(_CONTRACT_YAML_PATH)
+    with pytest.raises(wc.WorkloadContractError, match="contract_digest"):
+        wc.bind_workload_evidence(
+            contract,
+            _evidence(contract, contract_digest="sha256:" + "4" * 64),
+        )
