@@ -160,6 +160,7 @@ nav:
       - Agent OS Infrastructure: pillars/5_agent_os_infrastructure.md
       - GeniusBot Cockpit: pillars/6_geniusbot_cockpit.md
   - Architecture:
+      - Source Authority and Evidence-Gated Checkpoints: architecture/source-control-plane.md
       - North-Star Architecture (the whole program): architecture/north-star-architecture.md
       - Arrow data-preparation kernel: architecture/data-prep-arrow-kernel.md
       - Epistemic OS Hardening (Phase 0-2 + Exceed X-series): architecture/epistemic-os-hardening.md
