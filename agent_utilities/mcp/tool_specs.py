@@ -100,6 +100,9 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         # intent dispatcher enforces the action-level read allowlist below, so
         # this does not make ingest submissions reachable through ``ask``.
         "graph_ingest": ("write", "ask"),
+        # Profile/clean/validate are side-effect free; only commit_prepared
+        # crosses the governed ChangeEnvelope mutation boundary.
+        "graph_data_prep": ("ask", "write"),
         "graph_writeback": ("write",),
         "graph_etl": ("write",),
         "source_sync": ("write",),
@@ -120,6 +123,7 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "ontology_repository_provenance": ("write",),
         "document_process": ("write",),
         "graph_media_sidecar": ("write", "act"),
+        "graph_data_prep": ("ask", "write"),
         "spec_ticket": ("write", "ask"),
         "engine_nodes": ("write", "ask"),
         "engine_edges": ("write",),
@@ -218,6 +222,9 @@ READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
             }
         ),
         "graph_ingest": frozenset({"jobs", "job_status", "status"}),
+        "graph_data_prep": frozenset(
+            {"profile_dataset", "clean_dataset", "validate_prepared"}
+        ),
         # graph_mine's CPD (capabilities-power.json) declares "mutates": "~true" for
         # every action except `classify_fit` (declared "false" -- it only fits a
         # model in memory and returns it; it never has a `writeback` option, unlike
@@ -229,6 +236,9 @@ READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
         # ``reload`` re-reads from disk without writing, so it is a read of the
         # world, not a change to it.
         "graph_config": frozenset({"describe", "get", "diff", "reload"}),
+        "graph_data_prep": frozenset(
+            {"profile_dataset", "clean_dataset", "validate_prepared"}
+        ),
     }
 )
 

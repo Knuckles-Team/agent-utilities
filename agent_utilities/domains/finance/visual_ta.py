@@ -12,8 +12,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +98,7 @@ class SupportResistanceDetector:
 
         # Find local minima (supports)
         for i in range(self.window, len(lows) - self.window):
-            if lows[i] == np.min(lows[i - self.window : i + self.window + 1]):
+            if lows[i] == min(lows[i - self.window : i + self.window + 1]):
                 # Count touches at this level
                 level = float(lows[i])
                 touches = sum(
@@ -124,7 +123,7 @@ class SupportResistanceDetector:
 
         # Find local maxima (resistances)
         for i in range(self.window, len(highs) - self.window):
-            if highs[i] == np.max(highs[i - self.window : i + self.window + 1]):
+            if highs[i] == max(highs[i - self.window : i + self.window + 1]):
                 level = float(highs[i])
                 touches = sum(
                     1
@@ -191,7 +190,7 @@ class PatternDetector:
                 peak2 = highs[j]
                 if abs(peak1 - peak2) / peak1 < tolerance:
                     # Check for valley between peaks
-                    valley = np.min(closes[i:j])
+                    valley = min(closes[i:j])
                     if valley < peak1 * (1 - tolerance):
                         neckline = float(valley)
                         target = neckline - (peak1 - neckline)
@@ -224,7 +223,7 @@ class PatternDetector:
             for j in range(i + 5, min(i + 30, n)):
                 trough2 = lows[j]
                 if abs(trough1 - trough2) / trough1 < tolerance:
-                    peak = np.max(closes[i:j])
+                    peak = max(closes[i:j])
                     if peak > trough1 * (1 + tolerance):
                         neckline = float(peak)
                         target = neckline + (neckline - trough1)
@@ -253,7 +252,7 @@ class PatternDetector:
             return patterns
 
         for i in range(lookback, n):
-            recent_high = np.max(highs[i - lookback : i])
+            recent_high = max(highs[i - lookback : i])
             if closes[i] > recent_high * 1.01:
                 patterns.append(
                     DetectedPattern(
@@ -302,13 +301,14 @@ class VisualTAEngine:
         if n < 5:
             return TrendDirection.SIDEWAYS, 0.0, 0.0, 0.0
 
-        x = np.arange(n, dtype=float)
-        x_mean = np.mean(x)
-        y_mean = np.mean(closes)
+        x = [float(index) for index in range(n)]
+        y = [float(value) for value in closes]
+        x_mean = float(xp.mean(x))
+        y_mean = float(xp.mean(y))
 
-        ss_xy = np.sum((x - x_mean) * (closes - y_mean))
-        ss_xx = np.sum((x - x_mean) ** 2)
-        ss_yy = np.sum((closes - y_mean) ** 2)
+        ss_xy = sum((a - x_mean) * (b - y_mean) for a, b in zip(x, y, strict=True))
+        ss_xx = sum((a - x_mean) ** 2 for a in x)
+        ss_yy = sum((b - y_mean) ** 2 for b in y)
 
         slope = ss_xy / ss_xx if ss_xx > 0 else 0.0
         r_squared = (ss_xy**2) / (ss_xx * ss_yy) if (ss_xx * ss_yy) > 0 else 0.0

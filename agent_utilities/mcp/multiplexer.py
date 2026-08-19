@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import contextlib
+import contextvars
 import hashlib
 import hmac
 import importlib.metadata
@@ -1221,6 +1222,187 @@ def _swap_local_provider_components(provider: Any, components: dict[str, Any]) -
     provider._components = components
 
 
+# ---------------------------------------------------------------------------
+# NE-008 (GOC-85 Deliverable 3): per-principal remote-OAuth wiring.
+#
+# A catalog entry opts into per-user delegated authorization by declaring an
+# admin-configured ``oauth_provider`` block (the exact shape
+# ``agent_utilities.mcp.remote_oauth_broker.ProviderDescriptor`` accepts) on
+# its config -- the SAME "administrator-populated, never caller-supplied"
+# catalog these config dicts already are (headers/env/tls_profile/
+# allowed_private_hosts all come from here today). Such a server is
+# structurally excluded from the fleet-global, principal-agnostic pool
+# (``_start_child`` skips it, see below) and from the shared probe-result
+# cache (``_probe_cache_hit``/``_cache_probe``, see below) -- it is served
+# EXCLUSIVELY through ephemeral, per-request sessions
+# (``_open_one_session``, already used this way by ``probe_server`` for any
+# un-pooled server), each one bound to the CURRENT caller's own delegated
+# grant. This deliberately reuses the broker's own reserved seam
+# (``bearer_headers_for``) and this repo's existing verified-actor primitive
+# (``brain_context.current_actor``) rather than any of the specific outbound
+# delegated-identity primitive names the U-44/U-45 canary in
+# ``tests/unit/mcp/test_remote_oauth_fail_closed.py`` fences (see that test's
+# own module docstring for the list) -- those would mean a per-user token
+# reached the ONE shared session-per-server pool every other caller also
+# uses, which this wiring never does.
+# ---------------------------------------------------------------------------
+_REMOTE_OAUTH_BROKERS: dict[str, Any] = {}
+_REMOTE_OAUTH_BROKERS_LOCK = threading.Lock()
+_CURRENT_DISCOVERY_BINDING: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
+    "current_discovery_binding", default=None
+)
+
+
+def _oauth_gated(cfg: Mapping[str, Any]) -> bool:
+    """True when a remote MCP child catalog entry declares a per-principal
+    OAuth provider (``oauth_provider``, a ``ProviderDescriptor``-shaped dict).
+    ``False`` (including for any malformed value) leaves the existing
+    service-credential/static-header path completely unchanged -- validation
+    of a truthy value happens in :func:`_remote_oauth_broker_for`, which
+    fails closed on a bad admin config rather than silently ignoring it."""
+    provider_cfg = cfg.get("oauth_provider")
+    return isinstance(provider_cfg, dict) and bool(provider_cfg)
+
+
+def _tenant_local_discovery_binding() -> Any | None:
+    """Mint the non-OAuth discovery visibility contract from verified state.
+
+    Local/stdio children have no provider grant to resolve.  Their discovery
+    is still not caller-authorized: the process-owned multiplexer may expose a
+    tenant-local snapshot only while a verified graph session is ambient.  Do
+    not derive an OAuth-like digest from roles/scopes or accept catalog fields.
+    """
+    try:
+        from agent_utilities.knowledge_graph.core.fleet_catalog_tables import (
+            TenantLocalDiscoveryBinding,
+        )
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        session = current_session()
+        if session is None or not getattr(session.actor, "authenticated", False):
+            return None
+        tenant = str(session.tenant or "").strip()
+        if not tenant:
+            return None
+        return TenantLocalDiscoveryBinding(tenant_id=tenant)
+    except (ImportError, PermissionError, TypeError, ValueError):
+        return None
+
+
+def _remote_oauth_broker_for(provider_cfg: Mapping[str, Any]) -> tuple[Any, Any]:
+    """Return ``(RemoteOAuthBroker, ProviderDescriptor)`` for one admin-declared
+    provider block, reusing ONE broker instance per ``provider_id`` so its
+    encrypted token store and DCR registration cache persist across calls
+    instead of being rebuilt (and, for DCR, re-registered) on every request."""
+    from agent_utilities.mcp.remote_oauth_broker import (
+        ProviderDescriptor,
+        ProviderRegistry,
+        RemoteOAuthBroker,
+    )
+
+    descriptor = ProviderDescriptor(**provider_cfg)
+    with _REMOTE_OAUTH_BROKERS_LOCK:
+        broker = _REMOTE_OAUTH_BROKERS.get(descriptor.provider_id)
+        if broker is None:
+            registry = ProviderRegistry()
+            registry.register(descriptor)
+            broker = RemoteOAuthBroker(registry=registry)
+            _REMOTE_OAUTH_BROKERS[descriptor.provider_id] = broker
+        else:
+            # Keep the registered descriptor current across a hot catalog
+            # reload (e.g. a scope/enabled-flag change) without discarding the
+            # broker's token store / DCR cache.
+            broker.registry.register(descriptor)
+    return broker, descriptor
+
+
+def _resolve_remote_oauth_bearer(
+    cfg: Mapping[str, Any], url: str
+) -> dict[str, str] | None:
+    """Per-principal bearer resolution for an OAuth-gated remote MCP child.
+
+    Returns ``None`` when the child is not OAuth-gated (the existing
+    service-credential/static-header path proceeds completely unchanged).
+    When gated, resolves the VERIFIED current actor
+    (:func:`agent_utilities.security.brain_context.current_actor` -- the same
+    server-minted identity every other authorization decision in this gateway
+    uses, never a caller-supplied string) and mints a bearer bound to the
+    EXACT registered resource endpoint via
+    :meth:`~agent_utilities.mcp.remote_oauth_broker.RemoteOAuthBroker.bearer_headers_for`.
+    A missing, expired, or revoked grant raises -- fail closed, no fallback to
+    any shared/service credential (U-44/U-45).
+
+    Synchronous (secrets-backend I/O, no coroutine) -- callers run this via
+    ``asyncio.to_thread`` so it never blocks the event loop.
+    """
+    if not _oauth_gated(cfg):
+        return None
+    from agent_utilities.security.brain_context import current_actor
+
+    actor = current_actor()  # IdentityRequiredError (PermissionError) -> fail closed
+    broker, descriptor = _remote_oauth_broker_for(cfg["oauth_provider"])
+    return broker.bearer_headers_for(
+        actor=actor, provider_id=descriptor.provider_id, resource_url=url
+    )
+
+
+def _resolve_remote_oauth_grant(
+    cfg: Mapping[str, Any], url: str
+) -> tuple[dict[str, str], Any] | None:
+    """Resolve one bearer plus the broker-owned, non-secret grant binding."""
+
+    if not _oauth_gated(cfg):
+        return None
+    from agent_utilities.security.brain_context import current_actor
+
+    actor = current_actor()
+    broker, descriptor = _remote_oauth_broker_for(cfg["oauth_provider"])
+    return broker.bearer_headers_and_grant_binding(
+        actor=actor, provider_id=descriptor.provider_id, resource_url=url
+    )
+
+
+def current_remote_oauth_grant_bindings(actor: Any) -> tuple[Any, ...]:
+    """Return current broker-resolved grants for a verified actor.
+
+    The registry uses this process-owned broker inventory for its SQL predicate;
+    it never accepts provider/resource/audience/grant identity from a request.
+    Missing, expired, revoked, or legacy token records are omitted so reads fail
+    closed when no exact grant remains.
+    """
+
+    from agent_utilities.mcp.remote_oauth_broker import (
+        OAuthGrantBinding,
+        OAuthProviderError,
+        OAuthScopeError,
+        OAuthTokenAbsentError,
+        OAuthTokenStore,
+    )
+
+    OAuthTokenStore._require_verified(actor)
+    with _REMOTE_OAUTH_BROKERS_LOCK:
+        brokers = tuple(_REMOTE_OAUTH_BROKERS.values())
+    bindings: list[OAuthGrantBinding] = []
+    for broker in brokers:
+        for provider in broker.registry.enabled_providers():
+            try:
+                binding = broker.grant_binding_for(
+                    actor=actor,
+                    provider_id=provider.provider_id,
+                    resource_url=provider.resource_url,
+                )
+            except (
+                OAuthTokenAbsentError,
+                OAuthProviderError,
+                OAuthScopeError,
+                PermissionError,
+            ):
+                continue
+            if isinstance(binding, OAuthGrantBinding):
+                bindings.append(binding)
+    return tuple(sorted(bindings, key=lambda binding: binding.fingerprint))
+
+
 class MCPMultiplexer:
     """Aggregates and proxies multiple MCP servers over a single stdio connection."""
 
@@ -1294,6 +1476,23 @@ class MCPMultiplexer:
         # it) so a caller can compute truthful staleness instead of a fleet-wide
         # figure silently being served as if it were live (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
         self._probe_cache: dict[str, dict] = {}
+        # Process-owned discovery authority is deliberately kept out of the
+        # public probe payload.  The catalog is caller-visible JSON metadata,
+        # while an OAuth grant or tenant-local binding must only reach the
+        # internal relational writer after this exact probe completes.  The
+        # identity tuple prevents a caller-shaped/copy of an info dict from
+        # manufacturing a binding; the bounded map also prevents abandoned
+        # probes from retaining authority indefinitely.
+        self._discovery_binding_sidechannel: dict[
+            int, tuple[str, dict[str, Any], Any]
+        ] = {}
+        # Successful local probes retain their exact verified tenant provenance
+        # alongside the cache object.  The one-shot side channel is consumed by
+        # source sync; this private record lets a later cache read re-establish
+        # authority without relabelling an uninitialized probe.
+        self._local_discovery_cache_authority: dict[
+            int, tuple[str, dict[str, Any], Any]
+        ] = {}
         # A server probe that hasn't finished when an interactive caller's
         # budget expires is NEVER cancelled — cancelling it would also cancel
         # the ``self._probe_cache`` write at the end of :meth:`probe_server`,
@@ -1461,6 +1660,110 @@ class MCPMultiplexer:
                 {
                     "content": [
                         mcp_types.TextContent(type="text", text=type(e).__name__)
+                    ],
+                    "isError": True,
+                }
+            )
+        except Exception as e:
+            return mcp_types.CallToolResult.model_validate(
+                {
+                    "content": [
+                        mcp_types.TextContent(type="text", text=public_error_text(e))
+                    ],
+                    "isError": True,
+                }
+            )
+
+    async def call_oauth_gated_tool(
+        self,
+        server_name: str,
+        original_name: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> MCPCallToolResult:
+        """Per-principal tool call for an OAuth-gated remote MCP child (NE-008,
+        GOC-85 Deliverable 3 — U-44/U-45 wiring).
+
+        :meth:`call_proxied_tool` forwards to ``self.children[server_name]`` —
+        ONE shared session for every caller, admitted at pool-mount time. An
+        OAuth-gated child is never pool-mounted (:meth:`_start_child` skips
+        it), precisely because that sharing is unsafe for a per-user grant.
+        This method is its call path instead: open a dedicated, ephemeral
+        session bound to the CURRENT caller's own delegated grant
+        (:func:`_resolve_remote_oauth_bearer`, inside
+        :meth:`_open_one_session`), make exactly one tool call over it, and
+        tear the session down — never joining the shared pool, never caching
+        anything keyed only by server name. A caller without a valid grant for
+        this provider gets a fail-closed error before any tool call is
+        attempted (the connect step inside :meth:`_open_one_session` raises,
+        because :meth:`~agent_utilities.mcp.remote_oauth_broker.RemoteOAuthBroker.bearer_headers_for`
+        does).
+
+        Fleet-global discoverability (this call reachable through
+        :meth:`call_proxied_tool`'s prefixed-name aggregation, or surfaced by
+        ``find_tools``/``load_tools``) is NOT built here — that catalog is
+        principal-agnostic by construction (one aggregated view for every
+        caller) and extending it to vary per principal is GOC-15/catalog-layer
+        scope, not this track's. A caller that already knows the
+        ``server_name``/``original_name`` (e.g. from its own
+        :meth:`probe_server` call, which DOES run live and per-principal for
+        an OAuth-gated server) can call this directly today.
+        """
+        _require_fleet_capability("delegate")
+        cfg = self.load_catalog().get(server_name)
+        if cfg is None or not _oauth_gated(cfg):
+            raise ToolError("Server is not a configured OAuth-gated remote MCP child")
+        configured_scopes = cfg.get("required_scopes", [])
+        if isinstance(configured_scopes, str):
+            configured_scopes = configured_scopes.split()
+        if not isinstance(configured_scopes, list) or not all(
+            isinstance(scope, str) and 1 <= len(scope) <= 128
+            for scope in configured_scopes
+        ):
+            raise ToolError("Child MCP scope configuration is invalid")
+        _require_fleet_capability("delegate", configured_scopes)
+        _assert_bounded_delegated_value(arguments or {})
+        try:
+            call_timeout = float(
+                timeout if timeout is not None else cfg.get("timeout", 30.0)
+            )
+        except (TypeError, ValueError):
+            call_timeout = 0.0
+        if not 0.001 <= call_timeout <= 300.0:
+            raise ToolError("Invalid call timeout")
+
+        async def _call() -> MCPCallToolResult:
+            runtime_cfg, runtime_policy = _prepare_runtime_child_policy(cfg)
+            try:
+                async with contextlib.AsyncExitStack() as stack:
+                    session = await self._open_one_session(
+                        server_name, runtime_cfg, stack
+                    )
+                    if runtime_policy is not None:
+                        tools_result = await session.list_tools()
+                        admitted = self._admit_runtime_policy_tools(
+                            server_name,
+                            runtime_policy,
+                            list(tools_result.tools),
+                            record_state=False,
+                        )
+                        if original_name not in {tool.name for tool in admitted}:
+                            raise ToolError(
+                                "MCP child tool is not admitted by runtime policy"
+                            )
+                    return await session.call_tool(original_name, arguments or {})
+            finally:
+                if runtime_policy is not None:
+                    _close_runtime_child_policy(runtime_policy)
+
+        try:
+            return await asyncio.wait_for(_call(), timeout=call_timeout)
+        except TimeoutError:
+            return mcp_types.CallToolResult.model_validate(
+                {
+                    "content": [
+                        mcp_types.TextContent(type="text", text="MCPChildTimeout")
                     ],
                     "isError": True,
                 }
@@ -1988,6 +2291,21 @@ class MCPMultiplexer:
                     validated_headers[name] = rendered
                 headers = validated_headers
 
+            # NE-008 (GOC-85 Deliverable 3): per-principal remote-OAuth bearer,
+            # for a child catalog entry that declares ``oauth_provider``.
+            # ``None`` for every other (unchanged) child. Offloaded to a thread
+            # -- secrets-backend I/O is synchronous. Raises fail-closed
+            # (missing/expired/revoked grant) rather than falling back to any
+            # shared/service credential; the caller sees that failure as this
+            # session never opening, exactly like any other connect failure.
+            oauth_grant = await asyncio.to_thread(_resolve_remote_oauth_grant, cfg, url)
+            if oauth_grant is not None:
+                oauth_bearer_headers, discovery_binding = oauth_grant
+                _CURRENT_DISCOVERY_BINDING.set(discovery_binding)
+                headers = {**(headers or {}), **oauth_bearer_headers}
+            else:
+                oauth_bearer_headers = None
+
             from agent_utilities.core.http_client import create_async_http_client
             from agent_utilities.core.transport_security import (
                 resolve_configured_tls_profile,
@@ -2028,9 +2346,19 @@ class MCPMultiplexer:
             # Use a per-request httpx.Auth (not a frozen header): the child's
             # pooled session is long-lived, so a baked-in short-lived token would
             # expire mid-session and wedge calls on a 401 (CONCEPT:AU-OS.identity.so-jwt-protected-children).
-            from agent_utilities.mcp.client_credentials import child_auth
+            #
+            # NE-008: an oauth-gated child's authorization model IS the
+            # caller's own per-principal delegated grant (just placed into
+            # ``headers`` above) -- GraphOS's own service-to-child credential
+            # is deliberately NOT also computed for it, so the two credential
+            # lifetimes (service <-> child, and user <-> provider) are never
+            # merged onto the same outbound request.
+            if oauth_bearer_headers is not None:
+                _svc_auth = None
+            else:
+                from agent_utilities.mcp.client_credentials import child_auth
 
-            _svc_auth = child_auth(headers)
+                _svc_auth = child_auth(headers)
             use_sse = explicit_transport == "sse" or url.rstrip("/").endswith("/sse")
             if use_sse:
                 # D-MTT-1: `_svc_auth` is a local `httpx.Auth` (see
@@ -2174,6 +2502,21 @@ class MCPMultiplexer:
         self, server_name: str, cfg: dict
     ) -> tuple[str, ChildRuntime, list[MCPTool], dict] | None:
         """Starts a single child server, registers its exit stack on success, and returns its tools and runtime."""
+        # NE-008 (GOC-85 Deliverable 3): an OAuth-gated child (``oauth_provider``
+        # declared on its catalog entry) is NEVER pool-mounted -- this is the ONE
+        # shared, principal-agnostic ``ChildRuntime``/session-per-server pool
+        # every caller draws from regardless of who they are, which is exactly
+        # the sharing the U-44/U-45 canary exists to prevent for a per-user
+        # grant. Such a server is served exclusively through the ephemeral,
+        # per-request session path (``probe_server`` for discovery,
+        # :meth:`call_oauth_gated_tool` for calls) -- both call
+        # :meth:`_open_one_session` directly and never reach here.
+        if _oauth_gated(cfg):
+            logger.info(
+                "MCP child is OAuth-gated (oauth_provider); never pool-mounted, "
+                "served only via ephemeral per-principal sessions"
+            )
+            return None
         # Preserve the catalog generation that authorized this spawn.  A hot
         # reload may run while the child is handshaking; later callbacks from
         # that retired runtime must not re-populate the new catalog's state.
@@ -2507,6 +2850,8 @@ class MCPMultiplexer:
         self.tool_to_server.clear()
         self.aggregated_tools.clear()
         self._probe_cache.clear()
+        self._discovery_binding_sidechannel.clear()
+        self._local_discovery_cache_authority.clear()
         # Not cancelled (a hot-reload should not visibly break an in-flight
         # discovery call) — just untracked, so a NEW probe_catalog call for
         # the same server starts fresh against the reloaded config rather
@@ -2883,6 +3228,7 @@ class MCPMultiplexer:
             self._child_schema_revisions.get(server_name, 0) + 1
         )
         self._probe_cache.pop(server_name, None)
+        self._drop_discovery_bindings_for_server(server_name)
         embedding_prefix = f"{server_name}::"
         for key in [
             key for key in self._tool_embeddings if key.startswith(embedding_prefix)
@@ -3258,10 +3604,137 @@ class MCPMultiplexer:
         Every write to ``self._probe_cache`` goes through here so age/staleness
         can always be computed truthfully later — ``time.time() - probed_at`` —
         instead of a caller having to guess whether a served result is fresh
-        (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog)."""
+        (CONCEPT:AU-ECO.multiplexer.tool-gateway-catalog).
+
+        NE-008 (GOC-85 Deliverable 3): an OAuth-gated server's probe result is
+        NEVER written into this shared, server-name-only cache — the result is
+        bound to whichever principal happened to probe it, and this cache has
+        no principal dimension. ``probed_at`` is still stamped on the returned
+        ``info`` so the immediate caller (:meth:`probe_server`) can report a
+        normal, honest result for THIS call; it is simply never reused for a
+        later, possibly different, caller."""
+        # A fresh probe replaces any prior private authority for this server,
+        # including a failed OAuth probe.  A stale grant must never be reused
+        # for a later catalog snapshot.
+        self._drop_discovery_bindings_for_server(server_name)
         info["probed_at"] = time.time()
+        cfg = self.load_catalog().get(server_name)
+        if cfg is not None and _oauth_gated(cfg):
+            return info
         self._probe_cache[server_name] = info
         return info
+
+    def _record_discovery_binding(
+        self, server_name: str, info: dict[str, Any], binding: Any
+    ) -> None:
+        """Retain one typed binding for one exact probe result object.
+
+        This is an internal hand-off only.  It intentionally accepts neither
+        catalog metadata nor a caller-provided authority value; callers can
+        only obtain a binding by completing a verified probe path above.
+        Keeping the original object alongside its id makes id reuse harmless.
+        """
+        from agent_utilities.knowledge_graph.core.fleet_catalog_tables import (
+            TenantLocalDiscoveryBinding,
+        )
+
+        from .remote_oauth_broker import OAuthGrantBinding
+
+        if not isinstance(info, dict) or not isinstance(
+            binding, (OAuthGrantBinding, TenantLocalDiscoveryBinding)
+        ):
+            return
+        self._drop_discovery_bindings_for_server(server_name)
+        self._discovery_binding_sidechannel[id(info)] = (server_name, info, binding)
+        if isinstance(binding, TenantLocalDiscoveryBinding):
+            self._local_discovery_cache_authority[id(info)] = (
+                server_name,
+                info,
+                binding,
+            )
+        while len(self._discovery_binding_sidechannel) > 256:
+            oldest = next(iter(self._discovery_binding_sidechannel))
+            self._discovery_binding_sidechannel.pop(oldest, None)
+
+    def _drop_discovery_bindings_for_server(self, server_name: str) -> None:
+        """Forget private authority for a replaced/invalidated server probe."""
+        for key, (recorded_server, _info, _binding) in tuple(
+            self._discovery_binding_sidechannel.items()
+        ):
+            if recorded_server == server_name:
+                self._discovery_binding_sidechannel.pop(key, None)
+        for key, (recorded_server, _info, _binding) in tuple(
+            self._local_discovery_cache_authority.items()
+        ):
+            if recorded_server == server_name:
+                self._local_discovery_cache_authority.pop(key, None)
+
+    def _take_discovery_bindings(self, catalog: Mapping[str, Any]) -> dict[str, Any]:
+        """Consume private bindings for exact probe objects in ``catalog``.
+
+        ``catalog`` is used only to identify which completed probe results the
+        internal caller is syncing.  A copied or caller-shaped dictionary does
+        not match the retained object identity, and any ``_discovery_binding``
+        key in public metadata is ignored completely.
+        """
+        if not isinstance(catalog, Mapping):
+            return {}
+        bindings: dict[str, Any] = {}
+        for server_name, info in catalog.items():
+            record = self._discovery_binding_sidechannel.get(id(info))
+            if record is None:
+                # Non-OAuth results may be served from the process-owned
+                # cache after their prior side-channel record was consumed.
+                # Re-mint only for the exact cached object and a successful
+                # local probe that previously recorded verified provenance;
+                # copied/caller-shaped dictionaries never match.
+                cached_authority = self._local_discovery_cache_authority.get(id(info))
+                if (
+                    cached_authority is not None
+                    and cached_authority[0] == str(server_name)
+                    and cached_authority[1] is info
+                ):
+                    binding = _tenant_local_discovery_binding()
+                    if (
+                        binding is not None
+                        and binding.tenant_id == cached_authority[2].tenant_id
+                    ):
+                        bindings[str(server_name)] = binding
+                continue
+            recorded_server, recorded_info, binding = record
+            if recorded_server != str(server_name) or recorded_info is not info:
+                continue
+            bindings[str(server_name)] = binding
+            self._discovery_binding_sidechannel.pop(id(info), None)
+        return bindings
+
+    def _bind_local_discovery_bindings(self, catalog: Mapping[str, Any]) -> None:
+        """Bind exact local probe objects from the caller's verified context.
+
+        ``source_sync`` may run the async multiplexer in a worker thread when
+        its caller already owns an event loop; context variables do not cross
+        that thread.  This explicit hand-off mints local authority back on the
+        verified caller thread, but only for successful objects that are still
+        the exact process-owned cache value.  It cannot authorize a copied or
+        failed catalog result.
+        """
+        if not isinstance(catalog, Mapping):
+            return
+        for server_name, info in catalog.items():
+            if self._discovery_binding_sidechannel.get(id(info)) is not None:
+                continue
+            cached = self._probe_cache.get(str(server_name))
+            cfg = self.load_catalog().get(str(server_name))
+            if (
+                cached is info
+                and isinstance(cfg, Mapping)
+                and not _oauth_gated(cfg)
+                and isinstance(info, dict)
+                and info.get("error") is None
+            ):
+                binding = _tenant_local_discovery_binding()
+                if binding is not None:
+                    self._record_discovery_binding(str(server_name), info, binding)
 
     @staticmethod
     def _probe_ttl() -> float:
@@ -3282,7 +3755,15 @@ class MCPMultiplexer:
         entry may be served as-is, so :meth:`probe_server` (single-server
         short-circuit) and :meth:`probe_catalog` (whole-fleet re-probe
         targeting) can never disagree about what counts as fresh
-        (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness)."""
+        (CONCEPT:AU-ECO.multiplexer.catalog-probe-ttl-staleness).
+
+        NE-008: always a miss for an OAuth-gated server (see
+        :meth:`_cache_probe`) — there is never a cached entry to serve, so
+        every call for one of these servers re-probes live, bound to
+        whichever principal is asking THIS time."""
+        cfg = self.load_catalog().get(server_name)
+        if cfg is not None and _oauth_gated(cfg):
+            return None
         info = self._probe_cache.get(server_name)
         if info is None:
             return None
@@ -3335,7 +3816,11 @@ class MCPMultiplexer:
                 "prompts": await self._live_prompts_for_server(server_name),
                 "error": None,
             }
-            return self._cache_probe(server_name, info)
+            result = self._cache_probe(server_name, info)
+            self._record_discovery_binding(
+                server_name, result, _tenant_local_discovery_binding()
+            )
+            return result
 
         cfg = self.load_catalog().get(server_name)
         if cfg is None:
@@ -3354,7 +3839,7 @@ class MCPMultiplexer:
             info = {"tools": [], "error": "invalid probe timeout"}
             return self._cache_probe(server_name, info)
 
-        async def _probe() -> tuple[list[dict], list[dict], list[dict]]:
+        async def _probe() -> tuple[list[dict], list[dict], list[dict], Any | None]:
             # Enter AND exit the transports within this single coroutine so the
             # anyio cancel scopes are not crossed between tasks. ``wait_for``
             # runs this whole coroutine as one task, so the stack is opened and
@@ -3362,6 +3847,7 @@ class MCPMultiplexer:
             # only the connect in wait_for would exit the scope in a different
             # task — "Attempted to exit cancel scope in a different task".)
             runtime_cfg, runtime_policy = _prepare_runtime_child_policy(cfg)
+            binding_token = _CURRENT_DISCOVERY_BINDING.set(None)
             try:
                 async with contextlib.AsyncExitStack() as stack:
                     session = await self._open_one_session(
@@ -3378,14 +3864,26 @@ class MCPMultiplexer:
                         )
                     skills = await self._probe_skills(server_name, session)
                     prompts = await self._probe_prompts(server_name, session)
-                    return _bounded_tool_catalog(tools), skills, prompts
+                    discovery_binding = _CURRENT_DISCOVERY_BINDING.get()
+                    if discovery_binding is None:
+                        discovery_binding = _tenant_local_discovery_binding()
+                    return (
+                        _bounded_tool_catalog(tools),
+                        skills,
+                        prompts,
+                        discovery_binding,
+                    )
             finally:
+                _CURRENT_DISCOVERY_BINDING.reset(binding_token)
                 if runtime_policy is not None:
                     _close_runtime_child_policy(runtime_policy)
                     self._child_policy_admitted_tools.pop(server_name, None)
 
+        discovery_binding = None
         try:
-            tools, skills, prompts = await asyncio.wait_for(_probe(), timeout=probe_to)
+            tools, skills, prompts, discovery_binding = await asyncio.wait_for(
+                _probe(), timeout=probe_to
+            )
             info = {"tools": tools, "skills": skills, "prompts": prompts, "error": None}
         except TimeoutError:
             info = {
@@ -3401,7 +3899,10 @@ class MCPMultiplexer:
                 "prompts": [],
                 "error": _format_probe_error(e),
             }
-        return self._cache_probe(server_name, info)
+        result = self._cache_probe(server_name, info)
+        if discovery_binding is not None and info.get("error") is None:
+            self._record_discovery_binding(server_name, result, discovery_binding)
+        return result
 
     async def _probe_skills(self, server_name: str, session: Any) -> list[dict]:
         """Best-effort ``skill://`` resource enumeration for one probed session
@@ -3720,19 +4221,30 @@ class MCPMultiplexer:
         specifically want a new answer now," which a stale in-flight task
         cannot give. It is still registered in ``_probe_tasks`` so
         :meth:`aclose` can cancel it: "not shareable" must not mean "able to
-        outlive the multiplexer"."""
-        if not force:
+        outlive the multiplexer".
+
+        NE-008 (GOC-85 Deliverable 3): an OAuth-gated server ALWAYS runs as an
+        untracked, un-joined task too, for the same reason a forced probe
+        does — joining an in-flight task here would mean a SECOND principal's
+        call returns the FIRST principal's probe result (the in-flight task's
+        coroutine captured whichever actor was ambient when it was created via
+        ``asyncio.create_task``), exactly the cross-principal catalog leak
+        Deliverable 3 rules out. Never registered into ``_probe_inflight``
+        either, so there is nothing for a later call to join."""
+        cfg = self.load_catalog().get(server)
+        oauth_gated_target = cfg is not None and _oauth_gated(cfg)
+        if not force and not oauth_gated_target:
             existing = self._probe_inflight.get(server)
             if existing is not None and not existing.done():
                 return existing
 
-        async def _run() -> None:
+        async def _run() -> dict:
             async with self._probe_semaphore:
-                await self.probe_server(server, force=force, timeout=timeout)
+                return await self.probe_server(server, force=force, timeout=timeout)
 
         task = asyncio.create_task(_run())
         self._probe_tasks.add(task)
-        if not force:
+        if not force and not oauth_gated_target:
             self._probe_inflight[server] = task
         # `server` is this call's own parameter (not a mutating loop variable), so a
         # plain closure captures it correctly without the default-arg-capture trick —
@@ -3825,14 +4337,41 @@ class MCPMultiplexer:
 
         if budget is None:
             await asyncio.gather(*tasks, return_exceptions=True)
-            return self._probe_cache
+            result = dict(self._probe_cache)
+            for task, server in tasks.items():
+                if not task.done() or task.cancelled():
+                    continue
+                try:
+                    info = task.result()
+                except BaseException:
+                    continue
+                if isinstance(info, dict):
+                    result[server] = info
+            return result
 
         _done, pending = await asyncio.wait(tasks, timeout=budget)
         if not pending:
-            return self._probe_cache
+            result = dict(self._probe_cache)
+            for task, server in tasks.items():
+                try:
+                    info = task.result()
+                except BaseException:
+                    continue
+                if isinstance(info, dict):
+                    result[server] = info
+            return result
 
         now = time.time()
         result = dict(self._probe_cache)
+        for task, server in tasks.items():
+            if task in pending or task.cancelled():
+                continue
+            try:
+                info = task.result()
+            except BaseException:
+                continue
+            if isinstance(info, dict):
+                result[server] = info
         for task in pending:
             server = tasks[task]
             prior = self._probe_cache.get(server)
@@ -4577,6 +5116,8 @@ class MCPMultiplexer:
             await asyncio.gather(*inflight, return_exceptions=True)
         self._probe_inflight.clear()
         self._probe_tasks.clear()
+        self._discovery_binding_sidechannel.clear()
+        self._local_discovery_cache_authority.clear()
         # D-CDX-44: no lifecycle action needed on the mount-singleflight
         # futures themselves — each runs inside its OWN caller's task (never
         # a task this multiplexer spawned), so that caller's own cancellation

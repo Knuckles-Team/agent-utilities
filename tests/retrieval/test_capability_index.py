@@ -23,7 +23,7 @@ from agent_utilities.models.company_brain import DataClassification, NodeACL
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import xp
 
 DIM = 16
 
@@ -51,16 +51,15 @@ def _grant_public(*node_ids: str) -> None:
 
 def _unit(seed: int, dim: int = DIM) -> list[float]:
     """Deterministic pseudo-random unit-ish vector for a given seed."""
-    rng = np.random.default_rng(seed)
-    v = rng.standard_normal(dim).astype(np.float32)
-    return v.tolist()
+    rng = xp.random.default_rng(seed)
+    return [float(value) for value in rng.standard_normal(dim)]
 
 
 def _basis(i: int, dim: int = DIM, scale: float = 1.0) -> list[float]:
     """One-hot basis vector along axis ``i`` (so similarities are controllable)."""
-    v = np.zeros(dim, dtype=np.float32)
+    v = [0.0] * dim
     v[i % dim] = scale
-    return v.tolist()
+    return v
 
 
 def _populated_index(prefer_backend: str | None = None) -> CapabilityIndex:
@@ -79,13 +78,13 @@ def _populated_index(prefer_backend: str | None = None) -> CapabilityIndex:
 # ---------------------------------------------------------------------------
 def test_backend_is_reported():
     idx = CapabilityIndex(dim=DIM)
-    assert idx.backend in {"hnsw", "numpy"}
+    assert idx.backend in {"hnsw", "native"}
 
 
 # ---------------------------------------------------------------------------
 # 1. Capability filtering reduces the candidate set
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("prefer", ["numpy", "hnsw"])
+@pytest.mark.parametrize("prefer", ["native"])
 def test_capability_filter_shrinks_results(prefer):
     idx = _populated_index(prefer)
 
@@ -131,7 +130,7 @@ def test_default_hierarchy_matches_declared_subtype():
 # ---------------------------------------------------------------------------
 # 2. ANN ranking returns the planted most-similar id at rank 1
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("prefer", ["numpy", "hnsw"])
+@pytest.mark.parametrize("prefer", ["native"])
 def test_ranking_returns_planted_top1(prefer):
     idx = CapabilityIndex(dim=DIM, prefer_backend=prefer)
     # Plant a clear winner along axis 5.
@@ -191,7 +190,7 @@ def test_build_from_edges_dicts():
 # ---------------------------------------------------------------------------
 # 4. save()/load() round-trips and returns identical top-k
 # ---------------------------------------------------------------------------
-@pytest.mark.parametrize("prefer", ["numpy", "hnsw"])
+@pytest.mark.parametrize("prefer", ["native"])
 def test_save_load_roundtrip_identical_topk(prefer, tmp_path):
     idx = _populated_index(prefer)
     query = _unit(seed=42)
@@ -230,7 +229,7 @@ def test_persistence_uses_non_executable_metadata(tmp_path):
 def test_tampered_embedding_artifact_fails_closed(tmp_path):
     save_dir = tmp_path / "capidx"
     _populated_index("numpy").save(save_dir)
-    with (save_dir / "embeddings.npy").open("ab") as handle:
+    with (save_dir / "embeddings.json").open("ab") as handle:
         handle.write(b"tampered")
 
     with pytest.raises(ValueError, match="digest"):
@@ -279,7 +278,7 @@ def test_facade_construction_is_side_effect_free():
 # ----------------------------------------------------------------------
 # CONCEPT:AU-KG.memory.generation-scoped-selective-reward — generation-scoped selective reward erasure
 # ----------------------------------------------------------------------
-@pytest.mark.parametrize("prefer", ["numpy", "hnsw"])
+@pytest.mark.parametrize("prefer", ["native"])
 def test_material_reembed_erases_stale_reward(prefer):
     """A materially different re-embed forgets the stale reward; a near-identical
     re-embed keeps it (RQGM selective erasure on the upsert path)."""

@@ -314,6 +314,28 @@ def _check_state_store(cfg: Any) -> dict[str, Any]:
     return _ok("state_store", detail={"backend": "postgres"})
 
 
+def _check_fleet_supervision(cfg: Any) -> dict[str, Any]:  # noqa: ARG001 - uniform check signature
+    """Require truthful fleet evidence before the process is ready to serve.
+
+    This check consumes the same live collector as the fleet REST/MCP
+    endpoints.  It deliberately has no user scope: readiness is a process
+    control decision, while authenticated fleet payloads still use the
+    verified actor/tenant resolver at the gateway boundary.
+    """
+
+    from agent_utilities.orchestration.fleet_health import collect_fleet_health
+
+    snapshot = collect_fleet_health()
+    detail = snapshot.evidence.model_dump(mode="json")
+    if snapshot.evidence.ready:
+        return _ok("fleet_supervision", detail=detail)
+    return _unhealthy(
+        "fleet_supervision",
+        f"fleet supervisory evidence is {snapshot.evidence.status}",
+        detail=detail,
+    )
+
+
 def _check_kafka_bus(cfg: Any) -> dict[str, Any]:
     """Kafka bus/queue backend — only checked when either
     ``AGENT_BUS_LOG_BACKEND`` or ``TASK_QUEUE_BACKEND`` selects kafka. A bounded
@@ -559,6 +581,7 @@ _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
     ("kg_host_daemon", _check_kg_host_daemon),
     ("messaging", _check_messaging),
     ("state_store", _check_state_store),
+    ("fleet_supervision", _check_fleet_supervision),
     ("kafka_bus", _check_kafka_bus),
     ("stardog_mirror", _check_stardog_mirror),
     ("bundled_skills", _check_bundled_skills),
@@ -663,14 +686,13 @@ async def collect_health_async() -> HealthReport:
 
 def is_overall_healthy(report: Mapping[str, Any]) -> bool:
     """True iff a :func:`collect_health` report's rollup is healthy."""
-    # Readiness answers ONE question: can this process serve requests right now.
-    # That depends on the engine it reads and writes through — not on optional
-    # co-services which run in their own deployments. Gating routing on those
-    # means an unrelated outage (a down messaging daemon, a stopped mirror) pulls
-    # a perfectly serving graph-os out of the Service, turning one component's
-    # failure into a total one. They stay fully reported in /health; they just do
-    # not decide rotation.
-    essential = {"engine"}
+    # Readiness answers ONE question: can this process safely serve requests and
+    # make fleet control decisions right now. The engine and the fleet
+    # supervisory evidence contract are mandatory; optional co-services which
+    # run in their own deployments stay fully reported but do not decide
+    # rotation. Gating routing on those optional services would turn one
+    # component's failure into a total one.
+    essential = {"engine", "fleet_supervision"}
     return not any(
         check["status"] == "unhealthy" and check["name"] in essential
         for check in report.get("checks", [])

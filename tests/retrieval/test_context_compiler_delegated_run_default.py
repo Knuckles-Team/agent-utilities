@@ -86,9 +86,14 @@ class _CitationBearingEngine:
         self.calls = 0
 
     def search_hybrid(
-        self, query: str, *, top_k: int = 8, as_of: str | None = None
+        self,
+        query: str,
+        *,
+        top_k: int = 8,
+        as_of: str | None = None,
+        session: object | None = None,
     ) -> list[dict[str, object]]:
-        del query, top_k, as_of
+        del query, top_k, as_of, session
         self.calls += 1
         return [
             {
@@ -223,8 +228,10 @@ def test_compiled_evidence_carries_the_proof_graph_when_present(monkeypatch) -> 
     _grant_public("evidence-1", "evidence-2")
 
     class _EngineWithProof(_CitationBearingEngine):
-        def search_hybrid(self, query, *, top_k=8, as_of=None):
-            nodes = super().search_hybrid(query, top_k=top_k, as_of=as_of)
+        def search_hybrid(self, query, *, top_k=8, as_of=None, session=None):
+            nodes = super().search_hybrid(
+                query, top_k=top_k, as_of=as_of, session=session
+            )
             nodes[1]["proof_ids"] = ["evidence-1"]  # evidence-2 SUPPORTS evidence-1
             return nodes
 

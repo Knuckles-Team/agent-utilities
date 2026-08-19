@@ -181,7 +181,14 @@ def entities_from_index_result(
     properties (``strategy``/``confidence``) ride on each edge.
 
     Exact acknowledgement: ``content_hashes`` is also the REQUEST set (its keys
-    are every input file's logical identity). This function raises
+    are every input file's logical identity — the repository-relative POSIX
+    path the caller normalized to via
+    :func:`~agent_utilities.knowledge_graph.enrichment.pipeline.logical_file_identity`
+    when it supplied a ``source_root``, CONCEPT:AU-KG.ingest.logical-identity;
+    an absolute path in the caller's legacy no-``source_root`` mode). This
+    function treats identity as an opaque string either way — it never parses
+    or interprets it, only matches it exactly — so it works unchanged under
+    either scheme. This function raises
     :class:`IncompleteParse` — leaving the caller nothing to persist — when the
     response cannot be trusted to cover exactly that set:
 

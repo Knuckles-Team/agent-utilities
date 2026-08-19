@@ -22,7 +22,7 @@ Combines four previously separate capabilities into a single configurable engine
    Derived from MINER.
 
 All four operate on the same ``list[list[float]]`` embedding matrices
-using numpy and produce diagnostic reports. This consolidation enables
+using the certified native numeric kernel and produce diagnostic reports. This consolidation enables
 a single ``MemoryOptimizationEngine`` to run the full diagnostic +
 corrective pipeline in one call.
 
@@ -35,24 +35,44 @@ See docs/pillars/3_agentic_harness_engineering/AHE-3.6*.md
 """
 
 import logging
+import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from agent_utilities.core.config import setting
-
-# GOC-73: `agent_utilities.numeric` unconditionally imports the compiled eg kernel at
-# module load (it is the `agent-utilities[graphos]` numeric surface). This module is
-# reached from `knowledge_graph/memory/__init__.py`, which 65+ fleet repos import
-# transitively via `knowledge_graph.memory.native_ingest` and similar siblings that
-# have ZERO numeric/eg usage of their own -- a module-level `import ... as np` here
-# would force the kernel onto every one of those consumers. `NDArray` is used only in
-# annotations (this file has `from __future__ import annotations`, so it is never
-# evaluated at runtime) -- safe under TYPE_CHECKING. `np`/`xp` IS used at runtime, so
-# every function/method below that calls it imports it locally instead.
-if TYPE_CHECKING:
-    from agent_utilities.numeric import NDArray
+from agent_utilities.numeric import xp
 
 logger = logging.getLogger(__name__)
+
+
+def _matrix(values: Any) -> list[list[float]]:
+    """Validate a bounded rectangular builtin matrix at an AU boundary."""
+
+    rows = [[float(value) for value in row] for row in values]
+    if rows and any(len(row) != len(rows[0]) for row in rows):
+        raise ValueError("embedding matrix must be rectangular")
+    return rows
+
+
+def _center(matrix: list[list[float]]) -> list[list[float]]:
+    if not matrix:
+        return []
+    means = [
+        sum(row[dimension] for row in matrix) / len(matrix)
+        for dimension in range(len(matrix[0]))
+    ]
+    return [
+        [value - means[dimension] for dimension, value in enumerate(row)]
+        for row in matrix
+    ]
+
+
+def _transpose(matrix: list[list[float]]) -> list[list[float]]:
+    return [list(column) for column in zip(*matrix, strict=False)] if matrix else []
+
+
+def _flatten(matrix: list[list[float]]) -> list[float]:
+    return [value for row in matrix for value in row]
 
 
 # ---------------------------------------------------------------------------
@@ -155,20 +175,22 @@ def compute_fisher_diagonal_proxy(
     Returns:
         A list of floats representing the diagonal Fisher proxy.
     """
-    from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
     if len(embeddings_history) < 2:
         dim = len(embeddings_history[0]) if embeddings_history else 1536
         return [0.1] * dim
 
-    arr = np.array(embeddings_history)
-    variances = np.var(arr, axis=0)
+    width = len(embeddings_history[0])
+    variances = []
+    for dimension in range(width):
+        values = [row[dimension] for row in embeddings_history]
+        mean = sum(values) / len(values)
+        variances.append(sum((value - mean) ** 2 for value in values) / len(values))
     epsilon = 1e-6
-    fisher_proxy = 1.0 / (variances + epsilon)
-    max_val = np.max(fisher_proxy)
+    fisher_proxy = [1.0 / (variance + epsilon) for variance in variances]
+    max_val = max(fisher_proxy, default=0.0)
     if max_val > 0:
-        fisher_proxy = fisher_proxy / max_val
-    return fisher_proxy.tolist()
+        fisher_proxy = [value / max_val for value in fisher_proxy]
+    return fisher_proxy
 
 
 def apply_ewc_synthesis(
@@ -191,27 +213,26 @@ def apply_ewc_synthesis(
     Returns:
         The consolidated new embedding.
     """
-    from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
     if not old_embedding or not new_embedding or not fisher_diag:
         return new_embedding
 
-    old_vec = np.array(old_embedding)
-    new_vec = np.array(new_embedding)
-    fisher_vec = np.array(fisher_diag)
+    old_vec = [float(value) for value in old_embedding]
+    new_vec = [float(value) for value in new_embedding]
+    fisher_vec = [float(value) for value in fisher_diag]
 
-    if old_vec.shape != new_vec.shape or old_vec.shape != fisher_vec.shape:
+    if len(old_vec) != len(new_vec) or len(old_vec) != len(fisher_vec):
         logger.warning("Dimension mismatch in EWC consolidation. Bypassing EWC.")
         return new_embedding
 
-    delta = new_vec - old_vec
-    dampening = np.clip(1.0 - (lambda_param * fisher_vec), 0.0, 1.0)
-    consolidated_vec = old_vec + delta * dampening
+    consolidated_vec = [
+        old + (new - old) * min(1.0, max(0.0, 1.0 - (lambda_param * fisher)))
+        for old, new, fisher in zip(old_vec, new_vec, fisher_vec, strict=False)
+    ]
 
-    norm = np.linalg.norm(consolidated_vec)
+    norm = xp.linalg.norm(consolidated_vec)
     if norm > 0:
-        consolidated_vec = consolidated_vec / norm
-    return consolidated_vec.tolist()
+        consolidated_vec = [value / norm for value in consolidated_vec]
+    return consolidated_vec
 
 
 # ---------------------------------------------------------------------------
@@ -221,15 +242,13 @@ def apply_ewc_synthesis(
 
 def calculate_cosine_distance(vec_a: list[float], vec_b: list[float]) -> float:
     """Calculate the cosine distance between two vectors."""
-    from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
-    a = np.array(vec_a)
-    b = np.array(vec_b)
-    norm_a = np.linalg.norm(a)
-    norm_b = np.linalg.norm(b)
+    a = [float(value) for value in vec_a]
+    b = [float(value) for value in vec_b]
+    norm_a = xp.linalg.norm(a)
+    norm_b = xp.linalg.norm(b)
     if norm_a == 0 or norm_b == 0:
         return 1.0
-    cosine_sim = np.dot(a, b) / (norm_a * norm_b)
+    cosine_sim = xp.dot(a, b) / (norm_a * norm_b)
     return 1.0 - cosine_sim
 
 
@@ -250,19 +269,30 @@ def check_knowledge_drift(
     Returns:
         DriftReport containing the analysis metrics.
     """
-    from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
     if not historical_embeddings or not current_embedding:
         return DriftReport(node_id, 0.0, 0.0, False)
 
     baseline = historical_embeddings[0]
     cosine_shift = calculate_cosine_distance(baseline, current_embedding)
 
-    all_embs = np.array(historical_embeddings + [current_embedding])
-    std_devs = np.std(all_embs, axis=0)
-    means = np.mean(all_embs, axis=0)
-    safe_means = np.where(means == 0, 1e-10, means)
-    cv = np.mean(std_devs / np.abs(safe_means))
+    all_embs = historical_embeddings + [current_embedding]
+    width = len(all_embs[0])
+    means = [
+        sum(row[dimension] for row in all_embs) / len(all_embs)
+        for dimension in range(width)
+    ]
+    std_devs = [
+        float(xp.std([row[dimension] for row in all_embs]))
+        for dimension in range(width)
+    ]
+    cv = float(
+        xp.mean(
+            [
+                std / abs(mean if mean != 0 else 1e-10)
+                for std, mean in zip(std_devs, means, strict=False)
+            ]
+        )
+    )
 
     has_drifted = bool(cosine_shift > drift_threshold)
     if has_drifted:
@@ -327,27 +357,29 @@ class MemoryOptimizationEngine:
 
     def detect_collapse(
         self,
-        embeddings: NDArray | list[list[float]],
+        embeddings: list[list[float]],
     ) -> CollapseReport:
         """Full collapse detection combining SVD and SIGReg normality."""
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
-        arr = np.array(embeddings, dtype=np.float64)
-        if arr.ndim != 2 or arr.shape[0] < 3:
+        arr = _matrix(embeddings)
+        if len(arr) < 3 or not arr[0]:
             return CollapseReport(recommendation="insufficient_data")
 
-        n, d = arr.shape
-        centered = arr - arr.mean(axis=0)
+        d = len(arr[0])
+        centered = _center(arr)
 
         try:
-            _, s, _ = np.linalg.svd(centered, full_matrices=False)
-        except np.linalg.LinAlgError:
+            _, s, _ = xp.linalg.svd(centered)
+        except xp.LinAlgError:
             return CollapseReport(recommendation="svd_failed")
 
-        s_normalized = s / (s[0] if s[0] > 0 else 1.0)
-        effective_dim = int(np.sum(s_normalized > 0.01))
+        singular_values = [float(value) for value in s]
+        scale = (
+            singular_values[0] if singular_values and singular_values[0] > 0 else 1.0
+        )
+        s_normalized = [value / scale for value in singular_values]
+        effective_dim = sum(value > 0.01 for value in s_normalized)
         top_k = min(10, len(s))
-        top_svs = (s[:top_k] / (s[0] if s[0] > 0 else 1.0)).tolist()
+        top_svs = s_normalized[:top_k]
         collapse_ratio = effective_dim / d if d > 0 else 1.0
         collapsed_svd = collapse_ratio < self._collapse_threshold
 
@@ -372,87 +404,97 @@ class MemoryOptimizationEngine:
             recommendation=rec,
         )
 
-    def _sigreg_normality_test(self, centered: NDArray) -> float:
+    def _sigreg_normality_test(self, centered: list[list[float]]) -> float:
         """SIGReg normality test via random projections."""
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
-        n, d = centered.shape
-        rng = np.random.default_rng(42)
+        d = len(centered[0]) if centered else 0
+        rng = xp.random.default_rng(42)
         min_p = 1.0
         for _ in range(self._n_projections):
             direction = rng.standard_normal(d)
-            # Normalise the random projection vector to unit length; it must stay a
-            # d-dim array (wrapping it in float() collapsed it and raised
-            # "only 0-dimensional arrays can be converted to Python scalars").
-            direction = direction / (np.linalg.norm(direction) or 1.0)
-            projection = centered @ direction
+            direction_values = direction if isinstance(direction, list) else [direction]
+            norm = float(xp.linalg.norm(direction_values)) or 1.0
+            direction_values = [value / norm for value in direction_values]
+            projection = [float(xp.dot(row, direction_values)) for row in centered]
             p_value = self._simplified_normality_p(projection)
             min_p = float(min(min_p, p_value))
         return min_p
 
     @staticmethod
-    def _simplified_normality_p(data: NDArray) -> float:
+    def _simplified_normality_p(data: list[float]) -> float:
         """Simplified normality test using kurtosis-based heuristic."""
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
         n = len(data)
         if n < 3:
             return 1.0
-        std = np.std(data)
+        std = xp.std(data)
         if std < 1e-10:
             return 0.0
-        mean = np.mean(data)
-        centered = data - mean
-        m4 = np.mean(centered**4)
-        m2 = np.mean(centered**2)
+        mean = xp.mean(data)
+        centered = [value - mean for value in data]
+        m4 = xp.mean([value**4 for value in centered])
+        m2 = xp.mean([value**2 for value in centered])
         kurtosis = (m4 / (m2**2)) - 3.0 if m2 > 0 else 0.0
-        m3 = np.mean(centered**3)
+        m3 = xp.mean([value**3 for value in centered])
         skewness = (m3 / (m2**1.5)) if m2 > 0 else 0.0
         jb = (n / 6.0) * (skewness**2 + (kurtosis**2) / 4.0)
-        p_value = float(np.exp(-jb / 2.0))
+        p_value = float(math.exp(-jb / 2.0))
         return min(1.0, max(0.0, p_value))
 
     # --- Diversity metrics ---
 
     def compute_diversity(
         self,
-        embeddings: NDArray | list[list[float]],
+        embeddings: list[list[float]],
     ) -> DiversityMetrics:
         """Compute diversity metrics for an embedding space."""
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
-        arr = np.array(embeddings, dtype=np.float64)
-        if arr.ndim != 2 or arr.shape[0] < 2:
+        arr = _matrix(embeddings)
+        if len(arr) < 2 or not arr[0]:
             return DiversityMetrics()
 
-        n, d = arr.shape
-        centered = arr - arr.mean(axis=0)
+        n = len(arr)
+        centered = _center(arr)
 
         sample_size = min(n, 100)
-        rng = np.random.default_rng(42)
+        rng = xp.random.default_rng(42)
         indices = (
             rng.choice(n, size=sample_size, replace=False)
             if n > sample_size
-            else np.arange(n)
+            else list(range(n))
         )
-        sample = arr[indices]
-        diffs = sample[:, np.newaxis, :] - sample[np.newaxis, :, :]
-        dists = np.sqrt(np.sum(diffs**2, axis=2))
-        mean_dist = float(np.mean(dists[np.triu_indices(len(sample), k=1)]))
+        index_values = indices if isinstance(indices, list) else [int(indices)]
+        sample = [arr[int(index)] for index in index_values]
+        dists = [
+            float(
+                xp.linalg.norm(
+                    [
+                        left - right
+                        for left, right in zip(
+                            sample[left], sample[right], strict=False
+                        )
+                    ]
+                )
+            )
+            for left in range(len(sample))
+            for right in range(left + 1, len(sample))
+        ]
+        mean_dist = float(xp.mean(dists)) if dists else 0.0
 
         try:
-            _, s, _ = np.linalg.svd(centered, full_matrices=False)
-        except np.linalg.LinAlgError:
+            _, s, _ = xp.linalg.svd(centered)
+        except xp.LinAlgError:
             return DiversityMetrics(mean_pairwise_distance=mean_dist)
 
-        isotropy = float(s[-1] / s[0]) if s[0] > 0 and len(s) > 1 else 0.0
-        lambdas = s**2
-        sum_l = lambdas.sum()
-        sum_l2 = (lambdas**2).sum()
+        singular_values = [float(value) for value in s]
+        isotropy = (
+            float(singular_values[-1] / singular_values[0])
+            if singular_values and singular_values[0] > 0 and len(singular_values) > 1
+            else 0.0
+        )
+        lambdas = [value**2 for value in singular_values]
+        sum_l = sum(lambdas)
+        sum_l2 = sum(value**2 for value in lambdas)
         pr = float((sum_l**2) / sum_l2) if sum_l2 > 0 else 0.0
-        p = lambdas / (sum_l if sum_l > 0 else 1.0)
-        p = p[p > 0]
-        entropy = float(-np.sum(p * np.log2(p))) if len(p) > 0 else 0.0
+        p = [value / (sum_l if sum_l > 0 else 1.0) for value in lambdas if value > 0]
+        entropy = float(-sum(value * math.log2(value) for value in p)) if p else 0.0
 
         return DiversityMetrics(
             mean_pairwise_distance=mean_dist,
@@ -468,7 +510,7 @@ class MemoryOptimizationEngine:
         old_embedding: list[float],
         new_embedding: list[float],
         fisher_diag: list[float],
-        all_embeddings: NDArray | list[list[float]] | None = None,
+        all_embeddings: list[list[float]] | None = None,
         lambda_param: float = 0.5,
         diversity_weight: float = 0.3,
     ) -> list[float]:
@@ -477,79 +519,96 @@ class MemoryOptimizationEngine:
         If ``all_embeddings`` is provided, applies diversity-preserving
         dampening to prevent participation ratio degradation.
         """
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
         if all_embeddings is None:
             return apply_ewc_synthesis(
                 old_embedding, new_embedding, fisher_diag, lambda_param
             )
 
-        old = np.array(old_embedding)
-        new = np.array(new_embedding)
-        fisher = np.array(fisher_diag)
+        old = [float(value) for value in old_embedding]
+        new = [float(value) for value in new_embedding]
+        fisher = [float(value) for value in fisher_diag]
 
-        if old.shape != new.shape or old.shape != fisher.shape:
+        if len(old) != len(new) or len(old) != len(fisher):
             return new_embedding
 
-        delta = new - old
-        dampening = np.clip(1.0 - (lambda_param * fisher), 0.0, 1.0)
-        ewc_result = old + delta * dampening
+        ewc_result = [
+            old_value
+            + (new_value - old_value)
+            * min(1.0, max(0.0, 1.0 - (lambda_param * fisher_value)))
+            for old_value, new_value, fisher_value in zip(
+                old, new, fisher, strict=False
+            )
+        ]
 
-        all_arr = np.array(all_embeddings, dtype=np.float64)
-        if all_arr.ndim != 2 or all_arr.shape[0] < 3:
-            norm = np.linalg.norm(ewc_result)
+        all_arr = _matrix(all_embeddings)
+        if len(all_arr) < 3:
+            norm = xp.linalg.norm(ewc_result)
             if norm > 0:
-                ewc_result = ewc_result / norm
-            return ewc_result.tolist()
+                ewc_result = [value / norm for value in ewc_result]
+            return ewc_result
 
         current_metrics = self.compute_diversity(all_arr)
-        simulated = all_arr.copy()
-        dists = np.linalg.norm(simulated - old, axis=1)
-        closest_idx = int(np.argmin(dists))
+        simulated = [row[:] for row in all_arr]
+        dists = [
+            float(
+                xp.linalg.norm(
+                    [
+                        value - old_value
+                        for value, old_value in zip(row, old, strict=False)
+                    ]
+                )
+            )
+            for row in simulated
+        ]
+        closest_idx = min(range(len(dists)), key=lambda index: dists[index])
         simulated[closest_idx] = ewc_result
         new_metrics = self.compute_diversity(simulated)
 
         if new_metrics.participation_ratio < current_metrics.participation_ratio * 0.9:
             diversity_dampening = 1.0 - diversity_weight
-            ewc_result = old + (ewc_result - old) * diversity_dampening
+            ewc_result = [
+                old_value + (new_value - old_value) * diversity_dampening
+                for old_value, new_value in zip(old, ewc_result, strict=False)
+            ]
             logger.info(
                 "Diversity-preserving dampening applied: PR %.2f → %.2f",
                 current_metrics.participation_ratio,
                 new_metrics.participation_ratio,
             )
 
-        norm = np.linalg.norm(ewc_result)
+        norm = xp.linalg.norm(ewc_result)
         if norm > 0:
-            ewc_result = ewc_result / norm
-        return ewc_result.tolist()
+            ewc_result = [value / norm for value in ewc_result]
+        return ewc_result
 
     # --- CKA diagnostics (from embedding_diagnostics.py) ---
 
     @staticmethod
     def compute_cka(
-        X: NDArray | list[list[float]],
-        Y: NDArray | list[list[float]],
+        X: list[list[float]],
+        Y: list[list[float]],
     ) -> CKAResult:
         """Compute linear Centered Kernel Alignment between two embedding spaces."""
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
+        X_arr = _matrix(X)
+        Y_arr = _matrix(Y)
 
-        X_arr = np.array(X, dtype=np.float64)
-        Y_arr = np.array(Y, dtype=np.float64)
-
-        if X_arr.shape[0] != Y_arr.shape[0]:
+        if len(X_arr) != len(Y_arr):
             logger.warning(
-                "CKA: sample count mismatch (%d vs %d)", X_arr.shape[0], Y_arr.shape[0]
+                "CKA: sample count mismatch (%d vs %d)", len(X_arr), len(Y_arr)
             )
             return CKAResult()
-        if X_arr.shape[0] < 2:
+        if len(X_arr) < 2:
             return CKAResult(cka_score=1.0, alignment_ratio=1.0, mean_cosine=1.0)
 
-        X_c = X_arr - X_arr.mean(axis=0)
-        Y_c = Y_arr - Y_arr.mean(axis=0)
+        X_c = _center(X_arr)
+        Y_c = _center(Y_arr)
 
-        cross = np.linalg.norm(X_c.T @ Y_c) ** 2
-        xx = np.linalg.norm(X_c.T @ X_c)
-        yy = np.linalg.norm(Y_c.T @ Y_c)
+        cross_matrix = xp.matmul(_transpose(X_c), Y_c)
+        xx_matrix = xp.matmul(_transpose(X_c), X_c)
+        yy_matrix = xp.matmul(_transpose(Y_c), Y_c)
+        cross = float(xp.linalg.norm(_flatten(cross_matrix))) ** 2
+        xx = float(xp.linalg.norm(_flatten(xx_matrix)))
+        yy = float(xp.linalg.norm(_flatten(yy_matrix)))
         denom = xx * yy
         cka = float(cross / denom) if denom > 0 else 0.0
         cka = min(1.0, max(0.0, cka))
@@ -565,39 +624,39 @@ class MemoryOptimizationEngine:
         )
 
     @staticmethod
-    def _mean_pairwise_cosine(X: NDArray, Y: NDArray) -> float:
+    def _mean_pairwise_cosine(X: list[list[float]], Y: list[list[float]]) -> float:
         """Mean per-sample cosine similarity between paired rows."""
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
-        min_d = min(X.shape[1], Y.shape[1])
-        X_t = X[:, :min_d]
-        Y_t = Y[:, :min_d]
-        x_norms = np.linalg.norm(X_t, axis=1, keepdims=True)
-        y_norms = np.linalg.norm(Y_t, axis=1, keepdims=True)
-        x_norms = np.where(x_norms == 0, 1.0, x_norms)
-        y_norms = np.where(y_norms == 0, 1.0, y_norms)
-        cosines = np.sum((X_t / x_norms) * (Y_t / y_norms), axis=1)
-        return float(np.mean(cosines))
+        min_d = min(len(X[0]), len(Y[0]))
+        cosines: list[float] = []
+        for left, right in zip(X, Y, strict=False):
+            left_values = left[:min_d]
+            right_values = right[:min_d]
+            left_norm = float(xp.linalg.norm(left_values))
+            right_norm = float(xp.linalg.norm(right_values))
+            cosines.append(
+                float(xp.dot(left_values, right_values) / (left_norm * right_norm))
+                if left_norm and right_norm
+                else 0.0
+            )
+        return float(xp.mean(cosines)) if cosines else 0.0
 
     # --- Multi-layer fusion ---
 
     @staticmethod
     def adaptive_sparse_fusion(
-        embedding_layers: list[NDArray | list[list[float]]],
+        embedding_layers: list[list[list[float]]],
         performance_scores: list[float] | None = None,
         sparsity_target: float = 0.3,
     ) -> FusionResult:
         """Fuse multiple embedding layers with performance-adaptive neuron masking."""
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
         if not embedding_layers:
             return FusionResult()
 
-        arrays = [np.array(layer, dtype=np.float64) for layer in embedding_layers]
+        arrays = [_matrix(layer) for layer in embedding_layers]
         n_layers = len(arrays)
-        n_samples = arrays[0].shape[0]
-        min_dim = min(a.shape[1] for a in arrays)
-        arrays = [a[:, :min_dim] for a in arrays]
+        n_samples = len(arrays[0])
+        min_dim = min(len(a[0]) for a in arrays)
+        arrays = [[row[:min_dim] for row in array] for array in arrays]
 
         if performance_scores and len(performance_scores) == n_layers:
             total = sum(performance_scores) or 1.0
@@ -606,22 +665,42 @@ class MemoryOptimizationEngine:
             weights = [1.0 / n_layers] * n_layers
 
         active_dims: list[int] = []
-        masked_arrays: list[NDArray] = []
+        masked_arrays: list[list[list[float]]] = []
         for arr in arrays:
-            variances = np.var(arr, axis=0)
+            variances = []
+            for dimension in range(min_dim):
+                values = [row[dimension] for row in arr]
+                mean = sum(values) / len(values)
+                variances.append(
+                    sum((value - mean) ** 2 for value in values) / len(values)
+                )
             threshold_idx = max(1, int(min_dim * (1 - sparsity_target)))
-            top_indices = np.argsort(variances)[-threshold_idx:]
-            mask = np.zeros(min_dim)
-            mask[top_indices] = 1.0
-            masked_arrays.append(arr * mask[np.newaxis, :])
-            active_dims.append(int(np.sum(mask > 0)))
+            top_indices = sorted(range(min_dim), key=lambda index: variances[index])[
+                -threshold_idx:
+            ]
+            active = set(top_indices)
+            masked_arrays.append(
+                [
+                    [
+                        value if dimension in active else 0.0
+                        for dimension, value in enumerate(row)
+                    ]
+                    for row in arr
+                ]
+            )
+            active_dims.append(len(active))
 
-        fused = np.zeros((n_samples, min_dim))
+        fused = [[0.0 for _ in range(min_dim)] for _ in range(n_samples)]
         for arr, w in zip(masked_arrays, weights, strict=False):
-            fused += w * arr
-        norms = np.linalg.norm(fused, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1.0, norms)
-        fused = fused / norms
+            for row in range(n_samples):
+                fused[row] = [
+                    current + w * value
+                    for current, value in zip(fused[row], arr[row], strict=False)
+                ]
+        for row in range(n_samples):
+            norm = float(xp.linalg.norm(fused[row]))
+            if norm:
+                fused[row] = [value / norm for value in fused[row]]
 
         total_possible = n_layers * min_dim
         total_active = sum(active_dims)
@@ -630,7 +709,7 @@ class MemoryOptimizationEngine:
         )
 
         return FusionResult(
-            fused_embeddings=fused.tolist(),
+            fused_embeddings=fused,
             layer_weights=weights,
             active_dimensions=active_dims,
             sparsity_ratio=actual_sparsity,
@@ -640,25 +719,28 @@ class MemoryOptimizationEngine:
 
     def health_check(
         self,
-        current_embeddings: NDArray | list[list[float]],
-        baseline_embeddings: NDArray | list[list[float]] | None = None,
+        current_embeddings: list[list[float]],
+        baseline_embeddings: list[list[float]] | None = None,
         drift_threshold: float = 0.7,
     ) -> EmbeddingHealthReport:
         """Continuous embedding health monitoring."""
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
-        arr = np.array(current_embeddings, dtype=np.float64)
-        if arr.ndim != 2 or arr.shape[0] < 2:
+        arr = _matrix(current_embeddings)
+        if len(arr) < 2 or not arr[0]:
             return EmbeddingHealthReport(recommendation="insufficient_data")
 
-        n, d = arr.shape
-        centered = arr - arr.mean(axis=0)
+        d = len(arr[0])
+        centered = _center(arr)
 
         try:
-            _, s, _ = np.linalg.svd(centered, full_matrices=False)
-            s_normalized = s / (s[0] if s[0] > 0 else 1.0)
-            effective_dim = int(np.sum(s_normalized > 0.01))
-        except np.linalg.LinAlgError:
+            _, s, _ = xp.linalg.svd(centered)
+            singular_values = [float(value) for value in s]
+            scale = (
+                singular_values[0]
+                if singular_values and singular_values[0] > 0
+                else 1.0
+            )
+            effective_dim = sum(value / scale > 0.01 for value in singular_values)
+        except xp.LinAlgError:
             effective_dim = d
 
         collapse = effective_dim / d < self._collapse_threshold if d > 0 else False
@@ -699,19 +781,25 @@ class MemoryOptimizationEngine:
         observed_states: list[list[float]],
     ) -> float:
         """Measure how well predicted KG states match observations."""
-        from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
         if not predicted_states or not observed_states:
             return 1.0
         min_len = min(len(predicted_states), len(observed_states))
-        pred = np.array(predicted_states[:min_len])
-        obs = np.array(observed_states[:min_len])
-        pred_norms = np.linalg.norm(pred, axis=1, keepdims=True)
-        obs_norms = np.linalg.norm(obs, axis=1, keepdims=True)
-        pred_norms = np.where(pred_norms == 0, 1.0, pred_norms)
-        obs_norms = np.where(obs_norms == 0, 1.0, obs_norms)
-        cosines = np.sum((pred / pred_norms) * (obs / obs_norms), axis=1)
-        return float(np.mean(np.clip(cosines, 0.0, 1.0)))
+        pred = _matrix(predicted_states[:min_len])
+        obs = _matrix(observed_states[:min_len])
+        cosines: list[float] = []
+        for left, right in zip(pred, obs, strict=False):
+            min_dim = min(len(left), len(right))
+            left_values = left[:min_dim]
+            right_values = right[:min_dim]
+            left_norm = float(xp.linalg.norm(left_values))
+            right_norm = float(xp.linalg.norm(right_values))
+            cosine = (
+                float(xp.dot(left_values, right_values) / (left_norm * right_norm))
+                if left_norm and right_norm
+                else 0.0
+            )
+            cosines.append(max(0.0, min(1.0, cosine)))
+        return float(xp.mean(cosines)) if cosines else 0.0
 
     # --- Unified pipeline ---
 
@@ -720,8 +808,8 @@ class MemoryOptimizationEngine:
         node_id: str,
         current_embedding: list[float],
         historical_embeddings: list[list[float]],
-        all_embeddings: NDArray | list[list[float]] | None = None,
-        baseline_embeddings: NDArray | list[list[float]] | None = None,
+        all_embeddings: list[list[float]] | None = None,
+        baseline_embeddings: list[list[float]] | None = None,
     ) -> StabilityReport:
         """Run the full stability assessment pipeline.
 
@@ -781,7 +869,6 @@ for graph-augmented RAG retrieval shortcuts.
 
 
 import logging
-import math
 import time
 import uuid
 
@@ -798,15 +885,13 @@ logger = logging.getLogger(__name__)
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
-    from agent_utilities.numeric import xp as np  # GOC-73: lazy
-
-    va = np.array(a)
-    vb = np.array(b)
-    norm_a = np.linalg.norm(va)
-    norm_b = np.linalg.norm(vb)
+    va = [float(value) for value in a]
+    vb = [float(value) for value in b]
+    norm_a = xp.linalg.norm(va)
+    norm_b = xp.linalg.norm(vb)
     if norm_a == 0 or norm_b == 0:
         return 0.0
-    return float(np.dot(va, vb) / (norm_a * norm_b))
+    return float(xp.dot(va, vb) / (norm_a * norm_b))
 
 
 class AutoSimilarityLinker:
@@ -921,8 +1006,8 @@ class AutoSimilarityLinker:
     ) -> list[SimilarityEdgeNode]:
         """Build ALL similarity edges across the graph in one batch (CONCEPT:AU-KG.memory.auto-similarity-memory-graph).
 
-        Unlike :meth:`link_new_node` (incremental, one node vs N candidates — correctly kept in
-        in-process numpy), the all-pairs O(n²) construction is **collapsed onto the epistemic-graph
+        Unlike :meth:`link_new_node` (incremental, one node vs N candidates), the all-pairs O(n²)
+        construction is **collapsed onto the epistemic-graph
         compute layer**: a single ``compute_similarity_edges`` request over the out-of-process
         MessagePack/UDS transport runs the O(n²) natively in the tokio Rust engine, over embeddings
         already resident in the graph store — one round-trip, zero per-vector marshaling. This also
@@ -933,7 +1018,7 @@ class AutoSimilarityLinker:
         """
         threshold = self.config.similarity_threshold
 
-        def _numpy_edges() -> list[SimilarityEdgeNode]:
+        def _local_edges() -> list[SimilarityEdgeNode]:
             # local-compute fallback over the in-hand nodes (Rust core not running, or L0
             # doesn't hold these nodes so the native result came back empty).
             items = [n for n in (nodes or []) if getattr(n, "embedding", None)]
@@ -974,7 +1059,7 @@ class AutoSimilarityLinker:
                     e,
                 )
 
-        return _numpy_edges()
+        return _local_edges()
 
     def decay_weight(self, edge: SimilarityEdgeNode) -> float:
         """Compute the current decayed weight of an edge.
@@ -1071,7 +1156,6 @@ Controlled by the ``KG_EVAL_CAPTURE`` environment variable (default: disabled).
 import json
 import logging
 from collections.abc import Callable
-from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -1261,7 +1345,6 @@ import hashlib
 import logging
 import re
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..core.engine import IntelligenceGraphEngine

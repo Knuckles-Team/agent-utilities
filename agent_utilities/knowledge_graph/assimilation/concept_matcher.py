@@ -32,7 +32,7 @@ Stages (precision/recall layered):
 All deps (``embed_fn``, ``llm_judge_fn``) are injectable so the logic is unit
 testable without a live model. Idempotent on a durable graph (auto edges are
 cleared and rewritten, never accumulated). Reuses the canonical id helpers,
-``GapReport``, and the numpy cosine path from :mod:`gap_analysis`; the embedder
+``GapReport``, and the native cosine path from :mod:`gap_analysis`; the embedder
 (``make_embed_fn``) and lite LLM (``make_lite_llm_fn``) from enrichment — no new
 model is loaded and no env flag is added (config discipline).
 
@@ -41,13 +41,14 @@ Concept: concept-matcher
 
 import json
 import logging
+import math
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from ...models.knowledge_graph import RegistryEdgeType
-from .dedup import _cosine, iter_all_edges
+from .dedup import iter_all_edges
 from .gap_analysis import (
     GapReport,
     _collect_rich,
@@ -440,28 +441,30 @@ def _top_k_cosine(
     k: int,
     threshold: float,
 ) -> list[tuple[str, float]]:
-    """Top-k concepts by cosine ≥ threshold. numpy matrix path, pure-Python fallback."""
+    """Top-k concepts by cosine ≥ threshold over the native list boundary."""
     if not concept_vecs:
         return []
-    try:
-        from agent_utilities.numeric import xp as np
+    from agent_utilities.numeric import xp
 
-        cmat = np.asarray([v for _, v in concept_vecs], dtype=np.float32)
-        norms = np.linalg.norm(cmat, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0
-        cmat = cmat / norms
-        fv = np.asarray(fvec, dtype=np.float32)
-        fnorm = float(np.linalg.norm(fv))
-        if not fnorm:
-            return []
-        sims = cmat @ (fv / fnorm)
-        cids = [c for c, _ in concept_vecs]
-        idx = np.argsort(-sims)[:k]
-        return [(cids[i], float(sims[i])) for i in idx if float(sims[i]) >= threshold]
-    except Exception:  # noqa: BLE001 — numpy optional → pure-Python
-        scored = [(cid, _cosine(fvec, cvec)) for cid, cvec in concept_vecs]
-        scored.sort(key=lambda t: t[1], reverse=True)
-        return [(c, s) for c, s in scored[:k] if s >= threshold]
+    fnorm = math.sqrt(sum(value * value for value in fvec))
+    if not fnorm:
+        return []
+    normalized = [value / fnorm for value in fvec]
+    ids = [cid for cid, _ in concept_vecs]
+    vectors = [list(vector) for _, vector in concept_vecs]
+    # Rank the complete bounded concept batch with one native matmul.  The
+    # previous loop crossed the numeric boundary once per concept vector.
+    dots = xp.matmul(vectors, [[value] for value in normalized])
+    norms = [math.sqrt(sum(value * value for value in vector)) for vector in vectors]
+    scored = [
+        (cid, float(row[0]) / norm)
+        for cid, row, norm in zip(ids, dots, norms, strict=True)
+        if norm
+    ]
+    scored.sort(key=lambda t: (-t[1], t[0]))
+    return [
+        (concept_id, score) for concept_id, score in scored[:k] if score >= threshold
+    ]
 
 
 def _cosine_verdict(cos: float) -> tuple[Verdict, float, str]:

@@ -343,6 +343,55 @@ def _validate_envelope(envelope: ChangeEnvelope) -> list[str]:
         violations.append(
             "typed_payload and blob_ref are mutually exclusive on this envelope"
         )
+    blob_metadata = (
+        envelope.blob_digest,
+        envelope.blob_length,
+        envelope.blob_media_type,
+    )
+    if any(value is not None for value in blob_metadata):
+        if envelope.blob_ref is None or any(value is None for value in blob_metadata):
+            violations.append(
+                "blob_digest, blob_length and blob_media_type must accompany blob_ref"
+            )
+        else:
+            digest = envelope.blob_digest or ""
+            if (
+                not digest.startswith("sha256:")
+                or len(digest) != len("sha256:") + 64
+                or any(
+                    char not in "0123456789abcdef"
+                    for char in digest.removeprefix("sha256:")
+                )
+            ):
+                violations.append("blob_digest must be a sha256 digest")
+            if (
+                not isinstance(envelope.blob_length, int)
+                or isinstance(envelope.blob_length, bool)
+                or envelope.blob_length < 0
+            ):
+                violations.append("blob_length must be non-negative")
+            if (
+                not isinstance(envelope.blob_media_type, str)
+                or not envelope.blob_media_type
+            ):
+                violations.append("blob_media_type must be non-empty")
+    if envelope.structured_evidence is not None:
+        if not isinstance(envelope.structured_evidence, dict):
+            violations.append("structured_evidence must be an object")
+        else:
+            try:
+                evidence_bytes = json.dumps(
+                    envelope.structured_evidence,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            except (TypeError, ValueError, OverflowError):
+                violations.append("structured_evidence must be canonical JSON")
+            else:
+                if len(evidence_bytes) > 4 * 1024 * 1024:
+                    violations.append("structured_evidence exceeds the bounded size")
     if (
         envelope.operation == "upsert"
         and envelope.typed_payload is None
@@ -531,6 +580,9 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
     clean_provenance, provenance_report = guard.sanitize(envelope.provenance)
     if not isinstance(clean_provenance, dict):
         clean_provenance = {}
+    clean_evidence, evidence_report = guard.sanitize(envelope.structured_evidence)
+    if clean_evidence is not None and not isinstance(clean_evidence, dict):
+        raise ValueError("invalid sanitized structured evidence")
     clean_operational, operational_report = guard.sanitize(
         {
             "blob_ref": envelope.blob_ref,
@@ -562,6 +614,7 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
     redactions = (
         payload_report.redactions
         + provenance_report.redactions
+        + evidence_report.redactions
         + operational_report.redactions
         + acl_redactions
     )
@@ -569,6 +622,7 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
         categories = {
             *payload_report.detected_types,
             *provenance_report.detected_types,
+            *evidence_report.detected_types,
             *operational_report.detected_types,
         }
         if acl_redactions:
@@ -583,6 +637,7 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
         envelope,
         typed_payload=clean_payload,
         blob_ref=clean_operational.get("blob_ref"),
+        structured_evidence=clean_evidence,
         checkpoint=clean_operational.get("checkpoint"),
         trace_context=clean_operational.get("trace_context"),
         provenance=clean_provenance,
@@ -1074,6 +1129,14 @@ def _prepare_node_rows(
             "retention": envelope.retention,
             "legal_hold": envelope.legal_hold,
         }
+        if envelope.blob_digest is not None:
+            row.update(
+                {
+                    "blob_digest": envelope.blob_digest,
+                    "blob_length": envelope.blob_length,
+                    "blob_media_type": envelope.blob_media_type,
+                }
+            )
     else:
         row = dict(row)
     links_value = row.pop("_links", None)
@@ -1253,8 +1316,12 @@ def _native_material(
             "nodes": node_rows,
             "links": links,
             "blob_ref": envelope.blob_ref,
+            "blob_digest": envelope.blob_digest,
+            "blob_length": envelope.blob_length,
+            "blob_media_type": envelope.blob_media_type,
             "features": raw_features,
             "evidence": raw_evidence,
+            "structured_evidence": envelope.structured_evidence,
         }
     )
     current_version = client.changes.content_version(node_id)
@@ -1307,6 +1374,17 @@ def _native_material(
     features, feature_objects = _native_feature_rows(
         raw_features, node_id, operation_name
     )
+    if envelope.structured_evidence is not None:
+        raw_evidence = [
+            *raw_evidence,
+            {
+                "evidence_id": f"evidence:{_digest([node_id, envelope.structured_evidence])}",
+                "object_id": node_id,
+                "modality": "structured",
+                "locus": envelope.structured_evidence,
+                "content_digest": _digest(envelope.structured_evidence),
+            },
+        ]
     evidence, evidence_objects = _native_evidence_rows(
         raw_evidence, node_id, operation_name, content_digest
     )
@@ -1344,9 +1422,17 @@ def _native_material(
                 "blob_id": node_id,
                 "operation": operation_name,
                 "digest_algorithm": "sha256",
-                "digest": hashlib.sha256(envelope.blob_ref.encode("utf-8")).hexdigest(),
-                "media_type": str(envelope.payload_type or "application/octet-stream"),
-                "length": 0,
+                "digest": (
+                    envelope.blob_digest.removeprefix("sha256:")
+                    if envelope.blob_digest
+                    else hashlib.sha256(envelope.blob_ref.encode("utf-8")).hexdigest()
+                ),
+                "media_type": str(
+                    envelope.blob_media_type
+                    or envelope.payload_type
+                    or "application/octet-stream"
+                ),
+                "length": int(envelope.blob_length or 0),
             }
         )
 

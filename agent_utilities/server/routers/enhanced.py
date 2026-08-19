@@ -105,6 +105,30 @@ async def get_enhanced_info():
     return {"status": "ok", "message": "Enhanced API is active"}
 
 
+@router.get("/frontend-contributions")
+async def list_frontend_contributions():
+    """Return the live, fail-closed frontend contribution catalog.
+
+    The discovery module owns the provider contract and remains content-only;
+    this route is the existing WebUI read entrypoint for that catalog.  No
+    capability verdict is fabricated here: the catalog projection passes
+    ``None`` for the optional cross-check until a live capability catalog is
+    available, while the discovery layer still enforces descriptor schema,
+    digest, and signer policy.
+    """
+    try:
+        from ...core.config import config
+        from ...core.frontend_providers import _catalog_payload
+
+        trusted_signers = frozenset(config.frontend_contribution_trusted_signers)
+        return _catalog_payload(trusted_signers=trusted_signers)
+    except Exception as exc:  # noqa: BLE001 - public failure boundary
+        raise HTTPException(
+            status_code=503,
+            detail=public_error_payload(exc, logger=logger),
+        ) from None
+
+
 @router.get("/graph/stats")
 async def get_graph_stats():
     """Live node/edge counts from the active Knowledge Graph backend.

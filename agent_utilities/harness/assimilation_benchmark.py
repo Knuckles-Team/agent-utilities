@@ -36,6 +36,7 @@ the harness mechanisms; it imports them, runs them, and reports — no I/O, no
 network, no upward dependencies.
 """
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -54,8 +55,7 @@ from agent_utilities.knowledge_graph.retrieval.score_gate import score_gate
 from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
     TemporalSemanticIdEncoder,
 )
-from agent_utilities.numeric import NDArray, RandomGenerator
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, RandomGenerator, xp
 
 __all__ = [
     "BenchmarkResult",
@@ -133,7 +133,7 @@ def _make_result(
 
 
 # ----------------------------------------------------------------------------
-# Synthetic-data helpers (seeded, numpy-only)
+# Synthetic-data helpers (seeded native-list boundary)
 # ----------------------------------------------------------------------------
 def _clustered_embeddings(
     rng: RandomGenerator, *, n_clusters: int, per_cluster: int, dim: int
@@ -145,22 +145,30 @@ def _clustered_embeddings(
     nearest-neighbour outcomes are stable under the seed.
     """
     centroids = rng.normal(size=(n_clusters, dim))
-    centroids /= np.linalg.norm(centroids, axis=1, keepdims=True) + 1e-12
+    for index, centroid in enumerate(centroids):
+        norm = float(xp.linalg.norm(centroid))
+        centroids[index] = [value / (norm + 1e-12) for value in centroid]
     rows: list[NDArray] = []
     labels: list[int] = []
     for c in range(n_clusters):
         for _ in range(per_cluster):
-            rows.append(centroids[c] + 0.05 * rng.normal(size=dim))
+            noise = rng.normal(size=dim)
+            rows.append(
+                [
+                    value + 0.05 * delta
+                    for value, delta in zip(centroids[c], noise, strict=True)
+                ]
+            )
             labels.append(c)
-    return np.vstack(rows), labels
+    return rows, labels
 
 
 def _ndcg_at_k(ranked_relevances: Sequence[float], k: int) -> float:
     """Normalized DCG@k for a best-first list of graded relevances (0/1 here)."""
     rels = list(ranked_relevances)[:k]
-    dcg = sum(r / np.log2(i + 2) for i, r in enumerate(rels))
+    dcg = sum(r / math.log2(i + 2) for i, r in enumerate(rels))
     ideal = sorted(ranked_relevances, reverse=True)[:k]
-    idcg = sum(r / np.log2(i + 2) for i, r in enumerate(ideal))
+    idcg = sum(r / math.log2(i + 2) for i, r in enumerate(ideal))
     return float(dcg / idcg) if idcg > 0 else 0.0
 
 
@@ -181,16 +189,15 @@ def bench_pauserec(*, seed: int = 0) -> BenchmarkResult:
     Metric: NDCG@k over the relevant cluster. Claim: pausing >= no pausing.
     Exercises ``TemporalSemanticIdEncoder`` (KG-2.86) as the shared SID encoder.
     """
-    rng = np.random.default_rng(seed + 1)
+    rng = xp.random.default_rng(seed + 1)
     dim = 24
     per_cluster = 6
     vectors, labels = _clustered_embeddings(
         rng, n_clusters=4, per_cluster=per_cluster, dim=dim
     )
-    labels_arr = np.array(labels)
     target_cluster = 0
     distractor_cluster = 1
-    items = [(f"item-{i}", vectors[i].tolist()) for i in range(len(labels))]
+    items = [(f"item-{i}", vectors[i]) for i in range(len(labels))]
     relevant = {f"item-{i}" for i, c in enumerate(labels) if c == target_cluster}
 
     encoder_seed = seed + 2
@@ -207,8 +214,20 @@ def bench_pauserec(*, seed: int = 0) -> BenchmarkResult:
     # items it co-supports), recovering the target cluster. This is exactly
     # PauseRec's claim that the latent reasoning bridges history/world-knowledge
     # into SID selection rather than ranking off the surface query.
-    distractor_centroid = vectors[labels_arr == distractor_cluster].mean(axis=0)
-    query = (0.7 * distractor_centroid + 0.3 * rng.normal(size=dim)).tolist()
+    distractor_vectors = [
+        vector
+        for vector, label in zip(vectors, labels, strict=True)
+        if label == distractor_cluster
+    ]
+    distractor_centroid = [
+        float(xp.mean([vector[column] for vector in distractor_vectors]))
+        for column in range(dim)
+    ]
+    noise = rng.normal(size=dim)
+    query = [
+        0.7 * centroid + 0.3 * delta
+        for centroid, delta in zip(distractor_centroid, noise, strict=True)
+    ]
 
     top_k = per_cluster
 
@@ -255,11 +274,11 @@ def bench_scoregate(*, seed: int = 0) -> BenchmarkResult:
     fixed cut so both keep the whole relevant cluster, then compare precision).
     Claim: ScoreGate precision >= fixed-k precision.
     """
-    rng = np.random.default_rng(seed)
+    rng = xp.random.default_rng(seed)
     n_relevant = 4
     n_tail = 16
-    relevant_scores = (0.9 + 0.05 * rng.random(n_relevant)).tolist()
-    tail_scores = (0.05 * rng.random(n_tail)).tolist()
+    relevant_scores = [0.9 + 0.05 * value for value in rng.random(n_relevant)]
+    tail_scores = [0.05 * value for value in rng.random(n_tail)]
 
     scored: list[dict[str, Any]] = []
     for i, s in enumerate(relevant_scores):
@@ -471,8 +490,8 @@ def bench_decentmem_bandit(*, seed: int = 0) -> BenchmarkResult:
         router = ExploreExploitRouter(
             arms=("good", "bad"), strategy="ucb1", seed=draw_seed
         )
-        reward_rng = np.random.default_rng(draw_seed + 1000)
-        choice_rng = np.random.default_rng(draw_seed + 2000)
+        reward_rng = xp.random.default_rng(draw_seed + 1000)
+        choice_rng = xp.random.default_rng(draw_seed + 2000)
         for _ in range(n_pulls):
             arm = (
                 ("good", "bad")[int(choice_rng.integers(0, 2))]

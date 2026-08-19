@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast
 from urllib.parse import urlsplit
 
 import platformdirs
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, StrictBool, field_validator, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -1057,6 +1057,10 @@ def _load_xdg_json_config_locked() -> None:
         if env_key not in explicit_environment:
             if isinstance(v, list | dict):
                 rendered = json.dumps(v)
+            elif isinstance(v, bool):
+                # Keep JSON booleans in the canonical form accepted by strict
+                # boolean settings instead of Python's ``True``/``False``.
+                rendered = "true" if v else "false"
             elif v is None:
                 rendered = ""
             else:
@@ -2412,6 +2416,30 @@ class AgentConfig(BaseSettings):
     # Outbound/inbound messaging (Telegram/Slack/Teams/Mattermost/…). Tokens per backend
     # (e.g. TELEGRAM_BOT_TOKEN) auto-enable that backend; these tune routing + the agent.
     telegram_bot_token: str | None = Field(default=None, alias="TELEGRAM_BOT_TOKEN")
+    messaging_intake_enabled: StrictBool = Field(
+        default=False, alias="MESSAGING_INTAKE_ENABLED"
+    )
+    """Explicit deployment intent for embedded inbound messaging intake.
+
+    Credentials alone never grant polling ownership. Only the designated
+    deployment request container may set this to ``true``; all other clients
+    remain outbound-capable with the fail-closed default. Environment values
+    are deliberately limited to canonical lowercase ``true`` and ``false``
+    (or actual booleans supplied by typed configuration).
+    """
+
+    @field_validator("messaging_intake_enabled", mode="before")
+    @classmethod
+    def _validate_messaging_intake_enabled(cls, value: Any) -> Any:
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str) and value in {"true", "false"}:
+            return value == "true"
+        raise ValueError(
+            "MESSAGING_INTAKE_ENABLED must be exactly the canonical string "
+            "'true' or 'false'"
+        )
+
     messaging_default_platform: str = Field(
         default="telegram", alias="MESSAGING_DEFAULT_PLATFORM"
     )
@@ -3029,6 +3057,16 @@ class AgentConfig(BaseSettings):
     """Required immutable authorization-policy revision stamped into every
     server-minted graph session."""
 
+    data_prep_runtime: dict[str, Any] | None = Field(
+        default=None, alias="DATA_PREP_RUNTIME"
+    )
+    """Declarative owner configuration for the governed data-prep runtime.
+
+    The startup loader accepts only model field/type declarations, policy
+    facts and the fixed native ICV/shape profile. It rejects import,
+    executable, storage and authority controls; tool callers never supply it.
+    """
+
     auth_jwt_algorithms: list[str] = Field(
         default_factory=lambda: [
             "RS256",
@@ -3313,6 +3351,45 @@ class AgentConfig(BaseSettings):
             return v
         return [str(item).strip() for item in to_list(v) if str(item).strip()]
 
+    frontend_contribution_trusted_signers: list[str] = Field(
+        default_factory=list,
+        alias="FRONTEND_CONTRIBUTION_TRUSTED_SIGNERS",
+    )
+    """Bounded signer-key-id allowlist for installed frontend contributions.
+
+    Empty fails every contribution closed. REST and MCP both consume this one
+    process-wide authority.
+    """
+
+    @field_validator("frontend_contribution_trusted_signers", mode="before")
+    @classmethod
+    def _coerce_frontend_contribution_signers(cls, value: Any) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw = to_list(value)
+        elif isinstance(value, (list, tuple, set)):
+            raw = list(value)
+        else:
+            raise ValueError("frontend contribution signers must be a list")
+        if len(raw) > 64:
+            raise ValueError(
+                "frontend contribution signer allowlist exceeds 64 entries"
+            )
+        signers: list[str] = []
+        for item in raw:
+            if not isinstance(item, str):
+                raise ValueError("frontend contribution signer ids must be strings")
+            signer = item.strip()
+            if (
+                not signer
+                or len(signer.encode("utf-8")) > 256
+                or any(ord(char) < 0x20 or ord(char) == 0x7F for char in signer)
+            ):
+                raise ValueError("frontend contribution signer id is invalid")
+            signers.append(signer)
+        return sorted(set(signers))
+
     # --- OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction) ---
 
     mcp_client_auth: Literal[
@@ -3374,6 +3451,56 @@ class AgentConfig(BaseSettings):
         default_factory=list, alias="OIDC_HTTP_ALLOWED_PRIVATE_HOSTS"
     )
     """Exact private hostnames permitted for DNS-pinned OIDC/JWKS egress."""
+
+    remote_oauth_providers: list[dict[str, Any]] | None = Field(
+        default=None, alias="REMOTE_OAUTH_PROVIDERS_JSON"
+    )
+    """Administrator-approved remote-MCP OAuth provider descriptors.
+
+    The value is a JSON list in the process environment or XDG configuration;
+    each entry is validated by ``ProviderDescriptor`` when the broker is built.
+    No request or caller can add providers at runtime. Malformed JSON or
+    non-object entries are configuration errors rather than an empty registry.
+    """
+
+    remote_oauth_success_redirect_url: str | None = Field(
+        default=None, alias="REMOTE_OAUTH_SUCCESS_REDIRECT_URL"
+    )
+    """Fixed administrator-configured URL used after a successful OAuth flow."""
+
+    @field_validator("remote_oauth_providers", mode="before")
+    @classmethod
+    def _coerce_remote_oauth_providers(cls, value: Any) -> Any:
+        """Accept a JSON list or parsed provider descriptors, fail on bad input."""
+        if value is None:
+            return None
+        if isinstance(value, str):
+            import json
+
+            rendered = value.strip()
+            if not rendered:
+                raise ValueError(
+                    "REMOTE_OAUTH_PROVIDERS_JSON must be a JSON array when set"
+                )
+            try:
+                value = json.loads(rendered)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "REMOTE_OAUTH_PROVIDERS_JSON must be valid JSON"
+                ) from exc
+        if not isinstance(value, list):
+            raise ValueError("REMOTE_OAUTH_PROVIDERS_JSON must be a JSON array")
+        if any(not isinstance(entry, dict) for entry in value):
+            raise ValueError("REMOTE_OAUTH_PROVIDERS_JSON entries must be JSON objects")
+        return value
+
+    @field_validator("remote_oauth_success_redirect_url", mode="before")
+    @classmethod
+    def _coerce_remote_oauth_success_redirect_url(cls, value: Any) -> str | None:
+        if value in (None, ""):
+            return None
+        rendered = str(value).strip()
+        return rendered or None
 
     enable_delegation: bool = Field(default=False, alias="ENABLE_DELEGATION")
     """Enable OIDC token delegation (RFC 8693 Token Exchange) for downstream API calls."""

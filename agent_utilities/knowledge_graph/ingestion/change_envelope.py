@@ -168,7 +168,14 @@ class ChangeEnvelope:
             connectors). Mutually exclusive with ``blob_ref``.
         blob_ref: A reference (URI/blob-store key) to an out-of-line payload
             too large to inline (e.g. an attachment). Mutually exclusive with
-            ``typed_payload``.
+            ``typed_payload``. ``blob_digest``/``blob_length``/
+            ``blob_media_type`` may carry exact content-addressed metadata for
+            a blob-backed envelope; they are never inferred from this
+            reference when present.
+        blob_digest: Exact sha256 digest of the out-of-line bytes, when the
+            producer has already stored them through the native blob authority.
+        blob_length: Exact byte length corresponding to ``blob_digest``.
+        blob_media_type: Media type corresponding to the exact blob bytes.
         source_acl: The connector-reported access descriptor — reuses
             :class:`ExternalAccess` verbatim so this envelope feeds
             ``permission_sync.sync_access`` unchanged.
@@ -189,6 +196,10 @@ class ChangeEnvelope:
             "generated_by": ..., "connector_version": ...}``). Deliberately a
             plain dict (not the manifest's ``ProvenanceSpec``) — this is
             per-record lineage, not per-manifest.
+        structured_evidence: Bounded, JSON-shaped evidence attached to the
+            native evidence row. It is validated and privacy-sanitized at the
+            envelope boundary; callers must not smuggle unchecked evidence in
+            an arbitrary payload or provenance string.
         confidence: ``[0.0, 1.0]`` — how much this envelope's content should be
             trusted (1.0 = a direct, unprocessed read from the source; lower
             for a heuristically-derived/inferred field). Defaults to ``1.0``.
@@ -229,6 +240,9 @@ class ChangeEnvelope:
     payload_type: str = "json"
     typed_payload: dict[str, Any] | None = None
     blob_ref: str | None = None
+    blob_digest: str | None = None
+    blob_length: int | None = None
+    blob_media_type: str | None = None
 
     source_acl: ExternalAccess | None = field(
         default_factory=ExternalAccess.quarantined
@@ -238,6 +252,7 @@ class ChangeEnvelope:
     legal_hold: bool = False
 
     provenance: dict[str, Any] = field(default_factory=dict)
+    structured_evidence: dict[str, Any] | None = None
     confidence: float = 1.0
     checkpoint: str | None = None
     trace_context: str | None = None
@@ -255,6 +270,58 @@ class ChangeEnvelope:
                 "ChangeEnvelope: typed_payload and blob_ref are mutually exclusive "
                 "(set at most one) — this envelope had both."
             )
+        if self.typed_payload is not None and any(
+            value is not None
+            for value in (self.blob_digest, self.blob_length, self.blob_media_type)
+        ):
+            raise ValueError(
+                "ChangeEnvelope blob metadata requires an out-of-line blob_ref"
+            )
+        blob_metadata = (self.blob_digest, self.blob_length, self.blob_media_type)
+        if any(value is not None for value in blob_metadata):
+            if self.blob_ref is None or any(value is None for value in blob_metadata):
+                raise ValueError(
+                    "ChangeEnvelope blob_digest, blob_length and blob_media_type "
+                    "must be supplied together for a blob_ref"
+                )
+            digest = self.blob_digest
+            if (
+                not isinstance(digest, str)
+                or len(digest) != len("sha256:") + 64
+                or not digest.startswith("sha256:")
+                or any(
+                    char not in "0123456789abcdef"
+                    for char in digest.removeprefix("sha256:")
+                )
+            ):
+                raise ValueError("ChangeEnvelope blob_digest must be a sha256 digest")
+            if (
+                not isinstance(self.blob_length, int)
+                or isinstance(self.blob_length, bool)
+                or self.blob_length < 0
+            ):
+                raise ValueError("ChangeEnvelope blob_length must be non-negative")
+            if not isinstance(self.blob_media_type, str) or not self.blob_media_type:
+                raise ValueError("ChangeEnvelope blob_media_type must be non-empty")
+        if self.structured_evidence is not None:
+            if not isinstance(self.structured_evidence, dict):
+                raise ValueError("ChangeEnvelope structured_evidence must be an object")
+            try:
+                encoded_evidence = json.dumps(
+                    self.structured_evidence,
+                    ensure_ascii=True,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    allow_nan=False,
+                ).encode("utf-8")
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    "ChangeEnvelope structured_evidence must be canonical JSON"
+                ) from exc
+            if len(encoded_evidence) > 4 * 1024 * 1024:
+                raise ValueError(
+                    "ChangeEnvelope structured_evidence exceeds the bounded size"
+                )
         if not 0.0 <= self.confidence <= 1.0:
             raise ValueError(
                 f"ChangeEnvelope.confidence must be in [0.0, 1.0], got {self.confidence!r}"
@@ -520,11 +587,15 @@ class ChangeEnvelope:
             "payload_type": self.payload_type,
             "typed_payload": self.typed_payload,
             "blob_ref": self.blob_ref,
+            "blob_digest": self.blob_digest,
+            "blob_length": self.blob_length,
+            "blob_media_type": self.blob_media_type,
             "source_acl": self.source_acl.model_dump() if self.source_acl else None,
             "classification": str(self.classification),
             "retention": self.retention,
             "legal_hold": self.legal_hold,
             "provenance": self.provenance,
+            "structured_evidence": self.structured_evidence,
             "confidence": self.confidence,
             "checkpoint": self.checkpoint,
             "trace_context": self.trace_context,

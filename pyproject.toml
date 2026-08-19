@@ -107,9 +107,9 @@ email = "maintainers@example.invalid"
 # every wire protocol), and bundles the `epistemic-graph-server` binary (next to
 # `sys.executable`) that graph-os autostarts + supervises over a private UDS socket
 # (EngineResolver, OS-5.63) — no external DB/service. `[full]` is the sole supported
-# engine profile. It includes the compiled `epistemic_graph.numeric` kernel and the
-# numpy dependency used internally for rust-numpy zero-copy interop; agent-utilities
-# imports numpy nowhere.
+# engine profile. It includes the compiled `epistemic_graph.numeric` kernel, whose
+# Python boundary accepts built-in sequences and has no NumPy package dependency;
+# agent-utilities imports NumPy nowhere on the runtime path.
 #
 # `[full]` (= `[owl,lmcache,numeric]`) adds the pyoxigraph SPARQL/RDF Python interop +
 # httpx accel on top of the numeric kernel; package metadata has exposed this extra
@@ -191,17 +191,26 @@ nats = [
 pyarrow = [
     "pyarrow>=17.0.0"
 ]
+# NE-114 — operator-only data-quality certification.  These extras are mutually
+# optional and intentionally do not enter the serving/agent hot path.  The job
+# imports the selected provider only when executed; the Arrow currency remains
+# the existing pyarrow extra and the Rust engine remains the SHACL/ICV authority.
+data-quality-ge = [
+    "pyarrow>=17.0.0",
+    "great-expectations>=1.3.0,<2",
+]
+data-quality-pandera = [
+    "pyarrow>=17.0.0",
+    "pandera>=0.26.0,<1",
+]
 mcp = [
     # fastmcp 4 is the default (CONCEPT:AU-ECO.mcp.protocol-compat-bridge). Empirically
     # verified (see agent_utilities/mcp/protocol_compat.py + docs/architecture/fastmcp4-default.md):
-    # `pydantic_ai.mcp` (pydantic-ai-slim 2.21.0, the latest published release) imports
-    # and runs cleanly against fastmcp 4.0.0b1 / mcp 2.0.0 once (a) the underlying
-    # `fastmcp.Client` is pinned to `mode="legacy"` and (b) four upstream attribute/
-    # exception renames not covered by fastmcp's own `_compat.py` bridge are patched.
-    # Both are bridged by this package at MCP-client construction time, not by pinning
-    # fastmcp back to 3.x. `pydantic-ai-slim[mcp]`'s own `fastmcp-slim[client]<4` cap
-    # is relaxed via `[tool.uv] override-dependencies` below — see that comment for the
-    # full justification.
+    # `pydantic_ai.mcp` (pydantic-ai-slim 2.29.0, the supported release) natively
+    # handles both MCP SDK field spellings and modern FastMCP sessions. The exact
+    # Pydantic-AI pin below is intentional: protocol_compat.py verifies this
+    # contract and refuses an unverified runtime version; it no longer monkeypatches
+    # upstream MCPToolset methods or installs process-global aliases.
     "fastmcp>=4.0.0b1",
     # Schema-only dependency. The native middleware avoids eunomia-mcp's
     # unpatched python-jose/ecdsa transitive chain and unsafe HTTP defaults.
@@ -219,7 +228,7 @@ mcp = [
     # `[agent-google]`, `[agent-groq]`, `[agent-mistral]`, `[agent-huggingface]`.
     # `pydantic-ai-slim[openai]` is the lean provider extra (httpx + openai SDK, no
     # torch) — dependency-discipline safe on the serving plane.
-    "pydantic-ai-slim[openai]>=2.14.1,<3.0.0"
+    "pydantic-ai-slim[openai]==2.29.0"
 ]
 agent-runtime = [
     "agent-utilities[mcp,ag-ui,terminal,sandbox]>=1.0.0",
@@ -228,8 +237,8 @@ agent-runtime = [
     "pydantic-ai-skills>=1.2.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
-    "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]>=2.14.1,<3.0.0",
-    "pydantic-graph>=2.14.1,<3.0.0",
+    "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli]==2.29.0",
+    "pydantic-graph==2.29.0",
     "fasta2a[pydantic-ai]>=0.6.1",
     # CONCEPT:AU-OS.safety.harness-guardrails-adoption — bare harness (no extras): its
     # own metadata requires only httpx + pydantic-ai-slim (both already required above),
@@ -253,27 +262,27 @@ agent-headless = [
     "pydantic-ai-skills>=1.2.0",
     # openai is the default bundled provider (local LLMs use the OpenAI API); other
     # providers are opt-in add-ons (`[agent-anthropic]`, `[agent-google]`, …).
-    "pydantic-ai-slim[mcp,openai,web,cli]>=2.14.1,<3.0.0",
-    "pydantic-graph>=2.14.1,<3.0.0",
+    "pydantic-ai-slim[mcp,openai,web,cli]==2.29.0",
+    "pydantic-graph==2.29.0",
     "fasta2a[pydantic-ai]>=0.6.1",
     # See agent-runtime above: bare harness for InputGuardrail/OutputGuardrail
     # (CONCEPT:AU-OS.safety.harness-guardrails-adoption), the serving-plane path.
     "pydantic-ai-harness>=0.14.0,<0.15.0",
 ]
 agent-google = [
-    "pydantic-ai-slim[google]>=2.14.1,<3.0.0"
+    "pydantic-ai-slim[google]==2.29.0"
 ]
 agent-groq = [
-    "pydantic-ai-slim[groq]>=2.14.1,<3.0.0"
+    "pydantic-ai-slim[groq]==2.29.0"
 ]
 agent-mistral = [
-    "pydantic-ai-slim[mistral]>=2.14.1,<3.0.0"
+    "pydantic-ai-slim[mistral]==2.29.0"
 ]
 agent-anthropic = [
-    "pydantic-ai-slim[anthropic]>=2.14.1,<3.0.0"
+    "pydantic-ai-slim[anthropic]==2.29.0"
 ]
 agent-huggingface = [
-    "pydantic-ai-slim[huggingface]>=2.14.1,<3.0.0"
+    "pydantic-ai-slim[huggingface]==2.29.0"
 ]
 dynamic-workflow = [
     # Optional only: the governed adapter remains on GraphPlan/ParallelEngine and
@@ -343,11 +352,10 @@ logfire = [
 # only when credentials are configured, so the serving process pays no child
 # process cost when Langfuse is unused.
 langfuse = [
-    "langfuse-agent[mcp]>=1.0.3,<2",
     # The graph-run exporter passes an isolated SDK TracerProvider to the
-    # OpenTelemetry-backed client.  That is a Langfuse v4 constructor contract,
-    # so do not let the provider package's broader transitive floor select an
-    # older client that can fall back to GraphOS/logfire's global provider.
+    # OpenTelemetry-backed client. That is a Langfuse v4 constructor contract;
+    # keep the SDK floor here even though the optional MCP provider is installed
+    # separately by the GraphOS deployment composition.
     "langfuse>=4.14.1,<5",
 ]
 graph = [
@@ -548,15 +556,9 @@ test = [
     "opentelemetry-instrumentation-starlette>=0.60b0",
     "opentelemetry-instrumentation-fastapi>=0.60b0",
     "opentelemetry-instrumentation-asgi>=0.60b0",
-    # CONCEPT:KG-2.324 — numpy is a DEV/TEST-ONLY dependency (never runtime): it is the
-    # GROUND-TRUTH reference in tests/test_numeric_parity.py that proves the compiled
-    # `epistemic_graph.numeric` kernel matches numpy. The runtime path imports numpy
-    # nowhere (the `xp` shim is kernel-or-raise). scipy is NOT needed — the four scipy ops
-    # are native kernel exports (`xp.eigsh`/`spearmanr`/`ks_2samp`/`norm_ppf`/`norm_pdf`).
-    "numpy>=2.5.1",
     # `agent-runtime` already implies mcp+sandbox. GOC-73: the engine is no longer a
     # hard base dependency, so `test` must pull `graphos` explicitly — this repo's own
-    # suite (numeric parity, knowledge_graph engine-client tests, etc.) genuinely
+    # suite (numeric contract, knowledge_graph engine-client tests, etc.) genuinely
     # exercises epistemic-graph and must not silently run engine-absent. Add `feeds`
     # (RSS ingestion tests) and the explicit backend extras the suite exercises.
     "agent-utilities[graphos,agent-runtime,feeds,sandbox,graph,acp,owl,finance,event-kafka]",
@@ -767,23 +769,13 @@ override-dependencies = [
     "nltk>=3.10.0",
     # CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the default (see the
     # `[mcp]` extra above). `fastmcp==4.0.0b1` pins an exact `fastmcp-slim[client,server]
-    # ==4.0.0b1`, but `pydantic-ai-slim[mcp]` (as of 2.21.0, the latest published release)
-    # still declares `fastmcp-slim[client]<4,>=3.3.0` — a real, hard conflict with no
-    # unified-lock solution. That cap is conservative rather than a known incompatibility:
-    # pydantic-ai-slim 2.18.0 declared the same extra with NO upper bound, and the `<4`
-    # was added defensively while fastmcp 4 was still pre-release (2.19.0), not in
-    # response to an observed break. This override relaxes it project-wide. This is safe
-    # because of empirical, not assumed, verification: a live fastmcp-4 server was driven
-    # end-to-end through `pydantic_ai.mcp.MCPToolset` (connect, list tools, call a tool)
-    # under fastmcp 4.0.0b1 / mcp 2.0.0 / pydantic-ai-slim 2.21.0 and it fully round-trips
-    # once `agent_utilities/mcp/protocol_compat.py`'s two bridges are applied (both wired
-    # into every toolset-construction call site in this package — see that module's
-    # docstring for exactly what each bridges and why). Revisit the moment
-    # pydantic-ai-slim ships a release that natively supports fastmcp 4 (drop this
-    # override and protocol_compat.py's `mode="legacy"` pin together).
+    # ==4.0.0b1`, while pydantic-ai-slim 2.29.0 now declares
+    # `fastmcp-slim[client]<5,>=3.3.0` and natively supports the FastMCP 4
+    # protocol. This workspace-wide override remains the explicit fastmcp-4
+    # policy for image/fleet consumers that do not carry AU's direct floor; it
+    # is no longer compensating for a Pydantic-AI client cap.
     #
-    # Both `client` and `server` extras MUST be listed here even though this
-    # override exists to fix pydantic-ai-slim's CLIENT-side cap: uv's override
+    # Both `client` and `server` extras MUST be listed here: uv's override
     # replaces the ENTIRE requirement (extras included) for every requester of
     # `fastmcp-slim` project-wide, including `fastmcp`'s own metadata pin
     # (`fastmcp-slim[client,server]==4.0.0b1`) that server-side code
@@ -805,63 +797,19 @@ override-dependencies = [
 searxng = ["pyyaml", "msgspec", "typing-extensions", "setuptools"]
 
 [tool.uv.sources]
-# D-UVN-1 (supersedes D-75-1/D-CIP-19/D-W3BP-4, operator decision 2026-08-13):
-# both siblings are plain editable PATH sources, NOT `{ workspace = true }`,
-# and this repo declares NO `[tool.uv.workspace]` table of its own. uv
-# unconditionally rejects a workspace member that is itself a workspace root
-# ("Nested workspaces are not supported") -- so the prior D-75-1 design (this
-# repo as its own self-contained workspace root) broke `uv sync` for every
-# member of the larger ecosystem workspace at the repo root (`../../pyproject.toml`,
-# `[tool.uv.workspace] members = ["agent-packages/agent-utilities", ...]`), not
-# just the one langfuse-agent cyclic edge it was written for -- confirmed
-# empirically: `cd agent-packages/geniusbot && uv sync` and
-# `cd agent-packages/agents/langfuse-agent && uv sync` both failed with the
-# identical "Nested workspaces are not supported ... agent-utilities" error,
-# unrelated to either repo's own dependency shape. It also broke this repo's
-# OWN bare `uv sync`: langfuse-agent (pulled in as a self-hosted workspace
-# member via `.uv-workspace-siblings/langfuse-agent`) declares its OWN
-# `agent-utilities = { path = ... }` source in ITS pyproject.toml for its
-# outer-ecosystem/standalone use, and uv rejects that as "agent-utilities is
-# included as a workspace member, but references a path in tool.uv.sources"
-# the moment it is loaded as a member of ANY workspace containing
-# agent-utilities -- the self-referential `agent-utilities = { workspace =
-# true }` this repo declared for itself could not fix that, because the
-# conflicting declaration lives in langfuse-agent's OWN file, not this one.
-# Plain path sources on both sides (this file AND langfuse-agent's) sidestep
-# the whole class: two projects with a mutual editable path dependency, no
-# workspace joining them, so neither uv's cross-workspace-member-name rule nor
-# the nested-workspace rule ever applies. Same pattern already proven for
-# agent-webui (BUG-074) and geniusbot depending on THIS repo (see
-# `agent-packages/geniusbot/pyproject.toml`'s `[tool.uv.sources]` comment).
-# `.uv-workspace-siblings/<name>` is not tracked: `scripts/uv_workspace.py`
-# symlinks it locally from the ecosystem checkout for dev/lane use
-# (`materialize_own_siblings`); CI's `.github/workflows/security.yml`
-# materializes the same paths with `actions/checkout` for the one job that
-# needs both packages actually installed. Every other workflow sidesteps the
-# requirement entirely with `--no-install-package epistemic-graph
-# --no-install-package langfuse-agent`.
+# D-UVN-1: keep the engine as a plain editable PATH source rather than a nested
+# uv workspace member. `.uv-workspace-siblings/` is materialized by the AU
+# workspace helper for isolated development and fleet consumers.
 #
-# Known residual limitation: a BARE `uv sync` run with cwd literally inside
-# this repo's canonical checkout at `agent-packages/agent-utilities` (not a
-# worktree) still discovers the outer ecosystem workspace as an ancestor, and
-# uv's per-member-name-collision rule then rejects any OTHER outer-workspace
-# member that ALSO declares an explicit (non-`workspace=true`) source for
-# `agent-utilities` -- e.g. `agent-packages/agent-webui`,
-# `agent-packages/geniusbot`. Members with NO explicit source for
-# `agent-utilities` (the majority of the fleet) resolve it automatically as a
-# same-workspace member and are unaffected. The sanctioned workflow for this
-# repo is a `git worktree add` outside the shared checkout (see this repo's
-# "Branching & isolation"), which sits outside the ecosystem workspace
-# entirely and is unaffected by this limitation -- confirmed empirically
-# against an isolated worktree with `scripts/uv_workspace.py` and bare `uv
-# sync --all-extras` alike.
+# Langfuse's optional MCP provider is deployment composition, not an AU runtime
+# dependency. GraphOS installs the provider as its own image component when the
+# deployment enables it, so AU intentionally has no provider source declaration
+# here. The SDK contract remains in the `[langfuse]` extra above.
 epistemic-graph = { path = ".uv-workspace-siblings/epistemic-graph", editable = true }
-langfuse-agent = { path = ".uv-workspace-siblings/langfuse-agent", editable = true }
 
 [dependency-groups]
 guardrails = [
     "jsonschema>=4.26.0",
-    "numpy>=2.5.1",
     "owlrl>=7.6.2",
     "pyshacl>=0.40.0",
     "pytest>=9.1.1",

@@ -26,20 +26,7 @@ import uuid
 from collections import defaultdict
 from typing import Any
 
-try:
-    # Guarded, same convention as capability_index.py/hypergraph.py (see
-    # tests/conftest.py's ``_is_none_numeric_shim_attribute_error``): the
-    # compiled epistemic-graph numeric kernel is genuinely absent in the lean
-    # CI ``gates`` lane (``--no-install-package epistemic-graph``). An
-    # unconditional import here made the WHOLE ``distillation`` package
-    # (including e.g. ``distillation_engine.chunk_text``, which never touches
-    # numeric arrays) fail to import in that lane, since ``__init__.py``
-    # eagerly imports this module. Dense/LSH similarity below still raises a
-    # clear error at call time if invoked without the kernel, rather than
-    # trapping every importer at module load.
-    from agent_utilities.numeric import xp as np
-except ImportError:
-    np = None  # type: ignore[assignment]
+from agent_utilities.numeric import xp
 from agent_utilities.prompts.canonical import load_canonical_prompt
 
 from .lsh_index import LSHIndex
@@ -135,23 +122,20 @@ class KnowledgeDeduplicator:
         """Dense O(n²) pairwise cosine similarity computation."""
         pairs: list[tuple[str, str, float]] = []
 
-        # Build matrix for vectorized computation
         ids = [b["id"] for b in blocks]
-        matrix = np.array([b["embedding"] for b in blocks], dtype=np.float32)
+        vectors = [[float(value) for value in b["embedding"]] for b in blocks]
 
-        # Normalize rows
-        norms = np.linalg.norm(matrix, axis=1, keepdims=True)
-        norms[norms == 0] = 1.0  # Avoid division by zero
-        normalized = matrix / norms
-
-        # Compute similarity matrix
-        sim_matrix = normalized @ normalized.T
-
-        # Extract upper triangle pairs above threshold
+        # Keep pairwise iteration explicit: the native kernel owns each
+        # bounded scalar operation while AU owns only result assembly.
         n = len(ids)
         for i in range(n):
             for j in range(i + 1, n):
-                sim = float(sim_matrix[i, j])
+                left, right = vectors[i], vectors[j]
+                left_norm = xp.linalg.norm(left)
+                right_norm = xp.linalg.norm(right)
+                if left_norm == 0 or right_norm == 0:
+                    continue
+                sim = float(xp.dot(left, right) / (left_norm * right_norm))
                 if sim >= threshold:
                     pairs.append((ids[i], ids[j], sim))
 

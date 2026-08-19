@@ -1,124 +1,125 @@
-# Numeric kernel — the `xp` backend (Analytics Program P1–P5)
+# Native numeric kernel contract
 
-`agent_utilities.numeric` exposes a numpy-compatible namespace, `xp`, that routes the
-numeric ops agent-utilities actually uses through the compiled **`eg-numeric`** kernel
-(pure-Rust faer + ndarray, BLAS/LAPACK-free). It is the **sole numeric backend**. Call
-sites use it as a drop-in:
+`agent_utilities.numeric` exposes `xp` as a deliberately thin adapter over the
+certified `epistemic_graph.numeric` extension:
 
 ```python
-from agent_utilities.numeric import xp as np   # instead of `import numpy as np`
+from agent_utilities.numeric import xp
+value = xp.sum([1.0, 2.0])
 ```
 
-Every numeric call site imports `xp`, so the body stays unchanged — only the import line
-differs from plain numpy.
+The extension owns validation, shape semantics, arithmetic, and computation.
+The adapter only converts scalar/list boundary values, invokes an allowlisted
+native function, and preserves scalar/list/tuple results. It has no array
+class, broadcasting implementation, indexing engine, or alternate numeric
+backend. If the extension is absent, importing `xp` raises `ImportError`; if
+an operation is not in the native contract, `UnsupportedNumericOperationError`
+is raised.
 
-## P5 final — the hard numpy/scipy drop (CONCEPT:AU-KG.compute.numpy-scipy-drop)
+## Native surface
 
-numpy and scipy are **fully removed from agent-utilities**. The package **imports numpy
-nowhere** and **declares it in no dependency** — `requirements.txt` and `pyproject.toml`
-carry neither numpy nor scipy. The compiled `epistemic_graph.numeric` kernel is the
-**sole numeric backend** and a **hard requirement**:
+The current AU contract is the following allowlist, matching the corresponding
+exports in `epistemic_graph.numeric`:
 
-- `from agent_utilities.numeric import xp` **raises `ImportError`** when the compiled
-  kernel is absent. There is **NO alternate numeric module or numpy fallback** for a
-  missing kernel.
-- The four scipy ops are now **native kernel exports** (engine CONCEPT:EG-KG.compute.concept-5), reached as
-  `xp.eigsh` (`scipy.sparse.linalg.eigsh`, k smallest-magnitude symmetric eigenpairs),
-  `xp.spearmanr`, `xp.ks_2samp`, and `xp.norm_ppf` / `xp.norm_pdf`
-  (`scipy.stats.norm.ppf` / `.pdf`). No scipy import remains anywhere in agent-utilities.
+- reductions/statistics: `sum`, `prod`, `mean`, `var`, `std`, `amin`, `amax`,
+  `argmin`, `argmax`, `argsort`, `cumsum`, `cumprod`, `percentile`, `quantile`;
+- element-wise: `sqrt`, `log`, `exp`, `absolute`/`abs`, `tanh`, `clip`,
+  `nan_to_num`, `isnan`, `maximum`, `minimum`, `where`;
+- vector/matrix: `norm`, `norm_ord`, `dot`, `matmul`, `solve`, `svdvals`,
+  `svd`, `eigh`, `eigsh`, `pinv`, `lstsq`, `qr`, `cholesky`, `det`, `inv`,
+  `matrix_power`;
+- statistics/distributions: `spearmanr`, `ks_2samp`, `norm_ppf`, `norm_pdf`;
+- native seeded operations: `normal`, `uniform`, `integers`, `choice_indices`,
+  `permutation_indices`, and `kmeans`.
 
-### How numpy still works without agent-utilities depending on it
+`xp.linalg` is an allowlisted view of the vector/matrix operations. It does not
+expose arbitrary extension attributes. `xp.random.default_rng(seed)` is a thin,
+deterministic adapter over the engine's seeded one-shot operations; it owns only
+a seed and draw counter and returns builtin lists. It is not a general array or
+mutable RNG implementation. In particular, `xp.array`, constructors, ufunc
+methods, and dtype/constant objects are not silently emulated.
 
-The kernel is a **rust-numpy container**: numpy lives **inside the numeric component of
-`epistemic-graph[full]`**
-as the kernel's own zero-copy interop dependency, and the compiled module re-exports
-numpy's array primitives (`ndarray`, the dtypes, `newaxis` / `pi` / `inf` / `nan`). The
-`xp` shim obtains that module from the kernel itself
-(`sys.modules[_KERNEL.ndarray.__module__]`) — **never via an `import numpy` statement**
-and **never as an agent-utilities dependency**.
+`xp.random.Generator.choice` and `shuffle` delegate selection and permutation to
+the native batch index operations. The AU boundary performs only bounded
+probability validation and maps returned indices back to caller values; it does
+not sample in Python, use modulo selection, or invoke a per-element native call.
 
-The kernel's compiled fast path is deliberately **narrow**:
+All boundary trees are bounded before recursive conversion: rank is at most 8,
+leaf elements at most 1,000,000, and container nodes at most 2,000,000. Random
+shape requests use the same rank and element-product limits, including an
+explicit zero-size result.
 
-| Op class | Kernel fast path | Otherwise |
-|----------|------------------|-----------|
-| Reductions / stats (`sum`/`mean`/`std`/`var`/`min`/`max`/…) | eligible `ndarray` / `list` / `tuple`, incl. N-D + `axis` + `keepdims` | kernel-internal numpy (pandas `Series`/`DataFrame` wrappers preserved) |
-| Element-wise (`sqrt`/`log`/`exp`/`abs`/`clip`/…) | contiguous 1-D `float64` `ndarray` / `list` | kernel-internal numpy (preserves ufunc-dispatch wrappers) |
-| Linalg (`norm`/`solve`/`svd`/`eigh`/…) | contiguous 1-D/2-D `float64` | kernel-internal numpy (`axis` norms, batched, complex) |
-| scipy ops (`eigsh`/`spearmanr`/`ks_2samp`/`norm_ppf`/`norm_pdf`) | always native kernel | — |
+## AU consumer seams and guardrails
 
-So numpy is an **internal implementation detail of the kernel** — used for the long tail
-the compiled kernel does not expose natively (the `random` Generator API, `cov`/`corrcoef`,
-`save`/`load`, axis norms, N-D element-wise, pandas-wrapped inputs) — and agent-utilities'
-whole numeric surface flows through this one module.
+The NE-153 consumer audit is complete for the bounded AU call sites. Callers
+now use explicit builtin-list loops plus the native scalar/vector operations:
 
-### Packaging
+- dataframe producers cross the boundary with `list(series)` or Arrow
+  `to_pylist()`; no pandas/polars object is passed to `xp`;
+- object-dtype and capability-index vectors cross a versioned JSON artifact
+  seam through `save_numeric_artifact`/`load_numeric_artifact`, with bounded
+  size, rank/elements, schema, digest, and symlink checks;
+- stateful random call sites use the deterministic adapter and fixed seeds;
+- unsupported constructors, arbitrary attributes, and unbounded array behavior
+  remain typed failures rather than Python-list emulation.
 
-| Where | Contents | Role |
-|-------|----------|------|
-| base `dependencies` | `epistemic-graph[full]>=2.23.2,<3.0.0` (the certified protocol range) | Full CPU features and the kernel are a hard runtime contract. There is one release artifact: the platform-specific numeric library is folded into the `epistemic-graph` wheel (`epistemic_graph.numeric`); `[full]` pulls the NumPy ABI dependency used internally through its numeric member. Release and Agent Utilities consumer CI must import the module and execute a real operation, so an incomplete wheel cannot pass merely because its metadata declares the extra. |
-| `[test]` extra | `numpy>=2.4.6` | **Dev/test-only** ground-truth reference for `tests/test_numeric_parity.py`. NEVER a runtime dependency. |
+The adapter still does not implement these general-array surfaces:
 
-- numpy/scipy are **NOT** in base `dependencies` and **NOT** in any leaf extra
-  (`finance`/`embeddings`/`ann` no longer declare them; `finance` gets numpy/scipy
-  transitively via statsmodels / hmmlearn / pandas for their own use, not agent-utilities').
-- The `numeric-fallback` extra is **deleted** — there is no fallback path any more.
-- All floors are **loose** (`>=`), never exact pins.
-- Parity is enforced: `tests/test_numeric_parity.py` asserts `np.allclose(kernel, numpy)`
-  on randomized inputs (incl. nan/inf/singular matrices), and the engine's `numeric-parity`
-  CI job gates the kernel against numpy so the two can never diverge.
+- bounded containers and constructors (`array`/`asarray`, `zeros`, `ones`,
+  `empty`, `full`, `arange`, `eye`, `diag`, `fill_diagonal`, `diff`,
+  `concatenate`, `stack`, `vstack`, `reshape`, `sort`);
+- a native container protocol for shape/size/indexing, slicing, arithmetic,
+  broadcasting, or transpose semantics;
+- `cov`, `corrcoef`, `save`, `load`, `roll`, `triu_indices`, `log2`, `any`,
+  and `allclose` as implicit compatibility surfaces;
+- dataframe/object-array coercion, dtype constants, or arbitrary extension
+  attributes.
 
-## Dev vs prod: two different install paths
+This is a guardrail, not permission to grow a Python numeric runtime in AU.
+Future callers must land an engine contract or an explicit bounded serialization
+seam before entering this facade.
 
-**Prod / published installs** pull the kernel through the mandatory base dependency:
+### Numeric artifact envelope
+
+Artifacts are regular UTF-8 JSON files no larger than 64 MiB. The exact
+top-level schema is:
+
+```json
+{
+  "schema": "eg-numeric-list-v1",
+  "values": [[1.0, 2.0]],
+  "digest": "<64 lowercase hexadecimal SHA-256 characters>"
+}
+```
+
+`digest` is SHA-256 over the canonical JSON encoding (UTF-8,
+`ensure_ascii=false`, sorted keys, compact separators, and `allow_nan=false`)
+of the `schema` and `values` members only. Loading requires the exact three
+keys, revalidates the rank/elements/node bounds, and verifies the digest before
+returning values. Save/load use descriptor-relative no-follow operations,
+reject symlinks and non-regular files, and save via a private fsynced temporary
+file followed by an atomic replacement.
+
+## Dependency contract
+
+The AU base metadata, numeric acceptance environment, and default test/guardrail
+dependency groups do not declare an external array runtime. The reconciled EG
+package metadata also declares no NumPy dependency. Numerical parity is owned
+and exercised in the producer repository at
+`crates/eg-numeric/tests/test_kernel_parity.py`; AU does not install a second
+array runtime merely to retest the producer's implementation. Finance/dataframe
+integrations remain behind the explicit `finance` extra; any transitive array
+dependency there is isolated to that optional domain profile and is not a
+numeric-kernel dependency.
+
+## Verification
+
+Focused contract tests exercise native calls, scalar/list conversion,
+deterministic random draws, artifact round-trips, and fail-closed unsupported
+operations in `tests/unit/test_numeric_facade.py`.
+The production module contains neither an `import numpy` path nor a
+`sys.modules` lookup. The focused test command is:
 
 ```bash
-pip install agent-utilities                       # base requires epistemic-graph[full]>=2.23.2,<3.0.0
-python -c "from agent_utilities.numeric import xp; print(xp.sum([1.0, 2.0]))"
+python -m pytest -q tests/unit/test_numeric_facade.py
 ```
-
-There is **ONE published package**: the `eg-numeric` Surface-A `.so` (cp39-abi3) is
-**folded into the `epistemic-graph` wheel** as `epistemic_graph.numeric`. The sole
-supported `[full]` engine profile includes numpy for the kernel's zero-copy interop.
-There is **no separate `eg-numeric` package on PyPI**.
-
-**Dev is editable and non-publishing.** Build the full epistemic-graph wheel from the
-sibling checkout and install that wheel into the development environment. The runtime
-module remains `epistemic_graph.numeric`; a top-level development module is not a
-supported package shape.
-
-```bash
-PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 maturin build --release
-python -m pip install --force-reinstall target/wheels/epistemic_graph-*.whl
-python -c "from agent_utilities.numeric import xp; print(xp.sum([1.0, 2.0]))"
-```
-
-With the kernel installed, `test_numeric_parity.py` exercises the KERNEL path against numpy as
-ground truth. Remove the engine wheel and `from agent_utilities.numeric import xp`
-raises the clean `ImportError` — proving there is no silent numpy fallback.
-
-## Honest status — the drop is complete (CONCEPT:AU-KG.compute.numpy-scipy-drop)
-
-- numpy/scipy are **gone from agent-utilities' declared dependencies and source imports**
-  (grep for `import numpy` / `import scipy` across `agent_utilities/` + `scripts/` is zero;
-  the only direct numpy import is the dev-only parity test, which `pytest.importorskip`s it).
-- The kernel is the **sole numeric backend** for `agent_utilities.numeric`; the shim is
-  **kernel-or-raise** (no fallback). GOC-73: `epistemic-graph[full]` moved from a
-  base dependency of `agent-utilities` to the opt-in `[graphos]` extra, but that
-  changes nothing about THIS module's contract — `agent_utilities.numeric` still
-  imports the kernel unconditionally at import time and raises a clear `ImportError`
-  naming `agent-utilities[graphos]` when it is absent. Only subpackages that never
-  import `agent_utilities.numeric` (most of `knowledge_graph`, `server`, `core`,
-  `security`, `gateway`, `observability`, `models`, `mcp`, `sdd`, `orchestration`) get
-  to run with the engine absent.
-- numpy persists ONLY as an **internal detail of the kernel** (rust-numpy) — reached through
-  the kernel, not through an agent-utilities import — serving the long-tail array ops the
-  compiled kernel does not yet expose natively.
-
-### Candidates for future native kernel ops
-
-To shrink the kernel-internal-numpy tail to zero, the kernel would need to natively expose:
-a seeded **`random` Generator** surface (`default_rng` → `normal`/`uniform`/`integers`/
-`choice`/`shuffle`/`standard_normal`/`random`; the module-level seeded `normal`/`uniform`/
-`integers` already exist), **`cov`/`corrcoef`**, **`save`/`load`** (`.npy`), axis-aware
-**`linalg.norm`**, and N-D element-wise (`sqrt`/`log`/`exp`/`clip`/…). Until then the shim
-routes those through the kernel's bundled numpy — correct and parity-clean, just not compiled.

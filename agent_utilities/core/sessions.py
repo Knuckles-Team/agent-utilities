@@ -460,7 +460,9 @@ def _load_goal_entry(engine: Any, goal_id: str) -> dict[str, Any] | None:
     return None
 
 
-def _list_goal_entries(engine: Any, *, limit: int = 200) -> list[dict[str, Any]]:
+def _list_goal_entries(
+    engine: Any, *, limit: int = 200, raise_on_error: bool = False
+) -> list[dict[str, Any]]:
     """List goal records from the KG — develop Loops that carry a ``session_id``."""
     try:
         rows = engine.query_cypher(
@@ -468,8 +470,13 @@ def _list_goal_entries(engine: Any, *, limit: int = 200) -> list[dict[str, Any]]
             "LIMIT $limit",
             {"limit": int(limit)},
         )
-    except Exception as e:  # noqa: BLE001 — read-only: list_goals() merges this with the in-memory active_goals dict, so a failure here silently omits durable/other-host goals from the response rather than erroring; no goal state is mutated, and repeated polling recovers once the KG query succeeds
-        logger.debug(f"goal KG list failed: {e}")
+    except Exception as e:  # noqa: BLE001 — supervisory callers opt into distinguishing an unreadable authority from an empty registry
+        if raise_on_error:
+            logger.error("goal KG list failed (%s)", type(e).__name__)
+        else:
+            logger.debug("goal KG list failed (%s)", type(e).__name__)
+        if raise_on_error:
+            raise
         return []
     entries: list[dict[str, Any]] = []
     for row in rows or []:
@@ -503,13 +510,12 @@ def rehydrate_goals() -> int:
     with _rehydrate_lock:
         if _rehydrated:
             return 0
-        _rehydrated = True
         stranded = 0
         engine = _goal_engine()
         if engine is None:
             return 0
         try:
-            for entry in _list_goal_entries(engine):
+            for entry in _list_goal_entries(engine, raise_on_error=True):
                 gid = entry.get("goal_id")
                 status = str(entry.get("status") or "")
                 if not gid or gid in background_goal_runs:
@@ -539,7 +545,9 @@ def rehydrate_goals() -> int:
                     status,
                 )
         except Exception as e:  # noqa: BLE001
-            logger.error(f"Goal rehydration failed: {e}")
+            logger.error("Goal rehydration failed (%s)", type(e).__name__)
+            raise
+        _rehydrated = True
         return stranded
 
 

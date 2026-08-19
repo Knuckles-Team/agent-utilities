@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-384 publishable pages · 193 direct nav targets · 128 public capabilities · 865 action rows · 563 typed configuration fields · 365 runtime-only call-site inputs.
+387 publishable pages · 195 direct nav targets · 129 public capabilities · 873 action rows · 568 typed configuration fields · 365 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -86,7 +86,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [MCP fleet authentication and monitoring runbook](../guides/mcp-fleet-auth-and-monitoring-runbook.md) — direct nav
 - [MCP Tool Modes — intent, condensed, verbose, or both](../guides/mcp-tool-modes.md) — direct nav
 - [Multi-Model Registry & Configuration](../guides/models.md) — catalog
-- [Numeric kernel — the xp backend (Analytics Program P1–P5)](../guides/numeric-kernel.md) — direct nav
+- [AU native numeric call-site gap report](../guides/numeric-kernel-callsite-gaps.md) — catalog
+- [Native numeric kernel contract](../guides/numeric-kernel.md) — direct nav
 - [OAuth 2.0 / OIDC SSO Authentication Guide](../guides/oauth_sso.md) — catalog
 - [Usage, Cost & Observability](../guides/observability-usage-tracking.md) — direct nav
 - [CONCEPT:AU-OS.config.secrets-authentication — Permissions Kernel](../guides/permissions-kernel.md) — catalog
@@ -166,6 +167,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Configuration Reference & Flag Audit](../architecture/configuration.md) — direct nav
 - [Containerized deployment](../architecture/containerized-deployment.md) — direct nav
 - [Content-Aware Ingestion (ArchiveBox · crawl4ai · scholarx)](../architecture/content-aware-ingestion.md) — direct nav
+- [Arrow data-preparation kernel](../architecture/data-prep-arrow-kernel.md) — direct nav
 - [The delegation-first operating model — local LLM + graph-os do the work; the harness orchestrates + resolves exceptions](../architecture/delegation-first-operating-model.md) — direct nav
 - [Distributed multi-GPU concurrency & optimal planning](../architecture/distributed_gpu_concurrency.md) — direct nav
 - [Document → Knowledge-Graph Fact Extraction](../architecture/document_fact_extraction.md) — direct nav
@@ -252,6 +254,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — direct nav
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — direct nav
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — direct nav
+- [Relational authority and registry read model](../architecture/relational-authority.md) — direct nav
 - [Repository-development WorkItem authority](../architecture/repository-workitem-authority.md) — direct nav
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — direct nav
 - [Runtime-Reliability Loop — detect → signal → gap → heal](../architecture/runtime-reliability-loop.md) — direct nav

@@ -105,6 +105,7 @@ nav:
       - Merge Queue (continuous merge, tiered gate): architecture/merge-queue.md
       - Repository-development WorkItem authority: architecture/repository-workitem-authority.md
       - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
+      - Optional Operator Data-Quality Certification: architecture/data-quality-certification.md
       - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
       - FrontendContribution.v1 (package-authored WebUI descriptors): architecture/frontend-contributions.md
       - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md
@@ -160,6 +161,7 @@ nav:
       - GeniusBot Cockpit: pillars/6_geniusbot_cockpit.md
   - Architecture:
       - North-Star Architecture (the whole program): architecture/north-star-architecture.md
+      - Arrow data-preparation kernel: architecture/data-prep-arrow-kernel.md
       - Epistemic OS Hardening (Phase 0-2 + Exceed X-series): architecture/epistemic-os-hardening.md
       - Epistemic Operations Protocol: architecture/epistemic-operations-protocol.md
       - AIF Argumentation (I-nodes/S-nodes → Dung acceptability): architecture/aif-argumentation.md
@@ -179,6 +181,7 @@ nav:
       - KV-Cache-Layering Policy (per-execution cache-worthiness): architecture/kv-cache-layering-policy.md
       - KV-Checkpoint Intelligence (when to freeze a context, RAM vs disk): architecture/kv-checkpoint-intelligence.md
       - Intelligent Ingestion (classify/commit-history/tail): architecture/intelligent-ingestion.md
+      - Real Data-Preparation Acceptance (NE-115): architecture/data-prep-acceptance.md
       - Evidence Spine (Artifact → addressable Fragment): architecture/evidence-spine.md
       - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
       - Containerized Deployment (microservices): architecture/containerized-deployment.md
@@ -229,6 +232,7 @@ nav:
       - Model Registry as Graph Resources + Routing Provenance: architecture/model_registry_graph_resources.md
       - Edit-Application Engine: architecture/edit_application_engine.md
       - Durable-State Externalization: architecture/state_externalization.md
+      - Relational Authority & Registry Read Model: architecture/relational-authority.md
       - Durable Execution (unified plane, supersedes restate): architecture/durable-execution.md
       - Adaptive Model Concurrency (vLLM auto-scale): architecture/adaptive_model_concurrency.md
       - Distributed Multi-GPU Concurrency: architecture/distributed_gpu_concurrency.md
@@ -259,6 +263,7 @@ nav:
       - Verified Identity Carrier Contract (GOC-15): architecture/verified-identity-carrier-contract.md
       - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
       - Capacity Model: scaling/capacity_model.md
+      - Arrow Data Preparation & Profiling: architecture/data-prep-arrow-kernel.md
   - Reference:
       - Documentation Catalog (generated): reference/documentation-catalog.md
       - Metrics Reference: reference/metrics.md

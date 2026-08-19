@@ -12,19 +12,7 @@ novel edge intersections based purely on their structural positional interaction
 import logging
 import math
 
-try:
-    from agent_utilities.numeric import NDArray
-    from agent_utilities.numeric import xp as np
-except (
-    ImportError
-):  # numeric kernel absent (e.g. lean messaging install without the compiled
-    # epistemic_graph.numeric .so) — a socket-listener that never runs EncPI must still import
-    # cleanly. ``np``/``NDArray`` fall back; EncPI call sites fail loudly at call time. Mirrors
-    # retrieval/capability_index.py + retrieval/temporal_semantic_id.py.
-    from typing import Any
-
-    NDArray = Any  # type: ignore[assignment,misc]
-    np = None  # type: ignore[assignment]
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
@@ -59,25 +47,33 @@ class PositionalInteractionEncoder:
 
         # We use a fixed seed so the positional interactions are deterministic
         # across agent restarts, allowing them to be stably stored in the graph DB.
-        rng = np.random.default_rng(self.seed)
+        rng = xp.random.default_rng(self.seed)
 
         # 2-layer MLP weights
         # Input size is pos_dim * 2 (concatenated pos_a and pos_b)
         in_dim = pos_dim * 2
 
         # He initialization for ReLU
-        self.W1 = rng.standard_normal((in_dim, hidden_dim)) * np.sqrt(2.0 / in_dim)
-        self.b1 = np.zeros(hidden_dim)
+        scale_1 = math.sqrt(2.0 / in_dim)
+        self.W1 = [
+            [value * scale_1 for value in row]
+            for row in rng.standard_normal((in_dim, hidden_dim))
+        ]
+        self.b1 = [0.0] * hidden_dim
 
-        self.W2 = rng.standard_normal((hidden_dim, out_dim)) * np.sqrt(2.0 / hidden_dim)
-        self.b2 = np.zeros(out_dim)
+        scale_2 = math.sqrt(2.0 / hidden_dim)
+        self.W2 = [
+            [value * scale_2 for value in row]
+            for row in rng.standard_normal((hidden_dim, out_dim))
+        ]
+        self.b2 = [0.0] * out_dim
 
     def _sinusoidal_encoding(self, pos: int) -> NDArray:
         """Generates sinusoidal positional encoding for a given integer position.
 
         Similar to Transformer positional encodings, maps an integer to a dense vector.
         """
-        encoding = np.zeros(self.pos_dim)
+        encoding = [0.0] * self.pos_dim
         # We handle even and odd indices
         for i in range(0, self.pos_dim, 2):
             denominator = 10000 ** (i / self.pos_dim)
@@ -87,7 +83,7 @@ class PositionalInteractionEncoder:
         return encoding
 
     def _relu(self, x: NDArray) -> NDArray:
-        return np.maximum(0, x)
+        return [max(0.0, float(value)) for value in x]
 
     def encode_interaction(self, pos_a: int, pos_b: int) -> list[float]:
         """Encodes the interaction between two positions in a relation graph.
@@ -104,15 +100,17 @@ class PositionalInteractionEncoder:
         pb = self._sinusoidal_encoding(pos_b)
 
         # Concatenate [pa || pb]
-        x = np.concatenate([pa, pb])
+        x = pa + pb
 
         # MLP forward pass
         # Layer 1
-        z1 = np.dot(x, self.W1) + self.b1
+        z1 = xp.matmul([x], self.W1)[0]
+        z1 = [value + bias for value, bias in zip(z1, self.b1, strict=True)]
         a1 = self._relu(z1)
 
         # Layer 2
-        z2 = np.dot(a1, self.W2) + self.b2
+        z2 = xp.matmul([a1], self.W2)[0]
+        z2 = [value + bias for value, bias in zip(z2, self.b2, strict=True)]
 
         # Return as list of floats
-        return z2.tolist()
+        return [float(value) for value in z2]

@@ -35,38 +35,17 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from agent_utilities.core import sessions as _sessions
+from agent_utilities.orchestration.fleet_health import (
+    _domain_sql,
+    collect_fleet_health,
+    health_payload,
+    mark_dependency_failure,
+)
 from agent_utilities.security.error_surface import public_error_payload
 
 logger = logging.getLogger(__name__)
 
-# Statuses that count as "unhealthy" when computing per-domain error rates.
-_ERROR_STATUSES = ("failed", "error", "cancelled")
-_ACTIVE_STATUSES = ("active", "running")
-
 _MAX_PAGE = 1000
-
-
-def _domain_sql(dialect: str) -> str:
-    """SQL expression deriving a session's enterprise domain from its metadata.
-
-    Mirrors the old per-row Python ``_domain_of`` (domain → team → tenant →
-    'default') so aggregation can run in the database on both backends
-    (CONCEPT:AU-OS.state.fleet-supervisory-plane-at). Malformed/empty metadata degrades to 'default'.
-    """
-    if dialect == "postgres":
-
-        def j(key: str) -> str:
-            return f"NULLIF(metadata_json::jsonb ->> '{key}', '')"
-
-        valid = "pg_input_is_valid(metadata_json, 'jsonb')"
-    else:
-
-        def j(key: str) -> str:
-            return f"NULLIF(json_extract(metadata_json, '$.{key}'), '')"
-
-        valid = "json_valid(metadata_json)"
-    coalesce = f"COALESCE({j('domain')}, {j('team')}, {j('tenant')}, 'default')"
-    return f"CASE WHEN {valid} THEN {coalesce} ELSE 'default' END"
 
 
 def _tenant_sql(dialect: str) -> str:
@@ -158,10 +137,6 @@ def _fetch_sessions(
         conn.close()
 
 
-def _sql_in(values: tuple[str, ...]) -> str:
-    return "(" + ", ".join(f"'{v}'" for v in values) + ")"
-
-
 def _multi_host_state() -> bool:
     """True when sessions may be owned by other hosts (state externalized)."""
     from agent_utilities.core.state_store import postgres_state_enabled
@@ -170,72 +145,30 @@ def _multi_host_state() -> bool:
 
 
 async def fleet_health(request: Request) -> JSONResponse:
-    """Aggregate swarm-health: counts + per-domain error rates (SQL aggregates)."""
-    try:
-        _sessions.rehydrate_goals()
-    except Exception:  # noqa: BLE001 — health must answer even if rehydrate fails
-        pass
-    by_status: dict[str, int] = {}
-    domains: dict[str, dict[str, float]] = {}
-    total = 0
-    conn = _sessions._connect_db()
-    try:
-        cur = conn.cursor()
-        scope_sql, scope_params = _tenant_scope(conn.dialect)
-        where = f" WHERE {scope_sql}" if scope_sql else ""
-        cur.execute(
-            f"SELECT status, COUNT(*) FROM sessions{where} GROUP BY status",  # nosec B608 — scope_sql is a dialect constant
-            scope_params,
-        )
-        for row in cur.fetchall():
-            by_status[str(row[0] or "unknown")] = int(row[1])
-        total = sum(by_status.values())
+    """Aggregate swarm health from the shared fail-closed evidence collector."""
 
-        dom = _domain_sql(conn.dialect)
-        cur.execute(
-            f"""
-            SELECT {dom} AS domain,
-                   COUNT(*) AS total,
-                   SUM(CASE WHEN status IN {_sql_in(_ACTIVE_STATUSES)} THEN 1 ELSE 0 END) AS active,
-                   SUM(CASE WHEN status IN {_sql_in(_ERROR_STATUSES)} THEN 1 ELSE 0 END) AS errored
-            FROM sessions{where} GROUP BY 1
-            """,  # nosec B608 — all interpolations are module constants
-            scope_params,
-        )
-        for row in cur.fetchall():
-            n_total = int(row[1])
-            errored = int(row[3])
-            domains[str(row[0])] = {
-                "total": n_total,
-                "active": int(row[2]),
-                "errored": errored,
-                "error_rate": round(errored / n_total, 4) if n_total else 0.0,
-            }
-    finally:
-        conn.close()
-
-    active_goals = getattr(_sessions, "active_goals", {})
+    snapshot = collect_fleet_health(scope_resolver=_tenant_scope)
     return JSONResponse(
-        {
-            "generated_at": time.time(),
-            "sessions": {"total": total, "by_status": by_status},
-            "goals": {
-                "active": len(getattr(_sessions, "background_goal_runs", {})),
-                "tracked": len(active_goals),
-            },
-            "domains": domains,
-        }
+        health_payload(snapshot),
+        status_code=200 if snapshot.evidence.ready else 503,
+        headers={"Cache-Control": "no-store"},
     )
 
 
 async def fleet_topology(request: Request) -> JSONResponse:
     """Live agent/team topology grouped by enterprise domain (paginated)."""
-    try:
-        _sessions.rehydrate_goals()
-    except Exception:  # noqa: BLE001
-        pass
+    snapshot = collect_fleet_health(scope_resolver=_tenant_scope)
     limit, offset, status = _page_params(request)
-    rows = _fetch_sessions(status=status, limit=limit, offset=offset)
+    rows: list[dict[str, Any]] = []
+    if snapshot.evidence.convergence_ready:
+        try:
+            rows = _fetch_sessions(status=status, limit=limit, offset=offset)
+        except PermissionError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - late page reads remain typed and fail closed
+            snapshot = mark_dependency_failure(
+                snapshot, "control_store", "control_store.topology_page", exc
+            )
     domains: dict[str, dict[str, Any]] = {}
     for s in rows:
         dom = domains.setdefault(s["domain"], {"domain": s["domain"], "sessions": []})
@@ -249,47 +182,41 @@ async def fleet_topology(request: Request) -> JSONResponse:
             }
         )
 
-    # Totals from SQL aggregates, not the returned page (CONCEPT:AU-OS.state.fleet-supervisory-plane-at).
-    conn = _sessions._connect_db()
-    try:
-        cur = conn.cursor()
-        scope_sql, scope_params = _tenant_scope(conn.dialect)
-        where = f" WHERE {scope_sql}" if scope_sql else ""
-        cur.execute(
-            f"SELECT COUNT(*) FROM sessions{where}",  # nosec B608 — scope_sql is a dialect constant
-            scope_params,
-        )
-        row = cur.fetchone()
-        total_sessions = int(row[0]) if row else 0
-    finally:
-        conn.close()
-
-    # Queue-driven dispatch placement (CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch): live agent-dispatch
-    # workers (fresh heartbeats in this same store) — which host runs what.
-    try:
-        from agent_utilities.orchestration.agent_dispatch import (
-            list_dispatch_workers,
-        )
-
-        dispatch_workers = list_dispatch_workers()
-    except Exception:  # noqa: BLE001 — topology must answer without the registry
-        dispatch_workers = []
-
+    # Totals come from the same SQL aggregate evidence, never from the returned
+    # page. ``None`` is intentional when the authoritative read was not safe.
+    total_sessions = (
+        snapshot.sessions.get("total") if snapshot.sessions is not None else None
+    )
     active_goals = getattr(_sessions, "active_goals", {})
+    goals = (
+        _sessions.make_serializable(list(active_goals.values()))
+        if snapshot.goals is not None and hasattr(_sessions, "make_serializable")
+        else None
+    )
+    workers = snapshot.dispatch_workers
+    payload = {
+        "generated_at": snapshot.evidence.generated_at,
+        "domains": list(domains.values())
+        if snapshot.evidence.convergence_ready
+        else None,
+        "goals": goals,
+        "dispatch_workers": workers,
+        "totals": {
+            "domains": len(domains) if snapshot.evidence.convergence_ready else None,
+            "sessions": total_sessions,
+            "dispatch_workers": len(workers) if workers is not None else None,
+        },
+        "page": {
+            "limit": limit,
+            "offset": offset,
+            "returned": len(rows) if snapshot.evidence.convergence_ready else None,
+        },
+        "evidence": snapshot.evidence.model_dump(mode="json"),
+    }
     return JSONResponse(
-        {
-            "domains": list(domains.values()),
-            "goals": _sessions.make_serializable(list(active_goals.values()))
-            if hasattr(_sessions, "make_serializable")
-            else [],
-            "dispatch_workers": dispatch_workers,
-            "totals": {
-                "domains": len(domains),
-                "sessions": total_sessions,
-                "dispatch_workers": len(dispatch_workers),
-            },
-            "page": {"limit": limit, "offset": offset, "returned": len(rows)},
-        }
+        payload,
+        status_code=200 if snapshot.evidence.ready else 503,
+        headers={"Cache-Control": "no-store"},
     )
 
 

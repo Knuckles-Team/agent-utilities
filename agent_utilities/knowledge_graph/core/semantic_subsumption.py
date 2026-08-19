@@ -11,7 +11,7 @@ from agent_utilities.models.knowledge_graph import (
     RegistryNode,
     SubsumptionAlignmentNode,
 )
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import xp
 
 
 class SemanticSubsumptionEngine:
@@ -40,16 +40,16 @@ class SemanticSubsumptionEngine:
         if not vec_a or not vec_b:
             return 0.0
 
-        a = np.array(vec_a)
-        b = np.array(vec_b)
+        a = [float(value) for value in vec_a]
+        b = [float(value) for value in vec_b]
 
-        norm_a = np.linalg.norm(a)
-        norm_b = np.linalg.norm(b)
+        norm_a = xp.linalg.norm(a)
+        norm_b = xp.linalg.norm(b)
 
         if norm_a == 0 or norm_b == 0:
             return 0.0
 
-        return float(np.dot(a, b) / (norm_a * norm_b))
+        return float(xp.dot(a, b) / (norm_a * norm_b))
 
     def _get_lineage(self, class_name: str) -> list[str]:
         """Recursively builds the subsumption lineage for a class."""

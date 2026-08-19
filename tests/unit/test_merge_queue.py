@@ -545,7 +545,10 @@ def test_prune_without_repository_manager_refuses_an_unknown_branch(
         candidate, repo_name="canonical", base="main", repo=canonical
     )
     assert result["pruned"] is False
-    assert result["accelerator"] == "inline (repository-manager not importable)"
+    assert (
+        result["accelerator"]
+        == "inline (repository-manager's remove() is never used — NE-058)"
+    )
     assert "does not exist" in result["reason"]
 
 
@@ -569,7 +572,10 @@ def test_prune_without_repository_manager_deletes_a_genuinely_landed_branch(
     )
 
     assert result["pruned"] is True
-    assert result["accelerator"] == "inline (repository-manager not importable)"
+    assert (
+        result["accelerator"]
+        == "inline (repository-manager's remove() is never used — NE-058)"
+    )
     assert not lane.exists()  # worktree removed
     assert _run(["git", "branch", "--list", "lane-a"], canonical) == ""  # ref deleted
     # anchored before deletion — the commit is still reachable, never orphaned

@@ -2,7 +2,7 @@
 """Designation-eval gate (Plan 04 Step 6 / Plan 10 — capability-filter value).
 
 Proves that *capability filtering* genuinely improves designation quality over
-pure *embedding-only* ranking on a frozen, fully synthetic corpus (seeded numpy
+pure *embedding-only* ranking on a frozen, fully synthetic corpus (seeded native
 vectors — no network, no embedding model).
 
 The corpus is built so that capability filtering must help: for each topical
@@ -49,7 +49,8 @@ if str(_PKG_ROOT) not in sys.path:
 from agent_utilities.knowledge_graph.retrieval.capability_index import (  # noqa: E402
     CapabilityIndex,
 )
-from agent_utilities.numeric import xp as np  # noqa: E402
+from agent_utilities.numeric import RandomGenerator  # noqa: E402
+from agent_utilities.numeric import xp as np
 
 DIM = 32
 K = 5
@@ -67,21 +68,25 @@ MARGIN = 0.10
 SEED = 20240601
 
 
-def _centroid(cluster: int) -> np.ndarray:
+def _centroid(cluster: int) -> list[float]:
     """Cluster centroid — a near-one-hot vector active on two cluster dims.
 
     Distractors share this centroid, so embedding similarity alone cannot tell
     correct tools from distractors; only the capability tag can.
     """
-    vec = np.full(DIM, 0.01, dtype=np.float32)
+    vec = [0.01] * DIM
     vec[(2 * cluster) % DIM] = 1.0
     vec[(2 * cluster + 1) % DIM] = 1.0
     return vec
 
 
-def _jitter(base: np.ndarray, scale: float, rng: np.random.Generator) -> np.ndarray:
-    noise = rng.normal(0.0, scale, size=DIM).astype(np.float32)
-    return (base + noise).astype(np.float32)
+def _jitter(base: list[float], scale: float, rng: RandomGenerator) -> list[float]:
+    noise = rng.normal(0.0, scale, size=DIM)
+    if not isinstance(noise, list) or len(noise) != DIM:
+        raise TypeError("native random kernel returned an invalid jitter vector")
+    return [
+        float(value) + float(delta) for value, delta in zip(base, noise, strict=True)
+    ]
 
 
 def build_corpus(*, degrade: bool = False) -> tuple[CapabilityIndex, list[dict]]:
@@ -95,7 +100,7 @@ def build_corpus(*, degrade: bool = False) -> tuple[CapabilityIndex, list[dict]]
     can no longer separate correct tools from the co-located distractors.
     """
     rng = np.random.default_rng(SEED)
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     queries: list[dict] = []
 
     for c in range(N_CLUSTERS):
@@ -160,8 +165,8 @@ def evaluate(
         recalls.append(recall)
         rrs.append(rr)
     return {
-        "recall_at_k": float(np.mean(recalls)) if recalls else 0.0,
-        "mrr": float(np.mean(rrs)) if rrs else 0.0,
+        "recall_at_k": sum(recalls) / len(recalls) if recalls else 0.0,
+        "mrr": sum(rrs) / len(rrs) if rrs else 0.0,
         "k": k,
         "n_queries": len(queries),
     }

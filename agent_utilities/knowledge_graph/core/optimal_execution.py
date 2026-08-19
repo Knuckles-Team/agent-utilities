@@ -40,8 +40,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
@@ -371,7 +370,7 @@ class CarteaJaimungalExecutor:
         # Solve Riccati ODE backward: h'(t) = -(φ + σ²h²(t)/(2η))
         # with h(T) = terminal_penalty
         # Using Euler method (backward in time)
-        h = np.zeros(n_steps + 1)
+        h = [0.0] * (n_steps + 1)
         h[-1] = terminal_penalty
 
         for i in range(n_steps - 1, -1, -1):
@@ -523,7 +522,7 @@ class CointegrationPairsTrader:
             Dict with estimated θ (mean_reversion_speed), μ (long_term_mean),
             σ (volatility), and half_life.
         """
-        series = np.array(spread_series, dtype=np.float64)
+        series = [float(value) for value in spread_series]
         if len(series) < 10:
             return {"theta": 0.0, "mu": 0.0, "sigma": 0.0, "half_life": float("inf")}
 
@@ -533,10 +532,12 @@ class CointegrationPairsTrader:
         len(x)
 
         # OLS regression
-        x_mean = x.mean()
-        y_mean = y.mean()
-        ss_xx = np.sum((x - x_mean) ** 2)
-        ss_xy = np.sum((x - x_mean) * (y - y_mean))
+        x_mean = float(xp.mean(x))
+        y_mean = float(xp.mean(y))
+        ss_xx = sum((value - x_mean) ** 2 for value in x)
+        ss_xy = sum(
+            (left - x_mean) * (right - y_mean) for left, right in zip(x, y, strict=True)
+        )
 
         if ss_xx == 0:
             return {
@@ -550,8 +551,10 @@ class CointegrationPairsTrader:
         a = y_mean - b * x_mean
 
         # Residual volatility
-        residuals = y - (a + b * x)
-        sigma_res = float(np.std(residuals))
+        residuals = [
+            observed - (a + b * value) for observed, value in zip(y, x, strict=True)
+        ]
+        sigma_res = float(xp.std(residuals))
 
         # Convert AR(1) to OU parameters
         # b = e^(-θΔt) ≈ 1 - θΔt for small θΔt
@@ -559,7 +562,7 @@ class CointegrationPairsTrader:
             # No mean reversion
             return {
                 "theta": 0.0,
-                "mu": float(np.mean(series)),
+                "mu": float(xp.mean(series)),
                 "sigma": sigma_res,
                 "half_life": float("inf"),
             }
@@ -688,7 +691,7 @@ class SignalAdaptiveExecutor:
 
             # Urgency adjustment: accelerate when signal is negative (unfavorable)
             # Decelerate when signal is positive (favorable)
-            adjustment = 1.0 - signal_weight * np.tanh(signal)
+            adjustment = 1.0 - signal_weight * math.tanh(signal)
             adjusted_qty = qty * adjustment
             adjusted_schedule.append((t, adjusted_qty))
 
@@ -708,6 +711,6 @@ class SignalAdaptiveExecutor:
             parameters={
                 **base_plan.parameters,
                 "signal_weight": signal_weight,
-                "signal_mean": float(np.mean(signal_values)) if signal_values else 0.0,
+                "signal_mean": float(xp.mean(signal_values)) if signal_values else 0.0,
             },
         )

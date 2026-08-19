@@ -602,8 +602,23 @@ class ContextCompiler:
         with use_session(session):
             search_hybrid = getattr(self.engine, "search_hybrid", None)
             if self._retriever is None and callable(search_hybrid):
+                # NE-050: thread the verified session through so
+                # ``search_hybrid`` (and, inside it, ``retrieve_hybrid``)
+                # ACL/owner/scope-filters the RAW candidate pool BEFORE its
+                # own internal rank/score-gate/trim — not just after
+                # ``compile()``'s later ``enforce()`` pass over whatever this
+                # call already trimmed to ``top_k``. Without this, a denied
+                # high-score node can consume one of the ``top_k`` slots
+                # returned here, silently crowding out an authorized
+                # lower-scored node that never reaches ``compile()``'s own
+                # policy filter at all (the ACL-before-rank invariant
+                # ``search_hybrid``/``retrieve_hybrid`` already enforce for
+                # every OTHER caller that passes a session).
                 nodes = list(
-                    search_hybrid(query, top_k=top_k, as_of=as_of or None) or []
+                    search_hybrid(
+                        query, top_k=top_k, as_of=as_of or None, session=session
+                    )
+                    or []
                 )
                 # ``last_quality_report`` is set synchronously inside the call
                 # just above and read back immediately on this same call
@@ -623,12 +638,17 @@ class ContextCompiler:
                     "ContextCompiler needs an engine with `search_hybrid`/"
                     "`retrieve_hybrid`, or an explicit `hybrid_retriever=`."
                 )
+            # Same NE-050 rationale as the ``search_hybrid`` branch above:
+            # the bare-retriever fallback must ACL-filter its raw candidate
+            # pool before ITS OWN internal trim to ``context_window`` too, or
+            # this path reintroduces the identical crowd-out gap.
             nodes = list(
                 source.retrieve_hybrid(
                     query,
                     context_window=top_k,
                     as_of=as_of,
                     skip_quality_gate=True,
+                    session=session,
                 )
                 or []
             )

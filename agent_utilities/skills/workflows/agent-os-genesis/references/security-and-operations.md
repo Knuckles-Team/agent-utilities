@@ -80,6 +80,17 @@ The rule that makes all of this worth the effort: **a signed-but-stale artifact 
 strictly worse than an unsigned one, because it manufactures trust nothing
 reviewed.** Never regenerate signatures over drifted content to make a gate pass.
 
+**A different "signer," easy to conflate with the one above:** au's own background
+daemons authenticate to the engine using a *separate* shared-HMAC "signer" concept —
+an engine-side trusted-signer registry that authorizes registering identities and
+granting RBAC roles, not signing build artifacts. It is not scoped by the engine to
+any particular role a signer may grant, it is a symmetric secret with no rotation
+overlap window by default, and on this platform's default configuration it can be
+stored in the very store it authorizes writes to. Provisioning it is a Phase 5 step
+in its own right, not a variant of artifact signing above. Read
+[engine-identity-admission.md](engine-identity-admission.md) before provisioning,
+diagnosing, or rotating it.
+
 ## Network and permissions
 
 Default-deny inbound and egress where the runtime supports it. Allow only declared

@@ -25,7 +25,7 @@ seed, that each one beats the round-tripped / flat baseline it replaces:
   query neighbourhood (higher is better) — the structured-prior analogue of Mirage's
   depth-guided back-projection.
 
-Both tasks are deterministic, CPU-only, dependency-light (numpy + the deterministic
+Both tasks are deterministic, CPU-only, dependency-light (native numeric kernel + the deterministic
 code paths of the two modules), so :func:`run_all` is bit-for-bit reproducible. The
 ``BenchmarkResult``/``_make_result``/``to_markdown`` shapes are reused from the
 sibling assimilation-parity suite so the gateway/MCP reporting block is identical.
@@ -38,8 +38,7 @@ from agent_utilities.harness.assimilation_benchmark import (
 )
 from agent_utilities.knowledge_graph.core.world_model import WorldModel
 from agent_utilities.knowledge_graph.retrieval.capability_index import CapabilityIndex
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 __all__ = [
     "BenchmarkResult",
@@ -117,11 +116,12 @@ def bench_ontology_prior_retrieval(*, seed: int = 0) -> BenchmarkResult:
     """
     del seed  # vectors are fixed for reproducibility
     dim = 8
-    e = np.eye(dim, dtype=np.float32)
+    e = [[1.0 if row == column else 0.0 for column in range(dim)] for row in range(dim)]
 
     def vec(tilt_dim: int, tilt: float) -> NDArray:
-        v = e[0] + tilt * e[tilt_dim]
-        return v / np.linalg.norm(v)
+        v = [base + tilt * axis for base, axis in zip(e[0], e[tilt_dim], strict=True)]
+        norm = float(xp.linalg.norm(v))
+        return [value / norm for value in v]
 
     # (id, type, off-axis dim, tilt magnitude). Smaller tilt => higher cosine to q.
     candidates = [
@@ -131,11 +131,11 @@ def bench_ontology_prior_retrieval(*, seed: int = 0) -> BenchmarkResult:
         ("doc-3", "Document", 4, 0.16),
         ("wid-2", "Widget", 5, 0.40),
     ]
-    index = CapabilityIndex(dim=dim, prefer_backend="numpy")
+    index = CapabilityIndex(dim=dim, prefer_backend="native")
     for cid, ctype, td, tilt in candidates:
         index.add(cid, vec(td, tilt), capabilities=["answer"], node_type=ctype)
 
-    query = e[0].tolist()
+    query = e[0]
     modal_type = "Document"
     k = 3
 

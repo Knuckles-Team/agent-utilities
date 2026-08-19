@@ -20,11 +20,11 @@ should handle it?* It does so in two stages:
    similarity between the prompt embedding and each entity's embedding, using
    an approximate-nearest-neighbour (ANN) index when available.
 
-The ANN backend is chosen automatically and transparently:
+The ANN backend is chosen automatically:
 
 * ``hnswlib`` (``backend == "hnsw"``) when importable — an O(log N) HNSW index.
-* a numpy cosine-similarity brute-force ranker (``backend == "numpy"``)
-  otherwise.
+* the certified native numeric kernel's bounded cosine ranker
+  (``backend == "native"``) otherwise.
 
 The public API never requires a network call: ``designate()`` accepts a raw
 prompt-embedding vector, so callers (and tests) may pass synthetic vectors.
@@ -41,7 +41,7 @@ queried directly with capability/tenant/policy filters composed into one
 not a designation fallback; it remains an explicit in-process learner used by
 the object-index funnel, the facade, ``OutcomeRouter``, and ``ReasonerRouter``.
 Passing ``bounded_cache_size`` customizes its finite LRU bound (:meth:`remove` is called
-on the evicted id so no backend — HNSW or numpy — grows without bound). The
+on the evicted id so no backend — HNSW or native — grows without bound). The
 default is finite for every consumer, including ``OutcomeRouter`` and
 ``ReasonerRouter``.
 
@@ -58,28 +58,26 @@ ontology, otherwise the bundled current hierarchy is resolved automatically.
 import hashlib
 import json
 import logging
+import math
 import os
 import secrets
+import stat
 import tempfile
 from collections import OrderedDict
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .embedding_versioning import EmbeddingVersionMismatchError
+from agent_utilities.numeric import (
+    NDArray,
+    UnsupportedNumericOperationError,
+    load_numeric_artifact,
+    save_numeric_artifact,
+    to_builtin,
+    xp,
+)
 
-try:
-    from agent_utilities.numeric import NDArray
-    from agent_utilities.numeric import xp as np
-except ImportError:
-    # epistemic-graph[numeric] kernel absent (lean/headless/CI import without the
-    # `[numeric]`/`[graphos]` extra). Keep this module IMPORTABLE — gates and tools
-    # that only reference the class/structure (e.g. check_retrieval_quality) must not
-    # fail. `NDArray` is a pure type alias (Any); the ANN/vector code paths below use
-    # `np` and require the kernel — they raise a clear error at call time if invoked
-    # without it, rather than trapping every importer at module load.
-    NDArray = Any  # type: ignore[assignment,misc]
-    np: Any = None  # type: ignore[no-redef]
+from .embedding_versioning import EmbeddingVersionMismatchError
 
 logger = logging.getLogger(__name__)
 
@@ -111,22 +109,64 @@ def _atomic_private_write(directory: Path, filename: str, payload: bytes) -> Pat
     return directory / filename
 
 
+def _open_regular_bounded(path: Path, maximum_bytes: int) -> tuple[int, os.stat_result]:
+    """Open one bounded regular file without following a final symlink."""
+
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(
+            path,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
+        )
+        metadata = os.fstat(descriptor)
+    except OSError as exc:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise ValueError("capability index artifact is unavailable") from exc
+    if not stat.S_ISREG(metadata.st_mode):
+        os.close(descriptor)
+        raise ValueError("capability index artifact must be a regular file")
+    if metadata.st_size <= 0 or metadata.st_size > maximum_bytes:
+        os.close(descriptor)
+        raise ValueError("capability index artifact exceeds its safe bound")
+    return descriptor, metadata
+
+
+def _read_bounded_file(path: Path, maximum_bytes: int) -> bytes:
+    descriptor, metadata = _open_regular_bounded(path, maximum_bytes)
+    try:
+        chunks: list[bytes] = []
+        remaining = metadata.st_size
+        while remaining:
+            chunk = os.read(descriptor, min(1024 * 1024, remaining))
+            if not chunk:
+                raise ValueError("capability index artifact changed while being read")
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        return b"".join(chunks)
+    finally:
+        os.close(descriptor)
+
+
 def _sha256_file(path: Path) -> str:
+    descriptor, _metadata = _open_regular_bounded(path, _MAX_INDEX_METADATA_BYTES)
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+    try:
+        while True:
+            chunk = os.read(descriptor, 1024 * 1024)
+            if not chunk:
+                break
             digest.update(chunk)
-    return digest.hexdigest()
+        return digest.hexdigest()
+    finally:
+        os.close(descriptor)
 
 
 def _checked_artifact(path: Path, *, maximum_bytes: int) -> Path:
     """Require a bounded regular artifact and reject link-based cache swaps."""
 
-    if path.is_symlink() or not path.is_file():
-        raise ValueError("capability index artifact is unavailable")
-    size = path.stat().st_size
-    if size <= 0 or size > maximum_bytes:
-        raise ValueError("capability index artifact exceeds its safe bound")
+    descriptor, _metadata = _open_regular_bounded(path, maximum_bytes)
+    os.close(descriptor)
     return path
 
 
@@ -198,10 +238,11 @@ class Designation:
 
 def _l2_normalize(vec: NDArray) -> NDArray:
     """Return ``vec`` scaled to unit L2 norm (zero vectors returned as-is)."""
-    norm = float(np.linalg.norm(vec))
+    values = [float(value) for value in vec]
+    norm = math.sqrt(sum(value * value for value in values))
     if norm == 0.0:
-        return vec
-    return vec / norm
+        return values
+    return [value / norm for value in values]
 
 
 def compute_eligibility(
@@ -296,17 +337,20 @@ class CapabilityIndex:
     * an ANN vector index (``id -> embedding``) for similarity ranking.
 
     The vector backend is selected automatically: HNSW via ``hnswlib`` if it is
-    importable, else a numpy brute-force cosine ranker. The active backend is
-    exposed via :attr:`backend` for introspection and tests.
+    importable, else the native bounded cosine ranker. The active backend is
+    exposed via :attr:`backend` for introspection and tests. ``"numpy"`` is
+    accepted as a historical constructor alias for ``"native"``; it never
+    imports or invokes that runtime.
 
     Args:
         dim: Dimensionality of the embeddings. May be ``None`` and inferred
             from the first :meth:`add`.
         space: Distance space — only ``"cosine"`` is supported (vectors are
             L2-normalized so inner product equals cosine similarity).
-        prefer_backend: Force a backend (``"hnsw"`` or ``"numpy"``) instead of
-            auto-selection. Used by tests; falls back to numpy if hnsw is
-            unavailable.
+        prefer_backend: Force a backend (``"hnsw"`` or ``"native"``) instead of
+            auto-selection. ``"numpy"`` remains an accepted compatibility alias
+            for ``"native"``. Requesting HNSW without its optional dependency is
+            an explicit unsupported-operation error.
         max_elements: Initial capacity hint for the HNSW backend (grows
             automatically as needed).
         bounded_cache_size: Caps the number of resident ids —
@@ -339,18 +383,17 @@ class CapabilityIndex:
         self._hierarchy = _resolve_capability_hierarchy(capability_hierarchy)
 
         # Choose backend.
-        if prefer_backend == "numpy":
-            self._backend = "numpy"
+        if prefer_backend in {"numpy", "native"}:
+            self._backend = "native"
         elif prefer_backend == "hnsw":
             if not _HNSW_AVAILABLE:
-                logger.warning(
-                    "hnswlib requested but unavailable; using numpy fallback."
+                raise UnsupportedNumericOperationError(
+                    "CapabilityIndex hnsw backend is unavailable; use the native backend"
                 )
-                self._backend = "numpy"
             else:
                 self._backend = "hnsw"
         else:
-            self._backend = "hnsw" if _HNSW_AVAILABLE else "numpy"
+            self._backend = "hnsw" if _HNSW_AVAILABLE else "native"
 
         # capability -> set[id]
         self._cap_to_ids: dict[str, set[str]] = {}
@@ -412,7 +455,7 @@ class CapabilityIndex:
     # ------------------------------------------------------------------
     @property
     def backend(self) -> str:
-        """The active ANN backend: ``"hnsw"`` or ``"numpy"``."""
+        """The active ANN backend: ``"hnsw"`` or ``"native"``."""
         return self._backend
 
     @property
@@ -530,15 +573,18 @@ class CapabilityIndex:
                     actual=embedding_version,
                     context=f"CapabilityIndex.add(id={id!r})",
                 )
-        vec = np.asarray(embedding, dtype=np.float32).reshape(-1)
-        if vec.size == 0:
+        raw_embedding = to_builtin(embedding)
+        if not isinstance(raw_embedding, (list, tuple)):
+            raise TypeError("CapabilityIndex embeddings must be builtin sequences")
+        vec = [float(value) for value in raw_embedding]
+        if not vec:
             raise ValueError(f"Empty embedding for id {id!r}")
         if self._dim is None:
-            self._dim = int(vec.size)
-        elif vec.size != self._dim:
+            self._dim = len(vec)
+        elif len(vec) != self._dim:
             raise ValueError(
                 f"Embedding dim mismatch for {id!r}: expected {self._dim}, "
-                f"got {vec.size}"
+                f"got {len(vec)}"
             )
 
         norm_vec = _l2_normalize(vec)
@@ -551,7 +597,9 @@ class CapabilityIndex:
         # vectors, so this runs natively on every ingestion upsert with no flag.
         if is_update and id in self._reward:
             prev_vec = self._id_to_vec[id]
-            distance = 1.0 - float(np.dot(prev_vec, norm_vec))
+            distance = 1.0 - sum(
+                left * right for left, right in zip(prev_vec, norm_vec, strict=True)
+            )
             if distance > _REWARD_REGEN_DISTANCE:
                 self._reward.pop(id, None)
                 self._reward_erasures += 1
@@ -611,7 +659,7 @@ class CapabilityIndex:
                 self._id_to_label[id] = label
                 self._label_to_id[label] = id
             self._hnsw_resize_if_needed(additional=1)
-            self._hnsw.add_items(norm_vec.reshape(1, -1), np.array([label]))
+            self._hnsw.add_items([norm_vec], [label])
 
         # Bounded-cache LRU eviction (CONCEPT:AU-P1-3) — touch ``id`` as most-recently
         # used, then evict the oldest entries beyond the cap via :meth:`remove` so
@@ -847,10 +895,15 @@ class CapabilityIndex:
         if k <= 0 or not self._id_to_vec:
             return []
 
-        query = np.asarray(prompt_embedding, dtype=np.float32).reshape(-1)
-        if self._dim is not None and query.size != self._dim:
+        raw_query = to_builtin(prompt_embedding)
+        if not isinstance(raw_query, (list, tuple)):
+            raise TypeError(
+                "CapabilityIndex query embeddings must be builtin sequences"
+            )
+        query = [float(value) for value in raw_query]
+        if self._dim is not None and len(query) != self._dim:
             raise ValueError(
-                f"Prompt embedding dim mismatch: expected {self._dim}, got {query.size}"
+                f"Prompt embedding dim mismatch: expected {self._dim}, got {len(query)}"
             )
         query = _l2_normalize(query)
 
@@ -979,12 +1032,12 @@ class CapabilityIndex:
 
         Uses HNSW when the backend is hnsw *and* there is no capability
         restriction (HNSW lacks native id pre-filtering); otherwise ranks the
-        restricted set with a numpy brute-force cosine computation.
+        restricted set with bounded native cosine operations.
         """
         if self._backend == "hnsw" and candidates is None and self._hnsw is not None:
             n = len(self._id_to_vec)
             top = min(k, n)
-            labels, distances = self._hnsw.knn_query(query.reshape(1, -1), k=top)
+            labels, distances = self._hnsw.knn_query([query], k=top)
             out: list[tuple[str, float]] = []
             for label, dist in zip(labels[0], distances[0], strict=False):
                 nid = self._label_to_id.get(int(label))
@@ -994,10 +1047,10 @@ class CapabilityIndex:
                 out.append((nid, 1.0 - float(dist)))
             return out
 
-        # numpy brute-force over the (optionally restricted) candidate set.
-        # Candidates are a hash-ordered set → sort them and use a STABLE
-        # argsort so exact-tie scores rank deterministically (lexicographic),
-        # identically before and after a save/load round-trip.
+        # Native brute-force over the (optionally restricted) candidate set.
+        # Candidates are a hash-ordered set; sort them so exact ties rank
+        # deterministically (lexicographic), identically before and after a
+        # save/load round-trip.
         ids = (
             sorted(i for i in candidates if i in self._id_to_vec)
             if candidates is not None
@@ -1005,10 +1058,14 @@ class CapabilityIndex:
         )
         if not ids:
             return []
-        matrix = np.stack([self._id_to_vec[i] for i in ids])  # already normalized
-        sims = matrix @ query  # cosine sim since both sides L2-normalized
-        order = np.argsort(-sims, kind="stable")[:k]
-        return [(ids[int(j)], float(sims[int(j)])) for j in order]
+        vectors = [self._id_to_vec[nid] for nid in ids]
+        # One native matrix operation ranks the whole bounded candidate set.  A
+        # per-id ``xp.dot`` here would turn the socket/PyO3 boundary into the
+        # hot loop that this index is intended to avoid.
+        scores = xp.matmul(vectors, [[value] for value in query])
+        scored = [(nid, float(row[0])) for nid, row in zip(ids, scores, strict=True)]
+        scored.sort(key=lambda item: (-item[1], item[0]))
+        return scored[:k]
 
     def alternatives(self, id: str) -> list[str]:
         """Return ids ``swappableWith`` the given entity (sorted, stable)."""
@@ -1128,10 +1185,11 @@ class CapabilityIndex:
     def save(self, path: str | Path) -> None:
         """Persist the index to ``path`` (a directory).
 
-        Capability maps and adjacency use bounded JSON rather than executable
-        pickle.  Binary vector artifacts are written to private temporary files,
-        atomically installed, and bound to the metadata by SHA-256 digests.  The
-        metadata is installed last, so a crash cannot advertise a mixed snapshot.
+        Capability maps, adjacency, and vectors use bounded JSON rather than
+        executable pickle. Vector artifacts are written to private temporary
+        files, atomically installed, and bound to the metadata by SHA-256
+        digests. The metadata is installed last, so a crash cannot advertise a
+        mixed snapshot.
 
         Args:
             path: Destination directory (created if absent).
@@ -1166,25 +1224,14 @@ class CapabilityIndex:
             "next_label": self._next_label,
             "ids": list(self._id_to_vec.keys()),
         }
-        # Embeddings stored as a stacked array + ordered id list for fast load.
+        # Embeddings cross an explicit, versioned list/artifact seam. The native
+        # ranker keeps only builtin vectors in memory; no executable or dtype
+        # payload is persisted.
         ids = list(self._id_to_vec.keys())
-        if ids:
-            arr = np.stack([self._id_to_vec[i] for i in ids])
-        else:
-            arr = np.zeros((0, self._dim or 0), dtype=np.float32)
-        descriptor, temporary = tempfile.mkstemp(prefix=".embeddings.", dir=path)
-        temporary_path = Path(temporary)
-        try:
-            with os.fdopen(descriptor, "wb") as handle:
-                np.save(handle, arr, allow_pickle=False)
-                handle.flush()
-                os.fsync(handle.fileno())
-            temporary_path.chmod(0o600)
-            os.replace(temporary_path, path / "embeddings.npy")
-        except Exception:
-            temporary_path.unlink(missing_ok=True)
-            raise
-        meta["embeddings_sha256"] = _sha256_file(path / "embeddings.npy")
+        vectors = [self._id_to_vec[i] for i in ids]
+        save_numeric_artifact(path / "embeddings.json", vectors)
+        meta["embeddings_sha256"] = _sha256_file(path / "embeddings.json")
+        meta["embeddings_artifact"] = "embeddings.json"
 
         if self._backend == "hnsw" and self._hnsw is not None:
             descriptor, temporary = tempfile.mkstemp(prefix=".hnsw.", dir=path)
@@ -1227,8 +1274,13 @@ class CapabilityIndex:
             maximum_bytes=_MAX_INDEX_METADATA_BYTES,
         )
         try:
-            meta = json.loads(metadata_path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
+            meta = json.loads(
+                _read_bounded_file(
+                    metadata_path,
+                    _MAX_INDEX_METADATA_BYTES,
+                ).decode("utf-8")
+            )
+        except (OSError, UnicodeError, ValueError, json.JSONDecodeError):
             raise ValueError("capability index metadata is invalid") from None
         if not isinstance(meta, dict):
             raise ValueError("capability index metadata is invalid")
@@ -1261,10 +1313,12 @@ class CapabilityIndex:
         idx._label_to_id = {v: k for k, v in idx._id_to_label.items()}
         idx._next_label = meta["next_label"]
 
-        expected_vector_bytes = max(1, len(ids)) * max(1, int(dim or 1)) * 16
+        artifact_name = meta.get("embeddings_artifact", "embeddings.json")
+        if artifact_name != "embeddings.json":
+            raise ValueError("capability index embedding artifact is unsupported")
         embeddings_path = _checked_artifact(
-            path / "embeddings.npy",
-            maximum_bytes=expected_vector_bytes + 1024 * 1024,
+            path / artifact_name,
+            maximum_bytes=_MAX_INDEX_METADATA_BYTES,
         )
         if not isinstance(
             meta.get("embeddings_sha256"), str
@@ -1272,13 +1326,16 @@ class CapabilityIndex:
             _sha256_file(embeddings_path), meta["embeddings_sha256"]
         ):
             raise ValueError("capability index embedding digest is invalid")
-        arr = np.load(embeddings_path, allow_pickle=False)
-        if getattr(arr, "ndim", 0) != 2 or arr.shape[0] != len(ids):
+        try:
+            vectors = load_numeric_artifact(embeddings_path)
+        except ValueError:
+            raise
+        if not isinstance(vectors, list) or len(vectors) != len(ids):
             raise ValueError("capability index embedding shape is invalid")
-        if dim is not None and arr.shape[1] != dim:
-            raise ValueError("capability index embedding dimension is invalid")
-        for i, nid in enumerate(ids):
-            idx._id_to_vec[nid] = np.asarray(arr[i], dtype=np.float32)
+        for nid, vector in zip(ids, vectors, strict=False):
+            if not isinstance(vector, list) or (dim is not None and len(vector) != dim):
+                raise ValueError("capability index embedding dimension is invalid")
+            idx._id_to_vec[nid] = [float(value) for value in vector]
             idx._lru[nid] = None
 
         if idx._backend == "hnsw":

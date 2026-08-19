@@ -53,16 +53,19 @@ flowchart TD
     end
 ```
 
-`graph-os` (the GraphOS MCP entrypoint) auto-starts the `InboundRouter` whenever a backend
-token is configured (default-on, no opt-in flag) — as an always-on **co-service** of that
-process (`agent_utilities.mcp.co_service_supervisor.start_co_services`, wired into
-`mcp/kg_server.py`'s `mcp_server()`), sharing that process's already-verified
-`GraphSession`/identity instead of minting a second one. `gateway/daemon.py` (the separate
-KG host daemon, `graph-os-daemon`) deliberately does **not** run it, so the host's CPU-bound
-maintenance (codebase ingestion, relevance sweeps) can never starve the inbound reply loop —
-see [Deployment](#deployment) below. When the user's reply answers a question a loop
-asked, `deliver_reply` resolves the waiting future and the message is **not** re-routed;
-otherwise the chat turn runs the **universal graph agent**.
+`graph-os` (the GraphOS MCP entrypoint) keeps configured backends available for governed
+outbound sends, but a token alone never starts the `InboundRouter`. Embedded intake is
+opt-in via the explicit `messaging_intake_enabled=True` supervisor API argument, and
+the supervisor must first claim the durable
+engine-native WorkItem lease for each `(platform, bot identity)`. A generic interactive
+client therefore defaults to send-only; a non-owner cannot poll. The owner shares that
+process's already-verified `GraphSession`/identity instead of minting a second one.
+`gateway/daemon.py` (the separate KG host daemon, `graph-os-daemon`) deliberately does
+**not** run it, so the host's CPU-bound maintenance (codebase ingestion, relevance sweeps)
+can never starve the inbound reply loop — see [Deployment](#deployment) below. When the
+user's reply answers a question a loop asked, `deliver_reply` resolves the waiting future
+and the message is **not** re-routed; otherwise the chat turn runs the **universal graph
+agent**.
 
 ## The reply IS the universal graph agent (ECO-4.78)
 
@@ -162,47 +165,51 @@ service explicitly.
 
 ## Deployment
 
-Messaging ships as **one serving implementation** (`messaging/daemon.run_forever` +
-`_serve`) reused by two callers:
+Messaging ships as **one fenced serving implementation** (`messaging/daemon.run_forever` +
+`_serve`) reused by two explicit intake callers:
 
-1. **Bundled (default).** `graph-os` self-composes messaging as an always-on co-service
-   the moment a real channel credential is present — no flag, no second process, no second
-   secret. Detection (`co_service_supervisor.detect_composition` →
-   `messaging.daemon.configured_platforms`) is a pure config read (installed backend +
-   real token/app-id), so the same `AgentConfig` that already configures GraphOS MCP is the
-   only place a channel is turned on. The co-service thread runs under the process's
-   already-verified `GraphSession`/actor (`knowledge_graph.core.engine_tasks._authorized_background_thread`),
-   so it inherits GraphOS MCP's working identity contract instead of independently minting
-   one — this is what fixes the historical `mint_graph_session` "missing audience or policy
-   revision" crash a separately-configured messaging deployment could hit if its own
-   ConfigMap/Secret drifted from GraphOS MCP's.
-2. **Standalone (`agent-utilities-messaging`), opt-in scale-out only.** The identical
-   serving body also ships as its own console script for a deployment that wants to
-   isolate chat load onto a dedicated host/pod. It is not the default topology, is not
-   started by anything automatically, and must independently satisfy the same identity
-   contract (a correctly configured audience + `KG_POLICY_VERSION`) if deployed — see
-   `agent_utilities/messaging/daemon.py`'s `mint_process_identity`.
+1. **Bundled (explicit owner only).** `graph-os` self-composes messaging only when
+   its caller supplies `messaging_intake_enabled=True` explicitly. Credential
+   detection (`co_service_supervisor.detect_composition` →
+   `messaging.daemon.configured_platforms`) still controls send capability, but never
+   grants inbound ownership. The shared `run_forever` entrypoint submits the
+   deterministic WorkItem identity and claims it with the engine-native
+   `ClaimWorkItem`; `RenewWorkItemLease` fences a healthy long poll, and an expired lease
+   is reclaimable by another contender. Thus exactly one active owner is admitted per
+   platform/bot identity without a second lifecycle store. The co-service thread runs
+   under the process's already-verified `GraphSession`/actor
+   (`knowledge_graph.core.engine_tasks._authorized_background_thread`), so it inherits
+   GraphOS MCP's working identity contract instead of independently minting one.
+2. **Standalone (`agent-utilities-messaging`).** The dedicated console script is an
+   explicit intake deployment for a host/pod that isolates chat load. After minting its
+   verified process session (`agent_utilities/messaging/daemon.py`'s
+   `mint_process_identity`), it calls the same `run_forever` boundary as the embedded
+   path. It therefore claims the same deterministic native WorkItem and can safely
+   participate in failover/scale-out; token presence and process startup alone never
+   open a listener.
 
-A deployment that previously ran messaging as its own always-on Deployment/service should
-retire it once GraphOS MCP is redeployed with the bundling code. The step-by-step (not
-auto-applied) cutover plan is held by the operator outside this public repository — it
-narrates a real homelab topology (live hostnames, a real Keycloak realm/client-id) that
-should not ship on GitHub — see the rendered `deploy/k8s/production-cell/` assets /
-`deploy/swarm/graphos.stack.yml` for where channel tokens now live (the SAME
-Secret/ConfigMap GraphOS MCP already reads).
+A deployment that runs messaging as its own Deployment/service may scale explicitly
+owned replicas for failover, while generic GraphOS MCP clients remain on the default
+`messaging_intake_enabled=False`. Every candidate, including the standalone entrypoint,
+must pass the same native claim/renew fence before polling.
+The
+step-by-step (not auto-applied) cutover plan is held by the operator outside this public
+repository — it narrates a real homelab topology (live hostnames, a real Keycloak
+realm/client-id) that should not ship on GitHub — see the rendered
+`deploy/k8s/production-cell/` assets / `deploy/swarm/graphos.stack.yml` for where channel
+tokens now live (the SAME Secret/ConfigMap GraphOS MCP already reads).
 
-**Replica caution.** A channel that long-polls for updates (Telegram without
-`MESSAGING_WEBHOOK_BASE_URL` configured) opens one exclusive stream per bot token,
-so running the bundling GraphOS MCP deployment at N>1 replicas will 409-conflict across
-replicas sharing that token. Either configure the webhook mode (safe at any replica
-count — any pod behind the load balancer can receive the push) or keep the
-messaging-carrying deployment at a single replica.
+A channel that long-polls for updates (Telegram without
+`MESSAGING_WEBHOOK_BASE_URL` configured) opens one exclusive stream per bot token. The
+same WorkItem lease prevents two healthy contenders from polling at once and permits
+bounded failover after expiry; stale network partitions can hold the lease only until
+its configured TTL.
 
 ## Configuration
 
 | Setting | Purpose |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` / `SLACK_BOT_TOKEN` / `MATTERMOST_TOKEN` / `MSTEAMS_APP_ID`… | Enable each backend (auto-detected; multiple may be set together) |
+| `TELEGRAM_BOT_TOKEN` / `SLACK_BOT_TOKEN` / `MATTERMOST_TOKEN` / `MSTEAMS_APP_ID`… | Enable each backend for governed outbound use (auto-detected; multiple may be set together); never grants inbound ownership |
 | `MESSAGING_DEFAULT_PLATFORM` | Default platform when no last-active channel (default `telegram`) |
 | `MESSAGING_DEFAULT_CHANNEL` | Default channel id for `reach_user` fallback |
 | `MESSAGING_AGENT` | Named agent the universal path routes a chat turn to (default the `messaging-assistant` identity; unresolved names still flow through the full orchestration graph) |

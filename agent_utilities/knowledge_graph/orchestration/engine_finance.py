@@ -225,8 +225,6 @@ class FinanceEngineMixin(_Base):
             ID of the created MarkovTransitionMatrixNode.
         """
 
-        from agent_utilities.numeric import xp as np
-
         from ..core.markov_regime import AssetClass, MarkovRegimeModel
 
         ac = (
@@ -241,7 +239,7 @@ class FinanceEngineMixin(_Base):
             window=window,
             method=method,
         )
-        model.fit(np.array(returns))
+        model.fit([float(value) for value in returns])
 
         matrix_id = f"markov_matrix:{uuid.uuid4().hex}"
         ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -326,8 +324,6 @@ class FinanceEngineMixin(_Base):
         """
         import json
 
-        from agent_utilities.numeric import xp as np
-
         from ..core.markov_regime import MarkovRegimeModel
 
         # Find the latest regime matrix for this strategy
@@ -370,7 +366,7 @@ class FinanceEngineMixin(_Base):
         if trans_dict:
             states = list(trans_dict.keys())
             n_s = len(states)
-            matrix = np.zeros((n_s, n_s))
+            matrix = [[0.0 for _ in range(n_s)] for _ in range(n_s)]
             for i, src in enumerate(states):
                 for j, dst in enumerate(states):
                     matrix[i][j] = trans_dict.get(src, {}).get(dst, 0.0)

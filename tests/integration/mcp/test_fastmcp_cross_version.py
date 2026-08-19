@@ -4,18 +4,12 @@ real fastmcp-4 server (CONCEPT:AU-ECO.mcp.protocol-compat-bridge).
 fastmcp 4 is au's single default (`[mcp]`, `pyproject.toml`) — there is no longer a
 fastmcp-3-vs-4 client/server split to guard, so this replaces the prior dual-extra
 cross-version regression test (which spawned a separate fastmcp<4 interpreter to
-prove server-side down-negotiation). What actually needs a live regression guard
-now is `agent_utilities/mcp/protocol_compat.py`: empirically, a bare
-`pydantic_ai.mcp.MCPToolset` fails outright against a real fastmcp-4 server unless
-(a) the underlying `fastmcp.Client` is pinned to `mode="legacy"` (fastmcp 4 defaults
-to `mode="auto"`, which negotiates the modern `server/discover` era and leaves
-`Client.initialize_result` `None` — `MCPToolset.__aenter__` asserts it's non-`None`)
-and (b) four MCP-SDK-v2 attribute/exception renames not covered by fastmcp's own
-`_compat.py` bridge are patched (`PromptsCapability`/`ResourcesCapability`/
-`ToolsCapability.listChanged`, `ToolExecution.taskSupport`,
-`mcp.shared.exceptions.McpError`). This test spawns a real fastmcp-4 server (stdio
+prove server-side down-negotiation). Pydantic-AI 2.29 now handles the modern
+`server/discover` session and SDK-v2 field/exception names upstream. This live
+guard still exercises AU's explicit `mode="legacy"` policy for call sites that
+require initialize-handshake semantics. It spawns a real fastmcp-4 server (stdio
 subprocess) with a `SkillProvider` resource plus a plain tool, builds the toolset
-through `build_stdio_toolset` (au's actual production call path, not a hand-rolled
+through `build_stdio_toolset` (AU's production path, not a hand-rolled
 `MCPToolset`), and proves connect + resource read + tool call all round-trip.
 """
 
@@ -73,8 +67,8 @@ async def test_toolset_factory_round_trips_a_real_fastmcp4_server(
     tmp_path: Path, demo_skill_dir: Path
 ) -> None:
     """`build_stdio_toolset` connects, lists resources/tools, and calls a tool
-    against a live fastmcp-4 server — the guard protecting the `mode="legacy"` +
-    MCP-SDK-v2 attribute bridges in `protocol_compat.py`."""
+    against a live fastmcp-4 server — the guard protecting AU's explicit
+    `mode="legacy"` policy alongside Pydantic-AI 2.29's native SDK bridge."""
     import fastmcp
 
     if int(fastmcp.__version__.split(".")[0]) < 4:

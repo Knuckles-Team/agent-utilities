@@ -18,14 +18,14 @@ for OWL-transitive hierarchies.
 
 
 import logging
+import math
 import uuid
 from dataclasses import dataclass, field
 
 from agent_utilities.models.knowledge_graph import (
     SpectralClusterNode,
 )
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import xp
 
 logger = logging.getLogger(__name__)
 
@@ -81,36 +81,58 @@ class SpectralClusterNavigator:
         self._max_depth = max_depth
 
     @staticmethod
-    def _cosine_similarity_matrix(vectors: NDArray) -> NDArray:
+    def _cosine_similarity_matrix(vectors: list[list[float]]) -> list[list[float]]:
         """Build the cosine similarity affinity matrix.
 
         Normalizes each vector to unit length then computes dot products.
         Clips to [0, 1] to ensure non-negative affinity.
         """
-        norms = np.linalg.norm(vectors, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1.0, norms)
-        normalized = vectors / norms
-        similarity = normalized @ normalized.T
-        return np.clip(similarity, 0.0, 1.0)
+        normalized = []
+        for vector in vectors:
+            norm = math.sqrt(sum(value * value for value in vector))
+            normalized.append(
+                [value / norm for value in vector] if norm else [0.0] * len(vector)
+            )
+        transpose = [list(column) for column in zip(*normalized, strict=True)]
+        raw = xp.matmul(normalized, transpose)
+        return [
+            [max(0.0, min(1.0, float(row[column]))) for column in range(len(row))]
+            for row in raw
+        ]
 
     @staticmethod
-    def _normalized_laplacian(affinity: NDArray) -> NDArray:
+    def _normalized_laplacian(affinity: list[list[float]]) -> list[list[float]]:
         """Compute the symmetric normalized Laplacian.
 
         L_sym = I - D^{-1/2} @ W @ D^{-1/2}
 
         where W is the affinity matrix and D is the degree matrix.
         """
-        n = affinity.shape[0]
-        np.fill_diagonal(affinity, 0.0)  # No self-loops
-        degree = affinity.sum(axis=1)
-        degree_inv_sqrt = np.where(degree > 0, 1.0 / np.sqrt(degree), 0.0)
-        D_inv_sqrt = np.diag(degree_inv_sqrt)
-        laplacian = np.eye(n) - D_inv_sqrt @ affinity @ D_inv_sqrt
-        return laplacian
+        n = len(affinity)
+        weights = [
+            [
+                0.0 if row == column else float(affinity[row][column])
+                for column in range(n)
+            ]
+            for row in range(n)
+        ]
+        degree = [float(value) for value in xp.sum(weights, axis=1)]
+        scales = [1.0 / math.sqrt(value) if value > 0 else 0.0 for value in degree]
+        diagonal = [
+            [scales[row] if row == column else 0.0 for column in range(n)]
+            for row in range(n)
+        ]
+        normalized = xp.matmul(xp.matmul(diagonal, weights), diagonal)
+        return [
+            [
+                (1.0 if row == column else 0.0) - float(values[column])
+                for column in range(n)
+            ]
+            for row, values in enumerate(normalized)
+        ]
 
     @staticmethod
-    def _eigengap_k(eigenvalues: NDArray, max_k: int) -> int:
+    def _eigengap_k(eigenvalues: list[float], max_k: int) -> int:
         """Select optimal k using the eigengap heuristic.
 
         Finds the largest gap between consecutive eigenvalues in the
@@ -120,39 +142,47 @@ class SpectralClusterNavigator:
             return min(2, len(eigenvalues))
 
         # Compute gaps between consecutive sorted eigenvalues
-        sorted_vals = np.sort(eigenvalues)
+        sorted_vals = sorted(float(value) for value in eigenvalues)
         upper = min(max_k, len(sorted_vals) - 1)
         if upper < 2:
             return 2
 
-        gaps = np.diff(sorted_vals[1 : upper + 1])
+        gaps = [
+            sorted_vals[index + 1] - sorted_vals[index] for index in range(1, upper)
+        ]
         if len(gaps) == 0:
             return 2
 
-        best_k = int(np.argmax(gaps)) + 2  # +2 because we skip eigenvalue 0
+        best_k = max(range(len(gaps)), key=lambda index: gaps[index]) + 2
         return max(2, min(best_k, max_k))
 
     @staticmethod
-    def _cluster_coherence(vectors: NDArray, indices: list[int]) -> float:
+    def _cluster_coherence(vectors: list[list[float]], indices: list[int]) -> float:
         """Compute mean pairwise cosine similarity within a cluster."""
         if len(indices) < 2:
             return 1.0
 
-        cluster_vecs = vectors[indices]
-        norms = np.linalg.norm(cluster_vecs, axis=1, keepdims=True)
-        norms = np.where(norms == 0, 1.0, norms)
-        normalized = cluster_vecs / norms
-
-        # Mean pairwise similarity (upper triangle only)
-        sims = normalized @ normalized.T
+        cluster_vecs = [vectors[index] for index in indices]
+        normalized = []
+        for vector in cluster_vecs:
+            norm = math.sqrt(sum(value * value for value in vector))
+            normalized.append(
+                [value / norm for value in vector] if norm else [0.0] * len(vector)
+            )
+        transpose = [list(column) for column in zip(*normalized, strict=True)]
+        similarities = xp.matmul(normalized, transpose)
         n = len(indices)
-        upper_sum = (sims.sum() - n) / 2  # Subtract diagonal
         pair_count = n * (n - 1) / 2
-        return float(upper_sum / pair_count) if pair_count > 0 else 1.0
+        upper_sum = sum(
+            float(similarities[row][column])
+            for row in range(n)
+            for column in range(row + 1, n)
+        )
+        return float(upper_sum / pair_count) if pair_count else 1.0
 
     def cluster(
         self,
-        vectors: list[list[float]] | NDArray,
+        vectors: list[list[float]],
         max_k: int = 10,
         domain: str = "general",
     ) -> list[ClusterResult]:
@@ -166,8 +196,10 @@ class SpectralClusterNavigator:
         Returns:
             List of ClusterResult objects, one per discovered cluster.
         """
-        arr = np.array(vectors, dtype=np.float64)
-        n = arr.shape[0]
+        arr = [[float(value) for value in vector] for vector in vectors]
+        n = len(arr)
+        if arr and (not arr[0] or any(len(row) != len(arr[0]) for row in arr)):
+            raise ValueError("cluster() requires a non-empty rectangular vector matrix")
 
         if n < 2:
             return [
@@ -175,7 +207,7 @@ class SpectralClusterNavigator:
                     cluster_id=f"sc_{uuid.uuid4().hex}",
                     label=f"{domain}_singleton",
                     indices=list(range(n)),
-                    centroid=arr[0].tolist() if n > 0 else [],
+                    centroid=arr[0] if n > 0 else [],
                     coherence=1.0,
                 )
             ]
@@ -188,24 +220,34 @@ class SpectralClusterNavigator:
 
         # 3. Eigendecomposition (smallest eigenvalues)
         num_eigs = min(max_k + 1, n)
-        try:
-            eigenvalues, eigenvectors = np.eigsh(laplacian, num_eigs, which="SM")
-        except Exception:
-            # Fallback to dense eigendecomposition
-            eigenvalues, eigenvectors = np.linalg.eigh(laplacian)
+        if num_eigs >= n:
+            # The native sparse contract requires k < n; use the explicit
+            # dense path when the requested spectrum covers the whole matrix.
+            eigenvalues, eigenvectors = xp.linalg.eigh(laplacian)
             eigenvalues = eigenvalues[:num_eigs]
-            eigenvectors = eigenvectors[:, :num_eigs]
+            eigenvectors = [row[:num_eigs] for row in eigenvectors]
+        else:
+            try:
+                eigenvalues, eigenvectors = xp.eigsh(laplacian, num_eigs)
+            except xp.LinAlgError:
+                # The native dense decomposition is the explicit small-matrix path.
+                eigenvalues, eigenvectors = xp.linalg.eigh(laplacian)
+                eigenvalues = eigenvalues[:num_eigs]
+                eigenvectors = [row[:num_eigs] for row in eigenvectors]
 
         # 4. Eigengap k-selection
         k = self._eigengap_k(eigenvalues, max_k)
 
         # 5. k-means on eigenvector embedding
-        spectral_embedding = eigenvectors[:, :k]
+        raw_spectral_embedding = [row[:k] for row in eigenvectors]
 
         # Normalize rows for k-means stability
-        row_norms = np.linalg.norm(spectral_embedding, axis=1, keepdims=True)
-        row_norms = np.where(row_norms == 0, 1.0, row_norms)
-        spectral_embedding = spectral_embedding / row_norms
+        spectral_embedding = []
+        for row in raw_spectral_embedding:
+            norm = math.sqrt(sum(value * value for value in row))
+            spectral_embedding.append(
+                [value / norm for value in row] if norm else [0.0] * len(row)
+            )
 
         labels = self._kmeans(spectral_embedding, k)
 
@@ -216,7 +258,11 @@ class SpectralClusterNavigator:
             if len(member_indices) < self._min_cluster_size:
                 continue
 
-            centroid = arr[member_indices].mean(axis=0).tolist()
+            centroid = [
+                sum(arr[index][dimension] for index in member_indices)
+                / len(member_indices)
+                for dimension in range(len(arr[0]))
+            ]
             coherence = self._cluster_coherence(arr, member_indices)
 
             results.append(
@@ -234,56 +280,14 @@ class SpectralClusterNavigator:
         return results
 
     @staticmethod
-    def _kmeans(data: NDArray, k: int, max_iters: int = 100) -> list[int]:
-        """Simple k-means implementation without sklearn dependency.
-
-        Uses k-means++ initialization for better convergence.
-        """
-        n = data.shape[0]
+    def _kmeans(data: list[list[float]], k: int, max_iters: int = 100) -> list[int]:
+        """Run bounded native k-means without a Python numeric implementation."""
+        n = len(data)
         if k >= n:
             return list(range(n))
 
-        # k-means++ initialization
-        rng = np.random.default_rng(42)
-        centroids = np.empty((k, data.shape[1]))
-        centroids[0] = data[rng.integers(n)]
-
-        for c in range(1, k):
-            dists = np.array(
-                [
-                    min(np.linalg.norm(data[i] - centroids[j]) ** 2 for j in range(c))
-                    for i in range(n)
-                ]
-            )
-            total = dists.sum()
-            if total == 0:
-                centroids[c] = data[rng.integers(n)]
-            else:
-                probs = dists / total
-                centroids[c] = data[rng.choice(n, p=probs)]
-
-        # Iterative assignment and update
-        labels = [0] * n
-        for _ in range(max_iters):
-            # Assign
-            new_labels = []
-            for i in range(n):
-                dists = np.array(
-                    [np.linalg.norm(data[i] - centroids[j]) for j in range(k)]
-                )
-                new_labels.append(int(np.argmin(dists)))
-
-            if new_labels == labels:
-                break
-            labels = new_labels
-
-            # Update centroids
-            for j in range(k):
-                members = [i for i, lbl in enumerate(labels) if lbl == j]
-                if members:
-                    centroids[j] = data[members].mean(axis=0)
-
-        return labels
+        labels, _centroids = xp.kmeans(data, k, max_iters, 42)
+        return [int(label) for label in labels]
 
     def cluster_to_kg_nodes(
         self,
@@ -319,7 +323,7 @@ class SpectralClusterNavigator:
 
     def detect_financial_regimes(
         self,
-        price_embeddings: list[list[float]] | NDArray,
+        price_embeddings: list[list[float]],
         max_regimes: int = 5,
     ) -> list[ClusterResult]:
         """Detect market regimes via spectral clustering on price embeddings.

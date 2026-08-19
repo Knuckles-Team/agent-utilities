@@ -21,7 +21,6 @@ import asyncio
 import glob
 import os
 import re
-import shutil
 import subprocess
 import time
 
@@ -29,8 +28,11 @@ import pytest
 from _test_engine import (
     TEST_AGENT_ID,
     TEST_SIGNER_KEY,
+    EngineBinaryIdentity,
+    EngineUnavailable,
     bootstrap_context,
     request_context,
+    resolve_engine_binary_identity,
     strict_server_env,
 )
 
@@ -39,30 +41,42 @@ pytestmark = pytest.mark.concept("AU-KG.ingest.floor-codebase-admission-cap")
 _K = 4
 
 
-def _find_engine_binary() -> str | None:
-    """Locate a built epistemic-graph-server with the K-way sharded redb writer.
+def _find_engine_binary() -> EngineBinaryIdentity | None:
+    """Return the shared exact client/server artifact, or no artifact."""
 
-    Prefers an explicit override and a freshly-built sibling ``target/release``
-    over a possibly-stale ``epistemic-graph-server`` on ``PATH`` (an old on-PATH
-    build may predate the EG-026 sharded writer and run in snapshot/WAL mode)."""
-    env = os.environ.get("EPISTEMIC_GRAPH_SERVER_BIN")
-    if env and os.path.exists(env):
-        return env
-    # Walk up from this test file looking for a sibling epistemic-graph checkout
-    # (handles both the canonical layout and a detached worktree).
-    here = os.path.dirname(os.path.abspath(__file__))
-    cur = here
-    seen: set[str] = set()
-    while cur and cur not in seen:
-        seen.add(cur)
-        for sub in ("epistemic-graph", "agent-packages/epistemic-graph"):
-            cand = os.path.join(cur, sub, "target", "release", "epistemic-graph-server")
-            if os.path.exists(cand):
-                return cand
-        cur = os.path.dirname(cur)
-    # Last resort — an on-PATH build (may be stale; the test asserts sharding so a
-    # non-sharded build simply fails loudly rather than silently passing).
-    return shutil.which("epistemic-graph-server")
+    try:
+        return resolve_engine_binary_identity()
+    except EngineUnavailable:
+        return None
+
+
+class _ProcessServerHandle:
+    """Lifecycle object registered before the auxiliary process is spawned."""
+
+    def __init__(self, binary_identity: EngineBinaryIdentity) -> None:
+        self.binary_identity = binary_identity
+        self.proc: subprocess.Popen | None = None
+        self.log_fh = None
+
+    def binary_path_for_launch(self) -> str:
+        """Recheck the retained artifact identity immediately before spawn."""
+
+        self.binary_identity.verify_for_launch()
+        return str(self.binary_identity.path)
+
+    def stop(self) -> None:
+        proc = self.proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=10)
+        self.proc = None
+        if self.log_fh is not None:
+            self.log_fh.close()
+            self.log_fh = None
 
 
 def _shard_of(name: str, k: int = _K) -> int:
@@ -126,10 +140,12 @@ def _touched(
     return n
 
 
-def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
+def test_cross_graph_writes_fan_across_shard_writers(
+    tmp_path, monkeypatch, test_engine_lifecycle
+):
     binary = _find_engine_binary()
     if binary is None:
-        pytest.skip("no built epistemic-graph-server binary found")
+        pytest.skip("no exact epistemic-graph-server artifact available")
     try:
         from epistemic_graph.client import EpistemicGraphClient
     except ImportError:  # pragma: no cover
@@ -167,23 +183,27 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
     env["EPISTEMIC_GRAPH_REDB_AUTHORITATIVE"] = "1"
     # Route engine logs to a FILE, not a PIPE: the engine logs verbosely, and an
     # undrained ``subprocess.PIPE`` deadlocks it once the 64 KB buffer fills.
-    log_path = tmp_path / "engine.log"
-    log_fh = open(log_path, "w")
-    proc = subprocess.Popen(
-        [
-            binary,
-            "--tcp-addr",
-            f"127.0.0.1:{port}",
-            "--persist-dir",
-            str(persist),
-            "--auth-secret",
-            auth_secret,
-        ],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=log_fh,
-    )
+    server = _ProcessServerHandle(binary)
+    registration = test_engine_lifecycle.register_auxiliary_engine(server)
     try:
+        log_path = tmp_path / "engine.log"
+        server.log_fh = open(log_path, "w")  # noqa: SIM115 - closed in stop()
+        server.proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+            [
+                server.binary_path_for_launch(),
+                "--tcp-addr",
+                f"127.0.0.1:{port}",
+                "--persist-dir",
+                str(persist),
+                "--auth-secret",
+                auth_secret,
+            ],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=server.log_fh,
+        )
+        proc = server.proc
+        assert proc is not None
         ep = f"127.0.0.1:{port}"
 
         async def _conn(g: str):
@@ -319,9 +339,4 @@ def test_cross_graph_writes_fan_across_shard_writers(tmp_path, monkeypatch):
             f"same-shard ({same_active})"
         )
     finally:
-        proc.terminate()
-        try:
-            proc.wait(timeout=10)
-        except subprocess.TimeoutExpired:  # pragma: no cover
-            proc.kill()
-        log_fh.close()
+        registration.stop()

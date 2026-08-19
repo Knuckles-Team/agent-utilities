@@ -74,11 +74,18 @@ alerts read naturally. These two series also feed the autoscaler's zero-infra
 `LocalMetricsProvider` signals (`queue_depth`, `consumer_lag`) when
 `SCALING_PROMETHEUS_URL` is unset (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling,
 `orchestration/scaling_signals.py`).
+Each value gauge has a paired `_observed_at` Unix-time gauge with the same
+labels. The telemetry writer publishes each pair through one locked snapshot
+authority. `LocalMetricsProvider` accepts only exact value/companion label pairs
+and rejects missing, mismatched, duplicate, stale, or high-cardinality pairs;
+Prometheus scrape timestamps and local read time are never substituted.
 
 | Name | Type | Labels | Meaning | Emitted by (module) | Since (concept id) |
 |---|---|---|---|---|---|
 | `agent_utilities_kg_ingest_queue_depth` | Gauge | `backend` | Pending KG ingest tasks in the selected durable task queue | `knowledge_graph/core/engine_tasks.py` | AU-KG.ingest.decoupled-kg-ingest-consumer |
+| `agent_utilities_kg_ingest_queue_depth_observed_at` | Gauge | `backend` | Unix observation time for the paired queue-depth gauge | `knowledge_graph/core/engine_tasks.py` | AU-KG.ingest.decoupled-kg-ingest-consumer |
 | `agent_utilities_kg_ingest_consumer_lag` | Gauge | `topic`, `group` | Total kg-ingest consumer-group lag (unconsumed messages) per topic | `knowledge_graph/core/engine_tasks.py` | AU-KG.ingest.decoupled-kg-ingest-consumer |
+| `agent_utilities_kg_ingest_consumer_lag_observed_at` | Gauge | `topic`, `group` | Unix observation time for the paired consumer-lag gauge | `knowledge_graph/core/engine_tasks.py` | AU-KG.ingest.decoupled-kg-ingest-consumer |
 
 ## Embedded MCP fleet child resilience (CONCEPT:AU-ECO.mcp.profile-differences-from-client)
 
@@ -150,13 +157,28 @@ enrichment/extraction call sites).
 
 ## Fleet autoscaler (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling)
 
-The autoscaler registers no metric series of its own. It CONSUMES signals:
-either this process's own gauges above via the zero-infra
-`LocalMetricsProvider` (`queue_depth` →
+The autoscaler registers no metric series of its own. It consumes immutable,
+identity-bound `ScalingSignalSample` values: either this process's own gauges
+via the zero-infra `LocalMetricsProvider` (`queue_depth` →
 `agent_utilities_kg_ingest_queue_depth`, `consumer_lag` →
-`agent_utilities_kg_ingest_consumer_lag`), or instant Prometheus HTTP queries
-(`sum(...)` over the same series) when `SCALING_PROMETHEUS_URL` is set —
-see `orchestration/scaling_signals.py` and `orchestration/fleet_autoscaler.py`.
+`agent_utilities_kg_ingest_consumer_lag`), or bounded instant Prometheus HTTP
+queries (`sum(...)` over the same fleet-total series) when
+`SCALING_PROMETHEUS_URL` is set. Signal names are built-in or explicitly
+deployment-allowlisted; raw caller PromQL is not an autoscaler input. Each
+autoscaler tick uses one bulk provider call; Prometheus uses one client only for
+a thread-safe transport (otherwise one client per worker), schedules all
+allowlisted queries in bounded rolling waves, and caps unique queries,
+concurrency, and the overall deadline. Timed-out work retains its bounded
+in-flight slot until it finishes. The fixed four-worker pool uses daemon
+threads, so even a broken transport that ignores cancellation cannot prevent
+process shutdown. Fleet-total multi-series results are summed; per-replica
+multi-series results are averaged. Samples carry immutable
+unit and tenant/fleet scope metadata. Stale, replayed, malformed,
+cross-service, cross-unit/scope, and over-cardinality samples are treated as no
+data. The queue-depth and consumer-lag built-ins bind exactly to the
+`kg-ingest-worker` scale unit; other services require an explicit deployment
+definition. See `orchestration/scaling_signals.py` and
+`orchestration/fleet_autoscaler.py`.
 
 ## Rust engine series (`epistemic_graph_*`)
 

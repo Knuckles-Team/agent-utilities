@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from agent_utilities.core import config as config_module
 from agent_utilities.core.config import (
     PRODUCTION_CERTIFICATION_SCENARIOS,
     AgentConfig,
@@ -73,6 +74,75 @@ def test_reactions_uses_the_current_typed_key(monkeypatch):
 
     monkeypatch.setenv("REACTIONS", "0")
     assert AgentConfig().reactions == "0"
+
+
+def test_frontend_contribution_signers_have_one_bounded_typed_authority():
+    config = AgentConfig(
+        FRONTEND_CONTRIBUTION_TRUSTED_SIGNERS='["key-b", "key-a", "key-a"]'
+    )
+    assert config.frontend_contribution_trusted_signers == ["key-a", "key-b"]
+
+    with pytest.raises(ValueError, match="signer id"):
+        AgentConfig(FRONTEND_CONTRIBUTION_TRUSTED_SIGNERS=["bad\nkey"])
+    with pytest.raises(ValueError, match="exceeds 64"):
+        AgentConfig(
+            FRONTEND_CONTRIBUTION_TRUSTED_SIGNERS=[
+                f"key-{index}" for index in range(65)
+            ]
+        )
+
+
+def test_messaging_intake_is_fail_closed_when_only_a_token_is_present(monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "token-only-client")
+    monkeypatch.delenv("MESSAGING_INTAKE_ENABLED", raising=False)
+
+    config = AgentConfig()
+
+    assert config.telegram_bot_token == "token-only-client"
+    assert config.messaging_intake_enabled is False
+
+
+@pytest.mark.parametrize("value", ["True", "FALSE", "1", "yes", " true ", 1, 0])
+def test_messaging_intake_rejects_noncanonical_boolean_values(value):
+    with pytest.raises(ValueError, match="MESSAGING_INTAKE_ENABLED"):
+        AgentConfig(MESSAGING_INTAKE_ENABLED=value)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("true", True), ("false", False), (True, True), (False, False)],
+)
+def test_messaging_intake_accepts_only_canonical_boolean_values(value, expected):
+    assert (
+        AgentConfig(MESSAGING_INTAKE_ENABLED=value).messaging_intake_enabled is expected
+    )
+
+
+@pytest.mark.parametrize(("value", "expected"), [("true", True), ("false", False)])
+def test_messaging_intake_env_accepts_canonical_boolean_strings(
+    monkeypatch, value, expected
+):
+    monkeypatch.setenv("MESSAGING_INTAKE_ENABLED", value)
+
+    assert AgentConfig().messaging_intake_enabled is expected
+
+
+def test_messaging_intake_json_boolean_projects_as_canonical_string(
+    tmp_path, monkeypatch
+):
+    config_dir = tmp_path / "agent-utilities"
+    config_dir.mkdir()
+    (config_dir / "config.json").write_text(
+        json.dumps({"messaging_intake_enabled": True}), encoding="utf-8"
+    )
+    monkeypatch.delenv("AGENT_UTILITIES_TESTING", raising=False)
+    monkeypatch.setenv("AGENT_UTILITIES_CONFIG_DIR", str(config_dir))
+    monkeypatch.delenv("MESSAGING_INTAKE_ENABLED", raising=False)
+
+    config_module.load_config(reload=True)
+
+    assert os.environ["MESSAGING_INTAKE_ENABLED"] == "true"
+    assert AgentConfig().messaging_intake_enabled is True
 
 
 @pytest.mark.parametrize(

@@ -14,7 +14,7 @@ Covers the gaps closed alongside structured-output repair:
   termination explicitly (``outcome: "budget_exceeded"`` + dimension) and
   preserves partial specialist results alongside the error, instead of
   discarding everything but the error text.
-* ``UsageLimits.per_request_input_tokens_limit`` (pydantic-ai-slim 2.21.0) is
+* ``UsageLimits.per_request_input_tokens_limit`` (pydantic-ai-slim 2.29.0) is
   adopted at the spawn and single-server-agent sites, so a single oversized
   tool result (the real 212 KB production incident) cannot blow the run in
   one request regardless of tool behaviour.

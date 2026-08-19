@@ -68,7 +68,9 @@ backfilling one that WAS deleted reconstructs the identical node.
 
 import base64
 import logging
+import re
 from typing import Any, TypedDict
+from urllib.parse import quote
 
 from agent_utilities.core.config import setting
 from agent_utilities.messaging.inbox import record_inbound
@@ -259,6 +261,43 @@ class _Credentials(TypedDict):
     user: str
 
 
+_MAX_CHANNEL_ID_BYTES = 256
+
+
+def _validate_channel_id(platform: str, channel_id: str) -> str:
+    """Validate one bounded platform identifier before URL construction.
+
+    Path-bearing presets accept only their platform's identifier grammar; the
+    connector still percent-encodes the accepted value as one path segment.
+    Voicecall intentionally ignores ``channel_id`` (Twilio history is scoped
+    by the configured account), but keeps the same bounded/control-character
+    guard so it cannot become a future URL injection when the preset evolves.
+    """
+    if not isinstance(channel_id, str) or not channel_id:
+        raise MessagingBackfillError(f"{platform}: channel_id must be non-empty")
+    if len(channel_id.encode("utf-8")) > _MAX_CHANNEL_ID_BYTES:
+        raise MessagingBackfillError(
+            f"{platform}: channel_id exceeds {_MAX_CHANNEL_ID_BYTES} bytes"
+        )
+    if any(ord(char) < 0x20 or ord(char) == 0x7F for char in channel_id):
+        raise MessagingBackfillError(
+            f"{platform}: channel_id contains control characters"
+        )
+    if platform == "discord" and not re.fullmatch(r"[0-9]{1,32}", channel_id):
+        raise MessagingBackfillError("discord: channel_id must be a numeric channel id")
+    if platform == "slack" and not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", channel_id):
+        raise MessagingBackfillError("slack: channel_id has invalid characters")
+    if platform == "matrix" and not re.fullmatch(
+        r"![^\s/?#\\]{1,127}:[^\s/?#\\]{1,127}", channel_id
+    ):
+        raise MessagingBackfillError("matrix: channel_id must be a room id")
+    if platform == "nextcloud" and not re.fullmatch(
+        r"[A-Za-z0-9_-]{1,128}", channel_id
+    ):
+        raise MessagingBackfillError("nextcloud: channel_id has invalid characters")
+    return channel_id
+
+
 def _resolve_credentials(platform: str, preset: _Preset) -> _Credentials:
     """Resolve every configured credential env var — the SAME ones the live backend reads
     (``messaging/registry.py`` ``_auto_config``)."""
@@ -296,9 +335,7 @@ def _build_connector(
         # Not a credential: a caller-supplied fetch_fn replaces the built-in
         # credential-based fetch entirely (headers is set to None right below),
         # so this placeholder is never read for authentication.
-        creds: _Credentials = _Credentials(
-            token="", url="", user=""
-        )  # nosec B106
+        creds: _Credentials = _Credentials(token="", url="", user="")  # nosec B106
         headers = None
     else:
         creds = _resolve_credentials(platform, preset)
@@ -306,8 +343,13 @@ def _build_connector(
     # Twilio's account SID fills both the URL path AND (for its basic-auth preset) the
     # "user" half — resolved once above, applied to both here.
     account_sid = creds["user"] if platform == "voicecall" else ""
+    params = dict(preset.get("params", {}))
+    if platform == "slack":
+        # Slack's endpoint is not channel-scoped by path; preserve the
+        # requested channel in its required query parameter instead.
+        params["channel"] = channel_id
     url = preset["url_template"].format(
-        channel_id=channel_id,
+        channel_id=quote(channel_id, safe=""),
         base_url=creds["url"].rstrip("/"),
         account_sid=account_sid,
     )
@@ -320,7 +362,7 @@ def _build_connector(
         cursor_field=preset.get("cursor_field", ""),
         cursor_param=preset.get("cursor_param", "cursor"),
         next_url_field=preset.get("next_url_field", ""),
-        params=dict(preset.get("params", {})),
+        params=params,
         headers=headers,
         fetch_fn=fetch_fn,
         transport=transport,
@@ -371,6 +413,8 @@ def backfill_platform_history(
             f"Unknown platform {platform!r} — not in RECOVERABLE_PLATFORM_PRESETS, "
             "UNRECOVERABLE_PLATFORMS, or NOT_YET_IMPLEMENTED_RECOVERABLE_PLATFORMS."
         )
+
+    channel_id = _validate_channel_id(platform, channel_id)
 
     connector = _build_connector(
         platform,

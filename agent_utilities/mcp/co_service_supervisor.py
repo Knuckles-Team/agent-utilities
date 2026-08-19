@@ -1,19 +1,29 @@
 """Self-composing co-service supervisor for the ``graph-os`` entrypoint.
 
 ``uvx agent-utilities graph-os`` (equally the plain ``graph-os`` console script)
-brings up graph-os PLUS the messaging inbound router when the already-loaded
-``AgentConfig`` contains a configured messaging platform
-(:mod:`agent_utilities.messaging.daemon`). The explicit ``KG_DAEMON_ROLE``
-boundary is never changed here: a ``client`` serves requests and submits durable
-work, while the gateway or standalone ``graph-os-daemon`` process owns background
-workers, maintenance schedules, and autonomous loops.
+can bring up graph-os PLUS the messaging inbound router, but a configured
+credential is not ownership intent.  Outbound messaging remains available to
+every verified client; an embedded inbound poller requires the explicit
+``messaging_intake_enabled=True`` API argument and a durable engine-native
+WorkItem lease.  Generic interactive clients therefore default to send-only.
+The explicit ``KG_DAEMON_ROLE`` boundary is never changed here: a ``client``
+serves requests and submits durable work, while the gateway or standalone
+``graph-os-daemon`` process owns background workers, maintenance schedules, and
+autonomous loops.
 
 Detection signals
 -----------------
-* **messaging** — configured iff :func:`agent_utilities.messaging.daemon.configured_platforms`
-  returns at least one platform (a real token/app id is present). This is the
-  exact same check the standalone ``agent-utilities-messaging`` process already
-  uses to decide whether to serve or exit immediately.
+* **messaging credentials** — configured iff
+  :func:`agent_utilities.messaging.daemon.configured_platforms` returns at least
+  one platform (a real token/app id is present). This controls send capability
+  and composition reporting; it does not authorize a listener.
+* **messaging intake** — enabled only when the caller supplies the explicit
+  ``messaging_intake_enabled=True`` deployment intent.  The in-process
+  supervisor then enters ``run_forever`` with its verified session; that shared
+  entrypoint claims one deterministic WorkItem lease per platform/bot identity
+  before calling the low-level serving body.  The standalone
+  ``agent-utilities-messaging`` entrypoint uses the same boundary with its
+  minted verified session.
 * **agent-webui** — configured iff ``config.enable_web_ui`` (the existing
   ``ENABLE_WEB_UI`` field). It is a separate Node/Vite frontend, not a Python
   asyncio task, so it can never be started IN-PROCESS here; it is still reported
@@ -81,22 +91,30 @@ class CompositionPlan:
 
     messaging_platforms: tuple[str, ...] = ()
     web_ui_enabled: bool = False
+    messaging_intake_enabled: bool = False
 
     @property
     def messaging_configured(self) -> bool:
         return bool(self.messaging_platforms)
 
+    @property
+    def messaging_intake_configured(self) -> bool:
+        """Whether this plan may start an inbound listener."""
+        return self.messaging_configured and self.messaging_intake_enabled
+
     def co_service_names(self) -> tuple[str, ...]:
         """Names of co-services this composition would bring up (any backend)."""
         names: list[str] = []
-        if self.messaging_configured:
+        if self.messaging_intake_configured:
             names.append("messaging")
         if self.web_ui_enabled:
             names.append("agent-webui")
         return tuple(names)
 
 
-def detect_composition(engine: Any = None) -> CompositionPlan:
+def detect_composition(
+    engine: Any = None, *, messaging_intake_enabled: bool | None = None
+) -> CompositionPlan:
     """Detect the configured co-services from the already-loaded AgentConfig.
 
     Pure/side-effect-free: safe to call before any engine or process identity
@@ -105,9 +123,15 @@ def detect_composition(engine: Any = None) -> CompositionPlan:
     from agent_utilities.core.config import config
     from agent_utilities.messaging.daemon import configured_platforms
 
+    if messaging_intake_enabled is None:
+        # This is deployment intent, not a credential-derived default.  Keep
+        # the default false so generic interactive clients remain send-only.
+        messaging_intake_enabled = False
+
     return CompositionPlan(
         messaging_platforms=tuple(configured_platforms(engine)),
         web_ui_enabled=bool(getattr(config, "enable_web_ui", False)),
+        messaging_intake_enabled=messaging_intake_enabled,
     )
 
 
@@ -218,24 +242,49 @@ class CoServiceSupervisor:
             )
 
 
-def start_co_services(session: Any, engine: Any) -> CoServiceSupervisor:
+def start_co_services(
+    session: Any,
+    engine: Any,
+    *,
+    messaging_intake_enabled: bool | None = None,
+) -> CoServiceSupervisor:
     """Bring up every remaining configured co-service for THIS ``graph-os`` process.
 
     Called once from ``kg_server.mcp_server()`` after ``_start_engine_bootstrap``
     so a real ``engine`` is available. Messaging is started here as a supervised
     co-service thread using that engine + the process's verified session.
     """
-    plan = detect_composition(engine)
+    plan = detect_composition(
+        engine,
+        messaging_intake_enabled=messaging_intake_enabled,
+    )
     supervisor = CoServiceSupervisor()
 
-    if plan.messaging_configured:
+    if plan.messaging_intake_configured:
         from agent_utilities.messaging.daemon import run_forever
 
         platforms = list(plan.messaging_platforms)
+
+        def _run_messaging(stop_event: threading.Event) -> None:
+            run_forever(
+                engine,
+                platforms,
+                stop_event,
+                session=session,
+                intake_intent=True,
+            )
+
         supervisor.start_service(
             "messaging",
-            lambda stop_event: run_forever(engine, platforms, stop_event),
+            _run_messaging,
             session,
+        )
+    elif plan.messaging_configured:
+        logger.info(
+            "messaging credentials are present but inbound intake is disabled; "
+            "outbound sends remain available (pass "
+            "messaging_intake_enabled=True only for the deployment that owns "
+            "polling)"
         )
     else:
         logger.debug(

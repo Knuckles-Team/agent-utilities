@@ -175,7 +175,6 @@ all = [
     { name = "irc" },
     { name = "ladybug" },
     { name = "langfuse" },
-    { name = "langfuse-agent", extra = ["mcp"] },
     { name = "line-bot-sdk" },
     { name = "llama-index-core" },
     { name = "llama-index-embeddings-huggingface" },
@@ -189,8 +188,9 @@ all = [
     { name = "mutmut" },
     { name = "mypy" },
     { name = "neonize" },
+    { name = "nest-asyncio" },
+    { name = "networkx" },
     { name = "nltk" },
-    { name = "numpy" },
     { name = "opentelemetry-instrumentation-asgi" },
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "opentelemetry-instrumentation-starlette" },
@@ -216,6 +216,7 @@ all = [
     { name = "python-telegram-bot" },
     { name = "rdflib" },
     { name = "ruff" },
+    { name = "setuptools" },
     { name = "skill-graphs" },
     { name = "slack-bolt" },
     { name = "starlette" },
@@ -309,7 +310,6 @@ kafka = [
 ]
 langfuse = [
     { name = "langfuse" },
-    { name = "langfuse-agent", extra = ["mcp"] },
 ]
 logfire = [
     { name = "logfire", extra = ["httpx"] },
@@ -435,7 +435,6 @@ serving = [
     { name = "httpx" },
     { name = "hvac" },
     { name = "langfuse" },
-    { name = "langfuse-agent", extra = ["mcp"] },
     { name = "llama-index-core" },
     { name = "llama-index-embeddings-openai" },
     { name = "llama-index-llms-openai" },
@@ -489,7 +488,6 @@ test = [
     { name = "mypy" },
     { name = "nest-asyncio" },
     { name = "networkx" },
-    { name = "numpy" },
     { name = "opentelemetry-instrumentation-asgi" },
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "opentelemetry-instrumentation-starlette" },
@@ -523,6 +521,7 @@ test = [
 test-backends = [
     { name = "agent-terminal-ui" },
     { name = "agent-webui" },
+    { name = "aiohttp" },
     { name = "aiokafka" },
     { name = "confluent-kafka" },
     { name = "epistemic-graph" },
@@ -539,7 +538,8 @@ test-backends = [
     { name = "mutmut" },
     { name = "mypy" },
     { name = "neo4j" },
-    { name = "numpy" },
+    { name = "nest-asyncio" },
+    { name = "networkx" },
     { name = "opentelemetry-instrumentation-asgi" },
     { name = "opentelemetry-instrumentation-fastapi" },
     { name = "opentelemetry-instrumentation-starlette" },
@@ -562,6 +562,7 @@ test-backends = [
     { name = "python-multipart" },
     { name = "rdflib" },
     { name = "ruff" },
+    { name = "setuptools" },
     { name = "skill-graphs" },
     { name = "starlette" },
     { name = "statsmodels" },
@@ -584,7 +585,6 @@ build = [
 ]
 guardrails = [
     { name = "jsonschema" },
-    { name = "numpy" },
     { name = "owlrl" },
     { name = "pyshacl" },
     { name = "pytest" },
@@ -650,7 +650,6 @@ requires-dist = [
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "ladybug", marker = "extra == 'graph'", specifier = ">=0.18.2" },
     { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=4.14.1,<5" },
-    { name = "langfuse-agent", extras = ["mcp"], marker = "extra == 'langfuse'", editable = ".uv-workspace-siblings/langfuse-agent" },
     { name = "line-bot-sdk", marker = "extra == 'messaging-line'", specifier = ">=3.25.0" },
     { name = "llama-index-core", marker = "extra == 'documents'", specifier = ">=0.14.23" },
     { name = "llama-index-core", marker = "extra == 'embeddings'", specifier = ">=0.14.23" },
@@ -671,7 +670,6 @@ requires-dist = [
     { name = "nest-asyncio", marker = "extra == 'test'", specifier = ">=1.6.0" },
     { name = "networkx", marker = "extra == 'test'", specifier = ">=3.6.1" },
     { name = "nltk", marker = "extra == 'documents'", specifier = ">=3.10.0" },
-    { name = "numpy", marker = "extra == 'test'", specifier = ">=2.5.1" },
     { name = "opentelemetry-exporter-otlp-proto-http", marker = "extra == 'otel'", specifier = ">=1.30.0,<2" },
     { name = "opentelemetry-instrumentation-asgi", marker = "extra == 'test'", specifier = ">=0.60b0" },
     { name = "opentelemetry-instrumentation-fastapi", marker = "extra == 'test'", specifier = ">=0.60b0" },
@@ -697,16 +695,16 @@ requires-dist = [
     { name = "pydantic-ai-harness", extras = ["dynamic-workflow"], marker = "extra == 'dynamic-workflow'", specifier = ">=0.14.0,<0.15.0" },
     { name = "pydantic-ai-skills", marker = "extra == 'agent-headless'", specifier = ">=1.2.0" },
     { name = "pydantic-ai-skills", marker = "extra == 'agent-runtime'", specifier = ">=1.2.0" },
-    { name = "pydantic-ai-slim", extras = ["ag-ui", "cli", "mcp", "openai", "ui", "web"], marker = "extra == 'agent-runtime'", specifier = ">=2.14.1,<3.0.0" },
-    { name = "pydantic-ai-slim", extras = ["anthropic"], marker = "extra == 'agent-anthropic'", specifier = ">=2.14.1,<3.0.0" },
-    { name = "pydantic-ai-slim", extras = ["cli", "mcp", "openai", "web"], marker = "extra == 'agent-headless'", specifier = ">=2.14.1,<3.0.0" },
-    { name = "pydantic-ai-slim", extras = ["google"], marker = "extra == 'agent-google'", specifier = ">=2.14.1,<3.0.0" },
-    { name = "pydantic-ai-slim", extras = ["groq"], marker = "extra == 'agent-groq'", specifier = ">=2.14.1,<3.0.0" },
-    { name = "pydantic-ai-slim", extras = ["huggingface"], marker = "extra == 'agent-huggingface'", specifier = ">=2.14.1,<3.0.0" },
-    { name = "pydantic-ai-slim", extras = ["mistral"], marker = "extra == 'agent-mistral'", specifier = ">=2.14.1,<3.0.0" },
-    { name = "pydantic-ai-slim", extras = ["openai"], marker = "extra == 'mcp'", specifier = ">=2.14.1,<3.0.0" },
-    { name = "pydantic-graph", marker = "extra == 'agent-headless'", specifier = ">=2.14.1,<3.0.0" },
-    { name = "pydantic-graph", marker = "extra == 'agent-runtime'", specifier = ">=2.14.1,<3.0.0" },
+    { name = "pydantic-ai-slim", extras = ["ag-ui", "cli", "mcp", "openai", "ui", "web"], marker = "extra == 'agent-runtime'", specifier = "==2.29.0" },
+    { name = "pydantic-ai-slim", extras = ["anthropic"], marker = "extra == 'agent-anthropic'", specifier = "==2.29.0" },
+    { name = "pydantic-ai-slim", extras = ["cli", "mcp", "openai", "web"], marker = "extra == 'agent-headless'", specifier = "==2.29.0" },
+    { name = "pydantic-ai-slim", extras = ["google"], marker = "extra == 'agent-google'", specifier = "==2.29.0" },
+    { name = "pydantic-ai-slim", extras = ["groq"], marker = "extra == 'agent-groq'", specifier = "==2.29.0" },
+    { name = "pydantic-ai-slim", extras = ["huggingface"], marker = "extra == 'agent-huggingface'", specifier = "==2.29.0" },
+    { name = "pydantic-ai-slim", extras = ["mistral"], marker = "extra == 'agent-mistral'", specifier = "==2.29.0" },
+    { name = "pydantic-ai-slim", extras = ["openai"], marker = "extra == 'mcp'", specifier = "==2.29.0" },
+    { name = "pydantic-graph", marker = "extra == 'agent-headless'", specifier = "==2.29.0" },
+    { name = "pydantic-graph", marker = "extra == 'agent-runtime'", specifier = "==2.29.0" },
     { name = "pydantic-monty", marker = "extra == 'sandbox'", specifier = ">=0.0.18,<0.1.0" },
     { name = "pydantic-settings", specifier = ">=2.14.2" },
     { name = "pyjwt", marker = "extra == 'mcp'", specifier = ">=2.13.0" },
@@ -756,7 +754,6 @@ build = [
 ]
 guardrails = [
     { name = "jsonschema", specifier = ">=4.26.0" },
-    { name = "numpy", specifier = ">=2.5.1" },
     { name = "owlrl", specifier = ">=7.6.2" },
     { name = "pyshacl", specifier = ">=0.40.0" },
     { name = "pytest", specifier = ">=9.1.1" },
@@ -3223,41 +3220,6 @@ wheels = [
 ]
 
 [[package]]
-name = "langfuse-agent"
-version = "2.1.0"
-source = { editable = ".uv-workspace-siblings/langfuse-agent" }
-dependencies = [
-    { name = "agent-utilities", extra = ["mcp"] },
-    { name = "langfuse" },
-    { name = "requests" },
-]
-
-[package.optional-dependencies]
-mcp = [
-    { name = "agent-utilities", extra = ["mcp"] },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "agent-utilities", extras = ["agent-runtime", "logfire"], marker = "extra == 'agent'", editable = ".uv-workspace-siblings/langfuse-agent/.uv-workspace-siblings/agent-utilities" },
-    { name = "agent-utilities", extras = ["mcp"], editable = ".uv-workspace-siblings/langfuse-agent/.uv-workspace-siblings/agent-utilities" },
-    { name = "agent-utilities", extras = ["mcp"], marker = "extra == 'mcp'", editable = ".uv-workspace-siblings/langfuse-agent/.uv-workspace-siblings/agent-utilities" },
-    { name = "agent-utilities", extras = ["mcp", "agent-runtime", "logfire"], marker = "extra == 'all'", editable = ".uv-workspace-siblings/langfuse-agent/.uv-workspace-siblings/agent-utilities" },
-    { name = "langfuse", specifier = ">=4,<5" },
-    { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6.1" },
-    { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.7.7" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=9.1.1" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=1.4.0" },
-    { name = "pytest-cov", marker = "extra == 'test'", specifier = ">=7.1.0" },
-    { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3.8.0" },
-    { name = "requests", specifier = ">=2.34.2" },
-]
-provides-extras = ["mcp", "agent", "all", "test", "docs"]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest-timeout", specifier = ">=2.4.0" }]
-
-[[package]]
 name = "libcst"
 version = "1.9.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5233,7 +5195,7 @@ wheels = [
 
 [[package]]
 name = "pydantic-ai-slim"
-version = "2.25.0"
+version = "2.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -5245,9 +5207,9 @@ dependencies = [
     { name = "pydantic-graph" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e1/ec/6e186e59a9beede41a9e347f69bd61a833de724aad8a175da8da088d220a/pydantic_ai_slim-2.25.0.tar.gz", hash = "sha256:4f5a36f29e2b346d4b793bf3b983aba17ec19f24015bb811ee40815e98155417", size = 974671, upload-time = "2026-08-06T03:20:33.01Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/6d/47/9ea38824b27efae7d19a34e2288697e0a84aa5cdd8c119ac85d030395ea3/pydantic_ai_slim-2.29.0.tar.gz", hash = "sha256:a5de25ebf8cf50187fe71be101e318e18e8ed469e5d8d1551d92b81ded1e3e99", size = 1197221, upload-time = "2026-08-13T04:16:29.027Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/04/46/e168f03ec04a933b6b0ff3e02c7e608c24da8efb03d0e1f4d0b486bfef09/pydantic_ai_slim-2.25.0-py3-none-any.whl", hash = "sha256:9b69d1af463a63a88ea3c3567b38a09e8208efe73a36c8f5d5d5515939a88acd", size = 1169288, upload-time = "2026-08-06T03:20:24.91Z" },
+    { url = "https://files.pythonhosted.org/packages/a1/42/fda259cd11f88eb0ce7e54ee6a29011c0dd6a0af474403a2bb32d5dddb79/pydantic_ai_slim-2.29.0-py3-none-any.whl", hash = "sha256:cb5f5b7a941715b7f8894baae48ac178a603bdcf729726535964eaec25b07eb1", size = 1414034, upload-time = "2026-08-13T04:16:22.19Z" },
 ]
 
 [package.optional-dependencies]
@@ -5371,7 +5333,7 @@ wheels = [
 
 [[package]]
 name = "pydantic-graph"
-version = "2.25.0"
+version = "2.29.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -5380,9 +5342,9 @@ dependencies = [
     { name = "pydantic" },
     { name = "typing-inspection" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e9/a0/78b22670f9c9608939a27c9de647dba28b6fca864f8883db30f34832ab9b/pydantic_graph-2.25.0.tar.gz", hash = "sha256:1e1d61556ec0d5fdc02d307380f6ad4ac96d0bba9e5eac0881bae42466d3db8a", size = 45179, upload-time = "2026-08-06T03:20:35.284Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/99/a4/364964ff4ca90fac651ffc969e04d75941389a39009fa2e950379bbcec93/pydantic_graph-2.29.0.tar.gz", hash = "sha256:078d2d7ab53ffb695e1a66c2a741880c88fef36611004736bf7313f8a5ec4465", size = 45180, upload-time = "2026-08-13T04:16:30.94Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/45/e3f93b1a33fea3e3989de9491a57a69bd93aae0c5b9137f05113e752a8ef/pydantic_graph-2.25.0-py3-none-any.whl", hash = "sha256:87017851610746f76463b0b1fd257286425f3b4feac1fd17e50b0370ae76c2cf", size = 52661, upload-time = "2026-08-06T03:20:28.332Z" },
+    { url = "https://files.pythonhosted.org/packages/6f/d5/9a7e31a4895904c5d81989069630c47b7ef28d07256ae7ce1b8cda9964d1/pydantic_graph-2.29.0-py3-none-any.whl", hash = "sha256:afc81688c9abca9e93c4f7b81dd1112e8a7a8d4d41514413bd8d2c674bd2dfa1", size = 52661, upload-time = "2026-08-13T04:16:24.994Z" },
 ]
 
 [[package]]

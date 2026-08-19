@@ -24,18 +24,18 @@ Design (path-dependent, no look-ahead):
 
 The epistemic-graph engine is used for the heavy aggregate stats
 (``client.finance.risk_metrics`` for Sharpe/vol and ``deflated_sharpe`` for an
-overfit-aware Sharpe) when reachable; a numerically-identical local NumPy path
-runs offline so unit tests and air-gapped runs behave the same.
+overfit-aware Sharpe) when reachable; the bounded list path uses the native
+numeric kernel for local metrics when the optional enrichment is unavailable.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +57,7 @@ def _composite_engine() -> Any:
         # Reuse the process graph transport; this namespace view owns no socket.
         _ENGINE_CLIENT = GraphComputeEngine.get_or_create().client
         logger.info("epistemic-graph engine connected for composite backtest")
-    except Exception as exc:  # noqa: BLE001 — degrade to numpy
+    except Exception as exc:  # noqa: BLE001 — optional engine enrichment
         logger.debug(
             "epistemic-graph engine unavailable for composite backtest: %s", exc
         )
@@ -146,10 +146,10 @@ class CompositeBacktestResult:
 def _shift_signals(signals: NDArray, n: int) -> NDArray:
     """Shift a signal array forward one bar (decision at close of t-1 applies to
     bar t); bar 0 starts flat. This is the no-look-ahead guarantee."""
-    shifted = np.zeros(n, dtype=float)
+    shifted = [0.0] * n
     m = min(len(signals), n)
     if m > 1:
-        shifted[1:m] = np.asarray(signals[: m - 1], dtype=float)
+        shifted[1:m] = [float(value) for value in signals[: m - 1]]
     return shifted
 
 
@@ -212,61 +212,67 @@ class CompositeBacktester:
             return CompositeBacktestResult(n_periods=n, n_markets=len(markets))
 
         # Normalize static weights to sum to 1 (relative budget shares).
-        raw_weights = np.array([max(0.0, m.weight) for m in markets], dtype=float)
-        wsum = raw_weights.sum()
+        raw_weights = [max(0.0, float(m.weight)) for m in markets]
+        wsum = float(xp.sum(raw_weights))
         weights = (
-            raw_weights / wsum
+            [weight / wsum for weight in raw_weights]
             if wsum > 0
-            else np.full(len(markets), 1.0 / len(markets))
+            else [1.0 / len(markets)] * len(markets)
         )
 
-        rets = np.array([np.asarray(m.returns[:n], dtype=float) for m in markets])
+        rets = [[float(value) for value in m.returns[:n]] for m in markets]
         # Shift each leg's signal forward one bar -> no look-ahead.
-        sigs = np.array(
-            [
-                _shift_signals(m.signals, n)
-                if m.signals is not None
-                else np.ones(n, dtype=float)
-                for m in markets
-            ]
-        )
+        sigs = [
+            _shift_signals(m.signals, n) if m.signals is not None else [1.0] * n
+            for m in markets
+        ]
 
         equity = self.initial_capital
         equity_curve = [equity]
         combined_returns: list[float] = []
-        pnl_by_market = np.zeros(len(markets))
-        exposure_sum = np.zeros(len(markets))
-        leg_cum = np.ones(len(markets))  # compounding per-leg gross return path
+        pnl_by_market = [0.0] * len(markets)
+        exposure_sum = [0.0] * len(markets)
+        leg_cum = [1.0] * len(markets)  # compounding per-leg gross return path
 
         for t in range(n):
             # Requested gross allocation fraction per market for THIS bar, using
             # the signal decided at t-1 (already shifted) and the static weight.
-            requested = weights * sigs[:, t]  # fraction of equity, signed
-            gross = float(np.abs(requested).sum())
+            requested = [weights[i] * sigs[i][t] for i in range(len(markets))]
+            gross = float(xp.sum([abs(value) for value in requested]))
 
             # Shared-pool constraint: scale down if combined gross exceeds cap.
             scale = 1.0
             if gross > self.max_gross_exposure and gross > 0:
                 scale = self.max_gross_exposure / gross
-            applied = requested * scale  # fraction of current equity per market
+            applied = [value * scale for value in requested]
 
             # Dollar allocation -> P&L from this bar's realized return.
-            alloc_dollars = applied * equity
-            bar_pnl_by_market = alloc_dollars * rets[:, t]
-            bar_pnl = float(bar_pnl_by_market.sum())
+            bar_pnl_by_market = [
+                applied[i] * equity * rets[i][t] for i in range(len(markets))
+            ]
+            bar_pnl = float(xp.sum(bar_pnl_by_market))
 
-            pnl_by_market += bar_pnl_by_market
-            exposure_sum += np.abs(applied)
+            pnl_by_market = [
+                total + change
+                for total, change in zip(pnl_by_market, bar_pnl_by_market, strict=True)
+            ]
+            exposure_sum = [
+                total + abs(change)
+                for total, change in zip(exposure_sum, applied, strict=True)
+            ]
             # Each leg's own compounded path: the bar's strategy return for the
             # leg is its applied exposure times the market return.
-            leg_cum *= 1.0 + applied * rets[:, t]
+            leg_cum = [
+                total * (1.0 + applied[i] * rets[i][t])
+                for i, total in enumerate(leg_cum)
+            ]
 
             combined_ret = bar_pnl / equity if equity != 0 else 0.0
             combined_returns.append(combined_ret)
             equity += bar_pnl
             equity_curve.append(equity)
 
-        combined = np.array(combined_returns)
+        combined = combined_returns
         total_return = equity / self.initial_capital - 1.0
 
         ann_return, ann_sharpe, max_dd, dsr, source = self._aggregate_metrics(
@@ -315,33 +321,44 @@ class CompositeBacktester:
             return 0.0, 0.0, 0.0, None, "local"
 
         # Annualized geometric return from the realized combined path.
-        growth = float(np.prod(1.0 + combined))
+        growth = float(math.prod(1.0 + value for value in combined))
         ann_return = growth ** (periods_per_year / n) - 1.0 if growth > 0 else -1.0
 
         # Max drawdown on the compounded equity path.
-        equity_path = np.cumprod(1.0 + combined)
-        running_max = np.maximum.accumulate(equity_path)
-        drawdowns = equity_path / running_max - 1.0
-        max_dd = float(np.min(drawdowns)) if len(drawdowns) else 0.0
+        equity_path: list[float] = []
+        equity_value = 1.0
+        for value in combined:
+            equity_value *= 1.0 + value
+            equity_path.append(equity_value)
+        running_max: list[float] = []
+        high = float("-inf")
+        for value in equity_path:
+            high = max(high, value)
+            running_max.append(high)
+        drawdowns = [
+            value / high - 1.0
+            for value, high in zip(equity_path, running_max, strict=True)
+        ]
+        max_dd = float(min(drawdowns)) if drawdowns else 0.0
 
         source = "local"
         ann_sharpe = 0.0
         client = self._client()
         if client is not None:
             try:
-                m = client.finance.risk_metrics(combined.tolist(), risk_free_rate)
+                m = client.finance.risk_metrics(combined, risk_free_rate)
                 # Engine reports a (periodic) Sharpe; annualize consistently.
                 periodic_sharpe = float(m.get("sharpe", m.get("sharpe_ratio", 0.0)))
-                ann_sharpe = periodic_sharpe * np.sqrt(periods_per_year)
+                ann_sharpe = periodic_sharpe * math.sqrt(periods_per_year)
                 source = "engine"
-            except Exception as exc:  # noqa: BLE001 — degrade to numpy
-                logger.debug("engine risk_metrics failed, using numpy: %s", exc)
+            except Exception as exc:  # noqa: BLE001 — optional engine enrichment
+                logger.debug("engine risk_metrics failed, using local metrics: %s", exc)
 
         if source == "local":
-            excess = combined - risk_free_rate
-            sd = float(np.std(excess))
+            excess = [value - risk_free_rate for value in combined]
+            sd = float(xp.std(excess))
             ann_sharpe = (
-                float(np.mean(excess) / sd * np.sqrt(periods_per_year))
+                float(xp.mean(excess) / sd * math.sqrt(periods_per_year))
                 if sd > 0
                 else 0.0
             )
@@ -350,9 +367,7 @@ class CompositeBacktester:
         dsr: float | None = None
         if client is not None:
             try:
-                dsr = float(
-                    client.finance.deflated_sharpe(ann_sharpe, 1, combined.tolist())
-                )
+                dsr = float(client.finance.deflated_sharpe(ann_sharpe, 1, combined))
             except Exception as exc:  # noqa: BLE001 — optional enrichment
                 logger.debug("engine deflated_sharpe unavailable: %s", exc)
 

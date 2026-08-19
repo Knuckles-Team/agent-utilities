@@ -37,6 +37,7 @@ flowchart LR
     F --> G["identity + digest + signer checks"]
     G --> H["OK / DEGRADED / BLOCKED / MISSING"]
     H --> I["catalog_epoch digest"]
+    I --> J["GET /api/enhanced/frontend-contributions"]
 ```
 
 Every step is content-only: nothing under this path ever calls
@@ -84,10 +85,16 @@ non-zero on any `BLOCKED` record.
   is checked against a configured allowlist (`FRONTEND_CONTRIBUTION_TRUSTED_SIGNERS`),
   not a signature over the artifact bytes. A real supply-chain signer trust
   store is a follow-up.
-- **No REST/MCP twin.** `discover_frontend_contributions` is a Python-only
-  entrypoint today; the "Two surfaces by default" rule (gateway route + MCP
-  tool) is not yet satisfied. `list_frontend_contributions`-shaped REST/MCP
-  wiring is a follow-up, tracked in the GOC-24 handoff.
+- **REST projection.** The existing WebUI read entrypoint
+  (`GET /api/enhanced/frontend-contributions`) now calls
+  `discover_frontend_contributions` and returns the same catalog record shape
+  validated by the typed client. It preserves fail-closed signer status and
+  does not invent capability-resolution verdicts while the live capability
+  catalog projection remains separate.
+- **MCP twin.** The existing ecosystem/configure tool authority exposes the
+  bounded read as `graph_configure(action="frontend_contributions")`; its
+  action-routed REST twin is `/api/graph/configure`, and both surfaces call the
+  same catalog-payload helper as the WebUI route.
 - **No Epistemic Graph catalog projection.** The design's
   "graph-os catalog projection" step is not implemented; WebUI's typed client
   (`agent-webui/src/lib/frontend-contributions.ts`) validates the same record
@@ -95,5 +102,5 @@ non-zero on any `BLOCKED` record.
 - **No fleet rollout.** Zero of the 68 fleet packages were given a
   `contribution.json`/entry point in this lane; the TCK proves the CONTRACT
   end to end against fixture packages, not the fleet migration (lane W04).
-- **No WebUI dynamic integrations route.** Per the lane's own non-goals, this
-  lane ships the contract + TCK only; GOC-25 owns rendering it.
+- **WebUI rendering.** The typed client and integrations view consume the REST
+  projection; package-specific rendering remains owned by the WebUI consumer.

@@ -41,8 +41,10 @@ Wiring: registered as the leader-only ``fleet_reconciler`` maintenance job in
 
 import json
 import logging
+import math
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -55,6 +57,12 @@ from agent_utilities.orchestration.fleet_actuation import (
     execute_action,
     get_fleet_actuator,
 )
+from agent_utilities.orchestration.fleet_health import (
+    FleetHealthEvidence,
+    FleetHealthSnapshot,
+    collect_fleet_health,
+    unavailable_fleet_health,
+)
 from agent_utilities.orchestration.fleet_observation import (
     STATUS_DOWN,
     STATUS_UP,
@@ -64,6 +72,13 @@ from agent_utilities.orchestration.fleet_observation import (
 logger = logging.getLogger(__name__)
 
 _APPROVAL_DRAIN_LIMIT = 20
+
+_MAX_SCALING_REPLICAS = 100_000
+_MAX_SCALING_STEP = 100_000
+_MAX_SCALING_TARGET = 1_000_000_000_000.0
+_MAX_SCALING_COOLDOWN_S = 86_400.0
+_MAX_SCALING_DEADBAND = 1.0
+_MAX_STABILIZATION_SAMPLES = 60
 
 # Action kinds whose execution warrants a follow-up health watch (OS-5.27).
 _WATCHED_KINDS = {
@@ -76,6 +91,26 @@ _WATCHED_KINDS = {
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _strict_scaling_int(value: Any, name: str, lower: int, upper: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{name} must be an integer")
+    if value < lower or value > upper:
+        raise ValueError(f"{name} must be between {lower} and {upper}")
+    return value
+
+
+def _strict_scaling_float(value: Any, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be numeric")
+    try:
+        parsed = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{name} must be finite") from exc
+    if not math.isfinite(parsed):
+        raise ValueError(f"{name} must be finite")
+    return parsed
 
 
 @dataclass
@@ -95,6 +130,61 @@ class ScalingSpec:
     scale_up_step: int = 1  # max replicas added per evaluation
     scale_down_step: int = 1  # max replicas removed per evaluation
     cooldown_s: float = 300.0  # min seconds between scale actions
+    deadband: float = 0.05  # relative target band (5% by default)
+    scale_up_stabilization_samples: int = 1  # fast scale-up by default
+    scale_down_stabilization_samples: int = 3  # conservative scale-down
+
+    def __post_init__(self) -> None:
+        integer_fields = (
+            ("min_replicas", self.min_replicas, 0, _MAX_SCALING_REPLICAS),
+            ("max_replicas", self.max_replicas, 0, _MAX_SCALING_REPLICAS),
+            ("scale_up_step", self.scale_up_step, 1, _MAX_SCALING_STEP),
+            ("scale_down_step", self.scale_down_step, 1, _MAX_SCALING_STEP),
+            (
+                "scale_up_stabilization_samples",
+                self.scale_up_stabilization_samples,
+                1,
+                _MAX_STABILIZATION_SAMPLES,
+            ),
+            (
+                "scale_down_stabilization_samples",
+                self.scale_down_stabilization_samples,
+                1,
+                _MAX_STABILIZATION_SAMPLES,
+            ),
+        )
+        for field_name, value, lower, upper in integer_fields:
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError(f"{field_name} must be an integer")
+            if value < lower or value > upper:
+                raise ValueError(f"{field_name} must be between {lower} and {upper}")
+        if self.max_replicas < self.min_replicas:
+            raise ValueError("max_replicas must be >= min_replicas")
+        if not isinstance(self.signal, str) or not self.signal.strip():
+            raise ValueError("signal must be a non-empty string")
+        if len(self.signal) > 128:
+            raise ValueError("signal is too long")
+        for field_name, numeric_value in (
+            ("target", self.target),
+            ("cooldown_s", self.cooldown_s),
+            ("deadband", self.deadband),
+        ):
+            if isinstance(numeric_value, bool) or not isinstance(
+                numeric_value, (int, float)
+            ):
+                raise ValueError(f"{field_name} must be numeric")
+            try:
+                parsed = float(numeric_value)
+            except OverflowError as exc:
+                raise ValueError(f"{field_name} must be finite") from exc
+            if not math.isfinite(parsed):
+                raise ValueError(f"{field_name} must be finite")
+        if self.target <= 0 or self.target > _MAX_SCALING_TARGET:
+            raise ValueError("target is outside its bounded range")
+        if self.cooldown_s < 0 or self.cooldown_s > _MAX_SCALING_COOLDOWN_S:
+            raise ValueError("cooldown_s is outside its bounded range")
+        if self.deadband < 0 or self.deadband > _MAX_SCALING_DEADBAND:
+            raise ValueError("deadband must be between 0 and 1")
 
 
 def parse_scaling_spec(raw: Any, service: str) -> ScalingSpec | None:
@@ -113,13 +203,42 @@ def parse_scaling_spec(raw: Any, service: str) -> ScalingSpec | None:
         return None
     try:
         spec = ScalingSpec(
-            min_replicas=int(raw.get("min", 1)),
-            max_replicas=int(raw["max"]),  # required: no implicit ceiling
-            signal=str(raw.get("signal") or ""),
-            target=float(raw.get("target") or 0.0),
-            scale_up_step=int(raw.get("scale_up_step", 1)),
-            scale_down_step=int(raw.get("scale_down_step", 1)),
-            cooldown_s=float(raw.get("cooldown_s", 300.0)),
+            min_replicas=_strict_scaling_int(
+                raw.get("min", 1), "min", 0, _MAX_SCALING_REPLICAS
+            ),
+            max_replicas=_strict_scaling_int(
+                raw["max"], "max", 0, _MAX_SCALING_REPLICAS
+            ),  # required: no implicit ceiling
+            signal=raw.get("signal") or "",
+            target=_strict_scaling_float(raw.get("target"), "target"),
+            scale_up_step=_strict_scaling_int(
+                raw.get("scale_up_step", 1),
+                "scale_up_step",
+                1,
+                _MAX_SCALING_STEP,
+            ),
+            scale_down_step=_strict_scaling_int(
+                raw.get("scale_down_step", 1),
+                "scale_down_step",
+                1,
+                _MAX_SCALING_STEP,
+            ),
+            cooldown_s=_strict_scaling_float(
+                raw.get("cooldown_s", 300.0), "cooldown_s"
+            ),
+            deadband=_strict_scaling_float(raw.get("deadband", 0.05), "deadband"),
+            scale_up_stabilization_samples=_strict_scaling_int(
+                raw.get("scale_up_stabilization_samples", 1),
+                "scale_up_stabilization_samples",
+                1,
+                _MAX_STABILIZATION_SAMPLES,
+            ),
+            scale_down_stabilization_samples=_strict_scaling_int(
+                raw.get("scale_down_stabilization_samples", 3),
+                "scale_down_stabilization_samples",
+                1,
+                _MAX_STABILIZATION_SAMPLES,
+            ),
         )
     except (KeyError, TypeError, ValueError) as e:
         logger.warning("scaling spec for %s is invalid (%s) — ignored", service, e)
@@ -133,10 +252,6 @@ def parse_scaling_spec(raw: Any, service: str) -> ScalingSpec | None:
         problems.append("signal missing")
     if spec.target <= 0:
         problems.append(f"target={spec.target} must be > 0")
-    if spec.scale_up_step < 1 or spec.scale_down_step < 1:
-        problems.append("steps must be >= 1")
-    if spec.cooldown_s < 0:
-        problems.append(f"cooldown_s={spec.cooldown_s} < 0")
     if problems:
         logger.warning(
             "scaling spec for %s rejected: %s — ignored", service, "; ".join(problems)
@@ -295,11 +410,17 @@ class FleetReconciler:
         actuator: Any = None,
         policy: Any = None,
         max_actions: int | None = None,
+        health_provider: Callable[[], FleetHealthEvidence | FleetHealthSnapshot]
+        | None = None,
     ):
         self.engine = engine
         self.observer = observer or get_fleet_observer(engine)
         self.actuator = actuator or get_fleet_actuator()
         self.policy = policy or get_action_policy(engine)
+        self.health_provider = health_provider or (
+            lambda: collect_fleet_health().evidence
+        )
+        self._last_health: FleetHealthEvidence | None = None
         if max_actions is None:
             try:
                 from agent_utilities.core.config import config as _cfg
@@ -309,6 +430,23 @@ class FleetReconciler:
                 max_actions = 5
         self.max_actions = max(1, int(max_actions))
 
+    def _fleet_health(self) -> FleetHealthEvidence:
+        """Read the shared supervisory contract; provider failure is unavailable."""
+
+        try:
+            result = self.health_provider()
+            if isinstance(result, FleetHealthSnapshot):
+                return result.evidence
+            if isinstance(result, FleetHealthEvidence):
+                return result
+            raise TypeError("health provider returned an untyped result")
+        except Exception as exc:  # noqa: BLE001 - autonomy must fail closed
+            logger.warning(
+                "fleet_reconciler: supervisory evidence unavailable (%s)",
+                type(exc).__name__,
+            )
+            return unavailable_fleet_health("reconciler.health")
+
     # ── divergence detection ────────────────────────────────────────
 
     def diff(self) -> list[ActionRequest]:
@@ -317,6 +455,9 @@ class FleetReconciler:
         Only positive evidence diverges: a service the observer never saw is
         skipped, not restarted.
         """
+        self._last_health = self._fleet_health()
+        if not self._last_health.convergence_ready:
+            return []
         desired = load_desired_state()
         observed: dict[str, Any] = {}
         try:
@@ -483,6 +624,21 @@ class FleetReconciler:
     def reconcile(self) -> dict[str, Any]:
         """One full pass; returns (and durably records) the convergence report."""
         proposals = self.diff()
+        health = self._last_health or self._fleet_health()
+        if not health.convergence_ready:
+            report: dict[str, Any] = {
+                "divergences": 0,
+                "processed": 0,
+                "deferred": [],
+                "actions": [],
+                "approved_drained": [],
+                "actuator": getattr(self.actuator, "name", "?"),
+                "fired_agent_tasks": [],
+                "health": health.model_dump(mode="json"),
+                "reason": "fleet supervisory evidence is not ready; convergence skipped",
+            }
+            self._record(report)
+            return report
         processed = proposals[: self.max_actions]
         deferred = proposals[self.max_actions :]
 
@@ -504,6 +660,7 @@ class FleetReconciler:
             "approved_drained": approved,
             "actuator": getattr(self.actuator, "name", "?"),
             "fired_agent_tasks": fired_agent_tasks,
+            "health": health.model_dump(mode="json"),
         }
         self._record(report)
         return report

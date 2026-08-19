@@ -89,6 +89,52 @@ def test_typed_payload_and_blob_ref_are_mutually_exclusive():
         )
 
 
+def test_exact_blob_metadata_and_structured_evidence_are_rendered():
+    env = ChangeEnvelope(
+        connector="data-prep",
+        blob_ref="sha256:" + "a" * 64,
+        blob_digest="sha256:" + "a" * 64,
+        blob_length=42,
+        blob_media_type="application/vnd.apache.arrow.stream",
+        structured_evidence={"evidence_version": "data-prep-evidence.v1"},
+    )
+    rendered = env.as_dict()
+    assert rendered["blob_digest"] == env.blob_digest
+    assert rendered["blob_length"] == 42
+    assert rendered["blob_media_type"] == "application/vnd.apache.arrow.stream"
+    assert rendered["structured_evidence"] == env.structured_evidence
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"blob_ref": "blob:one", "blob_digest": "sha256:" + "a" * 64},
+        {
+            "blob_ref": "blob:one",
+            "blob_digest": "sha256:" + "a" * 64,
+            "blob_length": 1,
+        },
+        {
+            "blob_ref": "blob:one",
+            "blob_digest": "sha256:" + "a" * 64,
+            "blob_length": -1,
+            "blob_media_type": "application/octet-stream",
+        },
+    ],
+)
+def test_exact_blob_metadata_is_complete_and_bounded(kwargs):
+    with pytest.raises(ValueError, match="blob_"):
+        ChangeEnvelope(connector="data-prep", **kwargs)
+
+
+def test_structured_evidence_rejects_noncanonical_values():
+    with pytest.raises(ValueError, match="structured_evidence"):
+        ChangeEnvelope(
+            connector="data-prep",
+            structured_evidence={"value": float("nan")},
+        )
+
+
 @pytest.mark.parametrize("bad", [-0.1, 1.1, 2.0])
 def test_confidence_out_of_range_rejected(bad):
     with pytest.raises(ValueError, match="confidence"):

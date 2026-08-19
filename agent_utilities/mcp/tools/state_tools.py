@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
 from pydantic import Field
 from starlette.responses import JSONResponse
@@ -28,19 +29,31 @@ def register_state_tools(mcp):
 
     @mcp.tool(
         name="graph_sessions",
-        description="Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel').",
+        description=(
+            "Manage durable sessions (action in 'list', 'get', 'delete', 'reply', "
+            "'cancel', 'health', 'topology'). Health and topology share the "
+            "fail-closed fleet evidence contract with REST."
+        ),
         tags=["graph-os", "sessions"],
     )
     async def graph_sessions(
         action: str = Field(
-            description="Action: 'list', 'get', 'delete', 'reply', 'cancel'"
+            description=(
+                "Action: 'list', 'get', 'delete', 'reply', 'cancel', 'health', "
+                "'topology'"
+            )
         ),
         session_id: str = Field(default="", description="Target session ID"),
         user_reply: str = Field(
             default="", description="Reply content for 'reply' action"
         ),
+        limit: int = Field(default=200, description="Page size for 'topology'."),
+        offset: int = Field(default=0, description="Page offset for 'topology'."),
+        status: str = Field(
+            default="", description="Optional session status filter for 'topology'."
+        ),
     ) -> str:
-        """Manage durable sessions. Action: 'list', 'get', 'delete', 'reply', 'cancel'."""
+        """Manage durable sessions and fail-closed fleet supervision."""
 
         from agent_utilities.core.sessions import (
             cancel_session_run,
@@ -55,7 +68,19 @@ def register_state_tools(mcp):
                 path_params={"session_id": session_id} if session_id else {},
                 json_body={"content": user_reply} if user_reply else None,
             )
-            if action == "list":
+            if action in {"health", "topology"}:
+                from agent_utilities.gateway.fleet import fleet_health, fleet_topology
+
+                query: dict[str, str | int] = {"limit": limit, "offset": offset}
+                if status:
+                    query["status"] = status
+                req.scope["query_string"] = urlencode(query).encode("ascii")
+                resp = (
+                    await fleet_health(req)
+                    if action == "health"
+                    else await fleet_topology(req)
+                )
+            elif action == "list":
                 resp = await get_all_sessions(req)
             elif action == "get":
                 if not session_id:

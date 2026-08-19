@@ -162,6 +162,49 @@ def discover_source_files(root: str | Path) -> list[Path]:
     return sorted(out)
 
 
+def logical_file_identity(real: Path, root_real: Path) -> str:
+    """Repository-relative POSIX identity for ``real`` (CONCEPT:AU-KG.ingest.logical-identity).
+
+    This is the persisted artifact identity: the per-file content-hash key,
+    the id embedded in every ``code:``/``test:`` entity id, and what a native
+    ``index_repository``/parse response's ``file_path`` is matched against.
+    It is deliberately **not** the caller's absolute path — the same commit
+    ingested from a worktree, a container mount, or the canonical checkout
+    must land on the identical identity, and a checkout-directory rename must
+    not perturb it.
+
+    Both ``real`` and ``root_real`` MUST already be resolved, symlink-free
+    real paths (:meth:`Path.resolve`) — the caller's containment check
+    (``real == root_real or root_real in real.parents``) has already proven
+    ``real`` is ``root_real`` itself or one of its descendants; this function
+    does not re-check containment, only computes the relative identity.
+
+    When ``root_real`` names a single file rather than a directory (a
+    single-file ``enrich_files`` call), there is no containing tree to be
+    relative to, so the identity is just that file's basename.
+
+    Raises :class:`IncompleteParse` for a logical name that would be empty or
+    ``"."`` (``real`` resolves to ``root_real`` itself, e.g. a directory
+    handed to ``source_root`` and to the file list) — an empty identity can
+    never be a safe hash-map key or entity id.
+    """
+    if root_real.is_file():
+        return root_real.name
+    try:
+        rel = real.relative_to(root_real)
+    except ValueError as exc:  # pragma: no cover — containment already proven by caller
+        raise IncompleteParse(
+            f"file is not under source root {root_real}: {real}"
+        ) from exc
+    posix = rel.as_posix()
+    if not posix or posix == ".":
+        raise IncompleteParse(
+            f"file resolves to an empty logical identity under source root "
+            f"{root_real}: {real}"
+        )
+    return posix
+
+
 class _BatchedBackend:
     """Buffers ``add_node``/``add_edge`` and flushes them through the engine's
     bulk ``batch_update`` (one RPC per ``batch_size``) instead of one RPC per
@@ -435,15 +478,47 @@ class EnrichmentPipeline:
         """Enrich an explicit file set.
 
         ``source_root``, when supplied, is the repository-relative containment
-        root (CONCEPT:AU-KG.ingest.exact-parser-acknowledgement): every input's
-        resolved real path must stay inside it, or the whole batch is rejected
+        root (CONCEPT:AU-KG.ingest.exact-parser-acknowledgement) AND the base
+        every input's **persisted identity** is normalized against
+        (CONCEPT:AU-KG.ingest.logical-identity): every input's resolved real
+        path must stay inside it, or the whole batch is rejected
         (:class:`IncompleteParse`) rather than silently ingesting content a
-        symlink smuggled in from outside the repository. Any raised
-        :class:`IncompleteParse` — from root containment, an unreadable file,
-        duplicate request identity, or a downstream parser acknowledgement
-        failure — leaves ``self._hash_seen`` and this batch's writes entirely
-        unpersisted, so a caller MUST NOT advance a per-file hash or repository
-        watermark for it.
+        symlink smuggled in from outside the repository, and its identity —
+        the ``self._hash_seen``/``pending_hashes`` key and the id embedded in
+        every ``code:``/``test:`` entity — becomes the repository-relative
+        POSIX logical path (:func:`logical_file_identity`), NOT the caller's
+        absolute path. This is deliberate: the same commit ingested from a
+        worktree, a container mount, or the canonical checkout must land on
+        the identical identity, and a watermark recorded under one checkout
+        root must remain valid after that checkout is renamed.
+
+        ``source_root=None`` is a **deprecated legacy mode**, kept only for a
+        caller that has not yet been updated to pass it. It uses the file's
+        own resolved absolute path as the identity instead — always
+        self-describing and never ambiguous with a logical identity, because
+        a resolved absolute path always starts with ``/`` (POSIX) while a
+        logical identity, being relative, never does. Every production caller
+        this pipeline ships with (``enrich``, and the ingestion engine's
+        structural-ingest path) already passes ``source_root``; prefer that
+        over the legacy mode in any new caller.
+
+        Any raised :class:`IncompleteParse` — from root containment, an
+        unreadable file, duplicate request identity, an empty logical
+        identity, or a downstream parser acknowledgement failure — leaves
+        ``self._hash_seen`` and this batch's writes entirely unpersisted, so a
+        caller MUST NOT advance a per-file hash or repository watermark for
+        it.
+
+        Migration note: upgrading a deployment that already has a persisted
+        ``self._hash_seen``/watermark keyed by absolute path is fail-safe by
+        construction, not by special-cased migration code. A logical identity
+        never starts with ``/`` and a legacy identity always does (see above),
+        so the two key spaces cannot collide; old absolute-path keys simply
+        never match a lookup by the new logical identity, so every file looks
+        "changed" once and is re-parsed and re-hashed under its logical key on
+        the first run after upgrade. No content is skipped as unchanged when
+        it was never actually verified under the new identity scheme — the
+        transition can only cost an extra parse, never a missed one.
         """
         summary = EnrichmentSummary()
         root_real: Path | None = None
@@ -457,34 +532,38 @@ class EnrichmentPipeline:
         # parsing so an unchanged file costs one local sha256, not a Rust-engine
         # parse round-trip. The hash is byte-identical to ``ExtractionResult.
         # content_hash`` (same ``surrogatepass`` encoding), so the skip is exact.
-        pending: list[tuple[str, str]] = []  # (file_path, source_text)
-        pending_hashes: dict[str, str] = {}  # file_path -> content_hash
+        pending: list[tuple[str, str]] = []  # (identity, source_text)
+        pending_hashes: dict[str, str] = {}  # identity -> content_hash
         unreadable: list[str] = []
         for fp in files:
             summary.files_seen += 1
             p = Path(fp)
+            try:
+                real = p.resolve(strict=False)
+            except OSError:
+                real = p
             if root_real is not None:
-                try:
-                    real = p.resolve(strict=False)
-                except OSError:
-                    real = p
                 if real != root_real and root_real not in real.parents:
-                    raise IncompleteParse(
-                        f"file escapes source root {root_real}: {fp}"
-                    )
+                    raise IncompleteParse(f"file escapes source root {root_real}: {fp}")
+                identity = logical_file_identity(real, root_real)
+            else:
+                # Legacy identity (deprecated — see docstring): the resolved
+                # absolute path. Always starts with "/", so it can never be
+                # mistaken for a logical (always-relative) identity.
+                identity = str(real)
             try:
                 source = p.read_text(encoding="utf-8", errors="surrogatepass")
             except (OSError, UnicodeDecodeError):
-                unreadable.append(str(fp))
+                unreadable.append(identity)
                 continue
             content_hash = hashlib.sha256(
                 source.encode("utf-8", "surrogatepass")
             ).hexdigest()
-            if self._hash_seen.get(str(fp)) == content_hash:
+            if self._hash_seen.get(identity) == content_hash:
                 summary.files_skipped_unchanged += 1
                 continue
-            pending.append((str(fp), source))
-            pending_hashes[str(fp)] = content_hash
+            pending.append((identity, source))
+            pending_hashes[identity] = content_hash
 
         if unreadable:
             raise IncompleteParse(
@@ -517,9 +596,7 @@ class EnrichmentPipeline:
                 # unsupported by this engine build: degrade to the per-file parse
                 # path, which independently re-verifies every file rather than
                 # trusting anything from the failed call.
-                logger.debug(
-                    "index_repository call failed (%s); parse fallback", exc
-                )
+                logger.debug("index_repository call failed (%s); parse fallback", exc)
                 results = []
             else:
                 # A response WAS received: exact acknowledgement validation

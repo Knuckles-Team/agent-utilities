@@ -19,8 +19,7 @@ from agent_utilities.models.knowledge_graph import (
     SimilarityEdgeNode,
     SpectralClusterNode,
 )
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 """Hybrid Search Scorer.
 
@@ -44,11 +43,12 @@ def _split_compound_name(text: str) -> set[str]:
 
 def _cosine_similarity(a: list[float], b: list[float]) -> float:
     """Compute cosine similarity between two vectors."""
-    va, vb = np.array(a), np.array(b)
-    na, nb = np.linalg.norm(va), np.linalg.norm(vb)
+    va = [float(value) for value in a]
+    vb = [float(value) for value in b]
+    na, nb = xp.linalg.norm(va), xp.linalg.norm(vb)
     if na == 0 or nb == 0:
         return 0.0
-    return float(np.dot(va, vb) / (na * nb))
+    return float(xp.dot(va, vb) / (na * nb))
 
 
 class HybridSearchScorer:
@@ -321,7 +321,7 @@ class KGNativeRetrievalRetriever:
             member_ids = [nodes_with_embeddings[i].id for i in result.indices]
             self._cluster_members[cluster.id] = member_ids
 
-        self._cluster_centroids = np.array(centroids) if centroids else None
+        self._cluster_centroids = centroids if centroids else None
 
         logger.info(
             "Built cluster index: %d clusters from %d nodes",
@@ -346,12 +346,12 @@ class KGNativeRetrievalRetriever:
             return None
 
         # Find closest cluster centroid
-        query_vec = np.array(query_embedding)
+        query_vec = [float(value) for value in query_embedding]
         best_sim = -1.0
         best_cluster_id = None
 
         for i, centroid in enumerate(self._cluster_centroids):
-            sim = _cosine_similarity(query_vec.tolist(), centroid.tolist())
+            sim = _cosine_similarity(query_vec, centroid)
             if sim > best_sim:
                 best_sim = sim
                 best_cluster_id = self._cluster_index[i].id
@@ -834,7 +834,7 @@ class GraphDistillationMigrator:
         # Compute average weight and stale count
         if self._all_edges:
             weights = [self._linker.decay_weight(e) for e in self._all_edges]
-            report.avg_edge_weight = float(np.mean(weights))
+            report.avg_edge_weight = float(xp.mean(weights))
             report.stale_edge_count = sum(
                 1 for w in weights if w < self._linker.config.prune_threshold
             )

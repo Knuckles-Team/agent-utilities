@@ -15,14 +15,15 @@ entirely from the existing autonomy primitives:
 
 * **bounds** — each service's optional registry/override ``scaling:`` block
   (:class:`~agent_utilities.orchestration.fleet_reconciler.ScalingSpec`):
-  {min, max, signal, target, scale_up_step, scale_down_step, cooldown_s}.
+  {min, max, signal, target, scale_up_step, scale_down_step, cooldown_s,
+  deadband, scale_up_stabilization_samples, scale_down_stabilization_samples}.
   No block ⇒ never autoscaled.
 * **signal** — a pluggable
   :class:`~agent_utilities.orchestration.scaling_signals.ScalingSignalProvider`
   (zero-infra local gauges by default, Prometheus via
-  ``SCALING_PROMETHEUS_URL``, deployment-injected otherwise). ``None`` ⇒ NO
-  action — never scale on missing data, mirroring the reconciler's
-  unobserved⇒skip rule.
+  ``SCALING_PROMETHEUS_URL``, deployment-injected otherwise). Each tick reads
+  all requested samples through one bounded bulk call. ``None`` ⇒ NO action —
+  never scale on missing data, mirroring the reconciler's unobserved⇒skip rule.
 * **target tracking** — classic per-replica formula::
 
       desired = ceil(current * value_per_replica / target)
@@ -35,6 +36,10 @@ entirely from the existing autonomy primitives:
   ``cooldown_s`` of the service's last allowed/executed ``scale_service``
   entry in the durable ActionDecision/ActionExecution ledger — which also
   guarantees no opposite-direction flapping inside the window.
+* **deadband + stabilization** — values inside the declared relative deadband
+  hold steady; fresh consecutive samples stabilize direction, with one sample
+  for scale-up by default and three for scale-down. No-data and direction
+  changes reset the streak.
 * **gate → actuate → watch** — proposals go through ActionPolicy
   (CONCEPT:AU-OS.deployment.fleet-lifecycle-control; ``scale_service`` is approval_required under the shipped
   default policy) and the FleetActuator seam; successful scale-UPs schedule
@@ -54,6 +59,7 @@ import logging
 import math
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -65,6 +71,12 @@ from agent_utilities.orchestration.fleet_actuation import (
     execute_action,
     get_fleet_actuator,
 )
+from agent_utilities.orchestration.fleet_health import (
+    FleetHealthEvidence,
+    FleetHealthSnapshot,
+    collect_fleet_health,
+    unavailable_fleet_health,
+)
 from agent_utilities.orchestration.fleet_observation import (
     STATUS_DOWN,
     get_fleet_observer,
@@ -74,38 +86,47 @@ from agent_utilities.orchestration.fleet_reconciler import (
     load_desired_state,
 )
 from agent_utilities.orchestration.scaling_signals import (
-    SIGNAL_CONSUMER_LAG,
-    SIGNAL_QUEUE_DEPTH,
+    ScalingSignalSample,
+    SignalAggregation,
+    SignalDefinition,
     get_scaling_signal_provider,
+    read_scaling_signal_samples,
+    validate_scaling_signal_sample,
 )
 
 logger = logging.getLogger(__name__)
-
-# Signals whose provider value is a FLEET-TOTAL (normalized to per-replica by
-# dividing by current replicas before target tracking); everything else (cpu,
-# custom metrics) is already a per-replica average by convention.
-AGGREGATE_SIGNALS = {SIGNAL_QUEUE_DEPTH, SIGNAL_CONSUMER_LAG}
 
 # How many ledger rows the cooldown probe scans per service.
 _LEDGER_SCAN_LIMIT = 200
 
 _ALLOWING = {"allow", "allow_notify"}
+_SAMPLE_UNSET = object()
 
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
 
 
-def compute_desired_replicas(current: int, value: float, spec: ScalingSpec) -> int:
+def compute_desired_replicas(
+    current: int,
+    value: float,
+    spec: ScalingSpec,
+    *,
+    aggregation: SignalAggregation,
+) -> int:
     """Target-tracking replica count for one service, clamped and step-capped.
 
     ``desired = ceil(effective_current * per_replica_value / target)`` with
     ``effective_current = max(current, 1)`` (so a service scaled to zero can
     scale back up from an aggregate backlog), then clamped to
     [min_replicas, max_replicas] and capped to one step in either direction.
+    ``aggregation`` is required metadata from the validated signal definition;
+    target tracking never infers it from the signal name.
     """
+    if aggregation not in ("fleet_total", "per_replica"):
+        raise ValueError("signal aggregation must be fleet_total or per_replica")
     eff = max(int(current), 1)
-    per_replica = value / eff if spec.signal in AGGREGATE_SIGNALS else float(value)
+    per_replica = value / eff if aggregation == "fleet_total" else float(value)
     desired = math.ceil(eff * per_replica / spec.target)
     desired = max(spec.min_replicas, min(spec.max_replicas, desired))
     if desired > current:
@@ -113,6 +134,13 @@ def compute_desired_replicas(current: int, value: float, spec: ScalingSpec) -> i
     elif desired < current:
         desired = max(desired, current - spec.scale_down_step)
     return desired
+
+
+def _per_replica_value(
+    current: int, value: float, aggregation: SignalAggregation
+) -> float:
+    effective_current = max(int(current), 1)
+    return value / effective_current if aggregation == "fleet_total" else float(value)
 
 
 @dataclass
@@ -150,12 +178,19 @@ class FleetAutoscaler:
         policy: Any = None,
         signal_provider: Any = None,
         max_actions: int | None = None,
+        health_provider: Callable[[], FleetHealthEvidence | FleetHealthSnapshot]
+        | None = None,
     ):
         self.engine = engine
         self.observer = observer or get_fleet_observer(engine)
         self.actuator = actuator or get_fleet_actuator()
         self.policy = policy or get_action_policy(engine)
         self.signals = signal_provider or get_scaling_signal_provider()
+        self.health_provider = health_provider or (
+            lambda: collect_fleet_health().evidence
+        )
+        self._last_signal_observed: dict[tuple[str, str], float] = {}
+        self._stabilization: dict[tuple[str, str], tuple[str, int]] = {}
         if max_actions is None:
             try:
                 from agent_utilities.core.config import config as _cfg
@@ -175,6 +210,56 @@ class FleetAutoscaler:
         self._replica_cost_usd_per_hour = setting(
             "FLEET_REPLICA_COST_USD_PER_HOUR", 0.05, cast=float
         )
+
+    def _fleet_health(self) -> FleetHealthEvidence:
+        """Read the shared supervisory contract; provider failure is unavailable."""
+
+        try:
+            result = self.health_provider()
+            if isinstance(result, FleetHealthSnapshot):
+                return result.evidence
+            if isinstance(result, FleetHealthEvidence):
+                return result
+            raise TypeError("health provider returned an untyped result")
+        except Exception as exc:  # noqa: BLE001 - autonomy must fail closed
+            logger.warning(
+                "fleet_autoscaler: supervisory evidence unavailable (%s)",
+                type(exc).__name__,
+            )
+            return unavailable_fleet_health("autoscaler.health")
+
+    def _reset_stabilization(self, key: tuple[str, str]) -> None:
+        self._stabilization.pop(key, None)
+
+    def _stabilization_ready(
+        self,
+        key: tuple[str, str],
+        direction: str,
+        required: int,
+    ) -> tuple[bool, int]:
+        previous = self._stabilization.get(key)
+        count = (
+            previous[1] + 1 if previous is not None and previous[0] == direction else 1
+        )
+        self._stabilization[key] = (direction, count)
+        return count >= required, count
+
+    def _signal_definition(
+        self, name: str, spec: ScalingSpec
+    ) -> SignalDefinition | None:
+        definition_fn = getattr(self.signals, "signal_definition", None)
+        if not callable(definition_fn):
+            return None
+        try:
+            definition = definition_fn(spec.signal, name)
+        except Exception as exc:  # noqa: BLE001 — malformed provider is no data
+            logger.debug(
+                "fleet_autoscaler: signal definition failed for %s: %s",
+                name,
+                type(exc).__name__,
+            )
+            return None
+        return definition if isinstance(definition, SignalDefinition) else None
 
     # ── cooldown (durable, shared across processes) ─────────────────
 
@@ -238,29 +323,74 @@ class FleetAutoscaler:
     # ── one service ─────────────────────────────────────────────────
 
     def _evaluate_service(
-        self, name: str, spec: ScalingSpec, observation: Any
+        self,
+        name: str,
+        spec: ScalingSpec,
+        observation: Any,
+        *,
+        sample: ScalingSignalSample | None | object = _SAMPLE_UNSET,
+        definition: SignalDefinition | None | object = _SAMPLE_UNSET,
     ) -> ServiceEvaluation:
+        key = (name, spec.signal)
         if observation is None or observation.replicas is None:
+            self._reset_stabilization(key)
             return ServiceEvaluation(
                 name, "skipped", "unobserved (no replica evidence)"
             )
         if observation.status == STATUS_DOWN:
             # A down service is the reconciler's (restart) problem, not a
             # scaling problem — scaling a dead service masks the failure.
+            self._reset_stabilization(key)
             return ServiceEvaluation(name, "skipped", "observed down — not scaling")
         current = int(observation.replicas)
 
-        try:
-            value = self.signals.signal_value(name, spec.signal)
-        except Exception as e:  # noqa: BLE001 — protocol says never raise; belt+braces
-            logger.debug("fleet_autoscaler: signal provider error for %s: %s", name, e)
-            value = None
-        if value is None:
+        if definition is _SAMPLE_UNSET:
+            definition = self._signal_definition(name, spec)
+        if sample is _SAMPLE_UNSET:
+            values = read_scaling_signal_samples(self.signals, [key])
+            sample = values.get(key)
+        if not isinstance(definition, SignalDefinition) or not definition.binds_service(
+            name
+        ):
+            sample = None
+        if isinstance(sample, ScalingSignalSample) and isinstance(
+            definition, SignalDefinition
+        ):
+            sample = validate_scaling_signal_sample(
+                sample,
+                service=name,
+                signal=spec.signal,
+                aggregation=definition.aggregation,
+                unit=definition.unit,
+                scope=definition.scope,
+                previous_observed_at=self._last_signal_observed.get(key),
+            )
+        if not isinstance(sample, ScalingSignalSample):
+            sample = None
+        if sample is None:
+            self._reset_stabilization(key)
             return ServiceEvaluation(
                 name, "skipped", f"no data for signal {spec.signal!r}", current=current
             )
+        self._last_signal_observed[(name, spec.signal)] = sample.observed_at
+        value = sample.value
 
-        desired = compute_desired_replicas(current, value, spec)
+        desired = compute_desired_replicas(
+            current, value, spec, aggregation=sample.aggregation
+        )
+        per_replica = _per_replica_value(current, value, sample.aggregation)
+        if current > 0 and (
+            abs(per_replica - spec.target) <= spec.target * spec.deadband
+        ):
+            self._reset_stabilization(key)
+            return ServiceEvaluation(
+                name,
+                "skipped",
+                f"deadband ({spec.deadband:.3g} of target)",
+                current=current,
+                desired=current,
+                value=value,
+            )
         # CONCEPT:AU-OS.scaling.cost-aware-autoscaling — cost-aware scale-up cap. Keep the target-tracking math
         # unchanged; only trim a scale-up that would breach the hourly budget, and
         # carry the cost estimate forward for the audit row + ActionRequest.
@@ -282,10 +412,28 @@ class FleetAutoscaler:
                 verdict.reason,
             )
         if desired == current:
+            self._reset_stabilization(key)
             return ServiceEvaluation(
                 name,
                 "skipped",
                 cost_reason or "at target",
+                current=current,
+                desired=desired,
+                value=value,
+            )
+
+        direction = "up" if desired > current else "down"
+        required_samples = (
+            spec.scale_up_stabilization_samples
+            if direction == "up"
+            else spec.scale_down_stabilization_samples
+        )
+        ready, consecutive = self._stabilization_ready(key, direction, required_samples)
+        if not ready:
+            return ServiceEvaluation(
+                name,
+                "skipped",
+                f"stabilizing {direction} ({consecutive}/{required_samples} consecutive samples)",
                 current=current,
                 desired=desired,
                 value=value,
@@ -311,7 +459,6 @@ class FleetAutoscaler:
                 value=value,
             )
 
-        direction = "up" if desired > current else "down"
         request = ActionRequest(
             kind="scale_service",
             target=name,
@@ -349,6 +496,11 @@ class FleetAutoscaler:
             f"decision={decision.decision} ok={bool(execution.get('ok'))}"
             f"{' dry_run' if execution.get('dry_run') else ''}"
         )
+        if execution.get("ok"):
+            # A successful action consumed the streak. The next action in the
+            # same direction must observe its full declared sample count again;
+            # approval-pending/proposed actions intentionally retain state.
+            self._reset_stabilization(key)
         if execution.get("ok") and (
             direction == "up" or bool(self.policy.option("watch_scale_down", False))
         ):
@@ -361,6 +513,21 @@ class FleetAutoscaler:
 
     def evaluate(self) -> dict[str, Any]:
         """One autoscale pass over every service with a scaling block."""
+        health = self._fleet_health()
+        health_payload = health.model_dump(mode="json")
+        if not health.autoscaling_ready:
+            report: dict[str, Any] = {
+                "evaluated": 0,
+                "actions": 0,
+                "scaled": 0,
+                "evaluations": [],
+                "actuator": getattr(self.actuator, "name", "?"),
+                "signal_provider": getattr(self.signals, "name", "?"),
+                "health": health_payload,
+                "reason": "fleet supervisory evidence is not ready; autoscaling skipped",
+            }
+            self._record(report)
+            return report
         desired_state = load_desired_state()
         observed: dict[str, Any] = {}
         try:
@@ -368,12 +535,23 @@ class FleetAutoscaler:
         except Exception as e:  # noqa: BLE001
             logger.warning("fleet_autoscaler: observer failed: %s", e)
 
+        candidates = [
+            (name, want.scaling)
+            for name, want in sorted(desired_state.items())
+            if want.scaling is not None and want.desired == "running"
+        ]
+        requests = [(name, spec.signal) for name, spec in candidates]
+        definitions = {
+            (name, spec.signal): self._signal_definition(name, spec)
+            for name, spec in candidates
+        }
+        samples = (
+            read_scaling_signal_samples(self.signals, requests) if requests else {}
+        )
+
         evaluations: list[ServiceEvaluation] = []
         actions = 0
-        for name, want in sorted(desired_state.items()):
-            spec = want.scaling
-            if spec is None or want.desired != "running":
-                continue
+        for name, spec in candidates:
             if actions >= self.max_actions:
                 evaluations.append(
                     ServiceEvaluation(
@@ -381,7 +559,14 @@ class FleetAutoscaler:
                     )
                 )
                 continue
-            evaluation = self._evaluate_service(name, spec, observed.get(name))
+            key = (name, spec.signal)
+            evaluation = self._evaluate_service(
+                name,
+                spec,
+                observed.get(name),
+                sample=samples.get(key),
+                definition=definitions.get(key),
+            )
             evaluations.append(evaluation)
             if evaluation.outcome in ("scaled", "proposed"):
                 actions += 1
@@ -393,6 +578,7 @@ class FleetAutoscaler:
             "evaluations": [e.compact() for e in evaluations],
             "actuator": getattr(self.actuator, "name", "?"),
             "signal_provider": getattr(self.signals, "name", "?"),
+            "health": health_payload,
         }
         self._record(report)
         return report

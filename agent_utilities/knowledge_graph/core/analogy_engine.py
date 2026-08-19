@@ -15,7 +15,7 @@ from agent_utilities.knowledge_graph.core.session import current_session, use_se
 from agent_utilities.models.knowledge_graph import (
     AnalogyMatchNode,
 )
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import xp
 
 
 class TopologicalAnalogyEngine:
@@ -36,16 +36,16 @@ class TopologicalAnalogyEngine:
         if not vec_a or not vec_b:
             return 0.0
 
-        a = np.array(vec_a)
-        b = np.array(vec_b)
+        a = [float(value) for value in vec_a]
+        b = [float(value) for value in vec_b]
 
-        norm_a = np.linalg.norm(a)
-        norm_b = np.linalg.norm(b)
+        norm_a = xp.linalg.norm(a)
+        norm_b = xp.linalg.norm(b)
 
         if norm_a == 0 or norm_b == 0:
             return 0.0
 
-        return float(np.dot(a, b) / (norm_a * norm_b))
+        return float(xp.dot(a, b) / (norm_a * norm_b))
 
     def find_analogous_subgraphs(
         self, target_subgraph: Any, threshold: float = 0.8

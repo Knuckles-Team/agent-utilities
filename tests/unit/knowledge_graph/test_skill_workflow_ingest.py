@@ -16,15 +16,16 @@ import textwrap
 
 import pytest
 
+from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest import (
     discover_atomic_skill_files,
     discover_workflow_skill_files,
     ingest_atomic_skills,
     ingest_one,
+    ingest_runnable_skill,
     ingest_skill_workflows,
     parse_workflow_skill,
 )
-from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
@@ -630,9 +631,7 @@ def test_discover_atomic_skill_files_walks_the_whole_package(tmp_path):
     assert {f.parent.name for f in files} == {"some-atomic-skill"}
 
 
-def test_ingest_atomic_skills_creates_a_runnable_callable_resource(
-    tmp_path, authority
-):
+def test_ingest_atomic_skills_creates_a_runnable_callable_resource(tmp_path, authority):
     """The exact real-prod shape (``servicenow-incident-management``): a
     ``skill_type: skill`` file must land as a ``CallableResource`` carrying
     ``resource_type='AGENT_SKILL'`` — the field the registry UI's
@@ -700,6 +699,33 @@ def test_ingest_atomic_skills_is_idempotent(tmp_path, authority):
     ingest_atomic_skills(eng, root=str(root))
 
     assert len(eng.of_type("CallableResource")) == 1
+
+
+def test_local_runnable_skill_relational_row_uses_verified_tenant_binding(
+    authority, monkeypatch
+):
+    """A local install remains visible without pretending it has OAuth authority."""
+    from agent_utilities.knowledge_graph.core import fleet_catalog_tables as catalog
+
+    captured: dict = {}
+
+    def _record_write(_engine, **kwargs):
+        captured.update(kwargs)
+        return True
+
+    monkeypatch.setattr(catalog, "write_skill_row", _record_write)
+
+    ingest_runnable_skill(
+        _RunnableEngine(),
+        name="local-skill",
+        description="Local skill.",
+        instructions="Perform one bounded action.",
+        provider="local-provider",
+    )
+
+    binding = captured["discovery_binding"]
+    assert isinstance(binding, catalog.TenantLocalDiscoveryBinding)
+    assert binding.tenant_id == "tenant_test"
 
 
 # --------------------------------------------------------------------------- #

@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
+from agent_utilities.numeric import xp
 from agent_utilities.prompts.canonical import load_canonical_prompt
 
 if TYPE_CHECKING:
@@ -296,9 +297,9 @@ class FactDeduper:
     """Accumulating semantic-dedup index over extracted facts.
 
     Holds the normalized embeddings of every *unique* fact kept so far and, for
-    each new fact, returns the max cosine to the set in a single matvec (BLAS via
-    numpy when present, pure-Python fallback otherwise). Survives across rounds
-    and files; ``rehydrate`` rebuilds the corpus from prior facts on resume.
+    each new fact, returns the max cosine through one bounded native matrix call.
+    Survives across rounds and files; ``rehydrate`` rebuilds the corpus from
+    prior facts on resume.
     """
 
     def __init__(
@@ -314,14 +315,6 @@ class FactDeduper:
         self.field = field
         self.threshold = threshold
         self._rows: list[list[float]] = []
-        self._np: Any = None
-        self._mat: Any = None  # lazily-stacked (n, d) matrix
-        try:  # vectorize when numpy is available; degrade gracefully otherwise
-            from agent_utilities.numeric import xp as np  # noqa: F401
-
-            self._np = np
-        except Exception:  # pragma: no cover - numpy is a core dep but stay safe
-            pass
 
     @property
     def embed_fn(self) -> EmbedFn:
@@ -332,9 +325,16 @@ class FactDeduper:
     def __len__(self) -> int:
         return len(self._rows)
 
+    @staticmethod
+    def _normalized(vec: Iterable[float]) -> list[float]:
+        values = [float(value) for value in vec]
+        norm = float(xp.linalg.norm(values))
+        if norm == 0.0:
+            return values
+        return [value / norm for value in values]
+
     def _add_vec(self, vec: list[float]) -> None:
-        self._rows.append(vec)
-        self._mat = None  # invalidate stacked cache
+        self._rows.append(self._normalized(vec))
 
     def check(self, fact: ExtractedFact) -> tuple[bool, float]:
         """Return ``(is_duplicate, max_similarity)`` for ``fact``.
@@ -347,20 +347,12 @@ class FactDeduper:
         if not self._rows:
             self._add_vec(vec)
             return False, 0.0
-        if self._np is not None:
-            np = self._np
-            if self._mat is None:
-                self._mat = np.asarray(self._rows, dtype="float32")
-            q = np.asarray(vec, dtype="float32")
-            sims = self._mat @ q
-            max_sim = float(sims.max())
-        else:  # pragma: no cover - pure-Python fallback
-            max_sim = max(
-                sum(a * b for a, b in zip(row, vec, strict=False)) for row in self._rows
-            )
+        query = self._normalized(vec)
+        scores = xp.matmul(self._rows, [[value] for value in query])
+        max_sim = max(float(row[0]) for row in scores)
         if max_sim >= self.threshold:
             return True, max_sim
-        self._add_vec(vec)
+        self._rows.append(query)
         return False, max_sim
 
     def rehydrate(self, facts: Iterable[ExtractedFact]) -> None:

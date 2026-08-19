@@ -8,11 +8,12 @@ Sources: Qlib Data Server, Vibe-Trading Data Sources
 """
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Protocol, runtime_checkable
 
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import xp
 
 try:
     import pandas as pd
@@ -264,16 +265,28 @@ class SyntheticProvider:
         seed: int = 42,
     ) -> pd.DataFrame:
         """Generate synthetic OHLCV data using GBM."""
-        rng = np.random.default_rng(seed)
+        rng = xp.random.default_rng(seed)
 
         dates = pd.bdate_range(end=datetime.now(), periods=n_bars)
         returns = rng.normal(0.0005, volatility, n_bars)
-
-        close = initial_price * np.exp(np.cumsum(returns))
-        high = close * (1 + rng.uniform(0, 0.02, n_bars))
-        low = close * (1 - rng.uniform(0, 0.02, n_bars))
-        open_price = close * (1 + rng.normal(0, 0.005, n_bars))
-        volume = rng.integers(100_000, 10_000_000, n_bars).astype(float)
+        close: list[float] = []
+        current = float(initial_price)
+        for change in returns:
+            current *= math.exp(float(change))
+            close.append(current)
+        high = [
+            price * (1.0 + float(offset))
+            for price, offset in zip(close, rng.uniform(0.0, 0.02, n_bars), strict=True)
+        ]
+        low = [
+            price * (1.0 - float(offset))
+            for price, offset in zip(close, rng.uniform(0.0, 0.02, n_bars), strict=True)
+        ]
+        open_price = [
+            price * (1.0 + float(offset))
+            for price, offset in zip(close, rng.normal(0.0, 0.005, n_bars), strict=True)
+        ]
+        volume = [float(value) for value in rng.integers(100_000, 10_000_000, n_bars)]
 
         df = pd.DataFrame(
             {

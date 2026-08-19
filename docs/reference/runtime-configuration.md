@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-563 typed fields · 365 runtime-only call-site inputs.
+568 typed fields · 365 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -144,6 +144,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | Environment key | Type | Default |
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | `Union` | `explicit runtime process value only` |
+| `MESSAGING_INTAKE_ENABLED` | `bool` | `False` |
 | `MESSAGING_DEFAULT_PLATFORM` | `str` | `telegram` |
 | `MESSAGING_DEFAULT_CHANNEL` | `str` | `` |
 | `MESSAGING_ALERT_INTAKE_PORT` | `Union` | `unset` |
@@ -262,6 +263,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | Environment key | Type | Default |
 |---|---|---|
 | `KG_POLICY_VERSION` | `Union` | `unset` |
+| `DATA_PREP_RUNTIME` | `Union` | `unset` |
 | `AUTH_JWT_ALGORITHMS` | `list` | `["RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA"]` |
 | `IDENTITY_GROUP_CAPABILITY_MAP` | `Union` | `unset` |
 
@@ -311,6 +313,7 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `MCP_CATALOG_PROBE_TTL` | `float` | `300.0` |
 | `MCP_ALWAYS_LOAD` | `list` | `["tunnel-manager-mcp", "systems-manager-mcp", "repository-manager-mcp", "container-manager-mcp"]` |
 | `MCP_ALWAYS_LOAD_TOOLS` | `list` | `["github-mcp:github_issues", "github-mcp:github_pulls", "gitlab-mcp:gitlab_issues", "gitlab-mcp:gitlab_merge_requests"]` |
+| `FRONTEND_CONTRIBUTION_TRUSTED_SIGNERS` | `list` | `[]` |
 
 ## OIDC / OAuth 2.0 Delegation (CONCEPT:AU-ECO.messaging.native-backend-abstraction)
 
@@ -330,6 +333,8 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `OIDC_TLS_PROFILE` | `Union` | `unset` |
 | `OIDC_TLS_PROFILE_REF` | `Union` | `unset` |
 | `OIDC_HTTP_ALLOWED_PRIVATE_HOSTS` | `list` | `[]` |
+| `REMOTE_OAUTH_PROVIDERS_JSON` | `Union` | `unset` |
+| `REMOTE_OAUTH_SUCCESS_REDIRECT_URL` | `Union` | `unset` |
 | `ENABLE_DELEGATION` | `bool` | `False` |
 | `AUDIENCE` | `Union` | `unset` |
 | `DELEGATED_SCOPES` | `str` | `api` |

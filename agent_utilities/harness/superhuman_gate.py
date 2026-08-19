@@ -74,18 +74,18 @@ class SuperhumanCertifier:
 
     def _bootstrap_ci(self, rewards: list[float]) -> tuple[float, float, float]:
         """Deterministic bootstrap CI of the mean reward (seeded; reproducible)."""
-        from agent_utilities.numeric import xp as np
+        from agent_utilities.numeric import xp
 
-        arr = np.asarray(rewards, dtype=np.float64)
-        mean = float(arr.mean())
-        if arr.size == 1:
+        arr = [float(value) for value in rewards]
+        mean = float(xp.mean(arr))
+        if len(arr) == 1:
             return mean, mean, mean
-        rng = np.random.default_rng(self.seed)
-        idx = rng.integers(0, arr.size, size=(self.n_boot, arr.size))
-        boot_means = arr[idx].mean(axis=1)
+        rng = xp.random.default_rng(self.seed)
+        idx = rng.integers(0, len(arr), size=(self.n_boot, len(arr)))
+        boot_means = [float(xp.mean([arr[int(index)] for index in row])) for row in idx]
         alpha = 1.0 - self.confidence
-        lo = float(np.quantile(boot_means, alpha / 2.0))
-        hi = float(np.quantile(boot_means, 1.0 - alpha / 2.0))
+        lo = float(xp.quantile(boot_means, alpha / 2.0))
+        hi = float(xp.quantile(boot_means, 1.0 - alpha / 2.0))
         return mean, lo, hi
 
     def certify(

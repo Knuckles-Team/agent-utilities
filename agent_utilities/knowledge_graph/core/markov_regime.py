@@ -20,8 +20,8 @@ Architecture::
                 Trading Signal / Walk-Forward Backtest
 
 This module does NOT depend on ``yfinance`` or external data providers.
-All methods accept raw numpy arrays or pandas Series, keeping the core
-dependency-free.  Convenience wrappers with ``yfinance`` live in the
+All methods accept bounded numeric sequences, keeping the core dependency-free.
+Convenience wrappers with ``yfinance`` live in the
 ``FinanceEngineMixin`` (engine_finance.py).
 """
 
@@ -29,13 +29,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import warnings
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 from .formal_reasoning_core import MarkovTransitionModel
 
@@ -149,16 +149,17 @@ class MarketRegimeDetector:
             Array of ``RegimeState`` string values, same length as input.
             Periods before the window is filled are labeled ``SIDEWAYS``.
         """
-        n = len(returns)
-        states = np.full(n, RegimeState.SIDEWAYS, dtype=object)
+        values = [float(value) for value in returns]
+        n = len(values)
+        states = [RegimeState.SIDEWAYS] * n
 
         if n < self.window:
             return states
 
         if self.method == "compounding":
-            rolling = self._compounding_return(returns)
+            rolling = self._compounding_return(values)
         else:
-            rolling = self._rolling_sum(returns)
+            rolling = self._rolling_sum(values)
 
         for i in range(self.window - 1, n):
             val = rolling[i]
@@ -173,20 +174,24 @@ class MarketRegimeDetector:
 
     def _rolling_sum(self, returns: NDArray) -> NDArray:
         """Simple rolling sum of returns (article's default)."""
-        cum = np.cumsum(returns)
-        rolling = np.zeros(len(returns))
-        rolling[self.window - 1 :] = cum[self.window - 1 :] - np.concatenate(
-            [[0], cum[: -self.window]]
-        )
+        values = [float(value) for value in returns]
+        cum = xp.cumsum(values)
+        rolling = [0.0] * len(values)
+        for index in range(self.window - 1, len(values)):
+            prior = cum[index - self.window] if index >= self.window else 0.0
+            rolling[index] = cum[index] - prior
         return rolling
 
     def _compounding_return(self, returns: NDArray) -> NDArray:
         """Proper compounding rolling return: ∏(1+r_i) - 1."""
-        n = len(returns)
-        rolling = np.zeros(n)
-        growth = 1.0 + returns
+        values = [float(value) for value in returns]
+        n = len(values)
+        rolling = [0.0] * n
         for i in range(self.window - 1, n):
-            rolling[i] = np.prod(growth[i - self.window + 1 : i + 1]) - 1.0
+            rolling[i] = (
+                math.prod(1.0 + value for value in values[i - self.window + 1 : i + 1])
+                - 1.0
+            )
         return rolling
 
 
@@ -268,7 +273,7 @@ class MarkovRegimeModel:
         """
         self._states = self.detector.detect(returns)
         # Feed state labels as a trace into the core Markov model.
-        trace = self._states.tolist()
+        trace = list(self._states)
         self.markov.ingest_trace(trace)
         self._fitted = True
         return self
@@ -352,14 +357,15 @@ class MarkovRegimeModel:
         Returns:
             ``BacktestResult`` with signals, strategy returns, etc.
         """
-        n = len(returns)
-        signals = np.zeros(n)
-        strategy_returns = np.zeros(n)
+        values = [float(value) for value in returns]
+        n = len(values)
+        signals = [0.0] * n
+        strategy_returns = [0.0] * n
         n_regime_changes = 0
         prev_regime = None
 
         for t in range(lookback, n):
-            window_returns = returns[t - lookback : t]
+            window_returns = values[t - lookback : t]
 
             # Fit on lookback window only
             temp_model = MarkovRegimeModel(
@@ -390,10 +396,12 @@ class MarkovRegimeModel:
             # Apply signal to NEXT period's return (shift by signal_shift)
             if t + signal_shift < n:
                 strategy_returns[t + signal_shift] = (
-                    signals[t] * returns[t + signal_shift]
+                    signals[t] * values[t + signal_shift]
                 )
 
-        cumulative = float(np.prod(1.0 + strategy_returns[lookback:]) - 1.0)
+        cumulative = float(
+            math.prod(1.0 + value for value in strategy_returns[lookback:]) - 1.0
+        )
 
         return BacktestResult(
             signals=signals,
@@ -514,10 +522,12 @@ class HiddenMarkovRegimeModel:
             self, for method chaining.
         """
         GaussianHMM = self._check_hmmlearn()
-        X = returns.reshape(-1, 1)
+        values = [float(value) for value in returns]
+        X = [[value] for value in values]
 
-        best_score = -np.inf
+        best_score = float("-inf")
         best_model = None
+        restart_rng = xp.random.default_rng(42)
 
         for _ in range(self.n_restarts):
             with warnings.catch_warnings():
@@ -526,7 +536,7 @@ class HiddenMarkovRegimeModel:
                     n_components=self.n_states,
                     covariance_type=self.covariance_type,
                     n_iter=self.n_iter,
-                    random_state=np.random.randint(0, 2**31),
+                    random_state=int(restart_rng.integers(0, 2**31)),
                 )
                 try:
                     model.fit(X)
@@ -546,8 +556,8 @@ class HiddenMarkovRegimeModel:
         self._model = best_model
 
         # Order states by mean return: lowest mean = Bear, highest = Bull
-        means = self._model.means_.flatten()
-        self._state_ordering = list(np.argsort(means))
+        means = [float(row[0]) for row in self._model.means_]
+        self._state_ordering = sorted(range(len(means)), key=means.__getitem__)
         self._fitted = True
         return self
 
@@ -561,12 +571,12 @@ class HiddenMarkovRegimeModel:
             Array of ``RegimeState`` string values.
         """
         self._check_fitted_state()
-        X = returns.reshape(-1, 1)
+        X = [[float(value)] for value in returns]
         _, raw_states = self._model.predict(X, algorithm="viterbi")
 
         # Map HMM state indices to semantic regime labels
         regime_map = self._build_regime_map()
-        return np.array([regime_map[s] for s in raw_states], dtype=object)
+        return [regime_map[int(state)] for state in raw_states]
 
     def predict_proba(self, returns: NDArray) -> NDArray:
         """Compute posterior regime probabilities for each time step.
@@ -579,10 +589,18 @@ class HiddenMarkovRegimeModel:
             columns ordered as [Bear, Sideways, Bull].
         """
         self._check_fitted_state()
-        X = returns.reshape(-1, 1)
+        X = [[float(value)] for value in returns]
         raw_proba = self._model.predict_proba(X)
+        ordering = self._state_ordering
+        if ordering is None:
+            raise RuntimeError(
+                "regime state ordering is unavailable after fitted-state check"
+            )
         # Reorder columns by mean-return ordering
-        return raw_proba[:, self._state_ordering]
+        return [
+            [float(raw_proba[row][column]) for column in ordering]
+            for row in range(len(raw_proba))
+        ]
 
     def forecast_signal(self, returns: NDArray, lookback: int = 252) -> NDArray:
         """Walk-forward HMM signal generation.
@@ -597,11 +615,12 @@ class HiddenMarkovRegimeModel:
         Returns:
             Signal array, same length as returns.
         """
-        n = len(returns)
-        signals = np.zeros(n)
+        values = [float(value) for value in returns]
+        n = len(values)
+        signals = [0.0] * n
 
         for t in range(lookback, n):
-            window = returns[t - lookback : t]
+            window = values[t - lookback : t]
             try:
                 temp = HiddenMarkovRegimeModel(
                     n_states=self.n_states,

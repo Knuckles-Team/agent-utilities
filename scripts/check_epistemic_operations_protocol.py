@@ -24,9 +24,10 @@ import json
 import re
 import subprocess
 import sys
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG_DIR = (
@@ -148,6 +149,255 @@ def _iter_nodes(value: Any, pointer: str = "#") -> Iterator[tuple[str, Any]]:
             yield from _iter_nodes(child, f"{pointer}/{index}")
 
 
+_SchemaDocument = dict[str, Any]
+_ReferenceNode = tuple[str, tuple[str, ...]]
+
+
+def _decode_json_pointer_fragment(fragment: str, *, ref: str) -> tuple[str, ...]:
+    """Decode the supported JSON-Pointer fragment of a ``$ref``.
+
+    URI percent-decoding happens before JSON-Pointer token decoding.  The
+    latter is deliberately strict: accepting an invalid ``~`` escape would
+    turn a malformed reference into an unrelated model lookup.
+    """
+
+    if fragment == "":
+        return ()
+    if not fragment.startswith("/"):
+        raise ProtocolGateError(
+            f"unsupported JSON Schema reference fragment {ref!r}: "
+            "the fragment must be empty or a JSON Pointer"
+        )
+    if re.search(r"%(?![0-9A-Fa-f]{2})", fragment):
+        raise ProtocolGateError(
+            f"malformed JSON Schema reference {ref!r}: invalid percent escape"
+        )
+    try:
+        decoded = unquote(fragment, encoding="utf-8", errors="strict")
+    except UnicodeDecodeError as exc:
+        raise ProtocolGateError(
+            f"malformed JSON Schema reference {ref!r}: invalid UTF-8 escape"
+        ) from exc
+
+    tokens: list[str] = []
+    for raw_token in decoded[1:].split("/"):
+        token: list[str] = []
+        index = 0
+        while index < len(raw_token):
+            character = raw_token[index]
+            if character != "~":
+                token.append(character)
+                index += 1
+                continue
+            if index + 1 >= len(raw_token) or raw_token[index + 1] not in "01":
+                raise ProtocolGateError(
+                    f"malformed JSON Schema reference {ref!r}: invalid '~' escape"
+                )
+            token.append("/" if raw_token[index + 1] == "1" else "~")
+            index += 2
+        tokens.append("".join(token))
+    return tuple(tokens)
+
+
+def _parse_reference(ref: str) -> tuple[str, tuple[str, ...]]:
+    """Return ``(catalog filename, decoded pointer tokens)`` for a ``$ref``."""
+
+    if not ref:
+        raise ProtocolGateError("malformed JSON Schema reference: empty $ref")
+    filename, separator, fragment = ref.partition("#")
+    if separator == "":
+        fragment = ""
+    return filename, _decode_json_pointer_fragment(fragment, ref=ref)
+
+
+def _resolve_pointer_target(
+    document: _SchemaDocument,
+    tokens: tuple[str, ...],
+    *,
+    ref: str,
+) -> _SchemaDocument:
+    """Resolve only the local pointer shapes this generator understands."""
+
+    if not tokens:
+        target: Any = document
+    elif len(tokens) == 2 and tokens[0] == "$defs":
+        definitions = document.get("$defs")
+        if not isinstance(definitions, dict) or tokens[1] not in definitions:
+            raise ProtocolGateError(
+                f"unresolved local JSON Pointer {ref!r}: definition "
+                f"{tokens[1]!r} does not exist"
+            )
+        target = definitions[tokens[1]]
+    else:
+        raise ProtocolGateError(
+            f"unsupported JSON Pointer fragment {ref!r}: only '#' and "
+            "'#/$defs/<name>' are supported"
+        )
+
+    if not isinstance(target, dict):
+        raise ProtocolGateError(
+            f"unresolved JSON Schema reference {ref!r}: target is not a schema object"
+        )
+    return target
+
+
+def _resolve_reference_target(
+    ref: str,
+    *,
+    owner: _SchemaDocument,
+    external_roots: Mapping[str, str | _SchemaDocument],
+    schema_files: set[str] | None = None,
+) -> tuple[_SchemaDocument, str, tuple[str, ...]]:
+    """Resolve a catalog-local ``$ref`` without fetching external resources."""
+
+    filename, tokens = _parse_reference(ref)
+    if not filename:
+        return _resolve_pointer_target(owner, tokens, ref=ref), filename, tokens
+
+    if schema_files is not None and filename not in schema_files:
+        raise ProtocolGateError(f"external reference {ref!r} is outside the catalog")
+    external = external_roots.get(filename)
+    if external is None:
+        raise ProtocolGateError(
+            f"unresolved external JSON Schema reference {ref!r}: "
+            f"catalog document {filename!r} was not loaded"
+        )
+    if isinstance(external, str):
+        if tokens:
+            raise ProtocolGateError(
+                f"unresolved external JSON Schema reference {ref!r}: "
+                "fragments require the loaded schema document"
+            )
+        return {"x-python-model": external}, filename, tokens
+    return _resolve_pointer_target(external, tokens, ref=ref), filename, tokens
+
+
+def _iter_component_references(value: Any) -> Iterator[str]:
+    """Yield refs owned by one root/``$defs`` component.
+
+    A root component owns refs beneath its properties, while each definition
+    component owns refs beneath that definition.  Skipping nested ``$defs`` at
+    this layer prevents counting a definition's refs as root-owned; the full
+    schema walk still validates every nested ref separately.
+    """
+
+    if isinstance(value, dict):
+        if "$ref" in value:
+            ref = value["$ref"]
+            if not isinstance(ref, str):
+                raise ProtocolGateError("JSON Schema $ref values must be strings")
+            yield ref
+        for key, child in value.items():
+            if key == "$defs":
+                continue
+            yield from _iter_component_references(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _iter_component_references(child)
+
+
+def _schema_components(
+    filename: str, schema: _SchemaDocument
+) -> Iterator[tuple[_ReferenceNode, _SchemaDocument]]:
+    yield (filename, ()), schema
+    definitions = schema.get("$defs")
+    if isinstance(definitions, dict):
+        for name, definition in definitions.items():
+            if isinstance(definition, dict):
+                yield (filename, ("$defs", str(name))), definition
+
+
+def _format_reference_node(node: _ReferenceNode) -> str:
+    filename, tokens = node
+    pointer = "#" if not tokens else "#/" + "/".join(tokens)
+    return f"{filename or '<inline>'}{pointer}"
+
+
+def _strongly_connected_components(
+    graph: Mapping[_ReferenceNode, set[_ReferenceNode]],
+) -> list[set[_ReferenceNode]]:
+    """Return graph SCCs so multi-node ref cycles cannot hide behind a depth cap."""
+
+    index = 0
+    indices: dict[_ReferenceNode, int] = {}
+    lowlinks: dict[_ReferenceNode, int] = {}
+    stack: list[_ReferenceNode] = []
+    on_stack: set[_ReferenceNode] = set()
+    components: list[set[_ReferenceNode]] = []
+
+    def visit(node: _ReferenceNode) -> None:
+        nonlocal index
+        indices[node] = index
+        lowlinks[node] = index
+        index += 1
+        stack.append(node)
+        on_stack.add(node)
+        for child in sorted(graph.get(node, set()), key=repr):
+            if child not in indices:
+                visit(child)
+                lowlinks[node] = min(lowlinks[node], lowlinks[child])
+            elif child in on_stack:
+                lowlinks[node] = min(lowlinks[node], indices[child])
+        if lowlinks[node] != indices[node]:
+            return
+        component: set[_ReferenceNode] = set()
+        while True:
+            child = stack.pop()
+            on_stack.remove(child)
+            component.add(child)
+            if child == node:
+                break
+        components.append(component)
+
+    for node in sorted(graph, key=repr):
+        if node not in indices:
+            visit(node)
+    return components
+
+
+def _validate_reference_cycles(
+    documents: Mapping[str, _SchemaDocument], *, schema_files: set[str]
+) -> None:
+    """Reject unsupported cycles while preserving the two recursive shapes."""
+
+    graph: dict[_ReferenceNode, set[_ReferenceNode]] = {}
+    edge_refs: dict[tuple[_ReferenceNode, _ReferenceNode], list[str]] = {}
+    for filename, schema in documents.items():
+        for origin, component in _schema_components(filename, schema):
+            graph.setdefault(origin, set())
+            for ref in _iter_component_references(component):
+                _target, target_filename, target_tokens = _resolve_reference_target(
+                    ref,
+                    owner=schema,
+                    external_roots=documents,
+                    schema_files=schema_files,
+                )
+                target = (target_filename or filename, target_tokens)
+                graph[origin].add(target)
+                edge_refs.setdefault((origin, target), []).append(ref)
+
+    for component in _strongly_connected_components(graph):
+        if len(component) > 1:
+            labels = ", ".join(
+                sorted(_format_reference_node(node) for node in component)
+            )
+            raise ProtocolGateError(
+                f"unsupported schema reference cycle across multiple components: {labels}"
+            )
+        (node,) = component
+        if node not in graph.get(node, set()):
+            continue
+        filename, tokens = node
+        for ref in edge_refs[(node, node)]:
+            _ref_filename, ref_tokens = _parse_reference(ref)
+            allowed = not _ref_filename and ref_tokens == tokens
+            if not allowed:
+                raise ProtocolGateError(
+                    f"unsupported schema reference cycle at "
+                    f"{_format_reference_node(node)} via {ref!r}"
+                )
+
+
 def _bound_nodes(schema_name: str, schema: dict[str, Any]) -> Iterator[dict[str, Any]]:
     def visit(node: Any, pointer: str) -> Iterator[dict[str, Any]]:
         if not isinstance(node, dict):
@@ -184,6 +434,8 @@ def _validate_schema(
     schema_version: str,
     schema: dict[str, Any],
     schema_files: set[str],
+    *,
+    schema_documents: Mapping[str, _SchemaDocument] | None = None,
 ) -> list[dict[str, Any]]:
     expected_id = f"urn:epistemic-operations:v{schema_version}:{name.replace('_', '-')}"
     if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
@@ -219,13 +471,18 @@ def _validate_schema(
             continue
         if not isinstance(node, dict):
             continue
-        ref = node.get("$ref")
-        if isinstance(ref, str) and not ref.startswith("#"):
-            target = ref.split("#", 1)[0]
-            if target not in schema_files:
+        if "$ref" in node:
+            ref = node["$ref"]
+            if not isinstance(ref, str):
                 raise ProtocolGateError(
-                    f"{name}{pointer}: external reference {ref!r} is outside the catalog"
+                    f"{name}{pointer}: JSON Schema $ref values must be strings"
                 )
+            _resolve_reference_target(
+                ref,
+                owner=schema,
+                external_roots=schema_documents or {},
+                schema_files=schema_files,
+            )
         node_properties = node.get("properties")
         if isinstance(node_properties, dict):
             forbidden = FORBIDDEN_PROPERTY_NAMES.intersection(node_properties)
@@ -258,6 +515,9 @@ def _validate_schema(
     bindings = list(_bound_nodes(name, schema))
     if not bindings or bindings[0]["pointer"] != "#":
         raise ProtocolGateError(f"{name}: root implementation binding is missing")
+    reference_documents = schema_documents or {"<inline>": schema}
+    reference_files = schema_files if schema_documents else {"<inline>"}
+    _validate_reference_cycles(reference_documents, schema_files=reference_files)
     return bindings
 
 
@@ -385,18 +645,19 @@ def _rust_variant(value: str) -> str:
 
 
 def _projection_nodes() -> tuple[
-    dict[str, dict[str, Any]], dict[str, str], dict[str, dict[str, Any]]
+    dict[str, dict[str, Any]],
+    dict[str, _SchemaDocument],
+    dict[str, dict[str, Any]],
 ]:
-    """Return bound nodes, external root bindings, and their owning schemas."""
+    """Return bound nodes, external schema documents, and owning schemas."""
 
     catalog = _load_json(CATALOG_PATH)
     nodes: dict[str, dict[str, Any]] = {}
-    external_roots: dict[str, str] = {}
+    external_roots: dict[str, _SchemaDocument] = {}
     owners: dict[str, dict[str, Any]] = {}
     for entry in catalog["schemas"]:
         schema = _load_json(CATALOG_DIR / str(entry["file"]))
-        root_model = str(schema["x-python-model"])
-        external_roots[str(entry["file"])] = root_model
+        external_roots[str(entry["file"])] = schema
         for _pointer, node in _iter_nodes(schema):
             if not isinstance(node, dict) or "x-python-model" not in node:
                 continue
@@ -412,19 +673,15 @@ def _ref_model(
     ref: str,
     *,
     owner: dict[str, Any],
-    external_roots: dict[str, str],
+    external_roots: Mapping[str, str | _SchemaDocument],
 ) -> str | None:
-    if ref == "#":
-        model = owner.get("x-python-model")
-        return str(model) if model else None
-    if ref.startswith("#/$defs/"):
-        name = ref.removeprefix("#/$defs/")
-        node = (owner.get("$defs") or {}).get(name)
-        if isinstance(node, dict) and node.get("x-python-model"):
-            return str(node["x-python-model"])
-        return None
-    filename = ref.split("#", 1)[0]
-    return external_roots.get(filename)
+    target, _filename, _tokens = _resolve_reference_target(
+        ref,
+        owner=owner,
+        external_roots=external_roots,
+    )
+    model = target.get("x-python-model")
+    return str(model) if isinstance(model, str) and model else None
 
 
 def _nonnull_schema(node: dict[str, Any]) -> tuple[dict[str, Any], bool]:
@@ -455,7 +712,7 @@ def _python_type(
     model: str,
     field: str,
     owner: dict[str, Any],
-    external_roots: dict[str, str],
+    external_roots: Mapping[str, str | _SchemaDocument],
 ) -> str:
     concrete, nullable = _nonnull_schema(node)
     ref = concrete.get("$ref")
@@ -556,7 +813,7 @@ def _rust_type(
     model: str,
     field: str,
     owner: dict[str, Any],
-    external_roots: dict[str, str],
+    external_roots: Mapping[str, str | _SchemaDocument],
 ) -> tuple[str, tuple[str, list[str]] | None, bool]:
     concrete, nullable = _nonnull_schema(node)
     enum: tuple[str, list[str]] | None = None
@@ -664,12 +921,22 @@ def build_manifest() -> tuple[dict[str, Any], Path]:
 
     schemas: list[dict[str, Any]] = []
     bindings: list[dict[str, Any]] = []
+    schema_documents = {
+        str(entry["file"]): _load_json(CATALOG_DIR / str(entry["file"]))
+        for entry in entries
+    }
     for entry in entries:
         name = str(entry["name"])
         version = str(entry["version"])
         filename = str(entry["file"])
-        schema = _load_json(CATALOG_DIR / filename)
-        schema_bindings = _validate_schema(name, version, schema, schema_files)
+        schema = schema_documents[filename]
+        schema_bindings = _validate_schema(
+            name,
+            version,
+            schema,
+            schema_files,
+            schema_documents=schema_documents,
+        )
         schemas.append(
             {
                 "name": name,

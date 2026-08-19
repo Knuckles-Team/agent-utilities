@@ -200,6 +200,20 @@ def register_graph_routes(app, prefix: str = "/api") -> None:
 
     register_research_routes(app, prefix=prefix)
 
+    # Read-only tenant/principal-scoped view over the engine-native fleet
+    # catalog.  The registry module owns only transport/schema shaping; its
+    # writer remains ``fleet_catalog_tables`` and no live MCP probing occurs.
+    from agent_utilities.gateway.registry_api import register_registry_routes
+
+    register_registry_routes(app, prefix=prefix)
+
+    # Browser OAuth callbacks are part of the same authenticated gateway
+    # surface; pass the graph prefix explicitly so providers register the
+    # exact deployed callback path without accidental double-prefixing.
+    from agent_utilities.gateway.remote_oauth_api import register_remote_oauth_routes
+
+    register_remote_oauth_routes(app, prefix=prefix)
+
     logger.info(
         "Mounted centralized Knowledge Graph REST routes + fleet supervisory "
         "plane under %r (graph-os MCP is now a thin wrapper).",

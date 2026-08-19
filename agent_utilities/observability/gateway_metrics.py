@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import threading
 import time
 from typing import Any
 
@@ -65,7 +66,11 @@ __all__ = [
     "ENGINE_SHARD_REQUESTS",
     "ENGINE_SHARD_UP",
     "KG_INGEST_CONSUMER_LAG",
+    "KG_INGEST_CONSUMER_LAG_OBSERVED_AT",
+    "record_kg_ingest_consumer_lag_observation",
     "KG_INGEST_QUEUE_DEPTH",
+    "KG_INGEST_QUEUE_DEPTH_OBSERVED_AT",
+    "record_kg_ingest_queue_observation",
     "KVCACHE_CHECKPOINT_OPS",
     "KVCACHE_CHECKPOINT_RECOMMENDATIONS",
     "KVCACHE_CHECKPOINT_TIER_OPS",
@@ -145,7 +150,8 @@ class _NoopMetric:
 
 
 try:  # pragma: no cover - exercised only when the extra is installed
-    from prometheus_client import Counter, Gauge, Histogram
+    from prometheus_client import REGISTRY, Counter, Gauge, Histogram
+    from prometheus_client.core import GaugeMetricFamily
 
     PROMETHEUS_AVAILABLE = True
 except ImportError:  # graceful no-op fallback (optional `metrics` extra)
@@ -200,6 +206,177 @@ def _histogram(
         return Histogram(name, doc, labelnames=labelnames, buckets=buckets)
     except ValueError:
         return _NoopMetric()
+
+
+class _PairedGaugeCollector:
+    """Publish a value gauge and its observed-at companion as one snapshot.
+
+    The two families share one lock and one label-keyed store. A scrape takes a
+    copy while holding that lock, so it can never observe a newly-written value
+    with the preceding observation timestamp (or vice versa). One-sided writes
+    are retained for compatibility, but the missing half is deliberately not
+    synthesized; the scaling provider consequently fails closed until the pair
+    writer is used.
+    """
+
+    _MAX_SERIES = 100
+
+    def __init__(
+        self,
+        value_name: str,
+        value_doc: str,
+        observed_name: str,
+        observed_doc: str,
+        labelnames: tuple[str, ...],
+    ) -> None:
+        self.value_name = value_name
+        self.value_doc = value_doc
+        self.observed_name = observed_name
+        self.observed_doc = observed_doc
+        self.labelnames = labelnames
+        self._lock = threading.RLock()
+        self._values: dict[tuple[str, ...], float] = {}
+        self._observed: dict[tuple[str, ...], float] = {}
+
+    def labels(self, *, observed: bool, **labels: str) -> _PairedGaugeHandle:
+        if set(labels) != set(self.labelnames):
+            raise ValueError("paired gauge labels do not match the declaration")
+        values = tuple(labels[name] for name in self.labelnames)
+        if any(
+            not isinstance(value, str) or not value or len(value.encode("utf-8")) > 128
+            for value in values
+        ):
+            raise ValueError("paired gauge labels must be bounded non-empty strings")
+        return _PairedGaugeHandle(self, values, observed=observed)
+
+    def _has_capacity_for(self, labels: tuple[str, ...]) -> bool:
+        existing = self._values.keys() | self._observed.keys()
+        return labels in existing or len(existing) < self._MAX_SERIES
+
+    def set_value(self, labels: tuple[str, ...], value: float) -> None:
+        with self._lock:
+            if not self._has_capacity_for(labels):
+                return
+            self._values[labels] = float(value)
+            # A legacy value-only writer must not accidentally reuse an older
+            # companion timestamp and make the new value look fresh.
+            self._observed.pop(labels, None)
+
+    def set_observed(self, labels: tuple[str, ...], observed_at: float) -> None:
+        with self._lock:
+            if not self._has_capacity_for(labels):
+                return
+            self._observed[labels] = float(observed_at)
+            # Likewise, a timestamp-only write cannot bless an older value.
+            self._values.pop(labels, None)
+
+    def set_pair(
+        self, labels: tuple[str, ...], value: float, observed_at: float
+    ) -> None:
+        """Publish both samples under one lock acquisition."""
+
+        with self._lock:
+            if not self._has_capacity_for(labels):
+                return
+            self._values[labels] = float(value)
+            self._observed[labels] = float(observed_at)
+
+    def snapshot(
+        self,
+    ) -> tuple[dict[tuple[str, ...], float], dict[tuple[str, ...], float]]:
+        """Return a consistent value/observed-at snapshot for readers/tests."""
+
+        with self._lock:
+            return dict(self._values), dict(self._observed)
+
+    def collect(self):
+        # Copy both maps in one critical section; Prometheus renders the copies
+        # after the lock is released, so a writer cannot interleave halfway
+        # through one scrape.
+        values, observed = self.snapshot()
+        value_metric = GaugeMetricFamily(
+            self.value_name, self.value_doc, labels=self.labelnames
+        )
+        observed_metric = GaugeMetricFamily(
+            self.observed_name, self.observed_doc, labels=self.labelnames
+        )
+        for labels, value in values.items():
+            value_metric.add_metric(labels, value)
+        for labels, value in observed.items():
+            observed_metric.add_metric(labels, value)
+        yield value_metric
+        yield observed_metric
+
+
+class _PairedGaugeHandle:
+    def __init__(
+        self,
+        collector: _PairedGaugeCollector,
+        labels: tuple[str, ...],
+        *,
+        observed: bool,
+    ) -> None:
+        self._collector = collector
+        self._labels = labels
+        self._observed = observed
+
+    def set(self, value: float) -> None:
+        if self._observed:
+            self._collector.set_observed(self._labels, value)
+        else:
+            self._collector.set_value(self._labels, value)
+
+
+def _paired_gauges(
+    value_name: str,
+    value_doc: str,
+    observed_name: str,
+    observed_doc: str,
+    labelnames: tuple[str, ...],
+) -> tuple[Any, Any, Any]:
+    """Create value/companion handles plus their atomic pair writer."""
+
+    if not PROMETHEUS_AVAILABLE:
+        noop = _NoopMetric()
+
+        def _noop_pair(**_: Any) -> None:
+            return None
+
+        return noop, noop, _noop_pair
+    collector = _PairedGaugeCollector(
+        value_name,
+        value_doc,
+        observed_name,
+        observed_doc,
+        labelnames,
+    )
+    try:
+        REGISTRY.register(collector)
+    except ValueError:  # duplicate registration on module reload
+        noop = _NoopMetric()
+
+        def _noop_pair(**_: Any) -> None:
+            return None
+
+        return noop, noop, _noop_pair
+
+    value_metric = _PairedMetricFacade(collector, observed=False)
+    observed_metric = _PairedMetricFacade(collector, observed=True)
+
+    def _record_pair(*, value: float, observed_at: float, **labels: str) -> None:
+        handle = collector.labels(observed=False, **labels)
+        collector.set_pair(handle._labels, value, observed_at)
+
+    return value_metric, observed_metric, _record_pair
+
+
+class _PairedMetricFacade:
+    def __init__(self, collector: _PairedGaugeCollector, *, observed: bool) -> None:
+        self._collector = collector
+        self._observed = observed
+
+    def labels(self, **labels: str) -> _PairedGaugeHandle:
+        return self._collector.labels(observed=self._observed, **labels)
 
 
 GATEWAY_REQUESTS = _counter(
@@ -262,14 +439,26 @@ ENGINE_SHARD_REQUESTS = _counter(
 # KG maintenance scheduler on the leader host. Depth is uniform across queue
 # backends (sqlite/postgres row count, kafka = kg-ingest consumer-group lag);
 # the lag series exists separately so Kafka dashboards/alerts read naturally.
-KG_INGEST_QUEUE_DEPTH = _gauge(
+(
+    KG_INGEST_QUEUE_DEPTH,
+    KG_INGEST_QUEUE_DEPTH_OBSERVED_AT,
+    record_kg_ingest_queue_observation,
+) = _paired_gauges(
     "agent_utilities_kg_ingest_queue_depth",
     "Pending KG ingest tasks in the selected durable task queue.",
+    "agent_utilities_kg_ingest_queue_depth_observed_at",
+    "Unix observation time for the paired KG ingest queue-depth gauge.",
     ("backend",),
 )
-KG_INGEST_CONSUMER_LAG = _gauge(
+(
+    KG_INGEST_CONSUMER_LAG,
+    KG_INGEST_CONSUMER_LAG_OBSERVED_AT,
+    record_kg_ingest_consumer_lag_observation,
+) = _paired_gauges(
     "agent_utilities_kg_ingest_consumer_lag",
     "Total kg-ingest consumer-group lag (unconsumed messages) per topic.",
+    "agent_utilities_kg_ingest_consumer_lag_observed_at",
+    "Unix observation time for the paired KG ingest consumer-lag gauge.",
     ("topic", "group"),
 )
 # Unified scheduler + 8-lane task-queue observability (CONCEPT:AU-OS.state.unified-scheduling-one-intelligent /

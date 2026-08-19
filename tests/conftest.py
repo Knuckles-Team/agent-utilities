@@ -1,9 +1,13 @@
 #!/usr/bin/python
 
+import asyncio
+import inspect
 import os
 import re
+import stat
 import subprocess
 import sys
+from pathlib import Path
 from typing import Any
 
 # Make this directory importable so ``_test_engine`` (the ephemeral real-engine
@@ -511,39 +515,382 @@ def _close_created_graph_transports(engines: list[Any]) -> None:
             close()
 
 
-def _delete_created_test_graph(engines: list[Any], graph_name: str) -> None:
-    """Delete one isolated test graph through the first usable client.
+def _find_graph_cleanup_client(engines: list[Any]) -> tuple[Any, Any]:
+    """Return the first client with a callable lifecycle-delete operation."""
 
-    ``DeleteGraph`` is the lifecycle authority for test isolation: it durably
-    purges the tenant graph and evicts its in-memory resources.  Calling
-    ``ClearGraph`` first repeats an O(graph) durable mutation on the same data and
-    can consume a full RPC timeout under suite load.  Cleanup therefore performs
-    one lifecycle delete and then lets the owning-transport teardown below cancel
-    or release any remaining client work.
-    """
     for engine in engines:
+        # Restart acceptance may retain roots from before a real server
+        # relaunch.  Their clients still expose ``tenants.delete`` but their
+        # transport is closed; selecting one would make teardown race the live
+        # replacement root and report a misleading connection failure.
+        if getattr(engine, "_transport_closed", False):
+            continue
         client = getattr(engine, "_client", None)
         if client is None:
             continue
-        from contextlib import nullcontext
+        tenants = getattr(client, "tenants", None)
+        delete = getattr(tenants, "delete", None)
+        if callable(delete):
+            return delete, engine
+    raise RuntimeError("test graph cleanup found no usable tenants.delete client")
 
-        from agent_utilities.knowledge_graph.core.session import (
-            current_session,
-            use_session,
-        )
 
-        session = current_session()
-        graph_scope = (
-            use_session(session.with_graph(graph_name))
-            if session is not None
-            else nullcontext()
-        )
+def _find_graph_cleanup_loop(*values: Any) -> asyncio.AbstractEventLoop | None:
+    """Find an owning loop through supported sync/routed/wrapped client shapes.
+
+    The native synchronous client stores its loop on ``_loop``.  The breaker,
+    routed namespace and sync namespace wrappers expose that client through
+    ``__wrapped__``, ``_client``, ``_base``, ``_namespace`` or ``_sync_target``.
+    Async clients without an exposed loop are run on the caller's loop by the
+    async cleanup boundary below.
+    """
+
+    pending = list(values)
+    seen: set[int] = set()
+    wrapper_attrs = (
+        "__wrapped__",
+        "_client",
+        "_base",
+        "_namespace",
+        "_sync_target",
+        "_transport_client",
+    )
+    while pending:
+        value = pending.pop()
+        if value is None or id(value) in seen:
+            continue
+        seen.add(id(value))
+        if isinstance(value, asyncio.AbstractEventLoop):
+            return value
         try:
-            with graph_scope:
-                client.tenants.delete(graph_name)
-        except Exception:
-            pass
+            attributes = vars(value)
+        except TypeError:
+            attributes = {}
+        for name in ("_loop", "_event_loop"):
+            loop = attributes.get(name)
+            if isinstance(loop, asyncio.AbstractEventLoop):
+                return loop
+        for name in wrapper_attrs:
+            nested = attributes.get(name)
+            if nested is not None:
+                pending.append(nested)
+    return None
+
+
+def _graph_cleanup_scope(graph_name: str) -> Any:
+    """Return the task-local graph scope used by either cleanup boundary."""
+
+    from contextlib import nullcontext
+
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
+    )
+
+    session = current_session()
+    return (
+        use_session(session.with_graph(graph_name))
+        if session is not None
+        else nullcontext()
+    )
+
+
+async def _delete_created_test_graph_async(engines: list[Any], graph_name: str) -> None:
+    """Await one lifecycle delete on the caller's already-running loop.
+
+    This is the async boundary for callers that already own a running event
+    loop.  It accepts plain synchronous namespaces as well as native async or
+    routed/wrapped namespaces; a returned awaitable is awaited exactly once.
+    """
+
+    delete, _engine = _find_graph_cleanup_client(engines)
+    with _graph_cleanup_scope(graph_name):
+        result = delete(graph_name)
+        if inspect.isawaitable(result):
+            await result
+
+
+def _close_unstarted_awaitable(awaitable: Any) -> None:
+    """Close a coroutine that cannot safely be scheduled, preventing warnings."""
+
+    if inspect.iscoroutine(awaitable):
+        awaitable.close()
+
+
+async def _await_graph_cleanup_result(result: Any) -> None:
+    """Adapt a non-coroutine awaitable for the thread-safe coroutine bridge."""
+
+    await result
+
+
+def _run_graph_cleanup_sync(
+    cleanup: Any,
+    *,
+    owning_loop: asyncio.AbstractEventLoop | None,
+) -> None:
+    """Run async cleanup synchronously without nesting or abandoning a loop."""
+
+    nested_awaitable = None
+    if not inspect.iscoroutine(cleanup):
+        nested_awaitable = cleanup
+        cleanup = _await_graph_cleanup_result(cleanup)
+
+    def close_unstarted() -> None:
+        _close_unstarted_awaitable(cleanup)
+        if nested_awaitable is not None:
+            _close_unstarted_awaitable(nested_awaitable)
+
+    try:
+        current_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        current_loop = None
+
+    if current_loop is not None:
+        if owning_loop is None or owning_loop is current_loop:
+            close_unstarted()
+            raise RuntimeError(
+                "synchronous graph cleanup cannot block a running event loop; "
+                "await _delete_created_test_graph_async instead"
+            )
+        if owning_loop.is_closed() or not owning_loop.is_running():
+            close_unstarted()
+            raise RuntimeError(
+                "graph cleanup client owns an event loop that is not running"
+            )
+        try:
+            future = asyncio.run_coroutine_threadsafe(cleanup, owning_loop)
+        except BaseException:
+            close_unstarted()
+            raise
+        future.result()
         return
+
+    if owning_loop is not None:
+        if owning_loop.is_closed() or not owning_loop.is_running():
+            close_unstarted()
+            raise RuntimeError(
+                "graph cleanup client owns an event loop that is not running"
+            )
+        try:
+            future = asyncio.run_coroutine_threadsafe(cleanup, owning_loop)
+        except BaseException:
+            close_unstarted()
+            raise
+        future.result()
+        return
+
+    asyncio.run(cleanup)
+
+
+def _delete_created_test_graph(engines: list[Any], graph_name: str) -> None:
+    """Delete one isolated test graph exactly once before transport teardown.
+
+    ``DeleteGraph`` is the lifecycle authority for test isolation: it durably
+    purges the tenant graph and evicts its in-memory resources.  The normal
+    ``SyncEpistemicGraphClient`` path returns synchronously.  Native async or
+    routed wrappers return an awaitable; this adapter schedules it on the
+    wrapper's owning loop, or runs it with ``asyncio.run`` when no loop is
+    exposed.  A caller already inside that same loop must use the async helper
+    rather than deadlock it with a nested run.
+    """
+
+    delete, cleanup_engine = _find_graph_cleanup_client(engines)
+    owning_loop = _find_graph_cleanup_loop(cleanup_engine)
+    if owning_loop is not None and (
+        owning_loop.is_closed() or not owning_loop.is_running()
+    ):
+        # Do this before calling a coroutine-returning namespace.  Calling an
+        # async ``delete`` only to discover that its client loop is closed
+        # manufactures a coroutine which cannot be scheduled; under warnings as
+        # errors that is both noisy and evidence that graph cleanup never ran.
+        raise RuntimeError(
+            "graph cleanup client owns an event loop that is not running"
+        )
+    with _graph_cleanup_scope(graph_name):
+        result = delete(graph_name)
+        if inspect.isawaitable(result):
+            _run_graph_cleanup_sync(result, owning_loop=owning_loop)
+
+
+def _remove_owned_unix_socket(path: str | os.PathLike[str]) -> None:
+    """Remove one lifecycle-owned Unix socket without touching its directory.
+
+    Auxiliary engine paths are supplied by the fixture that created them, so
+    teardown must operate on that exact entry only.  Validate the live inode
+    before unlinking it: a regular file or symlink at the expected path is a
+    setup/ownership failure, not permission to delete arbitrary test data.
+    Missing sockets are already-clean and therefore make this operation
+    idempotent.
+    """
+
+    socket_path = Path(path)
+    if not socket_path.is_absolute():
+        raise RuntimeError(
+            f"refusing to remove non-absolute auxiliary socket path: {socket_path}"
+        )
+    try:
+        metadata = socket_path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise RuntimeError(
+            f"cannot inspect auxiliary socket path {socket_path}"
+        ) from exc
+    if not stat.S_ISSOCK(metadata.st_mode):
+        raise RuntimeError(
+            f"refusing to remove non-Unix-socket auxiliary path: {socket_path}"
+        )
+    getuid = getattr(os, "getuid", None)
+    if not callable(getuid) or metadata.st_uid != getuid():
+        raise RuntimeError(
+            f"refusing to remove auxiliary socket not owned by this process: "
+            f"{socket_path}"
+        )
+    try:
+        socket_path.unlink()
+    except FileNotFoundError:
+        # A concurrently exiting server may have removed its own inode between
+        # inspection and unlink; that is the same terminal state we need.
+        return
+    except OSError as exc:
+        raise RuntimeError(f"failed to remove auxiliary socket {socket_path}") from exc
+    try:
+        socket_path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise RuntimeError(
+            f"cannot verify auxiliary socket removal {socket_path}"
+        ) from exc
+    raise RuntimeError(f"auxiliary socket still exists after removal: {socket_path}")
+
+
+class _AuxiliaryEngineRegistration:
+    """Own one auxiliary server's stop after graph/transport cleanup."""
+
+    def __init__(
+        self,
+        lifecycle: "_GraphTestLifecycle",
+        server: Any,
+        socket_path: str | os.PathLike[str] | None = None,
+    ) -> None:
+        self._lifecycle = lifecycle
+        self._server = server
+        self._socket_path = Path(socket_path) if socket_path is not None else None
+        self._stopped = False
+
+    def stop(self) -> None:
+        """Delete graphs and close transports before stopping the server once."""
+
+        if self._stopped:
+            return
+        self._stopped = True
+        cleanup_error: BaseException | None = None
+        try:
+            self._lifecycle.cleanup_graphs()
+        except BaseException as exc:
+            cleanup_error = exc
+        try:
+            stop = getattr(self._server, "stop", None)
+            if not callable(stop):
+                raise RuntimeError("registered auxiliary engine has no stop callback")
+            stop()
+        except BaseException as exc:
+            if cleanup_error is None:
+                cleanup_error = exc
+        try:
+            if self._socket_path is not None:
+                _remove_owned_unix_socket(self._socket_path)
+        except BaseException as exc:
+            if cleanup_error is None:
+                cleanup_error = exc
+        if cleanup_error is not None:
+            raise RuntimeError(
+                "auxiliary engine teardown failed after lifecycle and socket cleanup"
+            ) from cleanup_error
+
+
+class _GraphTestLifecycle:
+    """Per-test authority for graph deletion, transport close and aux servers."""
+
+    def __init__(self) -> None:
+        self.engines: list[Any] = []
+        self.graph_names: set[str] = set()
+        self._cleanup_done = False
+        self._auxiliary: list[_AuxiliaryEngineRegistration] = []
+
+    def track_engine(self, engine: Any, graph_name: str) -> None:
+        """Track one root/view and its graph exactly once."""
+
+        self.engines.append(engine)
+        self.graph_names.add(graph_name)
+
+    def register_auxiliary_engine(
+        self,
+        server: Any,
+        *,
+        socket_path: str | os.PathLike[str] | None = None,
+    ) -> _AuxiliaryEngineRegistration:
+        """Register an auxiliary server whose stop must be lifecycle-last."""
+
+        registration = _AuxiliaryEngineRegistration(self, server, socket_path)
+        self._auxiliary.append(registration)
+        return registration
+
+    def cleanup_graphs(self) -> None:
+        """Delete all tracked graphs once, then close every owning transport."""
+
+        if self._cleanup_done:
+            return
+        self._cleanup_done = True
+        cleanup_error: BaseException | None = None
+        try:
+            for graph_name in sorted(self.graph_names):
+                try:
+                    _delete_created_test_graph(self.engines, graph_name)
+                except BaseException as exc:
+                    if cleanup_error is None:
+                        cleanup_error = exc
+        finally:
+            try:
+                _close_created_graph_transports(self.engines)
+            except BaseException as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
+        if cleanup_error is not None:
+            raise RuntimeError(
+                "test graph teardown failed during lifecycle deletion"
+            ) from cleanup_error
+
+    def finish(self) -> None:
+        """Finish graph cleanup and stop any registration not stopped by a fixture."""
+
+        cleanup_error: BaseException | None = None
+        try:
+            self.cleanup_graphs()
+        except BaseException as exc:
+            cleanup_error = exc
+        for registration in reversed(self._auxiliary):
+            try:
+                registration.stop()
+            except BaseException as exc:
+                if cleanup_error is None:
+                    cleanup_error = exc
+        if cleanup_error is not None:
+            raise cleanup_error
+
+
+_ACTIVE_GRAPH_TEST_LIFECYCLE: _GraphTestLifecycle | None = None
+
+
+@pytest.fixture()
+def test_engine_lifecycle(isolate_graph_compute_engine):
+    """Expose the current test's explicit graph/auxiliary-engine lifecycle."""
+
+    lifecycle = _ACTIVE_GRAPH_TEST_LIFECYCLE
+    if lifecycle is None:  # pragma: no cover - dependency ordering guard
+        raise RuntimeError("test engine lifecycle was not initialized")
+    return lifecycle
 
 
 @pytest.fixture(autouse=True)
@@ -582,8 +929,10 @@ def isolate_graph_compute_engine(monkeypatch):
     _original_init = graph_compute.GraphComputeEngine.__init__
     _original_get_or_create = graph_compute.GraphComputeEngine.get_or_create.__func__
     _test_graph_name = f"test_{uuid.uuid4().hex[:12]}"
-    _created_engines: list = []
-    _created_graph_names: set = set()
+    lifecycle = _GraphTestLifecycle()
+    global _ACTIVE_GRAPH_TEST_LIFECYCLE
+    previous_lifecycle = _ACTIVE_GRAPH_TEST_LIFECYCLE
+    _ACTIVE_GRAPH_TEST_LIFECYCLE = lifecycle
 
     # A bare ``EpistemicGraphBackend()``/``IntelligenceGraphEngine(db_path=...)``
     # resolves its OWN routing graph before ``GraphComputeEngine.__init__`` ever
@@ -623,7 +972,7 @@ def isolate_graph_compute_engine(monkeypatch):
             _test_graph_name if graph_name in _default_graph_sentinels else graph_name
         )
         _original_init(self, graph_name=effective_name, **kwargs)
-        if effective_name not in _created_graph_names:
+        if effective_name not in lifecycle.graph_names:
             try:
                 self._client.tenants.create(effective_name)
             except Exception:
@@ -637,8 +986,7 @@ def isolate_graph_compute_engine(monkeypatch):
                     # must not leave an owning transport outside teardown tracking.
                     self.close()
                     raise
-            _created_graph_names.add(effective_name)
-        _created_engines.append(self)
+        lifecycle.track_engine(self, effective_name)
 
     monkeypatch.setattr(graph_compute.GraphComputeEngine, "__init__", _isolated_init)
 
@@ -720,11 +1068,18 @@ def isolate_graph_compute_engine(monkeypatch):
         yield _test_graph_name
     finally:
         # Teardown runs under the same verified task-local authority.
-        for graph_name in sorted(_created_graph_names):
-            _delete_created_test_graph(_created_engines, graph_name)
-        _close_created_graph_transports(_created_engines)
-        reset_session(token)
-        reset_actor(actor_token)
+        cleanup_error: BaseException | None = None
+        try:
+            lifecycle.finish()
+        except BaseException as exc:
+            cleanup_error = exc
+        finally:
+            reset_session(token)
+            reset_actor(actor_token)
+            if _ACTIVE_GRAPH_TEST_LIFECYCLE is lifecycle:
+                _ACTIVE_GRAPH_TEST_LIFECYCLE = previous_lifecycle
+        if cleanup_error is not None:
+            raise cleanup_error
 
 
 # Set True once the isolated session engine is deployed (or an external
@@ -856,7 +1211,7 @@ def _session_engine():
         TEST_AUTH_SECRET,
         EngineUnavailable,
         EphemeralEngine,
-        resolve_engine_binary,
+        resolve_engine_binary_identity,
     )
 
     # An externally-managed engine (its own socket) is reused verbatim — don't
@@ -883,8 +1238,8 @@ def _session_engine():
         return
 
     try:
-        binary = resolve_engine_binary()
-        engine = EphemeralEngine(binary).start()
+        binary_identity = resolve_engine_binary_identity()
+        engine = EphemeralEngine(binary_identity).start()
     except EngineUnavailable as exc:
         # No real engine obtainable — degrade to hermetic-skip mode (the
         # makereport hook turns engine-unreachable errors into skips).

@@ -177,13 +177,96 @@ def test_run_forever_propagates_actor_and_session_into_the_serve_task(monkeypatc
         await asyncio.sleep(3600)
 
     monkeypatch.setattr(messaging_daemon, "_serve", _fake_serve)
+    # This test focuses on context propagation once the shared ownership
+    # boundary has admitted the caller; native lease contention is covered by
+    # the intake-lease tests.
+    from agent_utilities.messaging import intake_lease
+
+    def _run_owned(engine, platforms, owner_session, owner_stop_event, serve):
+        assert owner_session is session
+        serve(platforms, owner_stop_event)
+
+    monkeypatch.setattr(intake_lease, "run_owned_intake", _run_owned)
 
     with use_actor(actor), use_session(session):
         messaging_daemon.run_forever(
-            engine=object(), platforms=["fake"], stop_event=stop_event
+            engine=object(),
+            platforms=["fake"],
+            stop_event=stop_event,
+            session=session,
+            intake_intent=True,
         )
 
     assert seen_actor_id == ["messaging-test"]
+
+
+def test_run_forever_without_explicit_intent_never_starts_a_poller(monkeypatch):
+    """A direct/token-only caller must fail closed before ``_serve``."""
+    served = False
+
+    async def _fake_serve(engine, platforms):
+        nonlocal served
+        served = True
+
+    monkeypatch.setattr(messaging_daemon, "_serve", _fake_serve)
+    stop_event = threading.Event()
+
+    messaging_daemon.run_forever(
+        engine=object(),
+        platforms=["telegram"],
+        stop_event=stop_event,
+    )
+
+    assert stop_event.is_set()
+    assert served is False
+
+
+def test_standalone_main_enters_the_shared_owned_intake_boundary(monkeypatch):
+    """The standalone entrypoint must pass explicit intent and its session."""
+    fake_session = MagicMock(name="session")
+    fake_session.actor = MagicMock(name="actor")
+    fake_engine = MagicMock(name="engine")
+    seen: list[object] = []
+
+    monkeypatch.setattr(messaging_daemon, "mint_process_identity", lambda: fake_session)
+    monkeypatch.setattr(messaging_daemon, "_validate_fleet_auth", lambda: None)
+    monkeypatch.setattr(
+        messaging_daemon, "configured_platforms", lambda engine=None: ["telegram"]
+    )
+
+    class _FakeEngine:
+        @classmethod
+        def get_or_create(cls):
+            return fake_engine
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.engine.IntelligenceGraphEngine",
+        _FakeEngine,
+    )
+
+    import contextlib
+
+    @contextlib.contextmanager
+    def _use_actor(actor):
+        yield actor
+
+    @contextlib.contextmanager
+    def _use_session(owner_session):
+        yield owner_session
+
+    monkeypatch.setattr("agent_utilities.security.brain_context.use_actor", _use_actor)
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.core.session.use_session", _use_session
+    )
+
+    def _run_forever(engine, platforms, stop_event, *, session, intake_intent):
+        seen.append((engine, platforms, session, intake_intent))
+        stop_event.set()
+
+    monkeypatch.setattr(messaging_daemon, "run_forever", _run_forever)
+    messaging_daemon.main()
+
+    assert seen == [(fake_engine, ["telegram"], fake_session, True)]
 
 
 def test_configured_platforms_is_a_pure_config_read(monkeypatch):

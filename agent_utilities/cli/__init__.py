@@ -854,10 +854,10 @@ def _voice_model(args: argparse.Namespace) -> dict[str, Any]:
             )
             return {"license_decision": decision.model_dump(mode="json")}
         if action == "status":
-            manifest = voice_acq.get_model_manifest(args.asset_id)
-            if manifest is None:
+            status_manifest = voice_acq.get_model_manifest(args.asset_id)
+            if status_manifest is None:
                 return {"error": f"no quarantined manifest {args.asset_id!r}"}
-            ready, reason = voice_lic.is_ready_for_promotion_handoff(manifest)
+            ready, reason = voice_lic.is_ready_for_promotion_handoff(status_manifest)
             return {
                 "asset_id": args.asset_id,
                 "ready_for_promotion_handoff": ready,

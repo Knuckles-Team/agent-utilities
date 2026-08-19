@@ -54,7 +54,7 @@ Three things are deliberately **uniform** across every connector:
 2. **One provenance contract** — `stamp_source()` stamps `source_system` +
    `domain` on every row, so named-graph routing, federation, and mirroring treat
    all connectors identically.
-3. **One delta model** — see §4.
+3. **One delta model** — see §5.
 4. **One writer** — `core/materialization.write_entities()` is the single
    materialization implementation. The two historical write paths
    (`ingest_external_batch`, dict entities; and `write_batch`, typed
@@ -117,7 +117,42 @@ generic `McpToolSourceConnector` (used by `graph_ingest`/`build_skill_graph`).
 
 ---
 
-## 4. Delta for *every* connector (the optimization)
+## 4. Activation-bound admission (NE-113)
+
+Connector preparation and connector activation are separate gates. A
+successful Arrow clean/validation result can be replayed, but it cannot select
+its own graph or governance policy. The activation control plane approves an
+exact tuple of connector version, tenant, target graph, mapping reference and
+digest, SHACL reference and digest, and ICV reference and digest. The tuple is
+fingerprinted as one `ActivationBinding` and is rotated or rolled back through
+versioned pure state transitions.
+
+```mermaid
+sequenceDiagram
+  participant C as Connector
+  participant A as Activation control plane
+  participant U as AU adapter
+  participant EG as epistemic-graph
+  C->>U: ChangeEnvelope + connector_preparation evidence
+  U->>A: exact binding + active generation
+  A-->>U: approved binding claim
+  U->>U: verify tenant, graph, refs and digests
+  U->>EG: existing ingest_envelope
+  EG->>EG: SHACL/ICV + ApplyChangeEnvelope
+  EG-->>U: success, skipped, reject or fail
+  U-->>C: bounded report ref and stable code
+```
+
+`ActivationAdmissionAdapter` fails closed for missing, rotating or stale
+activation; connector/version, tenant or graph substitution; missing or
+different mapping/SHACL/ICV artifacts; and an unverified write session. A
+rejected preflight never calls the native writer. A native rejection is
+returned as `engine_rejected` without copying its raw reason. Thus
+`ApplyChangeEnvelope` remains the single durable path and the engine remains
+the authoritative SHACL/ICV gate. The adapter does not persist activation
+state, invent preparation evidence, or create a parallel commit path.
+
+## 5. Delta for *every* connector (the optimization)
 
 "Delta-focused ingestion for all connectors" is two layers — and the second is
 what makes it universal:
@@ -197,7 +232,7 @@ readiness CAS did not complete; it does not repair a rolled-back transaction.
 
 ---
 
-## 4b. Ambient epistemics (valid-time + provenance, W3.4)
+## 5b. Ambient epistemics (valid-time + provenance, W3.4)
 
 Connector-ingested rows carry epistemic value **by default**, with no
 per-connector code change — `KG_AMBIENT_EPISTEMIC` (default ON; per-source
@@ -234,11 +269,11 @@ flowchart LR
 ```
 
 The write-path X5 closure applies the same idea to **outbound** writes: see
-§6's writeback bullet below.
+§7's writeback bullet below.
 
 ---
 
-## 5. Background ingestion across the board
+## 6. Background ingestion across the board
 
 A single host-role daemon runs `skill_scheduler` every 60s, reading
 `deploy/schedules.yml`. The fleet sweep is one declarative entry:
@@ -261,7 +296,7 @@ hot source) still live alongside it when a source needs its own schedule.
 
 ---
 
-## 6. Enrichers (what happens after the write)
+## 7. Enrichers (what happens after the write)
 
 Ingestion is only half the story — the KG's differentiator is that everything
 lands in **one ontology** and is reasoned over together:
@@ -290,7 +325,7 @@ See also: [KG as Bidirectional ETL Hub](kg_etl_hub.md),
 
 ---
 
-## 7. Fail-closed connector permissions (AU-P0-4)
+## 8. Fail-closed connector permissions (AU-P0-4)
 
 Three failure modes closed — none change the ~40 connectors that already report
 a real ACL (LeanIX, GitLab, ServiceNow, …); this is about what happens when a
@@ -340,7 +375,7 @@ for how the ACL descriptor maps onto the KG-2.46 permissioning model.
 
 ---
 
-## 7b. Governed candidate-claim promotion, supersession & dead-letter drain
+## 8b. Governed candidate-claim promotion, supersession & dead-letter drain
 
 The universal-ingestion program's governed validation/promotion and incremental
 reconciliation tracks (CONCEPT:AU-KG.ingest.governed-claim-promotion,
@@ -409,7 +444,41 @@ adapt it once the sibling domain-pack contract publishes (see
 
 ---
 
-## 8. Connector inventory
+## 8. Typed connector prepare → validate → map boundary
+
+Connectors that ingest bounded Arrow pages can opt into the shared
+`agent_utilities.data_prep.connector_contract` boundary without adding a
+provider-specific commit path:
+
+```mermaid
+flowchart LR
+  R["raw Arrow page"] --> P["CleanPipeline\nstrict model + PrepEvidence"]
+  P --> M["ConnectorMapper\npluggable domain mapping"]
+  M --> E["native ChangeEnvelope\nartifact refs + replay digest"]
+  E --> I["ingest_envelope(s)\nSHACL/ICV + durable cursor"]
+  P -. quarantine / failure .-> Q["no checkpoint\nno snapshot marker"]
+```
+
+`ConnectorPrepContract` is versioned and binds immutable refs/digests for the
+raw model, prep plan, expected Arrow schema, mapping, SHACL shapes, and ICV
+policy.  `ConnectorPageLimits` bounds page rows, output cardinality, columns,
+and redacted diagnostics.  A mapper receives the prepared Arrow table and
+returns a bounded sequence of native `ChangeEnvelope` values; the contract
+checks connector/tenant/schema authority, deterministic idempotency keys,
+duplicate keys, and forbids a mapper from returning a page-level snapshot
+marker or checkpoint.
+
+Strict validation raises a stable redacted diagnostic.  Explicit quarantine
+returns a `PreparedConnectorPage` whose certification is `quarantined` or
+`partial`; accepted envelopes may be inspected by the caller, but the page
+cannot advance its checkpoint.  Only a complete, diagnostic-free,
+fetch-complete page can expose a checkpoint candidate.  Its
+`snapshot_complete()` helper additionally refuses an empty live-id set unless
+the caller supplies `authoritative_empty=True`, so failed or partial fetches
+cannot become deletion or verified-empty snapshots.  The returned envelopes
+still use the existing `ingest_envelope`/`ingest_envelopes` path; the engine,
+not this boundary, remains the SHACL/ICV and durability authority.
+## 9. Connector inventory
 
 <!-- BEGIN:CONNECTOR-INVENTORY (generated by scripts/generate_connector_map.py) -->
 

@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "contract": "one-writer-per-domain",
+  "domains": [
+    {
+      "name": "engine_fleet_catalog",
+      "authority": "epistemic_graph_engine_sql",
+      "schema_source": "fleet_catalog",
+      "sqlite_limitations": [
+        "The engine SQL tier supports only a single-column primary key; tenant_id is an explicit row guard until composite keys are native.",
+        "The engine SQL tier has no conditional EXCLUDED-aware upsert; CAS fencing remains in the writer until native support exists."
+      ],
+      "postgres_rls": "The engine native authority applies tenant/principal/grant isolation; discovery-derived rows require the verified subject plus current authorization-grant digest, and a relational mirror must never become a second writer.",
+      "tables": [
+        {
+          "name": "mcp_servers",
+          "authoritative_fields": ["id", "tenant_id", "name", "transport", "url", "enabled", "revision", "idempotency_key", "updated_at"],
+          "derived_fields": [],
+          "prohibited_dual_write_domains": ["usage_store", "state_store"]
+        },
+        {
+          "name": "mcp_server_discovery",
+          "authoritative_fields": ["id", "tenant_id", "server_id", "server_name", "reachable", "last_error", "tool_count", "skill_count", "prompt_count", "resource_count", "observed_at", "discovery_authority_kind", "discovery_principal", "discovery_grant_digest", "revision", "idempotency_key"],
+          "derived_fields": [],
+          "prohibited_dual_write_domains": ["usage_store", "state_store"]
+        },
+        {
+          "name": "mcp_tools",
+          "authoritative_fields": ["id", "tenant_id", "server_id", "server_name", "name", "description", "input_schema", "schema_digest", "tool_mode", "enabled", "discovery_authority_kind", "discovery_principal", "discovery_grant_digest", "revision", "idempotency_key", "updated_at"],
+          "derived_fields": [],
+          "prohibited_dual_write_domains": ["usage_store", "state_store"]
+        },
+        {
+          "name": "mcp_prompts",
+          "authoritative_fields": ["id", "tenant_id", "server_id", "server_name", "name", "description", "uri", "discovery_authority_kind", "discovery_principal", "discovery_grant_digest", "revision", "idempotency_key", "updated_at"],
+          "derived_fields": [],
+          "prohibited_dual_write_domains": ["usage_store", "state_store"]
+        },
+        {
+          "name": "mcp_resources",
+          "authoritative_fields": ["id", "tenant_id", "server_id", "server_name", "uri", "name", "description", "mime_type", "resource_kind", "discovery_authority_kind", "discovery_principal", "discovery_grant_digest", "revision", "idempotency_key", "updated_at"],
+          "derived_fields": [],
+          "prohibited_dual_write_domains": ["usage_store", "state_store"]
+        },
+        {
+          "name": "skills",
+          "authoritative_fields": ["id", "tenant_id", "name", "description", "uri", "skill_type", "classification", "provider", "mcp_server", "enabled", "discovery_authority_kind", "discovery_principal", "discovery_grant_digest", "revision", "idempotency_key", "updated_at"],
+          "derived_fields": [],
+          "prohibited_dual_write_domains": ["usage_store", "state_store"]
+        }
+      ]
+    },
+    {
+      "name": "usage_store",
+      "authority": "usage_backend",
+      "schema_source": "usage_store",
+      "sqlite_limitations": [
+        "SQLite is a single-host development/default backend; it is not a cross-host authority or RLS substitute.",
+        "SQLite FTS5 is a local search projection and never owns session/message facts."
+      ],
+      "postgres_rls": "When a tenant is bound, state/usage connection setup must carry app.tenant_id before reads or writes; policy denial is not an empty result.",
+      "tables": [
+        {"name": "sessions", "authoritative_fields": ["id", "project", "machine", "agent", "first_message", "started_at", "ended_at", "message_count", "user_message_count", "total_output_tokens", "peak_context_tokens", "is_automated", "outcome", "health_grade", "termination_status", "parent_session_id", "relationship_type", "origin", "tenant_id", "correlation_id", "file_path", "file_hash", "file_mtime", "file_inode", "created_at"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "state_store"]},
+        {"name": "messages", "authoritative_fields": ["session_id", "ordinal", "role", "content", "thinking_text", "timestamp", "model", "context_tokens", "output_tokens", "has_tool_use", "content_length"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "state_store"]},
+        {"name": "tool_calls", "authoritative_fields": ["id", "session_id", "message_ordinal", "tool_name", "category", "tool_use_id", "input_json", "skill_name", "result_content_length", "subagent_session_id", "status", "occurred_at", "origin", "tenant_id", "correlation_id"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "state_store"]},
+        {"name": "usage_events", "authoritative_fields": ["id", "session_id", "message_ordinal", "source", "model", "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "reasoning_tokens", "cost_usd", "cost_status", "cost_source", "occurred_at", "dedup_key", "origin", "tenant_id", "correlation_id"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "state_store"]},
+        {"name": "model_pricing", "authoritative_fields": ["model_pattern", "input_per_mtok", "output_per_mtok", "cache_creation_per_mtok", "cache_read_per_mtok", "updated_at"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "state_store"]},
+        {"name": "skipped_files", "authoritative_fields": ["path", "mtime", "size"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "state_store"]},
+        {"name": "usage_store_metadata", "authoritative_fields": ["key", "value"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "state_store"]}
+      ]
+    },
+    {
+      "name": "state_store",
+      "authority": "state_backend",
+      "schema_source": "state_store",
+      "sqlite_limitations": [
+        "SQLite state is per-host and advisory locking is a no-op; it cannot coordinate multiple hosts.",
+        "Durable goal lifecycle is engine-native WorkItem/Loop state, not a state-store table."
+      ],
+      "postgres_rls": "Postgres state connections set app.tenant_id before SQL; tenant-bearing tables must remain RLS-protected and must not be read through an unscoped connection.",
+      "tables": [
+        {"name": "sessions", "authoritative_fields": ["id", "title", "created_at", "updated_at", "model", "mode", "workspace", "turn_count", "status", "background", "needs_input", "last_response_preview", "goal_id", "metadata_json", "tenant_id"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "usage_store"]},
+        {"name": "turns", "authoritative_fields": ["id", "session_id", "turn_number", "role", "content", "created_at", "status", "usage_json", "duration_ms"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "usage_store"]},
+        {"name": "dispatch_workers", "authoritative_fields": ["worker_id", "host", "capacity", "active_sessions", "queue_backend", "started_at", "last_heartbeat"], "derived_fields": [], "prohibited_dual_write_domains": ["engine_fleet_catalog", "usage_store"]}
+      ]
+    }
+  ],
+  "read_models": [
+    {
+      "name": "registry_page",
+      "owner_domain": "engine_fleet_catalog",
+      "source_tables": ["mcp_servers", "mcp_server_discovery", "mcp_tools", "mcp_prompts", "mcp_resources", "skills"],
+      "fields": ["status", "kind", "items", "count", "next_cursor"],
+      "write_forbidden": true
+    },
+    {
+      "name": "usage_summary",
+      "owner_domain": "usage_store",
+      "source_tables": ["sessions", "usage_events", "tool_calls"],
+      "fields": ["session_count", "totals", "cache_hit_rate"],
+      "write_forbidden": true
+    },
+    {
+      "name": "fleet_topology",
+      "owner_domain": "state_store",
+      "source_tables": ["sessions", "dispatch_workers"],
+      "fields": ["sessions", "workers", "domains", "total"],
+      "write_forbidden": true
+    }
+  ]
+}

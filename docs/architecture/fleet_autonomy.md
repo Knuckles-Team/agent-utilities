@@ -13,10 +13,13 @@ flowchart LR
     TR --> PB[Remediation playbooks\nOS-5.26]
     REG[deploy/mcp-fleet.registry.yml\n+ desired-state override] --> RC[Fleet reconciler tick\nOS-5.25]
     REG -->|scaling: bounds| AS[Autoscaler tick\nOS-5.29]
-    SIG[ScalingSignalProvider\nlocal gauges / Prometheus / injected] --> AS
+    SIG[Bulk ScalingSignalProvider\nlocal gauges / Prometheus / injected] --> AS
+    SIG -->|one bounded batch\nclient + unique queries + deadline| PROM[Prometheus]
     OBS[FleetObserver\nKG events + docker / injected] --> RC
     OBS --> AS
     OBS --> PB
+    FH[FleetHealthEvidence\nfleet.health.v1] -->|healthy only| RC
+    FH -->|healthy only| AS
     PB --> AP{ActionPolicy\nOS-5.24}
     RC --> AP
     AS --> AP
@@ -122,6 +125,12 @@ See [Autonomous Evolution](../guides/autonomous-evolution.md).
   replica mismatch ⇒ `scale_service`; up-but-desired-stopped ⇒
   `stop_service`; **no observation ⇒ no action** (never act on zero
   evidence).
+* **Supervisory evidence gate** — every tick reads the shared
+  `FleetHealthEvidence` contract (`orchestration/fleet_health.py`). Only
+  `status: healthy` permits desired-state convergence. `partial`, `degraded`,
+  or `unavailable` returns a typed not-ready report and skips proposals,
+  approval draining, and actuation; an unreadable authority is never treated
+  as an empty observed fleet.
 * Every proposal passes ActionPolicy, then the `FleetActuator` protocol
   (`orchestration/fleet_actuation.py`). The default `DryRunActuator`
   records intent (`ActionExecution` nodes, `dry_run: true`) and mutates
@@ -196,34 +205,75 @@ services:
       scale_up_step: 1      # max replicas added per evaluation (default 1)
       scale_down_step: 1    # max replicas removed per evaluation (default 1)
       cooldown_s: 300       # min seconds between scale actions (default 300)
+      deadband: 0.05        # relative target band; 5% by default
+      scale_up_stabilization_samples: 1   # fast scale-up default
+      scale_down_stabilization_samples: 3 # conservative scale-down default
 ```
 
 Because `deploy/mcp-fleet.registry.yml` is machine-generated, the normal home
 for scaling blocks is the `FLEET_DESIRED_STATE_PATH` override (same shape,
 layered on top; `scaling: null` explicitly disables). Validation is strict —
-`max >= min >= 0`, `signal`/`target`/`max` explicit — and an invalid block is
+`max >= min >= 0`, `signal`/`target`/`max` explicit, and all numeric values are
+finite and bounded — and an invalid block is
 **dropped with a warning** (the service keeps the static AU-OS.config.desired-state-fleet-reconciler reconcile);
 a typo never produces surprise scaling.
 
 **Signal hierarchy — pluggable, no hard Prometheus dependency**
-(`orchestration/scaling_signals.py`, `ScalingSignalProvider` protocol:
-`signal_value(service, signal) -> float | None`):
+(`orchestration/scaling_signals.py`, `ScalingSignalProvider` plus its optional
+bounded `signal_values(requests)` extension). Every autoscaler tick submits one
+deduplicated batch of requested service/signal pairs. Every accepted sample is
+immutable and carries `value`, `source`, `service`, symbolic `signal`,
+`aggregation` (`fleet_total` or `per_replica`), explicit `unit`, explicit
+tenant/fleet `scope`, and `observed_at`. The autoscaler rejects malformed,
+stale, future-skewed, replayed, cross-service, cross-aggregation, cross-unit,
+and cross-scope samples; invalid or missing data is never interpreted as a
+scale-down signal:
 
 1. **Injected** — `set_scaling_signal_provider(MyProvider())` (lgtm-mcp,
    Thanos, pushgateway, …) wins over everything.
-2. **Prometheus** — `SCALING_PROMETHEUS_URL` set ⇒ instant HTTP queries
-   against `/api/v1/query` (plain `httpx` GET, no client lib). Well-known
-   signals use shipped PromQL; a custom signal is sent verbatim as PromQL
-   with a `{service}` placeholder.
+2. **Prometheus** — `SCALING_PROMETHEUS_URL` set ⇒ one bounded instant-query
+   batch against `/api/v1/query` (one reused `httpx` client only for a
+   thread-safe transport, otherwise one client per worker; all queries run in
+   rolling waves, at most 64 unique allowlisted queries, 4 process-wide
+   in-flight requests, and a 10-second overall deadline). The four fixed
+   workers are daemon threads, so an injected transport that ignores timeout
+   and cancellation consumes bounded capacity but cannot hang process exit.
+   Well-known signals and explicitly deployment-injected definitions are
+   allowlisted symbolic names; caller-supplied raw PromQL is not accepted.
+   Query length, per-query timeout, result-series cardinality, unique-query
+   count, concurrency, overall deadline, and sample age are bounded.
 3. **Local (default, zero-infra)** — this process's own AU-OS.observability.no-op-without-metrics/KG-2.55
-   gauges: `queue_depth` → `agent_utilities_kg_ingest_queue_depth`,
-   `consumer_lag` → `agent_utilities_kg_ingest_consumer_lag`; other names
-   resolve verbatim in the local registry.
+   value/observed-at gauge pairs: `queue_depth` →
+   `agent_utilities_kg_ingest_queue_depth` plus its `_observed_at` companion,
+   `consumer_lag` → `agent_utilities_kg_ingest_consumer_lag` plus its companion;
+   other names are available only through an explicitly deployment-injected
+   allowlist and, for per-replica signals, a required service label.
+
+The shipped queue-depth and consumer-lag definitions are truthfully declared in
+`items` and `messages` units with `fleet` scope and bind exactly to the
+`kg-ingest-worker` scale unit; CPU is `percent` with `service` scope. Other
+services return no data until deployment supplies an immutable exact
+service/scale-unit definition (and the same binding is used by the Prometheus
+definition); a provider never relabels a global series with the caller's
+requested service. Definitions and samples must match unit and scope exactly at
+consumption. Local paired gauges are snapshotted under one lock, so a reader
+cannot combine a new value with an old timestamp. Providers without the bulk
+extension may fall back to bounded single reads only when explicitly marked
+trusted in-process; remote providers without the extension fail closed rather
+than causing one timeout per service.
 
 `None` (unknown signal, provider failure, metrics extra absent, empty query
-result) means **no data ⇒ no scaling action** — the same
+result, stale/replayed sample, malformed value, missing/mismatched pair, or
+high-cardinality response)
+means **no data ⇒ no scaling action** — the same
 never-act-on-zero-evidence rule the reconciler applies to unobserved
 services.
+
+Before reading desired state, observations, or signals, the autoscaler also
+requires `FleetHealthEvidence.autoscaling_ready`. Any `partial`, `degraded`,
+or `unavailable` supervisory dependency produces zero evaluated actions with
+the evidence envelope attached; it is not a zero-load signal and cannot
+converge replicas while the control plane is unreadable.
 
 **Target tracking (as shipped):**
 
@@ -234,8 +284,10 @@ desired = ceil(effective_current × value_per_replica / target)
 with `effective_current = max(current, 1)` (scale-from-zero works) and
 fleet-total signals (`queue_depth`, `consumer_lag`) first normalized to
 per-replica (`value / effective_current`); `cpu` and custom signals are
-treated as per-replica averages already (write custom PromQL with `avg`, not
-`sum`). The result is clamped to `[min, max]` and step-capped (at most
+treated as per-replica averages already. Multiple fleet-total series are
+summed; multiple per-replica series are averaged. Deployment-injected definitions state
+their aggregation explicitly; the consumer verifies that metadata before
+target tracking. The result is clamped to `[min, max]` and step-capped (at most
 `scale_up_step` added / `scale_down_step` removed per evaluation), and
 `current` comes from the **FleetObserver** — a service with no replica
 observation (or observed *down*: that is the reconciler's restart problem)
@@ -247,6 +299,17 @@ the durable `ActionDecision`/`ActionExecution` ledger (shared across
 processes and restarts). That single rule is also the flap guard: an
 up-then-down oscillation inside the window is impossible. The per-tick
 action budget reuses `FLEET_RECONCILER_MAX_ACTIONS`.
+
+**Deadband / stabilization.** `deadband` is a finite relative band around the
+per-replica target; values within it reset any direction streak and hold the
+current replica count. Outside the band, scale-up requires the declared number
+of consecutive fresh samples (default `1`), while scale-down requires the
+declared conservative count (default `3`). A missing, stale, ambiguous,
+cross-unit/scope, or replayed sample resets the direction state and can never
+authorize a scale-down. A direction change also resets the streak before the
+new direction can act. After an actual successful scale action, the consumed
+direction streak is reset; the next action must collect its full declared
+consecutive-sample count again.
 
 **Gate → actuate → watch.** Every proposal is a `scale_service`
 `ActionRequest` (`source: autoscaler`, params carry

@@ -111,6 +111,41 @@ and per-session mutual exclusion reuses `state_claim_guard`
   reconciles on its next tick (`core.sessions._desired_session_action`) into
   `paused`/`cancelled`.
 
+### Truthful fleet supervisory evidence (`fleet.health.v1`)
+
+`orchestration/fleet_health.py` is the single typed evidence contract shared by
+the REST `/api/fleet/health` and `/api/fleet/topology` handlers, the
+`graph_sessions(action="health"|"topology")` MCP/REST twin, readiness, the
+reconciler, and the autoscaler. Each collection reads the existing live
+authorities once: goal rehydration, session/control-store SQL aggregates, and
+the dispatch-worker registry. It keeps no health cache and never replaces a
+failed read with an empty mapping or zero count.
+
+```mermaid
+flowchart LR
+    REST[REST fleet health/topology] --> C["FleetHealthEvidence<br/>fleet.health.v1"]
+    MCP[MCP graph_sessions health/topology] --> C
+    C --> G[goal rehydration authority]
+    C --> S[session/control-store SQL]
+    C --> W[dispatch-worker registry]
+    G --> E[typed status + freshness + bounded diagnostics]
+    S --> E
+    W --> E
+    E --> R[readiness]
+    E --> A[autoscaling gate]
+    E --> K[convergence gate]
+```
+
+`healthy` is the only state that permits readiness, autoscaling, or desired
+state convergence. `partial` means some authoritative reads succeeded while
+another failed; `degraded` carries usable but impaired evidence; and
+`unavailable` means no usable dependency evidence exists. Every dependency
+records `checked_at`, `last_success_at`, and derived freshness. Diagnostics
+are bounded stable labels and exception types only—never exception text,
+paths, URLs, credentials, or row values. Partial, degraded, and unavailable
+evidence therefore return an explicit not-ready signal; they cannot be
+interpreted as zero load, zero workers, or convergence.
+
 ## Testing
 
 No test requires a live Postgres. Unit suites exercise the Postgres logic

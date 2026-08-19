@@ -351,9 +351,14 @@ class _SkillValidationEvidenceSource:
         )
 
     def search_hybrid(
-        self, query: str, *, top_k: int = 8, as_of: str | None = None
+        self,
+        query: str,
+        *,
+        top_k: int = 8,
+        as_of: str | None = None,
+        session: Any | None = None,
     ) -> list[dict[str, Any]]:
-        del query, as_of
+        del query, as_of, session
         if top_k < 1:
             return []
         return [

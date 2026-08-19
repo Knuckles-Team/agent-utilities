@@ -51,7 +51,11 @@ from agent_utilities.core.provider_materialization import (
     ProviderAssetError,
     build_asset_manifest,
 )
-from agent_utilities.core.providers import ProviderRegistration, provider_registrations
+from agent_utilities.core.providers import (
+    ProviderRegistration,
+    ProviderRegistrationError,
+    provider_registrations,
+)
 
 FRONTEND_PROVIDER_GROUP = "agent_utilities.frontend_providers"
 DESCRIPTOR_FILENAME = "contribution.json"
@@ -67,6 +71,7 @@ MAX_TOPICS = 64
 MAX_STRING = 4096
 MAX_EXTENSIONS_BYTES = 32 * 1024
 MAX_COLUMNS = 64
+MAX_FRONTEND_PROVIDERS = 256
 
 ContributionStatus = Literal["OK", "DEGRADED", "BLOCKED", "MISSING"]
 
@@ -437,8 +442,13 @@ def _load_one(
     try:
         descriptor = FrontendContributionV1.model_validate(payload)
     except ValidationError as exc:
-        first = exc.errors()[0] if exc.errors() else {}
-        field_path = ".".join(str(part) for part in first.get("loc", ())) or "<root>"
+        errors = exc.errors()
+        first = errors[0] if errors else None
+        field_path = (
+            ".".join(str(part) for part in first.get("loc", ())) or "<root>"
+            if first is not None
+            else "<root>"
+        )
         return _blocked(registration, reason=f"schema_violation:{field_path}")
 
     if descriptor.package_id.casefold() != registration.name.casefold():
@@ -506,13 +516,18 @@ def discover_frontend_contributions(
     set fails every descriptor closed, per provenance policy above.
     """
 
+    registrations = provider_registrations(FRONTEND_PROVIDER_GROUP)
+    if len(registrations) > MAX_FRONTEND_PROVIDERS:
+        raise ProviderRegistrationError(
+            f"frontend provider count exceeds {MAX_FRONTEND_PROVIDERS}"
+        )
     records = [
         _load_one(
             registration,
             capability_exists=capability_exists,
             trusted_signers=trusted_signers,
         )
-        for registration in provider_registrations(FRONTEND_PROVIDER_GROUP)
+        for registration in registrations
     ]
     return tuple(sorted(records, key=lambda record: record.package_id.casefold()))
 
@@ -531,3 +546,28 @@ def catalog_digest(records: tuple[FrontendContributionRecord, ...]) -> str:
     ]
     encoded = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def _catalog_payload(*, trusted_signers: frozenset[str]) -> dict[str, Any]:
+    """Build the bounded transport payload shared by REST and MCP reads."""
+    records = discover_frontend_contributions(trusted_signers=trusted_signers)
+    return {
+        "catalog_epoch": catalog_digest(records),
+        "packages": [
+            {
+                "package_id": record.package_id,
+                "provider_name": record.provider_name,
+                "status": record.status,
+                "reason": record.reason,
+                "descriptor": (
+                    record.descriptor.model_dump(mode="json", by_alias=True)
+                    if record.descriptor is not None
+                    else None
+                ),
+                "descriptor_digest": record.descriptor_digest,
+                "registration_digest": record.registration_digest,
+                "source_digest": record.source_digest,
+            }
+            for record in records
+        ],
+    }

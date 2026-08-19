@@ -11,14 +11,13 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
 # Lazy, cached epistemic-graph client for Rust-backed VaR/CVaR. Probed once;
-# falls back to the local numpy path when the engine is unreachable so that
-# offline/unit-test environments behave exactly as before.
+# uses the local native-list path when the optional engine enrichment is
+# unreachable so offline/unit-test environments remain deterministic.
 _ENGINE_PROBED = False
 _ENGINE_CLIENT: Any = None
 
@@ -46,9 +45,9 @@ def _risk_engine() -> Any:
 
 
 def _to_list(returns: Any) -> list[float]:
-    return (
-        returns.tolist() if hasattr(returns, "tolist") else [float(r) for r in returns]
-    )
+    if hasattr(returns, "to_pylist"):
+        returns = returns.to_pylist()
+    return [float(r) for r in returns]
 
 
 @dataclass
@@ -188,13 +187,13 @@ class VaRCalculator:
                 except Exception as exc:  # noqa: BLE001 — degrade to local kernel shim
                     logger.debug("engine VaR failed, using local kernel shim: %s", exc)
 
-        sorted_returns = np.sort(returns)
-        var_95 = -np.percentile(sorted_returns, confidence_95 * 100)
-        var_99 = -np.percentile(sorted_returns, confidence_99 * 100)
+        sorted_returns = sorted(_to_list(returns))
+        var_95 = -xp.percentile(sorted_returns, confidence_95 * 100)
+        var_99 = -xp.percentile(sorted_returns, confidence_99 * 100)
 
         # CVaR (Expected Shortfall) — average loss beyond VaR
-        tail_95 = sorted_returns[sorted_returns <= -var_95]
-        cvar_95 = -np.mean(tail_95) if len(tail_95) > 0 else var_95
+        tail_95 = [value for value in sorted_returns if value <= -var_95]
+        cvar_95 = -xp.mean(tail_95) if tail_95 else var_95
 
         return VaRResult(
             var_95=float(var_95),
@@ -209,14 +208,15 @@ class VaRCalculator:
         if len(returns) < 10:
             return VaRResult(method="parametric", n_observations=len(returns))
 
-        mu = np.mean(returns)
-        sigma = np.std(returns)
+        values = _to_list(returns)
+        mu = xp.mean(values)
+        sigma = xp.std(values)
 
-        var_95 = -(mu + np.norm_ppf(0.05) * sigma)
-        var_99 = -(mu + np.norm_ppf(0.01) * sigma)
+        var_95 = -(mu + xp.norm_ppf(0.05) * sigma)
+        var_99 = -(mu + xp.norm_ppf(0.01) * sigma)
 
         # Analytical CVaR for normal distribution
-        cvar_95 = -(mu - sigma * np.norm_pdf(np.norm_ppf(0.05)) / 0.05)
+        cvar_95 = -(mu - sigma * xp.norm_pdf(xp.norm_ppf(0.05)) / 0.05)
 
         return VaRResult(
             var_95=float(var_95),
@@ -233,18 +233,19 @@ class VaRCalculator:
         if len(returns) < 10:
             return VaRResult(method="monte_carlo", n_observations=len(returns))
 
-        rng = np.random.default_rng(seed)
-        mu = np.mean(returns)
-        sigma = np.std(returns)
+        rng = xp.random.default_rng(seed)
+        values = _to_list(returns)
+        mu = xp.mean(values)
+        sigma = xp.std(values)
 
         simulated = rng.normal(mu, sigma, n_simulations)
-        sorted_sim = np.sort(simulated)
+        sorted_sim = sorted(simulated)
 
-        var_95 = -np.percentile(sorted_sim, 5)
-        var_99 = -np.percentile(sorted_sim, 1)
+        var_95 = -xp.percentile(sorted_sim, 5)
+        var_99 = -xp.percentile(sorted_sim, 1)
 
-        tail = sorted_sim[sorted_sim <= -var_95]
-        cvar_95 = -np.mean(tail) if len(tail) > 0 else var_95
+        tail = [value for value in sorted_sim if value <= -var_95]
+        cvar_95 = -xp.mean(tail) if tail else var_95
 
         return VaRResult(
             var_95=float(var_95),

@@ -25,17 +25,22 @@ wrap this; nothing here knows about pytest so it stays unit-testable on its own.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import importlib.metadata as importlib_metadata
 import json
 import os
+import re
 import shutil
 import signal
 import socket
+import stat
 import subprocess
-import sys
 import tempfile
 import threading
 import time
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -46,6 +51,16 @@ from typing import Any, BinaryIO
 TEST_AUTH_SECRET = "agent-" + "utilities-test-engine-secret"  # nosec B105 — test-only
 TEST_AGENT_ID = "service:agent-utilities-test-suite"
 TEST_SIGNER_KEY = "agent-utilities-test-operation-signer"  # nosec B105 - test only
+# Current epistemic-graph requires the first durable identity registration to be
+# backed by an explicitly scoped signer entry.  This signer may bootstrap only
+# its own System identity; it has no allowance to register named RBAC roles.
+TEST_SIGNER_REGISTRY = {
+    TEST_AGENT_ID: {
+        "key": TEST_SIGNER_KEY,
+        "allowed_roles": [],
+        "may_grant_system": True,
+    }
+}
 TEST_AUDIENCE = "epistemic-graph-test"
 TEST_TENANT = "tenant:test"
 TEST_POLICY_VERSION = "policy:test"
@@ -105,7 +120,7 @@ def strict_server_env(state_dir: str, *, auth_secret: str) -> dict[str, str]:
         "EPISTEMIC_GRAPH_REQUIRE_OIDC": "false",
         "EPISTEMIC_GRAPH_SECURITY_STATE_DIR": state_dir,
         "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON": json.dumps(
-            {TEST_AGENT_ID: TEST_SIGNER_KEY}
+            TEST_SIGNER_REGISTRY, sort_keys=True
         ),
     }
 
@@ -160,60 +175,331 @@ _SOCKET_WAIT_SECS = 30.0
 _SHUTDOWN_WAIT_SECS = 15.0
 
 _BINARY_NAME = "epistemic-graph-server"
+_DISTRIBUTION_NAME = "epistemic-graph"
+_EXPLICIT_BINARY_ENV_VARS = (
+    "EPISTEMIC_GRAPH_SERVER_BIN",
+    # Exact-engine campaign tooling predates the shared acceptance locator.  It
+    # remains an explicit path, never a discovery fallback.
+    "EPISTEMIC_GRAPH_TEST_BINARY",
+)
+_EXPECTED_DIGEST_ENV_BY_BINARY_ENV = {
+    "EPISTEMIC_GRAPH_SERVER_BIN": "EPISTEMIC_GRAPH_SERVER_BIN_SHA256",
+    "EPISTEMIC_GRAPH_TEST_BINARY": "EPISTEMIC_GRAPH_TEST_BINARY_SHA256",
+}
+_SOURCE_REVISION_ENV_BY_BINARY_ENV = {
+    "EPISTEMIC_GRAPH_SERVER_BIN": "EPISTEMIC_GRAPH_SERVER_BIN_SOURCE_REVISION",
+    "EPISTEMIC_GRAPH_TEST_BINARY": "EPISTEMIC_GRAPH_TEST_BINARY_SOURCE_REVISION",
+}
+_EXPLICIT_METADATA_ENV_VARS = (
+    "EPISTEMIC_GRAPH_SERVER_BIN_SHA256",
+    "EPISTEMIC_GRAPH_TEST_BINARY_SHA256",
+    "EPISTEMIC_GRAPH_SERVER_BIN_SOURCE_REVISION",
+    "EPISTEMIC_GRAPH_TEST_BINARY_SOURCE_REVISION",
+)
+_SHA256_RE = re.compile(r"[0-9a-fA-F]{64}\Z")
+_COMMIT_REVISION_RE = re.compile(r"[0-9a-fA-F]{40}\Z")
+
+
+@dataclass(frozen=True)
+class EngineBinaryIdentity:
+    """The exact executable identity bound by a real-engine acceptance run.
+
+    Explicit source-build paths do not have an installed distribution record to
+    identify them.  Their content digest is therefore part of the selection
+    result and is the separately recorded build identity for the run.  The
+    exact campaign's commit revision is retained alongside that digest.  A
+    wheel selection additionally carries the active distribution's recorded
+    script and version; its RECORD hash and size are verified when present.
+    """
+
+    path: Path
+    selection: str
+    artifact_sha256: str
+    artifact_size: int
+    distribution_version: str | None = None
+    distribution_record: str | None = None
+    distribution_record_sha256: str | None = None
+    source_env: str | None = None
+    source_revision: str | None = None
+    expected_sha256: str | None = None
+
+    def verify_for_launch(self) -> None:
+        """Re-open this exact artifact and fail closed if it changed."""
+
+        _verify_binary_identity(self)
 
 
 class EngineUnavailable(RuntimeError):
     """The mandatory full wheel's real engine binary could not be obtained."""
 
 
+def _read_explicit_identity_contract(
+    env_names: tuple[str, ...],
+) -> tuple[str, str]:
+    """Read one unambiguous digest/revision pair for explicit binaries."""
+
+    configured_metadata = {
+        name: str(os.environ.get(name, "") or "").strip()
+        for name in _EXPLICIT_METADATA_ENV_VARS
+        if str(os.environ.get(name, "") or "").strip()
+    }
+    expected_names = tuple(
+        _EXPECTED_DIGEST_ENV_BY_BINARY_ENV[name] for name in env_names
+    )
+    revision_names = tuple(
+        _SOURCE_REVISION_ENV_BY_BINARY_ENV[name] for name in env_names
+    )
+    unexpected = set(configured_metadata) - set(expected_names) - set(revision_names)
+    if unexpected:
+        names = ", ".join(sorted(unexpected))
+        raise EngineUnavailable(
+            f"explicit engine metadata belongs to a different binary authority: {names}"
+        )
+    missing = [
+        name
+        for name in (*expected_names, *revision_names)
+        if name not in configured_metadata
+    ]
+    if missing:
+        names = ", ".join(missing)
+        raise EngineUnavailable(
+            "explicit engine path requires expected SHA-256 and source revision: "
+            f"{names}"
+        )
+    digests = {configured_metadata[name].lower() for name in expected_names}
+    if any(_SHA256_RE.fullmatch(value) is None for value in digests):
+        raise EngineUnavailable("explicit engine SHA-256 authority is malformed")
+    if len(digests) != 1:
+        raise EngineUnavailable("conflicting explicit engine SHA-256 authorities")
+    revisions = {configured_metadata[name].lower() for name in revision_names}
+    if any(_COMMIT_REVISION_RE.fullmatch(value) is None for value in revisions):
+        raise EngineUnavailable(
+            "explicit engine source revision must be a 40-character commit SHA"
+        )
+    if len(revisions) != 1:
+        raise EngineUnavailable("conflicting explicit engine source revisions")
+    return next(iter(digests)), next(iter(revisions))
+
+
+def _resolve_engine_binary_selection() -> tuple[
+    Path, str, Any | None, Any | None, tuple[str, ...], str | None, str | None
+]:
+    """Resolve one exact executable and retain its provenance for identity."""
+
+    configured: list[tuple[str, str]] = []
+    for env_name in _EXPLICIT_BINARY_ENV_VARS:
+        value = str(os.environ.get(env_name, "") or "").strip()
+        if value:
+            configured.append((env_name, value))
+    if configured:
+        values = {value for _name, value in configured}
+        if len(values) != 1:
+            names = ", ".join(name for name, _value in configured)
+            raise EngineUnavailable(f"conflicting explicit engine paths: {names}")
+        env_names = tuple(name for name, _value in configured)
+        env_name, value = configured[0]
+        expected_sha256, source_revision = _read_explicit_identity_contract(env_names)
+        return (
+            _validate_engine_binary(
+                Path(value).expanduser(), source=f"{env_name} explicit path"
+            ),
+            "explicit",
+            None,
+            None,
+            env_names,
+            expected_sha256,
+            source_revision,
+        )
+
+    stale_metadata = [
+        name
+        for name in _EXPLICIT_METADATA_ENV_VARS
+        if str(os.environ.get(name, "") or "").strip()
+    ]
+    if stale_metadata:
+        raise EngineUnavailable(
+            "explicit engine metadata requires an explicit engine path: "
+            + ", ".join(sorted(stale_metadata))
+        )
+
+    try:
+        distribution = importlib_metadata.distribution(_DISTRIBUTION_NAME)
+    except importlib_metadata.PackageNotFoundError as exc:
+        raise EngineUnavailable(
+            "active epistemic-graph distribution is not installed"
+        ) from exc
+
+    records = [
+        record
+        for record in (distribution.files or ())
+        if Path(record).name == _BINARY_NAME
+    ]
+    if len(records) != 1:
+        raise EngineUnavailable(
+            "active epistemic-graph distribution does not record exactly one "
+            f"{_BINARY_NAME} script"
+        )
+    record = records[0]
+    return (
+        _validate_engine_binary(
+            Path(distribution.locate_file(record)),
+            source="active epistemic-graph distribution",
+        ),
+        "distribution",
+        distribution,
+        record,
+        (),
+        None,
+        None,
+    )
+
+
+def _sha256_binary(path: Path) -> tuple[str, int]:
+    """Return a fresh content identity for one validated executable."""
+
+    hasher = hashlib.sha256()
+    open_flags = os.O_RDONLY | int(getattr(os, "O_NOFOLLOW", 0))
+    try:
+        fd = os.open(path, open_flags)
+        with os.fdopen(fd, "rb", closefd=True) as binary:
+            file_stat = os.fstat(binary.fileno())
+            if not stat.S_ISREG(file_stat.st_mode):
+                raise EngineUnavailable("resolved engine executable is not regular")
+            for chunk in iter(lambda: binary.read(1024 * 1024), b""):
+                hasher.update(chunk)
+    except EngineUnavailable:
+        raise
+    except OSError as exc:
+        raise EngineUnavailable("resolved engine executable is unreadable") from exc
+    digest = hasher.hexdigest()
+    return digest, file_stat.st_size
+
+
 def resolve_engine_binary() -> Path:
-    """Locate the prebuilt, full ``epistemic-graph-server`` binary.
+    """Locate the exact ``epistemic-graph-server`` used by the active client.
 
     Resolution order:
 
-    1. Explicit ``EPISTEMIC_GRAPH_TEST_BINARY`` runtime selection.
-    2. **Prebuilt wheel binary** — ``Path(sys.executable).parent / "…-server"``
-       (how the shipped wheel installs it). This is what production runs, so a
-       test that uses it validates the ACTUAL deployed database.
+    1. An explicit, absolute regular executable path from
+       ``EPISTEMIC_GRAPH_SERVER_BIN`` (or the exact-engine campaign's
+       ``EPISTEMIC_GRAPH_TEST_BINARY``).
+    2. The uniquely recorded ``epistemic-graph-server`` script co-installed by
+       the active ``epistemic-graph`` distribution.
 
-    Raises :class:`EngineUnavailable` when neither binary is available. It never
-    compiles implicitly, which prevents parallel native builds, C-drive target
-    growth, and surprising resource exhaustion during unrelated unit tests.
+    It deliberately does not search ``PATH``, walk ancestor directories, or
+    select a binary merely because it shares a name with the Python client.
+    Raises :class:`EngineUnavailable` for missing, ambiguous, symlinked,
+    non-regular, or non-executable artifacts. It never compiles implicitly.
     """
-    configured = str(os.environ.get("EPISTEMIC_GRAPH_TEST_BINARY", "") or "").strip()
-    if configured:
-        candidate = Path(configured).expanduser()
-        if candidate.is_file() and os.access(candidate, os.X_OK):
-            return candidate
-        raise EngineUnavailable("configured test engine binary is unavailable")
+    return resolve_engine_binary_identity().path
 
-    # Prebuilt wheel binary (production path) — TRUST it directly when present.
-    #    The hard-base ``epistemic-graph[full]>=2.23.2,<3.0.0`` wheel ships the
-    #    feature-complete production server (blob + tsdb substrates), so using it validates
-    #    the ACTUAL deployed database. We deliberately do NOT gate the wheel binary
-    #    behind the live ``_binary_serves_features`` probe: that probe starts a
-    #    throwaway engine, and under a loaded box + the per-test 60s pytest-timeout it
-    #    can spuriously fail under engine cold-start contention. The published full
-    #    wheel is the authority; pytest never falls through to a native build.
-    #    The wheel installs the binary into the SAME bin dir as the interpreter
-    #    script (``.venv/bin``). In a venv ``sys.executable`` is a SYMLINK to the
-    #    base toolchain interpreter, so ``.resolve()`` would walk OUT of ``.venv/bin``
-    #    (where the binary lives) into the base ``python`` dir (where it does not).
-    #    Probe the UN-resolved bin dir first (the venv where the wheel was installed),
-    #    then the resolved one (system / non-venv installs) — first hit wins.
-    seen: set[Path] = set()
-    for base in (Path(sys.executable).parent, Path(sys.executable).resolve().parent):
-        if base in seen:
-            continue
-        seen.add(base)
-        wheel_bin = base / _BINARY_NAME
-        if wheel_bin.is_file() and os.access(wheel_bin, os.X_OK):
-            return wheel_bin
 
-    raise EngineUnavailable(
-        "no feature-complete epistemic-graph[full] wheel binary is installed; "
-        "set EPISTEMIC_GRAPH_TEST_BINARY to a serialized pipeline build"
+def resolve_engine_binary_identity() -> EngineBinaryIdentity:
+    """Resolve and verify the exact artifact identity for acceptance evidence.
+
+    An explicit executable is accepted only after its complete SHA-256 digest is
+    calculated, so a source-built path is never represented by basename/mode
+    alone.  A distribution-provided executable remains bound to its one
+    recorded script, and any available RECORD hash/size must match the bytes
+    that will be launched.
+    """
+
+    (
+        path,
+        selection,
+        distribution,
+        record,
+        source_envs,
+        expected_sha256,
+        source_revision,
+    ) = _resolve_engine_binary_selection()
+    digest, size = _sha256_binary(path)
+    record_digest: str | None = None
+    distribution_version: str | None = None
+    distribution_record: str | None = None
+    if selection == "distribution":
+        assert distribution is not None
+        assert record is not None
+        distribution_version = str(getattr(distribution, "version", "")) or None
+        distribution_record = str(record)
+        file_hash = getattr(record, "hash", None)
+        record_mode = getattr(file_hash, "mode", None)
+        record_value = getattr(file_hash, "value", None)
+        if file_hash is not None and record_mode != "sha256":
+            raise EngineUnavailable(
+                "active epistemic-graph distribution uses an unsupported "
+                "engine script RECORD hash"
+            )
+        if record_value:
+            expected = (
+                base64.urlsafe_b64encode(bytes.fromhex(digest))
+                .rstrip(b"=")
+                .decode("ascii")
+            )
+            if expected != record_value:
+                raise EngineUnavailable(
+                    "active epistemic-graph distribution RECORD hash does not "
+                    "match its engine script"
+                )
+            record_digest = record_value
+        record_size = getattr(record, "size", None)
+        if record_size is not None and record_size != size:
+            raise EngineUnavailable(
+                "active epistemic-graph distribution RECORD size does not "
+                "match its engine script"
+            )
+    elif digest != expected_sha256:
+        raise EngineUnavailable(
+            "explicit engine SHA-256 does not match the supplied authority"
+        )
+    return EngineBinaryIdentity(
+        path=path,
+        selection=selection,
+        artifact_sha256=digest,
+        artifact_size=size,
+        distribution_version=distribution_version,
+        distribution_record=distribution_record,
+        distribution_record_sha256=record_digest,
+        source_env=source_envs[0] if source_envs else None,
+        source_revision=source_revision,
+        expected_sha256=expected_sha256,
     )
+
+
+def _verify_binary_identity(identity: EngineBinaryIdentity) -> None:
+    """Re-open and verify the exact artifact immediately before spawning."""
+
+    _validate_engine_binary(
+        identity.path,
+        source=identity.source_env or "active epistemic-graph distribution",
+    )
+    digest, size = _sha256_binary(identity.path)
+    if digest != identity.artifact_sha256 or size != identity.artifact_size:
+        raise EngineUnavailable(
+            "engine executable changed after identity resolution; refusing to spawn"
+        )
+    if identity.selection == "explicit" and digest != identity.expected_sha256:
+        raise EngineUnavailable(
+            "engine executable no longer matches its supplied SHA-256 authority"
+        )
+
+
+def _validate_engine_binary(candidate: Path, *, source: str) -> Path:
+    """Validate one exact binary path without resolving an alternate artifact."""
+
+    if not candidate.is_absolute():
+        raise EngineUnavailable(f"{source} must be an absolute path")
+    if candidate.name != _BINARY_NAME:
+        raise EngineUnavailable(f"{source} must name the {_BINARY_NAME} executable")
+    try:
+        mode = candidate.stat().st_mode
+    except OSError as exc:
+        raise EngineUnavailable(f"{source} is unavailable") from exc
+    if candidate.is_symlink() or not stat.S_ISREG(mode):
+        raise EngineUnavailable(f"{source} is not a regular executable file")
+    if not os.access(candidate, os.X_OK):
+        raise EngineUnavailable(f"{source} is not executable")
+    return candidate
 
 
 def _free_socket_path(root: Path) -> str:
@@ -234,8 +520,9 @@ class EphemeralEngine:
     removed — leaving zero residue.
     """
 
-    def __init__(self, binary: Path) -> None:
-        self.binary = Path(binary)
+    def __init__(self, binary_identity: EngineBinaryIdentity) -> None:
+        self.binary_identity = binary_identity
+        self.binary = binary_identity.path
         self._root: str | None = None
         self._persist_dir: str | None = None
         self._security_dir: str | None = None
@@ -285,23 +572,27 @@ class EphemeralEngine:
             # store, ACID cross-modal writes, ...) — see TEST_ENGINE_ENCRYPTION_KEY.
             "EPISTEMIC_GRAPH_ENCRYPTION_KEY": TEST_ENGINE_ENCRYPTION_KEY,
         }
-        self._proc = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
-            [
-                str(self.binary),
-                "--socket-path",
-                self.socket_path,
-                "--persist-dir",
-                self._persist_dir,
-                "--auth-secret",
-                TEST_AUTH_SECRET,
-                "--idle-shutdown-secs",
-                str(IDLE_SHUTDOWN_SECS),
-            ],
-            stdout=self._log,
-            stderr=subprocess.STDOUT,
-            env=env,
-        )
         try:
+            # Re-open and hash the retained identity immediately before Popen so
+            # a replacement cannot silently turn an exact acceptance run into a
+            # different server process.
+            self.binary_identity.verify_for_launch()
+            self._proc = subprocess.Popen(  # noqa: S603 — fixed argv, no shell
+                [
+                    str(self.binary),
+                    "--socket-path",
+                    self.socket_path,
+                    "--persist-dir",
+                    self._persist_dir,
+                    "--auth-secret",
+                    TEST_AUTH_SECRET,
+                    "--idle-shutdown-secs",
+                    str(IDLE_SHUTDOWN_SECS),
+                ],
+                stdout=self._log,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
             self._wait_for_socket()
             self._bootstrap_identity()
             self._open_keepalive()

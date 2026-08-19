@@ -12,19 +12,15 @@
 # that is relevant to a serving-plane install.
 #
 # CONCEPT:AU-ECO.mcp.protocol-compat-bridge — fastmcp 4 is the ecosystem-wide default.
-# agent-utilities' `[mcp]` extra floors on `fastmcp>=4.0.0b1`, and `fastmcp==4.0.0b1`
-# pins an exact `fastmcp-slim[client,server]==4.0.0b1`, while `pydantic-ai-slim[mcp]`
-# (2.21.0, the latest published release) still declares `fastmcp-slim[client]<4,>=3.3.0`.
-# That cap is conservative, not a known incompatibility: 2.18.0 declared the same extra
-# with NO upper bound and the `<4` was added defensively in 2.19.0 while fastmcp 4 was
-# still pre-release. au bridges the two real runtime gaps at MCP-client construction time
-# in `agent_utilities/mcp/protocol_compat.py` (`install_mcp_v2_bridge` +
-# `force_legacy_protocol_mode`), verified end-to-end against a live fastmcp-4 server —
-# see docs/architecture/fastmcp4-default.md. Drop this line the moment pydantic-ai-slim
-# ships a release that admits fastmcp 4 natively.
+# agent-utilities' `[mcp]` extra floors on `fastmcp>=4.0.0b1`; Pydantic-AI 2.29.0
+# now declares `fastmcp-slim[client]<5,>=3.3.0` and handles FastMCP 4 natively.
+# This mirror remains an explicit workspace/image policy for consumers that do not
+# carry AU's direct floor. `protocol_compat.py` verifies the exact Pydantic-AI
+# contract and keeps the legacy-mode helper only for AU call sites that require
+# initialize-handshake semantics.
 #
-# BOTH the `client` AND `server` extras MUST be listed, even though this override exists
-# to relax a CLIENT-side cap: a uv override replaces the ENTIRE requirement (extras
+# BOTH the `client` AND `server` extras MUST be listed: a uv override replaces the
+# ENTIRE requirement (extras
 # included) for every requester of `fastmcp-slim`, including `fastmcp`'s own
 # `fastmcp-slim[client,server]==4.0.0b1` metadata pin. A `[client]`-only override
 # silently strips the `server` extra's transitive deps (`uncalled-for`, `cyclopts`,

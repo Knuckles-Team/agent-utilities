@@ -8,7 +8,7 @@ ON by default and makes the savings measurable.
 
 What "adopt" means concretely
 ------------------------------
-pydantic-ai 2.21.0 (the pinned floor) already ships first-class settings for both providers:
+pydantic-ai 2.29.0 (the supported exact release) already ships first-class settings for both providers:
 
 * Anthropic — ``AnthropicModelSettings.anthropic_cache`` / ``anthropic_cache_instructions`` /
   ``anthropic_cache_tool_definitions`` translate directly into ``cache_control: {"type":

@@ -125,24 +125,23 @@ def _check_embedding_version_mismatch_refused(*, degrade: bool) -> tuple[bool, s
         from agent_utilities.knowledge_graph.retrieval.embedding_versioning import (
             EmbeddingVersionMismatchError,
         )
-        from agent_utilities.numeric import xp as np
     except ImportError as exc:
         return True, (
             "SKIPPED (no epistemic-graph[full] kernel — CapabilityIndex ranking "
             f"unavailable): {exc}"
         )
 
-    idx = CapabilityIndex(dim=4, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=4, prefer_backend="native")
     idx.add(
         "doc-a",
-        np.asarray([1.0, 0.0, 0.0, 0.0], dtype=np.float32),
+        [1.0, 0.0, 0.0, 0.0],
         capabilities=[],
         embedding_version="openai:text-embed-v1" if not degrade else None,
     )
     try:
         idx.add(
             "doc-b",
-            np.asarray([0.0, 1.0, 0.0, 0.0], dtype=np.float32),
+            [0.0, 1.0, 0.0, 0.0],
             capabilities=[],
             embedding_version="openai:text-embed-v2" if not degrade else None,
         )

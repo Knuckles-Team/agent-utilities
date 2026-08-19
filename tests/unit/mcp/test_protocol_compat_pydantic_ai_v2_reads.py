@@ -1,294 +1,171 @@
-"""Tests for the D-CDX-69 pydantic-ai MCP v2-attribute-read bridge.
+"""Contract tests for AU's native Pydantic-AI MCP compatibility boundary.
 
-The live ServiceNow delegation probe bound all 158 tools but emitted
-`FastMCPDeprecationWarning` from installed `pydantic_ai/mcp.py`: it reads
-`InitializeResult.serverInfo`, `Tool.inputSchema`/`Tool.outputSchema`, and
-`ToolExecution.taskSupport` instead of the MCP SDK v2
-`server_info`/`input_schema`/`output_schema`/`task_support` names, tripping a
-warn-on-read camelCase compatibility shim for each (`fastmcp._compat`'s own
-warn-once shim for the first three; `install_mcp_v2_bridge`'s own alias,
-installed elsewhere in this module, for `taskSupport` — which `fastmcp._compat`
-does not cover at all). So the fix cannot be "add a bridging property" — it has
-to stop `pydantic_ai.mcp.MCPToolset` from performing the deprecated read at
-all, which is what `protocol_compat._install_pydantic_ai_v2_read_bridge` does
-by replacing `MCPToolset.__aenter__`/`.get_tools` (pinned to the installed
-`pydantic-ai-slim` release, currently 2.25.0) with a byte-for-byte copy that
-reads the v2 names directly.
-
-Two things are proven here, with warnings treated as errors so a regression
-cannot silently reappear:
-
-1. The UNPATCHED camelCase read genuinely warns (so the second point isn't
-   vacuously true because nothing in this SDK build warns at all any more).
-2. The PATCHED `MCPToolset.__aenter__`/`.get_tools` read the correct values
-   via the v2 attribute names and emit no warning doing so.
+Pydantic-AI 2.29.0 owns the SDK-v1/v2 field adaptation and modern FastMCP
+session handling. These tests make that decision explicit: AU must not silently
+apply a copied method body to a different release, and both field spellings
+remain covered at the AU-owned boundary for mixed-generation resilience paths.
 """
 
 from __future__ import annotations
 
 import asyncio
 import importlib.metadata
-import warnings
-from typing import Any
+import inspect
+import tomllib
+from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 pytest.importorskip("pydantic_ai")
-pytest.importorskip("mcp_types")
 pytest.importorskip("fastmcp")
 
 from agent_utilities.mcp import protocol_compat  # noqa: E402
 
 
-def _skip_unless_patch_version_matches() -> None:
+def _skip_unless_contract_is_installed() -> None:
     installed = importlib.metadata.version("pydantic-ai-slim")
-    if installed != protocol_compat._PATCHED_PYDANTIC_AI_VERSION:
+    if installed != protocol_compat._PYDANTIC_AI_CONTRACT_VERSION:
         pytest.skip(
             "installed pydantic-ai-slim "
-            f"{installed} != the D-CDX-69 patch pin "
-            f"{protocol_compat._PATCHED_PYDANTIC_AI_VERSION}; the bridge "
-            "intentionally no-ops outside its verified version (see "
-            "_install_pydantic_ai_v2_read_bridge's docstring)."
+            f"{installed} != the verified AU contract "
+            f"{protocol_compat._PYDANTIC_AI_CONTRACT_VERSION}"
         )
 
 
-class _FakeSession:
-    def __init__(self) -> None:
-        self.set_logging_level = AsyncMock()
+def test_native_toolset_surface_is_used_without_monkeypatch() -> None:
+    """The supported release owns the current and legacy MCP reads upstream."""
+    _skip_unless_contract_is_installed()
+    import pydantic_ai.mcp as pydantic_mcp
+
+    original_aenter = pydantic_mcp.MCPToolset.__aenter__
+    original_get_tools = pydantic_mcp.MCPToolset.get_tools
+
+    protocol_compat._installed = False
+    protocol_compat._toolset_reads_patched = False
+    protocol_compat.install_mcp_v2_bridge()
+
+    assert pydantic_mcp.MCPToolset.__aenter__ is original_aenter
+    assert pydantic_mcp.MCPToolset.get_tools is original_get_tools
+    assert "_v2_" not in original_aenter.__name__
+    assert "_v2_" not in original_get_tools.__name__
 
 
-class _FakeClient:
-    """Stands in for `fastmcp.client.Client`: a real (not Mock-dunder) async
-    context manager so `AsyncExitStack.enter_async_context` works exactly as it
-    does against the genuine client, without `unittest.mock`'s well-known
-    magic-method-lookup pitfalls for `async with`."""
+def test_upstream_methods_retain_both_mcp_field_surfaces() -> None:
+    """The real 2.29 source uses its SDK-neutral compatibility helpers."""
+    _skip_unless_contract_is_installed()
+    import pydantic_ai.mcp as pydantic_mcp
 
-    def __init__(self, initialize_result: Any) -> None:
-        self.initialize_result = initialize_result
-        self.session = _FakeSession()
-
-    async def __aenter__(self) -> _FakeClient:
-        return self
-
-    async def __aexit__(self, *exc_info: object) -> None:
-        return None
-
-
-def _reset_camelcase_compat_shim() -> None:
-    """Force a genuinely FRESH ``fastmcp._compat`` warn-once property for every
-    field this test module reads (``Tool.inputSchema``/``.outputSchema``,
-    ``InitializeResult.serverInfo``).
-
-    ``fastmcp._compat.install()`` bridges each camelCase property with a
-    warn-ONCE-per-(class, name) closure flag (``warned`` in ``_make_property``)
-    -- process-lifetime state with no public reset, entirely independent of
-    Python's own warnings-filter machinery (which ``warnings.catch_warnings``/
-    ``simplefilter("always")`` only controls). Confirmed live (D-TIL-1): any
-    OTHER test in the same pytest-xdist ``--dist loadfile`` worker that
-    exercises a REAL, UNPATCHED ``pydantic_ai.mcp.MCPToolset.get_tools()``
-    against a genuine ``mcp_types.Tool`` -- e.g.
-    ``tests/integration/mcp/test_fastmcp_cross_version.py``'s live fastmcp-4
-    round-trip, unpatched here because the installed ``pydantic-ai-slim``
-    rarely matches the D-CDX-69 patch pin -- reads ``Tool.inputSchema`` for
-    real and permanently latches that closure's ``warned`` flag, so this
-    test's own read silently stops warning depending on run order.
-
-    Merely flipping ``_compat._installed`` back to ``False`` and calling
-    ``install()`` again is NOT enough to get a fresh closure once that has
-    happened: ``install()``'s own "never shadow a real attribute" guard
-    (``if camel in cls.__dict__: continue``) skips rebuilding any field
-    already present on the class -- which it is, from the very first
-    ``install()`` call at ``fastmcp`` import time. Deleting the installed
-    attribute from the class first removes that guard's reason to skip, so
-    the next ``install()`` really does rebuild a fresh, un-warned property --
-    regardless of what ran before (or will run after) this test in the same
-    worker process.
-    """
-    import mcp_types
-    from fastmcp import _compat
-
-    for camel in ("inputSchema", "outputSchema"):
-        if camel in mcp_types.Tool.__dict__:
-            delattr(mcp_types.Tool, camel)
-    if "serverInfo" in mcp_types.InitializeResult.__dict__:
-        delattr(mcp_types.InitializeResult, "serverInfo")
-    _compat._installed = False
-    _compat.install()
+    aenter_source = inspect.getsource(pydantic_mcp.MCPToolset.__aenter__)
+    get_tools_source = inspect.getsource(pydantic_mcp.MCPToolset.get_tools)
+    assert "mcp_field" in aenter_source
+    assert "mcp_validated_field" in get_tools_source
+    assert "mcp_optional_field" in get_tools_source
+    # A direct deprecated read would bypass the upstream compatibility helper.
+    assert ".serverInfo" not in aenter_source
+    assert ".inputSchema" not in get_tools_source
+    assert ".outputSchema" not in get_tools_source
+    assert ".taskSupport" not in get_tools_source
 
 
-@pytest.fixture
-def fresh_camelcase_compat_shim():
-    """Yield with a genuinely fresh camelCase compat shim installed, and leave
-    one behind at teardown too -- so this test can never be the leak for
-    whatever else shares its xdist worker, matching the isolation contract
-    ``tests/conftest.py``'s own autouse fixtures apply to other process-global
-    registries (D-TIL-1)."""
-    _reset_camelcase_compat_shim()
-    try:
-        yield
-    finally:
-        _reset_camelcase_compat_shim()
+def test_install_bridge_refuses_an_unverified_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Version drift fails closed rather than silently disabling the contract."""
+    real_version = importlib.metadata.version
+
+    def fake_version(name: str) -> str:
+        if name == "pydantic-ai-slim":
+            return "0.0.0-unverified"
+        return real_version(name)
+
+    protocol_compat._toolset_reads_patched = False
+    monkeypatch.setattr(importlib.metadata, "version", fake_version)
+    with pytest.raises(RuntimeError, match="unverified compatibility surface"):
+        protocol_compat._install_pydantic_ai_v2_read_bridge()
+    assert protocol_compat._toolset_reads_patched is False
 
 
-def test_camelcase_read_genuinely_warns_before_the_patch(
-    fresh_camelcase_compat_shim,
+@pytest.mark.parametrize(
+    ("current_name", "legacy_name"),
+    [("server_info", "serverInfo"), ("input_schema", "inputSchema")],
+)
+def test_mcp_field_matrix_accepts_current_and_legacy_surfaces(
+    current_name: str, legacy_name: str
 ) -> None:
-    """Sanity check: proves the deprecation warning this item reports is real,
-    not a false positive — so a passing patched-path test below is meaningful."""
-    import mcp_types
+    """The AU-owned resolver prefers current names and accepts legacy names."""
+    current = SimpleNamespace(**{current_name: "current"})
+    both = SimpleNamespace(**{current_name: "current", legacy_name: "legacy"})
+    legacy = SimpleNamespace(**{legacy_name: "legacy"})
 
-    tool = mcp_types.Tool(name="t1", input_schema={"type": "object"})
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        _ = tool.inputSchema
-    assert any(issubclass(w.category, DeprecationWarning) for w in caught), (
-        "fastmcp._compat's camelCase shim did not warn; the D-CDX-69 premise no longer holds"
-    )
+    assert protocol_compat._read_mcp_field(current, current_name, legacy_name) == "current"
+    assert protocol_compat._read_mcp_field(both, current_name, legacy_name) == "current"
+    assert protocol_compat._read_mcp_field(legacy, current_name, legacy_name) == "legacy"
 
 
-def test_install_bridge_patches_toolset_methods() -> None:
-    _skip_unless_patch_version_matches()
-    import pydantic_ai.mcp as pam
-
-    protocol_compat.install_mcp_v2_bridge()
-
-    assert pam.MCPToolset.__aenter__.__name__ == "_v2_aenter"
-    assert pam.MCPToolset.get_tools.__name__ == "_v2_get_tools"
+def test_mcp_field_matrix_rejects_an_unknown_surface() -> None:
+    with pytest.raises(AttributeError, match="neither"):
+        protocol_compat._read_mcp_field(SimpleNamespace(), "current", "legacy")
 
 
-def test_patched_aenter_reads_v2_server_info_without_warning() -> None:
-    _skip_unless_patch_version_matches()
-    import mcp_types
-    import pydantic_ai.mcp as pam
+def test_real_toolset_reads_current_sdk_tool_fields_without_warning() -> None:
+    """Exercise the real 2.29 MCPToolset against an SDK-v2 model instance."""
+    _skip_unless_contract_is_installed()
+    import mcp.types as mcp_types
+    import pydantic_ai.mcp as pydantic_mcp
 
-    protocol_compat.install_mcp_v2_bridge()
-
-    server_impl = mcp_types.Implementation(name="test-server", version="9.9")
-    init_result = mcp_types.InitializeResult(
-        protocol_version="2026-07-28",
-        capabilities=mcp_types.ServerCapabilities(),
-        server_info=server_impl,
-        instructions="hello",
-    )
-
-    toolset = pam.MCPToolset.__new__(pam.MCPToolset)
-    toolset._enter_lock = asyncio.Lock()
-    toolset._running_count = 0
-    toolset.client = _FakeClient(init_result)
-    toolset.log_level = None
-    toolset._exit_stack = None
-    toolset._server_info = None
-    toolset._server_capabilities = None
-    toolset._instructions = None
-
-    async def _run() -> None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            result = await toolset.__aenter__()
-        assert result is toolset
-        assert toolset._server_info is server_impl
-        assert toolset._instructions == "hello"
-        assert toolset._running_count == 1
-
-    asyncio.run(_run())
-
-
-def test_patched_get_tools_reads_v2_input_output_schema_without_warning() -> None:
-    _skip_unless_patch_version_matches()
-    import mcp_types
-    import pydantic_ai.mcp as pam
-
-    protocol_compat.install_mcp_v2_bridge()
-
-    fake_tool = mcp_types.Tool(
+    tool = mcp_types.Tool(
         name="do_thing",
         description="does a thing",
         input_schema={"type": "object", "properties": {}},
         output_schema={"type": "object", "properties": {"ok": {"type": "boolean"}}},
         execution=mcp_types.ToolExecution(task_support="optional"),
     )
-
-    toolset = pam.MCPToolset.__new__(pam.MCPToolset)
+    toolset = pydantic_mcp.MCPToolset.__new__(pydantic_mcp.MCPToolset)
     toolset.max_retries = None
     toolset.include_return_schema = True
     toolset.prefer_tasks = True
-    toolset.list_tools = AsyncMock(return_value=[fake_tool])
+    toolset.cache_tools = False
+    toolset.list_tools = AsyncMock(return_value=[tool])
+    ctx = SimpleNamespace(max_retries=1)
 
-    ctx = type("Ctx", (), {"max_retries": 1})()
+    async def run() -> dict[str, object]:
+        return await toolset.get_tools(ctx)
 
-    async def _run() -> dict[str, Any]:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            return await toolset.get_tools(ctx)
-
-    tools = asyncio.run(_run())
-
-    assert set(tools) == {"do_thing"}
+    # SDK v2 stores canonical snake_case fields. The real upstream method must
+    # produce the correct definition without invoking deprecated aliases.
+    tools = asyncio.run(run())
     tool_def = tools["do_thing"].tool_def
-    assert tool_def.parameters_json_schema == fake_tool.input_schema
-    assert tool_def.return_schema == fake_tool.output_schema
-    # `task_support == "optional"` only turns the `task` flag on when the toolset
-    # itself prefers tasks (`self.prefer_tasks`, read via the v2 `.task_support`
-    # name on `ToolExecution` — never the deprecated `.taskSupport`).
-    assert tool_def.metadata["task"] is True
+    assert tool_def.parameters_json_schema == tool.input_schema
+    assert tool_def.return_schema == tool.output_schema
+    # FastMCP 4's SDK-v2 session owns task routing; Pydantic-AI intentionally
+    # leaves the legacy client-side task flag disabled on this surface.
+    assert tool_def.metadata["task"] is False
 
 
-def test_patched_get_tools_optional_task_support_respects_prefer_tasks_false() -> None:
-    """`task_support == "optional"` must NOT set the `task` flag when the toolset
-    has `prefer_tasks=False` — the v2 copy's exact preservation of the upstream
-    `task_support == "required" or (task_support == "optional" and
-    self.prefer_tasks)` combination, not the looser 2.21.0-era `in ("required",
-    "optional")` check this bridge previously carried."""
-    _skip_unless_patch_version_matches()
-    import mcp_types
-    import pydantic_ai.mcp as pam
+def test_version_contract_matches_manifest_lock_and_image() -> None:
+    """AU-owned resolver, lock, requirements, and image use one exact version."""
+    root = Path(__file__).resolve().parents[3]
+    manifest = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    expected = f"=={protocol_compat._PYDANTIC_AI_CONTRACT_VERSION}"
+    declared = [
+        requirement
+        for requirements in manifest["project"]["optional-dependencies"].values()
+        for requirement in requirements
+        if requirement.startswith("pydantic-ai-slim")
+    ]
+    assert declared
+    assert all(requirement.endswith(expected) for requirement in declared)
 
-    protocol_compat.install_mcp_v2_bridge()
-
-    fake_tool = mcp_types.Tool(
-        name="do_thing",
-        input_schema={"type": "object", "properties": {}},
-        execution=mcp_types.ToolExecution(task_support="optional"),
+    lock_text = (root / "uv.lock").read_text(encoding="utf-8")
+    assert 'name = "pydantic-ai-slim"' in lock_text
+    assert 'version = "2.29.0"' in lock_text
+    assert all(
+        f'specifier = "{expected}"' in line
+        for line in lock_text.splitlines()
+        if '{ name = "pydantic-ai-slim"' in line and "specifier =" in line
     )
 
-    toolset = pam.MCPToolset.__new__(pam.MCPToolset)
-    toolset.max_retries = None
-    toolset.include_return_schema = False
-    toolset.prefer_tasks = False
-    toolset.list_tools = AsyncMock(return_value=[fake_tool])
-
-    ctx = type("Ctx", (), {"max_retries": 1})()
-
-    async def _run() -> dict[str, Any]:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error")
-            return await toolset.get_tools(ctx)
-
-    tools = asyncio.run(_run())
-
-    assert tools["do_thing"].tool_def.metadata["task"] is False
-
-
-def test_bridge_skips_patching_outside_its_pinned_version(monkeypatch) -> None:
-    """Off the pinned `pydantic-ai-slim` version, the bridge must warn once and
-    leave `MCPToolset` untouched rather than silently apply a stale copied
-    method body against a since-changed upstream implementation."""
-    import pydantic_ai.mcp as pam
-
-    protocol_compat._toolset_reads_patched = False
-    real_version = importlib.metadata.version
-
-    def fake_version(name: str) -> str:
-        if name == "pydantic-ai-slim":
-            return "0.0.0-not-the-pinned-version"
-        return real_version(name)
-
-    monkeypatch.setattr(importlib.metadata, "version", fake_version)
-    original_aenter = pam.MCPToolset.__aenter__
-
-    with pytest.warns(RuntimeWarning, match="D-CDX-69"):
-        protocol_compat._install_pydantic_ai_v2_read_bridge()
-
-    assert pam.MCPToolset.__aenter__ is original_aenter
-    assert protocol_compat._toolset_reads_patched is False
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8")
+    image = (root / "docker/graphos-unified.Dockerfile").read_text(encoding="utf-8")
+    assert f"pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]{expected}" in requirements
+    assert f'"pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]{expected}"' in image

@@ -1,8 +1,9 @@
 # Pydantic AI v2 migration
 
 `agent-utilities` (and the fleet that inherits from it) runs on **Pydantic AI v2**
-(`pydantic-ai-slim>=2.14.1,<3.0.0`, `pydantic-graph>=2.14.1,<3.0.0`). This page records the
-v2-specific changes so the architecture docs stay in sync with the code.
+(`pydantic-ai-slim==2.29.0`, `pydantic-graph==2.29.0`). This exact contract is required by
+the version-pinned MCP compatibility bridge; this page records the v2-specific changes so the
+architecture docs stay in sync with the code.
 
 ## Why it was a real migration, not a rename
 
@@ -77,7 +78,7 @@ preserves arbitrary usage fields through serialization, and makes bare MCP error
 The adapter's model menus are declarative per-delegation metadata; the canonical model registry
 remains the authority that resolves actual provider configuration.
 
-The production/all-extras lock now resolves on Pydantic AI 2.21.0. The former
+The production/all-extras lock now resolves on Pydantic AI 2.29.0. The former
 `pydantic-acp`/`acpkit` stack capped `pydantic-ai-slim` at 2.16.0 and made the
 Harness DynamicWorkflow and ACP extras mutually unsatisfiable. Both capabilities
 now come from Pydantic AI Harness 0.14.0 and share one compatible dependency line.

@@ -30,6 +30,11 @@ examples/
 deploy/
 workspace/
 scripts/
+!scripts/
+scripts/*
+!scripts/release/
+scripts/release/*
+!scripts/release/check_epistemic_graph_client_preflight.py
 
 # Caches / scratch / local state.
 .pytest_tmp/

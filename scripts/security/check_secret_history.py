@@ -173,6 +173,37 @@ _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 )
 _IDENTIFIER_LIKE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+#: A dotted Python identifier path -- e.g. a Sphinx cross-reference such as
+#: ``agent_utilities.security.system_rbac_admission.ensure_system_principal_access``.
+#: ``_ENTROPY_TOKEN_RE`` admits ``.``, so a long module path scores as one
+#: high-entropy token and every docstring cross-reference reads as a credential.
+#: This is NOT a weakening: a token whose every dot-separated segment is a valid
+#: Python identifier cannot be base64/hex key material, which needs ``+``/``/``/
+#: ``=``/``-`` or digit-leading segments. Bare alphanumeric runs were already
+#: treated as noise by ``_IDENTIFIER_LIKE_RE`` above, so this closes a gap in the
+#: same posture rather than opening a new one.
+#: Each segment must additionally READ like source, not like base64: all-lower
+#: snake_case, ALL_UPPER constant, or CamelCase. That exclusion is load-bearing --
+#: a JWT (``eyJhbGci....eyJzdWIi....sig``) is ALSO a dotted token whose segments
+#: are alphanumeric, so a segment rule of "valid identifier" alone would classify
+#: every JWT as noise. A planted-JWT canary caught exactly that regression while
+#: this rule was being written; see ``_SEGMENT_SHAPES``.
+_SEGMENT_SHAPES = (
+    re.compile(r"^[a-z_][a-z0-9_]*$"),
+    re.compile(r"^[A-Z_][A-Z0-9_]*$"),
+    re.compile(r"^[A-Z][a-z0-9]*(?:[A-Z][a-z0-9]*)*$"),
+)
+
+
+def _is_dotted_identifier_path(token: str) -> bool:
+    if "." not in token:
+        return False
+    segments = token.split(".")
+    if len(segments) < 2:
+        return False
+    return all(any(shape.match(seg) for shape in _SEGMENT_SHAPES) for seg in segments)
+
+
 _LOCKFILE_SUFFIXES = (".lock", "-lock.json", "uv.lock", "poetry.lock", "Cargo.lock")
 _MIN_ENTROPY = 4.4
 
@@ -192,6 +223,7 @@ def _is_entropy_noise(token: str) -> bool:
         _HEX_RE.match(token)
         or _UUID_RE.match(token)
         or _IDENTIFIER_LIKE_RE.match(token)
+        or _is_dotted_identifier_path(token)
     )
 
 
@@ -233,9 +265,14 @@ def _iter_added_lines(patch_lines: list[str]):
 #: Scoped to THESE TWO FILES ONLY, deliberately: a blanket `scripts/security/`
 #: exclusion would blind the gate to a real credential committed into any other
 #: gate in that directory.
+#: The scanner's own canary test is the same category as its source: its JWT,
+#: AWS-key, GitHub-PAT and Slack-token literals are ASSERTIONS THAT THOSE SHAPES
+#: ARE STILL DETECTED, not secrets. Excluding it keeps the narrow file-scoped
+#: policy above rather than widening to `scripts/security/` or `tests/`.
 _SELF_PATHS = (
     "scripts/security/check_secret_history.py",
     "scripts/security/secret_history_baseline.txt",
+    "tests/unit/security/test_secret_scanner_entropy_noise.py",
 )
 
 

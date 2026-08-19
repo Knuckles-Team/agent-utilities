@@ -222,6 +222,25 @@ class IntelligenceGraphEngine(
         # CONCEPT:AU-ORCH.adapter.kg-graph-materialization — Auto-register service registry
         self._services_registered = False
 
+        # Compose the governed data-prep provider at the same process-owned
+        # lifecycle boundary as the graph engine.  The provider binds to the
+        # native AssetOccurrence/Blob and process configuration seams; it never
+        # opens a second store.  Missing model/policy configuration remains a
+        # fail-closed dependency diagnostic at the served tool boundary.
+        try:
+            from agent_utilities.mcp.tools.data_prep_tools import (
+                register_process_data_prep_runtime,
+            )
+
+            register_process_data_prep_runtime(self)
+        except (
+            Exception
+        ):  # pragma: no cover - optional MCP surface must not block engine boot
+            logger.debug(
+                "data-prep provider composition deferred until MCP startup",
+                exc_info=True,
+            )
+
     def _build_control_backend(self) -> GraphBackend:
         """Return the operational backend that owns native WorkItems.
 

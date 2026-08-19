@@ -1704,34 +1704,22 @@ def register_analysis_tools(mcp):
                     RegimeDetector,
                 )
 
-                try:
-                    import pandas as pd
-                except ImportError:
-                    return "Error: pandas is required for quant_regime."
-
                 if not query:
                     return "Error: quant_regime needs a ticker symbol in `query`."
 
-                # Create synthetic OHLC data for demonstration
-                # In production, this would ingest real market data
-                from agent_utilities.numeric import xp as np
+                # Create bounded synthetic close data for demonstration. Each
+                # numeric operation crosses into the engine once as a batch.
+                from agent_utilities.numeric import xp
 
-                dates = pd.date_range(end=pd.Timestamp.now(), periods=100)
                 base_price = 100.0
-                returns = np.random.normal(0.0005, 0.02, 100)
-                close_prices = base_price * np.cumprod(1 + returns)
-                df = pd.DataFrame(
-                    {
-                        "Close": close_prices,
-                        "High": close_prices * 1.02,
-                        "Low": close_prices * 0.98,
-                        "Open": np.roll(close_prices, 1)[1:].tolist() + [base_price],
-                    },
-                    index=dates,
+                returns = xp.random.default_rng(0).normal(0.0005, 0.02, 100)
+                close_multipliers = xp.cumprod(
+                    [1.0 + float(change) for change in returns]
                 )
+                close_prices = [base_price * value for value in close_multipliers]
 
                 detector = RegimeDetector(engine)
-                regime = detector.detect_regime(df, ticker=query)
+                regime = detector.detect_close_prices(close_prices, ticker=query)
                 return regime
             elif action == "quant_insider":
                 # CONCEPT:AU-KG.research.research-pipeline-runner — Kyle insider-trading equilibrium + enforcement
@@ -2663,6 +2651,7 @@ def register_analysis_tools(mcp):
             default="register_mcp",
             description=(
                 "Configuration operation. Core actions: set_secret, vault_sync, "
+                "frontend_contributions, "
                 "register_mcp, install_hooks, uninstall_hooks, harness_fence, "
                 "schema_pack, schema_candidates, add_connection, remove_connection, "
                 "list_connections, mirror_status, reconcile, "
@@ -3873,6 +3862,26 @@ def register_analysis_tools(mcp):
             # drift. Unlike the raw HTTP routes this goes through the normal
             # authenticated tool-dispatch path (_execute_tool's verified
             # GraphSession requirement) rather than being unauthenticated.
+            if action == "frontend_contributions":
+                if config_key or config_value:
+                    return json.dumps(
+                        {
+                            "error": (
+                                "frontend_contributions is a bounded read and "
+                                "takes no config_key/config_value"
+                            )
+                        }
+                    )
+                from agent_utilities.core.config import config
+                from agent_utilities.core.frontend_providers import _catalog_payload
+
+                trusted_signers = frozenset(
+                    config.frontend_contribution_trusted_signers
+                )
+                return json.dumps(
+                    _catalog_payload(trusted_signers=trusted_signers),
+                    default=str,
+                )
             if action == "health":
                 from agent_utilities.observability.runtime_health import collect_health
 

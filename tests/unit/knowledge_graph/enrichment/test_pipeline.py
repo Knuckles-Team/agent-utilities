@@ -369,8 +369,12 @@ def test_pipeline_index_resolver_writes_resolved_calls_and_struct_edges(tmp_path
     (tmp_path / "model.py").write_text(
         "class Base:\n    pass\n\nclass Child(Base):\n    pass\n"
     )
-    app = str(tmp_path / "app.py")
-    model = str(tmp_path / "model.py")
+    # Logical (repo-relative) identity: this test drives ``pipe.enrich(tmp_path)``,
+    # which always passes ``source_root=tmp_path`` (CONCEPT:AU-KG.ingest.logical-identity),
+    # so the mocked index_fn response must echo back the SAME logical identity
+    # the pipeline computed for its request, not the caller's absolute path.
+    app = "app.py"
+    model = "model.py"
 
     def index_fn(_files):
         return {
@@ -620,8 +624,11 @@ def test_full_success_response_acknowledges_every_file_and_advances_hash_seen(
     b.write_text("def fn2():\n    pass\n")
 
     def index_fn(_files):
+        # Logical identity (CONCEPT:AU-KG.ingest.logical-identity): pipe.enrich()
+        # always passes source_root, so the requested/acknowledged identity is
+        # the repo-relative name, not the caller's absolute path.
         return {
-            "nodes": [_index_sym(str(a)), _index_sym(str(b), "fn2")],
+            "nodes": [_index_sym("a.py"), _index_sym("b.py", "fn2")],
             "edges": [],
             "files_parsed": 2,
         }
@@ -631,7 +638,7 @@ def test_full_success_response_acknowledges_every_file_and_advances_hash_seen(
     summary = pipe.enrich(tmp_path)
 
     assert summary.files_parsed == 2
-    assert pipe._hash_seen[str(a)] and pipe._hash_seen[str(b)]
+    assert pipe._hash_seen["a.py"] and pipe._hash_seen["b.py"]
 
 
 def test_legitimate_empty_file_is_recorded_verified_not_dropped(tmp_path):
@@ -644,10 +651,11 @@ def test_legitimate_empty_file_is_recorded_verified_not_dropped(tmp_path):
     nonempty.write_text("def fn():\n    pass\n")
 
     def index_fn(_files):
+        # Logical identity: only app.py gets a SYMBOL node -- empty.py is
+        # requested (under its logical name too) but genuinely has nothing
+        # to report.
         return {
-            # Only app.py gets a SYMBOL node -- empty.py is requested but
-            # genuinely has nothing to report.
-            "nodes": [_index_sym(str(nonempty))],
+            "nodes": [_index_sym("app.py")],
             "edges": [],
             "files_parsed": 2,
         }
@@ -657,11 +665,11 @@ def test_legitimate_empty_file_is_recorded_verified_not_dropped(tmp_path):
     summary = pipe.enrich(tmp_path)
 
     assert summary.files_parsed == 2
-    assert str(empty) in pipe._hash_seen, (
+    assert "empty.py" in pipe._hash_seen, (
         "a verified-empty file must still be acknowledged in hash_seen, "
         "never silently dropped"
     )
-    assert str(nonempty) in pipe._hash_seen
+    assert "app.py" in pipe._hash_seen
 
 
 def test_mixed_success_response_records_every_file_exactly_once(tmp_path):
@@ -675,7 +683,7 @@ def test_mixed_success_response_records_every_file_exactly_once(tmp_path):
 
     def index_fn(_files):
         return {
-            "nodes": [_index_sym(str(busy))],
+            "nodes": [_index_sym("busy.py")],
             "edges": [],
             "files_parsed": 2,
         }
@@ -772,7 +780,9 @@ def test_duplicate_identity_in_request_is_rejected(tmp_path):
 
     with pytest.raises(IncompleteParse):
         pipe.enrich_files([a, a], source_root=tmp_path)
-    assert not calls, "the native engine must never be called on a duplicate-identity request"
+    assert not calls, (
+        "the native engine must never be called on a duplicate-identity request"
+    )
     assert pipe._hash_seen == {}
 
 
@@ -897,13 +907,13 @@ def test_recorded_hash_is_always_locally_computed_never_trusted_from_wire(
     ).hexdigest()
 
     def index_fn(_files):
-        return {"nodes": [_index_sym(str(a))], "edges": [], "files_parsed": 1}
+        return {"nodes": [_index_sym("a.py")], "edges": [], "files_parsed": 1}
 
     backend = FakeBackend()
     pipe = EnrichmentPipeline(backend, _parse_fn_factory(), index_fn=index_fn)
     pipe.enrich(tmp_path)
 
-    assert pipe._hash_seen[str(a)] == expected_hash
+    assert pipe._hash_seen["a.py"] == expected_hash
 
 
 def test_native_call_failure_still_degrades_safely_to_verified_fallback(
@@ -913,7 +923,19 @@ def test_native_call_failure_still_degrades_safely_to_verified_fallback(
     unsupported -- not a malformed response), the existing safe degrade to
     the per-file fallback still applies and still succeeds and records
     hashes -- only a TRUSTED-but-wrong response (IncompleteParse) must abort,
-    never a failed call."""
+    never a failed call.
+
+    NOT stale against U-23/CONCEPT:AU-KG.ingest.logical-identity, despite the
+    name's echo of the sibling "silently degrades" tests that WERE stale
+    (fixed in test_ingestion_perf_optimizations.py::TestBatchExtract): this
+    exercises pipeline.py's ``except Exception`` around the ``index_fn(raw)``
+    CALL itself raising (engine unreachable/unsupported) -- a genuinely
+    different branch from a RECEIVED-but-untrustworthy response, which
+    ``entities_from_index_result`` still correctly rejects with
+    IncompleteParse and always did. The pipeline's own docstring/comments at
+    the ``index_fn`` call site still document this exact distinction. Only
+    the identity representation below (``"app.py"``, not ``str(f)``) needed
+    to change for this test to reflect CONCEPT:AU-KG.ingest.logical-identity."""
     f = tmp_path / "app.py"
     f.write_text("def compute():\n    pass\n")
 
@@ -925,7 +947,7 @@ def test_native_call_failure_still_degrades_safely_to_verified_fallback(
     summary = pipe.enrich(tmp_path)
 
     assert summary.files_parsed == 1
-    assert str(f) in pipe._hash_seen
+    assert "app.py" in pipe._hash_seen
 
 
 def test_explicit_only_files_subset_is_reflected_in_hash_seen_not_whole_repo(
@@ -949,8 +971,8 @@ def test_explicit_only_files_subset_is_reflected_in_hash_seen_not_whole_repo(
     summary = pipe.enrich_files([a], source_root=tmp_path)
 
     assert summary.files_parsed == 1
-    assert str(a) in pipe._hash_seen
-    assert str(b) not in pipe._hash_seen
+    assert "a.py" in pipe._hash_seen
+    assert "b.py" not in pipe._hash_seen
 
 
 def test_idempotent_replay_reproduces_identical_hash_seen(tmp_path):
@@ -960,7 +982,7 @@ def test_idempotent_replay_reproduces_identical_hash_seen(tmp_path):
     a.write_text("def fn():\n    pass\n")
 
     def index_fn(_files):
-        return {"nodes": [_index_sym(str(a))], "edges": [], "files_parsed": 1}
+        return {"nodes": [_index_sym("a.py")], "edges": [], "files_parsed": 1}
 
     backend = FakeBackend()
     seen: dict[str, str] = {}

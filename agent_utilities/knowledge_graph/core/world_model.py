@@ -22,6 +22,7 @@ same ``step`` contract without changing callers.
 """
 
 import logging
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -37,6 +38,10 @@ _SEP = "\x1f"  # composite "state|action" key separator (unit-separator, collisi
 # keeping a persistent latent cache). Gentle by default: smooths step-to-step drift
 # without overriding the prediction.
 _DEFAULT_LATENT_MEMORY_WEIGHT = 0.25
+
+
+def _transpose(matrix: list[list[float]]) -> list[list[float]]:
+    return [list(column) for column in zip(*matrix, strict=True)]
 
 
 def _key(state: str, action: str) -> str:
@@ -83,9 +88,7 @@ def _hash_embed(text: str, dim: int) -> Any:
     """
     import hashlib
 
-    from agent_utilities.numeric import xp as np
-
-    v = np.zeros(dim, dtype=np.float64)
+    v = [0.0] * dim
     s = f"  {text} "
     for i in range(len(s) - 2):
         gram = s[i : i + 3]
@@ -93,8 +96,8 @@ def _hash_embed(text: str, dim: int) -> Any:
             hashlib.blake2b(gram.encode(), digest_size=8).digest(), "little"
         )
         v[h % dim] += 1.0 if (h >> 7) & 1 else -1.0
-    norm = float(np.linalg.norm(v))
-    return v / norm if norm else v
+    norm = math.sqrt(sum(value * value for value in v))
+    return [value / norm for value in v] if norm else v
 
 
 class LatentDynamicsModel:
@@ -108,8 +111,9 @@ class LatentDynamicsModel:
     "compressed, manipulable representation of environment dynamics" requires — while
     honouring the same ``predict`` contract so :class:`WorldModel` callers are unchanged.
 
-    Pure numpy + a dependency-free default embedder ⇒ CPU-trainable and unit-testable;
-    inject ``embed_fn`` to ground it in the real graph embedder.
+    The native numeric kernel plus a dependency-free default embedder keeps this
+    CPU-trainable and unit-testable; inject ``embed_fn`` to ground it in the real
+    graph embedder.
     """
 
     def __init__(
@@ -133,24 +137,38 @@ class LatentDynamicsModel:
         self._buffer.append((state, action, next_state))
         self._dirty = True
 
-    def _feature(self, state: str, action: str) -> Any:
-        from agent_utilities.numeric import xp as np
-
-        return np.concatenate([self._embed(state), self._embed(action)])
+    def _feature(self, state: str, action: str) -> list[float]:
+        return [
+            *[float(value) for value in self._embed(state)],
+            *[float(value) for value in self._embed(action)],
+        ]
 
     def fit(self) -> None:
         """Solve the ridge map from the observed-transition buffer."""
-        from agent_utilities.numeric import xp as np
+        from agent_utilities.numeric import xp
 
         if not self._buffer:
             self._w = None
             self._dirty = False
             return
-        x = np.stack([self._feature(s, a) for s, a, _ in self._buffer])
-        y = np.stack([self._embed(ns) for _, _, ns in self._buffer])
-        d = x.shape[1]
-        self._w = np.linalg.solve(x.T @ x + self.alpha * np.eye(d), x.T @ y)
-        self._known = {ns: self._embed(ns) for _, _, ns in self._buffer}
+        x = [self._feature(s, a) for s, a, _ in self._buffer]
+        y = [[float(value) for value in self._embed(ns)] for _, _, ns in self._buffer]
+        d = len(x[0])
+        x_transpose = _transpose(x)
+        # Both normal-equation matrices are one native bulk operation each;
+        # no Python feature×feature or feature×target accumulation loop.
+        gram = xp.matmul(x_transpose, x)
+        cross = xp.matmul(x_transpose, y)
+        for diagonal in range(d):
+            gram[diagonal][diagonal] += self.alpha
+        try:
+            inverse = xp.inv(gram)
+        except xp.LinAlgError:
+            inverse = xp.pinv(gram)
+        self._w = xp.matmul(inverse, cross)
+        self._known = {
+            ns: [float(value) for value in self._embed(ns)] for _, _, ns in self._buffer
+        }
         self._dirty = False
 
     def predict_latent(
@@ -176,23 +194,36 @@ class LatentDynamicsModel:
         Returns ``(results, latent)`` where ``latent`` is the (blended) next-state
         latent to carry, or ``None`` when the model is untrained.
         """
-        from agent_utilities.numeric import xp as np
+        from agent_utilities.numeric import xp
 
         if self._dirty or self._w is None:
             self.fit()
         if self._w is None or not self._known:
             return [], None
-        y_hat = self._feature(state, action) @ self._w
+        feature = self._feature(state, action)
+        y_hat_matrix = xp.matmul([feature], self._w)
+        y_hat = [float(value) for value in y_hat_matrix[0]]
         if prior is not None and memory_weight > 0.0:
             w = min(1.0, max(0.0, float(memory_weight)))
-            y_eff = (1.0 - w) * y_hat + w * np.asarray(prior, dtype=np.float64)
+            prior_values = [float(value) for value in prior]
+            if len(prior_values) != len(y_hat):
+                raise ValueError(
+                    "prior latent dimension does not match the model output"
+                )
+            y_eff = [
+                (1.0 - w) * predicted + w * previous
+                for predicted, previous in zip(y_hat, prior_values, strict=True)
+            ]
         else:
             y_eff = y_hat
-        ny = float(np.linalg.norm(y_eff)) or 1.0
-        scored = [
-            (ns, float(emb @ y_eff) / ((float(np.linalg.norm(emb)) or 1.0) * ny))
-            for ns, emb in self._known.items()
-        ]
+        ny = sum(value * value for value in y_eff) ** 0.5 or 1.0
+        known_ids = sorted(self._known)
+        known_vectors = [self._known[ns] for ns in known_ids]
+        dots = xp.matmul(known_vectors, [[value] for value in y_eff])
+        scored = []
+        for ns, emb, row in zip(known_ids, known_vectors, dots, strict=True):
+            norm = sum(value * value for value in emb) ** 0.5 or 1.0
+            scored.append((ns, float(row[0]) / (norm * ny)))
         scored.sort(key=lambda p: p[1], reverse=True)
         results = [(ns, max(0.0, (sim + 1.0) / 2.0)) for ns, sim in scored[: max(1, k)]]
         return results, y_eff
@@ -328,17 +359,25 @@ class WorldModel:
         latent_norm = 0.0
         drift = 0.0
         if self._latent is not None and latent_cache is not None:
-            from agent_utilities.numeric import xp as np
-
             prior = latent_cache.get("latent")
             preds, y_eff = self._latent.predict_latent(
                 state, action, k=1, prior=prior, memory_weight=memory_weight
             )
             if y_eff is not None:
-                latent_norm = float(np.linalg.norm(y_eff))
+                latent_norm = math.sqrt(sum(value * value for value in y_eff))
                 if prior is not None:
-                    drift = float(
-                        np.linalg.norm(y_eff - np.asarray(prior, dtype=np.float64))
+                    prior_values = [float(value) for value in prior]
+                    if len(prior_values) != len(y_eff):
+                        raise ValueError(
+                            "prior latent dimension does not match the model output"
+                        )
+                    drift = math.sqrt(
+                        sum(
+                            (current - previous) ** 2
+                            for current, previous in zip(
+                                y_eff, prior_values, strict=True
+                            )
+                        )
                     )
                 latent_cache["latent"] = y_eff
         else:

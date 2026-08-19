@@ -14,7 +14,7 @@ from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
 # The compiled epistemic_graph.numeric kernel must be built for these tests; skip the whole module cleanly when it isn't, rather than erroring out collection (CONCEPT:AU-KG.compute.numeric-kernel).
 pytest.importorskip("epistemic_graph.numeric")
 
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import xp
 
 _SECONDS_PER_DAY = 86400.0
 
@@ -22,13 +22,22 @@ _SECONDS_PER_DAY = 86400.0
 def _clustered_embeddings(
     n_clusters: int = 4, per_cluster: int = 20, dim: int = 8, seed: int = 1
 ) -> list[list[float]]:
-    """Build small synthetic clustered vectors with a fixed numpy seed."""
-    rng = np.random.default_rng(seed)
-    centers = rng.normal(size=(n_clusters, dim)) * 5.0
+    """Build small synthetic clustered vectors with a fixed native seed."""
+    rng = xp.random.default_rng(seed)
+    centers = [
+        [5.0 * float(value) for value in row]
+        for row in rng.normal(size=(n_clusters, dim))
+    ]
     rows: list[list[float]] = []
     for c in range(n_clusters):
-        pts = centers[c] + rng.normal(scale=0.1, size=(per_cluster, dim))
-        rows.extend(pts.tolist())
+        noise = rng.normal(scale=0.1, size=(per_cluster, dim))
+        rows.extend(
+            [
+                center + float(delta)
+                for center, delta in zip(centers[c], noise_row, strict=True)
+            ]
+            for noise_row in noise
+        )
     return rows
 
 
@@ -142,19 +151,16 @@ def test_dim_mismatch_raises():
         enc.encode_content([1.0, 2.0, 3.0])
 
 
-def test_engine_query_imports_clean_without_numeric_kernel():
-    """The messaging socket-listener imports ``engine_query`` (which pulls in
-    ``temporal_semantic_id``) without ever touching the encoder's numeric code
-    paths. That import must NOT require the epistemic-graph numeric kernel —
-    only invoking ``TemporalSemanticIdEncoder`` methods should.
+def test_engine_query_fails_closed_without_numeric_kernel():
+    """A cold query import fails clearly when the native kernel is absent.
 
     Runs in a clean subprocess (a shared pytest session already has
     ``agent_utilities.numeric`` cached in ``sys.modules``) so this is a true
     cold-import check. The kernel modules are poisoned to ``None`` in
     ``sys.modules`` before the import, which forces Python's import system to
-    raise ``ImportError`` for them — a fault-injection boundary used to verify
-    deterministic failure behavior. This is not a supported installation profile;
-    supported deployments install ``epistemic-graph[full]``.
+    raise ``ImportError`` for them. The AU contract deliberately has no lazy
+    NumPy/module-table fallback: supported deployments install
+    ``epistemic-graph[full]``.
     """
     probe = (
         "import sys, json\n"
@@ -163,10 +169,12 @@ def test_engine_query_imports_clean_without_numeric_kernel():
         # in this dev environment.
         "sys.modules['epistemic_graph.numeric'] = None\n"
         "sys.modules['numeric'] = None\n"
-        "import agent_utilities.knowledge_graph.orchestration.engine_query\n"
-        "import agent_utilities.knowledge_graph.retrieval.temporal_semantic_id as tsi\n"
-        "assert tsi.np is None, 'expected the numeric shim to be None without the kernel'\n"
-        "print(json.dumps({'ok': True}))\n"
+        "try:\n"
+        "    import agent_utilities.knowledge_graph.orchestration.engine_query\n"
+        "except ImportError:\n"
+        "    print(json.dumps({'ok': True}))\n"
+        "else:\n"
+        "    raise AssertionError('query import unexpectedly bypassed the native kernel')\n"
     )
     result = subprocess.run(
         [sys.executable, "-c", probe],

@@ -8,38 +8,20 @@ there is no `mcp-v4` opt-in fork. Every extra that pulls MCP support (`mcp`,
 to the same `fastmcp==4.0.0b1` / `fastmcp-slim==4.0.0b1` / `mcp==2.0.0` version set in
 one unified `uv.lock` — no `[tool.uv.conflicts]` fork.
 
-## Why this needed more than bumping a version floor
+## Why the 2.29 contract closes the old bridge
 
-`pydantic-ai-slim[mcp]` (the client-side toolset au's own code calls into) still declares
-`fastmcp-slim[client]<4,>=3.3.0` as of 2.21.0, the latest published release. That cap is
-conservative rather than a known incompatibility — 2.18.0 declared the same extra with no
-upper bound, and the `<4` was added defensively in 2.19.0 while fastmcp 4 was still
-pre-release. Empirical testing (a real fastmcp-4 server driven end-to-end through
-`pydantic_ai.mcp.MCPToolset`: connect, list tools, call a tool) found the cap is not
-protecting against a fundamental incompatibility, but it IS protecting against two real
-gaps that had to be bridged:
-
-1. **`fastmcp.client.Client` defaults to `mode="auto"`**, which negotiates the modern
-   `server/discover` connect era against a fastmcp-4 server and leaves
-   `Client.initialize_result` as `None`. `MCPToolset.__aenter__` unconditionally asserts
-   `client.initialize_result is not None` — a hard failure on every real connection unless
-   the client is pinned to `mode="legacy"` (today's initialize handshake).
-2. **MCP SDK v2 renamed several protocol fields from camelCase to snake_case.** `fastmcp`
-   ships its own deprecation bridge (`fastmcp._compat`) covering most of what
-   `pydantic_ai.mcp` reads, but not `PromptsCapability`/`ResourcesCapability`/
-   `ToolsCapability.listChanged` (read unconditionally on every `MCPToolset.__aenter__`)
-   or `ToolExecution.taskSupport` (read by `get_tools()`). `mcp.shared.exceptions.McpError`
-   was also renamed to `MCPError`, breaking `pydantic_ai.mcp`'s tool-call error handling.
-
-Both gaps live inside `pydantic_ai.mcp` / `fastmcp`'s own code, not anywhere this package
-calls directly — they can't be fixed by changing how *we* invoke the API, only by bridging
-the renamed/defaulted surface at the boundary where we construct MCP clients.
+`pydantic-ai-slim==2.29.0` declares `fastmcp-slim[client]<5,>=3.3.0` and its upstream
+`MCPToolset` now handles both SDK generations: `_mcp_compat` reads current snake_case
+and legacy camelCase fields, `__aenter__` supports initialize-era and modern
+`server/discover` sessions, and tool-call errors use FastMCP's SDK-neutral alias. A
+real 2.29/fastmcp-4 client contract is therefore tested without copying or mutating
+upstream methods.
 
 ## The bridge: `agent_utilities/mcp/protocol_compat.py`
 
-- `install_mcp_v2_bridge()` — patches the four missing camelCase properties + the
-  `McpError`/`MCPError` alias, using the same technique `fastmcp._compat` uses for the
-  rest (a plain warn-once property), guarded so it never shadows a real upstream fix.
+- `install_mcp_v2_bridge()` — validates the exact `pydantic-ai-slim==2.29.0` contract
+  and fails closed on drift. It deliberately does not monkeypatch `MCPToolset` or
+  install process-global aliases now that upstream owns the compatibility surface.
 - `force_legacy_protocol_mode(toolset)` — pins an already-constructed `MCPToolset`'s
   underlying `fastmcp.Client.mode` to `"legacy"` before first use. `Client.mode` is a
   plain instance attribute read lazily at connect time, and `MCPToolset` doesn't expose a
@@ -60,14 +42,14 @@ flowchart TD
     E[graph/executor.py: lazy MCP load] --> C
     C --> F[force_legacy_protocol_mode]
     F --> G[toolset.client.mode = 'legacy']
-    H["install_mcp_v2_bridge, called once per call site"] --> I["mcp.types capability/exception patches"]
+    H["install_mcp_v2_bridge, called once per call site"] --> I["exact Pydantic-AI contract gate"]
     G --> J[Real fastmcp-4 server: connect / list tools / call tool]
     I --> J
 ```
 
 ## Guarding the declared floor: `check_mcp_sdk_floor()`
 
-The bridges above assume the *installed* `mcp`/`fastmcp` actually satisfy the `[mcp]`
+The compatibility boundary above assumes the *installed* `mcp`/`fastmcp` actually satisfy the `[mcp]`
 extra's declared floor (`fastmcp>=4.0.0b1`, transitively `mcp>=2.0.0,<3.0.0`). Nothing
 previously asserted that at runtime, so a deployment that resolved an older SDK line
 (observed live: a pod running `mcp` 1.29.0 / `fastmcp` 3.4.5 against v2-targeted source)
@@ -92,9 +74,9 @@ meta-tool (`find_tools`/`list_catalog`/`load_tools`/`unload_tools`/`multiplexer_
 
 ## The dependency-graph fix: `[tool.uv] override-dependencies`
 
-`fastmcp==4.0.0b1` pins an exact `fastmcp-slim[client,server]==4.0.0b1`. Overriding
-`fastmcp-slim` to `fastmcp-slim[client,server]>=4.0.0b1` relaxes pydantic-ai-slim's `<4`
-cap project-wide. **Both `client` and `server` extras must be listed** — uv's override
+`fastmcp==4.0.0b1` pins an exact `fastmcp-slim[client,server]==4.0.0b1`. The workspace
+override keeps the explicit FastMCP-4 policy for consumers that do not carry AU's direct
+floor. **Both `client` and `server` extras must be listed** — uv's override
 replaces the entire requirement (extras included) for every requester of `fastmcp-slim`,
 including `fastmcp`'s own `server`-extra pin that `agent_utilities/mcp/server_factory.py`
 needs (`from fastmcp import FastMCP/Context`). An earlier draft of this override listing
@@ -165,12 +147,11 @@ The assertion runs in two places, both of which fail loudly:
 
 ## Removal condition
 
-Delete `protocol_compat.py`'s call sites and the `override-dependencies` entry together,
-the moment `pydantic-ai-slim` ships a release whose `MCPToolset` natively handles the
-fastmcp-4 `server/discover` era and whose `mcp.py` reads the SDK v2 field/exception names
-directly. `install_mcp_v2_bridge()`'s per-field guard (skip if the attribute already
-exists) makes it a no-op automatically the moment fastmcp/pydantic-ai catch up on their
-own, so the removal is a cleanup, not a functional change.
+The method monkeypatch and process-global field aliases were removed when
+`pydantic-ai-slim==2.29.0` shipped native handling. Keep the small exact-version gate
+until every AU consumer is on this contract; then remove `install_mcp_v2_bridge()`'s
+historical call sites together with the fleet parity gate. The SDK name/exception
+resolvers remain needed by AU's mixed-generation resilience paths.
 
 ## SemVer implication
 

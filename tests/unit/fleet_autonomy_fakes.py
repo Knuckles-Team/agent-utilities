@@ -8,13 +8,49 @@ uses (``add_node`` / ``query_cypher`` / ``backend.execute`` / ``submit_task``
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 from typing import Any
 
+from agent_utilities.orchestration.fleet_health import (
+    FleetDependencyEvidence,
+    FleetHealthEvidence,
+)
 from agent_utilities.orchestration.fleet_observation import ServiceObservation
+from agent_utilities.orchestration.scaling_signals import (
+    ScalingSignalSample,
+    SignalDefinition,
+    SignalRequest,
+    get_signal_definition,
+)
 
 
 def utc_now_str() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def healthy_fleet_evidence() -> FleetHealthEvidence:
+    """Return explicit healthy supervisory evidence for autonomy tests."""
+
+    now = time.time()
+    dependencies = {
+        name: FleetDependencyEvidence(
+            status="healthy",
+            checked_at=now,
+            last_success_at=now,
+            freshness_seconds=0.0,
+        )
+        for name in ("goal_rehydration", "control_store", "worker_registry")
+    }
+    return FleetHealthEvidence(
+        status="healthy",
+        ready=True,
+        autoscaling_ready=True,
+        convergence_ready=True,
+        generated_at=now,
+        last_success_at=now,
+        freshness_seconds=0.0,
+        dependencies=dependencies,
+    )
 
 
 class FakeBackend:
@@ -234,6 +270,7 @@ class FakeSignalProvider:
     """Scriptable ScalingSignalProvider double (OS-5.29)."""
 
     name = "fake-signals"
+    trusted_in_process = True
 
     def __init__(
         self,
@@ -243,10 +280,42 @@ class FakeSignalProvider:
         self.values = values or {}
         self.default = default
         self.calls: list[tuple[str, str]] = []
+        self.bulk_calls = 0
 
-    def signal_value(self, service: str, signal: str) -> float | None:
+    def signal_definition(
+        self, signal: str, service: str | None = None
+    ) -> SignalDefinition | None:
+        definition = get_signal_definition(signal)
+        if (
+            definition is not None
+            and service is not None
+            and not definition.binds_service(service)
+        ):
+            return replace(definition, service_binding=service)
+        return definition
+
+    def signal_value(self, service: str, signal: str) -> ScalingSignalSample | None:
         self.calls.append((service, signal))
-        return self.values.get(service, self.default)
+        value = self.values.get(service, self.default)
+        if value is None:
+            return None
+        definition = self.signal_definition(signal, service)
+        if definition is None:
+            return None
+        return ScalingSignalSample(
+            value=value,
+            source=self.name,
+            service=service,
+            signal=signal,
+            aggregation=definition.aggregation,
+            observed_at=time.time(),
+            unit=definition.unit,
+            scope=definition.scope,
+        )
+
+    def signal_values(self, requests: list[SignalRequest]):
+        self.bulk_calls += 1
+        return {request: self.signal_value(*request) for request in requests}
 
 
 class CaptureNotifier:

@@ -565,7 +565,20 @@ def _cas_work_item_metadata(
         "expected_prio_bucket": expected_prio_bucket,
         "set_prio_bucket": set_prio_bucket,
     }
-    answer = _native_call(engine, "cas_work_item_metadata", request)
+    authority = _authority(engine)
+    method = getattr(authority, "cas_work_item_metadata", None)
+    if not callable(method):
+        raise NativeWorkItemRequired(
+            "engine-native cas_work_item_metadata(request) is required"
+        )
+    try:
+        # Keep this call explicit: GraphComputeEngine and TaskManagerMixin both
+        # implement the same typed native verb, and this is its live producer.
+        answer = authority.cas_work_item_metadata(request)
+    except NotImplementedError as exc:
+        raise NativeWorkItemRequired(
+            "engine-native cas_work_item_metadata(request) is unavailable"
+        ) from exc
     outcome = answer.get("outcome") if isinstance(answer, dict) else None
     if outcome not in {"applied", "conflict", "not_found"}:
         raise WorkItemBackendUnavailable(

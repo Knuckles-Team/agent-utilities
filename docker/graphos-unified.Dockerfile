@@ -7,10 +7,9 @@
 #     the staged, already-injected wheel (passes scripts/check_wheel_completeness.py).
 #   - the au serving plane (graph-os / kg_server), installed EDITABLE from local source.
 #   - messaging platforms (Telegram + Mattermost) + backends (neo4j/falkordb/postgres/redis).
-#   - langfuse-agent (workspace source) for LLM observability — dropped from an earlier
-#     build of this image (PyPI tops out below au's floor), restored here; see the step-2b
-#     comment below for why it installs as its own package rather than via au's [langfuse]
-#     extra.
+#   - langfuse-agent (deployment-composed workspace source) for LLM observability — dropped
+#     from an earlier build of this image (PyPI tops out below au's floor), restored here.
+#     AU's [langfuse] extra is SDK-only; the step-2b package is composed separately below.
 #
 # Base: ubuntu:26.04 (glibc 2.43). The current engine binary needs glibc >= 2.43
 # (confirmed via `objdump -T | grep GLIBC_`), which Debian 13 "trixie"/glibc 2.41 — the
@@ -102,13 +101,20 @@ ENV UV_SYSTEM_PYTHON=1 \
 #    lake-fixture-export / restore / migrate-shards binaries (wheel `data/scripts`)
 #    straight into /usr/local/bin — next to sys.executable, exactly where EngineResolver
 #    (OS-5.63) looks for a co-located engine to autostart.
-#    The wheel directory is deliberately NOT deleted here — step 2's resolver is pointed
-#    back at it with `--find-links` so a re-resolution of `epistemic-graph[full]>=2.23.2`
-#    lands on THIS staged artifact rather than walking off to PyPI (which tops out at
-#    2.23.0, below the floor). It is removed after step 2 instead.
-COPY build-artifacts/eg-wheel/epistemic_graph-2.26.1-py3-none-linux_x86_64.whl /tmp/wheels/
-RUN uv pip install --system --break-system-packages \
-        "/tmp/wheels/epistemic_graph-2.26.1-py3-none-linux_x86_64.whl[full]"
+#    The wheel directory is deliberately NOT deleted here — the preflight and step 2's
+#    resolver are pointed back at it with `--find-links` so a re-resolution of
+#    `epistemic-graph[full]>=2.23.2` lands on THIS staged artifact rather than walking
+#    off to PyPI (which tops out at 2.23.0, below the floor). It is removed after step 2.
+#    The preflight below requires exactly one wheel, then emits only its basename for
+#    this install command. Its exact contract is epistemic-graph 2.26.2. Copying every
+#    staged wheel makes stale or duplicate artifacts observable to that gate instead of
+#    allowing a fixed filename to hide them.
+COPY build-artifacts/eg-wheel/*.whl /tmp/wheels/
+COPY scripts/release/check_epistemic_graph_client_preflight.py /tmp/check_epistemic_graph_client_preflight.py
+RUN set -eu; \
+    uv pip install --system --break-system-packages \
+        "/tmp/wheels/$$(python3 /tmp/check_epistemic_graph_client_preflight.py \
+            --wheel-dir /tmp/wheels --print-wheel-basename)[full]"
 
 # 2) au itself — EDITABLE install from the local worktree source (the "editable-source
 #    install model": a deployer can still bind-mount fresher source over
@@ -119,17 +125,11 @@ RUN uv pip install --system --break-system-packages \
 #    `serving`'s OWN sub-extras are listed explicitly here (mcp, feeds, embeddings-openai,
 #    neo4j, falkordb, auth, metrics, agent-headless [skills/pydantic-ai/pydantic-monty/
 #    fasta2a], logfire, messaging-telegram, messaging-mattermost) rather than the `serving`
-#    umbrella extra itself, MINUS `langfuse`: that sub-extra pulls
-#    `langfuse-agent[mcp]>=1.0.3,<2`, which — like epistemic-graph above — has a
-#    `[tool.uv.sources] langfuse-agent = { workspace = true }` entry, i.e. au's own
-#    pyproject expects it from the ecosystem monorepo's sibling checkout, not PyPI (the
-#    latest version actually published to PyPI is only 1.0.1, below the 1.0.3 floor). The
-#    package itself is restored below (step 2b) from that same workspace checkout — but
-#    NOT through this `langfuse` extra: the workspace source is now at version 2.0.0, past
-#    au's OWN `<2` ceiling on it, so requesting this extra here would make pip refuse the
-#    very artifact step 2b stages (confirmed). Bumping that ceiling is a separate,
-#    coordinated au change (re-lock + test) out of scope for an image-only fix, so this
-#    extra stays out of the list below; step 2b installs langfuse-agent directly instead.
+#    umbrella extra itself, MINUS `langfuse`: AU's `langfuse` extra is intentionally
+#    SDK-only (`langfuse>=4.14.1,<5`). `langfuse-agent` is a separately composed
+#    deployment component, restored below (step 2b) from the workspace checkout rather
+#    than pulled into AU's runtime extra or resolved from PyPI (which tops out at 1.0.1,
+#    below the deployment's source floor). It is installed directly in step 2b.
 #    `logfire` (the plain OTel SDK integration, a normal PyPI package, NOT
 #    workspace-sourced) is kept. `postgresql` (psycopg[binary]/psycopg-pool) and
 #    the first-party Pydantic AI Harness ACP extra are added on top.
@@ -144,12 +144,10 @@ COPY agent_utilities/ /opt/agent-utilities/agent_utilities/
 # runtime reader strips whitespace regardless.
 RUN printf '%s' "${SOURCE_REVISION}" > /opt/agent-utilities/agent_utilities/.source-revision
 
-# 2b) langfuse-agent — ALSO workspace-sourced (`[tool.uv.sources] langfuse-agent =
-#     { workspace = true }` in au's own pyproject, same as epistemic-graph in step 1), and
-#     for the same reason unresolvable from a bare `pip install`: PyPI tops out at 1.0.1.
-#     It is a SIBLING repo (agent-packages/agents/langfuse-agent), not part of this
-#     Dockerfile's own worktree, so — exactly like build-artifacts/eg-wheel above — it is
-#     mounted into the build context at build time (see
+# 2b) langfuse-agent — deployment-composed separately from AU's SDK-only [langfuse]
+#     extra. It is a SIBLING repo (agent-packages/agents/langfuse-agent), not part of
+#     this Dockerfile's own worktree, so — exactly like build-artifacts/eg-wheel above —
+#     it is mounted into the build context at build time (see
 #     docker/graphos-unified-langfuse-kaniko-job.yaml) rather than COPYable from a path
 #     this repo owns. Targeted copy, same rationale as au's own source above: the package
 #     + packaging metadata only, never `.git`/caches/tests (already outside
@@ -171,8 +169,8 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 #
 # `overrides.txt` (context root) is the build-side MIRROR of that root table, and
 # `--override` applies it. The historical reason uv was dropped here — au's own
-# `[tool.uv.sources] epistemic-graph = { workspace = true }` (+ langfuse-agent), which uv
-# cannot resolve outside the full workspace — is handled by `--no-sources`, which makes uv
+# `[tool.uv.sources] epistemic-graph = { path = ".uv-workspace-siblings/epistemic-graph" }`,
+# which uv cannot resolve outside the full workspace — is handled by `--no-sources`, which makes uv
 # ignore uv-only source tables and resolve the standard PEP 508 requirements exactly as
 # pip did. `--find-links /tmp/wheels` then pins `epistemic-graph[full]>=2.23.2` to step
 # 1's staged, kernel-injected wheel instead of PyPI's incomplete 2.23.0.
@@ -182,7 +180,7 @@ COPY build-artifacts/langfuse-agent-src/langfuse_agent/ /tmp/langfuse-agent-src/
 # prerelease mode bleeds elsewhere (verified: it pulled sqlalchemy 2.1.0b3).
 #
 # ONE invocation, not two: the exact Pydantic AI family pins below must be visible to the
-# SAME resolution pass as au's own `>=2.14.1,<3.0.0` floor on pydantic-ai-slim, and
+# SAME resolution pass as au's own exact `==2.29.0` Pydantic-AI contract, and
 # `/tmp/langfuse-agent-src`'s own `agent-utilities[mcp]>=2.0.0,<3.0.0` requirement must
 # see the au install this same command performs.
 #
@@ -207,15 +205,18 @@ RUN uv pip install --system --break-system-packages --no-cache \
         "llama-index-embeddings-openai>=0.6.0" \
         "python-telegram-bot>=22.8" \
         "mattermostdriver>=7.3.2" \
-        "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]==2.21.0" \
-        "pydantic-ai==2.21.0" \
-        "pydantic-graph==2.21.0" \
+        "pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]==2.29.0" \
+        "pydantic-ai==2.29.0" \
+        "pydantic-graph==2.29.0" \
         "pydantic-ai-harness[acp,dynamic-workflow]==0.14.0" \
         "pydantic-ai-skills==1.2.0" \
         "pydantic-monty==0.0.19" \
         "fasta2a[pydantic-ai]>=0.6.1" \
+    && python3 /tmp/check_epistemic_graph_client_preflight.py \
+        --wheel-dir /tmp/wheels --require-installed \
     && chmod -R a+rX /opt/agent-utilities \
-    && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/overrides.txt
+    && rm -rf /tmp/langfuse-agent-src /tmp/wheels /tmp/overrides.txt \
+        /tmp/check_epistemic_graph_client_preflight.py
 # ^ this pin list matches the exact stack the CURRENT split-image deploy pip-installs at
 #   pod-start (`kubectl get deploy graph-os -n platform -o yaml`) — most of it
 #   (neo4j/falkordb/telegram/mattermost/embeddings-openai) is already inside [serving];
@@ -244,7 +245,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
 # tolerant handler at kg_server's attach site is by design (a dead fleet loader must not
 # take graph-os down), but it also meant a version-mismatched image shipped green and only
 # logged the loss of every fleet meta-tool. Failing the BUILD is where that belongs.
-RUN python3 -c "import importlib.metadata as m; import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from pydantic_ai_harness.dynamic_workflow import DynamicWorkflow; from pydantic_ai_harness.experimental.acp import PydanticAIACPAgent; from agent_utilities.mcp.multiplexer import attach_fleet_loader; from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.21.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('mcp_sdk_floor OK:', r['detail'])" \
+RUN python3 -c "import importlib.metadata as m; import agent_utilities.mcp.kg_server; import epistemic_graph.numeric; import langfuse_agent; import owlready2; import pyshacl; import rdflib; from pydantic_ai_harness.dynamic_workflow import DynamicWorkflow; from pydantic_ai_harness.experimental.acp import PydanticAIACPAgent; from agent_utilities.mcp.multiplexer import attach_fleet_loader; from agent_utilities.mcp.protocol_compat import check_mcp_sdk_floor; r = check_mcp_sdk_floor(); assert r['ok'] is True, r['detail']; assert m.version('pydantic-ai-slim') == '2.29.0'; assert m.version('pydantic-ai-harness') == '0.14.0'; print('mcp_sdk_floor OK:', r['detail'])" \
     && epistemic-graph-server --help >/dev/null \
     && command -v graph-os >/dev/null
 

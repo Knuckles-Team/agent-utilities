@@ -148,7 +148,7 @@ class AlphaCombinationEngine:
         normalised to sum to 1. No equal-weight fallback: degenerate input raises
         rather than silently returning a meaningless uniform vector.
         """
-        from agent_utilities.numeric import xp as np
+        from agent_utilities.numeric import xp
 
         n = len(returns_matrix)
         if n == 0:
@@ -156,34 +156,54 @@ class AlphaCombinationEngine:
         if n == 1:
             return [1.0]
 
-        r = np.asarray(returns_matrix, dtype=float)
-        if r.ndim != 2 or r.shape[1] < 2:
+        r = [[float(value) for value in row] for row in returns_matrix]
+        if any(len(row) != len(r[0]) for row in r) or len(r[0]) < 2:
             raise ValueError(
                 "compute_weights requires each signal to have >=2 observations"
             )
 
-        mu = r.mean(axis=1)  # per-signal mean edge (N,)
+        observations = len(r[0])
+        mu = [float(value) for value in xp.mean(r, axis=1)]
         # Remove the shared cross-sectional (common-factor) component per period.
-        r_decorr = r - r.mean(axis=0, keepdims=True)
-        cov = np.atleast_2d(np.cov(r_decorr))
-        cov = cov + np.eye(n) * 1e-6  # ridge for near-singular covariance
+        column_means = [float(value) for value in xp.mean(r, axis=0)]
+        r_decorr = [
+            [value - column_means[column] for column, value in enumerate(row)]
+            for row in r
+        ]
+        row_means = [float(value) for value in xp.mean(r_decorr, axis=1)]
+        denominator = max(1, observations - 1)
+        centered = [
+            [value - row_means[row] for value in values]
+            for row, values in enumerate(r_decorr)
+        ]
+        centered_transpose = [list(column) for column in zip(*centered, strict=True)]
+        covariance = xp.matmul(centered, centered_transpose)
+        cov = [
+            [
+                float(value) / denominator + (1e-6 if row == column else 0.0)
+                for column, value in enumerate(values)
+            ]
+            for row, values in enumerate(covariance)
+        ]
 
         try:
-            raw = np.linalg.solve(cov, mu)
-        except np.linalg.LinAlgError:
-            raw = np.linalg.pinv(cov) @ mu
+            raw = xp.linalg.solve(cov, mu)
+        except xp.linalg.LinAlgError:
+            inverse = xp.linalg.pinv(cov)
+            raw_matrix = xp.matmul(inverse, [[value] for value in mu])
+            raw = [float(row[0]) for row in raw_matrix]
 
-        total = float(raw.sum())
+        total = float(xp.sum(raw))
         if abs(total) < 1e-12:
             # Mean-zero net edge: L1-normalise magnitudes (still information-
             # driven, never uniform unless the inputs genuinely are).
-            l1 = float(np.abs(raw).sum())
+            l1 = float(xp.sum([abs(value) for value in raw]))
             if l1 < 1e-12:
                 raise ValueError(
                     "signals carry no separable edge (zero mean and zero variance)"
                 )
-            return (raw / l1).tolist()
-        return (raw / total).tolist()
+            return [value / l1 for value in raw]
+        return [value / total for value in raw]
 
 
 class LaplaceEnsembleFusion:

@@ -23,7 +23,7 @@ silently ignores an unknown `limit` argument and returns an oversized payload.
 Every `UsageLimits` construction site (the planner, verifier, spawned-task
 agents, the governed dynamic-workflow orchestrator, and the direct
 single-server tool loop) also sets `per_request_input_tokens_limit`
-(pydantic-ai-slim 2.21.0+, `orchestration/loop_guards.DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT`)
+(pydantic-ai-slim 2.29.0, `orchestration/loop_guards.DEFAULT_PER_REQUEST_INPUT_TOKENS_LIMIT`)
 so an oversized tool result terminates the run instead of compounding across
 further requests.
 

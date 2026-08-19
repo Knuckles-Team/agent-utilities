@@ -28,6 +28,10 @@ _base_url = str(DEFAULT_EMBEDDING_BASE_URL or "").strip().rstrip("/")
 LM_STUDIO_URL = f"{_base_url}/embeddings" if _base_url else ""
 EMBEDDING_MODEL = str(DEFAULT_EMBEDDING_MODEL_ID or "").strip()
 
+_TRACE_RETENTION_BATCH_SIZE = 1_000
+_TRACE_RETENTION_MAX_BATCHES_PER_LABEL = 1_000
+_TRACE_RETENTION_MAX_DAYS = 3_650
+
 #: Conversational node types confirmed to have NO reingest/backfill path once deleted
 #: (CONCEPT:AU-ECO.messaging.conversational-retention-guard, BUG-041 investigation):
 #: ``InboundMessage``/``Thread`` are written once at live intake
@@ -82,6 +86,11 @@ class GraphMaintainer:
 
     def __init__(self, engine: IntelligenceGraphEngine):
         self.engine = engine
+        self.last_trace_retention_report: dict[str, Any] = {
+            "labels": 0,
+            "deleted_rows": None,
+            "truncated": False,
+        }
 
     def enrich_embeddings(self) -> int:
         """Find messages without embeddings and generate them."""
@@ -817,8 +826,27 @@ class GraphMaintainer:
         separate best-effort pass, so a held node can never race a sweep that already
         decided to delete it. Age is judged by the ontology's own ``timestamp`` field
         (ISO-8601, stamped once at write time), never a mutable score.
+
+        The integer return value remains the number of canonical labels scanned
+        for compatibility. ``last_trace_retention_report['deleted_rows']`` carries
+        the actual affected-row count when the backend includes one in its write
+        result, otherwise ``None`` rather than a fabricated zero/count.
         """
+        if (
+            isinstance(retention_days, bool)
+            or not isinstance(retention_days, int)
+            or not 1 <= retention_days <= _TRACE_RETENTION_MAX_DAYS
+        ):
+            raise ValueError(
+                "retention_days must be an integer between 1 and "
+                f"{_TRACE_RETENTION_MAX_DAYS}"
+            )
         if not self.engine.backend:
+            self.last_trace_retention_report = {
+                "labels": 0,
+                "deleted_rows": 0,
+                "truncated": False,
+            }
             return 0
 
         from agent_utilities.observability.trace_ontology import (
@@ -832,6 +860,9 @@ class GraphMaintainer:
             "%Y-%m-%dT%H:%M:%SZ"
         )
         swept = 0
+        deleted_rows = 0
+        deleted_rows_known = True
+        truncated = False
         for raw_label in (TRACE_NODE_LABEL, TOOL_CALL_NODE_LABEL, OUTCOME_NODE_LABEL):
             # These three are fixed module-level constants (never caller/ontology-
             # supplied), but this gate has no cross-module constant tracking for
@@ -843,10 +874,56 @@ class GraphMaintainer:
             MATCH (n:{label})
             WHERE n.timestamp < $cutoff
             AND (n.is_permanent IS NULL OR n.is_permanent = False)
+            WITH n LIMIT $batch_size
             DETACH DELETE n
+            RETURN count(n) AS deleted_count
             """
-            self.engine.backend.execute(query, {"cutoff": cutoff})
+            for _batch in range(_TRACE_RETENTION_MAX_BATCHES_PER_LABEL):
+                result = self.engine.backend.execute(
+                    query,
+                    {
+                        "cutoff": cutoff,
+                        "batch_size": _TRACE_RETENTION_BATCH_SIZE,
+                    },
+                )
+                count: int | None = None
+                rows = result if isinstance(result, list) else [result]
+                for row in rows:
+                    if not isinstance(row, dict):
+                        continue
+                    for key in (
+                        "deleted_count",
+                        "deleted",
+                        "nodes_deleted",
+                        "rows_affected",
+                        "count",
+                        "count(n)",
+                    ):
+                        if key not in row:
+                            continue
+                        try:
+                            parsed = int(row[key])
+                        except (TypeError, ValueError, OverflowError):
+                            parsed = -1
+                        count = parsed if parsed >= 0 else None
+                        break
+                    if count is not None:
+                        break
+                if count is None:
+                    deleted_rows_known = False
+                    break
+                deleted_rows += count
+                if count < _TRACE_RETENTION_BATCH_SIZE:
+                    break
+            else:
+                truncated = True
             swept += 1
+
+        self.last_trace_retention_report = {
+            "labels": swept,
+            "deleted_rows": deleted_rows if deleted_rows_known else None,
+            "truncated": truncated,
+        }
 
         logger.info(
             "[CONCEPT:AU-KG.audit.trace-retention-legal-hold] pruned RunTrace/ToolCall/"

@@ -6,9 +6,9 @@ and optimal execution threshold derivation for predicting cross-platform spreads
 """
 
 import logging
+import math
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 try:
     from statsmodels.tsa.stattools import adfuller
@@ -52,7 +52,10 @@ class CointegrationAnalyzer:
         ):
             return False
 
-        spread = platform_a_prices - (beta * platform_b_prices)
+        spread = [
+            float(left) - beta * float(right)
+            for left, right in zip(platform_a_prices, platform_b_prices, strict=True)
+        ]
 
         try:
             adf_result = adfuller(spread)
@@ -89,17 +92,25 @@ class OrnsteinUhlenbeckModel:
         S_prev = spread[:-1]
         S_curr = spread[1:]
 
-        if np.std(S_prev) == 0:
+        previous = [float(value) for value in S_prev]
+        current = [float(value) for value in S_curr]
+        if xp.std(previous) == 0:
             return {"theta": 0.0, "mu": float(S_prev[0]), "sigma": 0.0}
 
         # Linear regression: S_t = a + b * S_{t-1} + e
         # Equivalently: delta S = a + (b-1) * S_{t-1}
         # We can fit S_curr on S_prev
-        A = np.vstack([S_prev, np.ones(len(S_prev))]).T
-        b_hat, a_hat = np.linalg.lstsq(A, S_curr, rcond=None)[0]
+        A = [[value, 1.0] for value in previous]
+        solution = xp.linalg.lstsq(A, current)
+        if not isinstance(solution, list) or len(solution) != 2:
+            raise ValueError("native lstsq returned an invalid coefficient vector")
+        b_hat, a_hat = (float(solution[0]), float(solution[1]))
 
-        residuals = S_curr - (a_hat + b_hat * S_prev)
-        std_resid = np.std(residuals)
+        residuals = [
+            observed - (a_hat + b_hat * value)
+            for observed, value in zip(current, previous, strict=True)
+        ]
+        std_resid = xp.std(residuals)
 
         # Discretization formulas
         # b_hat = exp(-theta * dt)
@@ -107,9 +118,9 @@ class OrnsteinUhlenbeckModel:
             # Cannot extract mean-reverting theta if b_hat >= 1 (divergent) or <= 0 (oscillatory)
             return {"theta": 0.0, "mu": 0.0, "sigma": 0.0}
 
-        theta = -np.log(b_hat) / dt
+        theta = -math.log(b_hat) / dt
         mu = a_hat / (1 - b_hat)
-        sigma = std_resid / np.sqrt((1 - np.exp(-2 * theta * dt)) / (2 * theta))
+        sigma = std_resid / math.sqrt((1 - math.exp(-2 * theta * dt)) / (2 * theta))
 
         return {"theta": float(theta), "mu": float(mu), "sigma": float(sigma)}
 

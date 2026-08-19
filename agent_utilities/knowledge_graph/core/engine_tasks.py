@@ -473,6 +473,7 @@ _AUTOSCALE_REACTIVE_INTERVAL = 5.0
 # work under load.
 _PLACEMENT_MINING_REACTIVE_INTERVAL = 30.0
 _HYGIENE_INTERVAL = 86400.0
+_TRACE_RETENTION_INTERVAL = 86400.0
 # Warm-fork parent + dev-workspace idle reap (CONCEPT:AU-OS.host.so-they-are-idle). Background; never preempts work.
 _WARM_PARENT_REAP_INTERVAL = 300.0
 # Package-install manifest watch (CONCEPT:AU-KG.ingest.package-install-autoingest): a
@@ -1716,6 +1717,7 @@ class TaskManagerMixin(GraphEngineProtocol):
             enabled=bool(getattr(_cfg, "enable_sdd_watcher", True)),
         )
         _maint("hygiene", "hygiene", _HYGIENE_INTERVAL)
+        _maint("trace_retention", "trace_retention", _TRACE_RETENTION_INTERVAL)
         _maint("tenant_gc", "tenant_gc", _cfg.kg_tenant_gc_interval)
         # Goals-as-contracts SLA watch (CONCEPT:AU-ORCH.session.escalate-breached-goals): escalate breached goals.
         # Default-on; no-ops when no goals carry an sla_seconds.
@@ -1834,6 +1836,25 @@ class TaskManagerMixin(GraphEngineProtocol):
             logger.debug("usage_pricing_refresh: merged %d models", n)
         except Exception as e:  # noqa: BLE001 — one maintenance-tick pricing-catalog refresh; the catalog simply stays at its last-known values until the next tick retries
             logger.debug("usage_pricing_refresh skipped: %s", e)
+
+    def _tick_trace_retention(self) -> None:
+        """Sweep durable trace provenance on the daily maintenance schedule."""
+        try:
+            from agent_utilities.knowledge_graph.core.maintainer import (
+                GraphMaintainer,
+            )
+
+            maintainer = GraphMaintainer(cast(Any, self))
+            labels = maintainer.prune_expired_traces()
+            report = maintainer.last_trace_retention_report
+            logger.info(
+                "trace_retention: deleted_rows=%s labels_scanned=%d truncated=%s",
+                report.get("deleted_rows"),
+                labels,
+                bool(report.get("truncated")),
+            )
+        except Exception as e:  # noqa: BLE001 — one maintenance job never stops others
+            logger.debug("trace_retention tick error: %s", e)
 
     def _tick_hygiene(self) -> None:
         """One memory-hygiene pass (CONCEPT:EG-KG.compute.compiled-semantic-reasoner).
@@ -2100,18 +2121,26 @@ class TaskManagerMixin(GraphEngineProtocol):
         """
         try:
             from agent_utilities.observability.gateway_metrics import (
-                KG_INGEST_CONSUMER_LAG,
-                KG_INGEST_QUEUE_DEPTH,
+                record_kg_ingest_consumer_lag_observation,
+                record_kg_ingest_queue_observation,
             )
 
             backend_name = getattr(self, "_task_queue_backend_name", "sqlite")
-            KG_INGEST_QUEUE_DEPTH.labels(backend=backend_name).set(float(queue_size))
+            observed_at = time.time()
+            record_kg_ingest_queue_observation(
+                backend=backend_name,
+                value=float(queue_size),
+                observed_at=observed_at,
+            )
             if backend_name == "kafka":
                 from .kafka_queue_backend import INGEST_GROUP, TASKS_TOPIC
 
-                KG_INGEST_CONSUMER_LAG.labels(
-                    topic=TASKS_TOPIC, group=INGEST_GROUP
-                ).set(float(queue_size))
+                record_kg_ingest_consumer_lag_observation(
+                    topic=TASKS_TOPIC,
+                    group=INGEST_GROUP,
+                    value=float(queue_size),
+                    observed_at=observed_at,
+                )
         except Exception:  # noqa: BLE001 — telemetry must never break the loop
             pass
 
@@ -5854,12 +5883,12 @@ class TaskManagerMixin(GraphEngineProtocol):
             }
 
         # Compute centroid
-        from agent_utilities.numeric import xp as np
+        from agent_utilities.numeric import xp
 
-        centroid = np.mean(target_embeddings, axis=0)
-        centroid_norm = np.linalg.norm(centroid)
+        centroid = xp.mean(target_embeddings, axis=0)
+        centroid_norm = xp.linalg.norm(centroid)
         if centroid_norm > 0:
-            centroid = centroid / centroid_norm
+            centroid = [value / centroid_norm for value in centroid]
 
         # ── Step 2: Gather all unique papers (grouped by target_path) ──
         paper_rows = self.query_cypher(
@@ -5917,13 +5946,13 @@ class TaskManagerMixin(GraphEngineProtocol):
                 if not paper_embeddings:
                     continue
 
-                paper_centroid = np.mean(paper_embeddings, axis=0)
-                paper_norm = np.linalg.norm(paper_centroid)
+                paper_centroid = xp.mean(paper_embeddings, axis=0)
+                paper_norm = xp.linalg.norm(paper_centroid)
                 if paper_norm > 0:
-                    paper_centroid = paper_centroid / paper_norm
+                    paper_centroid = [value / paper_norm for value in paper_centroid]
 
                 # Semantic similarity (cosine)
-                semantic_score = float(np.dot(centroid, paper_centroid)) * 30.0
+                semantic_score = float(xp.dot(centroid, paper_centroid)) * 30.0
                 semantic_score = max(0.0, min(30.0, semantic_score))
 
                 # Content keyword overlap (concept-level)
@@ -6057,12 +6086,12 @@ class TaskManagerMixin(GraphEngineProtocol):
                 if not repo_embeddings:
                     continue
 
-                repo_centroid = np.mean(repo_embeddings, axis=0)
-                repo_norm = np.linalg.norm(repo_centroid)
+                repo_centroid = xp.mean(repo_embeddings, axis=0)
+                repo_norm = xp.linalg.norm(repo_centroid)
                 if repo_norm > 0:
-                    repo_centroid = repo_centroid / repo_norm
+                    repo_centroid = [value / repo_norm for value in repo_centroid]
 
-                semantic_score = float(np.dot(centroid, repo_centroid)) * 30.0
+                semantic_score = float(xp.dot(centroid, repo_centroid)) * 30.0
                 semantic_score = max(0.0, min(30.0, semantic_score))
 
                 content_lower = repo_content_sample.lower()

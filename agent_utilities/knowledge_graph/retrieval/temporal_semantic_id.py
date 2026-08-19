@@ -20,54 +20,82 @@ This module provides :class:`TemporalSemanticIdEncoder`, which builds the
 content codes via *residual quantization* (an RQ-VAE-lite): a stack of
 ``n_codebooks`` codebooks where level 0 quantizes the (L2-normalized) vector and
 each subsequent level quantizes the residual left by the prior levels. Codebooks
-are learned with a small, seeded, dependency-light numpy k-means so the whole
+are learned with a small, seeded native-kernel k-means so the whole
 encoder is deterministic given ``seed``.
 
-Layer contract: this is a pure, self-contained L2 retrieval helper. It depends
-only on numpy, performs no I/O and no network calls, and shares the recency /
+Layer contract: this is a pure, self-contained L2 retrieval helper. It performs
+no I/O and no network calls, and shares the recency /
 ``event_time`` framing of
 :mod:`agent_utilities.knowledge_graph.core.bitemporal` (age = ``now`` minus
-``event_time``; ``None`` event-time means "unknown") and the defensive numpy
+``event_time``; ``None`` event-time means "unknown") and the defensive native
 L2-normalization used by
 :mod:`agent_utilities.knowledge_graph.retrieval.capability_index`.
 """
 
+import math
 from collections.abc import Sequence
 from typing import Any
 
-try:
-    from agent_utilities.numeric import NDArray, RandomGenerator
-    from agent_utilities.numeric import xp as np
-except ImportError:
-    # epistemic-graph[numeric] kernel absent (e.g. the messaging socket-listener,
-    # which imports this module transitively via
-    # `knowledge_graph.orchestration.engine_query` but never touches the encoder).
-    # Keep this module IMPORTABLE without the kernel — mirrors the guard in
-    # ``retrieval/capability_index.py``. `NDArray`/`RandomGenerator` are pure type
-    # aliases (Any); the k-means/quantization code paths below use `np` and require
-    # the kernel — they raise a clear error at call time if invoked without it,
-    # rather than trapping every importer at module load.
-    NDArray = Any  # type: ignore[assignment,misc]
-    RandomGenerator = Any  # type: ignore[assignment,misc]
-    np: Any = None  # type: ignore[no-redef]
+from agent_utilities.numeric import xp
 
 __all__ = ["TemporalSemanticIdEncoder"]
 
 _SECONDS_PER_DAY = 86400.0
 
 
-def _l2_normalize(vec: NDArray) -> NDArray:
+def _transpose(matrix: list[list[float]]) -> list[list[float]]:
+    return [list(column) for column in zip(*matrix, strict=True)]
+
+
+def _squared_distances(
+    data: list[list[float]], centroids: list[list[float]]
+) -> list[list[float]]:
+    """Compute a complete point/centroid distance matrix in native bulk ops."""
+    data_norms = [sum(value * value for value in row) for row in data]
+    centroid_norms = [sum(value * value for value in row) for row in centroids]
+    dots = xp.matmul(data, _transpose(centroids))
+    return [
+        [
+            max(
+                0.0,
+                float(data_norms[row])
+                + float(centroid_norms[column])
+                - 2.0 * float(dots[row][column]),
+            )
+            for column in range(len(centroids))
+        ]
+        for row in range(len(data))
+    ]
+
+
+def _l2_normalize_many(vectors: Sequence[Sequence[float]]) -> list[list[float]]:
+    """Normalize a bounded matrix after one native non-finite scrub.
+
+    This keeps the PyO3/socket boundary outside the row loop. The remaining
+    scalar normalization is deliberately local and allocation-bounded.
+    """
+    clean = xp.nan_to_num(
+        [[float(value) for value in row] for row in vectors],
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
+    normalized: list[list[float]] = []
+    for row in clean:
+        values = [float(value) for value in row]
+        norm = math.sqrt(sum(value * value for value in values))
+        normalized.append(values if norm == 0.0 else [value / norm for value in values])
+    return normalized
+
+
+def _l2_normalize(vec: Sequence[float]) -> list[float]:
     """Return ``vec`` scaled to unit L2 norm, with NaN/inf scrubbed to 0.
 
     Zero (or all-non-finite) vectors are returned unchanged after scrubbing, so
     quantization never sees NaN. Mirrors ``capability_index._l2_normalize`` plus
     a defensive ``nan_to_num``.
     """
-    clean = np.nan_to_num(vec, nan=0.0, posinf=0.0, neginf=0.0)
-    norm = float(np.linalg.norm(clean))
-    if norm == 0.0:
-        return clean
-    return clean / norm
+    return _l2_normalize_many([vec])[0]
 
 
 class TemporalSemanticIdEncoder:
@@ -111,7 +139,7 @@ class TemporalSemanticIdEncoder:
         self._time_span_days = float(time_span_days)
         self._seed = seed
         # One (k, dim) centroid matrix per residual level; empty until fit().
-        self._codebooks: list[NDArray] = []
+        self._codebooks: list[list[list[float]]] = []
         self._dim: int | None = None
 
     @property
@@ -137,33 +165,30 @@ class TemporalSemanticIdEncoder:
     # ------------------------------------------------------------------
     # Training
     # ------------------------------------------------------------------
-    def _kmeans(self, data: NDArray, rng: RandomGenerator, iters: int = 10) -> NDArray:
+    def _kmeans(
+        self,
+        data: list[list[float]],
+        rng: Any,
+        iters: int = 10,
+        *,
+        seed: int | None = None,
+    ) -> list[list[float]]:
         """Seeded k-means returning a ``(k, dim)`` centroid matrix.
 
-        ``k`` is capped at the number of samples. Centroids are initialized by
-        sampling distinct rows; empty clusters are reseeded to a random point
-        each iteration so no centroid is left undefined.
+        ``k`` is capped at the number of samples. Initialization, assignment,
+        updates, and empty-cluster handling are owned by one bounded native
+        k-means call; AU only converts the returned centroid matrix.
         """
-        n_samples = data.shape[0]
+        n_samples = len(data)
         k = min(self._codebook_size, n_samples)
-        init_idx = rng.choice(n_samples, size=k, replace=False)
-        centroids = data[init_idx].copy()
-        for _ in range(iters):
-            # Assign each point to its nearest centroid (squared L2).
-            dists = (
-                np.sum(data**2, axis=1)[:, None]
-                - 2.0 * data @ centroids.T
-                + np.sum(centroids**2, axis=1)[None, :]
-            )
-            labels = np.argmin(dists, axis=1)
-            for c in range(k):
-                members = data[labels == c]
-                if members.shape[0] == 0:
-                    # Reseed an empty cluster to a random point (determinism via rng).
-                    centroids[c] = data[rng.integers(0, n_samples)]
-                else:
-                    centroids[c] = members.mean(axis=0)
-        return centroids
+        del rng  # native k-means owns initialization and empty-cluster handling
+        _, centroids = xp.kmeans(
+            data,
+            k,
+            iters,
+            self._seed if seed is None else seed,
+        )
+        return [[float(value) for value in row] for row in centroids]
 
     def fit(self, embeddings: Sequence[Sequence[float]]) -> TemporalSemanticIdEncoder:
         """Build the residual codebooks from a corpus of embeddings.
@@ -178,26 +203,27 @@ class TemporalSemanticIdEncoder:
         Returns:
             ``self`` (fitted), for chaining.
         """
-        arr = np.asarray(embeddings, dtype=np.float64)
-        if arr.ndim != 2 or arr.shape[0] == 0:
+        arr = [[float(value) for value in row] for row in embeddings]
+        if not arr or not arr[0] or any(len(row) != len(arr[0]) for row in arr):
             raise ValueError("fit() requires a non-empty 2-D sequence of vectors")
-        data = np.vstack([_l2_normalize(row) for row in arr])
-        self._dim = int(data.shape[1])
+        data = _l2_normalize_many(arr)
+        self._dim = len(data[0])
 
-        rng = np.random.default_rng(self._seed)
         self._codebooks = []
         residual = data
-        for _ in range(self._n_codebooks):
-            centroids = self._kmeans(residual, rng)
+        for level in range(self._n_codebooks):
+            centroids = self._kmeans(residual, None, seed=self._seed + level)
             self._codebooks.append(centroids)
             # Subtract each point's assigned centroid to form the next residual.
-            dists = (
-                np.sum(residual**2, axis=1)[:, None]
-                - 2.0 * residual @ centroids.T
-                + np.sum(centroids**2, axis=1)[None, :]
-            )
-            labels = np.argmin(dists, axis=1)
-            residual = residual - centroids[labels]
+            distances = _squared_distances(residual, centroids)
+            labels = [min(range(len(row)), key=row.__getitem__) for row in distances]
+            residual = [
+                [
+                    value - centroids[label][dimension]
+                    for dimension, value in enumerate(point)
+                ]
+                for point, label in zip(residual, labels, strict=False)
+            ]
         return self
 
     # ------------------------------------------------------------------
@@ -242,18 +268,21 @@ class TemporalSemanticIdEncoder:
         """
         if not self.is_fitted or self._dim is None:
             raise RuntimeError("encoder is not fitted; call fit() first")
-        vec = np.asarray(embedding, dtype=np.float64).reshape(-1)
-        if vec.size != self._dim:
+        vec = [float(value) for value in embedding]
+        if len(vec) != self._dim:
             raise ValueError(
-                f"Embedding dim mismatch: expected {self._dim}, got {vec.size}"
+                f"Embedding dim mismatch: expected {self._dim}, got {len(vec)}"
             )
         residual = _l2_normalize(vec)
         codes: list[int] = []
         for centroids in self._codebooks:
-            dists = np.sum((centroids - residual) ** 2, axis=1)
-            code = int(np.argmin(dists))
+            dists = _squared_distances([residual], centroids)[0]
+            code = min(range(len(dists)), key=lambda index: dists[index])
             codes.append(code)
-            residual = residual - centroids[code]
+            residual = [
+                value - centroids[code][dimension]
+                for dimension, value in enumerate(residual)
+            ]
         return tuple(codes)
 
     def encode(

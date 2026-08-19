@@ -11,8 +11,7 @@ from enum import StrEnum
 from typing import Any
 
 from agent_utilities.knowledge_graph.core import graph_primitives as rx
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 """Formal Graph Theory Primitives.
 
@@ -301,15 +300,15 @@ def count_paths_of_length(
 
     node_idx = {node: i for i, node in enumerate(nodes)}
     n = len(nodes)
-    A = np.zeros((n, n), dtype=np.int64)
+    A = [[0 for _ in range(n)] for _ in range(n)]
     for src_idx in graph.node_indices():
         src_label = graph[src_idx]
         for tgt_idx in graph.successor_indices(src_idx):
             tgt_label = graph[tgt_idx]
-            A[node_idx[src_label], node_idx[tgt_label]] += 1
+            A[node_idx[src_label]][node_idx[tgt_label]] += 1
 
-    result = np.linalg.matrix_power(A, length)
-    return int(result[node_idx[source], node_idx[target]])
+    result = xp.linalg.matrix_power(A, length)
+    return int(result[node_idx[source]][node_idx[target]])
 
 
 def reachability_within_hops(
@@ -1447,7 +1446,7 @@ class RandomWalkExplorer:
             data = graph[idx]
             nid = data["id"] if isinstance(data, dict) and "id" in data else str(data)
             self._node_map[nid] = idx
-        self._rng = np.random.default_rng(seed)
+        self._rng = xp.random.default_rng(seed)
 
     def explore(
         self,
@@ -2112,7 +2111,7 @@ class MarkovTransitionModel:
         self._state_to_idx = {s: i for i, s in enumerate(self.states)}
 
         n = len(self.states)
-        self.transition_matrix = np.zeros((n, n))
+        self.transition_matrix = [[0.0 for _ in range(n)] for _ in range(n)]
 
         for src, dsts in self.transitions.items():
             src_idx = self._state_to_idx[src]
@@ -2121,10 +2120,10 @@ class MarkovTransitionModel:
             if total_transitions > 0:
                 for dst, count in dsts.items():
                     dst_idx = self._state_to_idx[dst]
-                    self.transition_matrix[src_idx, dst_idx] = count / total_transitions
+                    self.transition_matrix[src_idx][dst_idx] = count / total_transitions
             else:
                 # Absorbing state (sink), stays in itself
-                self.transition_matrix[src_idx, src_idx] = 1.0
+                self.transition_matrix[src_idx][src_idx] = 1.0
 
     def get_transition_probability(self, src: str, dst: str) -> float:
         """Get the empirical probability of transitioning from src to dst."""
@@ -2134,7 +2133,7 @@ class MarkovTransitionModel:
             return 0.0
 
         return float(
-            self.transition_matrix[self._state_to_idx[src], self._state_to_idx[dst]]
+            self.transition_matrix[self._state_to_idx[src]][self._state_to_idx[dst]]
         )
 
     def stationary_distribution(
@@ -2153,12 +2152,13 @@ class MarkovTransitionModel:
             return {}
 
         n = len(self.states)
-        pi = np.ones(n) / n  # Initial uniform distribution
+        pi = [1.0 / n] * n
 
         for _ in range(max_iter):
             # pi * P (left eigenvector for row-stochastic matrix)
-            next_pi = pi @ self.transition_matrix
-            if np.linalg.norm(next_pi - pi, 1) < tol:
+            next_pi = xp.matmul([pi], self.transition_matrix)[0]
+            difference = [left - right for left, right in zip(next_pi, pi, strict=True)]
+            if xp.norm_ord(difference, 1) < tol:
                 pi = next_pi
                 break
             pi = next_pi
@@ -2207,7 +2207,7 @@ class MarkovTransitionModel:
         """
         if self.transition_matrix is None or n_steps < 1:
             return None
-        return np.linalg.matrix_power(self.transition_matrix, n_steps)
+        return xp.linalg.matrix_power(self.transition_matrix, n_steps)
 
     def forecast_from_state(self, state: str, n_steps: int) -> dict[str, float]:
         """Forecast the probability distribution over states after n steps.

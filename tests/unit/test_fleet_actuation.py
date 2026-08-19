@@ -35,7 +35,13 @@ from agent_utilities.orchestration.fleet_actuation import (
 )
 from agent_utilities.orchestration.fleet_autoscaler import FleetAutoscaler
 
-from .fleet_autonomy_fakes import FakeObserver, FakeSignalProvider, obs, write_policy
+from .fleet_autonomy_fakes import (
+    FakeObserver,
+    FakeSignalProvider,
+    healthy_fleet_evidence,
+    obs,
+    write_policy,
+)
 
 pytestmark = pytest.mark.concept("AU-OS.config.desired-state-fleet-reconciler")
 
@@ -382,6 +388,7 @@ def _k8s_autoscaler(
         actuator=actuator,
         policy=ActionPolicy(engine=engine, policy_path=policy_path),
         signal_provider=FakeSignalProvider(default=450.0),
+        health_provider=healthy_fleet_evidence,
     )
     original = fa.load_desired_state
     monkeypatch.setattr(

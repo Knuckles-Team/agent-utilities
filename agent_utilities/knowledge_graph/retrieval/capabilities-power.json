@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-17T22:14:19Z",
-  "count": 128,
+  "generated_at": "2026-08-19T05:10:56Z",
+  "count": 129,
   "capabilities": [
     {
       "id": "act",
@@ -115,7 +115,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -231,7 +231,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -369,7 +369,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -543,7 +543,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -701,7 +701,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -896,7 +896,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -1080,7 +1080,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -1374,7 +1374,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -1869,7 +1869,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -2134,7 +2134,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -2315,7 +2315,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -2510,7 +2510,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -2789,7 +2789,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -4061,7 +4061,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -4564,7 +4564,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -4726,7 +4726,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -4923,7 +4923,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -5223,7 +5223,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -5666,7 +5666,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -5884,7 +5884,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -6361,7 +6361,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -6522,7 +6522,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -7057,7 +7057,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -7204,7 +7204,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -7503,7 +7503,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -7626,7 +7626,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -7873,7 +7873,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -8222,7 +8222,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -8389,7 +8389,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -8540,7 +8540,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -8984,7 +8984,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -9114,7 +9114,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -9234,7 +9234,7 @@
         "source_method_eg": "FindCycle",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -9523,7 +9523,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -9720,7 +9720,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -9952,7 +9952,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -10100,7 +10100,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:18Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -10279,7 +10279,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -10482,7 +10482,7 @@
         "source_method_eg": "BrokerAck",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -10811,7 +10811,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -11019,7 +11019,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -11268,7 +11268,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -11509,7 +11509,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -11694,7 +11694,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -11864,7 +11864,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:55Z"
       }
     },
     {
@@ -12041,7 +12041,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -12099,6 +12099,11 @@
         },
         {
           "action": "external_graph_doctor",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "frontend_contributions",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -12299,7 +12304,7 @@
             "type": "string",
             "required": false,
             "default": "register_mcp",
-            "description": "Configuration operation. Core actions: set_secret, vault_sync, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, set_config, list_config, system_doctor, health, and preflight. Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests. Stardog instance-data actions: push_to_stardog, pull_from_stardog, stardog_sparql, and stardog_export_graph/stardog_import_graph (bulk Turtle backup/restore/migrate of one named graph \u2014 config_value.graph_uri optional, defaults to the resolved connection's own dedicated mirror graph if any; stardog_import_graph requires config_value.turtle)."
+            "description": "Configuration operation. Core actions: set_secret, vault_sync, frontend_contributions, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, set_config, list_config, system_doctor, health, and preflight. Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests. Stardog instance-data actions: push_to_stardog, pull_from_stardog, stardog_sparql, and stardog_export_graph/stardog_import_graph (bulk Turtle backup/restore/migrate of one named graph \u2014 config_value.graph_uri optional, defaults to the resolved connection's own dedicated mirror graph if any; stardog_import_graph requires config_value.turtle)."
           },
           {
             "name": "config_key",
@@ -12321,7 +12326,7 @@
           "properties": {
             "action": {
               "default": "register_mcp",
-              "description": "Configuration operation. Core actions: set_secret, vault_sync, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, set_config, list_config, system_doctor, health, and preflight. Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests. Stardog instance-data actions: push_to_stardog, pull_from_stardog, stardog_sparql, and stardog_export_graph/stardog_import_graph (bulk Turtle backup/restore/migrate of one named graph \u2014 config_value.graph_uri optional, defaults to the resolved connection's own dedicated mirror graph if any; stardog_import_graph requires config_value.turtle).",
+              "description": "Configuration operation. Core actions: set_secret, vault_sync, frontend_contributions, register_mcp, install_hooks, uninstall_hooks, harness_fence, schema_pack, schema_candidates, add_connection, remove_connection, list_connections, mirror_status, reconcile, generate_config, config_doctor, config_reference, get_config, set_config, list_config, system_doctor, health, and preflight. Universal external-source lifecycle actions are discover_connection_schema, propose_connection_mapping, approve_connection_mapping, connection_mapping_status, external_graph_doctor, and ingest_connection. Durable connection declarations accept neutral aliases and runtime secret references only; endpoint, credential, identity, query, TLS material, and local-path literals are rejected. GraphQL sources use a read-only runtime adapter; their connection, mapping, auth, TLS, and variables documents remain separate refs, and every ingest rechecks the approved schema and mapping-policy digests. Stardog instance-data actions: push_to_stardog, pull_from_stardog, stardog_sparql, and stardog_export_graph/stardog_import_graph (bulk Turtle backup/restore/migrate of one named graph \u2014 config_value.graph_uri optional, defaults to the resolved connection's own dedicated mirror graph if any; stardog_import_graph requires config_value.turtle).",
               "type": "string"
             },
             "config_key": {
@@ -12341,7 +12346,7 @@
       },
       "side_effects": {
         "matched_action_count": 4,
-        "unmatched_action_count": 34,
+        "unmatched_action_count": 35,
         "any_action_mutates": true,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [
@@ -12404,7 +12409,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -12599,7 +12604,163 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
+      }
+    },
+    {
+      "id": "graph_data_prep",
+      "title": "graph data prep",
+      "one_line": "Governed Arrow data preparation over the NE-108 kernel.",
+      "intent_verbs": [
+        "ask",
+        "write"
+      ],
+      "does": [
+        {
+          "action": "clean_dataset",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "commit_prepared",
+          "eg_method": "Commit",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "commit"
+          ],
+          "mutates": "true",
+          "durability": "ControlRedb",
+          "authz_action": "txn:control",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "Saga",
+          "eg_note": "named parent receipt plus atomic graph/cross-modal child batches"
+        },
+        {
+          "action": "profile_dataset",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "validate_prepared",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        }
+      ],
+      "typed_io": {
+        "rest_route": "/data/prep",
+        "tags": [
+          "arrow",
+          "data-prep",
+          "data_prep",
+          "gated",
+          "governance",
+          "granular",
+          "graph-os"
+        ],
+        "input_params": [
+          {
+            "name": "action",
+            "type": "string",
+            "required": false,
+            "default": "profile_dataset",
+            "description": "profile_dataset | clean_dataset | validate_prepared | commit_prepared"
+          },
+          {
+            "name": "params_json",
+            "type": "string",
+            "required": false,
+            "default": "{}",
+            "description": "Bounded JSON object carrying the typed plan, immutable refs, artifact_ref or bounded scalar records, and resource budget."
+          }
+        ],
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "action": {
+              "default": "profile_dataset",
+              "description": "profile_dataset | clean_dataset | validate_prepared | commit_prepared",
+              "enum": [
+                "profile_dataset",
+                "clean_dataset",
+                "validate_prepared",
+                "commit_prepared"
+              ],
+              "type": "string"
+            },
+            "params_json": {
+              "default": "{}",
+              "description": "Bounded JSON object carrying the typed plan, immutable refs, artifact_ref or bounded scalar records, and resource budget.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
+      },
+      "side_effects": {
+        "matched_action_count": 1,
+        "unmatched_action_count": 3,
+        "any_action_mutates": true,
+        "all_matched_actions_mutate": true,
+        "durability_values_seen": [
+          "ControlRedb"
+        ],
+        "txn_participation_values_seen": [
+          "Saga"
+        ],
+        "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
+      },
+      "scopes": [
+        "txn:control"
+      ],
+      "policy": {
+        "approval_class": "auto",
+        "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
+      },
+      "cost": {},
+      "latency": {},
+      "reliability": {},
+      "preconditions": [
+        "a reachable graph-os engine (IntelligenceGraphEngine) with the required backend"
+      ],
+      "when_to_use": [
+        "Your intent matches one of this capability's `does` actions."
+      ],
+      "when_not": [
+        "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
+      ],
+      "examples": [
+        "graph_data_prep: Governed Arrow data preparation over the NE-108 kernel.",
+        "graph_data_prep action=clean_dataset",
+        "graph_data_prep action=commit_prepared",
+        "graph_data_prep action=profile_dataset"
+      ],
+      "eligibility_predicates": {
+        "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
+        "source": "agent_utilities.graph.routing.enrichers.capability_routing.explain_routing_eligibility (X-4, CONCEPT:AU-P1-3)",
+        "live_evaluation": null,
+        "note": "not live-evaluated in this static generation pass \u2014 explain_routing_eligibility() needs a reachable engine AND a populated capability_type/ontology assignment for this tool's node; call it directly against a live engine for a per-request eligibility proof rather than trusting a value baked in here",
+        "candidate_tags": [
+          "arrow",
+          "data-prep",
+          "data_prep",
+          "gated",
+          "governance",
+          "granular",
+          "graph-os"
+        ]
+      },
+      "calibrated_outcomes": {},
+      "provenance": {
+        "generator_version": "1.0.0",
+        "source_repo_au": "agent-utilities",
+        "source_module_au": "agent_utilities.mcp.kg_server",
+        "source_method_eg": null,
+        "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
+        "eg_ledger_available": true,
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -12888,7 +13049,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -13152,7 +13313,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -13382,7 +13543,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -13634,7 +13795,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -13885,7 +14046,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -14088,7 +14249,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -14372,7 +14533,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -14599,7 +14760,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -14797,7 +14958,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -14949,7 +15110,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -15124,7 +15285,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -15277,7 +15438,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -15470,7 +15631,7 @@
         "source_method_eg": "Fork",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -15597,7 +15758,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -15751,7 +15912,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -16041,7 +16202,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -16271,7 +16432,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -16290,6 +16451,11 @@
         },
         {
           "action": "archivebox_sync",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "backfill_platform_history",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
@@ -16525,7 +16691,7 @@
             "type": "string",
             "required": false,
             "default": "ingest",
-            "description": "Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, sync_second_brain, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process \u2014 raw text only, flagged needs_enrichment=true \u2014 and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) \u2192 classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default \u2014 use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so graph_orchestrate execute_workflow can discover and fire them; ALSO sweeps the sibling atomic-skill corpus (skill_type: skill) into a CallableResource(AGENT_SKILL) each via the same reused ingest_runnable_skill primitive, so both legs of the corpus are classified by this one call; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'sync_second_brain' (CONCEPT:AU-KG.enrichment.second-brain-note-sync) is the one-call personal-notes sync: target_path=notes directory or file (a markdown folder, an Obsidian vault, or a synced Nextcloud/Paperless export \u2014 see the `second-brain-sync` skill), corpus_name=corpus name, base_path=optional 'since' cursor (epoch seconds or an ISO-8601 timestamp) to only process notes changed since then. Per note: runs 'fact_extract' (evidence-spanned facts), extracts entities/claims and PROPOSES each new claim into the governed ClaimFlywheel lifecycle (graph_claims reads the same state \u2014 never silently accepted), then scans each new claim against existing graph content and persists any contradiction as a propose-only :BeliefRevisionProposal (the same node loop_controller's belief-revision pass writes, so existing review tooling picks it up with no new UI). Content-hash idempotent: re-running over an unchanged corpus mints zero new facts/claims/proposals. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 \u2014 no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor."
+            "description": "Action to perform (ingest, ingest_url, backfill_platform_history, archivebox_sync, skill_workflows, fact_extract, sync_second_brain, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). For backfill_platform_history, pass corpus_name=<recoverable platform> and target_path=<channel/room id>; it re-fetches retained history using the platform's existing credential and records idempotent backfilled InboundMessage nodes. 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process \u2014 raw text only, flagged needs_enrichment=true \u2014 and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) \u2192 classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default \u2014 use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so graph_orchestrate execute_workflow can discover and fire them; ALSO sweeps the sibling atomic-skill corpus (skill_type: skill) into a CallableResource(AGENT_SKILL) each via the same reused ingest_runnable_skill primitive, so both legs of the corpus are classified by this one call; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'sync_second_brain' (CONCEPT:AU-KG.enrichment.second-brain-note-sync) is the one-call personal-notes sync: target_path=notes directory or file (a markdown folder, an Obsidian vault, or a synced Nextcloud/Paperless export \u2014 see the `second-brain-sync` skill), corpus_name=corpus name, base_path=optional 'since' cursor (epoch seconds or an ISO-8601 timestamp) to only process notes changed since then. Per note: runs 'fact_extract' (evidence-spanned facts), extracts entities/claims and PROPOSES each new claim into the governed ClaimFlywheel lifecycle (graph_claims reads the same state \u2014 never silently accepted), then scans each new claim against existing graph content and persists any contradiction as a propose-only :BeliefRevisionProposal (the same node loop_controller's belief-revision pass writes, so existing review tooling picks it up with no new UI). Content-hash idempotent: re-running over an unchanged corpus mints zero new facts/claims/proposals. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 \u2014 no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor."
           },
           {
             "name": "job_id",
@@ -16604,7 +16770,7 @@
             },
             "action": {
               "default": "ingest",
-              "description": "Action to perform (ingest, ingest_url, archivebox_sync, skill_workflows, fact_extract, sync_second_brain, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process \u2014 raw text only, flagged needs_enrichment=true \u2014 and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) \u2192 classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default \u2014 use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so graph_orchestrate execute_workflow can discover and fire them; ALSO sweeps the sibling atomic-skill corpus (skill_type: skill) into a CallableResource(AGENT_SKILL) each via the same reused ingest_runnable_skill primitive, so both legs of the corpus are classified by this one call; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'sync_second_brain' (CONCEPT:AU-KG.enrichment.second-brain-note-sync) is the one-call personal-notes sync: target_path=notes directory or file (a markdown folder, an Obsidian vault, or a synced Nextcloud/Paperless export \u2014 see the `second-brain-sync` skill), corpus_name=corpus name, base_path=optional 'since' cursor (epoch seconds or an ISO-8601 timestamp) to only process notes changed since then. Per note: runs 'fact_extract' (evidence-spanned facts), extracts entities/claims and PROPOSES each new claim into the governed ClaimFlywheel lifecycle (graph_claims reads the same state \u2014 never silently accepted), then scans each new claim against existing graph content and persists any contradiction as a propose-only :BeliefRevisionProposal (the same node loop_controller's belief-revision pass writes, so existing review tooling picks it up with no new UI). Content-hash idempotent: re-running over an unchanged corpus mints zero new facts/claims/proposals. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 \u2014 no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.",
+              "description": "Action to perform (ingest, ingest_url, backfill_platform_history, archivebox_sync, skill_workflows, fact_extract, sync_second_brain, classify_topics, enrich_pending_documents, distill, import_pack, ingest_knowledge_pack, agent_toolkit, corpus, jobs, job_status, status, cancel, clear, prioritize, rebuild_indexes, observe, materialize, materialize_source, sync, reflect). For backfill_platform_history, pass corpus_name=<recoverable platform> and target_path=<channel/room id>; it re-fetches retained history using the platform's existing credential and records idempotent backfilled InboundMessage nodes. 'enrich_pending_documents' sweeps :Document nodes a connector wrote via the native_ingest primitive (e.g. searxng-mcp results) from outside the hub process \u2014 raw text only, flagged needs_enrichment=true \u2014 and runs each through the SAME DocumentProcessor + central _enrich_text seam a direct ingest gets (chunk+contextual-enrich+concepts+facts+WorldView topic classification), clearing the flag. 'classify_topics' runs the WorldView subject/topic classifier ad hoc (CONCEPT:AU-KG.enrichment.topic-classification-topology): description=raw text (or target_path=file, or target_path=an existing Document node id to attach edges to) \u2192 classifies onto the canonical WorldView taxonomy (ontology_worldview.ttl) and mints/links the :Topic hierarchy (BROADER/NARROWER) + HAS_TOPIC/CLASSIFIED_AS edges with confidence; corpus_name=optional title. This is the SAME core every document ingestion runs by default \u2014 use this action to classify a document that already exists in the graph without re-ingesting it, or to preview a classification. 'ingest_url' content-aware single-URL ingest (CONCEPT:AU-KG.research.skill-graph-distillation): target_path=URL \u2192 fetch via the unified resolver (ArchiveBox\u2192crawl4ai\u2192requests) into a Document, and for a research roundup (auto-detected, or forced with description='extract_papers' / disabled with 'no_papers') download the cited papers via scholarx and ingest them too, linking page\u2192paper; runs inline. 'archivebox_sync' pulls preserved ArchiveBox snapshots into the KG (corpus_name='full' = pull ALL, else delta; base_path=JSON list of snapshot ids to select). 'skill_workflows' ingests the universal-skills workflow corpus (workflows/<domain>/<name>/SKILL.md) into the KG as dispatchable WorkflowDefinition DAGs (+WorkflowStep depends_on edges +USES_SKILL links) in the exact WorkflowStore shape execute_workflow reads, so graph_orchestrate execute_workflow can discover and fire them; ALSO sweeps the sibling atomic-skill corpus (skill_type: skill) into a CallableResource(AGENT_SKILL) each via the same reused ingest_runnable_skill primitive, so both legs of the corpus are classified by this one call; target_path optionally overrides the corpus root, default=installed universal_skills package; idempotent (content-addressed re-ingest is a no-op); runs as a BACKGROUND job (returns a job_id immediately \u2014 the full corpus takes ~150s, over the call ceiling \u2014 poll with action=job_status job_id=<id>). 'materialize_source' runs an enterprise source extractor (corpus_name=category, e.g. 'camunda'/'aris'/'egeria'; description=optional JSON extractor config), persists its BusinessProcess/BusinessTask/FLOWS_TO batch into the graph via an in-process vendor client, then runs one OWL reasoning cycle so the new process structure folds into the cross-vendor crosswalk. 'fact_extract' turns a document (description=raw text, or target_path=file) into atomic (subject)-[predicate]->(object) fact edges with confidence/evidence/tags, dedups them, persists to the graph, and returns the facts + JSONL. 'sync_second_brain' (CONCEPT:AU-KG.enrichment.second-brain-note-sync) is the one-call personal-notes sync: target_path=notes directory or file (a markdown folder, an Obsidian vault, or a synced Nextcloud/Paperless export \u2014 see the `second-brain-sync` skill), corpus_name=corpus name, base_path=optional 'since' cursor (epoch seconds or an ISO-8601 timestamp) to only process notes changed since then. Per note: runs 'fact_extract' (evidence-spanned facts), extracts entities/claims and PROPOSES each new claim into the governed ClaimFlywheel lifecycle (graph_claims reads the same state \u2014 never silently accepted), then scans each new claim against existing graph content and persists any contradiction as a propose-only :BeliefRevisionProposal (the same node loop_controller's belief-revision pass writes, so existing review tooling picks it up with no new UI). Content-hash idempotent: re-running over an unchanged corpus mints zero new facts/claims/proposals. 'extract_submit'/'extract_jobs'/'extract_status'/'extract_pause'/'extract_resume'/'extract_jsonl' run extraction as a GPU-slot-scheduled job (preempt/backfill/resume on the single GPU) addressed by job_id; max_depth sets rounds. 'distill' exports a KG subgraph to a portable skill-graph (target_path=out dir; corpus_name=seed node id OR description=query; max_depth=hop depth). 'import_pack' re-ingests a distilled skill-graph dir back into the KG (target_path=dir; corpus_name='dedup' to merge duplicates). 'build_skill_graph' runs the UNIFIED skill-graph pipeline (CONCEPT:AU-KG.research.skill-graph-distillation): acquire from ANY source kind into one standardized skill-graph (corpus_name=name; target_path=output parent dir; base_path=JSON list of sources [{kind,uri,options}] OR 'kind=uri,kind=uri' shorthand over web/pdf/office/dir/url_reader/rest/database/mcp_tool/generated/kg_query; description=optional human description) \u2014 always writes the offline corpus + a sources.json provenance/freshness manifest, and ALSO ingests into the KG when the daemon is reachable (degrades cleanly otherwise). 'skill_graph_status' reports freshness of an existing skill-graph (target_path=dir; corpus_name='quick' to skip network sources). 'rebuild_skill_graph' re-acquires from the recorded sources and bumps the version (target_path=dir). Queue control: 'cancel' (job_id), 'clear' (target_path=status filter pending|running|completed|failed|cancelled|zombie|all, default completed), 'prioritize' (job_id, priority_bucket=0..3 \u2014 no named priority aliases are accepted). Research evolution (CONCEPT:AU-KG.ingest.batch-research-cohort): 'cohort_create' (base_path=JSON list of paper URLs, target_path=JSON list of repo paths, description=goal) batch-ingests a cohort of papers+repos whose self-polling barrier synthesizes the comparative feature/innovation matrix (KG-2.173) when every member drains; 'cohort_status' (job_id=cohort_id) returns per-member progress + the matrix counts; 'profile' (corpus_name=lane|type|tkind, CONCEPT:AU-OS.observability.per-lane-latency-metrics) returns per-lane/stage latency percentiles + token/cost + the parallelism factor.",
               "type": "string"
             },
             "job_id": {
@@ -16656,7 +16822,7 @@
       },
       "side_effects": {
         "matched_action_count": 0,
-        "unmatched_action_count": 41,
+        "unmatched_action_count": 42,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
         "durability_values_seen": [],
@@ -16684,7 +16850,7 @@
         "graph_ingest: Smart ingestion for codebases, documents, directories, and conversation logs.",
         "graph_ingest action=agent_toolkit",
         "graph_ingest action=archivebox_sync",
-        "graph_ingest action=build_skill_graph"
+        "graph_ingest action=backfill_platform_history"
       ],
       "eligibility_predicates": {
         "formula": "eligible(candidate, required) = ontology_subsumption(candidate.capability_type, required) AND tenant_match(candidate.tenant, caller.tenant) AND policy_tag_match(candidate.policy_tags, required.policy_tags), ranked by cosine(embedding) + reward_weight*(bandit_reward-0.5)",
@@ -16707,7 +16873,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -16932,7 +17098,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -17380,7 +17546,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -17527,7 +17693,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -17697,7 +17863,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -17884,7 +18050,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -18246,7 +18412,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -18415,7 +18581,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -18557,7 +18723,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -18782,7 +18948,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -19234,7 +19400,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -19388,7 +19554,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -19531,7 +19697,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -20043,7 +20209,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -20272,7 +20438,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -20597,7 +20763,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -20729,7 +20895,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -20924,7 +21090,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -21123,7 +21289,7 @@
         "source_method_eg": "CypherQuery",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -21345,7 +21511,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -21564,7 +21730,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -21711,7 +21877,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -22103,7 +22269,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -22228,7 +22394,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -22393,7 +22559,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -22593,7 +22759,7 @@
         "source_method_eg": "SemanticSearch",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -22786,7 +22952,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -22958,13 +23124,13 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
       "id": "graph_sessions",
       "title": "graph sessions",
-      "one_line": "Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel').",
+      "one_line": "Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel', 'health', 'topology').",
       "intent_verbs": [
         "manage",
         "ask"
@@ -22986,12 +23152,32 @@
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
+          "action": "health",
+          "eg_method": "Health",
+          "match_confidence": 1.0,
+          "matched_tokens": [
+            "health"
+          ],
+          "mutates": "false",
+          "durability": "None",
+          "authz_action": "service:control",
+          "idempotent": "true",
+          "audited": "false",
+          "emits_cdc": "false",
+          "txn_participation": "None"
+        },
+        {
           "action": "list",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         },
         {
           "action": "reply",
+          "eg_method": null,
+          "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
+        },
+        {
+          "action": "topology",
           "eg_method": null,
           "note": "no confident EG-P0-1 ledger match by name \u2014 likely an AU-level orchestration action with no 1:1 raw engine Method, not a gap in matching effort"
         }
@@ -23011,7 +23197,7 @@
             "type": "string",
             "required": true,
             "default": null,
-            "description": "Action: 'list', 'get', 'delete', 'reply', 'cancel'"
+            "description": "Action: 'list', 'get', 'delete', 'reply', 'cancel', 'health', 'topology'"
           },
           {
             "name": "session_id",
@@ -23026,13 +23212,34 @@
             "required": false,
             "default": "",
             "description": "Reply content for 'reply' action"
+          },
+          {
+            "name": "limit",
+            "type": "integer",
+            "required": false,
+            "default": 200,
+            "description": "Page size for 'topology'."
+          },
+          {
+            "name": "offset",
+            "type": "integer",
+            "required": false,
+            "default": 0,
+            "description": "Page offset for 'topology'."
+          },
+          {
+            "name": "status",
+            "type": "string",
+            "required": false,
+            "default": "",
+            "description": "Optional session status filter for 'topology'."
           }
         ],
         "input_schema": {
           "additionalProperties": false,
           "properties": {
             "action": {
-              "description": "Action: 'list', 'get', 'delete', 'reply', 'cancel'",
+              "description": "Action: 'list', 'get', 'delete', 'reply', 'cancel', 'health', 'topology'",
               "type": "string"
             },
             "session_id": {
@@ -23044,6 +23251,21 @@
               "default": "",
               "description": "Reply content for 'reply' action",
               "type": "string"
+            },
+            "limit": {
+              "default": 200,
+              "description": "Page size for 'topology'.",
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "description": "Page offset for 'topology'.",
+              "type": "integer"
+            },
+            "status": {
+              "default": "",
+              "description": "Optional session status filter for 'topology'.",
+              "type": "string"
             }
           },
           "required": [
@@ -23054,15 +23276,21 @@
         "output": "JSON string (json.dumps result) \u2014 see each tool's docstring/description for the returned shape; no formal output JSON Schema is declared server-side today (all graph-os tools return `str`)."
       },
       "side_effects": {
-        "matched_action_count": 0,
-        "unmatched_action_count": 5,
+        "matched_action_count": 1,
+        "unmatched_action_count": 6,
         "any_action_mutates": false,
         "all_matched_actions_mutate": false,
-        "durability_values_seen": [],
-        "txn_participation_values_seen": [],
-        "note": "no action on this tool matched an EG ledger Method by name \u2014 no side-effect rollup is stated rather than guessed"
+        "durability_values_seen": [
+          "None"
+        ],
+        "txn_participation_values_seen": [
+          "None"
+        ],
+        "note": "derived by matching each action to its EG-P0-1 ledger Method (see each does[] item for the per-action match + confidence); a tool with 0 matched actions has no rollup here (see does[] notes) rather than a guessed value"
       },
-      "scopes": [],
+      "scopes": [
+        "service:control"
+      ],
       "policy": {
         "approval_class": "auto",
         "note": "coarse default from MCP tags; see side_effects/does for the per-action ledger authz_action, which is the authoritative scope"
@@ -23080,7 +23308,7 @@
         "Another capability's `does` list is a closer match to your intent \u2014 check the index for a more specific fit."
       ],
       "examples": [
-        "graph_sessions: Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel').",
+        "graph_sessions: Manage durable sessions (action in 'list', 'get', 'delete', 'reply', 'cancel',",
         "graph_sessions action=cancel",
         "graph_sessions action=delete",
         "graph_sessions action=get"
@@ -23106,7 +23334,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -23247,7 +23475,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -23472,7 +23700,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -23672,7 +23900,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -24011,7 +24239,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -24302,7 +24530,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -24735,7 +24963,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -24966,7 +25194,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -25115,7 +25343,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -25231,7 +25459,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -25396,7 +25624,7 @@
         "source_method_eg": "NlQuery",
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -25618,7 +25846,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -25740,7 +25968,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -25909,7 +26137,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -26198,7 +26426,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -26554,7 +26782,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -26737,7 +26965,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -26889,7 +27117,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -27108,7 +27336,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -27204,7 +27432,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -27349,7 +27577,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -27476,7 +27704,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -27615,7 +27843,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -27827,7 +28055,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -28000,7 +28228,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -28139,7 +28367,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -28451,7 +28679,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -28685,7 +28913,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -28853,7 +29081,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -28964,7 +29192,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -29110,7 +29338,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -29320,7 +29548,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -29598,7 +29826,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -29714,7 +29942,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     },
     {
@@ -29830,7 +30058,7 @@
         "source_method_eg": null,
         "eg_ledger_path": "repo://epistemic-graph/docs/capabilities.generated.md",
         "eg_ledger_available": true,
-        "generated_at": "2026-08-17T22:14:19Z"
+        "generated_at": "2026-08-19T05:10:56Z"
       }
     }
   ]

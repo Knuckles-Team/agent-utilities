@@ -13,7 +13,7 @@ orthogonal centroids. Each labelled query is the cluster centroid (perturbed);
 the gold set is that cluster's relevant ids. A correct ranker must surface the
 relevant ids in the top-k.
 
-Vectors are deterministic (seeded numpy) so the gate is reproducible.
+Vectors are deterministic (seeded native kernel) so the gate is reproducible.
 
 Usage::
 
@@ -42,7 +42,8 @@ try:
     from agent_utilities.knowledge_graph.retrieval.capability_index import (  # noqa: E402
         CapabilityIndex,
     )
-    from agent_utilities.numeric import xp as np  # noqa: E402
+    from agent_utilities.numeric import RandomGenerator  # noqa: E402
+    from agent_utilities.numeric import xp as np
 except ImportError as exc:
     # The retrieval-quality gate ranks vectors through the kernel-backed
     # `agent_utilities.numeric` (`xp`) array namespace, which hard-requires the
@@ -75,30 +76,33 @@ RELEVANT_PER_CLUSTER = 3
 IRRELEVANT_PER_CLUSTER = 4
 
 
-def _onehot(dim_a: int, dim_b: int) -> np.ndarray:
+def _onehot(dim_a: int, dim_b: int) -> list[float]:
     """A near-one-hot vector active on two dims (clusters stay orthogonal)."""
-    vec = np.full(DIM, 0.01, dtype=np.float32)
+    vec = [0.01] * DIM
     vec[dim_a % DIM] = 1.0
     vec[dim_b % DIM] = 1.0
     return vec
 
 
-def _relevant_centroid(cluster: int) -> np.ndarray:
+def _relevant_centroid(cluster: int) -> list[float]:
     """Centroid for a query/relevant cluster — lives in the low dims."""
     return _onehot(2 * cluster, 2 * cluster + 1)
 
 
-def _irrelevant_centroid(cluster: int) -> np.ndarray:
+def _irrelevant_centroid(cluster: int) -> list[float]:
     """Distractor centroid — lives in the *high* dims, orthogonal to every
     query/relevant centroid so a correct ranker never confuses the two."""
     base = 2 * N_CLUSTERS  # start past all relevant dims
     return _onehot(base + 2 * cluster, base + 2 * cluster + 1)
 
 
-def _jitter(base: np.ndarray, scale: float, rng: np.random.Generator) -> np.ndarray:
-    return (base + rng.normal(0.0, scale, size=DIM).astype(np.float32)).astype(
-        np.float32
-    )
+def _jitter(base: list[float], scale: float, rng: RandomGenerator) -> list[float]:
+    noise = rng.normal(0.0, scale, size=DIM)
+    if not isinstance(noise, list) or len(noise) != DIM:
+        raise TypeError("native random kernel returned an invalid jitter vector")
+    return [
+        float(value) + float(delta) for value, delta in zip(base, noise, strict=True)
+    ]
 
 
 def build_index(*, degrade: bool = False) -> tuple[CapabilityIndex, list[dict]]:
@@ -111,7 +115,7 @@ def build_index(*, degrade: bool = False) -> tuple[CapabilityIndex, list[dict]]:
     proving the gate has teeth.
     """
     rng = np.random.default_rng(1234)
-    idx = CapabilityIndex(dim=DIM, prefer_backend="numpy")
+    idx = CapabilityIndex(dim=DIM, prefer_backend="native")
     queries: list[dict] = []
 
     for c in range(N_CLUSTERS):
@@ -162,8 +166,8 @@ def evaluate(idx: CapabilityIndex, queries: list[dict], k: int = K) -> dict:
         rrs.append(rr)
 
     return {
-        "recall_at_k": float(np.mean(recalls)) if recalls else 0.0,
-        "mrr": float(np.mean(rrs)) if rrs else 0.0,
+        "recall_at_k": sum(recalls) / len(recalls) if recalls else 0.0,
+        "mrr": sum(rrs) / len(rrs) if rrs else 0.0,
         "k": k,
         "n_queries": len(queries),
     }

@@ -150,9 +150,14 @@ class _FixtureCorpusEngine:
         self.calls = 0
 
     def search_hybrid(
-        self, query: str, *, top_k: int = 8, as_of: str | None = None
+        self,
+        query: str,
+        *,
+        top_k: int = 8,
+        as_of: str | None = None,
+        session: object | None = None,
     ) -> list[dict[str, object]]:
-        del query, top_k, as_of
+        del query, top_k, as_of, session
         self.calls += 1
         return [dict(node) for node in self._corpus]
 

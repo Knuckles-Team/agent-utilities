@@ -8,10 +8,10 @@ Source: Qlib Profit Attribution Module
 """
 
 import logging
+import math
 from dataclasses import dataclass
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
@@ -84,30 +84,35 @@ class ProfitAttributor:
             return AttributionResult()
 
         n = min(len(strategy_returns), len(benchmark_returns))
-        start = strategy_returns[:n]
-        bench = benchmark_returns[:n]
+        start = [float(value) for value in strategy_returns[:n]]
+        bench = [float(value) for value in benchmark_returns[:n]]
 
         # OLS regression
-        x_mean = np.mean(bench)
-        y_mean = np.mean(start)
-        ss_xy = np.sum((bench - x_mean) * (start - y_mean))
-        ss_xx = np.sum((bench - x_mean) ** 2)
+        x_mean = float(xp.mean(bench))
+        y_mean = float(xp.mean(start))
+        ss_xy = sum(
+            (x - x_mean) * (y - y_mean) for x, y in zip(bench, start, strict=True)
+        )
+        ss_xx = sum((x - x_mean) ** 2 for x in bench)
 
         if ss_xx == 0:
-            return AttributionResult(total_return=float(np.sum(start)))
+            return AttributionResult(total_return=float(xp.sum(start)))
 
         beta = ss_xy / ss_xx
         alpha = y_mean - beta * x_mean
 
         # R-squared
-        y_pred = alpha + beta * bench
-        ss_res = np.sum((start - y_pred) ** 2)
-        ss_tot = np.sum((start - y_mean) ** 2)
+        y_pred = [alpha + beta * value for value in bench]
+        ss_res = sum(
+            (actual - predicted) ** 2
+            for actual, predicted in zip(start, y_pred, strict=True)
+        )
+        ss_tot = sum((value - y_mean) ** 2 for value in start)
         r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
         # Decomposition
-        total = float(np.sum(start))
-        beta_component = float(beta * np.sum(bench))
+        total = float(xp.sum(start))
+        beta_component = float(beta * xp.sum(bench))
         alpha_component = float(alpha * n)
         residual = total - alpha_component - beta_component
 
@@ -138,23 +143,24 @@ def compute_performance_report(
         return PerformanceReport()
 
     # Basic returns
-    total_return = float(np.prod(1 + returns) - 1)
+    values = [float(value) for value in returns]
+    total_return = float(math.prod(1.0 + value for value in values) - 1.0)
     n_periods = len(returns)
     annualized_return = float((1 + total_return) ** (periods_per_year / n_periods) - 1)
-    volatility = float(np.std(returns) * np.sqrt(periods_per_year))
+    volatility = float(xp.std(values) * math.sqrt(periods_per_year))
 
     # Sharpe
-    excess = returns - risk_free_rate / periods_per_year
+    excess = [value - risk_free_rate / periods_per_year for value in values]
     sharpe = (
-        float(np.mean(excess) / np.std(excess) * np.sqrt(periods_per_year))
-        if np.std(excess) > 0
+        float(xp.mean(excess) / xp.std(excess) * math.sqrt(periods_per_year))
+        if xp.std(excess) > 0
         else 0.0
     )
 
     # Sortino (downside deviation)
-    downside = returns[returns < 0]
+    downside = [value for value in values if value < 0]
     downside_std = (
-        float(np.std(downside) * np.sqrt(periods_per_year))
+        float(xp.std(downside) * math.sqrt(periods_per_year))
         if len(downside) > 0
         else 0.001
     )
@@ -165,23 +171,34 @@ def compute_performance_report(
     )
 
     # Max drawdown
-    cumulative = np.cumprod(1 + returns)
-    rolling_max = np.maximum.accumulate(cumulative)
-    drawdowns = (cumulative - rolling_max) / rolling_max
-    max_drawdown = float(np.min(drawdowns))
+    cumulative: list[float] = []
+    running = 1.0
+    for value in values:
+        running *= 1.0 + value
+        cumulative.append(running)
+    rolling_max: list[float] = []
+    current_max = float("-inf")
+    for value in cumulative:
+        current_max = max(current_max, value)
+        rolling_max.append(current_max)
+    drawdowns = [
+        (value - high) / high
+        for value, high in zip(cumulative, rolling_max, strict=True)
+    ]
+    max_drawdown = float(min(drawdowns))
 
     # Calmar
     calmar = float(annualized_return / abs(max_drawdown)) if max_drawdown != 0 else 0.0
 
     # Win/loss stats
-    wins = returns[returns > 0]
-    losses = returns[returns < 0]
+    wins = [value for value in values if value > 0]
+    losses = [value for value in values if value < 0]
     win_rate = float(len(wins) / len(returns)) if len(returns) > 0 else 0.0
-    avg_win = float(np.mean(wins)) if len(wins) > 0 else 0.0
-    avg_loss = float(np.mean(losses)) if len(losses) > 0 else 0.0
+    avg_win = float(xp.mean(wins)) if wins else 0.0
+    avg_loss = float(xp.mean(losses)) if losses else 0.0
     profit_factor = (
-        float(np.sum(wins) / abs(np.sum(losses)))
-        if np.sum(losses) != 0
+        float(xp.sum(wins) / abs(xp.sum(losses)))
+        if losses and xp.sum(losses) != 0
         else float("inf")
     )
 
@@ -197,9 +214,9 @@ def compute_performance_report(
         profit_factor=profit_factor,
         avg_win=avg_win,
         avg_loss=avg_loss,
-        n_trades=len(returns),
-        best_day=float(np.max(returns)),
-        worst_day=float(np.min(returns)),
+        n_trades=len(values),
+        best_day=float(max(values)),
+        worst_day=float(min(values)),
     )
 
 
@@ -215,17 +232,19 @@ def compare_to_benchmark(
         return BenchmarkComparison()
 
     n = min(len(strategy_returns), len(benchmark_returns))
-    start = strategy_returns[:n]
-    bench = benchmark_returns[:n]
+    start = [float(value) for value in strategy_returns[:n]]
+    bench = [float(value) for value in benchmark_returns[:n]]
 
-    start_total = float(np.prod(1 + start) - 1)
-    bench_total = float(np.prod(1 + bench) - 1)
-    excess = start - bench
+    start_total = float(math.prod(1.0 + value for value in start) - 1.0)
+    bench_total = float(math.prod(1.0 + value for value in bench) - 1.0)
+    excess = [
+        strategy - benchmark for strategy, benchmark in zip(start, bench, strict=True)
+    ]
 
-    tracking_error = float(np.std(excess) * np.sqrt(periods_per_year))
+    tracking_error = float(xp.std(excess) * math.sqrt(periods_per_year))
     info_ratio = (
-        float(np.mean(excess) / np.std(excess) * np.sqrt(periods_per_year))
-        if np.std(excess) > 0
+        float(xp.mean(excess) / xp.std(excess) * math.sqrt(periods_per_year))
+        if xp.std(excess) > 0
         else 0.0
     )
 
@@ -234,7 +253,17 @@ def compare_to_benchmark(
     attr = attributor.attribute(start, bench)
 
     # Correlation
-    correlation = float(np.corrcoef(start, bench)[0, 1])
+    start_mean = float(xp.mean(start))
+    bench_mean = float(xp.mean(bench))
+    covariance = sum(
+        (strategy - start_mean) * (benchmark - bench_mean)
+        for strategy, benchmark in zip(start, bench, strict=True)
+    )
+    start_sd = math.sqrt(sum((value - start_mean) ** 2 for value in start))
+    bench_sd = math.sqrt(sum((value - bench_mean) ** 2 for value in bench))
+    correlation = (
+        float(covariance / (start_sd * bench_sd)) if start_sd and bench_sd else 0.0
+    )
 
     return BenchmarkComparison(
         strategy_return=start_total,

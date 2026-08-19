@@ -229,6 +229,20 @@ Follow [security-and-operations.md](references/security-and-operations.md):
 Connect to existing providers through declared endpoints and references. Provision a
 new provider only when the plan selected `deploy`.
 
+au's own background daemons (the unified scheduler chief among them) need a distinct
+admission credential to authenticate to the engine and be granted access to its
+control graph — without it every scheduler tick fails closed, invisibly, with no
+application-level symptom until the trace is inspected. This is not covered by the
+IdP/workload-identity provisioning above: it is a separate, engine-side shared-secret
+mechanism with its own trust properties, including some the operator should treat as
+known risks rather than incidental detail. Provision it as an explicit step here —
+dedicated signer, engine-side signer-map entry, and the matching provisioner secret —
+and verify it per the named observable, never merely "the pod started." Read
+[engine-identity-admission.md](references/engine-identity-admission.md) end to end
+before doing this for a new environment; it documents the exact chain, the four
+design properties an operator should be uneasy about and their compensating controls,
+and the concrete rotation/revocation sequence.
+
 ## Phase 6 — Bootstrap a development workspace
 
 When `mode: development`, follow
@@ -295,7 +309,15 @@ Do not declare success until all applicable gates pass:
 8. one read-only delegated local-model run traverses the actual Pydantic execution
    layer, calls an allow-listed tool, and records model/tool/graph spans;
 9. every enabled user entrypoint reaches the same backend execution contract;
-10. rollback is executable and evidence is stored without credentials.
+10. rollback is executable and evidence is stored without credentials;
+11. au's own engine-identity admission chain is provisioned and proven, not merely
+    deployed — a fresh environment must not be declared complete while the
+    scheduler cannot read its own control graph. Confirm the named observable from
+    [engine-identity-admission.md](references/engine-identity-admission.md)
+    ("Verifying it works"): admission ran and reported success, the identity is
+    registered engine-side with the expected role, and a control-graph read that
+    previously failed with `CypherEngineError(PermissionError)` now succeeds. A
+    healthy pod with an unprovisioned admission chain fails this gate.
 
 For graph execution, distinguish these claims:
 

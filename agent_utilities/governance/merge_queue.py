@@ -936,6 +936,34 @@ class GateResult:
         }
 
 
+@dataclass(frozen=True)
+class _ExecFailure:
+    """*argv[0]* could not even be started — distinct from a timeout or a
+    non-zero exit, both of which are a verdict FROM the interpreter.
+
+    D-MQI-1: a gate whose interpreter path resolves to something that does not
+    exist or is not executable (a stale symlink, a `.venv` deleted out from
+    under a cached path, a permissions error) previously raised an uncaught
+    ``OSError`` straight out of ``subprocess.run`` — which does not "refuse"
+    the candidate, it CRASHES the whole batch (and, via the bisection retry in
+    :func:`integrate_batch`, every other candidate sharing that run), which is
+    indistinguishable from the queue draining nothing. Carrying the failure as
+    a value instead lets every call site turn it into an ordinary, named
+    :class:`Check` failure — "refused, never assumed clean" — exactly the
+    contract this module already applies to every other unrunnable gate
+    (a timeout, an unreadable baseline).
+    """
+
+    argv: tuple[str, ...]
+    error: str
+
+    def detail(self) -> str:
+        return (
+            f"could not execute {' '.join(self.argv)}: {self.error} — a gate "
+            "that cannot run is refused, never assumed clean"
+        )
+
+
 def _timed_run(argv: list[str], cwd: Path, *, timeout: int, env: dict) -> tuple:
     start = time.monotonic()
     try:
@@ -950,6 +978,8 @@ def _timed_run(argv: list[str], cwd: Path, *, timeout: int, env: dict) -> tuple:
         )
     except subprocess.TimeoutExpired:
         return None, time.monotonic() - start
+    except OSError as exc:
+        return _ExecFailure(tuple(argv), str(exc)), time.monotonic() - start
     return proc, time.monotonic() - start
 
 
@@ -1388,6 +1418,15 @@ def compute_contract_baseline(
         }
         results = _timed_run_parallel(jobs, env=env)
         for name, (proc, secs) in results.items():
+            if isinstance(proc, _ExecFailure):
+                return ContractBaselineResult(
+                    readable=False,
+                    base_sha=base_sha,
+                    detail=(
+                        f"baseline run of {name} on {base_ref} ({base_sha[:12]}) "
+                        f"REFUSED: {proc.detail()}"
+                    ),
+                )
             if proc is None:
                 return ContractBaselineResult(
                     readable=False,
@@ -1505,6 +1544,9 @@ def run_contract_checks(
     for script in scripts:
         rel = script.relative_to(tree)
         proc, _ = results[script.name]
+        if isinstance(proc, _ExecFailure):
+            failures.append(f"{rel}: REFUSED — {proc.detail()}")
+            continue
         if proc is None:
             failures.append(
                 f"{rel}: exceeded {CONTRACT_CHECK_BUDGET_SECONDS}s — a contract "
@@ -1802,6 +1844,16 @@ def compute_test_baseline(
                 env=env,
             )
 
+            if isinstance(proc, _ExecFailure):
+                return BaselineResult(
+                    readable=False,
+                    base_sha=base_sha,
+                    detail=(
+                        f"baseline run on {base_ref} ({base_sha[:12]}) for "
+                        f"{len(present)} not-yet-cached file(s) REFUSED: "
+                        f"{proc.detail()}"
+                    ),
+                )
             if proc is None:
                 return BaselineResult(
                     readable=False,
@@ -1936,7 +1988,11 @@ def run_fast_gate(
             timeout=IMPORT_SMOKE_BUDGET_SECONDS,
             env=env,
         )
-        if proc is None:
+        if isinstance(proc, _ExecFailure):
+            checks.append(
+                Check("import-smoke", ok=False, seconds=secs, detail=proc.detail())
+            )
+        elif proc is None:
             checks.append(
                 Check(
                     "import-smoke",
@@ -2007,7 +2063,14 @@ def run_fast_gate(
             timeout=TARGETED_TEST_BUDGET_SECONDS,
             env=env,
         )
-        if proc is None:
+        if isinstance(proc, _ExecFailure):
+            # Distinct from the budget-overrun DEFER below: the interpreter
+            # never ran at all, so this is not "no regression claim to make",
+            # it is "no claim COULD be made" — refused, not deferred.
+            checks.append(
+                Check("targeted-tests", ok=False, seconds=secs, detail=proc.detail())
+            )
+        elif proc is None:
             # Preserve the existing budget-overrun contract verbatim (CONCEPT:
             # AU-OS.governance.tiered-merge-gate): exceeding the ceiling is a
             # DEFER to the post-merge suite, not a fail — and, distinctly from a
@@ -2256,27 +2319,89 @@ def land(repo: Path, commit: str, *, base: str, scope: LaneScope) -> dict[str, A
 # ---------------------------------------------------------------------------
 # Prune on merge — repository-manager preferred, guarded inline fallback (D-ORC-21)
 # ---------------------------------------------------------------------------
+def _worktree_registrations(repo: Path) -> dict[str, str] | None:
+    """``{worktree path: HEAD sha}`` for every worktree git currently has
+    registered against *repo* — the canonical checkout and every linked
+    worktree, this lane's and every sibling's alike.
+
+    The before/after snapshot :func:`_prune_landed_inline` diffs its own
+    mutation against (NE-058): the guarantee that a prune touched *only* the
+    one worktree it was asked to remove must be verified from git's own
+    registry, not assumed from "the code only ever names one path" — the
+    exact assumption that held right up until it didn't.  ``None`` means git
+    could not answer the registry query; callers must refuse the prune rather
+    than interpret that degraded read as an empty registry.
+    """
+    listing = _run_git(["worktree", "list", "--porcelain"], repo)
+    if not listing.ok:
+        # An unreadable registry is a degraded safety read, not an empty
+        # registry.  Returning ``{}`` here would let the caller remove a
+        # worktree and branch without being able to prove that siblings were
+        # untouched (the fail-open shape this guard exists to prevent).
+        return None
+    registrations: dict[str, str] = {}
+    current_path: str | None = None
+    for line in listing.out.splitlines():
+        if line.startswith("worktree "):
+            current_path = line[len("worktree ") :].strip()
+        elif line.startswith("HEAD ") and current_path is not None:
+            registrations[current_path] = line[len("HEAD ") :].strip()
+    # A non-bare repository always has at least its canonical checkout in this
+    # listing. Treat a successful-but-unparseable/empty response as degraded,
+    # too; otherwise a malformed safety read would again look like "no sibling
+    # worktrees" and permit an unverified prune.
+    return registrations or None
+
+
 def _prune_landed_inline(
     candidate: Candidate, *, repo: Path, base: str
 ) -> dict[str, Any]:
-    """The same guarded prune repository-manager implements
-    (``CONCEPT:RM-PRUNE-GUARD``), reimplemented with no external dependency so
-    the queue stays runnable in a minimal environment (D-ORC-21).
+    """A guarded, single-worktree prune with **zero** repo-wide git calls.
 
-    Every measure repository-manager's own docstring calls out is reproduced,
-    in the same order, for the same reason:
+    **NE-058, root-caused.** ``repository_manager.worktree.WorktreeManager
+    .remove()`` — the accelerator this function used to defer to when
+    importable — runs a bare ``git worktree prune`` after every single
+    removal (reading its source directly confirms it: no ``--worktree``
+    scoping, no path argument, the whole-repo form). ``git worktree prune``
+    is git's OWN repo-wide sweep: it walks every entry under
+    ``$GIT_COMMON_DIR/worktrees/`` and deletes the administrative directory
+    of any it judges stale, using heuristics (a missing or unreadable
+    ``gitdir`` link, a working directory git can't currently stat) that a
+    shared checkout with dozens of concurrently-active linked worktrees can
+    trip for a worktree that is very much alive — which is exactly the
+    incident this fixes: one landed candidate's prune orphaned eight
+    unrelated live tracks' worktree registrations in one call. That
+    accelerator also deletes the branch with ``git branch -D`` — no
+    merge-base recheck at all, unlike step 2 below. Neither behavior is
+    reconcilable with "prune the one thing that landed," so this queue no
+    longer calls it for this operation (see :func:`prune_landed`); the
+    inline implementation below is now the ONLY implementation, not a
+    minimal-environment fallback.
 
     1. Read the branch tip *now* — every later step names this exact object.
     2. ``git merge-base --is-ancestor <tip> <base>`` — re-asked at this moment,
        never trusted from an earlier scan. A non-zero exit is a real refusal,
        not a malfunction: the branch stays.
-    3. If the candidate's worktree still exists, refuse to touch it while it
+    3. **Guard:** if any OTHER worktree of this repo (not the one being
+       pruned) currently holds uncommitted work, refuse the ENTIRE prune —
+       not just skip the target. A prune is not the moment to discover which
+       sibling lanes are mid-edit; a lane occupying a totally unrelated
+       worktree must never have its window for that discovery narrowed by
+       someone else's landing.
+    4. If the candidate's worktree still exists, refuse to touch it while it
        holds uncommitted work (:func:`tree_has_uncommitted_work` — a lane may
-       still be occupying it), then ``git worktree remove`` it.
-    4. **Anchor before deleting.** ``refs/lane-backup/<branch>`` is pointed at
+       still be occupying it), then ``git worktree remove <that one path>`` —
+       named explicitly, never a bare/global form.
+    5. **Post-condition.** Re-list ``git worktree list --porcelain`` and
+       diff it against the snapshot taken in step 3: the only registration
+       allowed to have vanished is the one just removed. Anything else
+       missing is refused loudly (:class:`MergeQueueError`) rather than
+       reported as a clean prune — this is the same "verify, don't assume"
+       shape as :func:`land`'s own post-condition.
+    6. **Anchor before deleting.** ``refs/lane-backup/<branch>`` is pointed at
        the tip immediately before the delete, restored (or removed, if it did
        not pre-exist) should the delete itself then fail.
-    5. ``git branch -d`` — **never** ``-D``. Git re-decides reachability
+    7. ``git branch -d`` — **never** ``-D``. Git re-decides reachability
        itself, under its own ref lock, atomically with the delete, closing the
        check-then-delete race a python-side check alone cannot close.
 
@@ -2310,6 +2435,43 @@ def _prune_landed_inline(
         }
 
     worktree = Path(candidate.worktree).resolve() if candidate.worktree else None
+    before = _worktree_registrations(repo)
+    if before is None:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "reason": (
+                "refused to prune: could not read the repository's worktree "
+                "registrations, so sibling worktrees cannot be verified as safe"
+            ),
+        }
+
+    # Guard (bonus, NE-058): a prune touches only the worktree it landed, but
+    # it must not even START while some UNRELATED lane worktree is mid-edit —
+    # refusing here costs nothing (the candidate stays queued as landed and
+    # simply un-pruned until the next run) and removes any incentive to ever
+    # relax step 5's post-condition into "best effort." The canonical
+    # checkout (`repo` itself) is excluded: it is the shared trunk `land()`
+    # already guards on its own terms, not a "sibling lane" in this sense.
+    repo_resolved = repo.resolve()
+    dirty_siblings = [
+        path
+        for path in before
+        if Path(path).resolve() not in {repo_resolved, worktree}
+        if Path(path).is_dir() and tree_has_uncommitted_work(path)
+    ]
+    if dirty_siblings:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "reason": (
+                f"refused to prune {branch!r}: {len(dirty_siblings)} sibling "
+                f"worktree(s) hold uncommitted work ({', '.join(dirty_siblings)}) "
+                "— a prune does not run while any lane of this repo is mid-edit, "
+                "landed candidate or not"
+            ),
+        }
+
     removed_worktree: str | None = None
     if worktree and worktree != repo.resolve() and worktree.is_dir():
         if tree_has_uncommitted_work(worktree):
@@ -2334,10 +2496,65 @@ def _prune_landed_inline(
             }
         removed_worktree = str(worktree)
 
+        # Post-condition (NE-058): the ONLY registration allowed to have
+        # disappeared is the one just named above. A sibling missing here
+        # means something touched the shared admin directory beyond what this
+        # function itself asked for — refused loudly, never reported as a
+        # clean prune, exactly as `land()` refuses an unverified write.
+        after = _worktree_registrations(repo)
+        if after is None:
+            return {
+                "pruned": False,
+                "branch": branch,
+                "removed": removed_worktree,
+                "reason": (
+                    "git worktree remove succeeded, but the post-condition "
+                    "read of worktree registrations failed; the branch was "
+                    "not deleted because sibling safety could not be verified"
+                ),
+            }
+        expected = dict(before)
+        expected.pop(str(worktree), None)
+        if after != expected:
+            missing = sorted(set(expected) - set(after))
+            added = sorted(set(after) - set(expected))
+            changed = sorted(
+                path
+                for path in set(expected) & set(after)
+                if expected[path] != after[path]
+            )
+            raise MergeQueueError(
+                f"prune of {branch!r} REFUSED post-hoc: worktree registrations "
+                f"changed unexpectedly (missing={missing}, added={added}, "
+                f"head-changed={changed}) after removing {worktree} — the run "
+                "stops rather than reporting a clean prune over unrelated "
+                "worktrees possibly having just lost their git registration"
+            )
+
     anchor = f"refs/lane-backup/{branch.replace('/', '-')}"
     previous = _run_git(["rev-parse", "--verify", "--quiet", anchor], repo)
+    if previous.code not in {0, 1}:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "removed": removed_worktree,
+            "reason": (
+                f"refused to delete branch {branch!r}: could not inspect the "
+                f"backup anchor {anchor}: {previous.err or previous.out}"
+            ),
+        }
     previous_sha = previous.out if previous.ok else ""
-    _run_git(["update-ref", anchor, tip_sha], repo)
+    anchored = _run_git(["update-ref", anchor, tip_sha], repo)
+    if not anchored.ok:
+        return {
+            "pruned": False,
+            "branch": branch,
+            "removed": removed_worktree,
+            "reason": (
+                f"refused to delete branch {branch!r}: could not create the "
+                f"backup anchor {anchor}: {anchored.err or anchored.out}"
+            ),
+        }
 
     deleted = _run_git(["branch", "-d", branch], repo)  # never -D — see docstring
     if not deleted.ok:
@@ -2372,44 +2589,48 @@ def prune_landed(
 ) -> dict[str, Any]:
     """Remove a landed candidate's worktree and branch.
 
-    Prefers repository-manager (``CONCEPT:RM-PRUNE-GUARD``) when importable —
-    it additionally consults the lane occupancy *protocol* (not just a
-    dirty-tree check), so it is the more complete implementation and stays the
-    accelerator of choice. When repository-manager is not importable in this
-    interpreter, :func:`_prune_landed_inline` runs the SAME guard sequence
-    (anchor + merge-base recheck + ``git branch -d``, never ``-D``) with no
-    external dependency, so the queue keeps pruning in a minimal environment
-    instead of degrading to "every landed branch is kept" (D-ORC-21) — the
-    branch/worktree bloat that produced this defect in the first place.
+    **NE-058: never delegates to repository-manager's ``WorktreeManager
+    .remove()``, on purpose.** This function used to prefer that accelerator
+    when importable (``CONCEPT:RM-PRUNE-GUARD``); it no longer does, for a
+    reason discovered reproducing the incident, not a style preference:
+    reading ``repository_manager/worktree.py`` directly shows ``remove()``
+    always follows its own targeted ``git worktree remove`` with a bare,
+    repo-wide ``git worktree prune`` and deletes the branch with ``git branch
+    -D`` (no merge-base recheck). ``git worktree prune`` is git's OWN sweep
+    of every entry under ``$GIT_COMMON_DIR/worktrees/`` — it is not scoped to
+    the worktree that was just removed, and on a repo with dozens of
+    concurrently-active linked worktrees its own staleness heuristics can
+    (and, on 2026-08-17, did) misjudge a live sibling as prunable and delete
+    ITS admin directory too. That is NE-058 exactly: one candidate's landing
+    orphaned eight unrelated lanes in one call. :func:`_prune_landed_inline`
+    is the only implementation now — it never invokes the whole-repo ``prune``
+    form, names the one worktree it is allowed to touch explicitly at every
+    step, and re-verifies via :func:`_worktree_registrations` that nothing
+    else moved before it reports success. repository-manager itself is not
+    changed by this — this queue simply stops calling the one operation of
+    it that this incident traces to.
 
     *repo* is the canonical checkout the branch ref actually lives in — always
     pass it when known (:func:`run_queue` does). When omitted (an older
     caller, or a direct test), it is reconstructed by walking up from the
     candidate's own worktree looking for a ``.git`` — correct whenever that
     worktree still exists, since branch refs are shared repo-wide regardless
-    of which of its worktrees a git command runs from.
+    of which of its worktrees a git command runs from. *repo_name* is kept in
+    the signature for call-site compatibility; it named the repository for
+    the now-unused accelerator and no longer does anything.
     """
-    try:
-        from repository_manager.repository_manager import Git
-        from repository_manager.worktree import WorktreeManager
-    except ImportError:
-        if repo is not None:
-            repo_path = Path(repo).resolve()
-        else:
-            repo_path = Path(candidate.worktree or ".").resolve()
-            while repo_path != repo_path.parent and not (repo_path / ".git").exists():
-                repo_path = repo_path.parent
-        result = _prune_landed_inline(candidate, repo=repo_path, base=base)
-        result["accelerator"] = "inline (repository-manager not importable)"
-        return result
-    manager = WorktreeManager(Git(path=str(Path(candidate.worktree or ".").parent)))
-    result = manager.remove(repo_name, candidate.branch, delete_branch=True, base=base)
-    return {
-        "pruned": bool(result.get("ok")),
-        "branch": candidate.branch,
-        "accelerator": "repository-manager",
-        **result,
-    }
+    del repo_name  # kept for call-site compatibility; see docstring
+    if repo is not None:
+        repo_path = Path(repo).resolve()
+    else:
+        repo_path = Path(candidate.worktree or ".").resolve()
+        while repo_path != repo_path.parent and not (repo_path / ".git").exists():
+            repo_path = repo_path.parent
+    result = _prune_landed_inline(candidate, repo=repo_path, base=base)
+    result["accelerator"] = (
+        "inline (repository-manager's remove() is never used — NE-058)"
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------

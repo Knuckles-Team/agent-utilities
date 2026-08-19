@@ -34,39 +34,24 @@ from _test_engine import (
     TEST_POLICY_VERSION,
     TEST_SIGNER_KEY,
     TEST_TENANT,
+    EngineBinaryIdentity,
+    EngineUnavailable,
     bootstrap_context,
     request_context,
+    resolve_engine_binary_identity,
     strict_server_env,
 )
 
 pytestmark = [pytest.mark.integration, pytest.mark.timeout(120)]
 
 
-def _find_engine_binary() -> str | None:
-    """Locate a built ``epistemic-graph-server`` (CONCEPT:EG-KB-CURRENCY: needs
-    ``Method::ExplainProvenanceByIds``, merged to the sibling checkout's ``main``).
+def _find_engine_binary() -> EngineBinaryIdentity | None:
+    """Return the shared exact client/server artifact, or no artifact."""
 
-    Same discovery convention as ``test_shard_write_parallelism.py``: an explicit
-    override, then a sibling ``epistemic-graph`` checkout's ``target/release``
-    (walking up from this file so a worktree layout resolves too), then whatever
-    is on ``PATH``. No machine-specific workspace path is embedded.
-    """
-    env = os.environ.get("EPISTEMIC_GRAPH_SERVER_BIN")
-    if env and os.path.exists(env):
-        return env
-    here = os.path.dirname(os.path.abspath(__file__))
-    cur = here
-    seen: set[str] = set()
-    while cur and cur not in seen:
-        seen.add(cur)
-        for sub in ("epistemic-graph", "agent-packages/epistemic-graph"):
-            cand = os.path.join(cur, sub, "target", "release", "epistemic-graph-server")
-            if os.path.exists(cand):
-                return cand
-        cur = os.path.dirname(cur)
-    import shutil
-
-    return shutil.which("epistemic-graph-server")
+    try:
+        return resolve_engine_binary_identity()
+    except EngineUnavailable:
+        return None
 
 
 def _free_socket_path(root: Path) -> str:
@@ -96,8 +81,37 @@ def _wait_for_socket(proc: subprocess.Popen, sock_path: str, log_path: Path) -> 
     raise RuntimeError("epistemic-graph-server did not become ready in time")
 
 
+class _ProcessServerHandle:
+    """Lifecycle object registered before the auxiliary process is spawned."""
+
+    def __init__(self, binary_identity: EngineBinaryIdentity) -> None:
+        self.binary_identity = binary_identity
+        self.proc: subprocess.Popen | None = None
+        self.log_fh = None
+
+    def binary_path_for_launch(self) -> str:
+        """Recheck the retained artifact identity immediately before spawn."""
+
+        self.binary_identity.verify_for_launch()
+        return str(self.binary_identity.path)
+
+    def stop(self) -> None:
+        proc = self.proc
+        if proc is not None and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=15)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=15)
+        self.proc = None
+        if self.log_fh is not None:
+            self.log_fh.close()
+            self.log_fh = None
+
+
 @pytest.fixture()
-def kb_currency_engine(tmp_path, monkeypatch):
+def kb_currency_engine(tmp_path, monkeypatch, test_engine_lifecycle):
     """Start a discovered ``epistemic-graph-server`` on an isolated socket +
     persist dir, wire the AU engine resolver (``GRAPH_SERVICE_ENDPOINTS``/
     ``..._AUTH_SECRET``) at THIS engine, and tear it down after. Yields
@@ -107,36 +121,48 @@ def kb_currency_engine(tmp_path, monkeypatch):
     binary = _find_engine_binary()
     if binary is None:
         pytest.skip(
-            "no epistemic-graph-server binary discoverable "
-            "(EPISTEMIC_GRAPH_SERVER_BIN, sibling checkout target/release, or PATH)"
+            "no exact epistemic-graph-server artifact available "
+            "(set EPISTEMIC_GRAPH_SERVER_BIN or install epistemic-graph)"
         )
 
     persist_dir = tmp_path / "persist"
     persist_dir.mkdir()
     sock_path = _free_socket_path(tmp_path)
-    auth_secret = "au-eg-" + "kb-currency-test-secret"  # nosec B105 - test-only
 
-    log_path = tmp_path / "engine.log"
-    log_fh = open(log_path, "wb")  # noqa: SIM115 - closed in finally below
-    env = dict(os.environ)
-    env.update(strict_server_env(str(tmp_path / "security"), auth_secret=auth_secret))
-    proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
-        [
-            str(binary),
-            "--socket-path",
-            sock_path,
-            "--persist-dir",
-            str(persist_dir),
-            "--auth-secret",
-            auth_secret,
-            "--idle-shutdown-secs",
-            "60",
-        ],
-        stdout=log_fh,
-        stderr=subprocess.STDOUT,
-        env=env,
+    # Register before spawning so setup failures also stop a partially-started
+    # process.  The registry's stop order is graph delete -> transport close ->
+    # process stop -> exact socket unlink.
+    server = _ProcessServerHandle(binary)
+    registration = test_engine_lifecycle.register_auxiliary_engine(
+        server, socket_path=sock_path
     )
     try:
+        auth_secret = "au-eg-" + "kb-currency-test-secret"  # nosec B105 - test-only
+
+        log_path = tmp_path / "engine.log"
+        server.log_fh = open(log_path, "wb")  # noqa: SIM115 - closed in stop()
+        env = dict(os.environ)
+        env.update(
+            strict_server_env(str(tmp_path / "security"), auth_secret=auth_secret)
+        )
+        server.proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
+            [
+                server.binary_path_for_launch(),
+                "--socket-path",
+                sock_path,
+                "--persist-dir",
+                str(persist_dir),
+                "--auth-secret",
+                auth_secret,
+                "--idle-shutdown-secs",
+                "60",
+            ],
+            stdout=server.log_fh,
+            stderr=subprocess.STDOUT,
+            env=env,
+        )
+        proc = server.proc
+        assert proc is not None
         _wait_for_socket(proc, sock_path, log_path)
 
         from epistemic_graph.client import SyncEpistemicGraphClient
@@ -163,13 +189,10 @@ def kb_currency_engine(tmp_path, monkeypatch):
         monkeypatch.setenv("GRAPH_SERVICE_AUTH_SECRET", auth_secret)
         yield sock_path, auth_secret
     finally:
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=15)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-        log_fh.close()
+        registration.stop()
+        assert not Path(sock_path).exists(), (
+            f"auxiliary engine socket survived lifecycle teardown: {sock_path}"
+        )
 
 
 def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
@@ -375,32 +398,13 @@ def test_facade_query_include_epistemic_carries_engine_confidence_and_evidence(
         # from the default path.
         assert row.properties.get("name") == "kb-currency test claim"
     finally:
-        try:
-            # Close the facade's own client explicitly, THEN null the tracked
-            # `GraphComputeEngine._client` reference. The autouse
-            # `isolate_graph_compute_engine` fixture's own (later-running, since
-            # autouse fixtures tear down after explicitly-requested ones) finalizer
-            # calls `engine._client.clear()`/`.tenants.delete()` UNCONDITIONALLY on
-            # every engine it tracked — including this one — and by the time it
-            # runs, `kb_currency_engine`'s finalizer has already killed this test's
-            # engine subprocess. An RPC against that dead socket would otherwise
-            # retry/block with no bounded timeout (`SyncEpistemicGraphClient.clear()`
-            # calls `future.result()` with none). Nulling `_client` here makes that
-            # finalizer's own `if hasattr(engine, "_client") and engine._client:`
-            # guard skip it cleanly instead.
-            graph_engine = getattr(kg.store, "graph", None) if kg is not None else None
-            client = getattr(graph_engine, "_client", None)
-            if client is not None:
-                try:
-                    client.close()
-                except Exception:  # noqa: BLE001 - best-effort teardown
-                    pass
-            if graph_engine is not None:
-                graph_engine._client = None
-            from agent_utilities.knowledge_graph.core.engine import (
-                IntelligenceGraphEngine as _IGE,
-            )
+        # The explicit test-engine lifecycle owns graph deletion and transport
+        # close before its auxiliary server is stopped.  Only clear the active
+        # facade authority here; closing the tracked client early would make the
+        # lifecycle unable to perform its durable delete.
+        from agent_utilities.knowledge_graph.core.engine import (
+            IntelligenceGraphEngine as _IGE,
+        )
 
-            _IGE.set_active(None)
-        finally:
-            reset_session(token)
+        _IGE.set_active(None)
+        reset_session(token)

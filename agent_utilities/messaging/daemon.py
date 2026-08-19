@@ -10,12 +10,12 @@ in the host process. Combined with the non-blocking inbound path (ECO-4.72) and 
 interactive inference slot (ORCH-1.59), this is what makes the messaging agent reliably
 responsive.
 
-Console entry point: ``agent-utilities-messaging``. The serving/shutdown body
-(:func:`run_forever`) is also reused, unchanged, by the ``graph-os`` entrypoint's
-in-process co-service supervisor
-(:mod:`agent_utilities.mcp.co_service_supervisor`) when messaging is configured —
-so the standalone process and the composed co-service share exactly one
-implementation of "connect the configured backends and serve until told to stop."
+Console entry point: ``agent-utilities-messaging``. Both that standalone process
+and the ``graph-os`` entrypoint's in-process co-service supervisor
+(:mod:`agent_utilities.mcp.co_service_supervisor`) enter through the same
+explicit-intent + engine-native lease boundary before this module connects any
+backend. The low-level serving/shutdown body is shared after ownership has been
+fenced, so no caller can open a poller by merely having a token.
 """
 
 from __future__ import annotations
@@ -181,15 +181,15 @@ def mint_process_identity() -> Any:
     return session
 
 
-def run_forever(engine: Any, platforms: list[str], stop_event: threading.Event) -> None:
-    """Blocking body: connect the configured backends and serve until ``stop_event``.
+def _run_poll_loop(
+    engine: Any, platforms: list[str], stop_event: threading.Event
+) -> None:
+    """Low-level serving body, called only by :func:`run_forever` after fencing.
 
     Owns its OWN event loop (asyncio state is not shareable across threads), so this
-    is safe to call either directly from the main thread of the standalone
-    ``agent-utilities-messaging`` process (:func:`main`, driven by OS signals) or from
-    a dedicated supervisor thread inside the ``graph-os`` entrypoint (driven by the
-    supervisor's own shutdown event) — the serving/shutdown logic is defined exactly
-    once and shared by both callers.
+    body deliberately has no ownership checks of its own: keeping it separate
+    makes it impossible for ownership state to diverge from the shared native
+    lease helper. It must not be called by an entrypoint directly.
     """
     # Guarantee this co-service's lifecycle/error logs reach stderr (→ kubectl logs)
     # regardless of the graph-os root logger being pinned to WARNING at build time. Safe
@@ -236,6 +236,42 @@ def run_forever(engine: Any, platforms: list[str], stop_event: threading.Event) 
             _t.cancel()
         loop.run_until_complete(asyncio.gather(*tasks, return_exceptions=True))
         loop.close()
+
+
+def run_forever(
+    engine: Any,
+    platforms: list[str],
+    stop_event: threading.Event,
+    *,
+    session: Any | None = None,
+    intake_intent: bool = False,
+) -> None:
+    """Serve inbound messaging only for an explicit, leased deployment.
+
+    ``session`` is the verified process/session authority used by the native
+    WorkItem claim. ``intake_intent`` is a separate deployment signal so a
+    generic caller cannot turn a session or a token into polling permission by
+    accident. Missing either input fails closed before ``_serve`` is reached.
+    """
+    if not intake_intent or session is None:
+        logger.error(
+            "messaging inbound intake requires explicit deployment intent and "
+            "a verified session; refusing to poll"
+        )
+        stop_event.set()
+        return
+
+    from agent_utilities.messaging.intake_lease import run_owned_intake
+
+    run_owned_intake(
+        engine,
+        platforms,
+        session,
+        stop_event,
+        lambda owned_platforms, owned_stop_event: _run_poll_loop(
+            engine, owned_platforms, owned_stop_event
+        ),
+    )
 
 
 def main() -> None:
@@ -290,7 +326,16 @@ def main() -> None:
         logger.info(
             "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] isolated messaging daemon started."
         )
-        run_forever(engine, platforms, stop_event)
+        # The standalone console script is an explicit intake deployment. It
+        # still enters the same native lease boundary as an embedded owner;
+        # token presence/configured-platform discovery never calls the poller.
+        run_forever(
+            engine,
+            platforms,
+            stop_event,
+            session=session,
+            intake_intent=True,
+        )
 
 
 if __name__ == "__main__":  # pragma: no cover

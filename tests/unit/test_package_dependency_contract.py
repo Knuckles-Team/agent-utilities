@@ -55,6 +55,19 @@ def test_provider_agent_runtime_excludes_duplicate_optimizer_stack() -> None:
     assert "agent" not in optional
 
 
+def test_langfuse_provider_stays_deployment_composed() -> None:
+    metadata = _metadata()
+    optional = metadata["project"]["optional-dependencies"]
+
+    # AU owns the SDK exporter contract; GraphOS composes the optional MCP
+    # provider as a separate image component when observability is enabled.
+    assert any(
+        value.startswith("langfuse>=4.14.1,<5") for value in optional["langfuse"]
+    )
+    assert not any(value.startswith("langfuse-agent") for value in optional["langfuse"])
+    assert "langfuse-agent" not in metadata["tool"]["uv"]["sources"]
+
+
 def test_release_metadata_excludes_runtime_generated_package_state() -> None:
     metadata = _metadata()
     excluded = set(metadata["tool"]["setuptools"]["exclude-package-data"]["*"])

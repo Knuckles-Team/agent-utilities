@@ -1,0 +1,1 @@
+- {id: GB-GBOT.cockpit.voice-dictation-cockpit, slug: GB, pillar: GBOT, domain: cockpit, session_ref: pref_concept_session_ecec153199c86059a329ee860b5cc5ed1934d8428d841bd0444469c8c2e68c45, reserved_at: '2026-08-17T15:46:07.928045+00:00', expires_at: '2026-08-18T15:46:07.928045+00:00', status: expired, expired_at: '2026-08-19T03:48:20.237598+00:00'}

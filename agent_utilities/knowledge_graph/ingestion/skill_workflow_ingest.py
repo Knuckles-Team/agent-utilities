@@ -242,7 +242,10 @@ def ingest_runnable_skill(
         engine.link_nodes(skill_id, provenance_id, "DERIVED_FROM", session=session)
         engine.link_nodes(resource_id, provenance_id, "DERIVED_FROM", session=session)
 
-    from ..core.fleet_catalog_tables import write_skill_row
+    from ..core.fleet_catalog_tables import (
+        TenantLocalDiscoveryBinding,
+        write_skill_row,
+    )
 
     try:
         write_skill_row(
@@ -255,6 +258,11 @@ def ingest_runnable_skill(
             mcp_server=str(common.get("mcp_server", "")),
             skill_type=normalized_skill_type,
             disabled=bool(disabled),
+            # This is an in-process, locally installed skill, not a child MCP
+            # observation.  Mint the separate tenant-local visibility
+            # contract from the already verified write session above; never
+            # derive or accept an OAuth grant identity from skill material.
+            discovery_binding=TenantLocalDiscoveryBinding(tenant_id=session.tenant),
         )
     except Exception as exc:  # noqa: BLE001 — relational write is best-effort,
         # never allowed to fail a runnable-skill KG write that already succeeded.

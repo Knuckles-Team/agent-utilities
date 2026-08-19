@@ -606,9 +606,14 @@ class _EmptyEvidenceSource:
     """Development-only explicit empty source; never used in an auth-required profile."""
 
     def search_hybrid(
-        self, query: str, *, top_k: int = 8, as_of: str | None = None
+        self,
+        query: str,
+        *,
+        top_k: int = 8,
+        as_of: str | None = None,
+        session: Any | None = None,
     ) -> list[dict[str, Any]]:
-        del query, top_k, as_of
+        del query, top_k, as_of, session
         return []
 
     def retrieve_epistemic_view(self, query: str, *, top_k: int = 8) -> dict[str, Any]:

@@ -17,7 +17,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from agent_utilities.knowledge_graph.core.maintainer import GraphMaintainer
+from agent_utilities.knowledge_graph.core.maintainer import (
+    _TRACE_RETENTION_BATCH_SIZE,
+    GraphMaintainer,
+)
 from agent_utilities.observability.trace_ontology import (
     OUTCOME_NODE_LABEL,
     TOOL_CALL_NODE_LABEL,
@@ -28,7 +31,9 @@ _DELETE_RE = re.compile(
     r"MATCH \(n:(?P<label>\w+)\)\s*"
     r"WHERE n\.timestamp < \$cutoff\s*"
     r"AND \(n\.is_permanent IS NULL OR n\.is_permanent = False\)\s*"
-    r"DETACH DELETE n",
+    r"WITH n LIMIT \$batch_size\s*"
+    r"DETACH DELETE n\s*"
+    r"RETURN count\(n\) AS deleted_count",
 )
 
 
@@ -58,10 +63,10 @@ class _FakeRetentionBackend:
             if props.get("node_type_label") == label
             and props.get("timestamp", "") < cutoff
             and not props.get("is_permanent", False)
-        ]
+        ][:_TRACE_RETENTION_BATCH_SIZE]
         for node_id in victims:
             del self.nodes[node_id]
-        return []
+        return [{"deleted_count": len(victims)}]
 
 
 class _FakeEngine:
@@ -89,7 +94,9 @@ def test_held_trace_survives_the_exact_sweep_that_deletes_a_comparable_unheld_tr
 
     swept = maintainer.prune_expired_traces(retention_days=90)
 
-    assert swept == 3  # one query issued per label (RunTrace/ToolCall/OutcomeEvaluation)
+    assert (
+        swept == 3
+    )  # one query issued per label (RunTrace/ToolCall/OutcomeEvaluation)
     assert "trace:held" in backend.nodes, "legal-hold node must survive the sweep"
     assert "trace:unheld" not in backend.nodes, (
         "the comparable un-held node must be deleted by the same sweep"
@@ -140,7 +147,11 @@ def test_sweep_covers_all_three_trace_ontology_labels():
         _DELETE_RE.search(q).group("label")  # type: ignore[union-attr]
         for q, _ in backend.queries
     }
-    assert labels_queried == {TRACE_NODE_LABEL, TOOL_CALL_NODE_LABEL, OUTCOME_NODE_LABEL}
+    assert labels_queried == {
+        TRACE_NODE_LABEL,
+        TOOL_CALL_NODE_LABEL,
+        OUTCOME_NODE_LABEL,
+    }
 
 
 def test_prune_expired_traces_is_a_noop_without_a_backend():
@@ -149,3 +160,46 @@ def test_prune_expired_traces_is_a_noop_without_a_backend():
 
     maintainer = GraphMaintainer(_NoBackendEngine())
     assert maintainer.prune_expired_traces(retention_days=90) == 0
+
+
+def test_trace_retention_deletes_in_bounded_batches_with_exact_count():
+    nodes = {
+        f"trace:{index}": {
+            "node_type_label": TRACE_NODE_LABEL,
+            "timestamp": "2020-01-01T00:00:00Z",
+            "is_permanent": False,
+        }
+        for index in range(_TRACE_RETENTION_BATCH_SIZE + 5)
+    }
+    backend = _FakeRetentionBackend(nodes)
+    maintainer = GraphMaintainer(_FakeEngine(backend))
+
+    maintainer.prune_expired_traces(retention_days=90)
+
+    assert backend.nodes == {}
+    assert maintainer.last_trace_retention_report == {
+        "labels": 3,
+        "deleted_rows": _TRACE_RETENTION_BATCH_SIZE + 5,
+        "truncated": False,
+    }
+    trace_queries = [
+        query
+        for query, _params in backend.queries
+        if f"(n:{TRACE_NODE_LABEL})" in query
+    ]
+    assert len(trace_queries) == 2
+
+
+def test_trace_retention_rejects_dangerous_or_unbounded_windows():
+    backend = _FakeRetentionBackend({})
+    maintainer = GraphMaintainer(_FakeEngine(backend))
+
+    for invalid in (True, 0, -1, 3_651, 90.0):
+        try:
+            maintainer.prune_expired_traces(retention_days=invalid)  # type: ignore[arg-type]
+        except ValueError:
+            pass
+        else:
+            raise AssertionError(f"retention_days={invalid!r} must fail closed")
+
+    assert backend.queries == []

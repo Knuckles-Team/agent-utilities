@@ -15,6 +15,7 @@ registration.
 from __future__ import annotations
 
 import time
+from dataclasses import replace
 
 import pytest
 
@@ -24,16 +25,23 @@ from agent_utilities.orchestration.fleet_autoscaler import (
     FleetAutoscaler,
     compute_desired_replicas,
 )
+from agent_utilities.orchestration.fleet_health import unavailable_fleet_health
 from agent_utilities.orchestration.fleet_reconciler import (
     ScalingSpec,
     load_desired_state,
     parse_scaling_spec,
+)
+from agent_utilities.orchestration.scaling_signals import (
+    MAX_SIGNAL_AGE_S,
+    ScalingSignalSample,
+    get_signal_definition,
 )
 
 from .fleet_autonomy_fakes import (
     FakeEngine,
     FakeObserver,
     FakeSignalProvider,
+    healthy_fleet_evidence,
     obs,
     write_policy,
 )
@@ -53,6 +61,7 @@ services:
       scale_up_step: 2
       scale_down_step: 1
       cooldown_s: 300
+      scale_down_stabilization_samples: 1
   - name: caddy-mcp
 """
 
@@ -90,6 +99,7 @@ def _autoscaler(
         policy=ActionPolicy(engine=engine, policy_path=policy_path),
         signal_provider=signals or FakeSignalProvider(),
         max_actions=max_actions,
+        health_provider=healthy_fleet_evidence,
     )
     # Pin desired state to the test registry (not the repo's 52-service one).
     import agent_utilities.orchestration.fleet_autoscaler as fa
@@ -121,6 +131,7 @@ def test_registry_scaling_block_parsed(tmp_path):
         scale_up_step=2,
         scale_down_step=1,
         cooldown_s=300.0,
+        scale_down_stabilization_samples=1,
     )
     assert desired["caddy-mcp"].scaling is None  # no block ⇒ never autoscaled
 
@@ -130,6 +141,9 @@ def test_scaling_spec_defaults():
     assert spec is not None
     assert (spec.min_replicas, spec.scale_up_step, spec.scale_down_step) == (1, 1, 1)
     assert spec.cooldown_s == 300.0
+    assert spec.deadband == 0.05
+    assert spec.scale_up_stabilization_samples == 1
+    assert spec.scale_down_stabilization_samples == 3
 
 
 @pytest.mark.parametrize(
@@ -143,6 +157,24 @@ def test_scaling_spec_defaults():
         {"max": 3, "signal": "cpu", "target": 0},  # target must be > 0
         {"max": 3, "signal": "cpu", "target": 50, "scale_up_step": 0},
         {"max": 3, "signal": "cpu", "target": 50, "cooldown_s": -5},
+        {"max": 3, "signal": "cpu", "target": 50, "deadband": -0.1},
+        {"max": 3, "signal": "cpu", "target": 50, "deadband": 1.1},
+        {"max": 3, "signal": "cpu", "target": 50, "deadband": float("nan")},
+        {
+            "max": 3,
+            "signal": "cpu",
+            "target": 50,
+            "scale_down_stabilization_samples": 0,
+        },
+        {
+            "max": 3,
+            "signal": "cpu",
+            "target": 50,
+            "scale_up_stabilization_samples": 61,
+        },
+        {"max": 3, "signal": "cpu", "target": float("inf")},
+        {"max": 3, "signal": "cpu", "target": 10**10000},
+        {"max": 3, "signal": "cpu", "target": 50, "min": True},
         {"max": "lots", "signal": "cpu", "target": 50},  # unparseable
         "not-a-mapping",
     ],
@@ -188,39 +220,45 @@ SPEC = ScalingSpec(
 
 def test_aggregate_signal_scales_up_toward_target():
     # 450 queued across 3 replicas = 150/replica vs target 100 ⇒ ceil(4.5) = 5.
-    assert compute_desired_replicas(3, 450.0, SPEC) == 5
+    assert compute_desired_replicas(3, 450.0, SPEC, aggregation="fleet_total") == 5
 
 
 def test_scale_up_step_caps_one_evaluation():
     # Raw desired is 5 but up-step 2 caps 1 → 3; convergence takes more ticks.
-    assert compute_desired_replicas(1, 450.0, SPEC) == 3
+    assert compute_desired_replicas(1, 450.0, SPEC, aggregation="fleet_total") == 3
 
 
 def test_scale_down_is_step_capped_and_floored():
-    assert compute_desired_replicas(3, 50.0, SPEC) == 2  # raw 1, down-step 1
-    assert compute_desired_replicas(2, 0.0, SPEC) == 1
-    assert compute_desired_replicas(1, 0.0, SPEC) == 1  # min floor
+    assert (
+        compute_desired_replicas(3, 50.0, SPEC, aggregation="fleet_total") == 2
+    )  # raw 1, down-step 1
+    assert compute_desired_replicas(2, 0.0, SPEC, aggregation="fleet_total") == 1
+    assert (
+        compute_desired_replicas(1, 0.0, SPEC, aggregation="fleet_total") == 1
+    )  # min floor
 
 
 def test_max_clamp():
     spec = ScalingSpec(1, 3, "queue_depth", 10.0, 10, 10, 0.0)
-    assert compute_desired_replicas(1, 10_000.0, spec) == 3
+    assert compute_desired_replicas(1, 10_000.0, spec, aggregation="fleet_total") == 3
 
 
 def test_scale_from_zero_uses_effective_current():
     spec = ScalingSpec(0, 5, "queue_depth", 100.0, 5, 5, 0.0)
-    assert compute_desired_replicas(0, 450.0, spec) == 5
-    assert compute_desired_replicas(0, 0.0, spec) == 0  # min 0 holds at zero
+    assert compute_desired_replicas(0, 450.0, spec, aggregation="fleet_total") == 5
+    assert (
+        compute_desired_replicas(0, 0.0, spec, aggregation="fleet_total") == 0
+    )  # min 0 holds at zero
 
 
 def test_per_replica_signal_is_not_renormalized():
     # cpu is a per-replica average: 90% vs 50% target on 2 ⇒ ceil(3.6) = 4.
     cpu = ScalingSpec(1, 5, "cpu", 50.0, 5, 5, 0.0)
-    assert compute_desired_replicas(2, 90.0, cpu) == 4
+    assert compute_desired_replicas(2, 90.0, cpu, aggregation="per_replica") == 4
 
 
 def test_at_target_holds():
-    assert compute_desired_replicas(3, 300.0, SPEC) == 3
+    assert compute_desired_replicas(3, 300.0, SPEC, aggregation="fleet_total") == 3
 
 
 # ---------------------------------------------------------------------------
@@ -243,6 +281,309 @@ def test_no_signal_data_takes_no_action(engine, tmp_path, monkeypatch):
     assert "no data" in report["evaluations"][0]["reason"]
     assert scaler.actuator.applied == []
     assert engine.by_type("ActionDecision") == []  # nothing even proposed
+
+
+def test_unavailable_supervisory_evidence_skips_before_load_or_signal(
+    engine, tmp_path, monkeypatch
+):
+    signals = FakeSignalProvider(default=450.0)
+    scaler = _autoscaler(
+        engine,
+        {"vector-mcp": obs("vector-mcp", "up", replicas=1)},
+        tmp_path,
+        monkeypatch,
+        signals=signals,
+        policy_body=PERMISSIVE,
+    )
+    scaler.health_provider = lambda: unavailable_fleet_health("test.health")
+
+    report = scaler.evaluate()
+
+    assert report["actions"] == 0
+    assert report["evaluated"] == 0
+    assert report["health"]["status"] == "unavailable"
+    assert signals.calls == []
+
+
+class _ScriptedSignalProvider:
+    name = "scripted"
+    trusted_in_process = True
+
+    def __init__(self, sample):
+        self.sample = sample
+
+    def signal_definition(self, signal, service=None):
+        definition = get_signal_definition(signal)
+        if (
+            definition is not None
+            and service is not None
+            and not definition.binds_service(service)
+        ):
+            return replace(definition, service_binding=service)
+        return definition
+
+    def signal_value(self, service, signal):
+        return self.sample
+
+    def signal_values(self, requests):
+        return {request: self.signal_value(*request) for request in requests}
+
+
+def _scripted_scaler(engine, tmp_path, monkeypatch, sample, *, replicas=3):
+    return _autoscaler(
+        engine,
+        {"vector-mcp": obs("vector-mcp", "up", replicas=replicas)},
+        tmp_path,
+        monkeypatch,
+        signals=_ScriptedSignalProvider(sample),
+        policy_body=PERMISSIVE,
+        registry_body=(
+            "services:\n"
+            "  - name: vector-mcp\n"
+            "    scaling: {max: 5, signal: queue_depth, target: 100, cooldown_s: 0}\n"
+        ),
+    )
+
+
+class _SequenceSignalProvider:
+    name = "sequence"
+
+    def __init__(self, values):
+        self.values = iter(values)
+        self.bulk_calls = 0
+
+    def signal_definition(self, signal, service=None):
+        definition = get_signal_definition(signal)
+        if (
+            definition is not None
+            and service is not None
+            and not definition.binds_service(service)
+        ):
+            return replace(definition, service_binding=service)
+        return definition
+
+    def signal_values(self, requests):
+        self.bulk_calls += 1
+        value = next(self.values)
+        if value is None:
+            return {request: None for request in requests}
+        now = time.time() + self.bulk_calls
+        return {
+            request: ScalingSignalSample(
+                value=value,
+                source=self.name,
+                service=request[0],
+                signal=request[1],
+                aggregation="fleet_total",
+                observed_at=now,
+                unit="items",
+                scope="fleet",
+            )
+            for request in requests
+        }
+
+
+def _stabilized_scaler(
+    engine, tmp_path, monkeypatch, values, *, down_samples=3, replicas=3
+):
+    return _autoscaler(
+        engine,
+        {"vector-mcp": obs("vector-mcp", "up", replicas=replicas)},
+        tmp_path,
+        monkeypatch,
+        signals=_SequenceSignalProvider(values),
+        policy_body=PERMISSIVE,
+        registry_body=(
+            "services:\n"
+            "  - name: vector-mcp\n"
+            f"    scaling: {{max: 5, signal: queue_depth, target: 100, cooldown_s: 0, deadband: 0, scale_down_stabilization_samples: {down_samples}}}\n"
+        ),
+    )
+
+
+def test_deadband_suppresses_small_target_deviation(engine, tmp_path, monkeypatch):
+    scaler = _autoscaler(
+        engine,
+        {"vector-mcp": obs("vector-mcp", "up", replicas=1)},
+        tmp_path,
+        monkeypatch,
+        signals=FakeSignalProvider(default=105.0),
+        policy_body=PERMISSIVE,
+        registry_body=(
+            "services:\n"
+            "  - name: vector-mcp\n"
+            "    scaling: {max: 5, signal: queue_depth, target: 100, cooldown_s: 0, deadband: 0.1}\n"
+        ),
+    )
+    report = scaler.evaluate()
+    assert report["actions"] == 0
+    assert "deadband" in report["evaluations"][0]["reason"]
+
+
+def test_deadband_does_not_prevent_scale_up_from_zero(engine, tmp_path, monkeypatch):
+    scaler = _autoscaler(
+        engine,
+        {"vector-mcp": obs("vector-mcp", "up", replicas=0)},
+        tmp_path,
+        monkeypatch,
+        signals=FakeSignalProvider(default=100.0),
+        policy_body=PERMISSIVE,
+        registry_body=(
+            "services:\n"
+            "  - name: vector-mcp\n"
+            "    scaling:\n"
+            "      min: 0\n"
+            "      max: 5\n"
+            "      signal: queue_depth\n"
+            "      target: 100\n"
+            "      cooldown_s: 0\n"
+            "      deadband: 0.1\n"
+        ),
+    )
+
+    report = scaler.evaluate()
+
+    assert report["scaled"] == 1
+    assert report["evaluations"][0]["desired"] == 1
+
+
+def test_scale_down_requires_consecutive_samples(engine, tmp_path, monkeypatch):
+    scaler = _stabilized_scaler(engine, tmp_path, monkeypatch, [50.0, 50.0, 50.0])
+    first = scaler.evaluate()
+    assert first["actions"] == 0
+    assert "stabilizing down (1/3" in first["evaluations"][0]["reason"]
+    assert "stabilizing down (2/3" in scaler.evaluate()["evaluations"][0]["reason"]
+    assert scaler.evaluate()["scaled"] == 1
+
+
+def test_successful_scale_down_resets_stabilization_for_next_action(
+    engine, tmp_path, monkeypatch
+):
+    scaler = _stabilized_scaler(
+        engine,
+        tmp_path,
+        monkeypatch,
+        [50.0, 50.0, 50.0, 50.0, 50.0, 50.0],
+    )
+    assert scaler.evaluate()["actions"] == 0
+    assert scaler.evaluate()["actions"] == 0
+    assert scaler.evaluate()["scaled"] == 1
+    # The successful action consumed the prior three-sample streak. A later
+    # post-cooldown action must stabilize from 1/3 again.
+    assert "stabilizing down (1/3" in scaler.evaluate()["evaluations"][0]["reason"]
+    assert "stabilizing down (2/3" in scaler.evaluate()["evaluations"][0]["reason"]
+    assert scaler.evaluate()["scaled"] == 1
+
+
+def test_missing_sample_resets_scale_down_stabilization(engine, tmp_path, monkeypatch):
+    scaler = _stabilized_scaler(
+        engine, tmp_path, monkeypatch, [50.0, None, 50.0, 50.0, 50.0]
+    )
+    assert scaler.evaluate()["actions"] == 0
+    assert "no data" in scaler.evaluate()["evaluations"][0]["reason"]
+    assert "stabilizing down (1/3" in scaler.evaluate()["evaluations"][0]["reason"]
+    assert "stabilizing down (2/3" in scaler.evaluate()["evaluations"][0]["reason"]
+    assert scaler.evaluate()["scaled"] == 1
+
+
+def test_direction_change_resets_the_opposite_streak(engine, tmp_path, monkeypatch):
+    scaler = _stabilized_scaler(
+        engine, tmp_path, monkeypatch, [50.0, 450.0, 50.0, 50.0, 50.0]
+    )
+    assert "stabilizing down (1/3" in scaler.evaluate()["evaluations"][0]["reason"]
+    assert scaler.evaluate()["scaled"] == 1  # scale-up is one valid sample
+    assert "stabilizing down (1/3" in scaler.evaluate()["evaluations"][0]["reason"]
+    assert "stabilizing down (2/3" in scaler.evaluate()["evaluations"][0]["reason"]
+    assert scaler.evaluate()["scaled"] == 1
+
+
+def test_stale_signal_is_no_data_and_cannot_scale_down(engine, tmp_path, monkeypatch):
+    sample = ScalingSignalSample(
+        value=0.0,
+        source="scripted",
+        service="vector-mcp",
+        signal="queue_depth",
+        aggregation="fleet_total",
+        observed_at=time.time() - MAX_SIGNAL_AGE_S - 1,
+        unit="items",
+        scope="fleet",
+    )
+    scaler = _scripted_scaler(engine, tmp_path, monkeypatch, sample)
+    report = scaler.evaluate()
+    assert report["actions"] == 0
+    assert report["evaluations"][0]["outcome"] == "skipped"
+    assert scaler.actuator.applied == []
+
+
+def test_replayed_signal_is_rejected_after_first_consumption(
+    engine, tmp_path, monkeypatch
+):
+    sample = ScalingSignalSample(
+        value=450.0,
+        source="scripted",
+        service="vector-mcp",
+        signal="queue_depth",
+        aggregation="fleet_total",
+        observed_at=time.time(),
+        unit="items",
+        scope="fleet",
+    )
+    scaler = _scripted_scaler(engine, tmp_path, monkeypatch, sample, replicas=1)
+    assert scaler.evaluate()["scaled"] == 1
+    second = scaler.evaluate()
+    assert second["actions"] == 0
+    assert "no data" in second["evaluations"][0]["reason"]
+    assert len(scaler.actuator.applied) == 1
+
+
+@pytest.mark.parametrize(
+    "service, aggregation",
+    [("other-service", "fleet_total"), ("vector-mcp", "per_replica")],
+)
+def test_cross_service_or_wrong_aggregation_sample_is_rejected(
+    engine, tmp_path, monkeypatch, service, aggregation
+):
+    sample = ScalingSignalSample(
+        value=0.0,
+        source="scripted",
+        service=service,
+        signal="queue_depth",
+        aggregation=aggregation,
+        observed_at=time.time(),
+        unit="items",
+        scope="fleet",
+    )
+    scaler = _scripted_scaler(engine, tmp_path, monkeypatch, sample)
+    report = scaler.evaluate()
+    assert report["actions"] == 0
+    assert scaler.actuator.applied == []
+
+
+def test_wrong_unit_or_scope_sample_is_rejected_before_scale_down(
+    engine, tmp_path, monkeypatch
+):
+    sample = ScalingSignalSample(
+        value=0.0,
+        source="scripted",
+        service="vector-mcp",
+        signal="queue_depth",
+        aggregation="fleet_total",
+        observed_at=time.time(),
+        unit="messages",
+        scope="other-fleet",
+    )
+    scaler = _scripted_scaler(engine, tmp_path, monkeypatch, sample)
+    report = scaler.evaluate()
+    assert report["actions"] == 0
+    assert "no data" in report["evaluations"][0]["reason"]
+
+
+def test_malformed_provider_result_never_scales_down(engine, tmp_path, monkeypatch):
+    scaler = _scripted_scaler(engine, tmp_path, monkeypatch, object(), replicas=3)
+    report = scaler.evaluate()
+    assert report["actions"] == 0
+    assert report["evaluations"][0]["outcome"] == "skipped"
+    assert scaler.actuator.applied == []
 
 
 def test_unobserved_service_is_skipped(engine, tmp_path, monkeypatch):
@@ -461,6 +802,25 @@ def test_action_budget_defers_excess_services(engine, tmp_path, monkeypatch):
     assert report["actions"] == 1
     budgeted = [e for e in report["evaluations"] if "budget" in e.get("reason", "")]
     assert [e["service"] for e in budgeted] == ["b-svc"]
+
+
+def test_one_bulk_signal_read_per_tick_for_all_services(engine, tmp_path, monkeypatch):
+    signals = FakeSignalProvider(default=450.0)
+    scaler = _autoscaler(
+        engine,
+        {
+            "a-svc": obs("a-svc", "up", replicas=1),
+            "b-svc": obs("b-svc", "up", replicas=1),
+        },
+        tmp_path,
+        monkeypatch,
+        signals=signals,
+        policy_body=PERMISSIVE,
+        registry_body=TWO_SCALED_REGISTRY,
+    )
+    scaler.evaluate()
+    assert signals.bulk_calls == 1
+    assert signals.calls == [("a-svc", "queue_depth"), ("b-svc", "queue_depth")]
 
 
 def test_one_compact_evaluation_node_per_tick(engine, tmp_path, monkeypatch):

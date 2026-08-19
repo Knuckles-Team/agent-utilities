@@ -11,6 +11,24 @@ SpecialistTier = Literal["light", "medium", "heavy", "reasoning"]
 class MCPConfigModel(BaseModel):
     mcpServers: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("mcpServers", mode="before")
+    @classmethod
+    def _validate_server_entries(cls, value: Any) -> dict[str, Any]:
+        """Validate every catalog entry at the model's authoritative boundary."""
+
+        if not isinstance(value, dict):
+            raise ValueError("mcpServers must be an object")
+        if len(value) > 4096:
+            raise ValueError("mcpServers exceeds the bounded catalog size")
+        validated: dict[str, Any] = {}
+        for name, entry in value.items():
+            if not isinstance(name, str) or not name.strip():
+                raise ValueError("MCP server names must be non-empty strings")
+            validated[name] = MCPServerEntryModel.model_validate(entry).model_dump(
+                mode="python", exclude_none=True
+            )
+        return validated
+
 
 class MCPServerEntryModel(BaseModel):
     """One ``mcp_config.json`` ``mcpServers.<name>`` entry, typed for CRUD.

@@ -354,7 +354,11 @@ def _privacy_safe(text: str) -> str:
 
 
 def _write_fleet_relational(
-    engine: Any, catalog: dict[str, dict], *, configs: dict[str, dict] | None = None
+    engine: Any,
+    catalog: dict[str, dict],
+    *,
+    configs: dict[str, dict] | None = None,
+    discovery_bindings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Mirror the probed ``catalog`` into the relational fleet-catalog tables.
 
@@ -373,7 +377,12 @@ def _write_fleet_relational(
     from .fleet_catalog_tables import write_fleet_catalog
 
     try:
-        return write_fleet_catalog(engine, catalog, configs=configs)
+        return write_fleet_catalog(
+            engine,
+            catalog,
+            configs=configs,
+            discovery_bindings=discovery_bindings,
+        )
     except Exception as exc:  # noqa: BLE001 — relational write is best-effort
         logger.error(
             "fleet catalog relational write failed (%s: %s)",
@@ -388,6 +397,7 @@ def _write_fleet_nodes(
     catalog: dict[str, dict],
     *,
     configs: dict[str, dict] | None = None,
+    discovery_bindings: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Write a probed multiplexer catalog into the KG as capability nodes.
 
@@ -418,7 +428,12 @@ def _write_fleet_nodes(
     # docstring on :func:`_write_fleet_relational`) — cheap, synchronous, and
     # independent of the KG write below succeeding, failing, or being rejected
     # by the engine's Cypher ACL gate.
-    relational = _write_fleet_relational(engine, catalog, configs=configs)
+    relational = _write_fleet_relational(
+        engine,
+        catalog,
+        configs=configs,
+        discovery_bindings=discovery_bindings,
+    )
 
     entities: list[dict[str, Any]] = []
     relationships: list[dict[str, Any]] = []
@@ -845,6 +860,7 @@ def _sync_fleet(
     """
     catalog = client if isinstance(client, dict) else None
     configs: dict[str, dict] | None = None
+    discovery_bindings: dict[str, Any] | None = None
     if catalog is None:
         try:
             from ...mcp.multiplexer import MCPMultiplexer
@@ -884,7 +900,21 @@ def _sync_fleet(
         except Exception:  # noqa: BLE001 — server-row transport/url is best-effort
             configs = None
 
-    counts = _write_fleet_nodes(engine, catalog, configs=configs)
+        try:
+            # Broker authority is process-owned multiplexer state, never a
+            # field in the caller-visible catalog.  The identity-bound lookup
+            # also rejects copied/spoofed catalog dictionaries.
+            mux._bind_local_discovery_bindings(catalog or {})
+            discovery_bindings = mux._take_discovery_bindings(catalog or {})
+        except Exception:  # noqa: BLE001 - private binding metadata is optional
+            discovery_bindings = None
+
+    counts = _write_fleet_nodes(
+        engine,
+        catalog,
+        configs=configs,
+        discovery_bindings=discovery_bindings,
+    )
     return {
         "status": "ok",
         "source": "fleet",

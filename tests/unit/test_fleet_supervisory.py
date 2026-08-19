@@ -15,6 +15,8 @@ import pytest
 
 from agent_utilities.gateway import fleet
 from agent_utilities.models.company_brain import ActorType
+from agent_utilities.observability import runtime_health
+from agent_utilities.orchestration import fleet_health
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
@@ -43,6 +45,13 @@ def session_db(tmp_path, monkeypatch):
     conn.close()
     monkeypatch.setattr(fleet._sessions, "_get_db_path", lambda: db)
     monkeypatch.setattr(fleet._sessions, "_rehydrated", True)
+
+    class _GoalProbe:
+        def query_cypher(self, _query, _params=None):
+            return []
+
+    monkeypatch.setattr(fleet._sessions, "_goal_engine", _GoalProbe)
+    monkeypatch.setattr(fleet._sessions, "rehydrate_goals", lambda: 0)
     admin = ActorContext(
         actor_id="fleet-admin",
         actor_type=ActorType.AUTOMATED_SERVICE,
@@ -81,6 +90,153 @@ async def test_fleet_health_per_domain_error_rate(session_db):
     # finance: 2 sessions, 1 errored -> 0.5 error rate
     assert data["domains"]["finance"]["error_rate"] == 0.5
     assert data["domains"]["itops"]["active"] == 1
+
+
+@pytest.mark.asyncio
+async def test_goal_rehydration_failure_is_unavailable_not_empty_health(
+    session_db, monkeypatch
+):
+    def fail_rehydrate():
+        raise RuntimeError("goal authority secret should not escape")
+
+    monkeypatch.setattr(fleet._sessions, "rehydrate_goals", fail_rehydrate)
+    resp = await fleet.fleet_health(_Req())
+    data = await _payload(resp)
+
+    assert resp.status_code == 503
+    assert data["evidence"]["status"] == "partial"
+    assert data["evidence"]["ready"] is False
+    assert data["goals"] is None
+    assert "secret" not in json.dumps(data)
+
+
+@pytest.mark.asyncio
+async def test_control_store_failure_is_unavailable_not_zero_health(
+    session_db, monkeypatch
+):
+    def fail_store():
+        raise sqlite3.OperationalError("postgresql://user:secret@host/db")
+
+    monkeypatch.setattr(fleet._sessions, "_connect_db", fail_store)
+    resp = await fleet.fleet_health(_Req())
+    data = await _payload(resp)
+
+    assert resp.status_code == 503
+    assert data["evidence"]["dependencies"]["control_store"]["status"] == (
+        "unavailable"
+    )
+    assert data["sessions"] is None
+    assert "postgresql://" not in json.dumps(data)
+
+
+@pytest.mark.asyncio
+async def test_worker_registry_failure_is_partial_not_zero_topology(
+    session_db, monkeypatch
+):
+    from agent_utilities.orchestration import agent_dispatch
+
+    def fail_workers():
+        raise RuntimeError("worker registry unavailable")
+
+    monkeypatch.setattr(agent_dispatch, "list_dispatch_workers", fail_workers)
+    resp = await fleet.fleet_topology(_Req())
+    data = await _payload(resp)
+
+    assert resp.status_code == 503
+    assert data["evidence"]["status"] == "partial"
+    assert data["dispatch_workers"] is None
+    assert data["totals"]["dispatch_workers"] is None
+
+
+def test_partial_control_store_read_retains_success_and_bounded_diagnostic(
+    monkeypatch,
+):
+    class _Cursor:
+        def __init__(self):
+            self.calls = 0
+
+        def execute(self, _query, _params):
+            self.calls += 1
+            if self.calls == 2:
+                raise sqlite3.OperationalError("postgresql://user:secret@host/db")
+
+        def fetchall(self):
+            return [("active", 2)] if self.calls == 1 else []
+
+    class _Conn:
+        dialect = "sqlite"
+
+        def __init__(self):
+            self._cursor = _Cursor()
+
+        def cursor(self):
+            return self._cursor
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(fleet._sessions, "_connect_db", _Conn)
+    read = fleet_health._read_control_store(now=10.0)
+
+    assert read.status == "partial"
+    assert read.by_status == {"active": 2}
+    assert read.domains is None
+    assert read.last_success_at == 10.0
+    assert all("secret" not in diagnostic for diagnostic in read.diagnostics)
+
+
+@pytest.mark.asyncio
+async def test_rest_and_mcp_health_share_exact_evidence_contract(
+    session_db, monkeypatch
+):
+    from agent_utilities.mcp import kg_server
+    from agent_utilities.mcp.tools import state_tools
+
+    snapshot = fleet_health.collect_fleet_health(scope_resolver=fleet._tenant_scope)
+    monkeypatch.setattr(fleet, "collect_fleet_health", lambda **_kwargs: snapshot)
+
+    class _MCP:
+        def tool(self, **_kwargs):
+            return lambda function: function
+
+    previous_tools = dict(kg_server.REGISTERED_TOOLS)
+    try:
+        state_tools.register_state_tools(_MCP())
+        mcp_tool = kg_server.REGISTERED_TOOLS["graph_sessions"]
+        rest_data = await _payload(await fleet.fleet_health(_Req()))
+        mcp_data = json.loads(
+            await mcp_tool(action="health", limit=200, offset=0, status="")
+        )
+        rest_topology = await _payload(await fleet.fleet_topology(_Req()))
+        mcp_topology = json.loads(
+            await mcp_tool(action="topology", limit=200, offset=0, status="")
+        )
+    finally:
+        kg_server.REGISTERED_TOOLS.clear()
+        kg_server.REGISTERED_TOOLS.update(previous_tools)
+
+    assert mcp_data == rest_data
+    assert mcp_topology == rest_topology
+
+
+def test_unavailable_fleet_evidence_fails_readiness(monkeypatch):
+    snapshot = fleet_health.FleetHealthSnapshot(
+        evidence=fleet_health.unavailable_fleet_health("readiness.test"),
+        sessions=None,
+        goals=None,
+        domains=None,
+        dispatch_workers=None,
+    )
+    monkeypatch.setattr(
+        fleet_health,
+        "collect_fleet_health",
+        lambda: snapshot,
+    )
+
+    check = runtime_health._check_fleet_supervision(None)
+
+    assert check["status"] == "unhealthy"
+    assert runtime_health.is_overall_healthy({"checks": [check]}) is False
 
 
 @pytest.mark.asyncio
@@ -281,6 +437,13 @@ def tenant_session_db(tmp_path, monkeypatch):
     conn.close()
     monkeypatch.setattr(fleet._sessions, "_get_db_path", lambda: db)
     monkeypatch.setattr(fleet._sessions, "_rehydrated", True)
+
+    class _GoalProbe:
+        def query_cypher(self, _query, _params=None):
+            return []
+
+    monkeypatch.setattr(fleet._sessions, "_goal_engine", _GoalProbe)
+    monkeypatch.setattr(fleet._sessions, "rehydrate_goals", lambda: 0)
     return db
 
 

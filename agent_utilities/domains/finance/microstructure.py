@@ -7,8 +7,7 @@ and consensus logic (Convergence Filter, Brier Score Validator).
 
 import logging
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +97,11 @@ class BrierScoreValidator:
         if len(predicted_probs) == 0 or len(predicted_probs) != len(actual_outcomes):
             raise ValueError("Arrays must be non-empty and of equal length.")
 
-        return float(np.mean((predicted_probs - actual_outcomes) ** 2))
+        errors = [
+            (float(predicted) - float(actual)) ** 2
+            for predicted, actual in zip(predicted_probs, actual_outcomes, strict=True)
+        ]
+        return float(xp.mean(errors))
 
     @staticmethod
     def is_production_grade(score: float, threshold: float = 0.25) -> bool:

@@ -1145,38 +1145,98 @@ def test_ingest_metrics_registered_on_gateway_registry():
     from agent_utilities.observability import gateway_metrics as gm
 
     assert "KG_INGEST_QUEUE_DEPTH" in gm.__all__
+    assert "KG_INGEST_QUEUE_DEPTH_OBSERVED_AT" in gm.__all__
     assert "KG_INGEST_CONSUMER_LAG" in gm.__all__
+    assert "KG_INGEST_CONSUMER_LAG_OBSERVED_AT" in gm.__all__
     # Always usable, regardless of whether prometheus_client is installed.
-    gm.KG_INGEST_QUEUE_DEPTH.labels(backend="kafka").set(3.0)
-    gm.KG_INGEST_CONSUMER_LAG.labels(topic="kg_tasks", group="kg-ingest").set(3.0)
+    gm.record_kg_ingest_queue_observation(
+        backend="kafka", value=3.0, observed_at=time.time()
+    )
+    gm.record_kg_ingest_consumer_lag_observation(
+        topic="kg_tasks", group="kg-ingest", value=3.0, observed_at=time.time()
+    )
 
 
 def test_record_queue_telemetry_sets_gauges(monkeypatch):
     from agent_utilities.observability import gateway_metrics as gm
 
-    seen: dict[str, float] = {}
+    seen: dict[str, dict[str, object]] = {}
 
-    class _Gauge:
-        def __init__(self, name):
-            self._name = name
+    def record_depth(**kwargs):
+        seen["depth"] = kwargs
 
-        def labels(self, **labels):
-            self._labels = labels
-            return self
+    def record_lag(**kwargs):
+        seen["lag"] = kwargs
 
-        def set(self, value):
-            seen[f"{self._name}{sorted(self._labels.items())}"] = value
-
-    monkeypatch.setattr(gm, "KG_INGEST_QUEUE_DEPTH", _Gauge("depth"))
-    monkeypatch.setattr(gm, "KG_INGEST_CONSUMER_LAG", _Gauge("lag"))
+    monkeypatch.setattr(gm, "record_kg_ingest_queue_observation", record_depth)
+    monkeypatch.setattr(gm, "record_kg_ingest_consumer_lag_observation", record_lag)
 
     class _Harness:
         _record_queue_telemetry = TaskManagerMixin._record_queue_telemetry
         _task_queue_backend_name = "kafka"
 
     _Harness()._record_queue_telemetry(17)
-    assert seen["depth[('backend', 'kafka')]"] == 17.0
-    assert seen["lag[('group', 'kg-ingest'), ('topic', 'kg_tasks')]"] == 17.0
+    assert seen["depth"]["backend"] == "kafka"
+    assert seen["depth"]["value"] == 17.0
+    assert seen["depth"]["observed_at"] > 0
+    assert seen["lag"]["topic"] == "kg_tasks"
+    assert seen["lag"]["group"] == "kg-ingest"
+    assert seen["lag"]["value"] == 17.0
+    assert seen["lag"]["observed_at"] == seen["depth"]["observed_at"]
+
+
+def test_paired_metric_snapshot_cannot_interleave_half_an_observation():
+    from agent_utilities.observability.gateway_metrics import _PairedGaugeCollector
+
+    collector = _PairedGaugeCollector(
+        "test_queue_depth",
+        "test queue depth",
+        "test_queue_depth_observed_at",
+        "test queue depth observation time",
+        ("backend",),
+    )
+    labels = ("sqlite",)
+    collector.set_pair(labels, 3.0, 100.0)
+    reader_done = threading.Event()
+    snapshots = []
+
+    def reader():
+        snapshots.append(collector.snapshot())
+        reader_done.set()
+
+    # Hold the same lock used by the pair writer while the reader attempts its
+    # snapshot. It must wait until both components of the next pair are visible.
+    collector._lock.acquire()  # noqa: SLF001 — interleaving regression
+    try:
+        thread = threading.Thread(target=reader)
+        thread.start()
+        assert not reader_done.wait(0.05)
+        collector.set_pair(labels, 8.0, 200.0)
+    finally:
+        collector._lock.release()  # noqa: SLF001
+    thread.join(timeout=1)
+    assert reader_done.is_set()
+    assert snapshots == [({labels: 8.0}, {labels: 200.0})]
+
+
+def test_paired_metric_collector_bounds_the_union_of_one_sided_series():
+    from agent_utilities.observability.gateway_metrics import _PairedGaugeCollector
+
+    collector = _PairedGaugeCollector(
+        "test_queue_depth_bounded",
+        "test queue depth",
+        "test_queue_depth_bounded_observed_at",
+        "test queue depth observation time",
+        ("backend",),
+    )
+    for index in range(collector._MAX_SERIES):  # noqa: SLF001 - boundary contract
+        collector.set_observed((f"backend-{index}",), float(index + 1))
+
+    collector.set_pair(("overflow",), 1.0, 1.0)
+
+    values, observed = collector.snapshot()
+    assert len(observed) == collector._MAX_SERIES  # noqa: SLF001
+    assert "overflow" not in {labels[0] for labels in values | observed}
 
 
 # ── optional live-broker test ────────────────────────────────────────────

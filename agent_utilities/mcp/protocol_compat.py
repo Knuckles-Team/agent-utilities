@@ -1,61 +1,35 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Client-side bridge for the fastmcp-4 / MCP SDK v2 upgrade.
+"""Compatibility boundary for the fastmcp-4 / MCP SDK v2 runtime.
 
 CONCEPT:AU-ECO.mcp.protocol-compat-bridge
 
 `agent-utilities` targets `fastmcp>=4.0.0b1` by default (see the `[mcp]` extra in
-`pyproject.toml`), which transitively requires `mcp>=2.0.0,<3.0.0` (the MCP Python
-SDK's v2 line). Empirically verified against a live fastmcp-4 server + a real
-`pydantic_ai.mcp.MCPToolset` client (fastmcp 4.0.0b1, mcp 2.0.0, pydantic-ai-slim
-2.25.0 — the latest published release as of this writing), two upstream gaps break
-every real toolset connection unless bridged here. Both gaps are inside
-`pydantic_ai.mcp` / `fastmcp`'s own code, not anything this package calls directly,
-so they cannot be fixed by changing how *we* invoke the API — only by adapting to
-the renamed/defaulted surface until upstream catches up:
+`pyproject.toml`), which transitively uses the MCP Python SDK v2 line. Earlier
+Pydantic-AI releases read the SDK's legacy camelCase fields and assumed the
+initialize handshake, so AU briefly carried process-global aliases, a copied
+`MCPToolset` method body, and an explicit legacy-mode pin.
 
-1. **`mcp` SDK v2 renamed several protocol fields from camelCase to snake_case**
-   (`inputSchema` -> `input_schema`, `mimeType` -> `mime_type`, etc). `fastmcp`
-   ships its own deprecation bridge for this (`fastmcp._compat`, a curated table of
-   warn-once camelCase properties) and it covers most of what `pydantic_ai.mcp`
-   reads — but NOT `PromptsCapability.listChanged` / `ResourcesCapability.listChanged`
-   / `ToolsCapability.listChanged` (read unconditionally by
-   `ServerCapabilities.from_mcp_sdk` on every `MCPToolset.__aenter__`) or
-   `ToolExecution.taskSupport` (read by `MCPToolset.get_tools()` whenever a tool
-   advertises `execution` metadata). `mcp.shared.exceptions.McpError` was also
-   renamed to `MCPError` — `pydantic_ai.mcp`'s tool-call error handling
-   (`except mcp_exceptions.McpError`) still expects the old name. `install_mcp_v2_bridge()`
-   closes exactly these four gaps, using the same technique fastmcp uses for the
-   rest (a plain property reading the renamed attribute), guarded so it never
-   shadows a real upstream fix.
-2. **`fastmcp.client.Client` defaults to `mode="auto"`**, which negotiates the
-   modern `server/discover` connect era against a fastmcp-4 server and leaves
-   `Client.initialize_result` as `None`. `pydantic_ai.mcp.MCPToolset.__aenter__`
-   (2.25.0) unconditionally asserts `client.initialize_result is not None`, so
-   every connection to a real fastmcp-4 server fails outright unless the
-   underlying client is pinned to `mode="legacy"` (today's initialize handshake,
-   which populates `initialize_result`). `MCPToolset` does not expose a `mode`
-   passthrough for its convenience constructors (bare transport / URL / in-process
-   `FastMCP` server / `pydantic_ai.mcp.load_mcp_toolsets`), but `Client.mode` is a
-   plain, un-validated instance attribute read lazily at connect time — so
-   `force_legacy_protocol_mode()` reaches into an already-constructed
-   `MCPToolset.client` (unwrapping `WrapperToolset.wrapped`, e.g.
-   `PrefixedToolset` from `load_mcp_toolsets`) and pins it before first use.
+The supported contract is now `pydantic-ai-slim==2.29.0`. Its upstream
+`pydantic_ai.mcp` implementation reads either SDK field spelling through its own
+`_mcp_compat` helpers, handles modern `server/discover` sessions, and imports the
+FastMCP protocol-error alias. The old method monkeypatch and field aliases are
+therefore removed. `install_mcp_v2_bridge()` remains as a compatibility-preserving
+entrypoint that validates the exact installed contract and fails closed on drift;
+it never silently disables MCP or mutates third-party classes. The
+`force_legacy_protocol_mode()` helper remains an explicit AU policy for call sites
+that require initialize-handshake semantics while the fleet transitions.
 
-Both are temporary, forward-compatible shims: `install_mcp_v2_bridge()` skips any
-field pydantic-ai/fastmcp already provide (so a future release that adds proper
-support makes this a no-op), and `force_legacy_protocol_mode()` is a one-line
-attribute set with no other side effects. Delete this module once
-`pydantic-ai-slim` ships a release whose `MCPToolset` handles the fastmcp-4
-`server/discover` era natively and whose `mcp.py` reads the SDK v2 field/exception
-names directly.
+The SDK name/exception resolvers below are still used by AU's own MCP resilience
+and authorization paths, which support both SDK generations. Remove this module's
+call sites only when those consumers no longer need that mixed-generation boundary.
+
 """
 
 import importlib
 import importlib.metadata
 import warnings
-from contextlib import AsyncExitStack
 from types import ModuleType
 from typing import Any
 
@@ -155,107 +129,47 @@ def mcp_types_module() -> ModuleType:
 
 
 def install_mcp_v2_bridge() -> None:
-    """Bridge the MCP SDK v2 attribute renames that `fastmcp._compat` doesn't cover.
+    """Verify the exact Pydantic-AI MCP contract used by AU.
 
-    Idempotent. Safe to call from any module that constructs an `MCPToolset` before
-    doing so; `agent_utilities.mcp.toolset_factory` calls it at import time so every
-    call site in this package gets it for free.
+    Pydantic-AI 2.29 natively handles both MCP SDK field spellings and modern
+    FastMCP sessions, so the old process-global aliases and copied method body
+    are intentionally gone. The public function remains at all historical
+    construction sites as a fail-closed version gate: a stale or ambient
+    installation must never silently disable the MCP compatibility contract.
+    It is idempotent and does not mutate third-party classes.
     """
     global _installed
     if _installed:
         return
-
-    from mcp.shared import exceptions as mcp_exceptions
-
-    # NOT `from mcp import types` — this bridge exists FOR the SDK v2 line, and
-    # that is exactly the line where `mcp.types` was re-homed to `mcp_types`.
-    mcp_types = mcp_types_module()
-
-    # `mcp.shared.exceptions.McpError` was renamed `MCPError` in SDK v2.
-    # `pydantic_ai.mcp` still catches the old name in its tool-call error handling.
-    if not hasattr(mcp_exceptions, "McpError") and hasattr(mcp_exceptions, "MCPError"):
-        # Assigning through `__dict__` (rather than a plain attribute assignment)
-        # keeps this a runtime-only alias that mypy doesn't try to statically
-        # unify with the `MCPError` class identity.
-        mcp_exceptions.__dict__["McpError"] = mcp_exceptions.MCPError
-
-    # Fields `fastmcp._compat`'s own camelCase bridge table doesn't include, but
-    # `pydantic_ai.mcp` still reads unconditionally.
-    aliases: dict[type, dict[str, str]] = {
-        mcp_types.PromptsCapability: {"listChanged": "list_changed"},
-        mcp_types.ResourcesCapability: {"listChanged": "list_changed"},
-        mcp_types.ToolsCapability: {"listChanged": "list_changed"},
-        mcp_types.ToolExecution: {"taskSupport": "task_support"},
-    }
-    for cls, mapping in aliases.items():
-        model_fields = getattr(cls, "model_fields", {})
-        for camel, snake in mapping.items():
-            # Never shadow a real attribute — a future SDK/fastmcp release that
-            # restores or re-covers the field makes this bridge a no-op.
-            if camel in cls.__dict__ or camel in model_fields:
-                continue
-            setattr(cls, camel, _make_property(cls.__name__, camel, snake))
-
     _install_pydantic_ai_v2_read_bridge()
 
     _installed = True
 
 
-#: The exact `pydantic-ai-slim` release this D-CDX-69 patch was written and
-#: verified against (see `_install_pydantic_ai_v2_read_bridge`'s docstring).
-#: Deliberately an EXACT match, not a floor: `MCPToolset.__aenter__`/`get_tools`
-#: are copied verbatim below with four reads corrected, so a body that has
-#: since changed upstream must not silently receive a stale patch.
-_PATCHED_PYDANTIC_AI_VERSION = "2.25.0"
+#: The exact Pydantic-AI release whose native MCPToolset surface AU supports.
+#: This is the single contract source consumed by the fleet parity checker;
+#: package extras, locks, image inputs, and runtime verification must agree.
+_PYDANTIC_AI_CONTRACT_VERSION = "2.29.0"
+
+# Backwards-compatible name for integrations that imported the old private
+# sentinel while the method body was locally patched. It deliberately aliases
+# the one canonical literal above rather than introducing a second version.
+_PATCHED_PYDANTIC_AI_VERSION = _PYDANTIC_AI_CONTRACT_VERSION
 
 _toolset_reads_patched = False
 
 
 def _install_pydantic_ai_v2_read_bridge() -> None:
-    """D-CDX-69: stop `pydantic_ai.mcp.MCPToolset` from ever performing the four
-    deprecated camelCase reads that trip a warn-on-read compatibility shim
-    (`fastmcp._compat`'s for three of them, `install_mcp_v2_bridge`'s own alias
-    above for the fourth).
+    """Verify the native Pydantic-AI MCPToolset contract without monkeypatching it.
 
-    `InitializeResult.serverInfo` and `Tool.inputSchema` / `Tool.outputSchema` ARE
-    already covered by `fastmcp._compat` — that shim is exactly what emits the
-    `FastMCPDeprecationWarning` the live ServiceNow probe observed. The fourth,
-    `ToolExecution.taskSupport`, is instead covered by the alias `install_mcp_v2_bridge`
-    installs above (`mcp_types.ToolExecution: {"taskSupport": "task_support"}`) — that
-    alias has no once-only guard, so it warns on every single read rather than once
-    per class/name. Either way, the warning is correct: `pydantic_ai.mcp.MCPToolset.
-    __aenter__` (line ~1086) and `.get_tools` (lines ~1151/1154/1159/1165) really do
-    read `init_result.serverInfo` / `mcp_tool.execution.taskSupport` /
-    `mcp_tool.inputSchema` / `mcp_tool.outputSchema` instead of the SDK v2
-    `server_info` / `task_support` / `input_schema` / `output_schema` names.
-
-    Because the warning is real and not a false positive, silencing it (a
-    `warnings` filter, or overwriting `fastmcp`'s shim property with a
-    non-warning one — which would ALSO hide the same warning for any other,
-    genuinely-not-yet-migrated caller sharing the same process-wide `mcp_types`
-    classes) would be exactly the "suppress instead of fix" anti-pattern this
-    item's acceptance criteria rules out. The only fix that removes the warning
-    without touching its detection machinery is to stop `MCPToolset` from making
-    the deprecated read at all — so this replaces its two owning methods with a
-    byte-for-byte copy of the installed `pydantic-ai-slim` 2.25.0 source with
-    exactly those four attribute reads corrected to the v2 names. `get_tools`
-    changed shape since the 2.21.0 copy this patch previously carried: it now
-    delegates `ToolsetTool` construction to the real (unpatched)
-    `MCPToolset.tool_for_tool_def` helper instead of constructing `ToolsetTool`
-    inline, and factors the SEP-1686 task-augmented-execution preference in via
-    `self.prefer_tasks` (`'task': task_support == 'required' or (task_support ==
-    'optional' and self.prefer_tasks)`) rather than treating `'required'` and
-    `'optional'` alike. Both are preserved exactly as installed — only the four
-    camelCase reads are corrected.
-
-    Idempotent, and version-pinned defensively: if the installed
-    `pydantic-ai-slim` is not exactly `_PATCHED_PYDANTIC_AI_VERSION`, this emits
-    one `RuntimeWarning` and returns WITHOUT patching, because copied method
-    bodies silently applied to a since-changed upstream method would be a much
-    worse failure mode (subtly wrong behavior with no signal) than leaving the
-    original (merely noisy) upstream method in place. Bump the pin, re-diff
-    `pydantic_ai.mcp.MCPToolset.__aenter__`/`.get_tools` against this copy, and
-    update both together when `pydantic-ai-slim` ships a new release.
+    Pydantic-AI 2.29.0's upstream `MCPToolset` now owns the complete surface:
+    `_mcp_compat` reads current snake_case and legacy camelCase model fields,
+    `__aenter__` handles both initialize-era and modern sessions, and tool-call
+    errors use FastMCP's SDK-neutral alias. This function deliberately does not
+    assign to third-party methods or install process-global aliases. The exact
+    version check is the fail-closed guard: changing the package version requires
+    re-diffing those upstream methods and updating this contract source and its
+    tests together, rather than silently disabling the compatibility layer.
     """
     global _toolset_reads_patched
     if _toolset_reads_patched:
@@ -267,114 +181,15 @@ def _install_pydantic_ai_v2_read_bridge() -> None:
         return
 
     if installed_version != _PATCHED_PYDANTIC_AI_VERSION:
-        warnings.warn(
-            "agent-utilities: the D-CDX-69 pydantic-ai MCP v2-attribute-read "
-            f"bridge is pinned to pydantic-ai-slim=={_PATCHED_PYDANTIC_AI_VERSION} "
-            f"(the exact source `MCPToolset.__aenter__`/`.get_tools` were copied "
-            f"from); {installed_version} is installed, so the bridge is SKIPPED. "
-            "MCPToolset will read whichever attribute names its own installed "
-            "mcp.py uses, and a FastMCPDeprecationWarning may reappear. Re-diff "
-            "the two methods against the new release, update the copy in "
-            "protocol_compat.py, and bump _PATCHED_PYDANTIC_AI_VERSION.",
-            RuntimeWarning,
-            stacklevel=2,
+        raise RuntimeError(
+            "agent-utilities: the Pydantic-AI MCP contract requires "
+            f"pydantic-ai-slim=={_PYDANTIC_AI_CONTRACT_VERSION}, but "
+            f"{installed_version} is installed. Refusing to construct MCP "
+            "toolsets with an unverified compatibility surface; re-lock the AU "
+            "contract or re-diff the upstream methods before changing the pin."
         )
-        return
 
-    import pydantic_ai.mcp as _pydantic_ai_mcp
-
-    async def _v2_aenter(self: Any) -> Any:
-        # Build the exit stack inside an `async with` so any failure after
-        # `enter_async_context(self.client)` cleans up the open session — only commit
-        # the stack and write `_server_info`/`_server_capabilities`/`_instructions` to
-        # `self` once initialization fully succeeds, so `_initialized` can't see stale
-        # data from a session that got torn down mid-setup.
-        async with self._enter_lock:
-            if self._running_count == 0:
-                async with AsyncExitStack() as exit_stack:
-                    await exit_stack.enter_async_context(self.client)
-                    init_result = self.client.initialize_result
-                    assert init_result is not None, (
-                        "FastMCP Client initialization returned no result"
-                    )
-                    server_info = init_result.server_info  # v2 name (was `.serverInfo`)
-                    server_capabilities = (
-                        _pydantic_ai_mcp.ServerCapabilities.from_mcp_sdk(
-                            init_result.capabilities
-                        )
-                    )
-                    instructions = init_result.instructions
-                    if self.log_level is not None:
-                        await self.client.session.set_logging_level(self.log_level)
-                    self._exit_stack = exit_stack.pop_all()
-                    self._server_info = server_info
-                    self._server_capabilities = server_capabilities
-                    self._instructions = instructions
-            self._running_count += 1
-        return self
-
-    async def _v2_get_tools(self: Any, ctx: Any) -> dict[str, Any]:
-        tools: dict[str, Any] = {}
-        for mcp_tool in await self.list_tools():
-            task_support = (
-                mcp_tool.execution.task_support if mcp_tool.execution else None
-            )  # v2 name (was `.taskSupport`)
-            tools[mcp_tool.name] = self.tool_for_tool_def(
-                _pydantic_ai_mcp.ToolDefinition(
-                    name=mcp_tool.name,
-                    description=mcp_tool.description,
-                    parameters_json_schema=mcp_tool.input_schema,  # v2 name (was `.inputSchema`)
-                    metadata={
-                        "meta": mcp_tool.meta,
-                        "annotations": mcp_tool.annotations.model_dump()
-                        if mcp_tool.annotations
-                        else None,
-                        "task": task_support == "required"
-                        or (task_support == "optional" and self.prefer_tasks),
-                    },
-                    return_schema=mcp_tool.output_schema
-                    or None,  # v2 name (was `.outputSchema`)
-                    include_return_schema=self.include_return_schema,
-                ),
-                ctx=ctx,
-            )
-        return tools
-
-    # Assign through a deliberately `Any`-typed alias of the class, not
-    # `_pydantic_ai_mcp.MCPToolset.__aenter__ = _v2_aenter` directly: mypy's
-    # `[method-assign]` check treats a direct attribute assignment on a class
-    # it has full knowledge of as reassigning a KNOWN method to an
-    # incompatible signature, which is exactly wrong here (this IS the
-    # intentional replacement) but is otherwise a useful check elsewhere, so
-    # it is silenced only for this one deliberate, guarded, runtime override
-    # of third-party code -- not globally and not via a suppression comment.
-    # (Plain `setattr(cls, "name", value)` was tried first and rejected: it
-    # dodges mypy the same way but trips Ruff's B010, which is right that
-    # `setattr` with a literal name is never safer than assignment in
-    # general -- it just doesn't know this specific assignment is the one
-    # mypy needs steered away from.)
-    toolset_cls: Any = _pydantic_ai_mcp.MCPToolset
-    toolset_cls.__aenter__ = _v2_aenter
-    toolset_cls.get_tools = _v2_get_tools
     _toolset_reads_patched = True
-
-
-def _make_property(cls_name: str, camel: str, snake: str) -> property:
-    # Built once here rather than on every attribute access. Worded to avoid the
-    # identifier-interpolation gate's SQL/Cypher markers — a backtick or a
-    # trailing `to ` right before a `{}` gap is exactly the shape of a
-    # `GRANT ... TO <role>` identifier slot. This is a deprecation message, not
-    # a query; rewording says so structurally instead of suppressing the gate.
-    message = (
-        f"Accessing {cls_name}.{camel} is deprecated; MCP SDK v2 renamed this "
-        f"field. Read the attribute {snake} instead."
-    )
-
-    def getter(self: object) -> object:
-        warnings.warn(message, DeprecationWarning, stacklevel=2)
-        return getattr(self, snake)
-
-    return property(getter)
 
 
 def force_legacy_protocol_mode(toolset: Any) -> Any:
@@ -409,6 +224,31 @@ def force_legacy_protocol_mode(toolset: Any) -> Any:
         client.mode = "legacy"
 
     return toolset
+
+
+_MCP_FIELD_MISSING = object()
+
+
+def _read_mcp_field(value: Any, current_name: str, legacy_name: str) -> Any:
+    """Read an MCP field from either SDK generation, failing closed if absent.
+
+    MCP SDK v1 exposed camelCase model fields while SDK v2 moved them to
+    snake_case. Pydantic-AI 2.29 handles this internally; this small fail-closed
+    resolver remains for AU-owned SDK-neutral resilience tests and callers that
+    receive a model from either generation. It never installs a process-global
+    alias that could hide a malformed response. If neither field exists, the
+    connection is invalid and the resulting ``AttributeError`` remains visible.
+    """
+    current = getattr(value, current_name, _MCP_FIELD_MISSING)
+    if current is not _MCP_FIELD_MISSING:
+        return current
+    legacy = getattr(value, legacy_name, _MCP_FIELD_MISSING)
+    if legacy is not _MCP_FIELD_MISSING:
+        return legacy
+    raise AttributeError(
+        f"MCP object {type(value).__name__} exposes neither "
+        f"{current_name!r} (current SDK) nor {legacy_name!r} (legacy SDK)"
+    )
 
 
 def _declared_extra_floor(distribution: str, package: str, extra: str) -> Any | None:

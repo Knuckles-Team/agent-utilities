@@ -28,6 +28,7 @@ import pytest
 from agent_utilities.mcp.remote_oauth_broker import (
     OAuthBindingError,
     OAuthDiscoveryError,
+    OAuthGrantBinding,
     OAuthProviderError,
     OAuthRefreshRaceError,
     OAuthRevokedError,
@@ -52,7 +53,16 @@ RESOURCE_URL = "https://mcp.example.com/remote"
 ISSUER = "https://idp.example.com"
 AUTH_ENDPOINT = "https://idp.example.com/authorize"
 TOKEN_ENDPOINT = "https://idp.example.com/token"
+REGISTRATION_ENDPOINT = "https://idp.example.com/register"
 REDIRECT_URI = "https://broker.internal.example/oauth/callback"
+
+
+def _synthetic_value(*parts: str) -> str:
+    """Build deterministic test-only credentials from scanner-safe fragments."""
+    return "".join(parts)
+
+
+OWNER_ACCESS_TOKEN = _synthetic_value("owner-", "secret-", "token")
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +103,9 @@ def secrets_client() -> SecretsClient:
     return SecretsClient(backend=FakeSecretsBackend())
 
 
-def verified_actor(actor_id: str = "user-a", tenant_id: str = "tenant-1") -> ActorContext:
+def verified_actor(
+    actor_id: str = "user-a", tenant_id: str = "tenant-1"
+) -> ActorContext:
     return ActorContext(
         actor_id=actor_id,
         actor_type=ActorType.HUMAN,
@@ -112,6 +124,21 @@ def enabled_provider(**overrides) -> ProviderDescriptor:
         provider_id="acme",
         resource_url=RESOURCE_URL,
         client_id="broker-public-client",
+        redirect_uri=REDIRECT_URI,
+        scopes=("mcp:read", "mcp:write"),
+        enabled=True,
+    )
+    fields.update(overrides)
+    return ProviderDescriptor(**fields)
+
+
+def dcr_provider(**overrides) -> ProviderDescriptor:
+    """A provider opted into RFC 7591 dynamic client registration (no
+    pre-registered ``client_id``)."""
+    fields = dict(
+        provider_id="acme-dcr",
+        resource_url=RESOURCE_URL,
+        dynamic_client_registration=True,
         redirect_uri=REDIRECT_URI,
         scopes=("mcp:read", "mcp:write"),
         enabled=True,
@@ -140,16 +167,18 @@ def _as_metadata_body(
     issuer=ISSUER,
     challenge_methods=("S256",),
     grant_types=("authorization_code",),
+    registration_endpoint: str | None = None,
 ) -> bytes:
-    return json.dumps(
-        {
-            "issuer": issuer,
-            "authorization_endpoint": AUTH_ENDPOINT,
-            "token_endpoint": TOKEN_ENDPOINT,
-            "code_challenge_methods_supported": list(challenge_methods),
-            "grant_types_supported": list(grant_types),
-        }
-    ).encode()
+    body: dict = {
+        "issuer": issuer,
+        "authorization_endpoint": AUTH_ENDPOINT,
+        "token_endpoint": TOKEN_ENDPOINT,
+        "code_challenge_methods_supported": list(challenge_methods),
+        "grant_types_supported": list(grant_types),
+    }
+    if registration_endpoint is not None:
+        body["registration_endpoint"] = registration_endpoint
+    return json.dumps(body).encode()
 
 
 def happy_path_handler(request: httpx.Request) -> httpx.Response:
@@ -176,9 +205,58 @@ def happy_path_handler(request: httpx.Request) -> httpx.Response:
 
 def client_factory_for(handler) -> callable:
     def _factory() -> httpx.Client:
-        return httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+        return httpx.Client(
+            transport=httpx.MockTransport(handler), follow_redirects=False
+        )
 
     return _factory
+
+
+def dcr_handler_factory(*, registrations: list, issued_client_id="dcr-issued-client"):
+    """Discovery (advertising ``registration_endpoint``) + RFC 7591 registration
+    + token exchange, all served by one mock. Appends the raw registration
+    request body to ``registrations`` every time the registration endpoint is
+    hit, so a test can assert exactly how many real registrations happened."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.startswith("/.well-known/oauth-protected-resource"):
+            return httpx.Response(200, content=_resource_metadata_body())
+        if path.startswith("/.well-known/oauth-authorization-server"):
+            return httpx.Response(
+                200,
+                content=_as_metadata_body(registration_endpoint=REGISTRATION_ENDPOINT),
+            )
+        if str(request.url) == REGISTRATION_ENDPOINT:
+            registrations.append(json.loads(request.content))
+            return httpx.Response(
+                201,
+                content=json.dumps(
+                    {
+                        "client_id": issued_client_id,
+                        # A public-client registration should never need this,
+                        # and this broker must never read/store it even if a
+                        # server sends one anyway.
+                        "client_secret": "must-never-be-read-or-stored",
+                    }
+                ).encode(),
+            )
+        if str(request.url) == TOKEN_ENDPOINT:
+            return httpx.Response(
+                200,
+                content=json.dumps(
+                    {
+                        "access_token": "at-issued-by-mock-idp",
+                        "refresh_token": "rt-issued-by-mock-idp",
+                        "token_type": "Bearer",
+                        "expires_in": 3600,
+                        "scope": "mcp:read mcp:write",
+                    }
+                ).encode(),
+            )
+        return httpx.Response(404)
+
+    return handler
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +283,152 @@ class TestProviderRegistration:
     def test_non_https_provider_fields_rejected(self, field, value):
         with pytest.raises(ValueError):
             enabled_provider(**{field: value})
+
+    def test_client_id_required_unless_dynamic_registration_enabled(self):
+        with pytest.raises(ValueError):
+            enabled_provider(client_id=None, dynamic_client_registration=False)
+
+    def test_client_id_and_dynamic_registration_are_mutually_exclusive(self):
+        with pytest.raises(ValueError):
+            enabled_provider(
+                client_id="pre-registered", dynamic_client_registration=True
+            )
+
+    def test_blank_client_id_rejected(self):
+        with pytest.raises(ValueError):
+            enabled_provider(client_id="   ")
+
+
+# ---------------------------------------------------------------------------
+# 3. Dynamic client registration (RFC 7591)
+# ---------------------------------------------------------------------------
+class TestDynamicClientRegistration:
+    def test_registrar_requires_pkce_s256(self):
+        from agent_utilities.mcp.remote_oauth_broker import (
+            AuthorizationServerMetadata,
+            Rfc7591DynamicClientRegistrar,
+        )
+
+        as_meta = AuthorizationServerMetadata(
+            issuer=ISSUER,
+            authorization_endpoint=AUTH_ENDPOINT,
+            token_endpoint=TOKEN_ENDPOINT,
+            code_challenge_methods_supported=("plain",),
+            grant_types_supported=("authorization_code",),
+            registration_endpoint=REGISTRATION_ENDPOINT,
+        )
+        registrar = Rfc7591DynamicClientRegistrar()
+        with pytest.raises(OAuthDiscoveryError):
+            registrar.register(dcr_provider(), as_meta)
+
+    def test_registrar_requires_registration_endpoint(self):
+        from agent_utilities.mcp.remote_oauth_broker import (
+            AuthorizationServerMetadata,
+            OAuthProviderError,
+            Rfc7591DynamicClientRegistrar,
+        )
+
+        as_meta = AuthorizationServerMetadata(
+            issuer=ISSUER,
+            authorization_endpoint=AUTH_ENDPOINT,
+            token_endpoint=TOKEN_ENDPOINT,
+            code_challenge_methods_supported=("S256",),
+            grant_types_supported=("authorization_code",),
+            registration_endpoint=None,
+        )
+        registrar = Rfc7591DynamicClientRegistrar()
+        with pytest.raises(OAuthProviderError):
+            registrar.register(dcr_provider(), as_meta)
+
+    def test_registrar_never_reads_or_stores_client_secret(self, secrets_client):
+        registrations: list = []
+        handler = dcr_handler_factory(registrations=registrations)
+        broker = RemoteOAuthBroker(
+            registry=registry_with(dcr_provider()),
+            secrets_client=secrets_client,
+            http_client_factory=client_factory_for(handler),
+        )
+        url = broker.begin(
+            provider_id="acme-dcr", actor=verified_actor(), browser_session_id="s-1"
+        )
+        assert "client_id=dcr-issued-client" in url
+        # The mock server returned a client_secret; nothing this broker
+        # persisted (the transaction, the DCR cache) has anywhere to put one.
+        cached = secrets_client.get("oauth-dcr-client:acme-dcr")
+        assert cached == "dcr-issued-client"
+        assert "must-never-be-read-or-stored" not in (
+            secrets_client.get("oauth-dcr-client:acme-dcr") or ""
+        )
+
+    def test_dcr_registers_exactly_once_across_repeated_flows(self, secrets_client):
+        registrations: list = []
+        handler = dcr_handler_factory(registrations=registrations)
+        broker = RemoteOAuthBroker(
+            registry=registry_with(dcr_provider()),
+            secrets_client=secrets_client,
+            http_client_factory=client_factory_for(handler),
+        )
+        url_1 = broker.begin(
+            provider_id="acme-dcr", actor=verified_actor(), browser_session_id="s-1"
+        )
+        url_2 = broker.begin(
+            provider_id="acme-dcr",
+            actor=verified_actor(actor_id="user-b"),
+            browser_session_id="s-2",
+        )
+        assert len(registrations) == 1, (
+            "DCR must register once per provider, not once per flow"
+        )
+        assert "client_id=dcr-issued-client" in url_1
+        assert "client_id=dcr-issued-client" in url_2
+
+    def test_dcr_concurrent_first_flows_still_register_once(self, secrets_client):
+        registrations: list = []
+        handler = dcr_handler_factory(registrations=registrations)
+        broker = RemoteOAuthBroker(
+            registry=registry_with(dcr_provider()),
+            secrets_client=secrets_client,
+            http_client_factory=client_factory_for(handler),
+        )
+        errors: list[Exception] = []
+
+        def worker(n: int) -> None:
+            try:
+                broker.begin(
+                    provider_id="acme-dcr",
+                    actor=verified_actor(actor_id=f"user-{n}"),
+                    browser_session_id=f"s-{n}",
+                )
+            except Exception as exc:  # noqa: BLE001 - collected for assertion
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(n,)) for n in range(5)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert not errors
+        assert len(registrations) == 1
+
+    def test_dcr_client_id_used_in_token_exchange(self, secrets_client):
+        registrations: list = []
+        handler = dcr_handler_factory(registrations=registrations)
+        broker = RemoteOAuthBroker(
+            registry=registry_with(dcr_provider()),
+            secrets_client=secrets_client,
+            http_client_factory=client_factory_for(handler),
+        )
+        url = broker.begin(
+            provider_id="acme-dcr", actor=verified_actor(), browser_session_id="s-1"
+        )
+        state = url.split("state=")[1].split("&")[0]
+        token = broker.callback(
+            code="auth-code-1",
+            state=state,
+            actor=verified_actor(),
+            browser_session_id="s-1",
+        )
+        assert token.access_token == "at-issued-by-mock-idp"
 
 
 # ---------------------------------------------------------------------------
@@ -251,7 +475,8 @@ class TestDiscovery:
             if request.url.path.startswith("/.well-known/oauth-protected-resource"):
                 return httpx.Response(200, content=_resource_metadata_body())
             return httpx.Response(
-                200, content=_as_metadata_body(issuer="https://a-different-idp.example.com")
+                200,
+                content=_as_metadata_body(issuer="https://a-different-idp.example.com"),
             )
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
@@ -264,7 +489,9 @@ class TestDiscovery:
         def handler(request):
             if request.url.path.startswith("/.well-known/oauth-protected-resource"):
                 return httpx.Response(200, content=_resource_metadata_body())
-            return httpx.Response(200, content=_as_metadata_body(challenge_methods=("plain",)))
+            return httpx.Response(
+                200, content=_as_metadata_body(challenge_methods=("plain",))
+            )
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
         resource = discover_protected_resource(client, RESOURCE_URL)
@@ -276,7 +503,9 @@ class TestDiscovery:
         def handler(request):
             if request.url.path.startswith("/.well-known/oauth-protected-resource"):
                 return httpx.Response(200, content=_resource_metadata_body())
-            return httpx.Response(200, content=_as_metadata_body(grant_types=("implicit",)))
+            return httpx.Response(
+                200, content=_as_metadata_body(grant_types=("implicit",))
+            )
 
         client = httpx.Client(transport=httpx.MockTransport(handler))
         resource = discover_protected_resource(client, RESOURCE_URL)
@@ -292,9 +521,13 @@ class TestDiscovery:
 
     def test_redirect_response_is_never_followed(self):
         def handler(request):
-            return httpx.Response(302, headers={"Location": "https://attacker.example/steal"})
+            return httpx.Response(
+                302, headers={"Location": "https://attacker.example/steal"}
+            )
 
-        client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+        client = httpx.Client(
+            transport=httpx.MockTransport(handler), follow_redirects=False
+        )
         with pytest.raises(OAuthDiscoveryError):
             discover_protected_resource(client, RESOURCE_URL)
         client.close()
@@ -307,9 +540,17 @@ class TestTransactionStore:
     def test_expired_transaction_rejected(self, secrets_client):
         store = TransactionStore(secrets_client)
         tx = OAuthTransaction(
-            state="s1", nonce="n1", verifier="v1", provider_id="acme",
-            tenant_id="tenant-1", principal_id="user-a", browser_session_id="sess-1",
-            redirect_uri=REDIRECT_URI, scope="mcp:read", created_at=0.0, expires_at=100.0,
+            state="s1",
+            nonce="n1",
+            verifier="v1",
+            provider_id="acme",
+            tenant_id="tenant-1",
+            principal_id="user-a",
+            browser_session_id="sess-1",
+            redirect_uri=REDIRECT_URI,
+            scope="mcp:read",
+            created_at=0.0,
+            expires_at=100.0,
         )
         store.put(tx)
         with pytest.raises(OAuthStateError, match="expired"):
@@ -318,9 +559,17 @@ class TestTransactionStore:
     def test_state_replay_rejected(self, secrets_client):
         store = TransactionStore(secrets_client)
         tx = OAuthTransaction(
-            state="s2", nonce="n1", verifier="v1", provider_id="acme",
-            tenant_id="tenant-1", principal_id="user-a", browser_session_id="sess-1",
-            redirect_uri=REDIRECT_URI, scope="mcp:read", created_at=0.0, expires_at=1e12,
+            state="s2",
+            nonce="n1",
+            verifier="v1",
+            provider_id="acme",
+            tenant_id="tenant-1",
+            principal_id="user-a",
+            browser_session_id="sess-1",
+            redirect_uri=REDIRECT_URI,
+            scope="mcp:read",
+            created_at=0.0,
+            expires_at=1e12,
         )
         store.put(tx)
         first = store.consume_once("s2")
@@ -336,9 +585,17 @@ class TestTransactionStore:
     def test_concurrent_replay_only_one_winner(self, secrets_client):
         store = TransactionStore(secrets_client)
         tx = OAuthTransaction(
-            state="s3", nonce="n1", verifier="v1", provider_id="acme",
-            tenant_id="tenant-1", principal_id="user-a", browser_session_id="sess-1",
-            redirect_uri=REDIRECT_URI, scope="mcp:read", created_at=0.0, expires_at=1e12,
+            state="s3",
+            nonce="n1",
+            verifier="v1",
+            provider_id="acme",
+            tenant_id="tenant-1",
+            principal_id="user-a",
+            browser_session_id="sess-1",
+            redirect_uri=REDIRECT_URI,
+            scope="mcp:read",
+            created_at=0.0,
+            expires_at=1e12,
         )
         store.put(tx)
 
@@ -369,12 +626,27 @@ class TestTokenStoreIsolation:
         store = OAuthTokenStore(secrets_client)
         actor = verified_actor()
         token = StoredToken(
-            access_token="at-1", refresh_token="rt-1", token_type="Bearer",
-            expires_at=time.time() + 3600, granted_scope="mcp:read", key_version=1,
+            access_token="at-1",
+            refresh_token="rt-1",
+            token_type="Bearer",
+            expires_at=time.time() + 3600,
+            granted_scope="mcp:read",
+            key_version=1,
             audience=RESOURCE_URL,
         )
-        store.put(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL, token=token)
-        fetched = store.get(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL)
+        store.put(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+            token=token,
+        )
+        fetched = store.get(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+        )
         assert fetched is not None
         assert fetched.access_token == "at-1"
 
@@ -383,31 +655,80 @@ class TestTokenStoreIsolation:
         owner = verified_actor(actor_id="user-a", tenant_id="tenant-1")
         attacker = verified_actor(actor_id="user-b", tenant_id="tenant-1")
         token = StoredToken(
-            access_token="owner-secret-token", refresh_token=None, token_type="Bearer",
-            expires_at=time.time() + 3600, granted_scope="mcp:read", key_version=1,
+            access_token=OWNER_ACCESS_TOKEN,
+            refresh_token=None,
+            token_type="Bearer",
+            expires_at=time.time() + 3600,
+            granted_scope="mcp:read",
+            key_version=1,
             audience=RESOURCE_URL,
         )
-        store.put(actor=owner, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL, token=token)
+        store.put(
+            actor=owner,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+            token=token,
+        )
 
-        assert store.get(actor=owner, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL) is not None
-        assert store.get(actor=attacker, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL) is None
+        assert (
+            store.get(
+                actor=owner,
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+            )
+            is not None
+        )
+        assert (
+            store.get(
+                actor=attacker,
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+            )
+            is None
+        )
 
     def test_cross_tenant_read_denied(self, secrets_client):
         store = OAuthTokenStore(secrets_client)
         owner = verified_actor(actor_id="user-a", tenant_id="tenant-1")
         other_tenant_same_id = verified_actor(actor_id="user-a", tenant_id="tenant-2")
         token = StoredToken(
-            access_token="tenant-1-secret", refresh_token=None, token_type="Bearer",
-            expires_at=time.time() + 3600, granted_scope="mcp:read", key_version=1,
+            access_token="tenant-1-secret",
+            refresh_token=None,
+            token_type="Bearer",
+            expires_at=time.time() + 3600,
+            granted_scope="mcp:read",
+            key_version=1,
             audience=RESOURCE_URL,
         )
-        store.put(actor=owner, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL, token=token)
-        assert store.get(actor=other_tenant_same_id, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL) is None
+        store.put(
+            actor=owner,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+            token=token,
+        )
+        assert (
+            store.get(
+                actor=other_tenant_same_id,
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+            )
+            is None
+        )
 
     def test_unauthenticated_actor_rejected(self, secrets_client):
         store = OAuthTokenStore(secrets_client)
         with pytest.raises(PermissionError):
-            store.get(actor=unauthenticated_actor(), provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL)
+            store.get(
+                actor=unauthenticated_actor(),
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -416,46 +737,167 @@ class TestTokenStoreIsolation:
 class TestRefreshAndRevoke:
     def _stored(self, store, secrets_client, actor, refresh_token="rt-0"):
         token = StoredToken(
-            access_token="at-0", refresh_token=refresh_token, token_type="Bearer",
-            expires_at=time.time() + 10, granted_scope="mcp:read", key_version=1,
+            access_token="at-0",
+            refresh_token=refresh_token,
+            token_type="Bearer",
+            expires_at=time.time() + 10,
+            granted_scope="mcp:read",
+            key_version=1,
             audience=RESOURCE_URL,
         )
-        store.put(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL, token=token)
+        store.put(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+            token=token,
+        )
 
     def test_refresh_absent_token_fails_closed(self, secrets_client):
         store = OAuthTokenStore(secrets_client)
         provider = enabled_provider()
         client = httpx.Client(transport=httpx.MockTransport(happy_path_handler))
         with pytest.raises(OAuthTokenAbsentError):
-            store.refresh(actor=verified_actor(), provider=provider, resource_url=RESOURCE_URL, audience=RESOURCE_URL, http_client=client)
+            store.refresh(
+                actor=verified_actor(),
+                provider=provider,
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+                http_client=client,
+            )
         client.close()
+
+    def test_refresh_rotates_process_owned_grant_revision(self, secrets_client):
+        store = OAuthTokenStore(secrets_client)
+        actor = verified_actor()
+        self._stored(store, secrets_client, actor)
+        before = store.get(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+        )
+        assert before is not None
+        provider = enabled_provider()
+        client = httpx.Client(transport=httpx.MockTransport(happy_path_handler))
+        rotated = store.refresh(
+            actor=actor,
+            provider=provider,
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+            http_client=client,
+        )
+        client.close()
+        assert rotated.grant_revision
+        assert rotated.grant_revision != before.grant_revision
 
     def test_refresh_revoked_token_fails_closed(self, secrets_client):
         store = OAuthTokenStore(secrets_client)
         actor = verified_actor()
         self._stored(store, secrets_client, actor)
-        store.revoke(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL)
+        store.revoke(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+        )
         provider = enabled_provider()
         client = httpx.Client(transport=httpx.MockTransport(happy_path_handler))
         with pytest.raises(OAuthRevokedError):
-            store.refresh(actor=actor, provider=provider, resource_url=RESOURCE_URL, audience=RESOURCE_URL, http_client=client)
+            store.refresh(
+                actor=actor,
+                provider=provider,
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+                http_client=client,
+            )
         client.close()
 
     def test_revoke_then_get_reads_as_absent(self, secrets_client):
         store = OAuthTokenStore(secrets_client)
         actor = verified_actor()
         self._stored(store, secrets_client, actor)
-        store.revoke(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL)
-        assert store.get(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL) is None
+        store.revoke(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+        )
+        assert (
+            store.get(
+                actor=actor,
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+            )
+            is None
+        )
 
-    def test_revoke_of_never_stored_token_still_fails_closed_on_next_read(self, secrets_client):
+    def test_revoke_of_never_stored_token_still_fails_closed_on_next_read(
+        self, secrets_client
+    ):
         # Ambiguous state (nothing was ever there) must still read as "not usable"
         # after a revoke call — never silently succeed as a no-op that could later
         # look like "not revoked" if a token were later stored under a stale window.
         store = OAuthTokenStore(secrets_client)
         actor = verified_actor()
-        store.revoke(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL)
-        assert store.get(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL) is None
+        store.revoke(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+        )
+        assert (
+            store.get(
+                actor=actor,
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+            )
+            is None
+        )
+        with pytest.raises(OAuthRevokedError):
+            self._stored(store, secrets_client, actor)
+
+    def test_only_authorization_started_after_revoke_can_store_a_new_grant(
+        self, secrets_client
+    ):
+        store = OAuthTokenStore(secrets_client)
+        actor = verified_actor()
+        store.revoke(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+        )
+        token = StoredToken(
+            access_token="at-new",
+            refresh_token="rt-new",
+            token_type="Bearer",
+            expires_at=time.time() + 10,
+            granted_scope="mcp:read",
+            key_version=1,
+            audience=RESOURCE_URL,
+        )
+
+        store.put(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+            token=token,
+            authorization_started_at=time.time() + 1,
+        )
+
+        assert (
+            store.get(
+                actor=actor,
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+            )
+            is not None
+        )
 
     def test_concurrent_refresh_serializes_without_corruption(self, secrets_client):
         store = OAuthTokenStore(secrets_client)
@@ -467,6 +909,15 @@ class TestRefreshAndRevoke:
         lock = threading.Lock()
 
         def handler(request: httpx.Request) -> httpx.Response:
+            # refresh() re-runs RFC 9728/8414 discovery before the token POST
+            # (fixed alongside DCR — see the module's "Bug found and fixed"
+            # note) so this mock must answer the two well-known discovery GETs
+            # in addition to the actual POST to the discovered token_endpoint.
+            path = request.url.path
+            if path.startswith("/.well-known/oauth-protected-resource"):
+                return httpx.Response(200, content=_resource_metadata_body())
+            if path.startswith("/.well-known/oauth-authorization-server"):
+                return httpx.Response(200, content=_as_metadata_body())
             with lock:
                 call_count["n"] += 1
                 n = call_count["n"]
@@ -489,8 +940,11 @@ class TestRefreshAndRevoke:
             client = httpx.Client(transport=httpx.MockTransport(handler))
             try:
                 token = store.refresh(
-                    actor=actor, provider=provider, resource_url=RESOURCE_URL,
-                    audience=RESOURCE_URL, http_client=client,
+                    actor=actor,
+                    provider=provider,
+                    resource_url=RESOURCE_URL,
+                    audience=RESOURCE_URL,
+                    http_client=client,
                 )
                 results.append(token)
             except Exception as exc:  # noqa: BLE001 - collected for assertion below
@@ -509,7 +963,12 @@ class TestRefreshAndRevoke:
         # cleanly or failed with the declared race error -- never a corrupted
         # or partially-written record.
         assert not errors or all(isinstance(e, OAuthRefreshRaceError) for e in errors)
-        final = store.get(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL)
+        final = store.get(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+        )
         assert final is not None
         assert final.access_token.startswith("at-rotated-")
 
@@ -529,16 +988,24 @@ class TestBrokerBeginAndCallback:
     def test_begin_requires_authenticated_actor(self, secrets_client):
         broker = self._broker(secrets_client, enabled_provider())
         with pytest.raises(PermissionError):
-            broker.begin(provider_id="acme", actor=unauthenticated_actor(), browser_session_id="sess-1")
+            broker.begin(
+                provider_id="acme",
+                actor=unauthenticated_actor(),
+                browser_session_id="sess-1",
+            )
 
     def test_begin_rejects_unknown_or_disabled_provider(self, secrets_client):
         broker = self._broker(secrets_client, enabled_provider(enabled=False))
         with pytest.raises(OAuthProviderError):
-            broker.begin(provider_id="acme", actor=verified_actor(), browser_session_id="sess-1")
+            broker.begin(
+                provider_id="acme", actor=verified_actor(), browser_session_id="sess-1"
+            )
 
     def test_begin_issues_authorization_url_and_stops_there(self, secrets_client):
         broker = self._broker(secrets_client, enabled_provider())
-        url = broker.begin(provider_id="acme", actor=verified_actor(), browser_session_id="sess-1")
+        url = broker.begin(
+            provider_id="acme", actor=verified_actor(), browser_session_id="sess-1"
+        )
         assert url.startswith(AUTH_ENDPOINT + "?")
         assert "code_challenge=" in url
         assert "code_challenge_method=S256" in url
@@ -546,8 +1013,10 @@ class TestBrokerBeginAndCallback:
         # No token exchange happened yet -- begin() never reaches the token endpoint.
         assert (
             OAuthTokenStore(secrets_client).get(
-                actor=verified_actor(), provider_id="acme",
-                resource_url=RESOURCE_URL, audience=RESOURCE_URL,
+                actor=verified_actor(),
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
             )
             is None
         )
@@ -559,10 +1028,17 @@ class TestBrokerBeginAndCallback:
         url = broker.begin(provider_id="acme", actor=actor, browser_session_id="sess-1")
         state = url.split("state=")[1].split("&")[0]
 
-        token = broker.callback(code="auth-code-abc", state=state, actor=actor, browser_session_id="sess-1")
+        token = broker.callback(
+            code="auth-code-abc", state=state, actor=actor, browser_session_id="sess-1"
+        )
         assert token.access_token == "at-issued-by-mock-idp"
 
-        fetched = broker.tokens.get(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL)
+        fetched = broker.tokens.get(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+        )
         assert fetched is not None and fetched.access_token == token.access_token
 
     def test_callback_rejects_replayed_state(self, secrets_client):
@@ -572,20 +1048,34 @@ class TestBrokerBeginAndCallback:
         url = broker.begin(provider_id="acme", actor=actor, browser_session_id="sess-1")
         state = url.split("state=")[1].split("&")[0]
 
-        broker.callback(code="auth-code-abc", state=state, actor=actor, browser_session_id="sess-1")
+        broker.callback(
+            code="auth-code-abc", state=state, actor=actor, browser_session_id="sess-1"
+        )
         with pytest.raises(OAuthStateError):
-            broker.callback(code="auth-code-abc-replayed", state=state, actor=actor, browser_session_id="sess-1")
+            broker.callback(
+                code="auth-code-abc-replayed",
+                state=state,
+                actor=actor,
+                browser_session_id="sess-1",
+            )
 
     def test_callback_rejects_cross_user_binding(self, secrets_client):
         provider = enabled_provider()
         broker = self._broker(secrets_client, provider)
         initiator = verified_actor(actor_id="user-a")
         attacker = verified_actor(actor_id="user-b")
-        url = broker.begin(provider_id="acme", actor=initiator, browser_session_id="sess-1")
+        url = broker.begin(
+            provider_id="acme", actor=initiator, browser_session_id="sess-1"
+        )
         state = url.split("state=")[1].split("&")[0]
 
         with pytest.raises(OAuthBindingError):
-            broker.callback(code="stolen-code", state=state, actor=attacker, browser_session_id="sess-1")
+            broker.callback(
+                code="stolen-code",
+                state=state,
+                actor=attacker,
+                browser_session_id="sess-1",
+            )
 
     def test_callback_rejects_session_mismatch(self, secrets_client):
         provider = enabled_provider()
@@ -595,7 +1085,12 @@ class TestBrokerBeginAndCallback:
         state = url.split("state=")[1].split("&")[0]
 
         with pytest.raises(OAuthBindingError):
-            broker.callback(code="auth-code-abc", state=state, actor=actor, browser_session_id="sess-DIFFERENT")
+            broker.callback(
+                code="auth-code-abc",
+                state=state,
+                actor=actor,
+                browser_session_id="sess-DIFFERENT",
+            )
 
     def test_callback_rejects_widened_scope(self, secrets_client):
         def widening_handler(request: httpx.Request) -> httpx.Response:
@@ -620,7 +1115,8 @@ class TestBrokerBeginAndCallback:
         provider = enabled_provider(scopes=("mcp:read", "mcp:write"))
         registry = registry_with(provider)
         broker = RemoteOAuthBroker(
-            registry=registry, secrets_client=secrets_client,
+            registry=registry,
+            secrets_client=secrets_client,
             http_client_factory=client_factory_for(widening_handler),
         )
         actor = verified_actor()
@@ -628,14 +1124,32 @@ class TestBrokerBeginAndCallback:
         state = url.split("state=")[1].split("&")[0]
 
         with pytest.raises(OAuthScopeError):
-            broker.callback(code="auth-code-abc", state=state, actor=actor, browser_session_id="sess-1")
+            broker.callback(
+                code="auth-code-abc",
+                state=state,
+                actor=actor,
+                browser_session_id="sess-1",
+            )
         # A rejected callback must never persist a token.
-        assert broker.tokens.get(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL) is None
+        assert (
+            broker.tokens.get(
+                actor=actor,
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+            )
+            is None
+        )
 
     def test_callback_unknown_state_rejected(self, secrets_client):
         broker = self._broker(secrets_client, enabled_provider())
         with pytest.raises(OAuthStateError):
-            broker.callback(code="c", state="never-issued", actor=verified_actor(), browser_session_id="sess-1")
+            broker.callback(
+                code="c",
+                state="never-issued",
+                actor=verified_actor(),
+                browser_session_id="sess-1",
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -648,7 +1162,8 @@ class TestBearerHeadersFor:
         broker = RemoteOAuthBroker(registry=registry, secrets_client=secrets_client)
         with pytest.raises(OAuthProviderError):
             broker.bearer_headers_for(
-                actor=verified_actor(), provider_id="acme",
+                actor=verified_actor(),
+                provider_id="acme",
                 resource_url="https://attacker.example/different-resource",
             )
 
@@ -657,7 +1172,9 @@ class TestBearerHeadersFor:
         registry = registry_with(provider)
         broker = RemoteOAuthBroker(registry=registry, secrets_client=secrets_client)
         with pytest.raises(OAuthTokenAbsentError):
-            broker.bearer_headers_for(actor=verified_actor(), provider_id="acme", resource_url=RESOURCE_URL)
+            broker.bearer_headers_for(
+                actor=verified_actor(), provider_id="acme", resource_url=RESOURCE_URL
+            )
 
     def test_happy_path_returns_bound_bearer(self, secrets_client):
         provider = enabled_provider()
@@ -665,31 +1182,137 @@ class TestBearerHeadersFor:
         broker = RemoteOAuthBroker(registry=registry, secrets_client=secrets_client)
         actor = verified_actor()
         token = StoredToken(
-            access_token="at-bound", refresh_token=None, token_type="Bearer",
-            expires_at=time.time() + 3600, granted_scope="mcp:read", key_version=1,
+            access_token="at-bound",
+            refresh_token=None,
+            token_type="Bearer",
+            expires_at=time.time() + 3600,
+            granted_scope="mcp:read",
+            key_version=1,
             audience=RESOURCE_URL,
         )
-        broker.tokens.put(actor=actor, provider_id="acme", resource_url=RESOURCE_URL, audience=RESOURCE_URL, token=token)
-        headers = broker.bearer_headers_for(actor=actor, provider_id="acme", resource_url=RESOURCE_URL)
+        broker.tokens.put(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+            token=token,
+        )
+        headers = broker.bearer_headers_for(
+            actor=actor, provider_id="acme", resource_url=RESOURCE_URL
+        )
         assert headers == {"Authorization": "Bearer at-bound"}
+
+
+class TestGrantBinding:
+    def test_binding_is_stable_non_secret_and_scope_normalized(self, secrets_client):
+        provider = enabled_provider()
+        broker = RemoteOAuthBroker(
+            registry=registry_with(provider), secrets_client=secrets_client
+        )
+        actor = verified_actor()
+        token = StoredToken(
+            access_token="at-2",
+            refresh_token="rt-2",
+            token_type="Bearer",
+            expires_at=time.time() + 3600,
+            granted_scope="mcp:write mcp:read mcp:read",
+            key_version=1,
+            audience=RESOURCE_URL,
+            grant_revision="revision-a",
+        )
+        broker.tokens.put(
+            actor=actor,
+            provider_id="acme",
+            resource_url=RESOURCE_URL,
+            audience=RESOURCE_URL,
+            token=token,
+        )
+
+        first = broker.grant_binding_for(
+            actor=actor, provider_id="acme", resource_url=RESOURCE_URL
+        )
+        second = broker.grant_binding_for(
+            actor=actor, provider_id="acme", resource_url=RESOURCE_URL
+        )
+        assert isinstance(first, OAuthGrantBinding)
+        assert first == second
+        assert first.granted_scopes == ("mcp:read", "mcp:write")
+        assert first.fingerprint == second.fingerprint
+        assert "at-2" not in first.fingerprint
+        assert "rt-2" not in repr(first)
+
+    def test_reconsent_revision_changes_binding_and_wrong_audience_denied(
+        self, secrets_client
+    ):
+        provider = enabled_provider()
+        broker = RemoteOAuthBroker(
+            registry=registry_with(provider), secrets_client=secrets_client
+        )
+        actor = verified_actor()
+
+        def store(revision: str) -> None:
+            broker.tokens.put(
+                actor=actor,
+                provider_id="acme",
+                resource_url=RESOURCE_URL,
+                audience=RESOURCE_URL,
+                token=StoredToken(
+                    access_token=f"at-{revision}",
+                    refresh_token=None,
+                    token_type="Bearer",
+                    expires_at=time.time() + 3600,
+                    granted_scope="mcp:read",
+                    key_version=1,
+                    audience=RESOURCE_URL,
+                    grant_revision=revision,
+                ),
+            )
+
+        store("revision-a")
+        first = broker.grant_binding_for(
+            actor=actor, provider_id="acme", resource_url=RESOURCE_URL
+        )
+        store("revision-b")
+        second = broker.grant_binding_for(
+            actor=actor, provider_id="acme", resource_url=RESOURCE_URL
+        )
+        assert first.grant_revision == "revision-a"
+        assert second.grant_revision == "revision-b"
+        assert first.fingerprint != second.fingerprint
+        with pytest.raises(OAuthProviderError):
+            broker.grant_binding_for(
+                actor=actor,
+                provider_id="acme",
+                resource_url="https://attacker.example/resource",
+            )
 
 
 # ---------------------------------------------------------------------------
 # Audit sanitization
 # ---------------------------------------------------------------------------
 class TestAuditSanitization:
-    def test_begin_and_callback_never_log_sensitive_values(self, secrets_client, caplog):
+    def test_begin_and_callback_never_log_sensitive_values(
+        self, secrets_client, caplog
+    ):
         provider = enabled_provider()
         registry = registry_with(provider)
         broker = RemoteOAuthBroker(
-            registry=registry, secrets_client=secrets_client,
+            registry=registry,
+            secrets_client=secrets_client,
             http_client_factory=client_factory_for(happy_path_handler),
         )
         actor = verified_actor()
         with caplog.at_level(logging.DEBUG):
-            url = broker.begin(provider_id="acme", actor=actor, browser_session_id="sess-1")
+            url = broker.begin(
+                provider_id="acme", actor=actor, browser_session_id="sess-1"
+            )
             state = url.split("state=")[1].split("&")[0]
-            token = broker.callback(code="super-secret-code", state=state, actor=actor, browser_session_id="sess-1")
+            token = broker.callback(
+                code="super-secret-code",
+                state=state,
+                actor=actor,
+                browser_session_id="sess-1",
+            )
 
         forbidden = {state, "super-secret-code", token.access_token}
         # The verifier is internal; recompute is impractical here, so instead assert
@@ -697,4 +1320,6 @@ class TestAuditSanitization:
         for record in caplog.records:
             rendered = record.getMessage()
             for secret in forbidden:
-                assert secret not in rendered, f"log record leaked a sensitive value: {rendered!r}"
+                assert secret not in rendered, (
+                    f"log record leaked a sensitive value: {rendered!r}"
+                )

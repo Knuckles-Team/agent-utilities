@@ -7,24 +7,26 @@ no budget configured the autoscaler behaves exactly as before.
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+import time
+from dataclasses import replace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).parent / "unit"))
-
-from fleet_autonomy_fakes import FakeEngine  # noqa: E402
-
-from agent_utilities.orchestration.action_policy import ActionPolicy  # noqa: E402
-from agent_utilities.orchestration.cost_governor import (  # noqa: E402
+from agent_utilities.orchestration.action_policy import ActionPolicy
+from agent_utilities.orchestration.cost_governor import (
     cost_aware_cap,
     replica_cost_per_hour,
     throughput_per_dollar,
 )
-from agent_utilities.orchestration.fleet_actuation import DryRunActuator  # noqa: E402
-from agent_utilities.orchestration.fleet_autoscaler import FleetAutoscaler  # noqa: E402
-from agent_utilities.orchestration.fleet_reconciler import ScalingSpec  # noqa: E402
+from agent_utilities.orchestration.fleet_actuation import DryRunActuator
+from agent_utilities.orchestration.fleet_autoscaler import FleetAutoscaler
+from agent_utilities.orchestration.fleet_reconciler import ScalingSpec
+from agent_utilities.orchestration.scaling_signals import (
+    ScalingSignalSample,
+    SignalDefinition,
+    get_signal_definition,
+)
+from tests.unit.fleet_autonomy_fakes import FakeEngine, healthy_fleet_evidence
 
 pytestmark = pytest.mark.concept("AU-OS.scaling.cost-aware-autoscaling")
 
@@ -82,12 +84,36 @@ class _Obs:
 
 class _Signal:
     name = "test"
+    trusted_in_process = True
 
     def __init__(self, value: float) -> None:
         self.value = value
 
-    def signal_value(self, service: str, signal: str) -> float:
-        return self.value
+    def signal_definition(
+        self, signal: str, service: str | None = None
+    ) -> SignalDefinition | None:
+        definition = get_signal_definition(signal)
+        if (
+            definition is not None
+            and service is not None
+            and not definition.binds_service(service)
+        ):
+            return replace(definition, service_binding=service)
+        return definition
+
+    def signal_value(self, service: str, signal: str) -> ScalingSignalSample:
+        definition = self.signal_definition(signal, service)
+        assert definition is not None
+        return ScalingSignalSample(
+            value=self.value,
+            source=self.name,
+            service=service,
+            signal=signal,
+            aggregation=definition.aggregation,
+            observed_at=time.time(),
+            unit=definition.unit,
+            scope=definition.scope,
+        )
 
 
 def _spec() -> ScalingSpec:
@@ -113,6 +139,7 @@ def _scaler(monkeypatch, *, budget, cost=1.0, value=1000.0):
         actuator=DryRunActuator(),
         policy=ActionPolicy(engine=eng),
         signal_provider=_Signal(value),
+        health_provider=healthy_fleet_evidence,
     )
 
 

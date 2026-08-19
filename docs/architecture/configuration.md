@@ -460,6 +460,8 @@ companions below, plus `KG_AUTH_REQUIRED`/`KG_AUTH_TOKEN` for KG access (section
 | `AUTH_JWT_AUDIENCE` | `None` | Expected JWT audience claim |
 | `OIDC_CONFIG_URL` | `None` | OIDC discovery URL (any compliant IdP) |
 | `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | `None` | OAuth 2.0 client credentials |
+| `REMOTE_OAUTH_PROVIDERS_JSON` | `None` | Administrator-approved JSON array of remote-MCP OAuth provider descriptors; malformed values disable the registry with a bounded diagnostic |
+| `REMOTE_OAUTH_SUCCESS_REDIRECT_URL` | `None` | Fixed administrator-configured URL used after a successful remote OAuth callback |
 | `ENABLE_DELEGATION` | `false` | RFC 8693 token exchange for downstream APIs (CONCEPT:AU-ECO.messaging.native-backend-abstraction) |
 | `AUDIENCE` | `None` | Target audience for delegated tokens |
 | `DELEGATED_SCOPES` | `api` | Space-separated delegation scopes |
@@ -588,6 +590,7 @@ in `agent_utilities/observability/custom_observability.py`.
 | Flag | Default | What it sets |
 |---|---|---|
 | `MESSAGING_ENABLED_BACKENDS` | `[]` | Backend IDs to auto-connect (e.g. `["discord","slack"]`) |
+| `MESSAGING_INTAKE_ENABLED` | `false` | Explicit deployment intent for embedded inbound polling; only canonical `true`/`false` (or typed booleans) is accepted. Token presence alone never enables intake; set `true` only on the designated graph-os request container. |
 | `MESSAGING_KG_INGEST` | `true` | Auto-ingest all inbound/outbound messages into the KG |
 | `MESSAGING_KG_MEMORY_TYPE` | `episodic` | KG memory tier for inbound messages (`episodic`/`semantic`/`procedural`) |
 | `MESSAGING_ROUTE_TO_PLANNER` | `true` | Route inbound events to the Planner Graph Agent |

@@ -15,13 +15,20 @@ import pytest
 
 from agent_utilities.orchestration.action_policy import ActionPolicy
 from agent_utilities.orchestration.fleet_actuation import DryRunActuator
+from agent_utilities.orchestration.fleet_health import unavailable_fleet_health
 from agent_utilities.orchestration.fleet_reconciler import (
     FleetReconciler,
     load_desired_state,
     resolve_registry_path,
 )
 
-from .fleet_autonomy_fakes import FakeEngine, FakeObserver, obs, write_policy
+from .fleet_autonomy_fakes import (
+    FakeEngine,
+    FakeObserver,
+    healthy_fleet_evidence,
+    obs,
+    write_policy,
+)
 
 pytestmark = pytest.mark.concept("AU-OS.config.desired-state-fleet-reconciler")
 
@@ -65,6 +72,7 @@ def _reconciler(engine, observations, tmp_path, policy_body=None, max_actions=5)
         actuator=DryRunActuator(),
         policy=ActionPolicy(engine=engine, policy_path=policy_path),
         max_actions=max_actions,
+        health_provider=healthy_fleet_evidence,
     )
     # Pin desired state to the test registry (not the repo's 52-service one).
     import agent_utilities.orchestration.fleet_reconciler as fr
@@ -134,6 +142,22 @@ def test_down_service_proposes_restart(engine, tmp_path, patch_desired):
 def test_unobserved_service_is_skipped(engine, tmp_path, patch_desired):
     rec = patch_desired(_reconciler(engine, {}, tmp_path))
     assert rec.diff() == []  # zero evidence ⇒ zero action
+
+
+def test_unavailable_supervisory_evidence_skips_diff_and_convergence(
+    engine, tmp_path, patch_desired
+):
+    rec = patch_desired(
+        _reconciler(engine, {"caddy-mcp": obs("caddy-mcp", "down")}, tmp_path)
+    )
+    rec.health_provider = lambda: unavailable_fleet_health("test.health")
+
+    assert rec.diff() == []
+    report = rec.reconcile()
+    assert report["processed"] == 0
+    assert report["actions"] == []
+    assert report["approved_drained"] == []
+    assert report["health"]["status"] == "unavailable"
 
 
 def test_replica_mismatch_proposes_scale(engine, tmp_path, patch_desired):

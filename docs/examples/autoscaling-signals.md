@@ -22,7 +22,7 @@ consolidated scheduler (`knowledge_graph/core/engine_tasks.py`):
 |---|---|---|
 | `FLEET_AUTOSCALER` | `False` (off) | Opt-in: register the leader-only autoscale tick. With the default dry-run actuator (`FLEET_ACTUATOR=dryrun`) it records intent without mutating anything. |
 | `FLEET_AUTOSCALER_INTERVAL` | `60.0` | Seconds between ticks. |
-| `SCALING_PROMETHEUS_URL` | unset | Set → signals come from instant HTTP queries against that Prometheus (`PrometheusHttpProvider`); unset → the zero-infra `LocalMetricsProvider` reads this process's own gauges. |
+| `SCALING_PROMETHEUS_URL` | unset | Set → allowlisted symbolic signals come from bounded instant HTTP queries against that Prometheus (`PrometheusHttpProvider`); unset → the zero-infra `LocalMetricsProvider` reads this process's own gauges. |
 | `FLEET_RECONCILER_MAX_ACTIONS` | `5` | Shared per-tick action budget (also used by the autoscaler). |
 
 ```bash
@@ -47,6 +47,9 @@ scaling:
   scale_up_step: 1  # max replicas added per evaluation (default 1)
   scale_down_step: 1  # max replicas removed per evaluation (default 1)
   cooldown_s: 300   # min seconds between scale actions (default 300)
+  deadband: 0.05    # relative target band (5% by default)
+  scale_up_stabilization_samples: 1   # fast scale-up default
+  scale_down_stabilization_samples: 3 # conservative scale-down default
 ```
 
 The block rides on a `services:` entry in the fleet registry
@@ -75,7 +78,7 @@ services:
 
 ```yaml
 services:
-  - name: agent-dispatch-worker
+  - name: kg-ingest-worker
     scaling:
       min: 2
       max: 8
@@ -89,22 +92,50 @@ services:
 ## 2. Where the signal value comes from
 
 Provider resolution (`orchestration/scaling_signals.py`,
-`get_scaling_signal_provider()`): an injected provider
+`get_scaling_signal_provider()`): an injected typed provider
 (`set_scaling_signal_provider`) → `SCALING_PROMETHEUS_URL` → the local
-default. **`None` from the provider means "no data" — and no data means no
-scaling action**, mirroring the reconciler's unobserved⇒skip rule.
+default. Each autoscaler tick uses the optional `signal_values(requests)` bulk
+extension once for all requested services. Providers return immutable
+`ScalingSignalSample` values containing `value`, `source`, `service`, symbolic
+`signal`, explicit `aggregation`, `unit`, tenant/fleet `scope`, and
+`observed_at`. **`None` from the provider means "no data" — and no data means
+no scaling action**, mirroring the reconciler's unobserved⇒skip rule. The
+consumer also rejects stale, future-skewed, replayed, malformed,
+cross-service, wrong-signal, wrong-aggregation, wrong-unit, and wrong-scope
+samples. Local queue/lag values are paired with `_observed_at` gauges using the
+same labels. The pair is published/read under one lock; missing, mismatched,
+duplicate, or high-cardinality companions are no data, never the local read
+time.
 
 | Signal name | Semantics | LocalMetricsProvider reads | PrometheusHttpProvider query |
 |---|---|---|---|
-| `queue_depth` | FLEET-TOTAL | `agent_utilities_kg_ingest_queue_depth` | `sum(agent_utilities_kg_ingest_queue_depth)` |
-| `consumer_lag` | FLEET-TOTAL | `agent_utilities_kg_ingest_consumer_lag` | `sum(agent_utilities_kg_ingest_consumer_lag)` |
-| `cpu` | per-replica avg | (metric family named `cpu`, normally absent) | `100 * avg(rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name="<service>"}[5m]))` |
-| anything else | per-replica avg | metric family of that name in the local registry | the signal string itself, verbatim PromQL (`{service}` placeholder substituted) |
+| `queue_depth` | FLEET-TOTAL, `items`/`fleet`, bound to `kg-ingest-worker` | value + `agent_utilities_kg_ingest_queue_depth_observed_at` (same `backend` labels) | `sum(agent_utilities_kg_ingest_queue_depth)` |
+| `consumer_lag` | FLEET-TOTAL, `messages`/`fleet`, bound to `kg-ingest-worker` | value + `agent_utilities_kg_ingest_consumer_lag_observed_at` (same `topic,group` labels) | `sum(agent_utilities_kg_ingest_consumer_lag)` |
+| `cpu` | per-replica avg | not enabled by the local built-in | `100 * avg(rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name="<service>"}[5m]))` |
+| deployment-allowlisted name | definition-declared | definition-declared local family, if present | definition-declared bounded query template (`{service}` is the only substitution) |
 
 Convention that matters for the math: `queue_depth` and `consumer_lag` are
-fleet totals (divided by current replicas first); every other signal is
-treated as a per-replica average, so custom PromQL should `avg(...)`, not
-`sum(...)`.
+explicit fleet totals (divided by current replicas first). Every deployment
+definition declares either `fleet_total` or `per_replica`; the autoscaler
+rejects a sample whose aggregation metadata does not match that definition.
+There is no caller-controlled raw PromQL path. Definitions enforce bounded
+query length, per-query timeout, result-series cardinality, unique-query count,
+concurrency, overall deadline, and sample age. Prometheus uses a shared client
+only for a thread-safe transport, otherwise one client per worker; it schedules
+all allowlisted queries through rolling waves, with no more than 64 unique
+queries, 4 process-wide in-flight requests, and a 10-second overall deadline.
+Timed-out work keeps its slot until it finishes, so repeated ticks return no
+data while capacity is occupied instead of growing threads. The fixed workers
+are daemon threads, so a transport that ignores cancellation cannot hang
+process exit. Multi-series fleet totals are summed and multi-series
+per-replica observations are averaged. A provider without
+the bulk extension may use bounded single reads only when explicitly trusted
+in-process; remote providers without it fail closed.
+The shipped `queue_depth` and `consumer_lag` series bind exactly to
+`kg-ingest-worker`. Other services require an explicit deployment definition;
+unit and scope must match exactly at consumption, and a provider cannot relabel
+a global series by copying the request's service name. CPU is `percent` with
+`service` scope.
 
 ## 3. The target-tracking math (the actual formula)
 
@@ -143,14 +174,22 @@ In `_evaluate_service`, in order:
    action.
 2. **Down ⇒ skip.** A down service is the reconciler's restart problem;
    scaling a dead service masks the failure.
-3. **No signal data ⇒ skip.**
-4. **At target ⇒ skip** (`desired == current`).
-5. **Cooldown/flap guard ⇒ skip.** No scale action in either direction
+3. **No signal data or invalid typed sample ⇒ skip.** This includes missing,
+   stale, ambiguous, replayed, wrong-unit, and wrong-scope samples; it also
+   resets any stabilization streak.
+4. **Deadband ⇒ hold.** A value within the declared relative band around the
+   per-replica target resets the direction streak and holds current replicas.
+5. **Consecutive-sample stabilization ⇒ skip until ready.** Scale-up defaults
+   to one fresh sample; scale-down defaults to three. A direction change resets
+   the previous streak, and a successful scale action resets it before the next
+   post-action evaluation.
+6. **At target ⇒ skip** (`desired == current`).
+7. **Cooldown/flap guard ⇒ skip.** No scale action in either direction
    within `cooldown_s` of the service's last allowed/executed
    `scale_service` entry — read from the **durable** `ActionDecision` and
    `ActionExecution` ledgers, so the guard holds across processes and
    restarts, and opposite-direction flapping inside the window is impossible.
-6. **Per-tick action budget** (`FLEET_RECONCILER_MAX_ACTIONS`, default 5)
+8. **Per-tick action budget** (`FLEET_RECONCILER_MAX_ACTIONS`, default 5)
    exhausted ⇒ remaining services are deferred to the next tick.
 
 ## 5. Gate → actuate → watch

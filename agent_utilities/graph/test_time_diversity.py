@@ -25,18 +25,17 @@ Source: ``.specify/specs/reasoning-rl-2026/spec-vpo-test-time-diversity.md``.
 import logging
 from typing import Any
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
 
 def _cos(a: NDArray, b: NDArray) -> float:
-    na = float(np.linalg.norm(a))
-    nb = float(np.linalg.norm(b))
+    na = float(xp.linalg.norm(list(a)))
+    nb = float(xp.linalg.norm(list(b)))
     if na == 0.0 or nb == 0.0:
         return 0.0
-    return float(np.dot(a, b) / (na * nb))
+    return float(xp.dot(list(a), list(b)) / (na * nb))
 
 
 def mean_pairwise_distance(embeddings: list[Any]) -> float:
@@ -44,7 +43,9 @@ def mean_pairwise_distance(embeddings: list[Any]) -> float:
 
     Higher = more diverse. ``< 2`` candidates ⇒ ``0.0``.
     """
-    vecs = [np.asarray(e, dtype=np.float32) for e in embeddings]
+    vecs = [
+        list(e.to_pylist()) if hasattr(e, "to_pylist") else list(e) for e in embeddings
+    ]
     n = len(vecs)
     if n < 2:
         return 0.0
@@ -77,7 +78,9 @@ def select_diverse(
     if len(embeddings) != n:
         raise ValueError("scores and embeddings must align")
     k = max(1, min(k, n))
-    vecs = [np.asarray(e, dtype=np.float32) for e in embeddings]
+    vecs = [
+        list(e.to_pylist()) if hasattr(e, "to_pylist") else list(e) for e in embeddings
+    ]
     smin, smax = min(scores), max(scores)
     rng = (smax - smin) or 1.0
     q = [(s - smin) / rng for s in scores]

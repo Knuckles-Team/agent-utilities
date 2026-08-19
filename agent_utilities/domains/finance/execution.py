@@ -1,5 +1,4 @@
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 
 def calculate_kelly_fraction(
@@ -39,7 +38,9 @@ def check_regime_shift(
     if len(historical_predictions) == 0 or len(recent_predictions) == 0:
         return False
 
-    statistic, p_value = np.ks_2samp(historical_predictions, recent_predictions)
+    statistic, p_value = xp.ks_2samp(
+        list(historical_predictions), list(recent_predictions)
+    )
     # If the KS statistic is greater than the threshold (0.1), the distributions
     # are meaningfully different, indicating a regime shift.
     return statistic > threshold

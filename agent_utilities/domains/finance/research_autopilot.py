@@ -8,14 +8,14 @@ Source: Vibe-Trading Research Autopilot
 """
 
 import logging
+import math
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
 from agent_utilities.domains.finance.debate_engine import DebateContext, DebateEngine
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
@@ -150,30 +150,40 @@ class SimpleBacktester:
         if not trade_returns:
             return BacktestMetrics()
 
-        trades = np.array(trade_returns)
-        wins = trades[trades > 0]
-        losses = trades[trades < 0]
+        trades = [float(value) for value in trade_returns]
+        wins = [value for value in trades if value > 0]
+        losses = [value for value in trades if value < 0]
 
-        total_return = float(np.sum(trades))
+        total_return = float(xp.sum(trades))
         sharpe = (
-            float(np.mean(trades) / np.std(trades) * np.sqrt(252))
-            if np.std(trades) > 0
+            float(xp.mean(trades) / xp.std(trades) * math.sqrt(252))
+            if xp.std(trades) > 0
             else 0.0
         )
 
         # Max drawdown
-        cumulative = np.cumsum(trades)
-        running_max = np.maximum.accumulate(cumulative)
-        drawdowns = cumulative - running_max
-        max_dd = float(np.min(drawdowns)) if len(drawdowns) > 0 else 0.0
+        cumulative: list[float] = []
+        running = 0.0
+        for value in trades:
+            running += value
+            cumulative.append(running)
+        running_max: list[float] = []
+        high = float("-inf")
+        for value in cumulative:
+            high = max(high, value)
+            running_max.append(high)
+        drawdowns = [
+            value - high for value, high in zip(cumulative, running_max, strict=True)
+        ]
+        max_dd = float(min(drawdowns)) if drawdowns else 0.0
 
         win_rate = float(len(wins) / len(trades)) if len(trades) > 0 else 0.0
         profit_factor = (
-            float(np.sum(wins) / abs(np.sum(losses)))
-            if len(losses) > 0 and np.sum(losses) != 0
+            float(xp.sum(wins) / abs(xp.sum(losses)))
+            if losses and xp.sum(losses) != 0
             else float("inf")
         )
-        avg_duration = float(np.mean(trade_lengths)) if trade_lengths else 0.0
+        avg_duration = float(xp.mean(trade_lengths)) if trade_lengths else 0.0
 
         return BacktestMetrics(
             total_return=total_return,
@@ -324,16 +334,20 @@ class ResearchAutopilot:
 
             if data and hyp.hypothesis_id in data:
                 d = data[hyp.hypothesis_id]
-                entry = d.get("entry_signals", np.array([]))
-                exit_ = d.get("exit_signals", np.array([]))
-                rets = d.get("returns", np.array([]))
+                entry = d.get("entry_signals", [])
+                exit_ = d.get("exit_signals", [])
+                rets = d.get("returns", [])
             else:
                 # Generate synthetic test data
-                rng = np.random.default_rng(hash(hyp.hypothesis_id) % 2**32)
+                stable_seed = sum(
+                    (index + 1) * ord(char)
+                    for index, char in enumerate(hyp.hypothesis_id)
+                )
+                rng = xp.random.default_rng(stable_seed)
                 n = self.config.backtest_periods
                 rets = rng.normal(0.0005, 0.02, n)
-                entry = rng.random(n) > 0.95
-                exit_ = rng.random(n) > 0.90
+                entry = [value > 0.95 for value in rng.random(n)]
+                exit_ = [value > 0.90 for value in rng.random(n)]
 
             result = self._evaluate_hypothesis(hyp, entry, exit_, rets)
             results.append(result)

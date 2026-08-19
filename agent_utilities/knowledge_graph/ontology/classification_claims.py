@@ -313,6 +313,20 @@ class ClassificationClaim:
     superseded_by: str | None = None
     reviewer: str = ""
     tenant: str = ""
+    #: NE-010/U-47 audit follow-up (D-NE010-1): the physical-graph half of
+    #: ``tenant`` — additive, empty by default so every pre-existing caller
+    #: is unaffected. ``ClassificationPromotionLedger.promote``/``reject``
+    #: check it (when supplied) against a caller's own scope before acting.
+    graph: str = ""
+    #: NE-010/U-47 audit follow-up (D-NE010-1): model provenance for a
+    #: ``method="generated"`` claim. Additive and NOT retroactively required
+    #: (the live ``ontology_classification_claims`` MCP tool does not yet
+    #: collect/forward either field — see this module's module docstring
+    #: addendum) — but when EITHER is set, BOTH must be (enforced below),
+    #: so a caller that starts recording provenance cannot record it
+    #: half-only.
+    model_profile_version: str = ""
+    prompt_digest: str = ""
     created_at: str = field(default_factory=_now_iso)
 
     def __post_init__(self) -> None:
@@ -364,6 +378,36 @@ class ClassificationClaim:
                 f"only be at status='promoted' or 'superseded' — got "
                 f"{self.status!r}. Deterministic claims never enter review."
             )
+        # NE-010/U-47 audit follow-up (D-NE010-1), structural: the mirror
+        # image of the check above. A CANDIDATE method (derived/generated)
+        # reaching 'promoted'/'rejected' must carry a reviewer — the ONLY
+        # sanctioned way there is ClassificationPromotionLedger.promote()/
+        # reject(), both of which REQUIRE a reviewer argument; a raw
+        # ClassificationClaim(...) construction (or a with_status() call)
+        # that tries to skip straight to 'promoted'/'rejected' without one
+        # is refused here, closing the gap where that bypass previously
+        # succeeded silently (an un-reviewed candidate indistinguishable
+        # from a governed promotion).
+        if (
+            self.method in CANDIDATE_METHODS
+            and self.status in ("promoted", "rejected")
+            and (not isinstance(self.reviewer, str) or not self.reviewer.strip())
+        ):
+            raise ValueError(
+                f"a {self.method!r} claim can only reach status={self.status!r} "
+                "through ClassificationPromotionLedger.promote()/reject(), which "
+                "always records a non-blank reviewer — got "
+                f"reviewer={self.reviewer!r} (never implicit promotion)."
+            )
+        # NE-010/U-47 audit follow-up (D-NE010-1): model provenance is
+        # either fully present or fully absent — never half-recorded.
+        if bool(self.model_profile_version) != bool(self.prompt_digest):
+            raise ValueError(
+                "ClassificationClaim.model_profile_version and .prompt_digest "
+                "must be set together — got "
+                f"model_profile_version={self.model_profile_version!r}, "
+                f"prompt_digest={self.prompt_digest!r}"
+            )
 
     # ── sanctioned constructors ──────────────────────────────────────────
     @classmethod
@@ -378,6 +422,7 @@ class ClassificationClaim:
         extractor_ref: str = "",
         confidence: float | None = None,
         tenant: str = "",
+        graph: str = "",
     ) -> ClassificationClaim:
         """A deterministic parser's record of an EXPLICIT source declaration
         (a manifest field, a frontmatter tag) — always ``status="promoted"``."""
@@ -391,6 +436,7 @@ class ClassificationClaim:
             extractor_ref=extractor_ref,
             confidence=confidence,
             tenant=tenant,
+            graph=graph,
         )
 
     @classmethod
@@ -405,6 +451,7 @@ class ClassificationClaim:
         extractor_ref: str = "",
         confidence: float | None = None,
         tenant: str = "",
+        graph: str = "",
     ) -> ClassificationClaim:
         """A deterministic parser's MECHANICAL inference (a file extension ->
         language, an import graph -> a dependency) — always
@@ -419,6 +466,7 @@ class ClassificationClaim:
             extractor_ref=extractor_ref,
             confidence=confidence,
             tenant=tenant,
+            graph=graph,
         )
 
     @classmethod
@@ -434,6 +482,7 @@ class ClassificationClaim:
         extractor_ref: str,
         confidence: float | None,
         tenant: str,
+        graph: str = "",
     ) -> ClassificationClaim:
         refs = tuple(dict.fromkeys(str(e) for e in evidence_refs))
         claim_id = claim_id_for(
@@ -451,6 +500,7 @@ class ClassificationClaim:
             extractor_ref=extractor_ref,
             confidence=confidence,
             tenant=tenant,
+            graph=graph,
         )
 
     @classmethod
@@ -466,7 +516,10 @@ class ClassificationClaim:
         extractor_ref: str = "",
         confidence: float | None = None,
         tenant: str = "",
+        graph: str = "",
         policy_approved: bool = False,
+        model_profile_version: str = "",
+        prompt_digest: str = "",
     ) -> ClassificationClaim:
         """A model/heuristic PROPOSAL — always begins life ``status="candidate"``.
 
@@ -476,6 +529,14 @@ class ClassificationClaim:
         calling ``propose`` and passes the verdict in — this constructor
         refuses to mint a generated claim otherwise. ``method="derived"`` (a
         deterministic computation, not an LLM call) is not policy-gated.
+
+        ``model_profile_version``/``prompt_digest`` (NE-010/U-47 audit
+        follow-up, D-NE010-1) are OPTIONAL model-provenance fields for a
+        ``method="generated"`` claim — additive, not yet retroactively
+        required (the live ``ontology_classification_claims`` MCP tool does
+        not collect them today; see this module's docstring). When either is
+        supplied both must be — :class:`ClassificationClaim`'s own
+        ``__post_init__`` enforces the pairing.
         """
         if method not in CANDIDATE_METHODS:
             raise ValueError(
@@ -504,6 +565,9 @@ class ClassificationClaim:
             extractor_ref=extractor_ref,
             confidence=confidence,
             tenant=tenant,
+            graph=graph,
+            model_profile_version=model_profile_version,
+            prompt_digest=prompt_digest,
         )
 
     # ── the ONE sanctioned transition primitive ──────────────────────────
@@ -565,6 +629,12 @@ class ClassificationClaim:
             row["reviewer"] = self.reviewer
         if self.tenant:
             row["tenant"] = self.tenant
+        if self.graph:
+            row["graph"] = self.graph
+        if self.model_profile_version:
+            row["model_profile_version"] = self.model_profile_version
+        if self.prompt_digest:
+            row["prompt_digest"] = self.prompt_digest
         return row
 
     @property
@@ -638,6 +708,9 @@ def claim_from_raw(
         confidence = None
     extractor_ref = str(raw.get("extractor_ref", ""))
     tenant = str(raw.get("tenant", ""))
+    graph = str(raw.get("graph", ""))
+    model_profile_version = str(raw.get("model_profile_version", ""))
+    prompt_digest = str(raw.get("prompt_digest", ""))
     try:
         if method in DETERMINISTIC_METHODS:
             return ClassificationClaim._deterministic(
@@ -650,6 +723,7 @@ def claim_from_raw(
                 extractor_ref=extractor_ref,
                 confidence=confidence,
                 tenant=tenant,
+                graph=graph,
             )
         return ClassificationClaim.propose(
             subject_id=subject_id,
@@ -661,7 +735,10 @@ def claim_from_raw(
             extractor_ref=extractor_ref,
             confidence=confidence,
             tenant=tenant,
+            graph=graph,
             policy_approved=policy_approved,
+            model_profile_version=model_profile_version,
+            prompt_digest=prompt_digest,
         )
     except (ValueError, PermissionError) as exc:
         # Same rationale as the parsing except above: keep the best-effort
@@ -916,10 +993,44 @@ class ClassificationPromotionLedger:
     def __init__(self, engine: Any) -> None:
         self.engine = engine
 
+    @staticmethod
+    def _check_scope(
+        claim: ClassificationClaim, *, tenant: str | None, graph: str | None
+    ) -> None:
+        """NE-010/U-47 audit follow-up (D-NE010-1): a promotion decision must
+        never cross a tenant or physical-graph boundary. ``None`` (the
+        default on every method below) means "caller did not supply a
+        scope" and SKIPS the check — additive and backward compatible with
+        every existing caller (including the live
+        ``ontology_classification_claims`` MCP tool, which does not pass
+        these yet). Passing an explicit ``tenant``/``graph`` makes the check
+        REAL: a mismatch against the claim's own recorded scope raises
+        ``PermissionError`` rather than silently promoting across a
+        boundary.
+        """
+        if tenant is not None and tenant != claim.tenant:
+            raise PermissionError(
+                f"{claim.claim_id}: promotion refused — caller tenant "
+                f"{tenant!r} does not match the claim's own tenant "
+                f"{claim.tenant!r}"
+            )
+        if graph is not None and graph != claim.graph:
+            raise PermissionError(
+                f"{claim.claim_id}: promotion refused — caller graph "
+                f"{graph!r} does not match the claim's own graph "
+                f"{claim.graph!r}"
+            )
+
     def review(
-        self, claim: ClassificationClaim, *, reason: str = "under review"
+        self,
+        claim: ClassificationClaim,
+        *,
+        reason: str = "under review",
+        tenant: str | None = None,
+        graph: str | None = None,
     ) -> ClassificationClaim:
         """``candidate -> reviewed`` — the claim is now under active review."""
+        self._check_scope(claim, tenant=tenant, graph=graph)
         updated = claim.with_status("reviewed")
         self._commit(claim, updated, reason)
         return updated
@@ -930,19 +1041,29 @@ class ClassificationPromotionLedger:
         *,
         reviewer: str,
         reason: str = "promoted after review",
+        tenant: str | None = None,
+        graph: str | None = None,
     ) -> ClassificationClaim:
         """``reviewed -> promoted`` — the claim is now a trusted, active fact."""
+        self._check_scope(claim, tenant=tenant, graph=graph)
         updated = claim.with_status("promoted", reviewer=reviewer)
         self._commit(claim, updated, reason)
         return updated
 
     def reject(
-        self, claim: ClassificationClaim, *, reviewer: str, reason: str
+        self,
+        claim: ClassificationClaim,
+        *,
+        reviewer: str,
+        reason: str,
+        tenant: str | None = None,
+        graph: str | None = None,
     ) -> ClassificationClaim:
         """``candidate/reviewed -> rejected`` — retained for audit, never
         resurfaces as an active fact (:attr:`ClassificationClaim.is_active_fact`
         is ``False`` for a rejected claim, permanently, short of a fresh
         proposal minting a NEW claim id)."""
+        self._check_scope(claim, tenant=tenant, graph=graph)
         updated = claim.with_status("rejected", reviewer=reviewer)
         self._commit(claim, updated, reason)
         return updated
@@ -1041,6 +1162,9 @@ def _row_to_claim(row: dict[str, Any]) -> ClassificationClaim | None:
             superseded_by=row.get("superseded_by") or None,
             reviewer=str(row.get("reviewer", "")),
             tenant=str(row.get("tenant", "")),
+            graph=str(row.get("graph", "")),
+            model_profile_version=str(row.get("model_profile_version", "")),
+            prompt_digest=str(row.get("prompt_digest", "")),
             created_at=str(row.get("created_at") or _now_iso()),
         )
     except (KeyError, ValueError, TypeError) as exc:
@@ -1075,7 +1199,9 @@ def query_claims(
         "c.evidence_refs AS evidence_refs, c.source_snapshot AS source_snapshot, "
         "c.extractor_ref AS extractor_ref, c.confidence AS confidence, "
         "c.superseded_by AS superseded_by, c.reviewer AS reviewer, "
-        "c.tenant AS tenant, c.created_at AS created_at"
+        "c.tenant AS tenant, c.graph AS graph, "
+        "c.model_profile_version AS model_profile_version, "
+        "c.prompt_digest AS prompt_digest, c.created_at AS created_at"
     )
     rows = _run_cypher(engine, query, params)
     claims = [c for c in (_row_to_claim(r) for r in rows) if c is not None]
@@ -1127,15 +1253,17 @@ def resolve_claim_evidence(
             engine,
             "MATCH (f:Fragment)-[:FRAGMENT_OF]->(a:Artifact) WHERE f.id = $fid "
             "RETURN f.id AS id, f.text AS text, f.address AS address, "
-            "a.classification AS classification",
+            "f.content_hash AS content_hash, a.classification AS classification",
             {"fid": fragment_id},
         )
         if not rows:
             out.append(
                 {
                     "fragment_id": fragment_id,
+                    "source_snapshot": claim.source_snapshot,
                     "redacted": True,
                     "text": None,
+                    "content_hash": None,
                     "reason": "unresolved",
                 }
             )
@@ -1145,12 +1273,20 @@ def resolve_claim_evidence(
             str(row.get("classification") or "restricted"),
             CLASSIFICATION_LEVELS["restricted"],
         )
+        # NE-010/U-47 audit follow-up (D-NE010-1): the excerpt digest is
+        # NEVER redacted, even when the text is — a digest cannot leak the
+        # payload it summarizes, and "this claim resolves to an exact
+        # excerpt hash" must hold whether or not the viewer is cleared to
+        # read the excerpt itself.
+        content_hash = row.get("content_hash")
         if viewer_level < artifact_level:
             out.append(
                 {
                     "fragment_id": fragment_id,
+                    "source_snapshot": claim.source_snapshot,
                     "redacted": True,
                     "text": None,
+                    "content_hash": content_hash,
                     "reason": "insufficient_clearance",
                 }
             )
@@ -1158,9 +1294,11 @@ def resolve_claim_evidence(
             out.append(
                 {
                     "fragment_id": fragment_id,
+                    "source_snapshot": claim.source_snapshot,
                     "redacted": False,
                     "text": row.get("text"),
                     "address": row.get("address"),
+                    "content_hash": content_hash,
                 }
             )
     return out

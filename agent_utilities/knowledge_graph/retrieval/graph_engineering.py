@@ -271,7 +271,20 @@ class _StaticCandidateRetriever:
         context_window: int = 0,
         as_of: str | None = None,  # noqa: ARG002 — precomputed candidates only
         skip_quality_gate: bool = True,  # noqa: ARG002 — precomputed candidates only
+        session: Any | None = None,  # noqa: ARG002 — see note below
     ) -> list[dict[str, Any]]:
+        # NE-050: ``ContextCompiler._retrieve`` now threads ``session`` into
+        # every ``retrieve_hybrid`` it calls so a real backend can ACL-filter
+        # its RAW pool before its own internal trim-to-``context_window``.
+        # This adapter has no such internal ranking/trim to close: BOTH call
+        # sites in this module size ``candidate_pool`` to ``len(candidates)``
+        # (or `max(top_k, len(candidates))`), so ``context_window`` here is
+        # always >= ``len(self._candidates)`` and this always returns the
+        # FULL precomputed list untrimmed — ``ContextCompiler.compile``'s own
+        # ``enforce()`` policy pass (which runs over that full, un-trimmed
+        # list) is therefore already sufficient ACL-before-rank enforcement
+        # for this adapter specifically. ``session`` is accepted only so the
+        # call doesn't raise, not silently dropped as a general precedent.
         if context_window and context_window > 0:
             return list(self._candidates[:context_window])
         return list(self._candidates)

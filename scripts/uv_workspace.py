@@ -851,13 +851,10 @@ def _own_sibling_member_names(worktree: Path) -> list[str]:
     D-UVN-1: this repo no longer declares its own ``[tool.uv.workspace]``
     table (a workspace member that is itself a workspace root is rejected by
     uv -- "Nested workspaces are not supported" -- which broke `uv sync` for
-    every member of the larger ecosystem workspace, not just this repo's own
-    cyclic edge with langfuse-agent; see the `[tool.uv.sources]` comment in
-    this repo's `pyproject.toml`). Both siblings (`epistemic-graph`,
-    `langfuse-agent`) are now plain editable PATH sources instead, so the
-    sibling names this function must materialize come from
-    ``[tool.uv.sources].*.path`` entries pointing under
-    ``.uv-workspace-siblings/``, not from a workspace members list.
+    every member of the larger ecosystem workspace). Sibling names now come
+    from ``[tool.uv.sources].*.path`` entries pointing under
+    ``.uv-workspace-siblings/``, not from a workspace members list; the current
+    AU source table declares only the epistemic-graph engine.
     """
     manifest = worktree / "pyproject.toml"
     if not manifest.is_file():
@@ -1225,15 +1222,15 @@ def materialize_own_siblings(worktree: Path, workspace: Path) -> None:
     materialize at the same relative paths for the same reason (see
     ``.github/workflows/security.yml`` and
     ``scripts/security/check_ci_environment_contract.py``): agent-utilities'
-    own ``[tool.uv.sources]`` pins ``epistemic-graph``/``langfuse-agent`` as
-    editable workspace members at ``.uv-workspace-siblings/<name>``, a path
-    that does not exist in a bare checkout. On a dev machine or lane worktree
-    the real sibling repos already exist in the ecosystem tree, so a symlink
-    is all that is needed -- no clone, no copy.
+    own ``[tool.uv.sources]`` pins the epistemic-graph engine as an editable
+    path at ``.uv-workspace-siblings/epistemic-graph``, a path that does not
+    exist in a bare checkout. On a dev machine or lane worktree the real
+    sibling repo already exists in the ecosystem tree, so a symlink is all
+    that is needed -- no clone, no copy.
 
     ``epistemic-graph`` is special-cased to the BUG-063 fast path (see
-    :func:`_eg_sibling_target`): every other sibling (``langfuse-agent``)
-    always symlinks straight to its real checkout, unchanged.
+    :func:`_eg_sibling_target`); any future declared sibling always symlinks
+    straight to its real checkout.
     """
     names = _own_sibling_member_names(worktree)
     if not names:

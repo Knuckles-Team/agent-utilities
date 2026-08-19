@@ -1851,6 +1851,61 @@ def test_graphos_startup_failure_releases_process_authority(failure_point: str) 
         assert kg_server._PROCESS_SESSION is None
 
 
+@pytest.mark.parametrize("intake_enabled", [False, True])
+def test_mcp_server_passes_explicit_messaging_intake_intent_to_co_services(
+    intake_enabled: bool,
+) -> None:
+    """The graph-os entrypoint forwards deployment intent to the shared seam."""
+    from agent_utilities.mcp import kg_server
+
+    args = SimpleNamespace(
+        transport="stdio", host="127.0.0.1", port=8000, auth_type="none"
+    )
+    mcp = MagicMock()
+    session = _verified_session("messaging-intake-wiring")
+    engine = SimpleNamespace()
+    fleet = MagicMock()
+    fleet.aclose = AsyncMock()
+    supervisor = MagicMock()
+
+    with (
+        patch("agent_utilities.core.config.load_config"),
+        patch(
+            "agent_utilities.core.config.config",
+            SimpleNamespace(messaging_intake_enabled=intake_enabled),
+        ),
+        patch.object(kg_server, "_preflight_mcp_sdk_floor"),
+        patch.object(kg_server, "_configure_graphos_otel"),
+        patch.object(kg_server, "_configure_telemetry_engine_otel"),
+        patch.object(kg_server, "_build_server", return_value=(args, mcp, [])),
+        patch(
+            "agent_utilities.mcp.multiplexer.attach_fleet_loader",
+            return_value=fleet,
+        ),
+        patch.object(kg_server, "_mint_process_session", return_value=session),
+        patch.object(kg_server, "_start_process_authority_supervisor"),
+        patch.object(kg_server, "_stop_process_authority_supervisor"),
+        patch(
+            "agent_utilities.security.request_identity.apply_served_security_profile"
+        ),
+        patch.object(kg_server, "_start_engine_bootstrap"),
+        patch.object(kg_server, "_get_engine", return_value=engine),
+        patch(
+            "agent_utilities.mcp.co_service_supervisor.start_co_services",
+            return_value=supervisor,
+        ) as start_co_services,
+        patch.object(kg_server, "_PROCESS_SESSION", None),
+    ):
+        kg_server.mcp_server()
+
+    start_co_services.assert_called_once_with(
+        session,
+        engine,
+        messaging_intake_enabled=intake_enabled,
+    )
+    supervisor.stop_all.assert_called_once_with()
+
+
 @pytest.mark.parametrize("transport", ["stdio", "streamable-http"])
 def test_mcp_server_selects_local_engine_path_for_both_transports(
     monkeypatch, tmp_path, transport: str

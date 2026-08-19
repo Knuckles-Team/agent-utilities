@@ -18,6 +18,7 @@ from agent_utilities.mcp.tools.candidate_claim_tools import (
 from agent_utilities.mcp.tools.claim_tools import register_claim_tools
 from agent_utilities.mcp.tools.compliance_tools import register_compliance_tools
 from agent_utilities.mcp.tools.config_tools import register_config_tools
+from agent_utilities.mcp.tools.data_prep_tools import register_data_prep_tools
 from agent_utilities.mcp.tools.domain_ops_tools import register_domain_ops_tools
 from agent_utilities.mcp.tools.durable_tools import register_durable_tools
 from agent_utilities.mcp.tools.engine_surface_tools import (
@@ -71,6 +72,7 @@ __all__ = [
     "register_media_sidecar_tools",
     "register_compliance_tools",
     "register_config_tools",
+    "register_data_prep_tools",
     "register_rlm_tools",
     "register_workflow_tools",
     "register_argument_tools",

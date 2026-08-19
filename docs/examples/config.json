@@ -20,6 +20,8 @@
     "oidc_config_url": null,
     "oidc_client_id": null,
     "oidc_client_secret_ref": null,
+    "remote_oauth_providers": null,
+    "remote_oauth_success_redirect_url": null,
     "allowed_origins": null,
     "allowed_hosts": null,
     "routing_strategy": "hybrid",
@@ -266,6 +268,7 @@
         }
     ],
     "telegram_bot_token": null,
+    "messaging_intake_enabled": false,
     "messaging_default_platform": "telegram",
     "messaging_default_channel": "",
     "messaging_agent": "",

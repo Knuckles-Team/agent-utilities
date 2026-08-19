@@ -41,18 +41,19 @@ agentic* time over the SIDs already produced by
 
 Everything is deterministic and dependency-injected: the encoder is passed in,
 the working space is the encoder's continuous residual reconstruction, and no
-LLM, training, or network call is involved. stdlib + numpy only.
+LLM, training, or network call is involved. The native numeric kernel owns
+bounded scalar/vector operations.
 
 Layer contract: a pure L2 retrieval helper built strictly on top of
 ``TemporalSemanticIdEncoder``; no I/O, no upward dependencies.
 """
 
+import math
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import xp
 
 if TYPE_CHECKING:
     from agent_utilities.knowledge_graph.retrieval.temporal_semantic_id import (
@@ -78,7 +79,9 @@ class Recommendation:
     score: float
 
 
-def _reconstruct(encoder: TemporalSemanticIdEncoder, codes: Sequence[int]) -> NDArray:
+def _reconstruct(
+    encoder: TemporalSemanticIdEncoder, codes: Sequence[int]
+) -> list[float]:
     """Map a content code tuple back to its continuous residual reconstruction.
 
     The reconstruction is the sum of the chosen centroid at each residual level
@@ -87,9 +90,10 @@ def _reconstruct(encoder: TemporalSemanticIdEncoder, codes: Sequence[int]) -> ND
     geometry the codebooks were trained on.
     """
     # ``_codebooks`` is the encoder's per-level centroid stack; codes index it.
-    vec = np.zeros(encoder._dim or 0, dtype=np.float64)  # noqa: SLF001
+    vec = [0.0] * (encoder._dim or 0)  # noqa: SLF001
     for level, code in enumerate(codes):
-        vec = vec + encoder._codebooks[level][code]  # noqa: SLF001
+        centroid = encoder._codebooks[level][code]  # noqa: SLF001
+        vec = [left + float(right) for left, right in zip(vec, centroid, strict=False)]
     return vec
 
 
@@ -160,7 +164,7 @@ class ImplicitReasoningRecommender:
         # Catalog state, populated by fit_catalog().
         self._item_ids: list[str] = []
         self._item_sids: list[tuple[int, ...]] = []  # content codes only
-        self._item_vectors: NDArray = np.empty((0, 0), dtype=np.float64)
+        self._item_vectors: list[list[float]] = []
 
     @property
     def pause_steps(self) -> int:
@@ -222,14 +226,14 @@ class ImplicitReasoningRecommender:
 
         self._item_ids = ids
         self._item_sids = content_sids
-        self._item_vectors = np.vstack(
-            [_reconstruct(self._encoder, sid) for sid in content_sids]
-        )
+        self._item_vectors = [_reconstruct(self._encoder, sid) for sid in content_sids]
 
     # ------------------------------------------------------------------
     # Recommendation
     # ------------------------------------------------------------------
-    def _latent_refine(self, target: NDArray, history_vectors: NDArray) -> NDArray:
+    def _latent_refine(
+        self, target: list[float], history_vectors: list[list[float]]
+    ) -> list[float]:
         """Run ``pause_steps`` deterministic latent refinement steps.
 
         Each step is the inference analogue of one PauseRec ``<pause>`` token: it
@@ -238,26 +242,47 @@ class ImplicitReasoningRecommender:
         centroid of the user's history -- collaborative pull -- then renormalizes.
         No rationale is produced; the computation is purely latent.
         """
-        if self._pause_steps == 0 or self._item_vectors.shape[0] == 0:
+        if self._pause_steps == 0 or not self._item_vectors:
             return target
         # How many nearest catalog items inform each step (a small salient subset,
         # mirroring the paper's late-pause focus on a few relevant SIDs).
-        n_focus = max(1, min(3, self._item_vectors.shape[0]))
+        n_focus = max(1, min(3, len(self._item_vectors)))
         blend = 0.5  # fraction of the move taken toward the pulled centroid per step
-        work = target.astype(np.float64).copy()
+        work = [float(value) for value in target]
         for _ in range(self._pause_steps):
-            sims = self._item_vectors @ work
-            top = np.argsort(-sims)[:n_focus]
-            content_centroid = self._item_vectors[top].mean(axis=0)
-            if history_vectors.shape[0] > 0:
-                history_centroid = history_vectors.mean(axis=0)
-                pull = 0.5 * content_centroid + 0.5 * history_centroid
+            scores = xp.matmul(self._item_vectors, [[value] for value in work])
+            scored = [(index, float(row[0])) for index, row in enumerate(scores)]
+            top = [
+                index
+                for index, _score in sorted(
+                    scored, key=lambda item: item[1], reverse=True
+                )[:n_focus]
+            ]
+            content_centroid = [
+                sum(self._item_vectors[index][dimension] for index in top) / len(top)
+                for dimension in range(len(work))
+            ]
+            if history_vectors:
+                history_centroid = [
+                    sum(vector[dimension] for vector in history_vectors)
+                    / len(history_vectors)
+                    for dimension in range(len(work))
+                ]
+                pull = [
+                    0.5 * content + 0.5 * history
+                    for content, history in zip(
+                        content_centroid, history_centroid, strict=False
+                    )
+                ]
             else:
                 pull = content_centroid
-            work = (1.0 - blend) * work + blend * pull
-            norm = float(np.linalg.norm(work))
+            work = [
+                (1.0 - blend) * current + blend * desired
+                for current, desired in zip(work, pull, strict=False)
+            ]
+            norm = math.sqrt(sum(value * value for value in work))
             if norm > 0.0:
-                work = work / norm
+                work = [value / norm for value in work]
         return work
 
     def recommend(
@@ -306,7 +331,9 @@ class ImplicitReasoningRecommender:
         refined_sid = self._encoder.encode_content(_reconstruct_back(refined))
 
         scores = self._rank(refined, refined_sid)
-        order = np.argsort(-scores)[:top_k]
+        order = sorted(
+            range(len(scores)), key=lambda index: scores[index], reverse=True
+        )[:top_k]
         return [
             Recommendation(
                 item_id=self._item_ids[i],
@@ -318,15 +345,13 @@ class ImplicitReasoningRecommender:
 
     def _history_vectors(
         self, history_sids: Sequence[tuple[int, ...]] | None
-    ) -> NDArray:
+    ) -> list[list[float]]:
         """Reconstruct continuous vectors for the user's history SIDs."""
         if not history_sids:
-            return np.empty((0, self._item_vectors.shape[1]), dtype=np.float64)
-        return np.vstack(
-            [_l2(_reconstruct(self._encoder, sid)) for sid in history_sids]
-        )
+            return []
+        return [_l2(_reconstruct(self._encoder, sid)) for sid in history_sids]
 
-    def _rank(self, refined: NDArray, refined_sid: tuple[int, ...]) -> NDArray:
+    def _rank(self, refined: list[float], refined_sid: tuple[int, ...]) -> list[float]:
         """Score every catalog item against the refined latent target.
 
         The score fuses two signals over the shared SID space: per-level
@@ -337,16 +362,18 @@ class ImplicitReasoningRecommender:
         """
         n_levels = self._encoder.n_codebooks
         refined_unit = _l2(refined)
-        cos = (self._item_vectors @ refined_unit + 1.0) / 2.0
-        overlap = np.array(
-            [
+        score_matrix = xp.matmul(
+            self._item_vectors, [[value] for value in refined_unit]
+        )
+        scores: list[float] = []
+        for sid, row in zip(self._item_sids, score_matrix, strict=True):
+            cosine = (float(row[0]) + 1.0) / 2.0
+            overlap = (
                 sum(1 for a, b in zip(sid, refined_sid, strict=False) if a == b)
                 / n_levels
-                for sid in self._item_sids
-            ],
-            dtype=np.float64,
-        )
-        return 0.5 * overlap + 0.5 * cos
+            )
+            scores.append(0.5 * overlap + 0.5 * cosine)
+        return scores
 
     def explain_budget(self) -> dict[str, Any]:
         """Surface the latent-reasoning budget and that reasoning is implicit.
@@ -367,15 +394,15 @@ class ImplicitReasoningRecommender:
         }
 
 
-def _l2(vec: NDArray) -> NDArray:
+def _l2(vec: list[float]) -> list[float]:
     """Return ``vec`` at unit L2 norm (zero vectors pass through unchanged)."""
-    norm = float(np.linalg.norm(vec))
+    norm = math.sqrt(sum(value * value for value in vec))
     if norm == 0.0:
         return vec
-    return vec / norm
+    return [value / norm for value in vec]
 
 
-def _reconstruct_back(refined: NDArray) -> NDArray:
+def _reconstruct_back(refined: list[float]) -> list[float]:
     """Identity passthrough naming the refined continuous target for re-encoding.
 
     The refined target already lives in the encoder's continuous space, so it can

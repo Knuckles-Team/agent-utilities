@@ -14,8 +14,7 @@ import logging
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from agent_utilities.numeric import NDArray
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import NDArray, xp
 
 logger = logging.getLogger(__name__)
 
@@ -106,30 +105,48 @@ class KLineTokenizer:
         """
         Fit the tokenizer on historical data to learn quantization boundaries.
         """
-        bodies = np.abs(closes - opens) / np.where(opens > 0, opens, 1.0)
-        upper_wicks = (highs - np.maximum(opens, closes)) / np.where(
-            opens > 0, opens, 1.0
-        )
-        (np.minimum(opens, closes) - lows) / np.where(opens > 0, opens, 1.0)
+        opens_values = [float(value) for value in opens]
+        highs_values = [float(value) for value in highs]
+        closes_values = [float(value) for value in closes]
+        volumes_values = [float(value) for value in volumes]
+        denominators = [value if value > 0 else 1.0 for value in opens_values]
+        bodies = [
+            abs(close - open_p) / denominator
+            for open_p, close, denominator in zip(
+                opens_values, closes_values, denominators, strict=True
+            )
+        ]
+        upper_wicks = [
+            (high - max(open_p, close)) / denominator
+            for high, open_p, close, denominator in zip(
+                highs_values,
+                opens_values,
+                closes_values,
+                denominators,
+                strict=True,
+            )
+        ]
+
+        def percentiles(
+            values: list[float], quantiles: tuple[float, ...]
+        ) -> list[float]:
+            positive = [value for value in values if value > 0]
+            if not positive:
+                return []
+            return [float(xp.percentile(positive, q)) for q in quantiles]
 
         # Body size percentiles (5 buckets: 0-20-40-60-80-100)
-        self._body_percentiles = (
-            np.percentile(bodies[bodies > 0], [20, 40, 60, 80])
-            if np.any(bodies > 0)
-            else np.array([0.001, 0.005, 0.01, 0.02])
-        )
+        self._body_percentiles = percentiles(bodies, (20.0, 40.0, 60.0, 80.0))
+        if not self._body_percentiles:
+            self._body_percentiles = [0.001, 0.005, 0.01, 0.02]
         # Wick percentiles (4 buckets)
-        self._wick_percentiles = (
-            np.percentile(upper_wicks[upper_wicks > 0], [25, 50, 75])
-            if np.any(upper_wicks > 0)
-            else np.array([0.002, 0.005, 0.01])
-        )
+        self._wick_percentiles = percentiles(upper_wicks, (25.0, 50.0, 75.0))
+        if not self._wick_percentiles:
+            self._wick_percentiles = [0.002, 0.005, 0.01]
         # Volume percentiles (5 buckets)
-        self._vol_percentiles = (
-            np.percentile(volumes[volumes > 0], [20, 40, 60, 80])
-            if np.any(volumes > 0)
-            else np.array([1e4, 5e4, 1e5, 5e5])
-        )
+        self._vol_percentiles = percentiles(volumes_values, (20.0, 40.0, 60.0, 80.0))
+        if not self._vol_percentiles:
+            self._vol_percentiles = [1e4, 5e4, 1e5, 5e5]
 
         return self
 

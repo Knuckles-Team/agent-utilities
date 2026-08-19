@@ -8,9 +8,10 @@ Sources: Qlib Alpha158, Vibe-Trading Factor Research
 """
 
 import logging
+import math
 from typing import Any
 
-from agent_utilities.numeric import xp as np
+from agent_utilities.numeric import xp
 
 try:
     import pandas as pd
@@ -27,22 +28,30 @@ logger = logging.getLogger(__name__)
 
 def momentum_1d(close: pd.Series) -> pd.Series:
     """1-day log return."""
-    return np.log(close / close.shift(1))
+    return (close / close.shift(1)).map(
+        lambda value: math.log(value) if value > 0 else float("nan")
+    )
 
 
 def momentum_5d(close: pd.Series) -> pd.Series:
     """5-day log return."""
-    return np.log(close / close.shift(5))
+    return (close / close.shift(5)).map(
+        lambda value: math.log(value) if value > 0 else float("nan")
+    )
 
 
 def momentum_20d(close: pd.Series) -> pd.Series:
     """20-day log return."""
-    return np.log(close / close.shift(20))
+    return (close / close.shift(20)).map(
+        lambda value: math.log(value) if value > 0 else float("nan")
+    )
 
 
 def momentum_60d(close: pd.Series) -> pd.Series:
     """60-day log return (quarterly momentum)."""
-    return np.log(close / close.shift(60))
+    return (close / close.shift(60)).map(
+        lambda value: math.log(value) if value > 0 else float("nan")
+    )
 
 
 def volatility_5d(close: pd.Series) -> pd.Series:
@@ -190,8 +199,8 @@ def compute_factor_ic(factor_values: pd.Series, forward_returns: pd.Series) -> f
     ).dropna()
     if len(combined) < 10:
         return 0.0
-    corr, _ = np.spearmanr(combined["factor"], combined["returns"])
-    return float(corr) if not np.isnan(corr) else 0.0
+    corr, _ = xp.spearmanr(list(combined["factor"]), list(combined["returns"]))
+    return float(corr) if not math.isnan(corr) else 0.0
 
 
 def compute_factor_ir(ic_series: pd.Series) -> float:

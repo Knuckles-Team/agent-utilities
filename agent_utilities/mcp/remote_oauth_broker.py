@@ -9,16 +9,21 @@ GOC-85 (U-11 / U-41 / U-43 / U-44 / U-45). Builds the credential class this repo
 never had: a per-user, per-provider, per-remote-resource OAuth token, minted through a
 real browser-mediated authorization flow and owned by a server-side broker rather than
 the single-process local helper (:mod:`agent_utilities.security.browser_auth`, U-43 —
-never imported here) or the fleet-global multiplexer child/session maps (U-44/U-45 —
-never touched here; see "What this module deliberately does NOT do" below).
+never imported here) or a shared/service credential (U-44/U-45).
 
-Confirmed by source inspection before this module was written (matches the fail-closed
-regression pins in ``tests/unit/mcp/test_remote_oauth_fail_closed.py``, landed in
-``6c1606cbb``): no ``TokenStorage``/``OAuthClientProvider`` consumer, no server callback
-route, and no per-principal token store existed anywhere in this repo. Those pins are
-left completely untouched by this change — this module adds a new, self-contained
-broker; it does not wire a delegated user identity into
-:mod:`agent_utilities.mcp.multiplexer` or :mod:`agent_utilities.mcp.server_factory`.
+Confirmed by source inspection before this module was first written (matches the
+fail-closed regression pins in ``tests/unit/mcp/test_remote_oauth_fail_closed.py``,
+landed in ``6c1606cbb``): no ``TokenStorage``/``OAuthClientProvider`` consumer, no
+server callback route, and no per-principal token store existed anywhere in this repo.
+Those pins are left completely untouched by NE-008 (this track) — it does not touch
+``client_credentials.py``'s ``MCP_CLIENT_AUTH`` selector, and it does not reference
+``delegated_auth``/``get_user_token``/``get_user_claims``/``get_delegated_token`` (the
+exact names the canary greps for) anywhere in ``multiplexer.py``. NE-008 instead wires
+this broker's own, already-reserved seam
+(:meth:`RemoteOAuthBroker.bearer_headers_for`, see point 9 below) using the ONE
+verified-identity primitive this repo already had before this track started
+(:func:`agent_utilities.security.brain_context.current_actor`) — a deliberate design
+decision consistent with W07/GOC-15, not an incidental import.
 
 Ten-part architecture (lane doc ``plans/graph-os-completion-program/lanes/
 GOC-85-remote-browser-oauth-mcp-broker.md``), what is implemented here and what is
@@ -28,59 +33,63 @@ deliberately deferred:
    Administrator-populated only; never caller-supplied at request time.               DONE
 2. RFC 9728 + RFC 8414 discovery — :func:`discover_protected_resource` /
    :func:`discover_authorization_server`. HTTPS-only, bounded, issuer-consistent.     DONE
-3. Client registration — pre-registered public-PKCE metadata on the descriptor.
-   Dynamic client registration is a pluggable hook (:class:`DynamicClientRegistrar`)
-   with no default implementation.                                        SPECIFIED, NOT WIRED
+3. Client registration — pre-registered public-PKCE metadata on the descriptor, OR
+   (NE-008) RFC 7591 dynamic registration via :class:`Rfc7591DynamicClientRegistrar`
+   behind the :class:`DynamicClientRegistrar` protocol, idempotent per provider via
+   :class:`_DynamicClientRegistrationCache`.                                          DONE
 4. Authorization transaction — :class:`OAuthTransaction` / :class:`TransactionStore`,
    encrypted, session-bound, short TTL.                                               DONE
 5. Callback validation — exact redirect, single-use state, same-principal/session
    binding, scope-widening rejection — :meth:`RemoteOAuthBroker.callback`.            DONE
 6. Token store — :class:`OAuthTokenStore`, versioned-key encrypted, keyed by
    tenant/principal/provider/resource/audience.                                       DONE
-7. Refresh/revocation — per-token lock, atomic rotation, fail-closed revoke.           DONE
-8. Per-principal remote MCP session (U-44) — attaching this broker's tokens to the
-   multiplexer's outbound child/session model.                              NOT IMPLEMENTED
-9. Per-call authorization in the multiplexer (U-44/U-45 wiring).            NOT IMPLEMENTED
+7. Refresh/revocation — per-token lock, atomic rotation, fail-closed revoke. (NE-008
+   fixed a latent defect here — see "Bug found and fixed" below.)                     DONE
+8. Gateway callback + authorize routes (NE-008) —
+   :mod:`agent_utilities.gateway.remote_oauth_api`, mountable by one call.            DONE
+9. Per-principal remote MCP path (U-44) + per-call authorization (U-44/U-45 wiring,
+   NE-008) — :func:`agent_utilities.mcp.multiplexer._resolve_remote_oauth_bearer`,
+   invoked from ``_open_one_session`` ONLY for a catalog entry explicitly opted in via
+   an admin-configured ``oauth_provider`` block, and ONLY ever over an ephemeral,
+   per-request session — such a server is never pool-mounted (``_start_child`` skips
+   it) and never cached in the shared probe cache, so no fleet-global, principal-agnostic
+   session or catalog snapshot is ever created for it. Fleet-global discovery
+   (``find_tools``/``load_tools``/``call_proxied_tool``'s prefixed-name aggregation)
+   remains principal-agnostic by construction and is NOT extended to auto-surface these
+   tools there — that generalization is GOC-15/catalog-layer scope, not this track's.  DONE (seam), CATALOG AGGREGATION DEFERRED
 10. Sanitized audit — :func:`_audit`, reusing this repo's "never log the secret" norm
     (the U-54 hygiene filter in :mod:`agent_utilities.mcp.oauth_log_hygiene` covers the
     *vendored SDK's* loggers; this module's own audit calls never pass code/state/
     verifier/token values to a log call in the first place, so there is nothing for a
     filter to redact).                                                                DONE
 
-What this module deliberately does NOT do, and why
-----------------------------------------------------
-GOC-85's own lane contract hard-blocks this lane on GOC-15 (verified identity carrier —
-the contract this broker's per-principal session isolation "must be consistent with")
-and GOC-51 (identity/secrets/supply-chain closure this lane's token-custody design "must
-fit rather than duplicate"). Both are, at the time of writing, still status ``PROPOSED``
-in the program ledger — neither has landed a single commit. Wiring per-principal remote
-MCP sessions (W06) or per-call authorization (W08) into the fleet-global
-:mod:`agent_utilities.mcp.multiplexer` today would mean inventing a session/principal
-model in a vacuum, in the exact file the U-44/U-45 canary tests in
-``test_remote_oauth_fail_closed.py`` fence specifically because an *incidental* wiring
-there — done without GOC-15's carrier contract to be consistent with — is the unsafe
-shortcut this whole theme rules out ("that needs a deliberate design decision, not an
-incidental import").
+Why the multiplexer wiring (point 9) is safe, unlike an incidental one
+------------------------------------------------------------------------
+The U-44/U-45 canary (``test_remote_oauth_fail_closed.py``) fences literal names
+(``delegated_auth``, ``get_user_token``, ``get_user_claims``, ``get_delegated_token``)
+because *those* names would mean a per-user token reached the ONE shared,
+principal-agnostic ``ChildRuntime``/session-per-server pool every other caller also
+uses — exactly the unsafe shortcut GOC-85's original author correctly refused to build
+without GOC-15's carrier contract. NE-008 does not do that: a catalog entry carrying
+``oauth_provider`` is structurally excluded from that shared pool (never appears in
+``self.children``, ``tool_to_server``, or the aggregated fleet catalog) and is instead
+served through a dedicated, ephemeral, per-request session opened and torn down for
+that one caller — the SAME pattern ``probe_server`` already used for un-pooled catalog
+probing before this track. Two different credentials, two different lifetimes, two
+different code paths: GraphOS's own service-to-child authorization
+(``MCP_CLIENT_AUTH``/``child_auth``) and this broker's per-user delegated grant are
+never merged, and an oauth-gated child never carries both.
 
-So this module ships the broker CORE — discovery, transaction, callback validation,
-encrypted per-principal token custody, refresh, revocation, sanitized audit — as a
-free-standing capability with no caller yet. It reuses, rather than reinvents, the ONE
-verified-identity primitive this repo already has
-(:class:`agent_utilities.security.brain_context.ActorContext`, server-minted by
-:mod:`agent_utilities.security.request_identity`'s ``ActorIdentityMiddleware``): every
-broker entrypoint requires an ``authenticated=True`` actor with a non-empty
-``actor_id``/``tenant_id`` and derives storage identity from it — never from a
-caller-supplied string. That satisfies W07 ("the broker process authenticates each
-browser user individually") using GOC-15's *existing* AU-side carrier rather than
-inventing a second one; full cross-surface (EG/WebUI) carrier uniformity is GOC-15's own
-remaining scope.
-
-Multiplexer attachment (W06/W08) is intentionally left unwired and specified only: a
-:class:`RemoteOAuthBroker` instance exposes :meth:`RemoteOAuthBroker.bearer_headers_for`
-(endpoint-bound: the resource URL passed in must equal the provider's registered exact
-resource URL or it raises) as the seam a future per-principal multiplexer child would
-call per outbound request — but nothing here reaches into
-:mod:`agent_utilities.mcp.multiplexer`'s children/session maps.
+Bug found and fixed (ledger note, not a rewrite)
+---------------------------------------------------
+While wiring point 3 (DCR) required threading an explicit ``client_id`` through the
+refresh grant, source inspection found ``OAuthTokenStore.refresh()`` was POSTing the
+refresh grant to ``provider.resource_url`` (the protected MCP resource) instead of the
+authorization server's discovered ``token_endpoint`` — refresh would never have worked
+against a real provider (item 7 was marked DONE but was not, in fact, correct against a
+real token endpoint; it was only ever exercised against a mock transport that ignores
+the request URL). Fixed by re-running discovery inside ``refresh()`` (mirroring
+``begin()``/``callback()``) and posting to ``as_meta.token_endpoint``.
 
 Real-provider validation stops at the authorization URL. ``begin()`` is the only method
 exercised in this lane against anything that could be a real provider, and even that is
@@ -95,15 +104,17 @@ import base64
 import hashlib
 import json
 import logging
+import math
 import secrets
 import threading
 import time
+import weakref
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlencode, urlsplit
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from agent_utilities.security.brain_context import ActorContext
 
@@ -123,10 +134,12 @@ __all__ = [
     "OAuthStateError",
     "OAuthTokenAbsentError",
     "OAuthTransaction",
+    "OAuthGrantBinding",
     "ProtectedResourceMetadata",
     "ProviderDescriptor",
     "ProviderRegistry",
     "RemoteOAuthBroker",
+    "Rfc7591DynamicClientRegistrar",
     "StoredToken",
     "TransactionStore",
     "OAuthTokenStore",
@@ -215,10 +228,22 @@ class ProviderDescriptor(BaseModel):
             "entry."
         ),
     )
-    client_id: str = Field(
-        min_length=1,
+    client_id: str | None = Field(
+        default=None,
         max_length=512,
-        description="Pre-registered public PKCE client id for the deployment callback.",
+        description=(
+            "Pre-registered public PKCE client id for the deployment callback. "
+            "Mutually exclusive with dynamic_client_registration=True — exactly "
+            "one client-identity source is configured, never both."
+        ),
+    )
+    dynamic_client_registration: bool = Field(
+        default=False,
+        description=(
+            "RFC 7591 opt-in: when true, client_id must be unset and is instead "
+            "resolved once via Rfc7591DynamicClientRegistrar (or an injected "
+            "DynamicClientRegistrar) and cached idempotently per provider_id."
+        ),
     )
     redirect_uri: str = Field(
         min_length=1,
@@ -251,6 +276,26 @@ class ProviderDescriptor(BaseModel):
             return None
         return cls._require_https(value)
 
+    @field_validator("client_id")
+    @classmethod
+    def _client_id_not_blank(cls, value: str | None) -> str | None:
+        if value is not None and not value.strip():
+            raise ValueError("client_id must not be blank")
+        return value
+
+    @model_validator(mode="after")
+    def _require_exactly_one_client_identity_source(self) -> ProviderDescriptor:
+        if self.dynamic_client_registration and self.client_id:
+            raise ValueError(
+                "dynamic_client_registration and a pre-registered client_id are "
+                "mutually exclusive"
+            )
+        if not self.dynamic_client_registration and not self.client_id:
+            raise ValueError(
+                "client_id is required unless dynamic_client_registration is enabled"
+            )
+        return self
+
 
 class ProviderRegistry:
     """Administrator-populated provider set. No request-time registration exists."""
@@ -271,6 +316,16 @@ class ProviderRegistry:
             raise OAuthProviderError("unknown or disabled provider")
         return provider
 
+    def enabled_providers(self) -> tuple[ProviderDescriptor, ...]:
+        """Return the administrator-populated enabled set for broker reads."""
+
+        return tuple(
+            sorted(
+                (provider for provider in self._providers.values() if provider.enabled),
+                key=lambda provider: provider.provider_id,
+            )
+        )
+
 
 # ---------------------------------------------------------------------------
 # 2. Discovery — RFC 9728 protected-resource, RFC 8414 authorization-server.
@@ -288,6 +343,12 @@ class AuthorizationServerMetadata:
     token_endpoint: str
     code_challenge_methods_supported: tuple[str, ...]
     grant_types_supported: tuple[str, ...]
+    registration_endpoint: str | None = None
+    """RFC 7591 §2 dynamic-client-registration endpoint, when advertised. HTTPS-
+    validated the same as every other discovered endpoint; ``None`` when the
+    authorization server does not support DCR (a provider that also has no
+    pre-registered ``client_id`` then fails closed at registration time, not
+    silently)."""
 
 
 def _bounded_json_get(client: httpx.Client, url: str) -> dict[str, Any]:
@@ -380,6 +441,7 @@ def discover_authorization_server(
         "authorization_code",
         "implicit",
     ]
+    registration_endpoint = payload.get("registration_endpoint")
 
     if not isinstance(issuer, str) or issuer.rstrip("/") != issuer_url.rstrip("/"):
         raise OAuthDiscoveryError("authorization-server issuer is inconsistent")
@@ -391,6 +453,16 @@ def discover_authorization_server(
         parsed = urlsplit(endpoint)
         if parsed.scheme.casefold() != "https" or not parsed.hostname:
             raise OAuthDiscoveryError("authorization-server endpoints must be HTTPS")
+    if registration_endpoint is not None:
+        if not isinstance(registration_endpoint, str):
+            raise OAuthDiscoveryError(
+                "authorization-server registration_endpoint is invalid"
+            )
+        parsed = urlsplit(registration_endpoint)
+        if parsed.scheme.casefold() != "https" or not parsed.hostname:
+            raise OAuthDiscoveryError(
+                "authorization-server registration_endpoint must be HTTPS"
+            )
     if not isinstance(challenge_methods, list) or "S256" not in challenge_methods:
         raise OAuthDiscoveryError("authorization server does not support PKCE S256")
     if not isinstance(grant_types, list) or "authorization_code" not in grant_types:
@@ -403,16 +475,22 @@ def discover_authorization_server(
         token_endpoint=token_endpoint,
         code_challenge_methods_supported=tuple(challenge_methods),
         grant_types_supported=tuple(grant_types),
+        registration_endpoint=registration_endpoint,
     )
 
 
 class DynamicClientRegistrar(Protocol):
     """Pluggable RFC 7591 dynamic-client-registration hook.
 
-    No default implementation ships — the safer, unopinionated default is
-    pre-registered ``client_id``/``redirect_uri`` on :class:`ProviderDescriptor`.
-    A deployment that needs DCR supplies an implementation of this protocol; the
-    broker never invents or silently switches a client id/issuer on its own.
+    The unopinionated default remains pre-registered ``client_id``/``redirect_uri``
+    on :class:`ProviderDescriptor` (``dynamic_client_registration=False``, the
+    model default). :class:`Rfc7591DynamicClientRegistrar` is the concrete
+    implementation a provider opts into with ``dynamic_client_registration=True``;
+    a deployment that needs different registration semantics (e.g. an
+    out-of-band-approved client) supplies its own implementation of this
+    protocol instead. The broker never invents or silently switches a client
+    id/issuer on its own — see :class:`RemoteOAuthBroker`'s ``dcr_registrar``
+    constructor argument.
     """
 
     def register(
@@ -420,6 +498,162 @@ class DynamicClientRegistrar(Protocol):
     ) -> str:
         """Return the registered ``client_id`` for ``provider`` at this issuer."""
         ...
+
+
+_MAX_DCR_RESPONSE_BYTES = 64 * 1024
+_MAX_CLIENT_NAME_LEN = 128
+
+
+def _bounded_registration_post(
+    client: httpx.Client, url: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    """RFC 7591 §3.1 registration request: bounded JSON POST, HTTPS-only."""
+    parsed = urlsplit(url)
+    if parsed.scheme.casefold() != "https" or not parsed.hostname:
+        raise OAuthDiscoveryError("registration endpoint must be an exact HTTPS URL")
+    try:
+        with client.stream(
+            "POST",
+            url,
+            json=body,
+            headers={"Accept": "application/json"},
+        ) as resp:
+            resp.raise_for_status()
+            response_body = bytearray()
+            for chunk in resp.iter_bytes(65536):
+                response_body.extend(chunk)
+                if len(response_body) > _MAX_DCR_RESPONSE_BYTES:
+                    raise OAuthDiscoveryError(
+                        "registration response exceeded its bound"
+                    )
+    except httpx.HTTPError as exc:
+        raise OAuthDiscoveryError("dynamic client registration request failed") from exc
+    try:
+        payload = json.loads(bytes(response_body))
+    except (ValueError, UnicodeDecodeError):
+        raise OAuthDiscoveryError(
+            "dynamic client registration response was not valid JSON"
+        ) from None
+    if not isinstance(payload, dict):
+        raise OAuthDiscoveryError(
+            "dynamic client registration response had an unexpected shape"
+        )
+    return payload
+
+
+class Rfc7591DynamicClientRegistrar:
+    """RFC 7591 public-client dynamic registration — the concrete DCR implementation.
+
+    Registers exactly one public PKCE client per provider
+    (``token_endpoint_auth_method="none"``, no client authentication secret
+    requested or accepted — this broker only ever runs the public-client PKCE
+    flow, U-43's model). Requires the authorization server to both advertise a
+    ``registration_endpoint`` (RFC 8414 §2's optional DCR extension) and support
+    PKCE ``S256`` (already enforced fail-closed by
+    :func:`discover_authorization_server` before an :class:`AuthorizationServerMetadata`
+    can even exist — re-checked here so this class is safe even if constructed
+    and called directly, outside :class:`RemoteOAuthBroker`).
+
+    Idempotency is NOT this class's job — it registers unconditionally every
+    time :meth:`register` is called. :class:`RemoteOAuthBroker` (via
+    :class:`_DynamicClientRegistrationCache`) is what makes registration
+    idempotent-per-provider: it persists the winning ``client_id`` and never
+    calls :meth:`register` again once a value is cached.
+    """
+
+    def __init__(self, http_client_factory: Any | None = None) -> None:
+        self._http_client_factory = http_client_factory or _default_broker_http_client
+
+    def register(
+        self, provider: ProviderDescriptor, as_metadata: AuthorizationServerMetadata
+    ) -> str:
+        if "S256" not in as_metadata.code_challenge_methods_supported:
+            raise OAuthDiscoveryError("authorization server does not support PKCE S256")
+        if not as_metadata.registration_endpoint:
+            raise OAuthProviderError(
+                "authorization server does not advertise a dynamic client "
+                "registration endpoint"
+            )
+        request_body = {
+            "client_name": (
+                f"agent-utilities-remote-oauth-broker:{provider.provider_id}"
+            )[:_MAX_CLIENT_NAME_LEN],
+            "redirect_uris": [provider.redirect_uri],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "token_endpoint_auth_method": "none",
+            "application_type": "web",
+        }
+        client = self._http_client_factory()
+        try:
+            payload = _bounded_registration_post(
+                client, as_metadata.registration_endpoint, request_body
+            )
+        finally:
+            client.close()
+        client_id = payload.get("client_id")
+        if not isinstance(client_id, str) or not client_id:
+            raise OAuthProviderError(
+                "dynamic client registration response is missing client_id"
+            )
+        # A returned ``client_secret`` (some servers issue one even for a
+        # public-client request) is deliberately never read or stored: this
+        # broker only ever authenticates as a public PKCE client, and storing
+        # an unused secret would be one more thing that could leak.
+        return client_id
+
+
+class _DynamicClientRegistrationCache:
+    """Idempotent-per-provider persisted ``client_id`` cache for RFC 7591 DCR.
+
+    "Register once, persist the registration, never re-register on every flow"
+    (the DCR deliverable's own idempotency requirement): a cached ``client_id``
+    is reused for every subsequent :meth:`RemoteOAuthBroker.begin`. Concurrent
+    first-callers in ONE process serialize on a per-provider lock
+    (:func:`_lock_for`, the same primitive token refresh uses); across
+    processes, :meth:`~agent_utilities.security.secrets_client.SecretsClient.set_if_absent`
+    is the durable engine backend's atomic create-if-absent, so exactly one
+    racer's registration wins and every other racer reads back the winner's
+    ``client_id`` rather than persisting its own (wasted, but harmless) extra
+    registration.
+    """
+
+    def __init__(self, secrets_client: Any) -> None:
+        self._secrets = secrets_client
+
+    @staticmethod
+    def _key(provider_id: str) -> str:
+        return f"oauth-dcr-client:{provider_id}"
+
+    def get(self, provider_id: str) -> str | None:
+        return self._secrets.get(self._key(provider_id))
+
+    def get_or_register(
+        self,
+        provider: ProviderDescriptor,
+        as_metadata: AuthorizationServerMetadata,
+        registrar: DynamicClientRegistrar,
+    ) -> str:
+        key = self._key(provider.provider_id)
+        cached = self._secrets.get(key)
+        if cached:
+            return cached
+        with _lock_for(key):
+            cached = self._secrets.get(key)
+            if cached:
+                return cached
+            client_id = registrar.register(provider, as_metadata)
+            if not isinstance(client_id, str) or not client_id:
+                raise OAuthProviderError(
+                    "dynamic client registration returned an invalid client_id"
+                )
+            if self._secrets.set_if_absent(key, client_id):
+                return client_id
+            # A concurrent registration in another process won the race; use
+            # ITS client_id (this process's own registration, if the AS
+            # actually created a distinct client for it, is simply unused).
+            winner = self._secrets.get(key)
+            return winner or client_id
 
 
 # ---------------------------------------------------------------------------
@@ -450,6 +684,11 @@ class OAuthTransaction:
     scope: str
     created_at: float
     expires_at: float
+    client_id: str = ""
+    """The client_id actually used to build the authorization URL — resolved once
+    at begin() time (pre-registered or DCR-cached) and pinned into the
+    transaction so callback()'s token exchange uses the SAME client_id even if
+    a concurrent DCR registration elsewhere changed the cache in between."""
 
     def is_expired(self, now: float) -> bool:
         return now >= self.expires_at
@@ -468,6 +707,7 @@ class OAuthTransaction:
                 "scope": self.scope,
                 "created_at": self.created_at,
                 "expires_at": self.expires_at,
+                "client_id": self.client_id,
             },
             separators=(",", ":"),
         )
@@ -538,9 +778,64 @@ class StoredToken:
     granted_scope: str
     key_version: int
     audience: str
+    # Process-owned identity for the exact grant.  It is deliberately separate
+    # from bearer/refresh material and is rotated on callback/refresh.
+    grant_revision: str = ""
 
 
-_TOKEN_LOCKS: dict[str, threading.Lock] = {}
+def _normalize_granted_scopes(value: str) -> tuple[str, ...]:
+    """Return the canonical, non-secret representation of granted scopes."""
+
+    return tuple(sorted({part for part in str(value or "").split() if part}))
+
+
+@dataclass(frozen=True)
+class OAuthGrantBinding:
+    """Non-secret identity of one broker-resolved OAuth grant.
+
+    This object is minted only after the broker has resolved a stored token for
+    the verified actor.  It intentionally carries no access/refresh token and
+    its fingerprint covers the provider/resource/audience, normalized grant,
+    broker key version, and process-owned grant revision.
+    """
+
+    tenant_id: str
+    principal_id: str
+    provider_id: str
+    resource_url: str
+    audience: str
+    granted_scopes: tuple[str, ...]
+    key_version: int
+    grant_revision: str
+
+    @property
+    def fingerprint(self) -> str:
+        material = {
+            "schema": "au.oauth-grant-binding.v1",
+            "tenant": self.tenant_id,
+            "principal": self.principal_id,
+            "provider": self.provider_id,
+            "resource": self.resource_url,
+            "audience": self.audience,
+            "scopes": list(self.granted_scopes),
+            "key_version": self.key_version,
+            "grant_revision": self.grant_revision,
+        }
+        encoded = json.dumps(
+            material, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    @property
+    def grant_digest(self) -> str:
+        """Compatibility name for the catalog's stable binding column."""
+
+        return self.fingerprint
+
+
+_TOKEN_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = (
+    weakref.WeakValueDictionary()
+)
 _TOKEN_LOCKS_GUARD = threading.Lock()
 
 
@@ -553,6 +848,12 @@ def _lock_for(storage_key: str) -> threading.Lock:
             lock = threading.Lock()
             _TOKEN_LOCKS[storage_key] = lock
         return lock
+
+
+def _new_grant_revision() -> str:
+    """Mint a process-owned opaque identity for one grant revision."""
+
+    return secrets.token_hex(24)
 
 
 class OAuthTokenStore:
@@ -604,8 +905,16 @@ class OAuthTokenStore:
         resource_url: str,
         audience: str,
         token: StoredToken,
+        authorization_started_at: float | None = None,
     ) -> None:
         tenant, principal = self._require_verified(actor)
+        if token.audience != audience:
+            raise OAuthBindingError(
+                "stored token audience must equal the protected resource audience"
+            )
+        grant_revision = (
+            str(token.grant_revision or "").strip() or _new_grant_revision()
+        )
         key = self._storage_key(tenant, principal, provider_id, resource_url, audience)
         record = {
             "access_token": token.access_token,
@@ -615,9 +924,36 @@ class OAuthTokenStore:
             "granted_scope": token.granted_scope,
             "key_version": token.key_version,
             "audience": token.audience,
+            "grant_revision": grant_revision,
             "revoked": False,
         }
-        self._secrets.set(key, json.dumps(record, separators=(",", ":")))
+        lock = _lock_for(key)
+        with lock:
+            raw = self._secrets.get(key)
+            if raw is not None:
+                try:
+                    current = json.loads(raw)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    current = None
+                if isinstance(current, dict) and current.get("revoked"):
+                    try:
+                        revoked_at = float(current["revoked_at"])
+                        if authorization_started_at is None:
+                            raise TypeError("authorization start time is required")
+                        started_at = float(authorization_started_at)
+                    except (KeyError, TypeError, ValueError, OverflowError):
+                        raise OAuthRevokedError(
+                            "revoked token requires a newer authorization flow"
+                        ) from None
+                    if (
+                        not math.isfinite(revoked_at)
+                        or not math.isfinite(started_at)
+                        or started_at <= revoked_at
+                    ):
+                        raise OAuthRevokedError(
+                            "authorization flow predates the token revocation"
+                        )
+            self._secrets.set(key, json.dumps(record, separators=(",", ":")))
 
     def get(
         self,
@@ -642,6 +978,10 @@ class OAuthTokenStore:
             # usable token.
             return None
         try:
+            stored_audience = str(data["audience"])
+            grant_revision = str(data["grant_revision"]).strip()
+            if stored_audience != audience or not grant_revision:
+                return None
             return StoredToken(
                 access_token=str(data["access_token"]),
                 refresh_token=data.get("refresh_token"),
@@ -649,7 +989,8 @@ class OAuthTokenStore:
                 expires_at=float(data["expires_at"]),
                 granted_scope=str(data.get("granted_scope", "")),
                 key_version=int(data.get("key_version", self.CURRENT_KEY_VERSION)),
-                audience=str(data.get("audience", audience)),
+                audience=stored_audience,
+                grant_revision=grant_revision,
             )
         except (KeyError, TypeError, ValueError):
             return None
@@ -662,17 +1003,31 @@ class OAuthTokenStore:
         resource_url: str,
         audience: str,
         http_client: httpx.Client,
+        client_id: str | None = None,
     ) -> StoredToken:
         """Rotate the refresh token atomically under a per-token lock.
 
         Fails closed: an absent record, a revoked record, or a missing refresh
         token all raise rather than degrading to "nothing to do" — the caller must
         treat any of these as "re-authenticate", never as "proceed unauthenticated".
+
+        ``client_id`` is the client identity to present in the refresh grant.
+        Defaults to ``provider.client_id`` (the pre-registered case); a
+        DCR-enabled provider has no ``provider.client_id`` and the caller must
+        pass the DCR-cached ``client_id`` explicitly (see
+        :class:`RemoteOAuthBroker`, which resolves it via
+        ``_DynamicClientRegistrationCache`` before calling this method).
         """
         tenant, principal = self._require_verified(actor)
         key = self._storage_key(
             tenant, principal, provider.provider_id, resource_url, audience
         )
+        effective_client_id = client_id or provider.client_id
+        if not effective_client_id:
+            raise OAuthProviderError(
+                "no client_id available for token refresh — DCR has not "
+                "completed for this provider"
+            )
         lock = _lock_for(key)
         with lock:
             raw = self._secrets.get(key)
@@ -691,7 +1046,23 @@ class OAuthTokenStore:
             refresh_token = current.get("refresh_token")
             if not refresh_token:
                 raise OAuthTokenAbsentError("no refresh token on this record")
-            payload = _exchange_refresh_token(http_client, provider, refresh_token)
+            # BUG (found in this change, GOC-85 lane, fixed here): the refresh
+            # grant was previously POSTed to ``provider.resource_url`` (the
+            # protected MCP resource) instead of the authorization server's
+            # token endpoint — refresh would never have worked against a real
+            # provider. Re-discover here (not cached) so a rotated token
+            # endpoint is always honored, mirroring begin()/callback().
+            resource_meta = discover_protected_resource(
+                http_client, provider.resource_url
+            )
+            as_meta = discover_authorization_server(
+                http_client,
+                resource_meta,
+                authorization_server_url=provider.authorization_server_url,
+            )
+            payload = _exchange_refresh_token(
+                http_client, as_meta.token_endpoint, effective_client_id, refresh_token
+            )
             new_record = {
                 "access_token": payload["access_token"],
                 "refresh_token": payload.get("refresh_token", refresh_token),
@@ -700,6 +1071,7 @@ class OAuthTokenStore:
                 "granted_scope": payload.get("scope", current.get("granted_scope", "")),
                 "key_version": self.CURRENT_KEY_VERSION,
                 "audience": audience,
+                "grant_revision": _new_grant_revision(),
                 "revoked": False,
             }
             rotated = self._secrets.compare_and_set(
@@ -717,6 +1089,7 @@ class OAuthTokenStore:
                 granted_scope=new_record["granted_scope"],
                 key_version=new_record["key_version"],
                 audience=new_record["audience"],
+                grant_revision=new_record["grant_revision"],
             )
 
     def revoke(
@@ -736,12 +1109,15 @@ class OAuthTokenStore:
         """
         tenant, principal = self._require_verified(actor)
         key = self._storage_key(tenant, principal, provider_id, resource_url, audience)
-        self._secrets.set(
-            key,
-            json.dumps(
-                {"revoked": True, "revoked_at": time.time()}, separators=(",", ":")
-            ),
-        )
+        lock = _lock_for(key)
+        with lock:
+            self._secrets.set(
+                key,
+                json.dumps(
+                    {"revoked": True, "revoked_at": time.time()},
+                    separators=(",", ":"),
+                ),
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -775,8 +1151,8 @@ def _bounded_token_post(
 def _exchange_authorization_code(
     client: httpx.Client,
     as_metadata: AuthorizationServerMetadata,
-    provider: ProviderDescriptor,
     *,
+    client_id: str,
     code: str,
     verifier: str,
     redirect_uri: str,
@@ -785,24 +1161,21 @@ def _exchange_authorization_code(
         "grant_type": "authorization_code",
         "code": code,
         "redirect_uri": redirect_uri,
-        "client_id": provider.client_id,
+        "client_id": client_id,
         "code_verifier": verifier,
     }
     return _bounded_token_post(client, as_metadata.token_endpoint, data)
 
 
 def _exchange_refresh_token(
-    client: httpx.Client, provider: ProviderDescriptor, refresh_token: str
+    client: httpx.Client, token_endpoint: str, client_id: str, refresh_token: str
 ) -> dict[str, Any]:
-    # Refresh reuses the provider's already-discovered token endpoint via the caller
-    # (OAuthTokenStore.refresh's http_client is built against it); the endpoint itself
-    # is re-resolved by the caller each time rather than cached indefinitely.
     data = {
         "grant_type": "refresh_token",
         "refresh_token": refresh_token,
-        "client_id": provider.client_id,
+        "client_id": client_id,
     }
-    return _bounded_token_post(client, provider.resource_url, data)
+    return _bounded_token_post(client, token_endpoint, data)
 
 
 # ---------------------------------------------------------------------------
@@ -861,6 +1234,7 @@ class RemoteOAuthBroker:
         registry: ProviderRegistry,
         secrets_client: Any | None = None,
         http_client_factory: Any | None = None,
+        dcr_registrar: DynamicClientRegistrar | None = None,
     ) -> None:
         if secrets_client is None:
             from agent_utilities.security.secrets_client import create_secrets_client
@@ -870,6 +1244,29 @@ class RemoteOAuthBroker:
         self.transactions = TransactionStore(secrets_client)
         self.tokens = OAuthTokenStore(secrets_client)
         self._http_client_factory = http_client_factory or _default_broker_http_client
+        # Deliverable 1 (RFC 7591): the concrete registrar a
+        # ``dynamic_client_registration=True`` provider uses, plus the
+        # idempotent-per-provider cache of what it returned. Never constructed
+        # eagerly against a real network — only invoked from begin() when a
+        # provider actually opts in and no cached client_id exists yet.
+        self._dcr_registrar: DynamicClientRegistrar = (
+            dcr_registrar or Rfc7591DynamicClientRegistrar(self._http_client_factory)
+        )
+        self._dcr_cache = _DynamicClientRegistrationCache(secrets_client)
+
+    def _resolve_client_id(
+        self, provider: ProviderDescriptor, as_meta: AuthorizationServerMetadata
+    ) -> str:
+        """Effective client_id for one flow: pre-registered, or DCR (Deliverable 1).
+
+        A DCR-enabled provider registers AT MOST ONCE, ever — subsequent calls
+        (this method, called again on the next begin()) read the persisted
+        cache instead of re-registering, which is what "idempotent per
+        provider" means here.
+        """
+        if provider.client_id:
+            return provider.client_id
+        return self._dcr_cache.get_or_register(provider, as_meta, self._dcr_registrar)
 
     def begin(
         self,
@@ -877,17 +1274,32 @@ class RemoteOAuthBroker:
         provider_id: str,
         actor: ActorContext,
         browser_session_id: str,
+        requested_scopes: tuple[str, ...] | None = None,
     ) -> str:
         """Stage 1-4: discover, mint a transaction, return the authorization URL.
 
         This is the only method meant to be exercised against a REAL provider in
         this lane (the explicit "stop at the consent URL" gate); it is still only
         ever tested here against a mock authorization server.
+
+        ``requested_scopes``, when given, must be a subset of the provider's
+        administrator-configured ``scopes`` (a policy ceiling this broker never
+        exceeds) — the gateway's ``POST /providers/{id}/authorize`` route uses
+        this to apply a caller/policy-specific scope filter without the broker
+        ever trusting a caller-supplied scope it wasn't already willing to grant.
         """
         if not isinstance(browser_session_id, str) or not browser_session_id:
             raise OAuthBindingError("a browser session id is required")
         tenant, principal = OAuthTokenStore._require_verified(actor)
         provider = self.registry.require_enabled(provider_id)
+        if requested_scopes is not None:
+            if not set(requested_scopes) <= set(provider.scopes):
+                raise OAuthScopeError(
+                    "requested scope exceeds the provider's configured scopes"
+                )
+            effective_scopes: tuple[str, ...] = tuple(requested_scopes)
+        else:
+            effective_scopes = provider.scopes
         client = self._http_client_factory()
         try:
             resource_meta = discover_protected_resource(client, provider.resource_url)
@@ -896,6 +1308,7 @@ class RemoteOAuthBroker:
                 resource_meta,
                 authorization_server_url=provider.authorization_server_url,
             )
+            client_id = self._resolve_client_id(provider, as_meta)
         finally:
             client.close()
 
@@ -903,7 +1316,7 @@ class RemoteOAuthBroker:
         state = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(16)
         now = time.time()
-        scope = " ".join(provider.scopes)
+        scope = " ".join(effective_scopes)
         tx = OAuthTransaction(
             state=state,
             nonce=nonce,
@@ -916,6 +1329,7 @@ class RemoteOAuthBroker:
             scope=scope,
             created_at=now,
             expires_at=now + _TRANSACTION_TTL_S,
+            client_id=client_id,
         )
         self.transactions.put(tx)
         _audit(
@@ -927,7 +1341,7 @@ class RemoteOAuthBroker:
         )
         params = {
             "response_type": "code",
-            "client_id": provider.client_id,
+            "client_id": client_id,
             "redirect_uri": provider.redirect_uri,
             "scope": scope,
             "state": state,
@@ -987,7 +1401,7 @@ class RemoteOAuthBroker:
             payload = _exchange_authorization_code(
                 client,
                 as_meta,
-                provider,
+                client_id=tx.client_id or provider.client_id or "",
                 code=code,
                 verifier=tx.verifier,
                 redirect_uri=tx.redirect_uri,
@@ -1021,6 +1435,7 @@ class RemoteOAuthBroker:
             granted_scope=granted_scope,
             key_version=OAuthTokenStore.CURRENT_KEY_VERSION,
             audience=provider.resource_url,
+            grant_revision=_new_grant_revision(),
         )
         self.tokens.put(
             actor=actor,
@@ -1028,6 +1443,7 @@ class RemoteOAuthBroker:
             resource_url=provider.resource_url,
             audience=provider.resource_url,
             token=token,
+            authorization_started_at=tx.created_at,
         )
         _audit(
             "callback",
@@ -1038,21 +1454,40 @@ class RemoteOAuthBroker:
         )
         return token
 
-    def bearer_headers_for(
-        self, *, actor: ActorContext, provider_id: str, resource_url: str
-    ) -> dict[str, str]:
-        """Endpoint-bound bearer lookup: forwards ONLY to the exact registered resource.
+    def revoke(self, *, actor: ActorContext, provider_id: str) -> None:
+        """Revoke the verified caller's grant for an enabled provider.
 
-        This is the seam a future per-principal multiplexer child (W06/W08, not built
-        in this lane) would call per outbound request. ``resource_url`` must equal the
-        provider's registered exact resource URL, or this raises rather than forwarding
-        a token to a different endpoint (rejects cross-provider forwarding).
+        Provider identity and resource/audience binding come from the
+        administrator-owned registry, never from the request.  The token store
+        writes its fail-closed tombstone even when no live token remains.
         """
+        provider = self.registry.require_enabled(provider_id)
+        tenant, principal = OAuthTokenStore._require_verified(actor)
+        self.tokens.revoke(
+            actor=actor,
+            provider_id=provider.provider_id,
+            resource_url=provider.resource_url,
+            audience=provider.resource_url,
+        )
+        _audit(
+            "revoke",
+            provider=provider.provider_id,
+            tenant=tenant,
+            principal=principal,
+            outcome="token_revoked",
+        )
+
+    def _resolved_grant(
+        self, *, actor: ActorContext, provider_id: str, resource_url: str
+    ) -> tuple[ProviderDescriptor, StoredToken, OAuthGrantBinding]:
+        """Resolve one live token and mint its non-secret broker binding."""
+
         provider = self.registry.require_enabled(provider_id)
         if resource_url != provider.resource_url:
             raise OAuthProviderError(
                 "token forwarding is bound to the provider's exact registered resource"
             )
+        tenant, principal = OAuthTokenStore._require_verified(actor)
         token = self.tokens.get(
             actor=actor,
             provider_id=provider.provider_id,
@@ -1061,4 +1496,71 @@ class RemoteOAuthBroker:
         )
         if token is None:
             raise OAuthTokenAbsentError("no stored token for this principal/provider")
-        return {"Authorization": f"{token.token_type} {token.access_token}"}
+        if token.expires_at <= time.time():
+            raise OAuthTokenAbsentError(
+                "stored token is expired; re-authorization is required"
+            )
+        if token.audience != provider.resource_url:
+            raise OAuthProviderError("stored token audience is not provider-bound")
+        granted_scopes = _normalize_granted_scopes(token.granted_scope)
+        if not set(granted_scopes) <= set(provider.scopes):
+            raise OAuthScopeError("stored grant exceeds the provider scope ceiling")
+        if token.key_version <= 0 or not token.grant_revision.strip():
+            raise OAuthTokenAbsentError("stored grant identity is unavailable")
+        binding = OAuthGrantBinding(
+            tenant_id=tenant,
+            principal_id=principal,
+            provider_id=provider.provider_id,
+            resource_url=provider.resource_url,
+            audience=token.audience,
+            granted_scopes=granted_scopes,
+            key_version=token.key_version,
+            grant_revision=token.grant_revision,
+        )
+        return provider, token, binding
+
+    def grant_binding_for(
+        self, *, actor: ActorContext, provider_id: str, resource_url: str
+    ) -> OAuthGrantBinding:
+        """Return the current exact grant identity without exposing credentials."""
+
+        _provider, _token, binding = self._resolved_grant(
+            actor=actor, provider_id=provider_id, resource_url=resource_url
+        )
+        return binding
+
+    def bearer_headers_and_grant_binding(
+        self, *, actor: ActorContext, provider_id: str, resource_url: str
+    ) -> tuple[dict[str, str], OAuthGrantBinding]:
+        """Resolve the bearer and its binding atomically from one stored grant."""
+
+        _provider, token, binding = self._resolved_grant(
+            actor=actor, provider_id=provider_id, resource_url=resource_url
+        )
+        return {"Authorization": f"{token.token_type} {token.access_token}"}, binding
+
+    def bearer_headers_for(
+        self, *, actor: ActorContext, provider_id: str, resource_url: str
+    ) -> dict[str, str]:
+        """Endpoint-bound bearer lookup: forwards ONLY to the exact registered resource.
+
+        This is the seam a per-principal multiplexer child (Deliverable 3, GOC-85
+        W06/W08) calls per outbound request, via
+        :func:`agent_utilities.mcp.multiplexer._resolve_remote_oauth_bearer`.
+        ``resource_url`` must equal the provider's registered exact resource URL,
+        or this raises rather than forwarding a token to a different endpoint
+        (rejects cross-provider forwarding, and — because the caller passes the
+        URL it is ACTUALLY about to connect to, never one echoed back from a
+        redirect — rejects forwarding to a rebound/redirected endpoint too).
+
+        Fails closed on an EXPIRED token exactly like a missing one: this method
+        never transparently refreshes (the per-call forwarding hot path stays
+        synchronous and side-effect-free; refresh is a separate, deliberately
+        out-of-band operation via :meth:`OAuthTokenStore.refresh`). An expired
+        grant reads as "no valid grant" — the caller must re-run the browser
+        flow, not silently receive a stale credential.
+        """
+        headers, _binding = self.bearer_headers_and_grant_binding(
+            actor=actor, provider_id=provider_id, resource_url=resource_url
+        )
+        return headers

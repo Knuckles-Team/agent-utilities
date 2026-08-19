@@ -78,6 +78,24 @@ def test_unknown_platform_raises():
         backfill_platform_history(eng, platform="not-a-real-platform", channel_id="c1")
 
 
+def test_path_channel_id_rejects_traversal_and_query_injection(monkeypatch):
+    monkeypatch.setenv("DISCORD_BOT_TOKEN", "fake-bot-token")
+    calls: list[str] = []
+
+    def _never(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        return httpx.Response(200, json=[])
+
+    with pytest.raises(MessagingBackfillError, match="channel_id"):
+        backfill_platform_history(
+            _FakeEngine(),
+            platform="discord",
+            channel_id="42/../../etc?query=1",
+            transport=httpx.MockTransport(_never),
+        )
+    assert calls == []
+
+
 def test_every_platform_is_classified_exactly_once():
     """No platform can be simultaneously 'refuse' and 'attempt' — the three buckets used by
     backfill_platform_history's dispatch must partition the fleet with zero overlap."""
@@ -212,6 +230,10 @@ def test_slack_dotted_cursor_paginates_across_multiple_pages(monkeypatch):
 
     def _handler(request: httpx.Request) -> httpx.Response:
         cursor = httpx.QueryParams(request.url.query).get("cursor")
+        assert httpx.QueryParams(request.url.query).get("channel") == "C123"
+        assert str(request.url).startswith(
+            "https://slack.com/api/conversations.history?"
+        )
         return httpx.Response(200, json=pages[cursor])
 
     result = backfill_platform_history(
@@ -234,6 +256,7 @@ def test_matrix_nested_content_body_field_is_extracted(monkeypatch):
 
     def _handler(request: httpx.Request) -> httpx.Response:
         assert "matrix.example.org" in str(request.url)
+        assert "rooms/%21room%3Aexample.org/messages" in str(request.url)
         return httpx.Response(
             200,
             json={

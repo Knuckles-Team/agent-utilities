@@ -1455,7 +1455,15 @@ def register_query_tools(mcp):
                 elif mode == "chrono_ids":
                     results = engine.temporal_semantic_ids(query=query, top_k=top_k)
                 elif mode == "dci":
-                    results = engine.search_dci(query=query, top_k=top_k)
+                    # search_dci is fail-closed (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval):
+                    # it always resolves a session and raises rather than
+                    # returning an unfiltered traversal, so this served path
+                    # must pass the already-ambient verified session (same
+                    # pattern the hybrid/hyde/deep/concept/analogy branches
+                    # above use) rather than relying on an implicit fallback.
+                    results = engine.search_dci(
+                        query=query, top_k=top_k, session=_session
+                    )
                 elif mode == "memory":
                     results = engine.search_memories(query=query, top_k=top_k)
                 elif mode == "discover":

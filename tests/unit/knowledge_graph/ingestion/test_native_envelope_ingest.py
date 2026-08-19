@@ -601,6 +601,48 @@ def test_native_apply_commits_all_authority_rows_in_one_request() -> None:
     assert compute.client.nodes.values["object-1"]["tenant_id"] == "fixture-tenant"
 
 
+def test_native_material_preserves_exact_blob_and_structured_evidence() -> None:
+    compute = _Compute("graph-native-blob")
+    digest = "sha256:" + "c" * 64
+    envelope = _envelope(
+        typed_payload=None,
+        blob_ref="blob:prepared",
+        blob_digest=digest,
+        blob_length=1234,
+        blob_media_type="application/vnd.apache.arrow.stream",
+        structured_evidence={"evidence_version": "data-prep-evidence.v1", "rows": 2},
+    )
+
+    result = module.ingest_envelope(compute, envelope)
+
+    assert result["status"] == "success"
+    native = compute.client.changes.applied[0]
+    assert native["blobs"] == [
+        {
+            "blob_id": "object-1",
+            "operation": "upsert",
+            "digest_algorithm": "sha256",
+            "digest": "c" * 64,
+            "media_type": "application/vnd.apache.arrow.stream",
+            "length": 1234,
+        }
+    ]
+    assert any(
+        item["modality"] == "structured" and item["object_id"] == "object-1"
+        for item in native["evidence"]
+    )
+
+
+def test_privacy_gate_sanitizes_structured_evidence_before_materialization() -> None:
+    sanitized = module._privacy_gate(
+        _envelope(structured_evidence={"source": "/home/private/secret.csv"})
+    )
+
+    assert sanitized.structured_evidence is not None
+    assert "/home/private/secret.csv" not in str(sanitized.structured_evidence)
+    assert sanitized.provenance["persistence_privacy"]["redactions"] >= 1
+
+
 def test_native_apply_commits_auxiliary_nodes_edges_and_policy_together() -> None:
     compute = _Compute("graph-slice")
     envelope = _envelope(

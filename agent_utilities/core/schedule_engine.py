@@ -88,6 +88,7 @@ _MAINTENANCE_REF_ALLOWLIST = frozenset(
         "runtime_reliability",
         "sai_factory",
         "tenant_gc",
+        "trace_retention",
         "tms_revalidation",
         "usage_log_sync",
         "usage_pricing_refresh",

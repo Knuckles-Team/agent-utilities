@@ -1165,6 +1165,7 @@ class QueryMixin(_Base):
         max_hops: int = 2,
         top_k: int = 10,
         evidence_chain: bool = True,
+        session: GraphSession | None = None,
     ) -> list[dict[str, Any]]:
         """Direct Corpus Interaction — multi-hop graph traversal retrieval.
 
@@ -1186,6 +1187,28 @@ class QueryMixin(_Base):
             max_hops: Maximum graph traversal depth (default 2).
             top_k: Maximum results to return.
             evidence_chain: If True, include the traversal path in results.
+            session: :class:`~..core.session.GraphSession` this traversal runs
+                under (CONCEPT:AU-KG.retrieval.acl-aware-vector-retrieval).
+                Unlike ``search_hybrid`` — whose ``session=None`` is a documented
+                no-op kept for ~20 pre-existing unfiltered callers — ``search_dci``
+                is a NEW ACL-governed surface with exactly one production caller
+                (the MCP ``graph_search`` ``mode="dci"`` tool, which already has
+                the served request's ambient session in scope) and no test that
+                depends on unfiltered behavior. It therefore defaults to
+                **fail-closed**: this always resolves a session via
+                :func:`~..core.session.resolve_session` (explicit ``session``, or
+                the ambient one bound by the request middleware), and raises
+                :class:`~..core.session.SessionRequiredError` (a
+                :class:`PermissionError`) when neither is available, rather than
+                ever returning an unfiltered traversal. Every seed AND every
+                graph-expanded neighbor at every hop is ACL/owner/scope-filtered
+                — via the same :meth:`_enforce_acl_on_results` boundary
+                ``search_hybrid`` uses — BEFORE it can enter ``results`` or seed
+                the next hop's frontier, so a denied node can neither occupy a
+                ``top_k`` slot nor leak downstream through its evidence chain.
+                An enforcement infrastructure failure raises ``PermissionError``
+                rather than degrading to unfiltered results (same contract as
+                ``search_hybrid``/``query_cypher``).
 
         Returns:
             List of result dicts, each with:
@@ -1194,8 +1217,21 @@ class QueryMixin(_Base):
                 - ``evidence_path``: List of (node_id, edge_type) tuples
                   showing how this result was reached (if evidence_chain=True).
         """
-        # Vector seed — fast retrieval.
-        seeds = self.search_hybrid(query, top_k=min(top_k, 5))
+        from agent_utilities.knowledge_graph.core.session import resolve_session
+
+        # Fail-closed (see ``session`` docstring above): resolves the explicit
+        # ``session`` or falls back to the ambient one; raises
+        # ``SessionRequiredError`` when neither exists. Resolved once, up
+        # front, so every downstream ACL check in this method (seeds AND every
+        # hop's neighbor batch) shares the identical verified authority.
+        resolved_session = resolve_session(session, required_scope="kg:read")
+
+        # Vector seed — fast retrieval. ``search_hybrid`` applies its own
+        # per-node ACL/owner/scope enforcement on the raw candidate set BEFORE
+        # its internal score-gate trim when a session is supplied (see its own
+        # docstring) — passing the resolved session here closes the DCI seed
+        # path the same way.
+        seeds = self.search_hybrid(query, top_k=min(top_k, 5), session=resolved_session)
         if not seeds:
             return []
 
@@ -1249,6 +1285,7 @@ class QueryMixin(_Base):
             hydrated = self.graph._get_node_properties_batch(
                 [neighbor_id for neighbor_id, _path in pending]
             )
+            hop_nodes: list[dict[str, Any]] = []
             for neighbor_id, path in pending:
                 # Get node data
                 node_data = dict(hydrated.get(neighbor_id, {}))
@@ -1262,6 +1299,22 @@ class QueryMixin(_Base):
                 base_score = float(node_data.get("importance_score", 0.5))
                 node_data["_score"] = round(base_score * (0.8**hop), 4)
 
+                hop_nodes.append(node_data)
+
+            # ACL/owner/scope-filter THIS hop's newly-discovered neighbors
+            # before they can enter ``results`` (top_k slots) or seed the
+            # NEXT hop's frontier — a denied node must not consume a result
+            # slot, and its neighbors must never be reachable through it (the
+            # evidence-chain leak this closes). Same boundary
+            # ``search_hybrid`` applies to its own candidate pool; raises
+            # ``PermissionError`` on an enforcement infrastructure failure
+            # rather than falling back to the unfiltered ``hop_nodes``.
+            hop_nodes = self._enforce_acl_on_results(
+                hop_nodes, session=resolved_session, summary="dci-traversal"
+            )
+
+            for node_data in hop_nodes:
+                neighbor_id = str(node_data.get("id", ""))
                 results.append(node_data)
                 next_frontier.append((neighbor_id, node_data.get("evidence_path", [])))
 

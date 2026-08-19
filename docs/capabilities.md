@@ -63,8 +63,10 @@ await kg_server._execute_tool("graph_ingest", action="ingest",
     path="./docs", content_type="auto")
 ```
 
-`graph_ingest` actions: `ingest`, `corpus`, `jobs`, `job_status`, `distill`,
-`agent_toolkit`, `ingest_knowledge_pack`. Documents become first-class
+`graph_ingest` actions include `ingest`, `corpus`, `jobs`, `job_status`,
+`distill`, `agent_toolkit`, `ingest_knowledge_pack`, and
+`backfill_platform_history` (pass `corpus_name=<platform>` and
+`target_path=<channel-or-room-id>`). Documents become first-class
 `Document`+`Chunk` ontology objects with OWL semantics.
 
 **Document → atomic-triple extraction (KG-2.64/2.65/2.66).** Turn a document,

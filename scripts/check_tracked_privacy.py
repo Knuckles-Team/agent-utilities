@@ -32,6 +32,29 @@ if sys.platform != "win32":
 else:  # pragma: no cover - exercised only on Windows
     pwd = None  # type: ignore[assignment]
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _git_subprocess_env import (  # noqa: E402
+    sanitized_git_env,
+    strip_inherited_git_repository_env,
+)
+
+# NE-059 (sibling of BUG-180/D-LGI-1): every ``git`` subprocess this module
+# shells out to -- ``derive_local_identifiers``'s ``git rev-parse
+# --git-common-dir``/``git config --get user.name|email`` and
+# ``_git_file_names``'s ``git ls-files`` -- inherited a real ``git
+# commit``/``git push``'s exported ``GIT_DIR``/``GIT_INDEX_FILE`` unmodified:
+# neither call passed its own ``env=``, and those vars win over ``cwd=``/
+# ``-C``'s path-based repository discovery. As a *privacy/security* gate,
+# a poisoned resolution is worse than a crash -- it can silently swap in a
+# different repository's tracked-file inventory (proven: 4995 -> 5000 files,
+# zero source changes) or, worse, let a decoy's ``.git/info/exclude`` drop a
+# real leaking file from the sweep, so the gate reports PASS having never
+# looked at the file that leaks. Strip once, process-wide, at import time
+# (matching ``check_current_only_contract.py``'s established fix) *and* pass
+# an explicit sanitized ``env=`` at each call site, so no future call in this
+# module can regress silently by omitting the strip precondition.
+strip_inherited_git_repository_env()
+
 ROOT = Path(__file__).resolve().parent.parent
 
 _TEXT_SUFFIXES = frozenset({".md", ".json", ".yaml", ".yml", ".toml"})
@@ -491,6 +514,7 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
             check=True,
             capture_output=True,
             text=True,
+            env=sanitized_git_env(),
         )
         candidates.update(_identifier_from_path(result.stdout.strip()))
     except (OSError, subprocess.SubprocessError):
@@ -506,6 +530,7 @@ def derive_local_identifiers(root: Path = ROOT) -> frozenset[str]:
                 check=False,
                 capture_output=True,
                 text=True,
+                env=sanitized_git_env(),
             )
             for value in result.stdout.splitlines():
                 candidates.add(value.strip())
@@ -674,6 +699,7 @@ def _git_file_names(root: Path, command: list[str]) -> list[str] | None:
         check=False,
         capture_output=True,
         text=True,
+        env=sanitized_git_env(),
     )
     if result.returncode != 0:
         return None

@@ -296,6 +296,52 @@ async def test_graph_ingest_explicit_document_content_type_still_async(
     assert kwargs["task_type"] == "document"
 
 
+@pytest.mark.asyncio
+async def test_graph_ingest_backfill_platform_history_live_path(
+    mock_engine, server_tools, monkeypatch
+):
+    """The graph_ingest action must invoke the bounded history-backfill seam."""
+    graph_ingest = server_tools["graph_ingest"]
+    calls: dict[str, object] = {}
+
+    def _backfill(engine, *, platform, channel_id, session):
+        calls.update(
+            engine=engine,
+            platform=platform,
+            channel_id=channel_id,
+            session=session,
+        )
+        return {
+            "platform": platform,
+            "channel_id": channel_id,
+            "recovered": 2,
+            "errors": 0,
+        }
+
+    monkeypatch.setattr(
+        "agent_utilities.messaging.backfill.backfill_platform_history", _backfill
+    )
+    result = await graph_ingest(
+        action="backfill_platform_history",
+        corpus_name="slack",
+        target_path="C123",
+        agent_id="recovery-agent",
+    )
+
+    assert json.loads(result) == {
+        "platform": "slack",
+        "channel_id": "C123",
+        "recovered": 2,
+        "errors": 0,
+    }
+    assert calls == {
+        "engine": mock_engine,
+        "platform": "slack",
+        "channel_id": "C123",
+        "session": "recovery-agent",
+    }
+
+
 # ── graph_ingest: job management ─────────────────────────────────────
 
 

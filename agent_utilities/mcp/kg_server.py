@@ -818,6 +818,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "ontology_link_materialize": "/ontology/link-materialize",
     "ontology_leanix_sync": "/ontology/leanix-sync",
     "ontology_classification_claims": "/ontology/classification-claims",
+    "graph_data_prep": "/data/prep",
     "ontology_repository_provenance": "/ontology/repository-provenance",
     "graph_ontology": "/graph/ontology",
     "object_edits": "/object/edits",
@@ -2299,14 +2300,29 @@ def _get_engine():
     from agent_utilities.knowledge_graph.backends import create_backend
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
+    def _register_runtime_authorities(value: Any) -> Any:
+        # Registration is process-owned startup state.  The served data-prep
+        # caller can only resolve this recorded adapter; it cannot select one
+        # through request metadata.  Missing deployment wiring remains a
+        # fail-closed dependency condition at the tool boundary.
+        try:
+            from agent_utilities.mcp.tools.data_prep_tools import (
+                register_process_data_prep_runtime,
+            )
+
+            register_process_data_prep_runtime(value)
+        except ImportError:
+            pass
+        return value
+
     engine = IntelligenceGraphEngine.get_active()
     if engine is not None:
-        return engine
+        return _register_runtime_authorities(engine)
 
     with _ENGINE_LOCK:
         engine = IntelligenceGraphEngine.get_active()
         if engine is not None:
-            return engine
+            return _register_runtime_authorities(engine)
         # First-run: ensure XDG dirs exist and create backend
         ensure_dirs()
 
@@ -2317,7 +2333,9 @@ def _get_engine():
                 defer_background_start=True,
             )
 
-        return IntelligenceGraphEngine.get_or_create(factory=_factory)
+        return _register_runtime_authorities(
+            IntelligenceGraphEngine.get_or_create(factory=_factory)
+        )
 
 
 # ── CONCEPT:AU-KG.backend.multi-connection-registry — Named multi-connection graph registry ────────────────
@@ -4120,6 +4138,34 @@ def _start_engine_bootstrap(session: Any) -> None:
         (getattr(engine, "_daemon_role", None) or daemon_role()).strip().lower()
     )
     client_role = requested_role == "client"
+    if not client_role:
+        # BUG-295 (NE-009/NE-020): the daemon role is the one that runs the
+        # unified scheduler (start_daemons() below), whose every tick reads
+        # and writes the isolated `__control__` graph under THIS process's
+        # own verified identity. Admit that identity into the narrow
+        # control:system RBAC role idempotently, once per process, before
+        # the scheduler can fire a single tick against it. Auto-at-boot by
+        # design (see system_rbac_admission's module docstring, "Auto-
+        # admission at boot"); degrades honestly — never crashes the
+        # process and never claims success it did not confirm. Until an
+        # operator seeds the missing NE-021 provisioner credential (or the
+        # engine is unreachable), this logs the exact actionable cause once
+        # per 30s backoff window and the scheduler keeps failing exactly as
+        # visibly as it does today, but now with a diagnosis attached.
+        try:
+            from agent_utilities.security.system_rbac_admission import (
+                ensure_system_principal_access,
+            )
+
+            ensure_system_principal_access(verified_session.actor.actor_id)
+        except Exception as exc:  # noqa: BLE001 - must never block/crash boot
+            logger.error(
+                "system-principal control-graph admission not confirmed; "
+                "the scheduler will keep failing until this is resolved "
+                "(%s: %s)",
+                type(exc).__name__,
+                exc,
+            )
     start_daemons = getattr(engine, "start_background_daemons", None)
     if not client_role and callable(start_daemons):
         start_daemons()
@@ -4305,6 +4351,7 @@ def _build_server(
         register_claim_tools,
         register_compliance_tools,
         register_config_tools,
+        register_data_prep_tools,
         register_domain_ops_tools,
         register_durable_tools,
         register_engine_surface_tools,
@@ -4351,6 +4398,7 @@ def _build_server(
             register_claim_tools,
             register_secret_tools,
             register_config_tools,
+            register_data_prep_tools,
             register_engine_tools,
             register_engine_surface_tools,
             register_domain_ops_tools,
@@ -4944,6 +4992,7 @@ def mcp_server() -> None:
         # authority before engine bootstrap. An explicit client role remains a
         # hard serving-plane boundary; this entrypoint never promotes itself to
         # the host that owns maintenance, workers, or autonomous loops.
+        from agent_utilities.core.config import config
         from agent_utilities.knowledge_graph.core.session import use_session
         from agent_utilities.mcp.co_service_supervisor import start_co_services
         from agent_utilities.security.brain_context import use_actor
@@ -4951,11 +5000,17 @@ def mcp_server() -> None:
         with use_actor(bootstrap_session.actor), use_session(bootstrap_session):
             _start_engine_bootstrap(bootstrap_session)
 
-            # Self-composing co-services, phase 2: messaging (config-detected — real
-            # platform credentials present) now that a real engine exists; agent-webui
-            # is reported (ENABLE_WEB_UI) but is an external Node frontend, never
-            # started in-process.
-            co_service_supervisor = start_co_services(bootstrap_session, _get_engine())
+            # Self-composing co-services, phase 2: messaging now that a real engine
+            # exists. Credentials keep outbound sending available, but the explicit
+            # MESSAGING_INTAKE_ENABLED deployment intent (false by default) is the
+            # only way this request container may enter the shared native lease
+            # boundary. agent-webui is reported (ENABLE_WEB_UI) but is an external
+            # Node frontend, never started in-process.
+            co_service_supervisor = start_co_services(
+                bootstrap_session,
+                _get_engine(),
+                messaging_intake_enabled=config.messaging_intake_enabled,
+            )
 
         if transport == "stdio":
             mcp.run(transport="stdio")

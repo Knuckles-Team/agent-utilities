@@ -456,6 +456,16 @@ class TestCatalogEpoch:
 
 
 class TestNoSilentSkip:
+    def test_provider_enumeration_is_hard_bounded(self, monkeypatch):
+        monkeypatch.setattr(
+            fp,
+            "provider_registrations",
+            lambda _group: (None,) * (fp.MAX_FRONTEND_PROVIDERS + 1),
+        )
+
+        with pytest.raises(fp.ProviderRegistrationError, match="count exceeds"):
+            fp.discover_frontend_contributions()
+
     def test_two_packages_one_bad_one_good_both_produce_a_visible_record(
         self, tmp_path, sys_path_sandbox
     ):

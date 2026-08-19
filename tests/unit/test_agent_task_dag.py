@@ -319,7 +319,7 @@ def test_fire_ready_agent_tasks_wired_into_fleet_reconciler_report(
     from agent_utilities.orchestration.fleet_reconciler import FleetReconciler
 
     from .fleet_autonomy_fakes import FakeEngine as FleetFakeEngine
-    from .fleet_autonomy_fakes import FakeObserver
+    from .fleet_autonomy_fakes import FakeObserver, healthy_fleet_evidence
 
     engine = FleetFakeEngine()
     rec = FleetReconciler(
@@ -327,6 +327,7 @@ def test_fire_ready_agent_tasks_wired_into_fleet_reconciler_report(
         observer=FakeObserver({}),
         actuator=DryRunActuator(),
         policy=ActionPolicy(engine=engine, policy_path=None),
+        health_provider=healthy_fleet_evidence,
     )
     monkeypatch.setattr(fr, "load_desired_state", lambda *a, **k: {})
     monkeypatch.setattr(fr, "fire_ready_agent_tasks", lambda eng, **kw: ["orphan-task"])

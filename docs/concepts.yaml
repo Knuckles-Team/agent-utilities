@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1211
+total_concepts: 1210
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -1638,12 +1638,13 @@ concepts:
   - agent_utilities/mcp/protocol_compat.py
   doc: closes D-OB-18
 - id: AU-ECO.mcp.remote-oauth-broker
-  name: AU-ECO.mcp.remote-oauth-broker
+  name: Deliverable 2 of NE-008
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/gateway/remote_oauth_api.py
   - agent_utilities/mcp/remote_oauth_broker.py
-  doc: AU-ECO.mcp.remote-oauth-broker
+  doc: Deliverable 2 of NE-008
 - id: AU-ECO.mcp.shared-multiplexer-singleton
   name: GOC-60-W03/W04b
   pillar: AU-ECO
@@ -2677,7 +2678,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/queue_backend.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/orchestration/agent_dispatch.py
-  - agent_utilities/orchestration/scaling_signals.py
   doc: Fail-loud selectable ingest task-queue backend with explicit kafka and postgres and auto sqlite
     modes
 - id: AU-KG.backend.tolerant-parse
@@ -2988,13 +2988,13 @@ concepts:
   - agent_utilities/numeric/__init__.py
   doc: AU-KG.compute.numeric-kernel
 - id: AU-KG.compute.numpy-scipy-drop
-  name: '**the hard numpy/scipy drop'
+  name: AU-KG.compute.numpy-scipy-drop
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/harness/__init__.py
   - agent_utilities/numeric/__init__.py
-  doc: '**the hard numpy/scipy drop'
+  doc: AU-KG.compute.numpy-scipy-drop
 - id: AU-KG.compute.offloaded-memory-write
   name: a memory write offloaded from a SERVING process. The
   pillar: AU-KG
@@ -3121,12 +3121,12 @@ concepts:
   - agent_utilities/knowledge_graph/core/fingerprint.py
   doc: Structural Fingerprint Engine
 - id: AU-KG.compute.surface-analytics-program
-  name: Surface A of the Analytics Program
+  name: AU-KG.compute.surface-analytics-program
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/numeric/__init__.py
-  doc: Surface A of the Analytics Program
+  doc: AU-KG.compute.surface-analytics-program
 - id: AU-KG.compute.surfaces-universal-latency-signal
   name: Surfaces the universal latency signal
   pillar: AU-KG
@@ -3196,13 +3196,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/protocols/source_connectors/connectors/mcp_tool.py
   doc: Twenty CRM people/companies/opportunities →
-- id: AU-KG.compute.ufunc-method-surface
-  name: the ufunc-method surface
-  pillar: AU-KG
-  status: live
-  code_paths:
-  - agent_utilities/numeric/__init__.py
-  doc: the ufunc-method surface
 - id: AU-KG.compute.uptime-kuma-monitors
   name: Uptime Kuma monitors →
   pillar: AU-KG
@@ -4131,7 +4124,7 @@ concepts:
   - agent_utilities/protocols/source_connectors/connectors/git_markdown.py
   doc: one retrieved source object
 - id: AU-KG.ingest.exact-parser-acknowledgement
-  name: every input
+  name: AND the base
   pillar: AU-KG
   status: live
   code_paths:
@@ -4139,7 +4132,7 @@ concepts:
   - agent_utilities/knowledge_graph/enrichment/pipeline.py
   - agent_utilities/knowledge_graph/ingestion/batch_orchestrator.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
-  doc: every input
+  doc: AND the base
 - id: AU-KG.ingest.external-graph-federation
   name: External Graph Federation
   pillar: AU-KG
@@ -4198,6 +4191,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/gateway/registry_api.py
   - agent_utilities/knowledge_graph/core/fleet_catalog_tables.py
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/ingestion/fleet_skill_harvest.py
@@ -4295,6 +4289,14 @@ concepts:
   - agent_utilities/knowledge_graph/memory/media_store.py
   - agent_utilities/messaging/router.py
   doc: the durable-media path needs the engine BLOB substrate, reached
+- id: AU-KG.ingest.logical-identity
+  name: every input
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/enrichment/extractors/code_test.py
+  - agent_utilities/knowledge_graph/enrichment/pipeline.py
+  doc: every input
 - id: AU-KG.ingest.mapping-dsl
   name: the
   pillar: AU-KG
@@ -7245,7 +7247,6 @@ concepts:
   code_paths:
   - agent_utilities/core/config.py
   - agent_utilities/core/sessions.py
-  - agent_utilities/gateway/fleet.py
   - agent_utilities/knowledge_graph/core/postgres_queue_backend.py
   - agent_utilities/observability/gateway_metrics.py
   - agent_utilities/orchestration/agent_dispatch.py
@@ -7283,13 +7284,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/worker_scheduler.py
   doc: gate the claim through the
-- id: AU-ORCH.dispatch.workitem-command-log
-  name: AU-ORCH.dispatch.workitem-command-log
-  pillar: AU-ORCH
-  status: live
-  code_paths:
-  - agent_utilities/orchestration/work_item_command.py
-  doc: AU-ORCH.dispatch.workitem-command-log
 - id: AU-ORCH.dispatch.workitem-consent-gate
   name: a WorkItem is bound only to
   pillar: AU-ORCH
@@ -8736,13 +8730,6 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/task_lanes.py
   doc: external connector delta syncs
-- id: AU-ORCH.scheduling.distributed-capacity-fair-scheduling
-  name: AU-ORCH.scheduling.distributed-capacity-fair-scheduling
-  pillar: AU-ORCH
-  status: live
-  code_paths:
-  - agent_utilities/orchestration/capacity_leases.py
-  doc: AU-ORCH.scheduling.distributed-capacity-fair-scheduling
 - id: AU-ORCH.scheduling.hard-io-deadline
   name: the fleet MCP tool-schema probe
   pillar: AU-ORCH
@@ -9862,6 +9849,20 @@ concepts:
   - agent_utilities/security/conformance/surface_inventory.py
   - agent_utilities/security/conformance/surface_manifest.py
   doc: see this package
+- id: AU-OS.identity.system-principal-admission
+  name: closes the gap
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/security/system_rbac_admission.py
+  doc: closes the gap
+- id: AU-OS.identity.system-principal-admission-deploy-bridge
+  name: AU-OS.identity.system-principal-admission-deploy-bridge
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/security/system_admission_cli.py
+  doc: AU-OS.identity.system-principal-admission-deploy-bridge
 - id: AU-OS.identity.tenant-rbac-admission
   name: root-cause fix for the P0
   pillar: AU-OS
@@ -10065,7 +10066,6 @@ concepts:
   - agent_utilities/mcp/server_factory.py
   - agent_utilities/observability/gateway_metrics.py
   - agent_utilities/observability/runtime_health.py
-  - agent_utilities/orchestration/scaling_signals.py
   - agent_utilities/server/__init__.py
   doc: No-op without the metrics extra
 - id: AU-OS.observability.otlp-metrics-exporter-gated
@@ -10457,6 +10457,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/gateway/fleet.py
+  - agent_utilities/orchestration/fleet_health.py
   doc: Fleet supervisory plane at scale — SQL aggregation, paginated and filtered session queries, and
     desired-state pause and kill reconciliation across hosts
 - id: AU-OS.state.homeostatic-model-downgrade
@@ -10493,6 +10494,7 @@ concepts:
   - agent_utilities/core/sessions.py
   - agent_utilities/core/state_store.py
   - agent_utilities/gateway/fleet.py
+  - agent_utilities/gateway/registry_api.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/knowledge_graph/core/queue_backend.py
   - agent_utilities/mcp/tools/state_tools.py
@@ -10550,13 +10552,6 @@ concepts:
   - agent_utilities/knowledge_graph/memory/memory_engine.py
   - agent_utilities/models/knowledge_graph.py
   doc: and generates summary text via the shared
-- id: EG-KG.compute.concept-5
-  name: EG-KG.compute.concept-5
-  pillar: EG-KG
-  status: live
-  code_paths:
-  - agent_utilities/numeric/__init__.py
-  doc: EG-KG.compute.concept-5
 - id: EG-KG.compute.graph-compute-engine
   name: through the facade so orchestration code
   pillar: EG-KG

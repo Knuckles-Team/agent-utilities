@@ -1411,6 +1411,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     },
     {
         "tool": "graph_configure",
+        "action": "frontend_contributions",
+        "name": "graph_configure_frontend_contributions",
+    },
+    {
+        "tool": "graph_configure",
         "action": "generate_config",
         "name": "graph_configure_generate_config",
     },
@@ -1559,6 +1564,26 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_context", "action": "list", "name": "graph_context_list"},
     {"tool": "graph_context", "action": "prune", "name": "graph_context_prune"},
     {"tool": "graph_context", "action": "put", "name": "graph_context_put"},
+    {
+        "tool": "graph_data_prep",
+        "action": "clean_dataset",
+        "name": "graph_data_prep_clean_dataset",
+    },
+    {
+        "tool": "graph_data_prep",
+        "action": "commit_prepared",
+        "name": "graph_data_prep_commit_prepared",
+    },
+    {
+        "tool": "graph_data_prep",
+        "action": "profile_dataset",
+        "name": "graph_data_prep_profile_dataset",
+    },
+    {
+        "tool": "graph_data_prep",
+        "action": "validate_prepared",
+        "name": "graph_data_prep_validate_prepared",
+    },
     {
         "tool": "graph_document_tree",
         "action": "build",
@@ -1869,6 +1894,11 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
         "tool": "graph_ingest",
         "action": "archivebox_sync",
         "name": "graph_ingest_archivebox_sync",
+    },
+    {
+        "tool": "graph_ingest",
+        "action": "backfill_platform_history",
+        "name": "graph_ingest_backfill_platform_history",
     },
     {
         "tool": "graph_ingest",
@@ -2355,8 +2385,10 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "graph_sessions", "action": "cancel", "name": "graph_sessions_cancel"},
     {"tool": "graph_sessions", "action": "delete", "name": "graph_sessions_delete"},
     {"tool": "graph_sessions", "action": "get", "name": "graph_sessions_get"},
+    {"tool": "graph_sessions", "action": "health", "name": "graph_sessions_health"},
     {"tool": "graph_sessions", "action": "list", "name": "graph_sessions_list"},
     {"tool": "graph_sessions", "action": "reply", "name": "graph_sessions_reply"},
+    {"tool": "graph_sessions", "action": "topology", "name": "graph_sessions_topology"},
     {"tool": "graph_share", "action": "commons", "name": "graph_share_commons"},
     {"tool": "graph_share", "action": "mark", "name": "graph_share_mark"},
     {"tool": "graph_share", "action": "org", "name": "graph_share_org"},

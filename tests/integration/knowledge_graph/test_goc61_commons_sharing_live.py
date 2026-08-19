@@ -81,9 +81,13 @@ from typing import Any
 import pytest
 from _test_engine import (
     TEST_AGENT_ID,
+    TEST_POLICY_VERSION,
     TEST_SIGNER_KEY,
     TEST_TENANT,
+    EngineBinaryIdentity,
+    EngineUnavailable,
     bootstrap_context,
+    resolve_engine_binary_identity,
     strict_server_env,
 )
 
@@ -92,24 +96,13 @@ pytestmark = [pytest.mark.integration, pytest.mark.engine, pytest.mark.timeout(1
 COMMONS_GRAPH = "__commons__"
 
 
-def _find_engine_binary() -> str | None:
-    """Same discovery convention as ``test_kb_currency_epistemic_facade.py``."""
-    env = os.environ.get("EPISTEMIC_GRAPH_SERVER_BIN")
-    if env and os.path.exists(env):
-        return env
-    here = os.path.dirname(os.path.abspath(__file__))
-    cur = here
-    seen: set[str] = set()
-    while cur and cur not in seen:
-        seen.add(cur)
-        for sub in ("epistemic-graph", "agent-packages/epistemic-graph"):
-            cand = os.path.join(cur, sub, "target", "release", "epistemic-graph-server")
-            if os.path.exists(cand):
-                return cand
-        cur = os.path.dirname(cur)
-    import shutil
+def _find_engine_binary() -> EngineBinaryIdentity | None:
+    """Return the shared exact client/server artifact, or no artifact."""
 
-    return shutil.which("epistemic-graph-server")
+    try:
+        return resolve_engine_binary_identity()
+    except EngineUnavailable:
+        return None
 
 
 def _free_socket_path(root: Path) -> str:
@@ -142,8 +135,11 @@ class _RestartableEngine:
     so it can be SIGTERM'd and relaunched pointed at the SAME on-disk store --
     the actual "process restart" this proof needs, not a fresh ephemeral one."""
 
-    def __init__(self, binary: str, root: Path, auth_secret: str) -> None:
-        self.binary = binary
+    def __init__(
+        self, binary_identity: EngineBinaryIdentity, root: Path, auth_secret: str
+    ) -> None:
+        self.binary_identity = binary_identity
+        self.binary = str(binary_identity.path)
         self.root = root
         self.persist_dir = root / "persist"
         self.persist_dir.mkdir(exist_ok=True)
@@ -161,6 +157,7 @@ class _RestartableEngine:
             strict_server_env(str(self.security_dir), auth_secret=self.auth_secret)
         )
         env["GRAPH_SERVICE_PERSIST_DIR"] = str(self.persist_dir)
+        self.binary_identity.verify_for_launch()
         self._proc = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
             [
                 self.binary,
@@ -186,6 +183,7 @@ class _RestartableEngine:
                 self._proc.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self._proc.kill()
+                self._proc.wait(timeout=15)
         if self._log_fh is not None:
             self._log_fh.close()
             self._log_fh = None
@@ -200,17 +198,20 @@ class _RestartableEngine:
 
 
 @pytest.fixture()
-def restartable_commons_engine(tmp_path, monkeypatch):
+def restartable_commons_engine(tmp_path, monkeypatch, test_engine_lifecycle):
     binary = _find_engine_binary()
     if binary is None:
         pytest.skip(
-            "no epistemic-graph-server binary discoverable "
-            "(EPISTEMIC_GRAPH_SERVER_BIN, sibling checkout target/release, or PATH)"
+            "no exact epistemic-graph-server artifact available "
+            "(set EPISTEMIC_GRAPH_SERVER_BIN or install epistemic-graph)"
         )
     auth_secret = "au-eg-" + "goc61-commons-sharing-test-secret"  # nosec B105 - test-only
     eng = _RestartableEngine(binary, tmp_path, auth_secret)
-    eng.start()
+    registration = test_engine_lifecycle.register_auxiliary_engine(
+        eng, socket_path=eng.socket_path
+    )
     try:
+        eng.start()
         from epistemic_graph.client import SyncEpistemicGraphClient
 
         bootstrap = SyncEpistemicGraphClient.connect(
@@ -231,7 +232,10 @@ def restartable_commons_engine(tmp_path, monkeypatch):
         monkeypatch.setenv("GRAPH_SERVICE_AUTH_SECRET", auth_secret)
         yield eng
     finally:
-        eng.stop()
+        registration.stop()
+        assert not Path(eng.socket_path).exists(), (
+            f"auxiliary engine socket survived lifecycle teardown: {eng.socket_path}"
+        )
 
 
 def _reset_process_engine() -> None:
@@ -273,10 +277,13 @@ def test_bug030_placement_route_admin_capability_blocks_non_bootstrap_reads(
     actor, because ``PlacementRoute``'s engine-level ``admin:cluster-read``
     requirement has no path from an AU-side scope, ever, for a non-bootstrap
     identity."""
-    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
-    from agent_utilities.knowledge_graph.core.session import current_session, use_session
     from agent_utilities.knowledge_graph.backends.epistemic_graph_backend import (
         CypherEngineError,
+    )
+    from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
+    from agent_utilities.knowledge_graph.core.session import (
+        current_session,
+        use_session,
     )
     from agent_utilities.models.company_brain import ActorType
     from agent_utilities.security.brain_context import ActorContext
@@ -327,7 +334,9 @@ def test_bug030_placement_route_admin_capability_blocks_non_bootstrap_reads(
             engine.query_cypher(query, dict(params))
 
 
-def test_org_share_revocation_persists_across_a_real_restart(restartable_commons_engine):
+def test_org_share_revocation_persists_across_a_real_restart(
+    restartable_commons_engine,
+):
     """Real engine, real Cypher, real restart proof for the parts of GOC-61's
     node-level sharing primitive that ARE provable given BUG-030 (module
     docstring): the org-share stamp on a write, and its revocation, land as
@@ -378,7 +387,10 @@ def test_org_share_revocation_persists_across_a_real_restart(restartable_commons
     revoked = make_private(doc_id, store=engine.backend, actor=privileged_writer)
     assert revoked, "make_private must find and revoke the previously-shared node"
     rows = engine.query_cypher(q, {"id": doc_id})
-    assert rows[0]["scope"] == SCOPE_PRIVATE and rows[0]["owner"] == privileged_writer.actor_id, (
+    assert (
+        rows[0]["scope"] == SCOPE_PRIVATE
+        and rows[0]["owner"] == privileged_writer.actor_id
+    ), (
         "revocation must be immediate and correctly attributed -- no window "
         "where the next read still shows the org scope"
     )
@@ -391,7 +403,10 @@ def test_org_share_revocation_persists_across_a_real_restart(restartable_commons
     engine_after_restart = _commons_engine()
 
     rows = engine_after_restart.query_cypher(q, {"id": doc_id})
-    assert rows[0]["scope"] == SCOPE_PRIVATE and rows[0]["owner"] == privileged_writer.actor_id, (
+    assert (
+        rows[0]["scope"] == SCOPE_PRIVATE
+        and rows[0]["owner"] == privileged_writer.actor_id
+    ), (
         "the revoked state must survive a real process restart -- proving it "
         "was committed to disk, not held only in the live process"
     )
@@ -409,3 +424,266 @@ def test_org_share_revocation_persists_across_a_real_restart(restartable_commons
     assert rows == [{"id": doc_id_2, "owner": None, "scope": SCOPE_ORG}], (
         "the org-share stamping mechanism must keep working after a real restart"
     )
+
+
+def test_adopt_a_shared_scope_surfaces_survive_real_restart(
+    restartable_commons_engine,
+):
+    """NE-042 live acceptance: field/edge/search/DCI state is durable.
+
+    The rows and one real graph edge are written before a SIGTERM, then read
+    from a newly-created engine process after relaunch.  The deterministic
+    retriever below is only a candidate-source harness; the production
+    ``search_hybrid`` ACL/rank path and ``search_dci`` hop ACL boundary remain
+    the code under test.  Peer checks use the real durable ACL hydration source
+    with a separate AU actor.  A direct engine read as that peer is also
+    attempted by the existing BUG-030 test in this module; this test keeps the
+    transport identity at the bootstrap principal so the AU-layer policy proof
+    is not confused with that independent engine-placement limitation.
+    """
+    from agent_utilities.knowledge_graph.core import secured_reads as sr
+    from agent_utilities.knowledge_graph.core.company_brain_runtime import (
+        reset_company_brain,
+    )
+    from agent_utilities.knowledge_graph.core.session import (
+        GraphSession,
+        use_session,
+    )
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext, use_actor
+
+    _reset_process_engine()
+    engine = _commons_engine()
+    bootstrap_actor = ActorContext(
+        actor_id=TEST_AGENT_ID,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("test",),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    owner_id = "owner:ne042"
+    same_tenant_peer = ActorContext(
+        actor_id="peer:ne042",
+        actor_type=ActorType.AI_AGENT,
+        roles=(),
+        tenant_id=TEST_TENANT,
+        authenticated=True,
+    )
+    cross_tenant_peer = ActorContext(
+        actor_id="peer:foreign",
+        actor_type=ActorType.AI_AGENT,
+        roles=(),
+        tenant_id="tenant:foreign",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=bootstrap_actor,
+        tenant=TEST_TENANT,
+        scopes=frozenset({"kg:read", "kg:write", "kg:admin", "*"}),
+        graph=COMMONS_GRAPH,
+        policy_version=TEST_POLICY_VERSION,
+        audience="epistemic-graph-test",
+    )
+
+    public_id = f"ne042-public-{uuid.uuid4().hex[:10]}"
+    shared_id = f"ne042-shared-{uuid.uuid4().hex[:10]}"
+    private_id = f"ne042-private-{uuid.uuid4().hex[:10]}"
+    edge_record_id = f"ne042-edge-{uuid.uuid4().hex[:10]}"
+
+    with (
+        use_session(session),
+        use_actor(
+            ActorContext(
+                actor_id="platform-writer",
+                actor_type=ActorType.SYSTEM,
+                roles=("kg:admin",),
+                tenant_id=TEST_TENANT,
+                authenticated=True,
+            )
+        ),
+    ):
+        # GraphComputeEngine's node/edge methods are the native durable RPC
+        # chokepoints; this writes through the same authority exercised by the
+        # existing restart proof above, not a Python-side graph/cache double.
+        graph = engine.graph_compute
+        graph.add_node(
+            public_id,
+            {
+                "node_type": "Doc",
+                "name": "NE-042 public field",
+                "tenant_id": TEST_TENANT,
+                "classification": "public",
+                "_shared_scope": "org",
+                "_score": 0.8,
+            },
+        )
+        graph.add_node(
+            shared_id,
+            {
+                "node_type": "Doc",
+                "name": "NE-042 shared field",
+                "tenant_id": TEST_TENANT,
+                "classification": "confidential",
+                "_owner_id": owner_id,
+                "_shared_scope": "org",
+                "_score": 0.7,
+            },
+        )
+        graph.add_node(
+            private_id,
+            {
+                "node_type": "Doc",
+                "name": "NE-042 private field",
+                "tenant_id": TEST_TENANT,
+                "classification": "confidential",
+                "_owner_id": owner_id,
+                "_shared_scope": "private",
+                "_score": 0.9,
+            },
+        )
+        # An edge-shaped projection is represented by a durable record with
+        # the same ownership contract as any other governed row.  The actual
+        # native edge below supplies traversal continuity.
+        graph.add_node(
+            edge_record_id,
+            {
+                "node_type": "Doc",
+                "name": "NE-042 shared edge record",
+                "tenant_id": TEST_TENANT,
+                "classification": "confidential",
+                "_owner_id": owner_id,
+                "_shared_scope": "org",
+                "source_id": shared_id,
+                "target_id": private_id,
+            },
+        )
+        graph.add_edge(shared_id, private_id, {"relationship": "RELATED_TO"})
+        # Exercise the governed durable SET seam as well. This forces the
+        # ownership markers through the same native mutation path used by
+        # production sharing operations, ensuring the restart assertion is
+        # about persisted state rather than a live graph cache.
+        from agent_utilities.knowledge_graph.core.tenant_sharing import (
+            make_private,
+            share_with_org,
+        )
+
+        for node_id in (public_id, shared_id, private_id, edge_record_id):
+            assert share_with_org(node_id, store=engine.backend)
+        assert make_private(
+            private_id,
+            store=engine.backend,
+            actor=ActorContext(
+                actor_id=owner_id,
+                actor_type=ActorType.AI_AGENT,
+                roles=(),
+                tenant_id=TEST_TENANT,
+                authenticated=True,
+            ),
+        )
+
+    def _raw(node_id: str, reader: Any) -> dict[str, Any]:
+        query = (
+            "MATCH (n:Doc) WHERE n.id = $id RETURN n.id AS id, "
+            "n.tenant_id AS tenant_id, n.node_type AS node_type, "
+            "n.classification AS classification, n._owner_id AS owner_id, "
+            "n._shared_scope AS shared_scope, n._score AS score, "
+            "n.source_id AS source_id, n.target_id AS target_id"
+        )
+        # Socket readiness is the served startup boundary. The first governed
+        # query after it must hydrate the durable graph synchronously; polling,
+        # cache resets, and point-read fallbacks would hide a surface split.
+        rows = reader.backend.execute_read(query, {"id": node_id})
+        assert rows, f"durable row {node_id} was not readable on the first query"
+        return dict(rows[0])
+
+    with use_session(session):
+        before = {
+            node_id: _raw(node_id, engine)
+            for node_id in (public_id, shared_id, private_id, edge_record_id)
+        }
+        assert engine.graph_compute.has_edge(shared_id, private_id)
+
+    # Stop the process, relaunch against the same persist directory, and clear
+    # the AU permission cache so every read must hydrate from durable rows.
+    restartable_commons_engine.restart()
+    _reset_process_engine()
+    engine_after = _commons_engine()
+    reset_company_brain()
+
+    with use_session(session):
+        after = {
+            node_id: _raw(node_id, engine_after)
+            for node_id in (public_id, shared_id, private_id, edge_record_id)
+        }
+        assert after == before
+        assert engine_after.graph_compute.has_edge(shared_id, private_id)
+
+    def _projection(row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "tenant_id": row["tenant_id"],
+            "node_type": row["node_type"],
+            "_owner_id": row["owner_id"],
+            "_shared_scope": row["shared_scope"],
+        }
+
+    field_rows = [
+        _projection(after[node_id]) for node_id in (public_id, shared_id, private_id)
+    ]
+    edge_rows = [{"r": _projection(after[edge_record_id])}]
+
+    # Same-tenant non-owner: public and org-shared survive, private remains
+    # denied after the real process boundary.
+    with use_session(session):
+        reset_company_brain()
+        visible_fields = sr.visible(
+            sr.filter_rows(field_rows, same_tenant_peer), same_tenant_peer
+        )
+        assert {row["id"] for row in visible_fields} == {public_id, shared_id}
+        visible_edges = sr.visible(
+            sr.filter_rows(edge_rows, same_tenant_peer), same_tenant_peer
+        )
+        assert [row["r"]["id"] for row in visible_edges] == [edge_record_id]
+
+        # Cross-tenant peer denial is evaluated against the same durable ACL
+        # rows, not a process-local permission cache.
+        reset_company_brain()
+        assert sr.filter_rows(field_rows, cross_tenant_peer) == []
+        assert sr.filter_rows(edge_rows, cross_tenant_peer) == []
+
+    class _StaticRetriever:
+        def __init__(self, nodes: list[dict[str, Any]]):
+            self.nodes = nodes
+
+        def retrieve_hybrid(self, _query: str, **_kwargs: Any) -> list[dict[str, Any]]:
+            return [dict(node) for node in self.nodes]
+
+    search_nodes = [
+        {
+            **_projection(after[node_id]),
+            "_score": float(after[node_id].get("score") or 0.0),
+            "status": "ACTIVE",
+        }
+        for node_id in (public_id, shared_id, private_id)
+    ]
+    with use_session(session):
+        reset_company_brain()
+        engine_after.hybrid_retriever = _StaticRetriever(search_nodes)
+        search_rows = engine_after.search_hybrid(
+            "NE-042", top_k=3, skip_quality_gate=True, session=session
+        )
+        assert {row["id"] for row in search_rows} == {public_id, shared_id}
+        assert private_id not in {row["id"] for row in search_rows}
+
+        # DCI uses the real post-restart graph edge.  Its seed is shared and
+        # its only neighbor is private; the per-hop ACL boundary must stop that
+        # neighbor before it can enter the result or a later frontier.
+        engine_after.hybrid_retriever = _StaticRetriever(
+            [next(row for row in search_nodes if row["id"] == shared_id)]
+        )
+        traversal_rows = engine_after.search_dci(
+            "NE-042", max_hops=1, top_k=10, session=session
+        )
+        traversal_ids = {row["id"] for row in traversal_rows}
+        assert shared_id in traversal_ids
+        assert private_id not in traversal_ids
