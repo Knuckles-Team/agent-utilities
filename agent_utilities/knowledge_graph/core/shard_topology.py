@@ -2,11 +2,12 @@
 # CONCEPT:AU-OS.scaling.shard-topology-visibility-per - Shard topology visibility with per-shard reachability status surfaces and per-endpoint engine gauges and counters
 """Tenant naming and engine coordinator-contact topology.
 
-``GRAPH_SERVICE_ENDPOINTS`` is an ordered list of contacts, not a placement
-ring. A request uses the authenticated engine ``PlacementRoute`` RPC, validates
-its epoch and numeric group fence, then maps that group through
-``GRAPH_RAFT_GROUP_ENDPOINTS`` (or the sole stable coordinator). No caller-side
-hash, fallback, or topology guess is permitted.
+``GRAPH_SERVICE_ENDPOINTS`` is an ordered list of bootstrap contacts, not a
+placement ring. A request uses the authenticated engine ``PlacementRoute`` RPC
+and then consumes the same connection's verified ``ClusterMembers`` snapshot
+for a placed group. ``GRAPH_RAFT_GROUP_ENDPOINTS`` is retained only for
+configuration migration/audit; it is not a live endpoint authority. No
+caller-side hash, insecure fallback, or topology guess is permitted.
 
 Tenant isolation still selects a named graph with :func:`tenant_graph_name`.
 The engine placement catalog owns where that graph lives and performs governed
@@ -142,8 +143,9 @@ def is_system_graph(name: str | None) -> bool:
 def resolve_endpoints(config: Any = None) -> list[str]:
     """Resolve ordered engine coordinator contacts.
 
-    ``GRAPH_SERVICE_ENDPOINTS`` is the sole explicit external/coordinator
-    topology. Any configured list is returned verbatim and is connect-only.
+    ``GRAPH_SERVICE_ENDPOINTS`` is the sole explicit external/bootstrap
+    contact topology. Any configured list is returned verbatim and is
+    connect-only; placed-group endpoints come only from verified ClusterMembers.
     When it is absent, the packaged engine's platform default is used.
     Contact order is deterministic, but it never decides placement.
     """

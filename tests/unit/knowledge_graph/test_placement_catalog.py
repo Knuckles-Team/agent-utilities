@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
 
 from agent_utilities.knowledge_graph.core.placement_catalog import (
     PlacementAuthorityError,
-    PlacementResult,
-    PlacementTopologyError,
     invalidate,
     resolve_placement,
     split_tenant_key,
@@ -18,6 +17,9 @@ from agent_utilities.knowledge_graph.core.placement_catalog import (
 
 class _Config:
     placement_catalog_ttl_s = 5.0
+    graph_cluster_id = None
+    graph_discovery_max_age_s = 30.0
+    graph_discovery_clock_skew_s = 5.0
 
     def __init__(self, group_endpoints: dict[str, str] | None = None) -> None:
         self.graph_raft_group_endpoints = group_endpoints
@@ -40,9 +42,106 @@ class _Placement:
         return answer
 
 
+def _digest(value: str) -> str:
+    return "sha256:" + hashlib.sha256(value.encode()).hexdigest()
+
+
+def _context(
+    *,
+    tenant: str = "tenant",
+    principal: str = "principal",
+    agent_id: str = "agent",
+) -> dict[str, str]:
+    return {"tenant": tenant, "principal": principal, "agent_id": agent_id}
+
+
+def _cluster_answer(
+    context: dict[str, str],
+    *,
+    group: int,
+    placement_epoch: int,
+    membership_epoch: int = 1,
+    endpoint: str | None = None,
+    certificate_rotation_epoch: int = 1,
+    certificate_id: str | None = None,
+) -> dict[str, Any]:
+    endpoint = endpoint or f"tls://group-{group}.invalid:9443"
+    host = endpoint.removeprefix("tls://").split(":", 1)[0]
+    now_ms = 1_700_000_000_000
+    certificate_id = certificate_id or f"cert-{group}-{certificate_rotation_epoch}"
+    member = {
+        "node_id": 1,
+        "member_identity": _digest(f"member-{group}"),
+        "role": "leader",
+        "client_endpoint": endpoint,
+        "tls_name": host if endpoint.startswith("tls://") else None,
+        "health": "healthy",
+        "certificate": {
+            "id": certificate_id,
+            "rotation_epoch": certificate_rotation_epoch,
+            "not_before_ms": now_ms - 300_000,
+            "not_after_ms": 4_000_000_000_000,
+        },
+    }
+    return {
+        "schema_version": 1,
+        "cluster_id": _digest("cluster"),
+        "epoch": membership_epoch,
+        "membership_epoch": membership_epoch,
+        "placement_epoch": placement_epoch,
+        "leader": {"group_id": group, "node_id": 1},
+        "leaders": [{"group_id": group, "node_id": 1}],
+        "groups": [{"group_id": group, "leader_id": 1, "members": [member]}],
+        "auth_binding": {
+            "tenant_digest": _digest(context["tenant"]),
+            "principal_digest": _digest(context["principal"]),
+            "agent_digest": _digest(context["agent_id"]),
+        },
+        "signature": "hmac-sha256:" + "a" * 64,
+    }
+
+
+_NO_DISCOVERY = object()
+
+
+class _Topology:
+    def __init__(self, answer: Any) -> None:
+        self.answer = answer
+        self.calls = 0
+
+    def members(self, **_: Any) -> Any:
+        self.calls += 1
+        if isinstance(self.answer, BaseException):
+            raise self.answer
+        return self.answer
+
+
 class _Client:
-    def __init__(self, answer: Any, calls: list[int]) -> None:
+    def __init__(
+        self,
+        answer: Any,
+        calls: list[int],
+        *,
+        context: dict[str, str] | None = None,
+        discovery_answer: Any = _NO_DISCOVERY,
+    ) -> None:
         self.placement = _Placement(answer, calls)
+        self._context = context or _context()
+        if discovery_answer is _NO_DISCOVERY:
+            if isinstance(answer, dict):
+                discovery_answer = _cluster_answer(
+                    self._context,
+                    group=int(answer["group"]),
+                    placement_epoch=int(answer["epoch"]),
+                )
+            else:
+                discovery_answer = None
+        self.cluster_topology = (
+            _Topology(discovery_answer) if discovery_answer is not None else object()
+        )
+
+    def _effective_verified_context(self) -> dict[str, str]:
+        return self._context
 
 
 def _answer(*, group: int = 4, epoch: int = 9, placed: bool = True) -> dict[str, Any]:
@@ -80,13 +179,14 @@ def test_single_coordinator_maps_complete_placed_route() -> None:
         config=_Config(),
         client_factory=lambda _endpoint: _Client(_answer(), calls),
     )
-    assert result == PlacementResult(
-        endpoint="tls://coordinator.invalid:9443",
-        epoch=9,
-        group=4,
-        fencing_token=4,
-        placed=True,
-    )
+    assert result.endpoint == "tls://group-4.invalid:9443"
+    assert result.epoch == 9
+    assert result.group == 4
+    assert result.fencing_token == 4
+    assert result.placed is True
+    assert result.cluster_id == _digest("cluster")
+    assert result.membership_epoch == 1
+    assert result.certificate_rotation_epoch == 1
     assert calls == [0]
 
 
@@ -105,33 +205,35 @@ def test_unplaced_single_node_route_is_still_authoritative() -> None:
     assert result.fencing_token == 0
 
 
-def test_multi_endpoint_route_requires_explicit_group_topology() -> None:
+def test_multi_endpoint_route_requires_verified_group_discovery() -> None:
     contacts = ["tls://coordinator-a.invalid:9443", "tls://coordinator-b.invalid:9443"]
-    with pytest.raises(PlacementTopologyError):
+    with pytest.raises(PlacementAuthorityError):
         resolve_placement(
             "tenant:workspace",
             contacts,
             config=_Config(),
-            client_factory=lambda _endpoint: _Client(_answer(group=7), []),
+            client_factory=lambda _endpoint: _Client(
+                _answer(group=7), [], discovery_answer=None
+            ),
         )
 
     result = resolve_placement(
         "tenant:workspace",
         contacts,
-        config=_Config({"7": "tls://group-seven.invalid:9443"}),
+        config=_Config(),
         client_factory=lambda _endpoint: _Client(_answer(group=7), []),
     )
-    assert result.endpoint == "tls://group-seven.invalid:9443"
+    assert result.endpoint == "tls://group-7.invalid:9443"
 
 
-def test_deployment_topology_owns_endpoint_mapping() -> None:
+def test_static_endpoint_map_cannot_override_verified_discovery() -> None:
     result = resolve_placement(
         "tenant:workspace",
         ["tls://coordinator.invalid:9443"],
         config=_Config({"4": "tls://mapped.invalid:9443"}),
         client_factory=lambda _endpoint: _Client(_answer(), []),
     )
-    assert result.endpoint == "tls://mapped.invalid:9443"
+    assert result.endpoint == "tls://group-4.invalid:9443"
 
 
 @pytest.mark.parametrize(
@@ -243,42 +345,39 @@ def test_first_failed_contact_uses_next_coordinator_without_guessing() -> None:
     result = resolve_placement(
         "tenant:workspace",
         contacts,
-        config=_Config({"2": "tls://group-two.invalid:9443"}),
+        config=_Config(),
         client_factory=factory,
     )
     assert result.group == 2
-    assert result.endpoint == "tls://group-two.invalid:9443"
+    assert result.endpoint == "tls://group-2.invalid:9443"
 
 
-# ── ADR-1 / W1.1 engine-authoritative endpoint discovery ────────────────────
-# `reports/wave1/ADR-scale-trio.md` §ADR-1 decision 3: resolution order is
-# (a) a static GRAPH_RAFT_GROUP_ENDPOINTS entry as an explicit OVERRIDE (wins
-# when present), (b) PlacementRoute.endpoints (NEW -- no static config
-# needed), (c) the single-contact fallback (unchanged, covered above).
+# ── Verified ClusterMembers endpoint discovery ──────────────────────────────
+# PlacementRoute endpoint hints and GRAPH_RAFT_GROUP_ENDPOINTS are deliberately
+# retained only as migration/audit inputs. They never authorize a placed route;
+# the client must provide the authenticated ClusterMembers snapshot.
 
 
-def test_engine_endpoints_resolve_multi_contact_with_no_static_map() -> None:
-    """The exact gap ADR-1 closes: >1 contact used to hard-require
-    GRAPH_RAFT_GROUP_ENDPOINTS (`test_multi_endpoint_route_requires_explicit_
-    group_topology` above); now the engine's own discovered endpoints suffice."""
+def test_route_endpoint_hint_cannot_authorize_without_cluster_discovery() -> None:
+    """A legacy route endpoint hint cannot replace ClusterMembers authority."""
     contacts = ["tls://coordinator-a.invalid:9443", "tls://coordinator-b.invalid:9443"]
     answer = {
         **_answer(group=7),
         "endpoints": ["tls://leader.invalid:9443", "tls://follower.invalid:9443"],
     }
-    result = resolve_placement(
-        "tenant:workspace",
-        contacts,
-        config=_Config(),  # no GRAPH_RAFT_GROUP_ENDPOINTS configured
-        client_factory=lambda _endpoint: _Client(answer, []),
-    )
-    assert result.endpoint == "tls://leader.invalid:9443"
+    with pytest.raises(PlacementAuthorityError):
+        resolve_placement(
+            "tenant:workspace",
+            contacts,
+            config=_Config(),
+            client_factory=lambda _endpoint: _Client(
+                answer, [], discovery_answer=None
+            ),
+        )
 
 
-def test_static_override_wins_over_engine_endpoints_when_both_present() -> None:
-    """An explicit operator override always wins when configured -- the
-    escape hatch for a client that cannot reach the engine-discovered address
-    (NAT / ingress-only network boundary)."""
+def test_static_override_is_ignored_when_verified_discovery_is_present() -> None:
+    """A legacy operator map cannot override the verified member endpoint."""
     answer = {
         **_answer(group=7),
         "endpoints": ["tls://leader.invalid:9443"],
@@ -289,37 +388,56 @@ def test_static_override_wins_over_engine_endpoints_when_both_present() -> None:
         config=_Config({"7": "tls://operator-override.invalid:9443"}),
         client_factory=lambda _endpoint: _Client(answer, []),
     )
-    assert result.endpoint == "tls://operator-override.invalid:9443"
+    assert result.endpoint == "tls://group-7.invalid:9443"
 
 
-def test_empty_engine_endpoints_fall_back_to_single_contact() -> None:
-    """A single-node deployment (or a cluster with no self-reported member
-    yet) answers empty `endpoints` -- the unchanged single-contact fallback
-    still applies."""
+def test_empty_legacy_route_endpoints_do_not_fall_back_for_placed_route() -> None:
+    """An empty route hint cannot authorize a placed route or fallback."""
     answer = {**_answer(), "endpoints": []}
-    result = resolve_placement(
-        "tenant:workspace",
-        ["unix://engine.sock"],
-        config=_Config(),
-        client_factory=lambda _endpoint: _Client(answer, []),
-    )
-    assert result.endpoint == "unix://engine.sock"
+    with pytest.raises(PlacementAuthorityError):
+        resolve_placement(
+            "tenant:workspace",
+            ["tls://coordinator.invalid:9443"],
+            config=_Config(),
+            client_factory=lambda _endpoint: _Client(
+                answer, [], discovery_answer=None
+            ),
+        )
 
 
-def test_engine_endpoints_reflect_the_current_leader_after_a_refresh() -> None:
-    """A `force_refresh` after a failover picks up the NEW leader-first
-    endpoint list -- the client-side half of ADR-1's "kill leader -> client
-    re-routes with zero config edits" acceptance criterion."""
+def test_cluster_members_reflect_the_current_leader_after_a_refresh() -> None:
+    """A refresh uses the new verified member/certificate epoch and endpoint."""
     contacts = ["tls://a.invalid:9443", "tls://b.invalid:9443"]
     answers = iter(
         [
-            {**_answer(group=1), "endpoints": ["tls://node-a.invalid:9443"]},
-            {**_answer(group=1), "endpoints": ["tls://node-b.invalid:9443"]},
+            _answer(group=1),
+            _answer(group=1),
+        ]
+    )
+    discovery_answers = iter(
+        [
+            _cluster_answer(
+                _context(),
+                group=1,
+                placement_epoch=9,
+                membership_epoch=1,
+                endpoint="tls://node-a.invalid:9443",
+            ),
+            _cluster_answer(
+                _context(),
+                group=1,
+                placement_epoch=9,
+                membership_epoch=2,
+                endpoint="tls://node-b.invalid:9443",
+                certificate_rotation_epoch=2,
+            ),
         ]
     )
 
     def factory(_endpoint: str) -> _Client:
-        return _Client(next(answers), [])
+        return _Client(
+            next(answers), [], discovery_answer=next(discovery_answers)
+        )
 
     before = resolve_placement(
         "tenant:workspace", contacts, config=_Config(), client_factory=factory
@@ -333,6 +451,9 @@ def test_engine_endpoints_reflect_the_current_leader_after_a_refresh() -> None:
     )
     assert before.endpoint == "tls://node-a.invalid:9443"
     assert after.endpoint == "tls://node-b.invalid:9443"
+    assert after.membership_epoch == 2
+    assert after.certificate_rotation_epoch == 2
+    assert after.reconnect_required is True
 
 
 @pytest.mark.parametrize(
@@ -402,10 +523,10 @@ def test_query_catalog_falls_back_to_broker_on_admin_capability_denial(
     attempts: list[str] = []
 
     def fake_request_authority(config: Any) -> tuple[str, dict[str, Any]]:
-        return "caller-secret", {"principal": "caller"}
+        return "caller-secret", _context(principal="caller")
 
     def fake_broker_authority(config: Any) -> tuple[str, dict[str, Any]] | None:
-        return "broker-secret", {"principal": "broker"}
+        return "broker-secret", _context(principal="broker")
 
     def fake_default_connect(
         endpoint: str,
@@ -417,7 +538,11 @@ def test_query_catalog_falls_back_to_broker_on_admin_capability_denial(
         attempts.append(verified_context["principal"])
         if verified_context["principal"] == "caller":
             raise _admin_denied_error()
-        return _Client({**_answer(), "endpoints": [endpoint]}, [])
+        return _Client(
+            {**_answer(), "endpoints": [endpoint]},
+            [],
+            context=verified_context,
+        )
 
     monkeypatch.setattr(_pc, "_request_authority", fake_request_authority)
     # The hermetic testing guard fails closed for the real client_factory=None
@@ -439,7 +564,7 @@ def test_query_catalog_falls_back_to_broker_on_admin_capability_denial(
         client_epoch=0,
     )
     assert attempts == ["caller", "broker"]
-    assert result.endpoint == "tls://coordinator.invalid:9443"
+    assert result.endpoint == "tls://group-4.invalid:9443"
 
 
 def test_query_catalog_never_brokers_a_plain_scope_denial(
@@ -451,11 +576,11 @@ def test_query_catalog_never_brokers_a_plain_scope_denial(
     broker_calls: list[None] = []
 
     def fake_request_authority(config: Any) -> tuple[str, dict[str, Any]]:
-        return "caller-secret", {"principal": "caller"}
+        return "caller-secret", _context(principal="caller")
 
     def fake_broker_authority(config: Any) -> tuple[str, dict[str, Any]] | None:
         broker_calls.append(None)
-        return "broker-secret", {"principal": "broker"}
+        return "broker-secret", _context(principal="broker")
 
     def fake_default_connect(
         endpoint: str,
@@ -493,7 +618,7 @@ def test_query_catalog_reraises_original_denial_when_broker_unconfigured(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_request_authority(config: Any) -> tuple[str, dict[str, Any]]:
-        return "caller-secret", {"principal": "caller"}
+        return "caller-secret", _context(principal="caller")
 
     def fake_default_connect(
         endpoint: str,
@@ -530,10 +655,10 @@ def test_query_catalog_reraises_original_denial_when_broker_also_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     def fake_request_authority(config: Any) -> tuple[str, dict[str, Any]]:
-        return "caller-secret", {"principal": "caller"}
+        return "caller-secret", _context(principal="caller")
 
     def fake_broker_authority(config: Any) -> tuple[str, dict[str, Any]] | None:
-        return "broker-secret", {"principal": "broker"}
+        return "broker-secret", _context(principal="broker")
 
     def fake_default_connect(
         endpoint: str,

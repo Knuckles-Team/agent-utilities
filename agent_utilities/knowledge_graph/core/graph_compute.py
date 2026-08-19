@@ -460,6 +460,7 @@ class _SessionRoutedAsyncClient:
         route_endpoints: tuple[str, ...] = (),
         transport_endpoint: str | None = None,
         placement_client_factory: Callable[[str], Any] | None = None,
+        drain_gate: Any | None = None,
     ) -> None:
         self._base = base
         self._graph_name = fixed_graph or str(getattr(base, "_graph_name", ""))
@@ -468,6 +469,8 @@ class _SessionRoutedAsyncClient:
         self._route_endpoints = route_endpoints
         self._transport_endpoint = transport_endpoint
         self._placement_client_factory = placement_client_factory
+        self._drain_gate = drain_gate
+        self._transport_refresh_required = False
         self._server_ops: set[str] | None = None
         for name in _CLIENT_NAMESPACES:
             namespace = getattr(base, name)
@@ -515,9 +518,20 @@ class _SessionRoutedAsyncClient:
         target: str,
         idempotency_key: str | None,
         session: Any,
+        force_new: bool = False,
     ) -> Any:
         """Invoke on the process transport or a bounded redirect connection."""
-        if not endpoint or endpoint == self._transport_endpoint:
+        if force_new and endpoint == self._transport_endpoint:
+            # The native client has a process-owned stream. A member/cert epoch
+            # change on that same endpoint must not keep reusing the old TLS
+            # stream; subsequent calls use a short-lived reconnect view until
+            # the process is replaced and re-establishes fresh authority.
+            self._transport_refresh_required = True
+        if (
+            not force_new
+            and not self._transport_refresh_required
+            and (not endpoint or endpoint == self._transport_endpoint)
+        ):
             with self._base.use_verified_context(session.engine_verified_context()):
                 return await self._base._send(
                     method, params, graph=target, idempotency_key=idempotency_key
@@ -562,6 +576,24 @@ class _SessionRoutedAsyncClient:
         *,
         idempotency_key: str | None = None,
     ) -> Any:
+        """Admit one operation before entering the routed transport."""
+        if self._drain_gate is None:
+            return await self._send_routed(
+                method, params, graph, idempotency_key=idempotency_key
+            )
+        with self._drain_gate.admit():
+            return await self._send_routed(
+                method, params, graph, idempotency_key=idempotency_key
+            )
+
+    async def _send_routed(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        graph: str | None = None,
+        *,
+        idempotency_key: str | None = None,
+    ) -> Any:
         from .session import SessionRequiredError, current_session, resolve_session
 
         session = current_session()
@@ -593,6 +625,7 @@ class _SessionRoutedAsyncClient:
             "Ping",
             "Health",
             "PlacementRoute",
+            "ClusterMembers",
             "Shutdown",
             "Checkpoint",
             "ResourceStats",
@@ -630,6 +663,12 @@ class _SessionRoutedAsyncClient:
             endpoint=route.endpoint,
             placement_group=(int(route.group) if int(route.group or 0) > 0 else None),
             catalog_epoch=int(route.epoch),
+            topology_cluster_id=getattr(route, "cluster_id", None),
+            membership_epoch=getattr(route, "membership_epoch", None),
+            certificate_rotation_epoch=getattr(
+                route, "certificate_rotation_epoch", None
+            ),
+            continuity_expires_at=getattr(route, "discovery_expires_at", None),
         )
         routed_params = self._route_bound_params(method, params, route)
         # ADR-1 / W1.1 bounded reconnect (`reports/wave1/ADR-scale-trio.md`
@@ -652,6 +691,7 @@ class _SessionRoutedAsyncClient:
                     target,
                     idempotency_key,
                     routed_session,
+                    force_new=bool(getattr(route, "reconnect_required", False)),
                 )
             except StaleRouteError:
                 # A stale response is guaranteed to be pre-commit. Refresh the
@@ -671,6 +711,14 @@ class _SessionRoutedAsyncClient:
                         int(fresh.group) if int(fresh.group or 0) > 0 else None
                     ),
                     catalog_epoch=int(fresh.epoch),
+                    topology_cluster_id=getattr(fresh, "cluster_id", None),
+                    membership_epoch=getattr(fresh, "membership_epoch", None),
+                    certificate_rotation_epoch=getattr(
+                        fresh, "certificate_rotation_epoch", None
+                    ),
+                    continuity_expires_at=getattr(
+                        fresh, "discovery_expires_at", None
+                    ),
                 )
                 return await self._invoke_at(
                     fresh.endpoint,
@@ -679,6 +727,7 @@ class _SessionRoutedAsyncClient:
                     target,
                     idempotency_key,
                     fresh_session,
+                    force_new=bool(getattr(fresh, "reconnect_required", False)),
                 )
             except (ConnectionError, OSError) as exc:
                 connect_attempt += 1
@@ -718,6 +767,14 @@ class _SessionRoutedAsyncClient:
                         int(route.group) if int(route.group or 0) > 0 else None
                     ),
                     catalog_epoch=int(route.epoch),
+                    topology_cluster_id=getattr(route, "cluster_id", None),
+                    membership_epoch=getattr(route, "membership_epoch", None),
+                    certificate_rotation_epoch=getattr(
+                        route, "certificate_rotation_epoch", None
+                    ),
+                    continuity_expires_at=getattr(
+                        route, "discovery_expires_at", None
+                    ),
                 )
                 routed_params = self._route_bound_params(method, params, route)
 
@@ -840,12 +897,14 @@ def _sync_client_view(sync_client: Any, *, graph: str | None = None) -> Any:
     route_config = getattr(sync_client, "_au_route_config", None)
     route_endpoints = tuple(getattr(sync_client, "_au_route_endpoints", ()) or ())
     transport_endpoint = getattr(sync_client, "_au_route_endpoint", None)
+    drain_gate = getattr(sync_client, "_au_drain_gate", None)
     async_view = _SessionRoutedAsyncClient(
         async_client,
         fixed_graph=graph,
         route_config=route_config,
         route_endpoints=route_endpoints,
         transport_endpoint=transport_endpoint,
+        drain_gate=drain_gate,
     )
     view = SyncEpistemicGraphClient(
         cast(Any, async_view), sync_client._loop, sync_client._thread
@@ -866,6 +925,7 @@ def _sync_client_view(sync_client: Any, *, graph: str | None = None) -> Any:
     dynamic_view._au_route_config = route_config
     dynamic_view._au_route_endpoints = route_endpoints
     dynamic_view._au_route_endpoint = transport_endpoint
+    dynamic_view._au_drain_gate = drain_gate
     # A scoped view never owns the shared loop/thread. SyncEpistemicGraphClient
     # normally stops both from close()/context-manager exit, so shadow close on
     # this instance with an explicit no-op.
@@ -1364,7 +1424,10 @@ class GraphComputeEngine:
     (length-prefixed MessagePack, HMAC-authenticated). There is **no PyO3 /
     in-process mode**. With no explicit coordinator topology the resolver
     shares or starts the packaged local service; configured
-    ``GRAPH_SERVICE_ENDPOINTS`` is connect-only and must already be serving.
+    ``GRAPH_SERVICE_ENDPOINTS`` is connect-only/bootstrap-only and must already
+    be serving. Placed-group endpoint changes come from the authenticated
+    engine ``ClusterMembers`` snapshot, and shutdown is admission-gated by a
+    bounded transport drain.
     """
 
     # The native client accepts the complete MessagePack property domain through
@@ -1428,6 +1491,16 @@ class GraphComputeEngine:
         root = getattr(self, "_process_root", self)
         if root is not self:
             return
+        drain_gate = getattr(self, "_drain_gate", None)
+        if drain_gate is not None:
+            # Closing is the terminal safety action.  A caller that wants a
+            # graceful bounded wait uses ``drain`` first; close still stops
+            # admission immediately so a late MCP request cannot race socket
+            # teardown and be reported as continuous work.
+            try:
+                drain_gate.begin(0.0)
+            except Exception:
+                logger.debug("Failed to enter graph transport drain", exc_info=True)
         transport = None
         with self._PROCESS_ENGINE_LOCK:
             if not getattr(self, "_transport_closed", False):
@@ -1442,6 +1515,34 @@ class GraphComputeEngine:
                 transport.close()
             except Exception:
                 logger.debug("Failed to close graph transport", exc_info=True)
+
+    def drain(self, timeout_s: float | None = None) -> Any:
+        """Stop admission and wait a bounded interval for in-flight RPCs.
+
+        The returned status is intentionally explicit: a timed-out drain is
+        not reported as continuity.  Callers that require a graceful handoff
+        must persist their own durable work/session reference before closing;
+        this gate only proves transport admission and in-flight completion.
+        """
+        root = getattr(self, "_process_root", self)
+        if root is not self:
+            return root.drain(timeout_s)
+        gate = getattr(self, "_drain_gate", None)
+        if gate is None:
+            return None
+        if timeout_s is None:
+            timeout_s = getattr(
+                getattr(self, "_route_config", None),
+                "graph_drain_timeout_s",
+                15.0,
+            )
+        return gate.begin(float(timeout_s))
+
+    def drain_status(self) -> Any:
+        """Return the current bounded drain state for readiness/observability."""
+        root = getattr(self, "_process_root", self)
+        gate = getattr(root, "_drain_gate", None)
+        return gate.status() if gate is not None else None
 
     def for_graph(self, graph_name: str) -> "GraphComputeEngine":
         """Return a no-connection named-graph view over this process transport."""
@@ -1495,6 +1596,9 @@ class GraphComputeEngine:
         self._client: Any
         self._transport_client = None
         self._transport_closed = False
+        from .transport_lifecycle import TransportDrainGate
+
+        self._drain_gate = TransportDrainGate()
         self._event_bridge_stop: threading.Event | None = None
         self._event_bridge_thread: threading.Thread | None = None
         self._event_bridge_loop: Any | None = None
@@ -1508,6 +1612,7 @@ class GraphComputeEngine:
             )
 
         config = AgentConfig()
+        self._route_config = config
         endpoints = resolve_endpoints(config)
         sharded = len(endpoints) > 1
         if sharded:
@@ -1716,6 +1821,7 @@ class GraphComputeEngine:
             transport_client._au_route_config = config
             transport_client._au_route_endpoints = tuple(endpoints)
             transport_client._au_route_endpoint = endpoint
+            transport_client._au_drain_gate = self._drain_gate
             self._client = wrap_client_with_breaker(
                 _sync_client_view(transport_client), breaker
             )

@@ -1101,13 +1101,9 @@ def test_bug013_engine_domains_wired_into_run_doctor_and_fails_the_sweep(monkeyp
 
 
 def _multi_endpoint_engine_config(monkeypatch, *, discovery_ready: bool | None):
-    """Shared fixture for the ADR-1 / W1.1 inverted multi-contact engine check
-    (`reports/wave1/ADR-scale-trio.md` §ADR-1 decision 5): 2 reachable
-    contacts, NO static `GRAPH_RAFT_GROUP_ENDPOINTS`, mode=remote so the only
-    remaining decision is discovery reachability. `discovery_ready=None`
-    leaves `discovery_reachable` unpatched (asserts it is never even called
-    when the fast path — a static map — makes the probe unnecessary; not used
-    by these two tests but documents the contract)."""
+    """Shared fixture for the authenticated multi-contact discovery check:
+    two reachable contacts require a current ClusterMembers answer regardless
+    of any legacy static map data."""
     cfg = SimpleNamespace(graph_raft_group_endpoints={})
     resolved = SimpleNamespace(
         mode="remote",
@@ -1168,12 +1164,10 @@ def test_engine_doctor_ok_when_discovery_reachable_and_no_static_map(monkeypatch
     assert result["data"]["cluster_topology_discovery_ready"] is True
 
 
-def test_engine_doctor_skips_discovery_probe_when_static_map_configured(
+def test_engine_doctor_does_not_trust_static_map_over_discovery(
     monkeypatch,
 ):
-    """A configured static override answers the multi-contact question by
-    itself -- the (authenticated, more expensive) discovery probe is never
-    invoked."""
+    """A legacy static map cannot make a multi-contact engine ready."""
     cfg = SimpleNamespace(graph_raft_group_endpoints={"0": "tls://mapped.invalid:9443"})
     resolved = SimpleNamespace(
         mode="remote",
@@ -1204,7 +1198,7 @@ def test_engine_doctor_skips_discovery_probe_when_static_map_configured(
 
     def record_discovery_probe(*_args: object, **_kwargs: object) -> bool:
         probed.append(True)
-        return True
+        return False
 
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.core.placement_catalog.discovery_reachable",
@@ -1213,9 +1207,9 @@ def test_engine_doctor_skips_discovery_probe_when_static_map_configured(
 
     result = D._check_engine()
 
-    assert result["status"] == "ok"
-    assert probed == []
-    assert result["data"]["cluster_topology_discovery_ready"] is None
+    assert result["status"] == "fail"
+    assert probed == [True]
+    assert result["data"]["cluster_topology_discovery_ready"] is False
 
 
 def _skill_certification_config(

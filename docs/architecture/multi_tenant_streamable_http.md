@@ -115,8 +115,9 @@ decision rather than a client-lifecycle side effect.
 | *(baked-in, no flag)* graph authority | mandatory | verified session + tenant scope + explicit ACL + owner/scope filtering; missing policy infrastructure fails closed |
 | `KG_AUTH_TOKEN_REF` / `KG_IDENTITY_OAUTH2` | — | exactly one stdio identity source: provisioned-token reference or OAuth2 client credentials |
 | `KG_DEFAULT_GRAPH` | `__bus__` | the commons graph; tenants route to `tenant__<slug>__<this>` |
-| `GRAPH_SERVICE_ENDPOINTS` | one socket | stable engine coordinator; placement is resolved from the engine catalog |
-| `GRAPH_RAFT_GROUP_ENDPOINTS` | `{}` | explicit group-to-endpoint map for non-production topologies that expose groups separately; ambiguity fails closed |
+| `GRAPH_SERVICE_ENDPOINTS` | one socket | stable authenticated engine coordinator/bootstrap contact; placement is resolved from the engine catalog and verified `ClusterMembers` snapshot |
+| `GRAPH_CLUSTER_ID` / discovery bounds | unset / `30s` / `5s` | optional pinned cluster identity plus last-good/certificate freshness bounds; stale or wrong-context discovery fails closed |
+| `GRAPH_RAFT_GROUP_ENDPOINTS` | `{}` | compatibility/configuration-audit input only; live placed-group routing ignores this map and requires verified `ClusterMembers` authority |
 | `GRAPH_DB_CONNECTION_PROFILE_REF` / `STATE_DB_URI` | — | Secret-backed pg-age mirror profile (apply RLS) / central session, fleet, and queue-delivery support store |
 | `KG_ENGINE_POOL_SIZE` | `8` | bounded LRU warm set for retained graph views; it does not create per-tenant transports |
 | `KG_ENGINE_POOL_DROP_ON_EVICT` | off | unload the tenant graph from the engine on eviction (needs a pg-age mirror) |

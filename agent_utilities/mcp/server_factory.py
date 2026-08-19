@@ -1508,6 +1508,32 @@ def _fleet_registration_lifespan_factory(args: argparse.Namespace, name: str):
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await task
+            # GraphOS owns one process transport shared by all graph-scoped
+            # views.  A pod/process drain must stop new admissions, wait only
+            # the configured bounded interval for in-flight calls, and then
+            # close the transport.  A timeout is visible and is never
+            # presented as session continuity; a restarted pod must mint a
+            # fresh GraphSession and re-read ClusterMembers.
+            try:
+                from agent_utilities.knowledge_graph.core.graph_compute import (
+                    GraphComputeEngine,
+                )
+
+                engine = GraphComputeEngine.get_active()
+                if engine is not None:
+                    status = await asyncio.to_thread(engine.drain)
+                    if status is not None and getattr(status, "timed_out", False):
+                        logger.error(
+                            "GraphOS transport drain timed out with %s active request(s); "
+                            "continuity is not claimed",
+                            getattr(status, "active_requests", "unknown"),
+                        )
+                    engine.close()
+            except Exception as exc:  # noqa: BLE001 - lifecycle teardown must continue
+                logger.error(
+                    "GraphOS transport drain failed; continuity is not claimed (%s)",
+                    type(exc).__name__,
+                )
 
     return _fleet_registration_lifespan
 

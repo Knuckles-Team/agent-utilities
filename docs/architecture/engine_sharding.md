@@ -30,7 +30,10 @@ tenant  →  named graph  →  HRW (rendezvous hash)  →  shard endpoint
 
 | Flag (on `AgentConfig`) | Default | Meaning |
 |---|---|---|
-| `GRAPH_SERVICE_ENDPOINTS` | unset | Comma-separated or JSON list of shard endpoints (`unix://` / `tcp://`). Unset or one entry = today's single-engine behaviour (zero-infra preserved); 2+ entries enable sharding. |
+| `GRAPH_SERVICE_ENDPOINTS` | unset | Comma-separated or JSON list of authenticated coordinator/bootstrap contacts (`unix://` / `tcp://` / `tls://`). Unset or one entry = today's single-engine behaviour (zero-infra preserved); 2+ entries enable sharding. Contacts are not placed-group authority: authenticated `ClusterMembers` supplies the current group endpoint, leader, epoch, and certificate metadata. |
+| `GRAPH_CLUSTER_ID` | unset | Optional pinned `sha256:<digest>` cluster identity. When unset, the first authenticated `ClusterMembers` response binds the process-local cache; a restart must rediscover. |
+| `GRAPH_CLUSTER_DISCOVERY_MAX_AGE_S` / `GRAPH_CLUSTER_DISCOVERY_CLOCK_SKEW_S` | `30` / `5` | Bounds for last-good member discovery and certificate validity. Expired, stale, or context-incompatible snapshots fail closed. |
+| `GRAPH_DRAIN_TIMEOUT_S` | `15` | Bounded wait for active GraphOS/MCP calls during process or pod drain; timeout never claims continuity. |
 | `KG_DEFAULT_GRAPH` | `__bus__` | The default named graph; the ambient tenant maps onto `tenant__<t>__<default>` in sharded mode only. |
 
 Routing-key resolution (`resolve_routing_graph`):
@@ -39,9 +42,12 @@ Routing-key resolution (`resolve_routing_graph`):
 2. ambient `ActorContext` tenant → `tenant_graph_name(tenant, default)`;
 3. otherwise → the configured default graph.
 
-Endpoint strings are hashed **verbatim** — configure every client with the
+Bootstrap/contact strings are hashed **verbatim** — configure every client with the
 *identical* list (order does not matter; HRW is order-independent) and with
-explicit schemes.
+explicit schemes. For a placed group, the live client never substitutes a static
+`GRAPH_RAFT_GROUP_ENDPOINTS` entry or a route-provided endpoint hint: it must use the
+verified, freshness- and certificate-bounded `ClusterMembers` snapshot. The legacy map
+remains parseable only for migration and configuration audit.
 
 ## Operational semantics
 

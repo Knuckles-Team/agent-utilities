@@ -1381,18 +1381,15 @@ def _check_engine() -> dict[str, Any]:
     st["resolved_mode"] = resolved.mode
     endpoints = st.get("endpoints", [])
     reachable = [e for e in endpoints if e.get("reachable")]
-    has_static_topology = bool(getattr(cfg, "graph_raft_group_endpoints", {}) or {})
-    # ADR-1 / W1.1 (`reports/wave1/ADR-scale-trio.md` §ADR-1 decision 5): a
-    # multi-contact configuration no longer HARD-requires the static map --
-    # probe whether engine-authoritative discovery (`ClusterMembers`) answers
-    # from a reachable seed instead. Only probed when it could actually change
-    # the verdict below (an authenticated RPC, unlike the cheap raw-connect
-    # `reachable` probe above), and never under the hermetic testing guard
-    # (`discovery_reachable` returns False there, same as every other doctor
-    # check that would otherwise dial a real socket in tests).
+    # A static group map is retained for migration/configuration audit only; it
+    # cannot satisfy the live placement authority. Probe whether authenticated
+    # ClusterMembers answers from a reachable seed for every multi-contact
+    # topology, even when legacy map data is present. The probe is an
+    # authenticated RPC (unlike the cheap raw-connect check above), and the
+    # hermetic testing guard makes it fail closed without dialing.
     discovery_ready = (
         discovery_reachable([e["endpoint"] for e in reachable], cfg)
-        if len(endpoints) > 1 and not has_static_topology
+        if len(endpoints) > 1
         else None
     )
     # Endpoint strings can contain hostnames, usernames, local socket paths, or
@@ -1448,19 +1445,19 @@ def _check_engine() -> dict[str, Any]:
             data=redacted_status,
         )
 
-    if len(endpoints) > 1 and not has_static_topology and not discovery_ready:
+    if len(endpoints) > 1 and not discovery_ready:
         return _result(
             "engine",
             "fail",
-            "multiple coordinator contacts have no static Raft group endpoint "
-            "mapping, and engine-authoritative cluster-topology discovery "
-            "(ClusterMembers) did not answer from any reachable contact",
+            "multiple coordinator contacts have no current engine-authoritative "
+            "cluster-topology discovery (ClusterMembers) answer from any "
+            "reachable contact",
             remediation=(
                 "Ensure at least one configured GRAPH_SERVICE_ENDPOINTS seed is a "
                 "live cluster member self-reported via NodeInfoUpsert (ADR-1 / "
-                "W1.1) and answering ClusterMembers, or configure "
-                "GRAPH_RAFT_GROUP_ENDPOINTS as an explicit group-to-endpoint "
-                "override map. Clients never infer placement."
+                "W1.1) and answering the authenticated ClusterMembers RPC. "
+                "GRAPH_RAFT_GROUP_ENDPOINTS is migration/audit data only and "
+                "cannot replace discovery; clients never infer placement."
             ),
             data=redacted_status,
         )

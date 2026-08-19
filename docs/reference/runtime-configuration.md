@@ -482,6 +482,10 @@ Both GraphOS process-identity fields remain unset only for `graph-os --transport
 | `KAFKA_BOOTSTRAP_SERVERS` | `str` | `` |
 | `GRAPH_COMPUTE_BACKEND` | `str` | `rust` |
 | `GRAPH_SERVICE_ENDPOINTS` | `Union` | `unset` |
+| `GRAPH_CLUSTER_ID` | `Union` | `unset` |
+| `GRAPH_CLUSTER_DISCOVERY_MAX_AGE_S` | `float` | `30.0` |
+| `GRAPH_CLUSTER_DISCOVERY_CLOCK_SKEW_S` | `float` | `5.0` |
+| `GRAPH_DRAIN_TIMEOUT_S` | `float` | `15.0` |
 | `GRAPH_RAFT_GROUP_ENDPOINTS` | `Union` | `unset` |
 | `KG_CONNECTIONS` | `Union` | `unset` |
 | `GITLAB_INSTANCES` | `Union` | `unset` |

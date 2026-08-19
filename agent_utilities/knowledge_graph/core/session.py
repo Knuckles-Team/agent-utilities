@@ -120,6 +120,16 @@ class GraphSession:
         audience: The server-validated audience this authority was minted for.
             It is forwarded to the engine's v2 verified request context; it is
             never accepted from an HTTP/tool payload in the served profile.
+        topology_cluster_id: The verified engine cluster identity for a routed
+            transport. It is routing metadata only and never changes the
+            authenticated actor/tenant authority.
+        membership_epoch: The monotonic ``ClusterMembers`` membership epoch
+            observed for this routed operation.
+        certificate_rotation_epoch: The highest member certificate rotation
+            epoch represented by the snapshot used for this route.
+        continuity_expires_at: A monotonic, process-local expiry for the
+            discovered route. It deliberately is not durable session state;
+            a restarted pod must perform authenticated discovery again.
     """
 
     actor: ActorContext
@@ -133,6 +143,10 @@ class GraphSession:
     policy_version: str | int = ""
     trace_context: str | None = None
     audience: str = ""
+    topology_cluster_id: str | None = None
+    membership_epoch: int | None = None
+    certificate_rotation_epoch: int | None = None
+    continuity_expires_at: float | None = None
 
     def __post_init__(self) -> None:
         actor_id = str(getattr(self.actor, "actor_id", "") or "").strip()
@@ -192,6 +206,10 @@ class GraphSession:
         endpoint: str,
         placement_group: int | None,
         catalog_epoch: int,
+        topology_cluster_id: str | None = None,
+        membership_epoch: int | None = None,
+        certificate_rotation_epoch: int | None = None,
+        continuity_expires_at: float | None = None,
     ) -> GraphSession:
         """Return a copy carrying server-resolved placement metadata.
 
@@ -203,6 +221,16 @@ class GraphSession:
             endpoint=endpoint,
             placement_group=placement_group,
             catalog_epoch=int(catalog_epoch),
+            topology_cluster_id=topology_cluster_id,
+            membership_epoch=(
+                int(membership_epoch) if membership_epoch is not None else None
+            ),
+            certificate_rotation_epoch=(
+                int(certificate_rotation_epoch)
+                if certificate_rotation_epoch is not None
+                else None
+            ),
+            continuity_expires_at=continuity_expires_at,
         )
 
     def engine_verified_context(self) -> dict[str, Any]:
@@ -353,6 +381,13 @@ class GraphSession:
             0, int(minimum_ttl_seconds)
         ) >= int(expiry):
             raise SessionExpiredError("Verified graph authority expires too soon")
+        if (
+            self.continuity_expires_at is not None
+            and time.monotonic() >= float(self.continuity_expires_at)
+        ):
+            raise SessionExpiredError(
+                "Discovered engine route continuity has expired; refresh ClusterMembers"
+            )
 
     # ------------------------------------------------------------------
     # Enforcement
@@ -425,6 +460,10 @@ def resolve_session(
         "policy_version",
         "trace_context",
         "audience",
+        "topology_cluster_id",
+        "membership_epoch",
+        "certificate_rotation_epoch",
+        "continuity_expires_at",
     )
     if any(
         getattr(candidate, name) != getattr(ambient, name) for name in authority_fields

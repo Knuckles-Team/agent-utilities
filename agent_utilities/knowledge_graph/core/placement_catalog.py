@@ -8,8 +8,9 @@ catch-up → fenced cutover), and virtual partitions (one tenant can span
 groups). AU is a CONSUMER of that authority, never a second one — this module
 is the client-side seam that makes that true. The engine returns a complete
 route for every graph, including its current unplaced and single-node policy.
-This module caches that answer and maps the returned Raft group to deployment
-topology. It never hashes, guesses, disables the catalog, or treats an
+This module caches that answer and maps a placed Raft group through the same
+client's verified ``ClusterMembers`` snapshot. Configured contacts are bootstrap
+seeds only. It never hashes, guesses, disables the catalog, or treats an
 unreachable authority as permission to choose a shard.
 
 :func:`resolve_placement` is the ONE entrypoint (mirrors the "one resolver"
@@ -30,6 +31,8 @@ AU calls the engine's typed ``client.placement.route(tenant, sub_key,
 client_epoch=...)`` — no raw-method alias, no fallback dialect. Every answer
 is validated (:func:`_validate_answer`) against the requested partition and
 against the engine's own fencing invariants before it is trusted or cached;
+placed answers additionally require the client's verified ``ClusterMembers``
+snapshot before an endpoint is exposed;
 an invalid, non-authoritative, or mismatched answer is a hard error
 (:class:`PlacementAuthorityError`), never a silently-accepted guess.
 """
@@ -46,6 +49,12 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 from agent_utilities.protocols.epistemic_operations import PlacementRoute
+
+from .cluster_discovery import (
+    ClusterDiscoveryError,
+    ClusterDiscoverySnapshot,
+    ClusterTopologyAuthority,
+)
 
 __all__ = [
     "PlacementAuthorityError",
@@ -96,6 +105,11 @@ class PlacementResult:
     group: int
     fencing_token: int
     placed: bool
+    cluster_id: str | None = None
+    membership_epoch: int | None = None
+    certificate_rotation_epoch: int | None = None
+    discovery_expires_at: float | None = None
+    reconnect_required: bool = False
 
 
 @dataclass
@@ -110,6 +124,8 @@ class _CacheEntry:
 # long, and every entry is independently invalidated/refreshed.
 _cache: dict[tuple[Any, ...], _CacheEntry] = {}
 _cache_lock = threading.Lock()
+_discovery_authorities: dict[tuple[float, float], ClusterTopologyAuthority] = {}
+_discovery_authority_lock = threading.Lock()
 
 
 def _cache_key(
@@ -125,10 +141,17 @@ def invalidate(graph_name: str | None = None) -> None:
     with _cache_lock:
         if graph_name is None:
             _cache.clear()
-            return
-        tenant, sub_key = split_tenant_key(graph_name)
-        for key in [k for k in _cache if k[1] == tenant and k[2] == sub_key]:
-            del _cache[key]
+        else:
+            tenant, sub_key = split_tenant_key(graph_name)
+            for key in [k for k in _cache if k[1] == tenant and k[2] == sub_key]:
+                del _cache[key]
+    # A failed member connect or an explicit stale-route refresh must not
+    # continue using the prior leader/certificate snapshot.  Clearing the
+    # bounded process cache is safe; the next request re-reads the authenticated
+    # ClusterMembers authority and repopulates it per request context.
+    with _discovery_authority_lock:
+        for authority in _discovery_authorities.values():
+            authority.invalidate()
 
 
 def _catalog_ttl_s(config: Any) -> float:
@@ -137,6 +160,34 @@ def _catalog_ttl_s(config: Any) -> float:
     except (TypeError, ValueError):
         return _DEFAULT_TTL_S
     return ttl if ttl > 0 else _DEFAULT_TTL_S
+
+
+def _discovery_authority(config: Any) -> ClusterTopologyAuthority:
+    """Return the bounded discovery consumer for one config policy.
+
+    The authority cache is keyed by policy, and its snapshots are separately
+    keyed by the verified tenant/principal/agent binding.  A topology answer
+    can therefore never bleed across tenants or survive beyond the explicit
+    freshness/certificate bound merely because this module is process-global.
+    """
+    try:
+        max_age_s = float(getattr(config, "graph_discovery_max_age_s", 30.0))
+    except (TypeError, ValueError):
+        max_age_s = 30.0
+    try:
+        clock_skew_s = float(getattr(config, "graph_discovery_clock_skew_s", 5.0))
+    except (TypeError, ValueError):
+        clock_skew_s = 5.0
+    key = (max_age_s, clock_skew_s)
+    with _discovery_authority_lock:
+        authority = _discovery_authorities.get(key)
+        if authority is None:
+            authority = ClusterTopologyAuthority(
+                max_age_s=max_age_s,
+                clock_skew_s=clock_skew_s,
+            )
+            _discovery_authorities[key] = authority
+        return authority
 
 
 def _hermetic_testing_guard(client_factory: Callable[[str], Any] | None) -> bool:
@@ -204,14 +255,15 @@ def _validate_answer(
     """Validate the wire answer and split it into the schema-locked
     ``PlacementRoute`` plus its ADR-1 ``endpoints`` extension.
 
-    ``endpoints`` (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, ADR-1 / W1.1) is deliberately
+    ``endpoints`` (a retired ADR-1 compatibility extension) is deliberately
     NOT part of ``agent_utilities.protocols.epistemic_operations.PlacementRoute``:
     that schema-generated model is ``extra="forbid"`` (it is digest-pinned
     against the authoritative catalog, shared verbatim with the engine's
     cross-repo-locked DTO, which the engine itself documents as carrying "no
     deployment endpoint material"). Feeding the raw wire dict straight into
     ``model_validate`` would raise on the additive key, so it is stripped out
-    and returned separately instead.
+    and returned separately instead. Live endpoint selection ignores it and
+    consumes only ``ClusterMembers`` through :mod:`.cluster_discovery`.
     """
     if not isinstance(answer, dict):
         raise PlacementAuthorityError("engine returned an invalid placement route")
@@ -240,45 +292,31 @@ def _map_endpoint(
     group: int,
     contacts: tuple[str, ...],
     config: Any,
-    route_endpoints: tuple[str, ...] = (),
+    discovery: ClusterDiscoverySnapshot | None = None,
 ) -> str:
-    """Resolve `group` to a client endpoint (CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw, ADR-1 / W1.1
-    resolution order):
+    """Resolve a placed group only from verified ``ClusterMembers``.
 
-    (a) ``GRAPH_RAFT_GROUP_ENDPOINTS`` when it has an explicit entry for
-        `group` — an OPERATOR-CONFIGURED OVERRIDE always wins when present
-        (the same "explicit config beats an auto-detected default" contract
-        every other override in this codebase follows, e.g.
-        ``TenantCatalog``'s explicit shard assignment beating the FNV-1a
-        hash) — the deployment case this exists for is exactly one where
-        engine-discovered addresses are not reachable from this client (NAT,
-        an ingress-only network boundary, ...).
-    (b) `route_endpoints` (NEW) — the engine's own live, leader-first member
-        list for the resolved group (``PlacementRoute.endpoints``),
-        authoritative and requiring no static configuration at all.
-    (c) The single configured contact, unchanged.
-
-    Raises :class:`PlacementTopologyError` when none apply — multiple
-    contacts, no override, and no engine-discovered endpoints yet (e.g. no
-    cluster member has self-reported).
+    Configured contacts remain bootstrap seeds.  They are not a per-group
+    endpoint authority, and neither the legacy ``GRAPH_RAFT_GROUP_ENDPOINTS``
+    map nor the additive ``PlacementRoute.endpoints`` hint is accepted for a
+    placed group.  Group zero is the engine's explicit unplaced/control route;
+    any configured seed can serve that route, so the first stable contact is
+    sufficient and does not claim placement ownership.
     """
-    topology = getattr(config, "graph_raft_group_endpoints", None) or {}
-    if isinstance(topology, dict):
-        target = topology.get(str(group), topology.get(group))
-        if target:
-            logger.debug(
-                "using the static GRAPH_RAFT_GROUP_ENDPOINTS override for group %s "
-                "(engine-discovered endpoints, if any, were not used)",
-                group,
-            )
-            return str(target)
-    if route_endpoints:
-        return route_endpoints[0]
-    if len(contacts) == 1:
-        return contacts[0]
-    raise PlacementTopologyError(
-        "authoritative group has no configured client endpoint"
-    )
+    if group == 0:
+        if contacts:
+            return contacts[0]
+        raise PlacementTopologyError("unplaced route has no configured discovery seed")
+    if discovery is None:
+        raise PlacementTopologyError(
+            "placed route has no verified ClusterMembers snapshot"
+        )
+    try:
+        return discovery.endpoint_for_group(group).client_endpoint
+    except ClusterDiscoveryError as exc:
+        raise PlacementTopologyError(
+            f"verified ClusterMembers has no usable endpoint for group {group}"
+        ) from exc
 
 
 def _request_authority(config: Any) -> tuple[str, dict[str, Any]]:
@@ -381,6 +419,7 @@ def _attempt_route(
     client_epoch: int,
     auth_secret: str | None,
     verified_context: dict[str, Any] | None,
+    force_discovery_refresh: bool = False,
 ) -> PlacementResult:
     """Try every configured contact once, under ONE resolved identity.
 
@@ -405,13 +444,56 @@ def _attempt_route(
                     verified_context=verified_context,
                 )
             answer = _catalog_call(client, tenant, sub_key, client_epoch)
-            route, route_endpoints = _validate_answer(answer, tenant, sub_key)
+            route, _route_endpoints = _validate_answer(answer, tenant, sub_key)
+            discovery: ClusterDiscoverySnapshot | None = None
+            prior_discovery: ClusterDiscoverySnapshot | None = None
+            if route.placed and route.group > 0:
+                try:
+                    authority = _discovery_authority(config)
+                    discovery_context = verified_context or authority.context_for(client)
+                    if discovery_context is not None:
+                        prior_discovery = authority.last_good_for(
+                            verified_context=discovery_context,
+                            expected_cluster_id=getattr(config, "graph_cluster_id", None),
+                        )
+                    discovery = authority.read(
+                        client,
+                        verified_context=verified_context,
+                        expected_cluster_id=getattr(config, "graph_cluster_id", None),
+                        min_placement_epoch=route.epoch,
+                        force_refresh=force_discovery_refresh,
+                    )
+                except ClusterDiscoveryError as exc:
+                    raise PlacementAuthorityError(
+                        "engine placement route lacks a current verified ClusterMembers snapshot"
+                    ) from exc
             return PlacementResult(
-                endpoint=_map_endpoint(route.group, contacts, config, route_endpoints),
+                endpoint=_map_endpoint(route.group, contacts, config, discovery),
                 epoch=route.epoch,
                 group=route.group,
                 fencing_token=route.fencing_token,
                 placed=route.placed,
+                cluster_id=discovery.cluster_id if discovery is not None else None,
+                membership_epoch=(
+                    discovery.membership_epoch if discovery is not None else None
+                ),
+                certificate_rotation_epoch=(
+                    discovery.certificate_epoch if discovery is not None else None
+                ),
+                discovery_expires_at=(
+                    discovery.expires_at_monotonic if discovery is not None else None
+                ),
+                reconnect_required=bool(
+                    discovery is not None
+                    and prior_discovery is not None
+                    and prior_discovery.cluster_id == discovery.cluster_id
+                    and (
+                        prior_discovery.membership_epoch != discovery.membership_epoch
+                        or prior_discovery.placement_epoch != discovery.placement_epoch
+                        or prior_discovery.certificate_epoch
+                        != discovery.certificate_epoch
+                    )
+                ),
             )
         except PlacementTopologyError:
             raise
@@ -447,6 +529,7 @@ def _query_catalog(
     *,
     client_factory: Callable[[str], Any] | None,
     client_epoch: int,
+    force_discovery_refresh: bool = False,
 ) -> PlacementResult:
     """Ask every configured contact for an authoritative route; never guess.
 
@@ -481,6 +564,16 @@ def _query_catalog(
     verified_context: dict[str, Any] | None = None
     if client_factory is None:
         auth_secret, verified_context = _request_authority(config)
+    else:
+        # The single-endpoint production reuse seam supplies a client factory
+        # only to avoid opening a second socket. It still inherits the current
+        # verified GraphSession for discovery binding; hermetic fakes without a
+        # session must expose their own verified-context seam or fail closed in
+        # ``ClusterTopologyAuthority``.
+        try:
+            _unused_secret, verified_context = _request_authority(config)
+        except PlacementAuthorityError:
+            verified_context = None
 
     try:
         return _attempt_route(
@@ -492,6 +585,7 @@ def _query_catalog(
             client_epoch=client_epoch,
             auth_secret=auth_secret,
             verified_context=verified_context,
+            force_discovery_refresh=force_discovery_refresh,
         )
     except PlacementAuthorityError as exc:
         if not _admin_capability_denied(exc):
@@ -529,6 +623,7 @@ def _query_catalog(
                 client_epoch=client_epoch,
                 auth_secret=broker_secret,
                 verified_context=broker_context,
+                force_discovery_refresh=force_discovery_refresh,
             )
         except Exception:
             # The broker fallback failed too (e.g. the broker identity ALSO
@@ -555,9 +650,9 @@ def discovery_reachable(
     W1.1 decision 5).
 
     Backs the inverted `agent_utilities.deployment.doctor` engine check: a
-    multi-contact configuration with no static `GRAPH_RAFT_GROUP_ENDPOINTS`
-    map is now OK **iff** discovery answers from a seed — the failure mode
-    becomes "discovery unreachable", not "map missing". Tries each endpoint in
+    multi-contact configuration is OK **iff** verified discovery answers from
+    a seed — the failure mode is "discovery unreachable", regardless of any
+    legacy map. A static map is never used as a live authority. Tries each endpoint in
     order (mirrors :func:`_query_catalog`'s try-every-contact discipline) and
     returns on the first success; never raises — a probe result, not an
     authoritative route. Respects the SAME hermetic testing guard as
@@ -590,10 +685,12 @@ def discovery_reachable(
                 client = _default_connect(
                     contact, auth_secret, config, verified_context=verified_context
                 )
-            topology = getattr(client, "cluster_topology", None)
-            if topology is None or not hasattr(topology, "members"):
-                continue
-            topology.members()
+            _discovery_authority(config).read(
+                client,
+                verified_context=verified_context,
+                expected_cluster_id=getattr(config, "graph_cluster_id", None),
+                force_refresh=True,
+            )
             return True
         except Exception as exc:  # noqa: BLE001 - try the next seed; a probe never raises
             logger.debug(
@@ -663,6 +760,10 @@ def resolve_placement(
         config,
         client_factory=client_factory,
         client_epoch=client_epoch,
+        # A placement-cache miss is the reconnect cadence. Refreshing the
+        # verified member snapshot on that boundary observes leader/member/
+        # certificate changes even when the old endpoint still accepts TCP.
+        force_discovery_refresh=True,
     )
     with _cache_lock:
         _cache[key] = _CacheEntry(

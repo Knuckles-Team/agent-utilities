@@ -471,9 +471,14 @@ KAFKA_BOOTSTRAP_SERVERS=kafka.example.test:9092
 # fencing token come from the engine catalog and stale routes refresh once.
 GRAPH_SERVICE_ENDPOINTS=tls://kg-coordinator.example.test:9100
 ENGINE_TLS_PROFILE_REF=vault://platform/engine/tls-profile
-# Only a non-production topology exposing separate group listeners sets this
-# explicit JSON map; an endpointless route without a map fails closed.
+# Legacy compatibility input only; live placed-group routing uses the authenticated
+# ClusterMembers snapshot returned by the coordinator. It is never endpoint authority.
 #GRAPH_RAFT_GROUP_ENDPOINTS={"0":"tls://kg-group-0.example.test:9100"}
+# Optional deployment pin and bounded last-good discovery/termination behavior.
+#GRAPH_CLUSTER_ID=sha256:<verified-cluster-digest>
+#GRAPH_CLUSTER_DISCOVERY_MAX_AGE_S=30
+#GRAPH_CLUSTER_DISCOVERY_CLOCK_SKEW_S=5
+#GRAPH_DRAIN_TIMEOUT_S=15
 # A concrete value is injected by the deployment supervisor at process start.
 GRAPH_SERVICE_AUTH_SECRET=${GRAPH_SERVICE_AUTH_SECRET_FROM_SUPERVISOR}
 #KG_DEFAULT_GRAPH=__bus__           # default; policy-mapped before catalog lookup

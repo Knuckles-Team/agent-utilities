@@ -4210,15 +4210,60 @@ class AgentConfig(BaseSettings):
     Unset selects the packaged local engine lifecycle. Multiple entries are
     placement-authority contacts; callers never infer graph placement."""
 
+    graph_cluster_id: str | None = Field(default=None, alias="GRAPH_CLUSTER_ID")
+    """Optional pinned ``sha256:…`` cluster identity for discovery.
+
+    When unset, the first authenticated ``ClusterMembers`` response binds the
+    process-local discovery cache to its verified cluster identity. A restart
+    still performs a fresh discovery read; this field is only a deployment
+    pin, never an endpoint or membership source.
+    """
+
+    graph_discovery_max_age_s: float = Field(
+        default=30.0,
+        ge=0.001,
+        le=300.0,
+        alias="GRAPH_CLUSTER_DISCOVERY_MAX_AGE_S",
+    )
+    """Maximum age of a last-good authenticated ``ClusterMembers`` snapshot."""
+
+    graph_discovery_clock_skew_s: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=30.0,
+        alias="GRAPH_CLUSTER_DISCOVERY_CLOCK_SKEW_S",
+    )
+    """Allowed certificate clock skew for discovered member metadata."""
+
+    graph_drain_timeout_s: float = Field(
+        default=15.0,
+        ge=0.1,
+        le=300.0,
+        alias="GRAPH_DRAIN_TIMEOUT_S",
+    )
+    """Bounded wait for active GraphOS/MCP engine calls during pod/process drain."""
+
+    @field_validator("graph_cluster_id")
+    @classmethod
+    def _validate_graph_cluster_id(cls, value: str | None) -> str | None:
+        if value is None or not str(value).strip():
+            return None
+        rendered = str(value).strip().lower()
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", rendered):
+            raise ValueError("GRAPH_CLUSTER_ID must be a sha256 digest")
+        return rendered
+
     graph_raft_group_endpoints: dict[str, str] | None = Field(
         default=None, alias="GRAPH_RAFT_GROUP_ENDPOINTS"
     )
     """Optional JSON map from authoritative Raft group id to client endpoint.
 
-    It is required only when a deployment exposes different groups through
-    different endpoints. The recommended production topology has one stable
-    coordinator in ``GRAPH_SERVICE_ENDPOINTS`` and needs no map. Values use the
-    same ``unix://`` or ``tcp://`` endpoint syntax as the contact list.
+    Retained as a compatibility/configuration-audit surface only. Live AU
+    placement consumers no longer use this map as endpoint authority: the
+    authenticated engine ``ClusterMembers`` snapshot is the sole source for
+    placed-group addresses. Values use the same endpoint syntax as the contact
+    list so older configuration can be parsed and retired deliberately, but a
+    stale or guessed map cannot override membership/certificate state.
     """
 
     @field_validator("graph_service_endpoints", mode="before")
@@ -4815,6 +4860,11 @@ class AgentConfig(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_engine_resource_budgets(self) -> "AgentConfig":
+        if self.graph_discovery_clock_skew_s > self.graph_discovery_max_age_s:
+            raise ValueError(
+                "GRAPH_CLUSTER_DISCOVERY_CLOCK_SKEW_S must not exceed "
+                "GRAPH_CLUSTER_DISCOVERY_MAX_AGE_S"
+            )
         if (
             self.epistemic_graph_ast_max_total_bytes
             < self.epistemic_graph_ast_max_source_bytes

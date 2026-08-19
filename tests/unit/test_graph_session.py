@@ -183,6 +183,20 @@ def test_route_and_transaction_helpers_do_not_widen_authority():
     assert routed.catalog_epoch == 17
 
 
+def test_expired_discovered_route_fails_at_the_session_authority_boundary():
+    routed = _session().with_route(
+        endpoint="tls://member.invalid:9443",
+        placement_group=3,
+        catalog_epoch=17,
+        topology_cluster_id="sha256:" + "a" * 64,
+        membership_epoch=8,
+        certificate_rotation_epoch=2,
+        continuity_expires_at=time.monotonic() - 1.0,
+    )
+    with pytest.raises(SessionExpiredError, match="route continuity"):
+        routed.engine_verified_context()
+
+
 def test_scope_hierarchy_requires_explicit_scope_not_role():
     writer = _session(scopes=frozenset({"kg:write"}))
     writer.require_scope("kg:read")

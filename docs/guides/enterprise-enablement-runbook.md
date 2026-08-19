@@ -121,10 +121,13 @@ Clients contact a stable coordinator and never infer placement from endpoint nam
 }
 ```
 
-If a deployment exposes Raft groups separately, add the strict
-`GRAPH_RAFT_GROUP_ENDPOINTS` map generated from the external placement inventory.
-The coordinator remains authoritative for graph ownership, epochs, and fences.
-Unreachable or ambiguous authority fails closed.
+The coordinator returns the authenticated `ClusterMembers` snapshot used for graph
+ownership, group endpoints, leader/epoch state, and certificate rotation metadata.
+`GRAPH_RAFT_GROUP_ENDPOINTS` may remain present while an installation migrates, but
+it is configuration-audit data only; live placement never trusts it or a caller-supplied
+route endpoint. Pin `GRAPH_CLUSTER_ID` when the deployment has a known cluster digest,
+and set the discovery age/skew bounds explicitly for the environment. Unreachable,
+stale, wrong-context, or ambiguous authority fails closed.
 
 Verify coordinator health, route a graph to its authoritative group, and confirm
 that a failed group produces an explicit error rather than a local substitute.
