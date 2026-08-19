@@ -41,15 +41,21 @@ worker fleet executes it. The queue *transport* reuses the KG-2.55 resolution
 LOCKED table ``agent_dispatch_queue``, or the zero-infra per-host SQLite file.
 """
 
+import hashlib
+import hmac
+import json
 import logging
+import math
+import secrets
 import threading
 import time
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +67,325 @@ DISPATCH_GROUP = "agent-dispatch"
 #: Envelope kinds the dispatch workers know how to execute.
 KIND_GOAL_LOOP = "goal_loop"
 KIND_ORCHESTRATOR_TASK = "orchestrator_task"
+
+# The broker carrier is deliberately a small, versioned, independently
+# verifiable envelope.  It is not a replacement for the native WorkItem
+# authority: the consumer verifies this transport proof first, then re-reads
+# the admitted WorkItem and claims/fences it through the engine.
+DISPATCH_CARRIER_VERSION = 1
+DISPATCH_CARRIER_TTL_S = 300.0
+DISPATCH_CARRIER_MAX_CLOCK_SKEW = 30.0
+DISPATCH_CARRIER_MAX_FIELD_BYTES = 256
+
+
+class DispatchCarrierError(ValueError):
+    """A dispatch message has no current, authentic session carrier."""
+
+
+class DispatchCarrierSecretUnavailable(DispatchCarrierError):
+    """No deployment-wide key is available to authenticate broker messages."""
+
+
+_dispatch_ephemeral_secret: bytes | None = None
+_dispatch_ephemeral_secret_lock = threading.Lock()
+
+
+def _dispatch_carrier_secret(secret: str | bytes | None = None) -> bytes:
+    """Resolve the one deployment-wide HMAC authority for dispatch carriers.
+
+    ``AGENT_UTILITIES_TOKEN_SECRET`` is the explicit cross-process authority;
+    ``GRAPH_SERVICE_AUTH_SECRET`` is accepted as the already-shared service
+    identity key for deployments that intentionally use one.  A development
+    fallback reuses the run-token secret's process-local random key so the
+    zero-infrastructure single-process profile remains usable.  Production
+    profiles fail closed when neither configured secret exists: a process-local
+    key can never authenticate a carrier after a replica migration.
+    """
+    if isinstance(secret, bytes):
+        key = secret
+    elif secret is not None:
+        key = str(secret).encode("utf-8")
+    else:
+        from agent_utilities.core.config import setting
+
+        configured = str(
+            setting("AGENT_UTILITIES_TOKEN_SECRET", "")
+            or setting("GRAPH_SERVICE_AUTH_SECRET", "")
+            or ""
+        ).strip()
+        key = configured.encode("utf-8") if configured else b""
+    if key:
+        return key
+
+    from agent_utilities.core.profile_guard import is_production_profile
+
+    if is_production_profile():
+        raise DispatchCarrierSecretUnavailable(
+            "dispatch carrier authentication requires AGENT_UTILITIES_TOKEN_SECRET "
+            "or GRAPH_SERVICE_AUTH_SECRET in production"
+        )
+
+    # Match run-token's zero-config development posture without introducing a
+    # second deterministic or guessable key.  This path is intentionally not
+    # accepted by production profiles and therefore cannot be used for a
+    # cross-replica deployment by accident.
+    global _dispatch_ephemeral_secret
+    with _dispatch_ephemeral_secret_lock:
+        if _dispatch_ephemeral_secret is None:
+            _dispatch_ephemeral_secret = secrets.token_bytes(32)
+        return _dispatch_ephemeral_secret
+
+
+def _carrier_text(value: Any, field_name: str, *, allow_empty: bool = False) -> str:
+    rendered = str(value or "")
+    encoded = rendered.encode("utf-8")
+    if not rendered and allow_empty:
+        return rendered
+    if not rendered or len(encoded) > DISPATCH_CARRIER_MAX_FIELD_BYTES or "\x00" in rendered:
+        raise DispatchCarrierError(f"dispatch carrier {field_name} is invalid")
+    return rendered
+
+
+class DispatchCarrier(BaseModel):
+    """Signed broker proof binding one turn to tenant/session/job and time.
+
+    The signature covers every field except itself.  A duplicate delivery may
+    therefore carry the same proof, but it still cannot change identity or
+    target; native WorkItem idempotency/fencing remains the authority that
+    turns that duplicate into a skip.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    version: int = Field(default=DISPATCH_CARRIER_VERSION)
+    tenant: str
+    session_id: str
+    job_id: str
+    kind: str
+    payload_ref: str
+    issued_at: float
+    expires_at: float
+    nonce: str
+    signature: str
+    # Execution selectors are signed too; otherwise a broker tamper could
+    # keep the same job/session proof while swapping the selected agent or
+    # removing the dispatch deadline.
+    agent_name: str = ""
+    deadline_unix: float | None = None
+
+    @field_validator("version")
+    @classmethod
+    def _version(cls, value: int) -> int:
+        if value != DISPATCH_CARRIER_VERSION:
+            raise DispatchCarrierError(
+                f"unsupported dispatch carrier version {value!r}"
+            )
+        return value
+
+    @field_validator(
+        "tenant",
+        "session_id",
+        "job_id",
+        "kind",
+        "payload_ref",
+        "nonce",
+        "signature",
+        "agent_name",
+    )
+    @classmethod
+    def _bounded_text(cls, value: str, info: Any) -> str:
+        return _carrier_text(
+            value,
+            info.field_name,
+            allow_empty=info.field_name
+            in {"tenant", "kind", "payload_ref", "agent_name"},
+        )
+
+    @staticmethod
+    def _canonical_payload(
+        *,
+        version: int,
+        tenant: str,
+        session_id: str,
+        job_id: str,
+        kind: str,
+        payload_ref: str,
+        agent_name: str,
+        deadline_unix: float | None,
+        issued_at: float,
+        expires_at: float,
+        nonce: str,
+    ) -> bytes:
+        return json.dumps(
+            {
+                "expires_at": expires_at,
+                "deadline_unix": deadline_unix,
+                "issued_at": issued_at,
+                "agent_name": agent_name,
+                "job_id": job_id,
+                "kind": kind,
+                "nonce": nonce,
+                "payload_ref": payload_ref,
+                "session_id": session_id,
+                "tenant": tenant,
+                "version": version,
+            },
+            ensure_ascii=True,
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+
+    @classmethod
+    def mint(
+        cls,
+        *,
+        tenant: str,
+        session_id: str,
+        job_id: str,
+        kind: str = "",
+        payload_ref: str = "",
+        agent_name: str = "",
+        deadline_unix: float | None = None,
+        ttl_seconds: float = DISPATCH_CARRIER_TTL_S,
+        now: float | None = None,
+        nonce: str | None = None,
+        secret: str | bytes | None = None,
+        allow_empty_tenant: bool = False,
+    ) -> "DispatchCarrier":
+        tenant = _carrier_text(tenant, "tenant", allow_empty=allow_empty_tenant)
+        session_id = _carrier_text(session_id, "session_id")
+        job_id = _carrier_text(job_id, "job_id")
+        kind = _carrier_text(kind, "kind", allow_empty=True)
+        payload_ref = _carrier_text(payload_ref, "payload_ref", allow_empty=True)
+        agent_name = _carrier_text(agent_name, "agent_name", allow_empty=True)
+        issued_at = float(time.time() if now is None else now)
+        ttl = float(ttl_seconds)
+        if not math.isfinite(issued_at) or not math.isfinite(ttl) or (
+            deadline_unix is not None and not math.isfinite(float(deadline_unix))
+        ):
+            raise DispatchCarrierError("dispatch carrier timestamps must be finite")
+        if ttl <= 0 or ttl > DISPATCH_CARRIER_TTL_S:
+            raise DispatchCarrierError("dispatch carrier TTL is outside its bound")
+        expires_at = issued_at + ttl
+        carrier_nonce = _carrier_text(
+            nonce or secrets.token_urlsafe(18), "nonce"
+        )
+        payload = cls._canonical_payload(
+            version=DISPATCH_CARRIER_VERSION,
+            tenant=tenant,
+            session_id=session_id,
+            job_id=job_id,
+            kind=kind,
+            payload_ref=payload_ref,
+            agent_name=agent_name,
+            deadline_unix=(
+                float(deadline_unix) if deadline_unix is not None else None
+            ),
+            issued_at=issued_at,
+            expires_at=expires_at,
+            nonce=carrier_nonce,
+        )
+        signature = hmac.new(
+            _dispatch_carrier_secret(secret), payload, hashlib.sha256
+        ).hexdigest()
+        return cls(
+            tenant=tenant,
+            session_id=session_id,
+            job_id=job_id,
+            kind=kind,
+            payload_ref=payload_ref,
+            agent_name=agent_name,
+            deadline_unix=(
+                float(deadline_unix) if deadline_unix is not None else None
+            ),
+            issued_at=issued_at,
+            expires_at=expires_at,
+            nonce=carrier_nonce,
+            signature=signature,
+        )
+
+    def verify(
+        self,
+        *,
+        tenant: str,
+        session_id: str,
+        job_id: str,
+        kind: str = "",
+        payload_ref: str = "",
+        agent_name: str = "",
+        deadline_unix: float | None = None,
+        now: float | None = None,
+        secret: str | bytes | None = None,
+        require_tenant: bool = True,
+    ) -> "DispatchCarrier":
+        expected_tenant = _carrier_text(
+            tenant, "tenant", allow_empty=not require_tenant
+        )
+        expected_session = _carrier_text(session_id, "session_id")
+        expected_job = _carrier_text(job_id, "job_id")
+        expected_kind = _carrier_text(kind, "kind", allow_empty=True)
+        expected_payload_ref = _carrier_text(
+            payload_ref, "payload_ref", allow_empty=True
+        )
+        expected_agent_name = _carrier_text(
+            agent_name, "agent_name", allow_empty=True
+        )
+        if deadline_unix is not None and not math.isfinite(float(deadline_unix)):
+            raise DispatchCarrierError("dispatch deadline must be finite")
+        if self.version != DISPATCH_CARRIER_VERSION:
+            raise DispatchCarrierError("unsupported dispatch carrier version")
+        if require_tenant and not self.tenant:
+            raise DispatchCarrierError("dispatch carrier tenant is required")
+        if (
+            self.tenant,
+            self.session_id,
+            self.job_id,
+            self.kind,
+            self.payload_ref,
+            self.agent_name,
+            self.deadline_unix,
+        ) != (
+            expected_tenant,
+            expected_session,
+            expected_job,
+            expected_kind,
+            expected_payload_ref,
+            expected_agent_name,
+            float(deadline_unix) if deadline_unix is not None else None,
+        ):
+            raise DispatchCarrierError("dispatch carrier identity binding mismatch")
+        if not all(math.isfinite(value) for value in (self.issued_at, self.expires_at)):
+            raise DispatchCarrierError("dispatch carrier timestamps must be finite")
+        if self.expires_at <= self.issued_at:
+            raise DispatchCarrierError("dispatch carrier expiry must follow issuance")
+        if self.expires_at - self.issued_at > DISPATCH_CARRIER_TTL_S:
+            raise DispatchCarrierError("dispatch carrier lifetime exceeds its bound")
+        moment = float(time.time() if now is None else now)
+        if not math.isfinite(moment):
+            raise DispatchCarrierError("dispatch carrier verification time is invalid")
+        if self.issued_at > moment + DISPATCH_CARRIER_MAX_CLOCK_SKEW:
+            raise DispatchCarrierError("dispatch carrier was issued in the future")
+        if moment >= self.expires_at:
+            raise DispatchCarrierError("dispatch carrier has expired")
+        payload = self._canonical_payload(
+            version=self.version,
+            tenant=self.tenant,
+            session_id=self.session_id,
+            job_id=self.job_id,
+            kind=self.kind,
+            payload_ref=self.payload_ref,
+            agent_name=self.agent_name,
+            deadline_unix=self.deadline_unix,
+            issued_at=self.issued_at,
+            expires_at=self.expires_at,
+            nonce=self.nonce,
+        )
+        expected_signature = hmac.new(
+            _dispatch_carrier_secret(secret), payload, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(self.signature, expected_signature):
+            raise DispatchCarrierError("dispatch carrier signature is invalid")
+        return self
 
 
 class DispatchQueueFull(RuntimeError):
@@ -101,6 +426,10 @@ class AgentTurnEnvelope(BaseModel):
     deadline_unix: float | None = None
     attempt: int = 0
     enqueued_at: float = Field(default_factory=time.time)
+    #: Signed transport proof.  It is added at the explicit enqueue boundary;
+    #: direct model construction remains useful for local inspection/fixtures,
+    #: but the consumer refuses a delivery whose proof is absent or stale.
+    carrier: DispatchCarrier | None = None
 
     @field_validator("prio_bucket", mode="before")
     @classmethod
@@ -118,9 +447,85 @@ class AgentTurnEnvelope(BaseModel):
         return _coerce_prio_bucket(v)
 
     def to_item(self) -> dict[str, Any]:
-        """Serialize for the queue. ``session_id`` stays top-level so
-        ``partition_key_for`` keys the message without decoding metadata."""
+        """Serialize for the queue, including the authenticated carrier.
+
+        ``session_id`` stays top-level so ``partition_key_for`` keys the
+        message without decoding metadata.  Direct local callers that have not
+        gone through :func:`enqueue_agent_turn` get a development-safe carrier
+        for round-trip inspection; the consumer still requires a non-empty
+        tenant and verifies it against the durable WorkItem.
+        """
+        if self.carrier is None:
+            self.carrier = DispatchCarrier.mint(
+                tenant=self.tenant,
+                session_id=self.session_id,
+                job_id=self.job_id,
+                kind=self.kind,
+                payload_ref=self.payload_ref,
+                agent_name=self.agent_name,
+                deadline_unix=self.deadline_unix,
+                now=self.enqueued_at,
+                allow_empty_tenant=True,
+            )
         return self.model_dump()
+
+    def ensure_authenticated_carrier(
+        self,
+        *,
+        now: float | None = None,
+        secret: str | bytes | None = None,
+    ) -> DispatchCarrier:
+        """Mint/verify the broker proof before any WorkItem is submitted."""
+        if not self.tenant:
+            raise DispatchCarrierError(
+                "dispatch enqueue requires a non-empty authenticated tenant"
+            )
+        if self.carrier is None:
+            self.carrier = DispatchCarrier.mint(
+                tenant=self.tenant,
+                session_id=self.session_id,
+                job_id=self.job_id,
+                kind=self.kind,
+                payload_ref=self.payload_ref,
+                agent_name=self.agent_name,
+                deadline_unix=self.deadline_unix,
+                now=now,
+                secret=secret,
+            )
+        return self.carrier.verify(
+            tenant=self.tenant,
+            session_id=self.session_id,
+            job_id=self.job_id,
+            kind=self.kind,
+            payload_ref=self.payload_ref,
+            agent_name=self.agent_name,
+            deadline_unix=self.deadline_unix,
+            now=now,
+            secret=secret,
+        )
+
+    def authenticate_carrier(
+        self,
+        *,
+        now: float | None = None,
+        secret: str | bytes | None = None,
+    ) -> DispatchCarrier:
+        """Verify a delivered proof without changing the envelope."""
+        if self.carrier is None:
+            raise DispatchCarrierError("dispatch delivery has no carrier")
+        if not self.tenant:
+            raise DispatchCarrierError("dispatch delivery has no tenant")
+        return self.carrier.verify(
+            tenant=self.tenant,
+            session_id=self.session_id,
+            job_id=self.job_id,
+            kind=self.kind,
+            payload_ref=self.payload_ref,
+            agent_name=self.agent_name,
+            deadline_unix=self.deadline_unix,
+            now=now,
+            secret=secret,
+        )
 
     @classmethod
     def from_item(cls, item: dict[str, Any]) -> AgentTurnEnvelope:
@@ -268,6 +673,10 @@ def enqueue_agent_turn(
     if envelope.tenant and envelope.tenant != session.tenant:
         raise PermissionError("AgentTurnEnvelope tenant differs from GraphSession")
     envelope.tenant = tenant
+    # Authenticate the broker carrier BEFORE the durable WorkItem admission.
+    # A missing deployment-wide key or a stale/tampered caller-provided carrier
+    # must not leave an orphan WorkItem that no worker can safely consume.
+    envelope.ensure_authenticated_carrier()
     q = queue if queue is not None else get_dispatch_queue()
     from agent_utilities.core.config import config
 
@@ -327,17 +736,92 @@ def enqueue_agent_turn(
 
 # ── per-session mutual exclusion ───────────────────────────────────────────
 
+# A session lock is a short-lived local coordination aid, never a durable
+# lease.  The old dict retained one ``threading.Lock`` forever for every
+# session ever observed, which made high-cardinality session churn a process
+# memory leak.  Entries are reference counted and removed as soon as their
+# final holder leaves; the hard cap protects the simultaneous-session case.
+MAX_SESSION_LOCK_ENTRIES = 4096
+MAX_SESSION_ID_BYTES = 256
+
+
+class SessionLockCapacityError(RuntimeError):
+    """The process-local session-lock registry reached its bounded capacity."""
+
+
+@dataclass
+class _SessionLockEntry:
+    lock: threading.Lock = field(default_factory=threading.Lock)
+    references: int = 0
+
+
 _session_locks_lock = threading.Lock()
-_session_locks: dict[str, threading.Lock] = {}
+_session_locks: dict[str, _SessionLockEntry] = {}
 
 
-def _session_lock(session_id: str) -> threading.Lock:
+def _validate_session_id(session_id: str) -> str:
+    rendered = str(session_id or "")
+    if (
+        not rendered
+        or len(rendered.encode("utf-8")) > MAX_SESSION_ID_BYTES
+        or "\x00" in rendered
+    ):
+        raise ValueError("dispatch session id is invalid or exceeds its bound")
+    return rendered
+
+
+class _SessionLockHandle:
+    """Ref-counted handle that removes its registry entry on final release."""
+
+    def __init__(self, session_id: str) -> None:
+        self.session_id = _validate_session_id(session_id)
+        self._entry: _SessionLockEntry | None = None
+
+    def __enter__(self) -> None:
+        with _session_locks_lock:
+            entry = _session_locks.get(self.session_id)
+            if entry is None:
+                if len(_session_locks) >= MAX_SESSION_LOCK_ENTRIES:
+                    raise SessionLockCapacityError(
+                        "dispatch session-lock registry is at its bounded capacity"
+                    )
+                entry = _SessionLockEntry()
+                _session_locks[self.session_id] = entry
+            entry.references += 1
+            self._entry = entry
+        try:
+            entry.lock.acquire()
+        except BaseException:
+            self._release_reference(entry)
+            raise
+        return None
+
+    def _release_reference(self, entry: _SessionLockEntry) -> None:
+        with _session_locks_lock:
+            entry.references -= 1
+            if entry.references <= 0 and _session_locks.get(self.session_id) is entry:
+                _session_locks.pop(self.session_id, None)
+
+    def __exit__(self, _exc_type: Any, _exc: Any, _tb: Any) -> None:
+        entry = self._entry
+        if entry is None:
+            return
+        try:
+            entry.lock.release()
+        finally:
+            self._release_reference(entry)
+            self._entry = None
+
+
+def _session_lock(session_id: str) -> _SessionLockHandle:
+    """Return a bounded, lifecycle-managed per-session lock handle."""
+    return _SessionLockHandle(session_id)
+
+
+def session_lock_registry_size() -> int:
+    """Return the current local lock-entry cardinality for health/TCKs."""
     with _session_locks_lock:
-        lock = _session_locks.get(session_id)
-        if lock is None:
-            lock = threading.Lock()
-            _session_locks[session_id] = lock
-        return lock
+        return len(_session_locks)
 
 
 @contextmanager
@@ -356,7 +840,9 @@ def session_execution_guard(session_id: str) -> Iterator[None]:
 
     A crashed holder releases both automatically (process death drops the
     advisory lock server-side), so crash recovery is redelivery + re-claim,
-    never a stuck session.
+    never a stuck session.  The process-local handle is reference-counted and
+    removed after its final holder, with a hard simultaneous-entry bound so
+    high-cardinality session churn cannot grow this registry without limit.
     """
     from agent_utilities.core.state_store import state_claim_guard
 

@@ -43,15 +43,13 @@ consumed by a stateless dispatch-worker fleet (sibling of the KG-2.57
   (:func:`_dead_letter_poison_envelope`, keyed by delivery digest for
   idempotent redelivery) before it may be acked; a turn-execution exception
   is durably committed as ``failed`` before its message may be acked.
-* **Wire tenant is untrusted until re-checked at claim time.**
+* **Wire tenant is untrusted until carrier and WorkItem checks both pass.**
   ``enqueue_agent_turn`` verifies ``envelope.tenant`` against the caller's
-  authenticated ``GraphSession`` at admission (fail closed, ``PermissionError``
-  on mismatch) — but the ``agent_turns`` queue transport carries no signed
-  per-message carrier yet (:class:`TenantMismatchError`'s docstring; GOC-15's
-  envelope-carrier contract is deferred). Before claiming, the consumer loop
-  re-reads the durable WorkItem this ``job_id`` was admitted under and rejects
-  (dead-letters, never silently executes) a delivery whose wire tenant
-  disagrees with it.
+  authenticated ``GraphSession`` and signs the versioned tenant/session/job/
+  expiry carrier at admission (fail closed, ``PermissionError`` or carrier
+  error on mismatch). Before claiming, the consumer verifies that proof and
+  re-reads the durable WorkItem this ``job_id`` was admitted under; forged,
+  expired, or cross-tenant deliveries are dead-lettered and never executed.
 
 Run::
 
@@ -75,6 +73,8 @@ from agent_utilities.orchestration.agent_dispatch import (
     KIND_GOAL_LOOP,
     KIND_ORCHESTRATOR_TASK,
     AgentTurnEnvelope,
+    DispatchCarrierError,
+    SessionLockCapacityError,
     get_dispatch_queue,
     session_execution_guard,
 )
@@ -82,6 +82,118 @@ from agent_utilities.orchestration.agent_dispatch import (
 logger = logging.getLogger(__name__)
 
 _PROCESS_WORKER_TOKEN = f"worker:{secrets.token_hex(16)}"
+
+
+class DispatchWorkerLifecycle:
+    """Explicit worker drain/reconnect state around native WorkItem claims.
+
+    ``request_drain`` stops new broker claims but allows the current turn to
+    reach its normal fenced terminal commit/ack.  Once the active session set
+    is empty, ``reconnect`` advances a generation and returns to ``running``;
+    a replacement worker can then claim the same unacked WorkItem/carrier
+    after a crash or scale-down.  This object owns no WorkItem state and never
+    substitutes for its tenant, lease, or fence checks.
+    """
+
+    RUNNING = "running"
+    DRAINING = "draining"
+    DRAINED = "drained"
+
+    def __init__(self, worker_id: str = "") -> None:
+        self.worker_id = str(worker_id or "")
+        self._condition = threading.Condition(threading.RLock())
+        self._state = self.RUNNING
+        self._generation = 1
+        # Counts rather than a set: duplicate deliveries can be admitted by
+        # two pool threads while one waits on the process-local session lock;
+        # drain completion must not be reported when only one of those
+        # waiters has left.
+        self._active_sessions: dict[str, int] = {}
+        self._drain_reason = ""
+
+    @property
+    def state(self) -> str:
+        with self._condition:
+            return self._state
+
+    @property
+    def generation(self) -> int:
+        with self._condition:
+            return self._generation
+
+    def should_claim(self) -> bool:
+        with self._condition:
+            return self._state == self.RUNNING
+
+    def begin_session(self, session_id: str) -> bool:
+        """Atomically admit one session only while the worker is running."""
+        rendered = str(session_id or "")
+        if not rendered:
+            return False
+        with self._condition:
+            if self._state != self.RUNNING:
+                return False
+            self._active_sessions[rendered] = self._active_sessions.get(rendered, 0) + 1
+            return True
+
+    def end_session(self, session_id: str) -> None:
+        with self._condition:
+            rendered = str(session_id or "")
+            count = self._active_sessions.get(rendered, 0)
+            if count <= 1:
+                self._active_sessions.pop(rendered, None)
+            else:
+                self._active_sessions[rendered] = count - 1
+            if not self._active_sessions:
+                self._condition.notify_all()
+
+    def request_drain(self, *, reason: str = "scale_down") -> dict[str, Any]:
+        """Stop new claims and expose a deterministic drain snapshot."""
+        with self._condition:
+            if self._state == self.RUNNING:
+                self._state = self.DRAINING
+            self._drain_reason = str(reason or "drain")[:128]
+            snapshot = self.snapshot()
+            self._condition.notify_all()
+            return snapshot
+
+    def mark_stopped(self) -> None:
+        """Mark the loop drained after its current turn has left the guard."""
+        with self._condition:
+            self._state = self.DRAINED if not self._active_sessions else self.DRAINING
+            self._condition.notify_all()
+
+    def wait_drained(self, timeout: float | None = None) -> bool:
+        """Wait for all locally active sessions to leave the drain boundary."""
+        with self._condition:
+            if not self._active_sessions:
+                return True
+            return self._condition.wait_for(
+                lambda: not self._active_sessions,
+                timeout=timeout,
+            )
+
+    def reconnect(self) -> int:
+        """Start a new worker generation after a completed drain."""
+        with self._condition:
+            if self._active_sessions:
+                raise RuntimeError("cannot reconnect while sessions are active")
+            self._generation += 1
+            self._state = self.RUNNING
+            self._drain_reason = ""
+            self._condition.notify_all()
+            return self._generation
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return bounded lifecycle metadata safe for heartbeat/TCK evidence."""
+        with self._condition:
+            return {
+                "worker_id": self.worker_id,
+                "generation": self._generation,
+                "state": self._state,
+                "active_sessions": sum(self._active_sessions.values()),
+                "drain_reason": self._drain_reason,
+            }
 
 
 def worker_token() -> str:
@@ -279,14 +391,11 @@ class TenantMismatchError(RuntimeError):
     was admitted under (CONCEPT: GOC-18 consumer-side defense in depth).
 
     ``enqueue_agent_turn`` already verifies ``envelope.tenant`` against an
-    authenticated ``GraphSession`` at ADMISSION time
-    (``agent_dispatch.py``'s ``PermissionError`` gate) — but the
-    ``agent_turns`` queue transport itself carries no signed per-message
-    carrier yet (GOC-15's envelope-carrier contract is still deferred; see
-    this module's docstring). A delivery is therefore untrusted wire data on
-    the CONSUMER side even for a syntactically well-formed envelope: a
-    tampered/forged broker message reusing a legitimate ``job_id`` but
-    asserting a different ``tenant`` must never be silently trusted or
+    authenticated ``GraphSession`` at ADMISSION time and signs the
+    versioned dispatch carrier. The consumer verifies that proof before
+    reading the WorkItem, then re-checks the admitted tenant as defense in
+    depth. A tampered/forged broker message reusing a legitimate ``job_id``
+    but asserting a different ``tenant`` must never be silently trusted or
     silently executed.
     """
 
@@ -1746,6 +1855,16 @@ def _ack_after_durable_outcome(
     return True
 
 
+def authenticate_dispatch_delivery(
+    envelope: AgentTurnEnvelope, *, now: float | None = None
+) -> Any:
+    """Verify the signed broker carrier before any WorkItem claim."""
+    try:
+        return envelope.authenticate_carrier(now=now)
+    except DispatchCarrierError:
+        raise
+
+
 def run_dispatch_consumer_loop(
     queue: Any,
     stop_event: threading.Event,
@@ -1754,6 +1873,7 @@ def run_dispatch_consumer_loop(
     worker_id: str | None = None,
     idle_sleep_s: float = 0.5,
     heartbeat_interval_s: float = HEARTBEAT_INTERVAL_S,
+    lifecycle: DispatchWorkerLifecycle | None = None,
 ) -> None:
     """Drain ``agent_turns`` until ``stop_event``: claim → execute → ack.
 
@@ -1778,9 +1898,12 @@ def run_dispatch_consumer_loop(
 
         engine = _sessions._goal_engine()
     token = worker_id or worker_token()
+    lifecycle = lifecycle or DispatchWorkerLifecycle(token)
     active: list[str] = []
     next_heartbeat = 0.0
     while not stop_event.is_set():
+        if not lifecycle.should_claim():
+            break
         if time.monotonic() >= next_heartbeat:
             _heartbeat(queue, token, active)
             next_heartbeat = time.monotonic() + heartbeat_interval_s
@@ -1810,6 +1933,36 @@ def run_dispatch_consumer_loop(
             continue
 
         dispatch_item_id = f"workitem:dispatch:{envelope.job_id}"
+
+        # The broker carrier is untrusted wire data.  Verify its signature,
+        # exact tenant/session/job binding and expiry before reading or
+        # claiming the native WorkItem.  Invalid/replayed-after-expiry data is
+        # durably dead-lettered; it is never silently treated as a reconnect.
+        try:
+            authenticate_dispatch_delivery(envelope)
+        except DispatchCarrierError as e:
+            logger.error(
+                "agent-dispatch unauthenticated carrier (%s)", type(e).__name__
+            )
+            poison_id = _dead_letter_poison_envelope(engine, payload, error=e)
+            _record_turn_outcome(
+                "carrier_rejected" if poison_id else "carrier_rejected_unrecorded"
+            )
+            if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
+                time.sleep(idle_sleep_s)
+            continue
+
+        # A scale-down/drain may race the broker poll.  Leave this delivery
+        # unacknowledged if it was not admitted into the local active set; the
+        # replacement generation will reconnect and claim it normally.
+        if not lifecycle.begin_session(envelope.session_id):
+            logger.info(
+                "agent-dispatch worker %s is draining; leaving delivery for "
+                "reconnect (generation=%s)",
+                token,
+                lifecycle.generation,
+            )
+            break
 
         # CONCEPT: GOC-18 defense in depth — reject a wire tenant that
         # disagrees with the tenant this WorkItem was durably admitted under,
@@ -1843,6 +1996,7 @@ def run_dispatch_consumer_loop(
                 )
                 if not _ack_after_durable_outcome(queue, item_id, engine, poison_id):
                     time.sleep(idle_sleep_s)
+                lifecycle.end_session(envelope.session_id)
                 continue
 
         outcome = "failed"
@@ -1851,6 +2005,13 @@ def run_dispatch_consumer_loop(
             _heartbeat(queue, token, active)
             next_heartbeat = time.monotonic() + heartbeat_interval_s
             outcome = execute_agent_turn(envelope, engine, token=token)
+        except SessionLockCapacityError:
+            # The local coordination cap is a bounded admission signal, not a
+            # terminal WorkItem outcome.  Leave the delivery for another
+            # worker/generation instead of spinning on the same head item.
+            logger.warning("agent-dispatch session capacity reached")
+            lifecycle.request_drain(reason="session_lock_capacity")
+            outcome = "capacity"
         except Exception as e:  # noqa: BLE001 — record + keep consuming; the
             # ack gate below withholds ack unless a durable terminal state
             # is confirmed, so this catch-all can no longer mask data loss.
@@ -1858,6 +2019,7 @@ def run_dispatch_consumer_loop(
             outcome = "failed"
         finally:
             active.clear()
+            lifecycle.end_session(envelope.session_id)
         _record_turn_outcome(outcome)
         if outcome == "fenced":
             # The message remains unacknowledged so Kafka/Postgres can redeliver
@@ -1865,6 +2027,10 @@ def run_dispatch_consumer_loop(
             # stale execution would turn lease loss into data loss.
             time.sleep(idle_sleep_s)
             continue
+        if outcome == "capacity":
+            # No claim/commit occurred; the broker must redeliver after a
+            # replacement generation reconnects with available session slots.
+            break
         if outcome == "skipped":
             # No new durable state was produced by THIS delivery attempt (a
             # duplicate of an already-terminal item, or a live claim held
@@ -1884,6 +2050,8 @@ def run_dispatch_consumer_loop(
         if not _ack_after_durable_outcome(queue, item_id, engine, dispatch_item_id):
             time.sleep(idle_sleep_s)
 
+    lifecycle.mark_stopped()
+
 
 def _record_turn_outcome(outcome: str) -> None:
     """Count one processed turn on the OS-5.23 metrics registry."""
@@ -1902,6 +2070,7 @@ def start_dispatch_worker_pool(
     stop_event: threading.Event | None = None,
     engine: Any = None,
     background_session: Any = None,
+    lifecycle: DispatchWorkerLifecycle | None = None,
 ) -> list[threading.Thread]:
     """Start ``worker_count`` dispatch consumer threads against ``queue``.
 
@@ -1929,13 +2098,18 @@ def start_dispatch_worker_pool(
     worker_session = background_session or _capture_verified_background_session()
 
     stop = stop_event or threading.Event()
+    worker_lifecycle = lifecycle or DispatchWorkerLifecycle(worker_token())
     threads: list[threading.Thread] = []
     for i in range(max(1, worker_count)):
         q = queue if queue is not None else get_dispatch_queue()
 
         def _runner(q: Any = q, idx: int = i) -> None:
             run_dispatch_consumer_loop(
-                q, stop, engine, worker_id=f"{worker_token()}:{idx}"
+                q,
+                stop,
+                engine,
+                worker_id=f"{worker_token()}:{idx}",
+                lifecycle=worker_lifecycle,
             )
 
         t = _authorized_background_thread(
@@ -2029,9 +2203,11 @@ def main(argv: list[str] | None = None) -> int:
             )
 
         stop = threading.Event()
+        lifecycle = DispatchWorkerLifecycle(worker_token())
 
         def _shutdown(signum: int, _frame: Any) -> None:
             logger.info("Signal %s received — draining and stopping workers.", signum)
+            lifecycle.request_drain(reason=f"signal:{signum}")
             stop.set()
 
         signal.signal(signal.SIGINT, _shutdown)
@@ -2042,9 +2218,15 @@ def main(argv: list[str] | None = None) -> int:
             stop_event=stop,
             engine=engine,
             background_session=session,
+            lifecycle=lifecycle,
         )
         while any(t.is_alive() for t in threads) and not stop.is_set():
             time.sleep(1.0)
+        # A stop signal is a drain request, not permission to abandon an
+        # active session.  Give the lifecycle boundary a bounded grace window
+        # before the final thread join; any remaining WorkItem is then left
+        # unacknowledged for native lease-based reconnect/reclaim.
+        lifecycle.wait_drained(timeout=10.0)
         for t in threads:
             t.join(timeout=10.0)
         return 0
