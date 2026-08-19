@@ -1,6 +1,14 @@
 # GraphOS deployment assets
 
-`k8s/production-cell/` is the production topology authority. It separates a
+> **Evidence boundary (AU-SCALE):** This directory contains `IMPLEMENTED`
+> reference/staged inputs. It is not a live-cluster inventory and must not be
+> applied directly. A release becomes deployable only after compatibility
+> verification, exact OCI-digest rendering, and the rendered-asset checks
+> below. `LIVE` requires operator evidence for that exact render; `1M-CERTIFIED`
+> additionally requires the signed one-million-resident campaign. The presence
+> of HPA objects is not proof that an HPA is installed or healthy.
+
+`k8s/production-cell/` is the production reference topology. It separates a
 stateless global control plane from one cell data plane, keeps authoritative graph
 state in a three-member MultiRaft StatefulSet, and assigns independent resource
 partitions to dispatch, ingestion and analytics workers. The previous single-owner,
@@ -47,6 +55,23 @@ applied as an alternate topology.
 The uppercase operands above are runtime/operator inputs, not committed local
 paths. Generated release and certification evidence must remain outside the source
 tree.
+
+## W3 scaling paths
+
+`k8s/production-cell/autoscaling.yaml` is the staged Kubernetes HPA path for the
+gateway, dispatch, ingest, and analytics worker Deployments. The external
+metrics provider, namespace policy, resource requests, and exact rendered
+release remain operator/platform prerequisites; this repository does not claim
+that those objects are currently live.
+
+The AU control-plane autoscaler is a separate, policy-gated path. Its optional
+`KubernetesActuator` is selected with `FLEET_ACTUATOR=k8s` (or `kubernetes`) and
+uses the configured `kubectl` context and `FLEET_ACTUATOR_K8S_NAMESPACE`
+(default `platform`) to target a Deployment. `FLEET_ACTUATOR=dryrun` remains the
+safe default, and an unavailable `kubectl` falls back to dry-run. HPA
+reconciliation and AU target tracking may coexist, but they must not be treated
+as interchangeable evidence or enabled without an explicit ownership/policy
+decision.
 
 ## Production cell contract
 

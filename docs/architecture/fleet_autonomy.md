@@ -4,6 +4,16 @@ The Tranche-3 autonomy build: the layer that lets the platform *act* on its
 fleet — restart, scale, deploy, remediate — without ever acting outside
 policy. Five pieces, one decision point.
 
+> **Evidence boundary (AU-SCALE):** The AU source path is `IMPLEMENTED`: the
+> built-in `DryRunActuator`, `DockerActuator`, and optional `KubernetesActuator`
+> exist, and the Kubernetes path is selected with `FLEET_ACTUATOR=k8s` (or
+> `kubernetes`) when `kubectl` is available. The shipped default remains
+> `dryrun`, and every mutating action remains policy-gated. The committed
+> Kubernetes manifests are `IMPLEMENTED` reference/staged inputs, not proof of
+> a deployable render, a live cluster, or the one-million-resident campaign.
+> See the [AU scale claim register](../scaling/scale_claims.md) for the
+> source anchors and evidence vocabulary.
+
 ```mermaid
 flowchart LR
     subgraph Ingress
@@ -24,7 +34,7 @@ flowchart LR
     RC --> AP
     AS --> AP
     DW[Deploy watch\nOS-5.27] --> AP
-    AP -->|allow / allow+notify| ACT[FleetActuator\ndry-run default / docker / injected]
+    AP -->|allow / allow+notify| ACT[FleetActuator\ndry-run default / docker / kubectl(k8s) / injected]
     AP -->|queue_approval| APQ[ActionApproval nodes\n/api/fleet/approvals]
     AP -->|deny| AUD
     APQ -->|granted| RC
@@ -136,7 +146,13 @@ See [Autonomous Evolution](../guides/autonomous-evolution.md).
   records intent (`ActionExecution` nodes, `dry_run: true`) and mutates
   nothing — safe to enable fleet-wide before any real actuator is wired.
   `FLEET_ACTUATOR=docker` selects the reference docker CLI actuator;
-  Portainer/Swarm actuation is deployment-wired via `set_fleet_actuator()`.
+  `FLEET_ACTUATOR=k8s` (or `kubernetes`) selects the reference
+  `KubernetesActuator` over `kubectl` when that CLI is available, targeting a
+  Deployment in `FLEET_ACTUATOR_K8S_NAMESPACE` (default `platform`). If the
+  CLI is unavailable, selection fails safe to dry-run. Portainer/Swarm
+  actuation remains deployment-wired via `set_fleet_actuator()`.
+  Selecting an actuator is source/config evidence only; it does not assert
+  that a cluster is reachable or that a deployment has completed.
 * Restart/deploy executions schedule an AU-OS.config.health-gated-deploy-rollback health watch; granted
   `ActionApproval` entries are drained and executed each tick; a storm guard
   caps actions per tick (`FLEET_RECONCILER_MAX_ACTIONS`); each pass writes a
@@ -316,7 +332,8 @@ consecutive-sample count again.
 `replicas/from_replicas/direction/signal/value/target`) through ActionPolicy
 — `approval_required` under the shipped default policy, so enabling
 `FLEET_AUTOSCALER` out of the box only *queues* scale proposals for a human.
-Allowed actions run through the FleetActuator seam; a successful scale-up
+Allowed actions run through the FleetActuator seam (dry-run, Docker, optional
+Kubernetes, or an injected deployment actuator); a successful scale-up
 schedules an AU-OS.config.health-gated-deploy-rollback deploy watch, and scale-downs do too when the policy
 file opts in:
 
@@ -372,7 +389,8 @@ topic through the live AU-AHE.harness.failure-evolution propose-only remediation
 | `FLEET_RECONCILER_MAX_ACTIONS` | `5` / tick | AU-OS.config.desired-state-fleet-reconciler |
 | `FLEET_REGISTRY_PATH` | `deploy/mcp-fleet.registry.yml` | AU-OS.config.desired-state-fleet-reconciler |
 | `FLEET_DESIRED_STATE_PATH` | unset | AU-OS.config.desired-state-fleet-reconciler |
-| `FLEET_ACTUATOR` | `dryrun` | AU-OS.config.desired-state-fleet-reconciler |
+| `FLEET_ACTUATOR` | `dryrun` (`docker`, `k8s`/`kubernetes` optional) | AU-OS.config.desired-state-fleet-reconciler |
+| `FLEET_ACTUATOR_K8S_NAMESPACE` | `platform` | AU-OS.config.desired-state-fleet-reconciler |
 | `DEPLOY_WATCH_WINDOW` | `300` s | AU-OS.config.health-gated-deploy-rollback |
 | `DEPLOY_WATCH_POLL` | `15` s | AU-OS.config.health-gated-deploy-rollback |
 | `FLEET_AUTOSCALER` | `false` (opt-in) | OS-5.29 |
@@ -403,4 +421,8 @@ Prometheus (`SCALING_PROMETHEUS_URL=http://prometheus:9090`), declare
 Then set `FLEET_RECONCILER=1` and relax `ACTION_POLICY_PATH` rule-by-rule
 (staging targets first) as confidence grows — the audit ledger
 (`ActionDecision` / `ActionExecution` / `ReconcileReport` / `DeployWatch` /
-`AutoscaleEvaluation` nodes) is the evidence trail.
+`AutoscaleEvaluation` nodes) is the evidence trail. A staging or rendered
+manifest remains `IMPLEMENTED`/`LAB-PROVEN` only at the evidence level it has
+actually passed; record a `LIVE` claim only with exact artifact, configuration,
+health, and timestamp evidence, and reserve `1M-CERTIFIED` for the signed
+one-million-resident campaign.

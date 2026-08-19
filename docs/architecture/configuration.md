@@ -112,7 +112,7 @@ tunables → auto-sized via `compute_ingest_worker_count()` or named module cons
 | `FLEET_RECONCILER_MAX_ACTIONS` | `5` | Storm guard: max convergence actions per tick, rest deferred (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
 | `FLEET_REGISTRY_PATH` | shipped registry | Fleet service registry YAML; empty → `deploy/mcp-fleet.registry.yml` (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
 | `FLEET_DESIRED_STATE_PATH` | unset | Optional desired-state override YAML (per-service `replicas`/`desired`/`version`) layered on the registry (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
-| `FLEET_ACTUATOR` | `dryrun` | Actuator selection: `dryrun` (records intent, mutates nothing) or `docker` (reference CLI actuator). Portainer/Swarm actuators are deployment-wired via `set_fleet_actuator()` (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
+| `FLEET_ACTUATOR` | `dryrun` | Actuator selection: `dryrun` (records intent, mutates nothing), `docker` (reference CLI actuator), or `k8s`/`kubernetes` (optional `kubectl` Deployment actuator). Portainer/Swarm actuators remain deployment-wired via `set_fleet_actuator()` (CONCEPT:AU-OS.config.desired-state-fleet-reconciler) |
 | `DEPLOY_WATCH_WINDOW` | `300` | Health-watch window (s) after a deploy/restart; failure inside the window triggers the policy-gated rollback (CONCEPT:AU-OS.config.health-gated-deploy-rollback) |
 | `DEPLOY_WATCH_POLL` | `15` | Seconds between health probes inside a deploy watch (CONCEPT:AU-OS.config.health-gated-deploy-rollback) |
 | `FLEET_AUTOSCALER` | `false` | Opt-in leader-only reactive replica autoscaler tick — load signal → registry-declared min/max bounds → policy-gated `scale_service` + deploy watch (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling) |

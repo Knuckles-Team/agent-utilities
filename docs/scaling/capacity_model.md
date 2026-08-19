@@ -1,5 +1,12 @@
 # Capacity Model (Plan 07: Path to Scale)
 
+> **AU evidence level:** The arithmetic implementation is `IMPLEMENTED` and
+> its reference cases are `UNIT-PROVEN` when the focused model tests pass. The
+> one-million row is `DESIGNED`/`MODELED`; it is not `LAB-PROVEN`, `LIVE`, or
+> `1M-CERTIFIED`. W3 manifests are reference/staged inputs until the release
+> gate and an operator records deployment evidence. See the [AU scale claim
+> register](scale_claims.md).
+
 > **Status (SCALE-P2-1): 1M is now a DEFINED workload contract, measured by a
 > harness — not a linear-arithmetic claim.** This page used to say "the 100M
 > target follows as a measured projection" and stop there; Codex's SCALE-P2-1
@@ -42,15 +49,17 @@
 
 ## The measured anchor
 
-From `epistemic-graph/docs/benchmarks.md` (run captured 2026-06-01, Linux x86-64,
-single client connection, in-memory graph, length-prefixed MessagePack over UDS):
+The model imports one benchmark anchor from the engine project (run captured
+2026-06-01, Linux x86-64, single client connection, in-memory graph,
+length-prefixed MessagePack over UDS):
 
 | Operation  | ops  | p50      | p99      |
 |------------|------|----------|----------|
 | `AddNode`  | 3000 | 0.187 ms | 0.223 ms |
 
 `AddNode` **p50 ≈ 0.19 ms** ⇒ **~5,000 sequential ops/sec on a single
-connection**. This is the only empirical input. Throughput above one connection
+connection**. This imported anchor is the only empirical input to this AU
+model; it is not evidence that the AU fleet is live at that rate. Throughput above one connection
 comes from connection pooling (`pool.py`) and shard fan-out (`ShardRouter`);
 the server sheds excess concurrent load with a `BUSY` response
 (`EPISTEMIC_GRAPH_MAX_INFLIGHT`, default 1024) rather than queueing unbounded.
@@ -62,8 +71,8 @@ the max of the resulting infrastructure:
 
 | Axis | Driver | Knob in `core/config.py` |
 |------|--------|--------------------------|
-| **Active concurrency** | agents executing *right now* | `worker_pool_size` × node count; **queue-driven dispatch is the live scale-out path for this axis** — `agent_dispatch_backend=queue` + N `agent-dispatch-worker` hosts (see [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md), CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch) |
-| **Resident population** | total agents whose state must persist | `graph_service_endpoints` (PG/L0 shard fan-out — the L0 side is the live tenant-partitioned engine sharding path, see [`architecture/engine_sharding.md`](../architecture/engine_sharding.md), CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw) |
+| **Active concurrency** | agents executing *right now* | `worker_pool_size` × node count; **queue-driven dispatch is the implemented scale-out path for this axis** — `agent_dispatch_backend=queue` + N `agent-dispatch-worker` hosts (see [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md), CONCEPT:AU-ORCH.dispatch.queue-agent-dispatch). Deployment/live status is separate evidence. |
+| **Resident population** | total agents whose state must persist | `graph_service_endpoints` (PG/L0 shard fan-out — the L0 side is the implemented tenant-partitioned engine-sharding path, see [`architecture/engine_sharding.md`](../architecture/engine_sharding.md), CONCEPT:AU-KG.sharding.tenant-partitioned-sharding-hrw). Deployment/live status is separate evidence. |
 | **Event throughput** | graph events/sec driving fan-out | `kafka_bootstrap_servers` partitions |
 
 A deployment can be huge on one axis and tiny on another (e.g. 1M dormant
@@ -180,6 +189,18 @@ Deployment shape per row of the summary table: stateless gateways + N
 dispatch workers + M `kg-ingest-worker` processes + the listed engine/PG
 shards and Kafka partitions. Design, ordering and idempotency guarantees:
 [`architecture/agent_dispatch.md`](../architecture/agent_dispatch.md).
+
+## W3 deployment evidence boundary
+
+The committed Kubernetes assets under `deploy/k8s/production-cell/` include
+`HorizontalPodAutoscaler` objects for the gateway, dispatch, ingest, and
+analytics worker Deployments. They are `IMPLEMENTED` reference/staged assets:
+the templates intentionally are not directly applicable, and their presence
+does not prove that a rendered release passed compatibility checks, that an HPA
+is installed, or that any target is healthy. Follow the exact render/check/apply
+sequence in [`deploy/README.md`](../../deploy/README.md). Only a bounded run
+against that exact release can raise the evidence level to `LAB-PROVEN` or
+`LIVE`; the HPA defaults do not certify the one-million workload.
 
 ## The workload contract + load generator + soak/chaos harness (SCALE-P2-1)
 

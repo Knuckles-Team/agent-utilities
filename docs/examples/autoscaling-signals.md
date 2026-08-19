@@ -1,5 +1,12 @@
 # Worked Example: Autoscaling Signals and Target Tracking
 
+> **Status boundary (AU-SCALE):** This page documents an `IMPLEMENTED` source
+> contract and `UNIT-PROVEN` target-tracking fixtures. `FLEET_ACTUATOR=k8s` is
+> an optional AU reference path over `kubectl`; `dryrun` remains the default.
+> A committed HPA or desired-state YAML is a reference/staged input, not live
+> deployment evidence. No `LAB-PROVEN`, `LIVE`, or `1M-CERTIFIED` claim is made
+> here. See the [AU scale claim register](../scaling/scale_claims.md).
+
 ## What this demonstrates
 
 How the reactive replica autoscaler (CONCEPT:AU-OS.scaling.reactive-replica-autoscaling,
@@ -21,6 +28,8 @@ consolidated scheduler (`knowledge_graph/core/engine_tasks.py`):
 | Flag | Default | Meaning |
 |---|---|---|
 | `FLEET_AUTOSCALER` | `False` (off) | Opt-in: register the leader-only autoscale tick. With the default dry-run actuator (`FLEET_ACTUATOR=dryrun`) it records intent without mutating anything. |
+| `FLEET_ACTUATOR` | `dryrun` | `docker` uses the reference Docker CLI; `k8s`/`kubernetes` uses the optional reference `kubectl` Deployment actuator when available, otherwise selection falls back to dry-run. |
+| `FLEET_ACTUATOR_K8S_NAMESPACE` | `platform` | Namespace targeted by the optional Kubernetes actuator; source/configuration evidence is not live-cluster evidence. |
 | `FLEET_AUTOSCALER_INTERVAL` | `60.0` | Seconds between ticks. |
 | `SCALING_PROMETHEUS_URL` | unset | Set → allowlisted symbolic signals come from bounded instant HTTP queries against that Prometheus (`PrometheusHttpProvider`); unset → the zero-infra `LocalMetricsProvider` reads this process's own gauges. |
 | `FLEET_RECONCILER_MAX_ACTIONS` | `5` | Shared per-tick action budget (also used by the autoscaler). |
@@ -111,7 +120,7 @@ time.
 |---|---|---|---|
 | `queue_depth` | FLEET-TOTAL, `items`/`fleet`, bound to `kg-ingest-worker` | value + `agent_utilities_kg_ingest_queue_depth_observed_at` (same `backend` labels) | `sum(agent_utilities_kg_ingest_queue_depth)` |
 | `consumer_lag` | FLEET-TOTAL, `messages`/`fleet`, bound to `kg-ingest-worker` | value + `agent_utilities_kg_ingest_consumer_lag_observed_at` (same `topic,group` labels) | `sum(agent_utilities_kg_ingest_consumer_lag)` |
-| `cpu` | per-replica avg | not enabled by the local built-in | `100 * avg(rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name="<service>"}[5m]))` |
+| `cpu` | per-replica avg | not enabled by the local built-in | `100 * avg(rate(container_cpu_usage_seconds_total{container_label_com_docker_swarm_service_name="<service>"}[5m]))` (the built-in query is Swarm-shaped; use custom/injected PromQL for Kubernetes labels) |
 | deployment-allowlisted name | definition-declared | definition-declared local family, if present | definition-declared bounded query template (`{service}` is the only substitution) |
 
 Convention that matters for the math: `queue_depth` and `consumer_lag` are
@@ -210,7 +219,8 @@ default policy `scale_service` is `approval_required` — the autoscaler then
 [scoped-autonomous posture](action-policy-postures.md) shows the
 `auto_notify` rule (with rate/blast caps) that lets it act. Allowed
 proposals execute through the FleetActuator seam (`FLEET_ACTUATOR=dryrun`
-default records intent only; `docker` uses the docker CLI), and successful
+default records intent only; `docker` uses the Docker CLI; `k8s`/`kubernetes`
+uses the optional `kubectl` Deployment actuator when available), and successful
 scale-**ups** schedule an AU-OS.config.health-gated-deploy-rollback deploy watch — scale-downs too when the
 policy file sets `options: {watch_scale_down: true}`. The watch probes
 service health for `DEPLOY_WATCH_WINDOW` seconds and escalates
@@ -233,17 +243,19 @@ service health for `DEPLOY_WATCH_WINDOW` seconds and escalates
 [OS-5.29] fleet autoscale: evaluated=3 actions=1 scaled=1 actuator=dryrun signals=local
 ```
 
-## Verification
+## Verification (root-owned)
 
 ```bash
 python3 -m pytest tests/unit/test_fleet_autoscaler.py tests/unit/test_scaling_signals.py -q
+python3 scripts/check_scale_claims.py
 ```
 
 ---
 
-*Smoke-run against this tree (2026-06-11): the table in section 3 was produced
-by executing `compute_desired_replicas()` directly with the specs shown, and
-`python3 -m pytest tests/unit/test_fleet_autoscaler.py
-tests/unit/test_scaling_signals.py -q` passed as part of a 99-test green run.
-The registry/override YAML blocks were validated against `parse_scaling_spec`
-schema in code (reviewed, not deployed).*
+The worked values in section 3 are a `UNIT-PROVEN` contract when the focused
+autoscaler/signal tests pass; they are not a claim that this documentation run
+is `LIVE`. A historical local smoke-run (2026-06-11) exercised
+`compute_desired_replicas()` and reviewed the registry/override blocks against
+`parse_scaling_spec`; it did not deploy them. Treat those YAML blocks as
+reference/staged inputs until an exact release gate and operator evidence make
+them deployable or live.

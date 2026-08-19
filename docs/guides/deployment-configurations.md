@@ -1,5 +1,12 @@
 # Supported Deployment Configurations
 
+> **Scale evidence boundary (AU-SCALE):** The ladder describes AU source
+> capabilities and deployment inputs. `IMPLEMENTED`/`UNIT-PROVEN` does not mean
+> a rendered release is deployable or live; `LAB-PROVEN`, `LIVE`, and
+> `1M-CERTIFIED` require the corresponding external evidence. The optional
+> Kubernetes actuator and the staged HPA manifests are documented separately
+> from the safe `dryrun` default. See the [AU scale claim register](../scaling/scale_claims.md).
+
 This is the flagship configuration ladder for agent-utilities: five complete,
 copy-paste-ready configurations, from a laptop with no separately managed graph
 infrastructure to an autonomous multi-host fleet. Each rung builds on the
@@ -11,7 +18,7 @@ Every flag name, default, and behavior on this page is verified against
 authoritative flag inventory (with per-flag verdicts) is
 [Configuration Reference & Flag Audit](../architecture/configuration.md).
 Configurations the CI pipeline cannot stand up (live Kafka, live Postgres,
-multi-shard engines, live actuators) are explicitly marked
+multi-shard engines, live Docker/Kubernetes actuators) are explicitly marked
 **not exercised in CI** below, with a pointer to the unit suites that cover
 their logic against injected fakes.
 
@@ -595,7 +602,8 @@ Deep dives: [engine sharding](../architecture/engine_sharding.md),
 
 **What you get:** everything from (d) plus the platform operating on itself:
 the golden-loop research/remediation cycle, failure-driven evolution from
-Langfuse telemetry, the desired-state fleet reconciler with a real actuator,
+Langfuse telemetry, the desired-state fleet reconciler with a policy-gated
+Docker/Kubernetes/injected actuator,
 the reactive replica autoscaler, and webhook ingress for monitoring events.
 Every mutating action still flows through the ONE ActionPolicy gate — the
 shipped default policy queues all of it for human approval, so "autonomous"
@@ -608,7 +616,8 @@ All ticks below run in the KG host daemon and are **leader-only** under
 
 **Not exercised in CI.** The control logic (policy gate, reconciler diff,
 autoscaler bounds, golden-loop stages) is unit-tested, but CI never runs a
-live Langfuse, a real Docker actuator, or a live Prometheus signal source.
+live Langfuse, a real Docker or Kubernetes actuator, or a live Prometheus
+signal source.
 The shipped defaults are deliberately inert (`FLEET_ACTUATOR=dryrun`,
 approval-required policy); treat every relaxation as a production change.
 
@@ -644,7 +653,8 @@ FLEET_RECONCILER=true
 #FLEET_REGISTRY_PATH=               # empty = shipped deploy/mcp-fleet.registry.yml
 #FLEET_DESIRED_STATE_PATH=          # optional per-service replicas/version overlay
 FLEET_ACTUATOR=docker               # default "dryrun" records intent, mutates NOTHING;
-                                    # "docker" = reference CLI actuator.
+                                    # "docker" = reference CLI actuator;
+                                    # "k8s"/"kubernetes" = optional kubectl Deployment actuator.
                                     # Portainer/Swarm: set_fleet_actuator() seam (below)
 #DEPLOY_WATCH_WINDOW=300            # default: post-deploy health watch, seconds
 #DEPLOY_WATCH_POLL=15               # default: probe interval inside the watch
@@ -669,10 +679,11 @@ FLEET_EVENTS_TOKEN_REF=<secret-provider-reference>
 # Default unset = unauthenticated callers are rejected.
 ```
 
-### Custom actuator (Portainer/Swarm)
+### Custom actuator (Portainer/Swarm or another deployment)
 
-`FLEET_ACTUATOR` selects between `dryrun` and the reference `docker` CLI
-actuator; anything else is deployment-wired through the seam:
+`FLEET_ACTUATOR` selects between `dryrun`, the reference `docker` CLI actuator,
+and the optional `k8s`/`kubernetes` `kubectl` Deployment actuator. A deployment
+can still register a Portainer, Swarm, or other actuator through the seam:
 
 ```python
 from agent_utilities.orchestration.fleet_actuation import set_fleet_actuator

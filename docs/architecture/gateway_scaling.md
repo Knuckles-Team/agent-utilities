@@ -4,6 +4,13 @@
 metrics, per-tenant rate limiting, engine circuit breaker, multi-worker
 readiness).
 
+> **Scale evidence boundary (AU-SCALE):** `GATEWAY_WORKERS` and the per-process
+> behavior below are `IMPLEMENTED` AU source behavior. The Kubernetes HPA in
+> `deploy/k8s/production-cell/autoscaling.yaml` is a committed
+> reference/staged asset; it is not proof of a live gateway deployment or a
+> one-million-resident result. Use the [AU scale claim register](../scaling/scale_claims.md)
+> for status and evidence requirements.
+
 The API gateway (`agent_utilities.server` + `gateway/graph_api.py`)
 historically ran as exactly one process with one event loop. This page
 documents how to run more than one worker/replica, what is safe about that
@@ -27,6 +34,12 @@ with the terminal UI.
 You can equally scale with **N container replicas** (each `GATEWAY_WORKERS=1`)
 behind a load balancer — every statement below about "per-process" state
 applies the same way.
+
+The process/replica knob is separate from cluster actuation: the AU fleet
+control plane can target a Kubernetes Deployment with
+`FLEET_ACTUATOR=k8s`/`kubernetes` when `kubectl` is available, while the HPA
+template uses Kubernetes metrics directly. Neither source path implies that a
+specific cluster has been rendered, applied, or observed healthy.
 
 ## KG host daemon: exactly one, by construction
 

@@ -468,8 +468,11 @@ pieces:
    the ActionPolicy gate and the injectable `FleetActuator`
    (`orchestration/fleet_actuation.py`). The **default actuator is dry-run** —
    it records intended actions as `ActionExecution` nodes and mutates nothing;
-   `FLEET_ACTUATOR=docker` selects the reference docker actuator. Storm guard:
-   `FLEET_RECONCILER_MAX_ACTIONS` per tick.
+   `FLEET_ACTUATOR=docker` selects the reference Docker actuator, while
+   `FLEET_ACTUATOR=k8s`/`kubernetes` selects the optional `kubectl` Deployment
+   actuator when available (otherwise selection falls back to dry-run). Storm
+   guard: `FLEET_RECONCILER_MAX_ACTIONS` per tick. These are source/configuration
+   capabilities, not evidence of a live deployment.
 3. **Remediation playbooks (AU-OS.host.remediation-playbooks,
    `knowledge_graph/adaptation/remediation_playbooks.py`)**: `service_down`
    (confirm → policy-gated restart → durable verification watch → escalate),
