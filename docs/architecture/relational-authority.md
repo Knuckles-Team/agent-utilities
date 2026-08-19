@@ -92,3 +92,44 @@ Run the focused gate with:
 ```bash
 python3 scripts/security/check_relational_authority.py
 ```
+
+## Transactional outbox and GraphOS projection
+
+Control-plane state that is authoritative outside GraphOS uses the typed
+`agent_utilities.control_plane.projection` seam.  A repository commits the
+authoritative mutation and exactly one versioned `OutboxEnvelope` in the same
+transaction.  The envelope contains a stable aggregate/event identity, a
+monotonic per-aggregate sequence, exact SHA-256 digests, a bounded redacted
+summary and (for deletion) a digest-only tombstone.  It never contains a
+secret, grant, argument, result, private evidence or raw body.
+
+```mermaid
+flowchart LR
+    Change[Typed authority mutation] --> Commit[Atomic repository protocol]
+    Commit --> Authority[(Relational authority)]
+    Commit --> Outbox[(Versioned durable outbox)]
+    Outbox --> Read[Bounded aggregate keyset reader]
+    Read --> Apply[GraphOS projector]
+    Apply -->|success / idempotent replay| Cursor[Fenced CAS checkpoint]
+    Apply -->|failure| Drift[Typed drift record]
+    Cursor --> Graph[(GraphOS projection)]
+    Graph -. reverse sync rejected .-> Reject[No authority write]
+    Observe[Graph observation] --> Policy{Explicit promotion policy}
+    Policy -->|allowed + fresh + evidence ref| Commit
+    Policy -->|otherwise| Drift
+```
+
+Projection is downstream-only.  The projector applies an event before moving
+its checkpoint, so an unavailable GraphOS adapter cannot mutate or falsely
+advance relational state.  A retry with the same event identity is accepted as
+an idempotent replay; a different event at the same sequence, an out-of-order
+event, or a sequence gap is rejected and remains visible as drift.  Fencing
+terms are carried by checkpoints and adapter calls, while keyset limits keep a
+large catalog from becoming an unbounded materialization.
+
+Rebuild resets only the selected GraphOS scope and its cursor, then replays the
+immutable outbox from sequence zero in order.  Tombstone cleanup is separately
+bounded and allowed only after the checkpoint has passed the tombstone.  A
+GraphOS observation cannot reverse-sync into authority: the only exception is
+the explicit `promote_graph_observation` path, which requires an enabled,
+allowlisted policy, a fresh observation, and an opaque evidence reference.
