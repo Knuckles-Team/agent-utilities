@@ -30,6 +30,21 @@ _EXPORTS = {
     "component_visible": ("release_channel", "component_visible"),
     "get_component_channel": ("release_channel", "get_component_channel"),
     "release_channel": ("release_channel", "release_channel"),
+    "ResourceCell": ("shared_resource_leases", "ResourceCell"),
+    "ResourceLease": ("shared_resource_leases", "ResourceLease"),
+    "ResourceLeaseRequest": ("shared_resource_leases", "ResourceLeaseRequest"),
+    "SharedResourceLeaseAuthority": (
+        "shared_resource_leases",
+        "SharedResourceLeaseAuthority",
+    ),
+    "EngineNativeResourceLeaseAuthority": (
+        "shared_resource_leases",
+        "EngineNativeResourceLeaseAuthority",
+    ),
+    "SQLiteResourceLeaseAuthority": (
+        "shared_resource_leases",
+        "SQLiteResourceLeaseAuthority",
+    ),
 }
 
 
@@ -65,4 +80,10 @@ __all__ = [
     "component_visible",
     "get_component_channel",
     "release_channel",
+    "ResourceCell",
+    "ResourceLease",
+    "ResourceLeaseRequest",
+    "SharedResourceLeaseAuthority",
+    "EngineNativeResourceLeaseAuthority",
+    "SQLiteResourceLeaseAuthority",
 ]

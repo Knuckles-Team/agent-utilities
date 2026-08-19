@@ -70,6 +70,10 @@ from typing import TYPE_CHECKING
 
 from agent_utilities.kvcache.config import KvCacheConfig, _addr_to_base_url
 from agent_utilities.kvcache.remote_backend import EpistemicGraphKVBackend
+from agent_utilities.core.shared_resource_leases import (
+    ResourceLease,
+    SharedResourceLeaseAuthority,
+)
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Sequence
@@ -97,6 +101,9 @@ class EpistemicGraphL2Connector:
         addr: Engine bind value (``host:port`` / bare port / enable token),
             coerced to a base URL like the engine's ``EPISTEMIC_GRAPH_KVCACHE_ADDR``.
         token: Bearer token for the EG-187 surface (``Authorization: Bearer``).
+        tenant_ref: Verified tenant binding for the remote cache namespace.
+        principal_ref: Verified worker/service principal binding.
+        require_tenant_scope: Fail closed when those bindings/auth are absent.
         timeout_s: Per-request timeout (hot-path — keep short).
         num_workers: Background I/O worker threads (parallel batches). Also raises
             the HTTP connection-pool ceiling to at least ``2 × num_workers``.
@@ -112,6 +119,9 @@ class EpistemicGraphL2Connector:
         base_url: str | None = None,
         addr: str | None = None,
         token: str | None = None,
+        tenant_ref: str | None = None,
+        principal_ref: str | None = None,
+        require_tenant_scope: bool | None = None,
         timeout_s: float | None = None,
         num_workers: int = 8,
         max_connections: int | None = None,
@@ -123,6 +133,9 @@ class EpistemicGraphL2Connector:
             base_url=base_url,
             addr=addr,
             token=token,
+            tenant_ref=tenant_ref,
+            principal_ref=principal_ref,
+            require_tenant_scope=require_tenant_scope,
             timeout_s=timeout_s,
             max_connections=max_connections,
             tls_profile=tls_profile,
@@ -161,6 +174,9 @@ class EpistemicGraphL2Connector:
         base_url: str | None,
         addr: str | None,
         token: str | None,
+        tenant_ref: str | None,
+        principal_ref: str | None,
+        require_tenant_scope: bool | None,
         timeout_s: float | None,
         max_connections: int | None,
         tls_profile: str | None,
@@ -176,6 +192,12 @@ class EpistemicGraphL2Connector:
             updates["base_url"] = _addr_to_base_url(addr)
         if token is not None:
             updates["token"] = token
+        if tenant_ref is not None:
+            updates["tenant_ref"] = tenant_ref
+        if principal_ref is not None:
+            updates["principal_ref"] = principal_ref
+        if require_tenant_scope is not None:
+            updates["require_tenant_scope"] = bool(require_tenant_scope)
         if timeout_s is not None:
             updates["timeout_s"] = float(timeout_s)
         if tls_profile is not None:
@@ -255,6 +277,50 @@ class EpistemicGraphL2Connector:
             os.close(self._efd)
         except OSError:  # pragma: no cover - already closed
             pass
+
+    def acquire_slot_lease(
+        self,
+        key: str,
+        *,
+        authority: SharedResourceLeaseAuthority,
+        node_id: str,
+        device_id: str,
+        lease_epoch: int,
+        idempotency_key: str | None = None,
+        amount: int = 1,
+        ttl_ms: int = 30_000,
+        priority_class: str = "best_effort",
+        policy_digest: str = "policy:default",
+        now_ms: int | None = None,
+    ) -> ResourceLease:
+        """Expose the durable KV-slot reservation seam to LMCache hosts."""
+
+        return self._backend.acquire_slot_lease(
+            key,
+            authority=authority,
+            node_id=node_id,
+            device_id=device_id,
+            lease_epoch=lease_epoch,
+            idempotency_key=idempotency_key,
+            amount=amount,
+            ttl_ms=ttl_ms,
+            priority_class=priority_class,
+            policy_digest=policy_digest,
+            now_ms=now_ms,
+        )
+
+    def release_slot_lease(
+        self,
+        lease: ResourceLease,
+        *,
+        authority: SharedResourceLeaseAuthority,
+        now_ms: int | None = None,
+    ) -> None:
+        EpistemicGraphKVBackend.release_slot_lease(
+            lease,
+            authority=authority,
+            now_ms=now_ms,
+        )
 
     # -- internals ------------------------------------------------------------
     def _next_future_id(self) -> int:

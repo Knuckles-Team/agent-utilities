@@ -20,6 +20,12 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from agent_utilities.core.config import setting
+from agent_utilities.core.shared_resource_leases import (
+    LeaseAuthorityUnavailable,
+    ResourceLease,
+    ResourceLeaseRequest,
+    SharedResourceLeaseAuthority,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,11 +105,95 @@ class ResourceOptimizer:
         budget: ResourceBudget | None = None,
         model_registry: Any = None,
         kg_engine: Any = None,
+        *,
+        lease_authority: SharedResourceLeaseAuthority | None = None,
+        tenant_ref: str = "",
+        principal_ref: str = "",
+        node_id: str = "",
+        device_id: str = "",
+        lease_epoch: int = 1,
+        policy_digest: str = "policy:default",
     ) -> None:
         self.budget = budget or ResourceBudget()
         self._registry = model_registry
         self._engine = kg_engine
         self._records: list[ResourceUsageRecord] = []
+        # Token/model budgets are observations until a durable authority is
+        # supplied.  No process-local counter is promoted to distributed
+        # admission by this optional seam.
+        self._lease_authority = lease_authority
+        self._lease_scope = {
+            "tenant_ref": tenant_ref,
+            "principal_ref": principal_ref,
+            "node_id": node_id,
+            "device_id": device_id,
+            "lease_epoch": lease_epoch,
+            "policy_digest": policy_digest,
+        }
+        self._active_token_leases: dict[str, ResourceLease] = {}
+
+    def reserve_tokens(
+        self,
+        amount: int,
+        *,
+        idempotency_key: str,
+        resource_id: str = "session",
+        ttl_ms: int = 30_000,
+        priority_class: str = "interactive",
+        now_ms: int | None = None,
+    ) -> ResourceLease:
+        """Reserve token capacity through the shared lease authority.
+
+        The in-memory ``ResourceBudget`` remains a reporting projection.  A
+        caller that needs admission must explicitly provide an authority and a
+        verified tenant/principal/device scope; absent either, this fails closed
+        instead of pretending that ``tokens_used`` is globally enforced.
+        """
+
+        if self._lease_authority is None:
+            raise LeaseAuthorityUnavailable(
+                "token admission requires a shared durable lease authority"
+            )
+        scope = self._lease_scope
+        request = ResourceLeaseRequest(
+            resource_kind="token_budget",
+            resource_id=resource_id,
+            node_id=scope["node_id"],
+            device_id=scope["device_id"],
+            tenant_ref=scope["tenant_ref"],
+            principal_ref=scope["principal_ref"],
+            amount=amount,
+            idempotency_key=idempotency_key,
+            lease_epoch=scope["lease_epoch"],
+            ttl_ms=ttl_ms,
+            priority_class=priority_class,
+            policy_digest=scope["policy_digest"],
+        )
+        lease = self._lease_authority.acquire(request, now_ms=now_ms)
+        self._active_token_leases[lease.lease_id] = lease
+        return lease
+
+    def release_lease(self, lease: ResourceLease, *, now_ms: int | None = None) -> None:
+        """Release a token/model lease with its exact authenticated fence."""
+
+        if self._lease_authority is None:
+            raise LeaseAuthorityUnavailable(
+                "token release requires a shared durable lease authority"
+            )
+        tracked = self._active_token_leases.get(lease.lease_id)
+        if tracked is None or tracked.request.digest != lease.request.digest:
+            raise LeaseAuthorityUnavailable(
+                "token lease was not acquired by this optimizer"
+            )
+        self._lease_authority.release(
+            lease.lease_id,
+            tenant_ref=lease.request.tenant_ref,
+            principal_ref=lease.request.principal_ref,
+            fence_token=lease.fence_token,
+            lease_epoch=lease.lease_epoch,
+            now_ms=now_ms,
+        )
+        self._active_token_leases.pop(lease.lease_id, None)
 
     def allocate_budget(
         self,
@@ -189,9 +279,32 @@ class ResourceOptimizer:
         latency_ms: float = 0.0,
         model_id: str = "",
         model_tier: str = "medium",
+        lease: ResourceLease | None = None,
     ) -> ResourceUsageRecord:
-        """Record resource consumption for a specialist operation."""
+        """Record resource consumption for a specialist operation.
+
+        When a durable lease authority is configured, a matching token lease is
+        mandatory.  The local counters then remain an observability projection,
+        never the cross-process budget decision.
+        """
         total_tokens = tokens_input + tokens_output
+        if self._lease_authority is not None:
+            if lease is None:
+                raise LeaseAuthorityUnavailable(
+                    "record_usage requires the token lease held for this operation"
+                )
+            if lease.request.resource_kind != "token_budget":
+                raise ValueError("resource usage lease must use token_budget")
+            tracked = self._active_token_leases.get(lease.lease_id)
+            if tracked is None or tracked.request.digest != lease.request.digest:
+                raise LeaseAuthorityUnavailable(
+                    "token lease was not acquired by this optimizer"
+                )
+            lease.assert_live()
+            if total_tokens > lease.request.amount:
+                raise LeaseAuthorityUnavailable(
+                    "recorded tokens exceed the admitted token lease"
+                )
         record = ResourceUsageRecord(
             specialist_id=specialist_id,
             model_id=model_id,

@@ -31,6 +31,12 @@ from collections.abc import Awaitable, Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar
 
+from agent_utilities.core.shared_resource_leases import (
+    ResourceLease,
+    ResourceLeaseRequest,
+    SharedResourceLeaseAuthority,
+)
+
 T = TypeVar("T")
 R = TypeVar("R")
 
@@ -39,6 +45,7 @@ __all__ = [
     "server_ceiling",
     "get_semaphore",
     "get_thread_pool",
+    "configure_model_lease_authority",
     "reset_controllers",
     "map_concurrent",
     "map_concurrent_sync",
@@ -175,6 +182,21 @@ def resolve_capacity(model: str | None = None, default: int = 1) -> int:
 _lock = threading.Lock()
 _semaphores: dict[tuple[str, int, int], asyncio.Semaphore] = {}
 _pools: dict[tuple[str, int], ThreadPoolExecutor] = {}
+_model_lease_authority: SharedResourceLeaseAuthority | None = None
+
+
+def configure_model_lease_authority(
+    authority: SharedResourceLeaseAuthority | None,
+) -> None:
+    """Configure the durable authority used by model fan-out admission.
+
+    This stores only a transport handle.  Lease state and capacity remain in
+    the authority; clearing it makes subsequent calls use the legacy local
+    sizing hint, never a stale local lease ledger.
+    """
+
+    global _model_lease_authority
+    _model_lease_authority = authority
 
 
 def _key(model: str | None) -> str:
@@ -277,6 +299,8 @@ async def map_concurrent(
     *,
     model: str | None = None,
     capacity: int | None = None,
+    lease_authority: SharedResourceLeaseAuthority | None = None,
+    lease_request_factory: Callable[[T], ResourceLeaseRequest] | None = None,
 ) -> list[R]:
     """Fan ``fn`` out over ``items`` up to the model's capacity, async.
 
@@ -290,6 +314,7 @@ async def map_concurrent(
     """
     if not items:
         return []
+    authority = lease_authority or _model_lease_authority
     # Two-layer capacity guard (CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp):
     #  • ``ceiling`` — the remote SERVER's hard capacity, shared by ALL demand
     #    sources (embeds + enrichment + orchestration) on this endpoint via the
@@ -315,6 +340,20 @@ async def map_concurrent(
         # this fan-out's own width.
         async with priority_slot(model, capacity=ceiling, priority=prio):
             async with width:
+                lease: ResourceLease | None = None
+                if authority is not None:
+                    if lease_request_factory is None:
+                        raise ValueError(
+                            "lease_request_factory is required with lease_authority"
+                        )
+                    request = lease_request_factory(item)
+                    if request.resource_kind != "model_concurrency":
+                        raise ValueError(
+                            "model fan-out leases must use model_concurrency"
+                        )
+                    lease = await asyncio.to_thread(
+                        authority.acquire, request
+                    )
                 start = time.monotonic()
                 try:
                     if is_coro:
@@ -331,6 +370,16 @@ async def map_concurrent(
                     )
                     breaker.record(ok=False, status=status)
                     raise
+                finally:
+                    if lease is not None:
+                        await asyncio.to_thread(
+                            authority.release,
+                            lease.lease_id,
+                            tenant_ref=lease.request.tenant_ref,
+                            principal_ref=lease.request.principal_ref,
+                            fence_token=lease.fence_token,
+                            lease_epoch=lease.lease_epoch,
+                        )
                 _record(model, latency_s=time.monotonic() - start, ok=True, status=None)
                 breaker.record(ok=True, status=None)
                 return result
@@ -345,6 +394,8 @@ def map_concurrent_sync(
     *,
     model: str | None = None,
     capacity: int | None = None,
+    lease_authority: SharedResourceLeaseAuthority | None = None,
+    lease_request_factory: Callable[[T], ResourceLeaseRequest] | None = None,
 ) -> list[R]:
     """Fan ``fn`` out over ``items`` up to the model's capacity, synchronous.
 
@@ -356,6 +407,7 @@ def map_concurrent_sync(
     n = len(items)
     if n == 0:
         return []
+    authority = lease_authority or _model_lease_authority
     # Two-layer capacity guard (CONCEPT:AU-ORCH.optimization.remote-concurrency-clamp): ``ceiling`` = the shared remote
     # SERVER ceiling enforced by the per-model priority gate (embeds + enrichment +
     # orchestration on the SAME endpoint share it); ``cap`` = this fan-out's own width
@@ -377,6 +429,14 @@ def map_concurrent_sync(
     def _timed(item: T) -> R:
         # CONCEPT:AU-ORCH.routing.load-shedding-backoff — back off while the server is shedding load.
         breaker.before_call_sync()
+        lease: ResourceLease | None = None
+        if authority is not None:
+            if lease_request_factory is None:
+                raise ValueError("lease_request_factory is required with lease_authority")
+            request = lease_request_factory(item)
+            if request.resource_kind != "model_concurrency":
+                raise ValueError("model fan-out leases must use model_concurrency")
+            lease = authority.acquire(request)
         start = time.monotonic()
         try:
             # Outer: shared server-capacity ceiling + priority edict (ORCH-1.99).
@@ -392,6 +452,15 @@ def map_concurrent_sync(
             )
             breaker.record(ok=False, status=status)
             raise
+        finally:
+            if lease is not None:
+                authority.release(
+                    lease.lease_id,
+                    tenant_ref=lease.request.tenant_ref,
+                    principal_ref=lease.request.principal_ref,
+                    fence_token=lease.fence_token,
+                    lease_epoch=lease.lease_epoch,
+                )
         _record(model, latency_s=time.monotonic() - start, ok=True, status=None)
         breaker.record(ok=True, status=None)
         return result

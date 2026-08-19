@@ -64,7 +64,23 @@ class KvCacheConfig(BaseModel):
     token: str | None = Field(
         default=None,
         description="Bearer token sent as 'Authorization: Bearer <token>'. "
-        "None ⇒ anonymous (engine loopback default).",
+        "For a tenant-scoped remote cache this must be a validated service token "
+        "or an attached refreshing auth provider.",
+    )
+    tenant_ref: str = Field(
+        default="",
+        description="Verified tenant binding for the remote cache namespace. "
+        "Never inferred from a cache key.",
+    )
+    principal_ref: str = Field(
+        default="",
+        description="Verified worker/service principal bound to every cache request.",
+    )
+    require_tenant_scope: bool = Field(
+        default=False,
+        description="Require an authenticated principal and tenant before any "
+        "remote operation. from_env defaults this to true; false is retained "
+        "only for explicit loopback/test connectors.",
     )
     timeout_s: float = Field(
         default=2.0,
@@ -98,6 +114,10 @@ class KvCacheConfig(BaseModel):
         * ``EPISTEMIC_GRAPH_KVCACHE_ADDR`` — the engine bind value, coerced to a
           base URL via :func:`_addr_to_base_url`.
         * ``EPISTEMIC_GRAPH_KVCACHE_TOKEN`` — bearer token.
+        * ``EPISTEMIC_GRAPH_KVCACHE_TENANT`` — verified tenant binding.
+        * ``EPISTEMIC_GRAPH_KVCACHE_PRINCIPAL`` — verified worker principal.
+        * ``EPISTEMIC_GRAPH_KVCACHE_REQUIRE_AUTH`` — fail closed unless auth and
+          both bindings are present (defaults to true for environment clients).
         * ``EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S`` — per-request timeout override.
         * ``EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE`` — runtime TLS profile name.
         * ``EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE_REF`` — profile secret reference.
@@ -112,6 +132,9 @@ class KvCacheConfig(BaseModel):
         return cls(
             base_url=base_url,
             token=setting("EPISTEMIC_GRAPH_KVCACHE_TOKEN", None),
+            tenant_ref=setting("EPISTEMIC_GRAPH_KVCACHE_TENANT", ""),
+            principal_ref=setting("EPISTEMIC_GRAPH_KVCACHE_PRINCIPAL", ""),
+            require_tenant_scope=setting("EPISTEMIC_GRAPH_KVCACHE_REQUIRE_AUTH", True),
             timeout_s=setting("EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S", 2.0),
             max_connections=setting("EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS", 32),
             tls_profile=setting("EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE", None),

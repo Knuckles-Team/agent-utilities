@@ -8,7 +8,7 @@ can each ramp concurrency while tuning in isolation and
 would happily ramp both at once and **jointly oversubscribe** the device — bulk
 embedding would starve interactive chat of GPU time.
 
-This module adds the missing layer: a **per-GPU budget** that caps the *sum* of
+This module adds the planning layer: a **per-GPU budget** that caps the *sum* of
 the concurrency targets of all models on one GPU, with a **reserved slice for
 latency-sensitive roles** (chat/generator) so interactive latency is protected
 even while best-effort work (embedding/batch) is saturating the leftover headroom.
@@ -52,8 +52,11 @@ Design (a thin, conservative cap layered on top of the per-model controller):
   :func:`group_allowed` returns ``None`` and the per-model target passes through
   unchanged — zero regression.
 
-This module holds **no network or heavy deps**; it is pure arithmetic over a small
-registry the per-model controllers feed.
+The arithmetic registry is intentionally only a sizing/observability hint.  It
+is not a cross-process admission authority.  Real GPU memory/concurrency
+admission must use :func:`acquire_gpu_lease` with the replicated resource-lease
+authority; a missing authority fails closed.  This module holds **no network or
+heavy deps** beyond that explicit transport seam.
 """
 
 from __future__ import annotations
@@ -63,6 +66,11 @@ from dataclasses import dataclass, field
 
 __all__ = [
     "GpuGroupBudget",
+    "configure_gpu_lease_authority",
+    "gpu_lease_request",
+    "acquire_gpu_lease",
+    "renew_gpu_lease",
+    "release_gpu_lease",
     "register_member",
     "report_target",
     "group_allowed",
@@ -70,6 +78,13 @@ __all__ = [
     "reset_gpu_group_budgets",
     "DEFAULT_RESERVED_ROLES",
 ]
+
+from agent_utilities.core.shared_resource_leases import (
+    LeaseAuthorityUnavailable,
+    ResourceLease,
+    ResourceLeaseRequest,
+    SharedResourceLeaseAuthority,
+)
 
 # Latency-sensitive roles that get their floor reserved FIRST off the GPU budget.
 DEFAULT_RESERVED_ROLES = frozenset({"chat", "generator", "default", "lite", "super"})
@@ -89,13 +104,13 @@ class _Member:
 
 @dataclass
 class GpuGroupBudget:
-    """Tracks one GPU's budget + its member models' demand (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
+    """Tracks one GPU's sizing hint + member demand (CONCEPT:AU-KG.compute.pure-config-enumeration-fail).
 
     ``budget`` is the total concurrent in-flight calls allowed across *all* models
     sharing this GPU. Members register their floor + role; each re-tune reports the
-    member's current per-model target. :meth:`allowed_for` returns the cap to apply
-    to a given model so the group never oversubscribes and priority roles keep their
-    reserved floors.
+    member's current per-model target. :meth:`allowed_for` returns a conservative
+    sizing hint. It does not mint or validate a live lease; use
+    :func:`acquire_gpu_lease` for admission.
     """
 
     group: str
@@ -191,6 +206,126 @@ class GpuGroupBudget:
 # --- Module-level registry (one budget per GPU group) -----------------------
 _lock = threading.Lock()
 _budgets: dict[str, GpuGroupBudget] = {}
+# This is a transport handle, not a local accounting store.  The actual lease
+# state/fence lives in the configured engine authority (or an explicitly
+# supplied reference authority in tests).  Keeping the pointer here avoids
+# forcing every legacy adaptive-capacity call site to thread a dependency while
+# never making the arithmetic registry authoritative for admission.
+_lease_authority: SharedResourceLeaseAuthority | None = None
+
+
+def configure_gpu_lease_authority(
+    authority: SharedResourceLeaseAuthority | None,
+) -> None:
+    """Set the shared authority used by convenience GPU lease helpers.
+
+    Passing ``None`` disables implicit admission.  A missing authority is a
+    hard error for :func:`acquire_gpu_lease`; callers must not silently fall
+    back to the module-global target registry.
+    """
+
+    global _lease_authority
+    _lease_authority = authority
+
+
+def gpu_lease_request(
+    group: str,
+    *,
+    node_id: str,
+    device_id: str,
+    tenant_ref: str,
+    principal_ref: str,
+    idempotency_key: str,
+    amount: int = 1,
+    resource_kind: str = "gpu_concurrency",
+    lease_epoch: int = 1,
+    ttl_ms: int = 30_000,
+    priority_class: str = "interactive",
+    policy_digest: str = "policy:default",
+) -> ResourceLeaseRequest:
+    """Build a device/MIG-bound GPU lease request.
+
+    ``device_id`` must be the attested physical GPU or MIG identity, not a
+    hostname alias.  The helper intentionally does not infer tenant or
+    principal from arbitrary payload fields.
+    """
+
+    return ResourceLeaseRequest(
+        resource_kind=resource_kind,
+        resource_id=group,
+        node_id=node_id,
+        device_id=device_id,
+        tenant_ref=tenant_ref,
+        principal_ref=principal_ref,
+        amount=amount,
+        idempotency_key=idempotency_key,
+        lease_epoch=lease_epoch,
+        ttl_ms=ttl_ms,
+        priority_class=priority_class,
+        policy_digest=policy_digest,
+    )
+
+
+def _authority(
+    authority: SharedResourceLeaseAuthority | None,
+) -> SharedResourceLeaseAuthority:
+    selected = authority or _lease_authority
+    if selected is None:
+        raise LeaseAuthorityUnavailable(
+            "GPU admission requires a shared durable lease authority"
+        )
+    return selected
+
+
+def acquire_gpu_lease(
+    request: ResourceLeaseRequest,
+    *,
+    authority: SharedResourceLeaseAuthority | None = None,
+    now_ms: int | None = None,
+) -> ResourceLease:
+    """Acquire a GPU concurrency/memory lease; never use local cap arithmetic."""
+
+    if request.resource_kind not in {"gpu_concurrency", "gpu_memory_bytes"}:
+        raise ValueError("GPU leases must use a GPU resource kind")
+    return _authority(authority).acquire(request, now_ms=now_ms)
+
+
+def renew_gpu_lease(
+    lease: ResourceLease,
+    *,
+    authority: SharedResourceLeaseAuthority | None = None,
+    ttl_ms: int,
+    now_ms: int | None = None,
+) -> ResourceLease:
+    """Renew a live GPU lease with its owner and fence identity."""
+
+    return _authority(authority).renew(
+        lease.lease_id,
+        tenant_ref=lease.request.tenant_ref,
+        principal_ref=lease.request.principal_ref,
+        fence_token=lease.fence_token,
+        lease_epoch=lease.lease_epoch,
+        ttl_ms=ttl_ms,
+        now_ms=now_ms,
+    )
+
+
+def release_gpu_lease(
+    lease: ResourceLease,
+    *,
+    authority: SharedResourceLeaseAuthority | None = None,
+    now_ms: int | None = None,
+) -> None:
+    """Release a GPU lease using the exact owner/fence tuple."""
+
+    _authority(authority).release(
+        lease.lease_id,
+        tenant_ref=lease.request.tenant_ref,
+        principal_ref=lease.request.principal_ref,
+        fence_token=lease.fence_token,
+        lease_epoch=lease.lease_epoch,
+        now_ms=now_ms,
+    )
 
 
 def _budget_for_group(group: str) -> int | None:

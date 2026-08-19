@@ -37,6 +37,12 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Protocol, runtime_checkable
 
+from agent_utilities.core.shared_resource_leases import (
+    ResourceLease,
+    ResourceLeaseRequest,
+    SharedResourceLeaseAuthority,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -124,12 +130,16 @@ class GpuSlotScheduler:
         *,
         auto_backfill: bool = True,
         preempt_foreground: bool = False,
+        lease_authority: SharedResourceLeaseAuthority | None = None,
+        lease_request_factory: Callable[[Job], ResourceLeaseRequest] | None = None,
     ) -> None:
         self._store: CheckpointStore = store or InMemoryCheckpointStore()
         self._auto_backfill = auto_backfill
         # If False, a new foreground job only preempts *auto* jobs, never another
         # foreground one (it waits its turn). Matches upstream PREEMPT_FOREGROUND.
         self._preempt_foreground = preempt_foreground
+        self._lease_authority = lease_authority
+        self._lease_request_factory = lease_request_factory
         self._jobs: dict[str, Job] = {}
         self._queue: list[str] = []  # FIFO of foreground QUEUED ids
         self._current: str | None = None
@@ -327,7 +337,24 @@ class GpuSlotScheduler:
                 self._pause_flags.discard(job_id)
                 self._store.save(job)
 
+            lease: ResourceLease | None = None
             try:
+                if self._lease_authority is not None:
+                    if self._lease_request_factory is None:
+                        raise RuntimeError(
+                            "GPU scheduler lease_request_factory is required"
+                        )
+                    request = self._lease_request_factory(job)
+                    if request.resource_kind not in {
+                        "gpu_concurrency",
+                        "gpu_memory_bytes",
+                    }:
+                        raise RuntimeError(
+                            "GPU scheduler leases must use a GPU resource kind"
+                        )
+                    lease = await asyncio.to_thread(
+                        self._lease_authority.acquire, request
+                    )
                 await self._runner(job, self)
             except Exception as e:  # noqa: BLE001 — one bad job never kills the loop
                 logger.warning("job %s failed: %s", job_id, e)
@@ -335,6 +362,23 @@ class GpuSlotScheduler:
                     job.state = JobState.FAILED
                     job.error = str(e)
                     self._store.save(job)
+            finally:
+                if lease is not None:
+                    try:
+                        await asyncio.to_thread(
+                            self._lease_authority.release,
+                            lease.lease_id,
+                            tenant_ref=lease.request.tenant_ref,
+                            principal_ref=lease.request.principal_ref,
+                            fence_token=lease.fence_token,
+                            lease_epoch=lease.lease_epoch,
+                        )
+                    except Exception as exc:  # noqa: BLE001 - preserve worker loop; authority remains fail-closed
+                        logger.error(
+                            "GPU lease release failed for job %s; authority will reclaim on expiry: %s",
+                            job_id,
+                            exc,
+                        )
 
             async with self._cond:
                 self._current = None

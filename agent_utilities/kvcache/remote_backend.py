@@ -21,7 +21,11 @@ Wire contract (see ``epistemic-graph/docs/architecture/kvcache-remote-backend.md
 
 ``<hash>`` is the **caller's opaque token-hash key** (what LMCache computes over
 the token ids of a block); the engine stores the body verbatim under it and does
-NOT re-hash. Auth is an optional ``Authorization: Bearer <token>`` guard.
+NOT re-hash. Environment-built distributed clients require an
+``Authorization: Bearer <token>`` (or refreshing OIDC auth) plus a verified
+tenant/principal binding.  The connector salts the path key with the tenant so
+the same logical block cannot cross namespaces. Explicit loopback/test configs
+may opt out with ``require_tenant_scope=False``.
 
 Graceful degradation is a hard requirement: this sits on the inference hot path,
 so every network / protocol error is swallowed and mapped to a cache **miss**
@@ -50,7 +54,9 @@ connector stays usable — and unit-testable — with lmcache absent.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
+from collections.abc import Mapping
 from types import TracebackType
 from typing import TYPE_CHECKING, Any, Literal
 from urllib.parse import quote
@@ -59,10 +65,15 @@ import httpx
 from pydantic import BaseModel
 
 from agent_utilities.core.http_client import create_http_client
+from agent_utilities.core.shared_resource_leases import (
+    ResourceLease,
+    ResourceLeaseRequest,
+    SharedResourceLeaseAuthority,
+)
 from agent_utilities.kvcache.config import KvCacheConfig
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +159,7 @@ class EpistemicGraphKVBackend:
     CONCEPT:AU-KG.backend.remote-kvcache-contract. Implements the LMCache remote-backend shape
     (``get`` / ``put`` / ``contains`` / ``stats``) against EG-187 with a pooled,
     keep-alive :class:`httpx.Client` (connection reuse), a short per-request
-    timeout, an optional bearer token, and total graceful degradation — every
+    timeout, a tenant-scoped bearer/auth binding, and total graceful degradation — every
     error is a cache miss, never a raised exception on the inference path.
 
     Args:
@@ -170,6 +181,12 @@ class EpistemicGraphKVBackend:
         self.config = config or KvCacheConfig()
         self._owns_client = client is None
         self._client = client if client is not None else self._build_client()
+        self._scope_denied = not self._scope_ready()
+        if self._scope_denied and self.config.require_tenant_scope:
+            logger.warning(
+                "tenant-scoped KV connector is not authenticated; remote operations "
+                "will fail closed"
+            )
         # Cached zero-copy fork-surface capability probe (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork,
         # see :meth:`supports_fork`) — None until first probed.
         self._fork_supported: bool | None = None
@@ -188,10 +205,13 @@ class EpistemicGraphKVBackend:
         # one-shot re-mint + retry on 401 — so token rotation and cold restarts are
         # handled automatically). Falls back to a static ``EPISTEMIC_GRAPH_KVCACHE_TOKEN``
         # bearer (the documented OpenBao-sourced option) when OIDC isn't configured
-        # (e.g. a standalone vLLM/LMCache worker), and to anonymous otherwise.
+        # (e.g. a standalone vLLM/LMCache worker). Explicit loopback/test
+        # configs can still opt out of tenant scope for compatibility.
         # Lazy + guarded: a standalone vLLM/LMCache worker must not need the mcp
         # layer to import this connector — if it's unavailable, degrade to the
-        # static-token / anonymous path.
+        # static-token path.  When tenant scoping is required, the missing
+        # token/binding is rejected by ``_scope_ready`` below rather than
+        # silently becoming an anonymous distributed worker.
         try:
             from agent_utilities.mcp.client_credentials import child_auth
         except Exception:  # pragma: no cover - mcp layer optional on inference hosts
@@ -203,6 +223,14 @@ class EpistemicGraphKVBackend:
         auth = child_auth(headers)  # httpx.Auth | None (None ⇒ MCP_CLIENT_AUTH off)
         if auth is None and self.config.token:
             headers["Authorization"] = f"Bearer {self.config.token}"
+        # These are routing/audit bindings only.  The engine must still derive
+        # authorization from the bearer/session claims; a caller-supplied header
+        # can never widen access.  Sending them makes tenant mistakes observable
+        # and prevents an unscoped remote cache from looking healthy.
+        if self.config.tenant_ref:
+            headers["X-Epistemic-Tenant"] = self.config.tenant_ref
+        if self.config.principal_ref:
+            headers["X-Epistemic-Principal"] = self.config.principal_ref
         from agent_utilities.core.transport_security import (
             resolve_configured_tls_profile,
         )
@@ -225,15 +253,39 @@ class EpistemicGraphKVBackend:
             trust.cleanup()
 
     # -- key handling ---------------------------------------------------------
-    @staticmethod
-    def _path(key: str) -> str:
+    def _scope_ready(self) -> bool:
+        """Return whether this connector has a complete remote authority tuple."""
+
+        if not self.config.require_tenant_scope:
+            return True
+        tenant = str(self.config.tenant_ref or "").strip()
+        principal = str(self.config.principal_ref or "").strip()
+        if not tenant or not principal:
+            return False
+        authorization = self._client.headers.get("Authorization")
+        # An injected client owns its own auth lifecycle; merely placing a token
+        # in config must not make an unauthenticated injected transport eligible.
+        configured_auth = self.config.token if self._owns_client else None
+        return bool(authorization or getattr(self._client, "auth", None) or configured_auth)
+
+    def _scope_key(self, key: str) -> str:
+        """Make identical logical keys distinct across authenticated tenants."""
+
+        rendered = str(key)
+        if not self.config.require_tenant_scope:
+            return rendered
+        return hashlib.sha256(
+            f"{self.config.tenant_ref}\x00{rendered}".encode("utf-8")
+        ).hexdigest()
+
+    def _path(self, key: str) -> str:
         """Path for a block key. The key is opaque; percent-encode for URL safety.
 
         The engine stores the body verbatim under the decoded key, so encoding
         here is purely transport hygiene (keys may contain ``/`` or other
         reserved characters).
         """
-        return f"/kv/{quote(str(key), safe='')}"
+        return f"/kv/{quote(self._scope_key(key), safe='')}"
 
     # -- LMCache remote-backend contract (CONCEPT:AU-KG.backend.remote-kvcache-contract) -------------------
     def get(self, key: str) -> bytes | None:
@@ -249,6 +301,9 @@ class EpistemicGraphKVBackend:
         PER-PROCESS local signal; ``GET /kv/stats`` (:meth:`stats`) is the
         engine's own aggregate occupancy/dedup counters across every caller.
         """
+        if self._scope_denied:
+            _record_kvcache_client_outcome("denied")
+            return None
         try:
             resp = self._client.get(self._path(key))
         except httpx.HTTPError as exc:
@@ -276,6 +331,8 @@ class EpistemicGraphKVBackend:
         ``201`` newly created) and ``False`` on any error — a failed offload is
         non-fatal (the block simply is not pooled).
         """
+        if self._scope_denied:
+            return False
         try:
             resp = self._client.put(
                 self._path(key),
@@ -296,6 +353,8 @@ class EpistemicGraphKVBackend:
         ``True`` on ``200``, ``False`` on ``404`` or any error. Used to skip an
         upload the cluster already has.
         """
+        if self._scope_denied:
+            return False
         try:
             resp = self._client.head(self._path(key))
         except httpx.HTTPError as exc:
@@ -309,6 +368,8 @@ class EpistemicGraphKVBackend:
         Some LMCache call sites cannot issue ``HEAD``; this uses the JSON
         ``{"hash":…,"exists":bool}`` endpoint instead. Errors ⇒ ``False``.
         """
+        if self._scope_denied:
+            return False
         try:
             resp = self._client.get(f"{self._path(key)}/exists")
         except httpx.HTTPError as exc:
@@ -328,6 +389,8 @@ class EpistemicGraphKVBackend:
         Returns a parsed :class:`KvCacheStats`; on any error returns an
         all-zero instance rather than raising.
         """
+        if self._scope_denied:
+            return KvCacheStats()
         try:
             resp = self._client.get("/kv/stats")
             if resp.status_code != 200:
@@ -336,6 +399,65 @@ class EpistemicGraphKVBackend:
         except (httpx.HTTPError, json.JSONDecodeError, ValueError) as exc:
             logger.warning("kvcache stats() failed: %s", exc)
             return KvCacheStats()
+
+    def acquire_slot_lease(
+        self,
+        key: str,
+        *,
+        authority: SharedResourceLeaseAuthority,
+        node_id: str,
+        device_id: str,
+        lease_epoch: int,
+        idempotency_key: str | None = None,
+        amount: int = 1,
+        ttl_ms: int = 30_000,
+        priority_class: str = "best_effort",
+        policy_digest: str = "policy:default",
+        now_ms: int | None = None,
+    ) -> ResourceLease:
+        """Reserve durable KV-cache capacity before a remote offload.
+
+        The remote engine remains the byte/content authority; this lease is the
+        cross-process slot budget.  It is deliberately explicit so a caller can
+        hold it for the block's residency lifetime and renew it, rather than
+        accidentally turning a short PUT into an unbounded process-local count.
+        """
+
+        if self._scope_denied:
+            raise PermissionError("tenant-scoped KV authority is not authenticated")
+        request = ResourceLeaseRequest(
+            resource_kind="kv_cache_slots",
+            resource_id=f"{self.config.base_url}:kv",
+            node_id=node_id,
+            device_id=device_id,
+            tenant_ref=self.config.tenant_ref,
+            principal_ref=self.config.principal_ref,
+            amount=amount,
+            idempotency_key=idempotency_key or f"kv:{self._scope_key(key)}",
+            lease_epoch=lease_epoch,
+            ttl_ms=ttl_ms,
+            priority_class=priority_class,
+            policy_digest=policy_digest,
+        )
+        return authority.acquire(request, now_ms=now_ms)
+
+    @staticmethod
+    def release_slot_lease(
+        lease: ResourceLease,
+        *,
+        authority: SharedResourceLeaseAuthority,
+        now_ms: int | None = None,
+    ) -> None:
+        """Release KV slot capacity with the exact authenticated fence."""
+
+        authority.release(
+            lease.lease_id,
+            tenant_ref=lease.request.tenant_ref,
+            principal_ref=lease.request.principal_ref,
+            fence_token=lease.fence_token,
+            lease_epoch=lease.lease_epoch,
+            now_ms=now_ms,
+        )
 
     # -- zero-copy snapshot → fork (CONCEPT:EG-KG.memory.zero-copy-snapshot-fork) ----------
     # The engine's ``eg-kvcache`` crate exposes a "snapshot → branch" primitive on
@@ -352,10 +474,9 @@ class EpistemicGraphKVBackend:
     # the store. It does NOT produce KV pages — the vLLM/LMCache model-side mapping
     # of live attention KV onto this store is external (see ``put``). Snapshotting a
     # key the store has never seen simply pins nothing for it.
-    @staticmethod
-    def _branch_path(branch_id: int, key: str) -> str:
+    def _branch_path(self, branch_id: int, key: str) -> str:
         """URL path for a branch-local key (the opaque key is percent-encoded)."""
-        return f"/kv/branch/{int(branch_id)}/{quote(str(key), safe='')}"
+        return f"/kv/branch/{int(branch_id)}/{quote(self._scope_key(key), safe='')}"
 
     def snapshot(self, keys: Sequence[str]) -> int | None:
         """Pin ``keys`` into an immutable snapshot via ``POST /kv/snapshot``.
@@ -364,9 +485,12 @@ class EpistemicGraphKVBackend:
         protocol error or a non-200 status — never raises (the caller falls back to
         the per-branch copy path when snapshotting is unavailable).
         """
+        if self._scope_denied:
+            return None
         try:
             resp = self._client.post(
-                "/kv/snapshot", json={"keys": [str(k) for k in keys]}
+                "/kv/snapshot",
+                json={"keys": [self._scope_key(str(k)) for k in keys]},
             )
         except httpx.HTTPError as exc:
             logger.warning("kvcache snapshot() failed: %s", exc)
@@ -387,6 +511,8 @@ class EpistemicGraphKVBackend:
         this is the rung that makes fanning out N branches O(1) in copies. Returns
         the integer branch id, or ``None`` on any error — never raises.
         """
+        if self._scope_denied:
+            return None
         try:
             resp = self._client.post(f"/kv/snapshot/{int(snapshot_id)}/fork")
         except httpx.HTTPError as exc:
@@ -410,6 +536,8 @@ class EpistemicGraphKVBackend:
         own copy-on-write override. Returns the bytes on a ``200`` hit, ``None`` on a
         ``404`` miss, and ``None`` on any error — never raises.
         """
+        if self._scope_denied:
+            return None
         try:
             resp = self._client.get(self._branch_path(branch_id, key))
         except httpx.HTTPError as exc:
@@ -433,6 +561,8 @@ class EpistemicGraphKVBackend:
         which is what makes ``max_concurrency>1`` fan-out safe. Returns ``True`` on a
         ``200``/``201`` accept and ``False`` on any error — never raises.
         """
+        if self._scope_denied:
+            return False
         try:
             resp = self._client.put(
                 self._branch_path(branch_id, key),

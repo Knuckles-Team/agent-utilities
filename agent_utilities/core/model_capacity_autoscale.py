@@ -70,6 +70,12 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from urllib.parse import urlsplit, urlunsplit
 
+from agent_utilities.core.shared_resource_leases import (
+    ResourceLease,
+    ResourceLeaseRequest,
+    SharedResourceLeaseAuthority,
+)
+
 __all__ = [
     "AdaptiveCapacityController",
     "adaptive_capacity",
@@ -78,6 +84,10 @@ __all__ = [
     "reset_adaptive_controllers",
     "parse_vllm_gauge",
     "metrics_url_from_base",
+    "model_capacity_lease_request",
+    "acquire_model_capacity_lease",
+    "renew_model_capacity_lease",
+    "release_model_capacity_lease",
 ]
 
 # A metrics fetcher: takes a URL, returns the raw Prometheus text. Injectable for
@@ -847,3 +857,87 @@ def reset_adaptive_controllers() -> None:
         reset_gpu_group_budgets()
     except Exception:  # noqa: BLE001 — best-effort cleanup
         pass
+
+
+def model_capacity_lease_request(
+    model: str,
+    *,
+    node_id: str,
+    device_id: str,
+    tenant_ref: str,
+    principal_ref: str,
+    idempotency_key: str,
+    amount: int = 1,
+    lease_epoch: int = 1,
+    ttl_ms: int = 30_000,
+    priority_class: str = "interactive",
+    policy_digest: str = "policy:default",
+) -> ResourceLeaseRequest:
+    """Build the durable lease used by one model fan-out call.
+
+    Adaptive targets and local semaphores remain useful sizing hints.  The
+    returned request is the explicit cross-process admission currency for the
+    remote model's aggregate concurrency.
+    """
+
+    return ResourceLeaseRequest(
+        resource_kind="model_concurrency",
+        resource_id=str(model),
+        node_id=node_id,
+        device_id=device_id,
+        tenant_ref=tenant_ref,
+        principal_ref=principal_ref,
+        amount=amount,
+        idempotency_key=idempotency_key,
+        lease_epoch=lease_epoch,
+        ttl_ms=ttl_ms,
+        priority_class=priority_class,
+        policy_digest=policy_digest,
+    )
+
+
+def acquire_model_capacity_lease(
+    authority: SharedResourceLeaseAuthority,
+    request: ResourceLeaseRequest,
+    *,
+    now_ms: int | None = None,
+) -> ResourceLease:
+    """Acquire a model-capacity lease; no local fallback is permitted."""
+
+    if request.resource_kind != "model_concurrency":
+        raise ValueError("model capacity lease requires model_concurrency")
+    return authority.acquire(request, now_ms=now_ms)
+
+
+def renew_model_capacity_lease(
+    authority: SharedResourceLeaseAuthority,
+    lease: ResourceLease,
+    *,
+    ttl_ms: int,
+    now_ms: int | None = None,
+) -> ResourceLease:
+    return authority.renew(
+        lease.lease_id,
+        tenant_ref=lease.request.tenant_ref,
+        principal_ref=lease.request.principal_ref,
+        fence_token=lease.fence_token,
+        lease_epoch=lease.lease_epoch,
+        ttl_ms=ttl_ms,
+        now_ms=now_ms,
+    )
+
+
+def release_model_capacity_lease(
+    authority: SharedResourceLeaseAuthority,
+    lease: ResourceLease,
+    *,
+    now_ms: int | None = None,
+) -> None:
+    authority.release(
+        lease.lease_id,
+        tenant_ref=lease.request.tenant_ref,
+        principal_ref=lease.request.principal_ref,
+        fence_token=lease.fence_token,
+        lease_epoch=lease.lease_epoch,
+        now_ms=now_ms,
+    )
