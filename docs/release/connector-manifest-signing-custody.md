@@ -38,6 +38,7 @@ written for the person who will actually run this, not as design narrative.
 | The controlled-release orchestrator (freeze → regenerate → sign → verify) | `scripts/release/regenerate_and_sign_connector_manifests.py` |
 | The Kubernetes Job template that holds the real key via OpenBao workload identity | `deploy/release/connector-manifest-signing-job.yaml` |
 | The keyless diff/freeze report job (GitHub Actions, `workflow_dispatch`-only) | `.github/workflows/advisory.yml` → `connector-manifest-diff` |
+| Source-only input/output custody contract (synthetic fixture + static gate) | `tests/fixtures/release/connector-manifest-signing-inputs.yml`, `tests/unit/release/test_connector_manifest_signing_job_contract.py` |
 | Known-bad proofs for the four named adversarial cases | `tests/unit/knowledge_graph/ontology/test_connector_manifest_signing_known_bad.py` |
 
 **Not built here, and deliberately not attempted:** regenerating and signing the REAL
@@ -89,16 +90,47 @@ run bao write auth/kubernetes/role/agent-utilities-connector-manifest-signer \
 The `audience=openbao` above must match the projected ServiceAccount token's `audience` in
 the Job manifest — it already does (`deploy/release/connector-manifest-signing-job.yaml`).
 
-### 3. Apply the namespace/ServiceAccount and run the Job
+### 3. Prepare the digest-attested input and public-output boundaries
+
+The signing Job does not read a live checkout, a mutable host mount, or a floating
+image. Prepare one operator-owned `connector-manifest-signing-input` PVC containing a
+reviewed release input bundle with this shape:
+
+```text
+release-inputs.sha256                         # relative sha256sum entries
+wheels/agent_utilities-<version>-<tag>.whl    # the exact built wheel
+agents/<provider>/...                         # the frozen provider fleet
+agents/repository-manager/repository_manager/workspace.yml
+```
+
+The Job verifies the attestation file digest, then verifies every listed input before
+copying the fleet into its bounded disposable `/work` staging volume. The operator
+substitutes the attestation digest and wheel digest in the Job template; the image is
+also required to be pinned as `image@sha256:<digest>`. Create a separate durable
+`connector-manifest-signing-public-output` PVC for reviewed public output. The Job
+writes only these run-scoped directories there:
+
+```text
+connector-bundles/   # bundled public connector manifests
+manifests/           # regenerated fleet manifest projections
+native/              # regenerated native manifest projection
+```
+
+Neither PVC contains signing authority material. The input is read-only to the Job;
+all provider writes stay in disposable staging, and a unique run directory prevents a
+later attempt from overwriting an earlier output.
+
+### 4. Apply the namespace/ServiceAccount and run the Job
 
 ```bash
-kubectl apply -f deploy/release/connector-manifest-signing-job.yaml   # namespace + ServiceAccount only, first run
+kubectl apply -f deploy/release/connector-manifest-signing-job.yaml   # reviewed namespace + ServiceAccount setup
 ```
 
 Then, for an actual signing run: take the `frozen_sha` and `dependency lock digest` the
 keyless `connector-manifest-diff` GitHub Actions job reports (`workflow_dispatch` it from
 the Actions tab, read the job summary), substitute them plus the frozen commit's built
-image digest into a COPY of the `Job` in `deploy/release/connector-manifest-signing-job.yaml`
+image digest, input attestation/wheel digests, release timestamp, and unique output run
+ID into a COPY of the `Job` in `deploy/release/connector-manifest-signing-job.yaml`
 (never re-apply the same Job name twice — give each run a unique name), and:
 
 ```bash
@@ -111,7 +143,7 @@ The Job's `restartPolicy: Never` / `backoffLimit: 0` mean a failure never silent
 with stale state — read the printed JSON report for the exact `[freeze|regenerate|verify]`
 stage and reason.
 
-### 4. Review before applying
+### 5. Review before applying
 
 The Job signs. It does not review. Before ever running the signing Job, review the diff
 report the keyless `connector-manifest-diff` job (or a local

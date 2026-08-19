@@ -1,0 +1,21 @@
+# Synthetic source-level input contract only. No provider checkout, release
+# credential, or signed artifact is stored in this fixture.
+apiVersion: graphos.io/v1
+kind: ConnectorManifestSigningInputFixture
+sourceRevision: "0000000000000000000000000000000000000001"
+lockDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+signerImage: "registry.invalid/agent-utilities-signer@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+fleetInput:
+  image: "registry.invalid/agent-utilities-provider-fleet@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  attestation: "release-inputs.sha256"
+  attestationSha256: "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+agentUtilitiesWheel:
+  path: "wheels/agent_utilities-0.0.0-py3-none-any.whl"
+  sha256: "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+output:
+  inputClaim: "connector-manifest-signing-input"
+  publicClaim: "connector-manifest-signing-public-output"
+  publicPaths:
+    - "connector-bundles/"
+    - "manifests/"
+    - "native/"

@@ -142,14 +142,26 @@ def verify_built_artifact() -> list[str]:
     return []
 
 
-def regenerate(*, agents_root: Path | None, dry_run: bool, sign: bool) -> dict:
+def regenerate(
+    *,
+    agents_root: Path | None,
+    dry_run: bool,
+    sign: bool,
+    native_output_dir: Path | None = None,
+    manifest_output_dir: Path | None = None,
+    now: str | None = None,
+) -> dict:
     """Step 2/3 — run the repo's OWN generators; this script never reimplements them."""
 
     report: dict[str, object] = {"dry_run": dry_run, "signed": sign, "results": []}
 
     native_argv = ["scripts/generate_native_connector_manifest.py"]
-    if dry_run:
+    if native_output_dir is not None:
+        native_argv += ["--output-dir", str(native_output_dir)]
+    elif dry_run:
         native_argv += ["--output-dir", str(Path("/tmp") / "goc16-native-dry-run")]  # noqa: S108
+    if now:
+        native_argv += ["--now", now]
     proc = _run(native_argv)
     report["results"].append(
         {
@@ -167,6 +179,10 @@ def regenerate(*, agents_root: Path | None, dry_run: bool, sign: bool) -> dict:
             "--agents-root",
             str(agents_root),
         ]
+        if manifest_output_dir is not None:
+            fleet_argv += ["--output-dir", str(manifest_output_dir)]
+        if now:
+            fleet_argv += ["--now", now]
         if dry_run:
             fleet_argv.append("--dry-run")
         proc = _run(fleet_argv)
@@ -210,6 +226,26 @@ def main() -> int:
     )
     ap.add_argument("--agents-root", type=Path, help="the agents/ fleet root")
     ap.add_argument(
+        "--native-output-dir",
+        type=Path,
+        help=(
+            "public output directory for the native manifest; when omitted, "
+            "the generator's normal source-relative output is used"
+        ),
+    )
+    ap.add_argument(
+        "--manifest-output-dir",
+        type=Path,
+        help=(
+            "public output directory for generated fleet manifests; provider "
+            "source manifests are still verified after the capability-bundle step"
+        ),
+    )
+    ap.add_argument(
+        "--now",
+        help="UTC timestamp override passed to every generator for reproducibility",
+    )
+    ap.add_argument(
         "--sign",
         action="store_true",
         help="write real signed manifests (requires a vault://-backed "
@@ -245,7 +281,12 @@ def main() -> int:
             return 1
 
     regen = regenerate(
-        agents_root=args.agents_root, dry_run=not args.sign, sign=args.sign
+        agents_root=args.agents_root,
+        dry_run=not args.sign,
+        sign=args.sign,
+        native_output_dir=args.native_output_dir,
+        manifest_output_dir=args.manifest_output_dir,
+        now=args.now,
     )
     report["regenerate"] = regen
     if not regen["ok"]:

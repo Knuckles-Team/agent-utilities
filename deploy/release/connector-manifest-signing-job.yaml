@@ -1,11 +1,11 @@
 # Controlled release job for GOC-84 / BUG-234 connector-manifest signing.
 #
-# This is the ONLY place the real ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY may be reached
-# from — never an interactive agent session, never a long-lived shared CI runner
-# identity. The Job authenticates to OpenBao with its OWN dedicated, narrowly-scoped
-# Kubernetes ServiceAccount (workload identity only, no static Vault token anywhere in
-# this manifest or in any secret), reads the key transiently via a live KV v2 API call
-# at sign time, and never persists it to a k8s Secret, volume, log, or artifact.
+# This is the ONLY place the release signing authority may be reached from — never an
+# interactive agent session, never a long-lived shared CI runner identity. The Job
+# authenticates to OpenBao with its OWN dedicated, narrowly-scoped Kubernetes
+# ServiceAccount (workload identity only, no static Vault token anywhere in this
+# manifest or in any secret). The signer resolves the authority transiently at sign
+# time and never persists it to a k8s Secret, volume, log, or artifact.
 #
 # Operator preconditions (see docs/release/connector-manifest-signing-custody.md for
 # the exact commands): the `agent-utilities-connector-manifest-signer` Vault
@@ -14,11 +14,14 @@
 # policy/role provisioning is an operator action against the live cluster, out of
 # scope for anything applied from a repository checkout.
 #
-# Usage: operator reviews the diff artifact from the (keyless)
-# `connector-manifest-release.yml` GitHub Actions workflow first, then applies this Job
-# with the frozen commit SHA + expected lock digest substituted in, and deletes it
-# after it completes (it is intentionally NOT a CronJob — every run is a deliberate,
-# reviewed, one-shot operator action, never a schedule).
+# Usage: operator reviews the diff artifact from the keyless
+# `.github/workflows/advisory.yml` `connector-manifest-diff` job first, then supplies
+# a digest-attested release-input PVC and applies a copy of this Job with the frozen
+# commit, lock, wheel, source-attestation, and output-boundary values substituted in.
+# Delete the one-shot Job after it completes; it is intentionally NOT a CronJob.
+# The input PVC is mounted read-only. Only the bounded `/work` staging volume is
+# writable during generation; only the declared public-output PVC receives exported
+# artifacts.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -59,24 +62,82 @@ spec:
       restartPolicy: Never
       securityContext:
         runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
         seccompProfile: {type: RuntimeDefault}
       containers:
         - name: sign
-          # The image built from the FROZEN commit this run signs — never `:latest`,
-          # never a floating tag. Substitute the digest-pinned reference for the
-          # reviewed commit before applying.
-          image: REPLACE_WITH_FROZEN_COMMIT_IMAGE_DIGEST
-          command: ["python3", "scripts/release/regenerate_and_sign_connector_manifests.py"]
+          # The signer image is built from the FROZEN commit this run signs — never
+          # `:latest`, never a floating tag. Substitute both placeholders with one
+          # reviewed image reference whose digest is recorded in the input review.
+          image: REPLACE_WITH_FROZEN_COMMIT_IMAGE@sha256:REPLACE_WITH_FROZEN_COMMIT_IMAGE_DIGEST
+          imagePullPolicy: IfNotPresent
+          workingDir: /opt/agent-utilities
+          command: ["/bin/sh", "-ceu"]
           args:
-            - "--frozen-sha"
-            - "REPLACE_WITH_FROZEN_SHA"
-            - "--expected-lock-digest"
-            - "REPLACE_WITH_EXPECTED_LOCK_DIGEST"
-            - "--agents-root"
-            - "/fleet/agents"
-            - "--require-built-artifact"
-            - "--sign"
+            - |
+              test -r "${RELEASE_INPUT_ATTESTATION}"
+              printf '%s  %s\n' "${RELEASE_INPUT_ATTESTATION_SHA256}" "${RELEASE_INPUT_ATTESTATION}" | sha256sum --check --strict
+              (
+                cd "${RELEASE_INPUT_ROOT}"
+                sha256sum --check --strict "$(basename -- "${RELEASE_INPUT_ATTESTATION}")"
+              )
+              test -r "${AGENT_UTILITIES_WHEEL}"
+              printf '%s  %s\n' "${AGENT_UTILITIES_WHEEL_SHA256}" "${AGENT_UTILITIES_WHEEL}" | sha256sum --check --strict
+              if find "${FROZEN_FLEET_ROOT}" -type l -print -quit | grep -q .; then
+                echo "symlinked provider input is forbidden" >&2
+                exit 1
+              fi
+              install -d -m 0750 "${STAGING_ROOT}/site-packages" "${STAGING_ROOT}/agents"
+              cp -a "${FROZEN_FLEET_ROOT}/." "${STAGING_ROOT}/agents/"
+              python3 -m pip install \
+                --no-cache-dir --no-index --no-deps --only-binary=:all: \
+                --target "${STAGING_ROOT}/site-packages" "${AGENT_UTILITIES_WHEEL}"
+              if find "${STAGING_ROOT}/site-packages" -name direct_url.json -print -quit | grep -q .; then
+                echo "editable/direct-reference installation is forbidden" >&2
+                exit 1
+              fi
+              export PYTHONPATH="${STAGING_ROOT}/site-packages"
+              install -d -m 0750 \
+                "${PUBLIC_OUTPUT_ROOT}/connector-bundles" \
+                "${PUBLIC_OUTPUT_ROOT}/manifests" \
+                "${PUBLIC_OUTPUT_ROOT}/native"
+              # Capability bundles are generated explicitly before the final
+              # manifest regeneration/signing step. Provider writes are confined
+              # to the disposable staging copy; only bundled public manifests go
+              # to the durable output PVC.
+              python3 scripts/generate_connector_capability_bundles.py \
+                --agents-root "${STAGING_ROOT}/agents" \
+                --bundled-output "${PUBLIC_OUTPUT_ROOT}/connector-bundles" \
+                --workspace "${STAGING_ROOT}/agents/repository-manager/repository_manager/workspace.yml" \
+                --now "${RELEASE_TIMESTAMP}" \
+                --apply
+              exec python3 scripts/release/regenerate_and_sign_connector_manifests.py \
+                --frozen-sha "${FROZEN_SHA}" \
+                --expected-lock-digest "${EXPECTED_LOCK_DIGEST}" \
+                --agents-root "${STAGING_ROOT}/agents" \
+                --native-output-dir "${PUBLIC_OUTPUT_ROOT}/native" \
+                --manifest-output-dir "${PUBLIC_OUTPUT_ROOT}/manifests" \
+                --now "${RELEASE_TIMESTAMP}" \
+                --require-built-artifact \
+                --sign
           env:
+            - {name: FROZEN_SHA, value: "REPLACE_WITH_FROZEN_SHA"}
+            - {name: EXPECTED_LOCK_DIGEST, value: "REPLACE_WITH_EXPECTED_LOCK_DIGEST"}
+            - {name: RELEASE_TIMESTAMP, value: "REPLACE_WITH_RELEASE_TIMESTAMP"}
+            - {name: RELEASE_INPUT_ROOT, value: /release-input}
+            - {name: FROZEN_FLEET_ROOT, value: /release-input/agents}
+            - {name: RELEASE_INPUT_ATTESTATION, value: /release-input/release-inputs.sha256}
+            - {name: RELEASE_INPUT_ATTESTATION_SHA256, value: "REPLACE_WITH_RELEASE_INPUT_ATTESTATION_SHA256"}
+            - {name: AGENT_UTILITIES_WHEEL, value: /release-input/wheels/REPLACE_WITH_AGENT_UTILITIES_WHEEL_FILENAME}
+            - {name: AGENT_UTILITIES_WHEEL_SHA256, value: "REPLACE_WITH_AGENT_UTILITIES_WHEEL_SHA256"}
+            - {name: STAGING_ROOT, value: /work}
+            # Each one-shot run gets a fresh subdirectory; no prior public output
+            # may be overwritten by a later signing attempt.
+            - {name: PUBLIC_OUTPUT_ROOT, value: /public-output/REPLACE_WITH_RUN_ID}
+            - {name: PIP_NO_CACHE_DIR, value: "1"}
+            - {name: PYTHONDONTWRITEBYTECODE, value: "1"}
             # Workload-identity-only OpenBao custody (docs/architecture/drift_proof_release.md §4,
             # docs/release/connector-manifest-signing-custody.md). No VAULT_TOKEN anywhere.
             - {name: SECRETS_BACKEND, value: vault}
@@ -89,7 +150,9 @@ spec:
                value: "vault://agent-utilities#ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY@2"}
           volumeMounts:
             - {name: workload-identity, mountPath: /var/run/secrets/tokens, readOnly: true}
-            - {name: fleet, mountPath: /fleet, readOnly: true}
+            - {name: release-input, mountPath: /release-input, readOnly: true}
+            - {name: work, mountPath: /work}
+            - {name: public-output, mountPath: /public-output, readOnly: false}
             - {name: tmp, mountPath: /tmp}
           resources:
             requests: {cpu: "500m", memory: 1Gi}
@@ -107,9 +170,18 @@ spec:
               # Audience MUST match the Vault Kubernetes auth role's configured
               # bound audience — see the custody doc.
               - serviceAccountToken: {audience: "openbao", expirationSeconds: 600, path: vault-token}
-        # The provider-fleet checkout at the SAME frozen commit as the container
-        # image, so `--agents-root` sees exactly the reviewed connector packages —
-        # never a live/mutable mount.
-        - name: fleet
-          emptyDir: {sizeLimit: 2Gi}
+        # The operator-created input bundle is durable but is never writable by the
+        # signer. Its digest-attestation file covers the AU wheel and every provider
+        # source file copied into /work/agents.
+        - name: release-input
+          persistentVolumeClaim: {claimName: connector-manifest-signing-input}
+        # All generator/provider writes happen in this bounded, disposable staging
+        # area. It deliberately replaces the old read-only emptyDir fleet mount.
+        - name: work
+          emptyDir: {sizeLimit: 4Gi}
+        # Only reviewed public connector artifacts may cross this explicit durable
+        # boundary. No key, token, source checkout, or private runtime state is
+        # written here.
+        - name: public-output
+          persistentVolumeClaim: {claimName: connector-manifest-signing-public-output}
         - {name: tmp, emptyDir: {sizeLimit: 1Gi}}

@@ -576,8 +576,10 @@ jobs:
   # no signing key needed -- `regenerate_and_sign_connector_manifests.py` without
   # --sign runs every generator in its existing --dry-run/temp-output mode) and
   # publishes exactly the frozen commit SHA + dependency-lock digest an operator
-  # needs to run the REAL signing step. Signing itself never happens in GitHub
-  # Actions -- it happens in the separate, human-triggered Kubernetes Job
+  # needs to run the REAL signing step. The report runs against a non-editable,
+  # locally built wheel; its output is the one public review artifact uploaded by
+  # this job. Signing itself never happens in GitHub Actions -- it happens in the
+  # separate, human-triggered Kubernetes Job
   # (deploy/release/connector-manifest-signing-job.yaml), which holds the real key
   # via OpenBao workload identity, never a GitHub Actions secret. See
   # docs/release/connector-manifest-signing-custody.md for the full runbook this
@@ -615,6 +617,21 @@ jobs:
             --no-install-package langfuse-agent
           echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
 
+      - name: Build and install the report wheel (non-editable)
+        run: |
+          mkdir -p "$RUNNER_TEMP/connector-manifest-wheel" "$RUNNER_TEMP/connector-manifest-site"
+          uv build --wheel --no-build-isolation --out-dir "$RUNNER_TEMP/connector-manifest-wheel"
+          WHEEL="$(find "$RUNNER_TEMP/connector-manifest-wheel" -maxdepth 1 -type f -name 'agent_utilities-*.whl' -print -quit)"
+          test -n "$WHEEL"
+          python3 -m pip install \
+            --no-index --no-deps --only-binary=:all: \
+            --target "$RUNNER_TEMP/connector-manifest-site" "$WHEEL"
+          if find "$RUNNER_TEMP/connector-manifest-site" -name direct_url.json -print -quit | grep -q .; then
+            echo "editable/direct-reference installation is forbidden" >&2
+            exit 1
+          fi
+          echo "PYTHONPATH=$RUNNER_TEMP/connector-manifest-site" >> "$GITHUB_ENV"
+
       - name: Freeze + regenerate (no key, no fleet -- native manifest only)
         id: diff
         continue-on-error: true
@@ -622,7 +639,9 @@ jobs:
           FROZEN_SHA="$(git rev-parse HEAD)"
           echo "frozen_sha=$FROZEN_SHA" >> "$GITHUB_OUTPUT"
           python3 scripts/release/regenerate_and_sign_connector_manifests.py \
-            --frozen-sha "$FROZEN_SHA" | tee /tmp/connector-manifest-diff-report.json # noqa
+            --frozen-sha "$FROZEN_SHA" \
+            --native-output-dir "$RUNNER_TEMP/connector-manifest-native" \
+            --require-built-artifact | tee /tmp/connector-manifest-diff-report.json # noqa
 
       - name: Upload diff report artifact
         if: always()
