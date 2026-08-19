@@ -1,6 +1,273 @@
 {
   "version": 1,
   "contract": "one-writer-per-domain",
+  "authority_placement": {
+    "version": 1,
+    "stores": [
+      {
+        "id": "postgres_control_plane",
+        "kind": "postgresql",
+        "authority": "transactional_control_plane",
+        "authoritative_classes": [
+          "identity",
+          "lifecycle",
+          "version",
+          "release",
+          "policy",
+          "approval",
+          "configuration",
+          "quota",
+          "idempotency",
+          "outbox",
+          "audit_reference"
+        ],
+        "prohibited_classes": [
+          "semantic_knowledge",
+          "semantic_claim",
+          "semantic_relationship",
+          "semantic_evidence",
+          "work_lease",
+          "work_fence",
+          "work_retry",
+          "artifact_payload",
+          "vector_payload",
+          "observability_payload",
+          "secret_material"
+        ]
+      },
+      {
+        "id": "graphos",
+        "kind": "epistemic_graph",
+        "authority": "semantic_knowledge",
+        "authoritative_classes": [
+          "semantic_knowledge",
+          "semantic_claim",
+          "semantic_relationship",
+          "semantic_evidence"
+        ],
+        "prohibited_classes": [
+          "identity",
+          "lifecycle",
+          "version",
+          "release",
+          "policy",
+          "approval",
+          "configuration",
+          "quota",
+          "idempotency",
+          "outbox",
+          "audit_reference",
+          "work_lease",
+          "work_fence",
+          "work_retry",
+          "artifact_payload",
+          "vector_payload",
+          "observability_payload",
+          "secret_material"
+        ]
+      },
+      {
+        "id": "native_work_item",
+        "kind": "epistemic_graph_native_work_item",
+        "authority": "leases_and_fences",
+        "authoritative_classes": ["work_lease", "work_fence", "work_retry"],
+        "prohibited_classes": [
+          "identity",
+          "lifecycle",
+          "version",
+          "release",
+          "policy",
+          "approval",
+          "configuration",
+          "quota",
+          "idempotency",
+          "outbox",
+          "audit_reference",
+          "semantic_knowledge",
+          "semantic_claim",
+          "semantic_relationship",
+          "semantic_evidence",
+          "artifact_payload",
+          "vector_payload",
+          "observability_payload",
+          "secret_material"
+        ]
+      },
+      {
+        "id": "artifact_store",
+        "kind": "object_artifact_store",
+        "authority": "artifact_payload",
+        "authoritative_classes": ["artifact_payload"],
+        "prohibited_classes": [
+          "identity",
+          "lifecycle",
+          "version",
+          "release",
+          "policy",
+          "approval",
+          "configuration",
+          "quota",
+          "idempotency",
+          "outbox",
+          "audit_reference",
+          "semantic_knowledge",
+          "semantic_claim",
+          "semantic_relationship",
+          "semantic_evidence",
+          "work_lease",
+          "work_fence",
+          "work_retry",
+          "vector_payload",
+          "observability_payload",
+          "secret_material"
+        ]
+      },
+      {
+        "id": "vector_store",
+        "kind": "tenant_graph_vector_store",
+        "authority": "vector_payload",
+        "authoritative_classes": ["vector_payload"],
+        "prohibited_classes": [
+          "identity",
+          "lifecycle",
+          "version",
+          "release",
+          "policy",
+          "approval",
+          "configuration",
+          "quota",
+          "idempotency",
+          "outbox",
+          "audit_reference",
+          "semantic_knowledge",
+          "semantic_claim",
+          "semantic_relationship",
+          "semantic_evidence",
+          "work_lease",
+          "work_fence",
+          "work_retry",
+          "artifact_payload",
+          "observability_payload",
+          "secret_material"
+        ]
+      },
+      {
+        "id": "observability_store",
+        "kind": "metrics_trace_log_store",
+        "authority": "observability_payload",
+        "authoritative_classes": ["observability_payload"],
+        "prohibited_classes": [
+          "identity",
+          "lifecycle",
+          "version",
+          "release",
+          "policy",
+          "approval",
+          "configuration",
+          "quota",
+          "idempotency",
+          "outbox",
+          "audit_reference",
+          "semantic_knowledge",
+          "semantic_claim",
+          "semantic_relationship",
+          "semantic_evidence",
+          "work_lease",
+          "work_fence",
+          "work_retry",
+          "artifact_payload",
+          "vector_payload",
+          "secret_material"
+        ]
+      },
+      {
+        "id": "secret_provider",
+        "kind": "secret_token_provider",
+        "authority": "secret_material",
+        "authoritative_classes": ["secret_material"],
+        "prohibited_classes": [
+          "identity",
+          "lifecycle",
+          "version",
+          "release",
+          "policy",
+          "approval",
+          "configuration",
+          "quota",
+          "idempotency",
+          "outbox",
+          "audit_reference",
+          "semantic_knowledge",
+          "semantic_claim",
+          "semantic_relationship",
+          "semantic_evidence",
+          "work_lease",
+          "work_fence",
+          "work_retry",
+          "artifact_payload",
+          "vector_payload",
+          "observability_payload"
+        ]
+      }
+    ],
+    "records": [
+      {"id": "identity", "store": "postgres_control_plane", "authority_fields": ["tenant_identity", "principal_authorization"]},
+      {"id": "registry", "store": "postgres_control_plane", "authority_fields": ["registry_lifecycle", "registry_version"]},
+      {"id": "release", "store": "postgres_control_plane", "authority_fields": ["release_activation"]},
+      {"id": "governance", "store": "postgres_control_plane", "authority_fields": ["policy_approval", "configuration_reference", "quota_idempotency"]},
+      {"id": "projection", "store": "postgres_control_plane", "authority_fields": ["outbox_projection_event", "audit_resolution"]},
+      {"id": "work", "store": "native_work_item", "authority_fields": ["work_item_lease", "work_item_fence", "work_item_retry"]},
+      {"id": "semantic", "store": "graphos", "authority_fields": ["semantic_claim", "semantic_relationship", "semantic_evidence"]},
+      {"id": "artifact", "store": "artifact_store", "authority_fields": ["artifact_payload"]},
+      {"id": "vector", "store": "vector_store", "authority_fields": ["vector_payload"]},
+      {"id": "observability", "store": "observability_store", "authority_fields": ["observability_payload"]},
+      {"id": "secrets", "store": "secret_provider", "authority_fields": ["secret_material"]}
+    ],
+    "events": [
+      {
+        "id": "control_plane_mutation",
+        "store": "postgres_control_plane",
+        "authority_fields": ["tenant_identity", "principal_authorization", "registry_lifecycle", "registry_version", "release_activation", "policy_approval", "configuration_reference", "quota_idempotency", "outbox_projection_event", "audit_resolution"],
+        "payload_fields": ["event_id", "tenant_id", "aggregate_id", "aggregate_version", "authority_digest", "safe_projection"]
+      },
+      {
+        "id": "work_item_lease",
+        "store": "native_work_item",
+        "authority_fields": ["work_item_lease", "work_item_fence", "work_item_retry"],
+        "payload_fields": ["event_id", "work_item_id", "lease_owner", "fencing_token", "lease_expires_at", "attempt"]
+      },
+      {
+        "id": "semantic_observation",
+        "store": "graphos",
+        "authority_fields": ["semantic_claim", "semantic_relationship", "semantic_evidence"],
+        "payload_fields": ["event_id", "connection", "physical_graph", "graph_revision", "evidence_digest"]
+      },
+      {
+        "id": "artifact_committed",
+        "store": "artifact_store",
+        "authority_fields": ["artifact_payload"],
+        "payload_fields": ["event_id", "artifact_id", "media_type", "byte_length", "sha256", "object_ref"]
+      },
+      {
+        "id": "vector_indexed",
+        "store": "vector_store",
+        "authority_fields": ["vector_payload"],
+        "payload_fields": ["event_id", "tenant_id", "physical_graph", "model_digest", "dimension", "index_ref"]
+      },
+      {
+        "id": "observability_recorded",
+        "store": "observability_store",
+        "authority_fields": ["observability_payload"],
+        "payload_fields": ["event_id", "trace_id", "span_id", "metric_name", "recorded_at"]
+      },
+      {
+        "id": "secret_reference_rotated",
+        "store": "secret_provider",
+        "authority_fields": ["secret_material"],
+        "payload_fields": ["event_id", "secret_ref", "version", "status", "rotated_at"]
+      }
+    ]
+  },
   "domains": [
     {
       "name": "engine_fleet_catalog",

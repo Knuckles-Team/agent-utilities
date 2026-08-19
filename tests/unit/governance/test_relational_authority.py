@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +15,13 @@ from agent_utilities.governance.relational_authority import (
     validate_authority_map,
     validation_errors,
 )
+
+
+_FIXTURE_DIR = Path(__file__).resolve().parents[2] / "fixtures" / "relational_authority"
+
+
+def _fixture(name: str) -> dict:
+    return json.loads((_FIXTURE_DIR / name).read_text(encoding="utf-8"))
 
 
 def test_durable_map_matches_all_declared_base_schemas():
@@ -135,3 +144,48 @@ def test_conflicting_authority_owner_fails_closed():
     assert any(
         "authority conflicts with the owning domain" in error for error in errors
     )
+
+
+def test_duplicate_placement_writer_fixture_fails_closed():
+    document = deepcopy(load_authority_map())
+    document["authority_placement"]["records"].append(
+        _fixture("duplicate_writer.json")
+    )
+
+    errors = validation_errors(document, schemas=declared_schemas())
+
+    assert any("duplicate placement field authority: registry_lifecycle" in error for error in errors)
+    assert any("conflicting placement authority: registry_lifecycle" in error for error in errors)
+
+
+def test_secret_column_fixture_fails_closed():
+    document = deepcopy(load_authority_map())
+    table = next(
+        table
+        for domain in document["domains"]
+        if domain["name"] == "state_store"
+        for table in domain["tables"]
+        if table["name"] == "sessions"
+    )
+    fixture = _fixture("secret_column.json")
+    table["authoritative_fields"].append(fixture["field"])
+    schemas = deepcopy(declared_schemas())
+    schemas[fixture["domain"]][fixture["table"]] = frozenset(
+        set(schemas[fixture["domain"]][fixture["table"]]) | {fixture["field"]}
+    )
+
+    errors = validation_errors(document, schemas=schemas)
+
+    assert any("secret-bearing declared column: state_store.sessions.client_secret" in error for error in errors)
+    assert any("secret-bearing schema column: state_store.sessions.client_secret" in error for error in errors)
+
+
+def test_secret_event_fixture_fails_closed():
+    document = deepcopy(load_authority_map())
+    document["authority_placement"]["events"].append(
+        _fixture("secret_event.json")
+    )
+
+    errors = validation_errors(document, schemas=declared_schemas())
+
+    assert any("secret-bearing event field: fixture-secret-event.client_secret" in error for error in errors)
