@@ -7,7 +7,7 @@ module actually DRIVES the contract's workload — submits :class:`WorkItem`s (t
 publishes :class:`AgentBus` messages, at the contract's rates and tenant skew — and
 measures the p50/p95/p99/p99.9 SLO percentiles the contract defines, against either:
 
-* ``--engine mock`` (default): an in-memory :class:`FakeScaleEngine`
+* ``--engine mock`` (explicit): an in-memory :class:`FakeScaleEngine`
   (:mod:`scripts.scale.fake_engine`) — the CI-safe path, no live services required.
   This is what ``tests/scale/soak/`` runs at a small ``--scale``.
 * ``--engine live``: the process-active epistemic-graph engine
@@ -16,7 +16,9 @@ measures the p50/p95/p99/p99.9 SLO percentiles the contract defines, against eit
   NOT exercised in CI; see ``docs/scaling/capacity_model.md`` for the honest
   measured-vs-modeled split.
 
-``--scale`` (0, 1] shrinks the population/rate axes for a fast, deterministic CI run
+``--engine`` is required so a production invocation cannot silently become a mock
+run (or vice versa).  ``--scale`` (0, 1] shrinks the population/rate axes for a fast,
+deterministic CI run
 (:class:`scripts.scale.workload_contract.ScaledWorkload`) while leaving the SLO percentile
 targets untouched — an SLO is a per-operation contract, not a population-dependent one.
 
@@ -42,6 +44,10 @@ from typing import Any
 from agent_utilities.messaging.bus import AgentBus
 from agent_utilities.orchestration import work_item as wi
 from scripts.scale.fake_engine import FakeScaleEngine, LatencyModel, WallClock
+from scripts.scale.live_contract import (
+    LiveRuntimeContract,
+    mock_runtime,
+)
 from scripts.scale.workload_contract import (
     ScaledWorkload,
     WorkloadContract,
@@ -231,6 +237,7 @@ class WorkloadReport:
     slo_pass: dict[str, dict[str, bool]]
     invariants: dict[str, Any]
     faults_applied: list[dict[str, Any]]
+    runtime: dict[str, str]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -246,6 +253,9 @@ class WorkloadReport:
             "slo_pass": self.slo_pass,
             "invariants": self.invariants,
             "faults_applied": self.faults_applied,
+            # The live path contains only opaque artifact/identity digests.  A
+            # mock report is explicitly marked and cannot satisfy certification.
+            "runtime": self.runtime,
         }
 
 
@@ -767,10 +777,11 @@ async def run_workload(
     drain_grace_s: float = 2.0,
     assert_invariants: bool = True,
     fault_plan: FaultPlan | None = None,
+    runtime: dict[str, str] | None = None,
 ) -> WorkloadReport:
     """Drive the contract's workload against ``engine`` (a mock or live engine).
 
-    ``engine=None`` (the default) drives the CI-safe path: a synchronous
+    ``engine=None`` drives the explicit CI-safe path: a synchronous
     discrete-event simulation (:func:`_run_mock_workload`) against a fresh
     :class:`FakeScaleEngine` — near-instant in real time, immune to host CPU
     jitter, and free of the shared-clock race a naive concurrent-asyncio
@@ -780,9 +791,11 @@ async def run_workload(
     soak path, not exercised in CI.
 
     Returns a :class:`WorkloadReport` with measured percentiles, throughput, SLO
-    pass/fail per axis, and invariant findings. Never raises on an SLO miss or an
-    invariant violation — callers (CLI ``--assert-slo``, the soak/chaos pytest
-    scenarios) decide what to do with ``report.ok``/``report.invariants``.
+    pass/fail per axis, invariant findings, and a privacy-safe runtime binding.
+    Never raises on an SLO miss or an invariant violation — callers (CLI
+    ``--assert-slo``, the soak/chaos pytest scenarios) decide what to do with
+    ``report.ok``/``report.invariants``.  A non-mock engine must provide a
+    validated live runtime binding; there is no implicit production fallback.
 
     ``fault_plan`` is only wired into the mock (DES) path today — a real
     hardware soak's faults are injected externally, by the operator, against
@@ -790,6 +803,14 @@ async def run_workload(
     hardware-pending scenario table), not scripted through this parameter.
     """
     rng = random.Random(seed)
+    if engine is None:
+        report_runtime = runtime or mock_runtime(contract)
+    else:
+        if runtime is None or runtime.get("mode") != "live":
+            raise RuntimeError(
+                "a live workload engine requires a validated LiveRuntimeContract"
+            )
+        report_runtime = dict(runtime)
     scaled = ScaledWorkload.for_scale(contract, scale)
     tenants = build_tenant_plan(scaled)
     metrics = _Metrics()
@@ -920,6 +941,7 @@ async def run_workload(
         slo_pass=slo_pass,
         invariants=invariants,
         faults_applied=metrics.faults_applied,
+        runtime=report_runtime,
     )
 
 
@@ -957,7 +979,19 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     p.add_argument("--workers", type=int, default=8)
     p.add_argument("--seed", type=int, default=1337)
-    p.add_argument("--engine", choices=("mock", "live"), default="mock")
+    p.add_argument(
+        "--engine",
+        choices=("mock", "live"),
+        required=True,
+        help="Explicitly select the CI-only mock or authenticated live engine path",
+    )
+    p.add_argument("--release-digest", default=None)
+    p.add_argument("--topology-digest", default=None)
+    p.add_argument("--image-digest", default=None)
+    p.add_argument("--contract-digest", default=None)
+    p.add_argument("--tenant", default=None)
+    p.add_argument("--principal", default=None)
+    p.add_argument("--audience", default=None)
     p.add_argument("--assert-slo", action="store_true")
     p.add_argument("--report-json", default=None)
     return p
@@ -966,7 +1000,21 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = _build_arg_parser().parse_args(argv)
     contract = load_workload_contract(args.contract)
-    engine = build_live_engine() if args.engine == "live" else None
+    runtime = mock_runtime(contract)
+    engine = None
+    if args.engine == "live":
+        runtime_contract = LiveRuntimeContract.from_environment(
+            contract,
+            release_digest=args.release_digest,
+            topology_digest=args.topology_digest,
+            image_digest=args.image_digest,
+            contract_digest=args.contract_digest,
+            tenant=args.tenant,
+            principal=args.principal,
+            audience=args.audience,
+        )
+        runtime = runtime_contract.as_report()
+        engine = build_live_engine()
 
     report = asyncio.run(
         run_workload(
@@ -977,6 +1025,7 @@ def main(argv: list[str] | None = None) -> int:
             num_workers=args.workers,
             seed=args.seed,
             engine=engine,
+            runtime=runtime,
         )
     )
     payload = report.to_dict()

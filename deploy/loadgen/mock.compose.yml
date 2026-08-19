@@ -1,0 +1,39 @@
+# Explicit non-certifying Compose overlay. Rendered independently from the
+# production source and never accepted by graphos-certification-campaign.
+version: "3.9"
+
+services:
+  certification-load-mock:
+    image: "${LOADGEN_IMAGE:?rendered immutable image required}"
+    user: "10001:10001"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      agent-utilities.io/certification: "false"
+      agent-utilities.io/non-certifying: "true"
+    command:
+      - graphos-certification-load
+      - --engine
+      - mock
+      - --scale
+      - "0.001"
+      - --duration-s
+      - "5"
+      - --report-json
+      - /var/run/loadgen/mock-report.json
+    environment:
+      LOADGEN_MODE: mock
+      LOADGEN_WORKLOAD_CONTRACT_DIGEST: "${LOADGEN_WORKLOAD_CONTRACT_DIGEST:?rendered contract digest required}"
+    tmpfs:
+      - /var/run/loadgen:rw,noexec,nosuid,nodev,size=64m,uid=10001,gid=10001,mode=0700
+    networks: [loadgen-internal]
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: none
+
+networks:
+  loadgen-internal:
+    external: true
+    name: kg-backbone_backbone

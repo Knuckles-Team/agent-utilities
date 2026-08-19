@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-utilities.invalid/schemas/loadgen-source-registration-v1.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "apiVersion",
+    "kind",
+    "mode",
+    "generator",
+    "templateDigest",
+    "source",
+    "image",
+    "bindings",
+    "secretRefs",
+    "commands",
+    "outputs"
+  ],
+  "properties": {
+    "apiVersion": {"const": "agent-utilities.io/v1"},
+    "kind": {"const": "LoadgenDeploymentSource"},
+    "mode": {"const": "production"},
+    "generator": {"const": "scripts/release/render_loadgen_assets.py"},
+    "templateDigest": {"$ref": "#/$defs/digest"},
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "revision", "manifestDigest", "authorityDigest"],
+      "properties": {
+        "repository": {"type": "string", "minLength": 1},
+        "revision": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
+        "manifestDigest": {"$ref": "#/$defs/digest"},
+        "authorityDigest": {"$ref": "#/$defs/digest"}
+      }
+    },
+    "image": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9._/:-]*@sha256:[a-f0-9]{64}$"
+    },
+    "bindings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "releaseDigest",
+        "topologyDigest",
+        "contractDigest",
+        "imageDigest",
+        "workloadIdentityAudience"
+      ],
+      "properties": {
+        "releaseDigest": {"$ref": "#/$defs/digest"},
+        "topologyDigest": {"$ref": "#/$defs/digest"},
+        "contractDigest": {"$ref": "#/$defs/digest"},
+        "imageDigest": {"$ref": "#/$defs/digest"},
+        "workloadIdentityAudience": {"type": "string", "minLength": 1}
+      }
+    },
+    "secretRefs": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 1
+    },
+    "commands": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["production", "mock"],
+      "properties": {
+        "production": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        },
+        "mock": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 1
+        }
+      }
+    },
+    "outputs": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "minItems": 4
+    }
+  },
+  "$defs": {
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:(?!0{64}$)[a-f0-9]{64}$"
+    }
+  }
+}

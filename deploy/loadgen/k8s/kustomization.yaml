@@ -1,0 +1,17 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: graphos-cell
+resources:
+  - loadgen.yaml
+
+# The renderer replaces both sentinels with the exact image repository and
+# digest supplied by the signed release boundary. Applying this template
+# directly is intentionally non-deployable.
+images:
+  - name: loadgen-image
+    newName: "${LOADGEN_IMAGE_REPOSITORY:?required}"
+    digest: "${LOADGEN_IMAGE_DIGEST:?rendered image digest required}"
+
+commonLabels:
+  app.kubernetes.io/part-of: graphos-loadgen
+  app.kubernetes.io/managed-by: kustomize

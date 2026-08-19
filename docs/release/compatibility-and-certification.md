@@ -277,7 +277,7 @@ runtime-secret sources). The current-only fields are:
 | Purpose | `AgentConfig` alias and value contract |
 |---|---|
 | activation and inputs | `CERTIFICATION_MODE=production`, absolute `CERT_RELEASE_MANIFEST`, absolute `CERT_ARTIFACTS_DIR`, and a non-identifying `CERT_HARDWARE_CLASS` such as `capacity-standard` or `tier-large` |
-| workload and telemetry | `CERT_LOAD_COMMAND` and `CERT_METRICS_COMMAND`, each a bounded JSON argv array with an absolute executable; the load command must include `{report_file}` |
+| workload and telemetry | `CERT_LOAD_COMMAND` and `CERT_METRICS_COMMAND`, each a bounded JSON argv array with an absolute executable; the production load command must invoke `graphos-certification-load`/`scripts.scale.loadgen` with `--engine live`, `--scale 1.0`, `{duration_seconds}`, `{report_file}`, and `{release_digest}` bindings; the live environment must also carry the tracked source-authority proof plus immutable topology/image/contract pins; CI may invoke the explicit `--engine mock` path directly, but its report can never certify production |
 | scenario orchestration | `CERT_HOOK_COMMANDS`, a JSON object mapping the exact 15 scenario identifiers to bounded JSON argv arrays |
 | real fault implementation | `CERT_FAULT_ACTION_COMMANDS` and `CERT_FAULT_PROBE_COMMANDS`, each an exact 15-entry scenario-to-argv JSON object |
 | evidence authority | `CERT_EVIDENCE_SIGNER_COMMAND` and `CERT_EVIDENCE_VERIFIER_COMMAND`, each a bounded JSON argv array with an absolute executable |

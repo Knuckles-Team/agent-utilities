@@ -1,0 +1,79 @@
+# Canonical AU loadgen Compose template. Render with
+# scripts/release/render_loadgen_assets.py; the required substitutions are
+# intentionally not deployable until an immutable release is supplied.
+version: "3.9"
+
+services:
+  certification-load:
+    image: "${LOADGEN_IMAGE:?rendered immutable image required}"
+    user: "10001:10001"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    labels:
+      agent-utilities.io/certification: production
+      agent-utilities.io/workload-identity: graphos-certification-load
+    command:
+      - graphos-certification-load
+      - --engine
+      - live
+      - --scale
+      - "1.0"
+      - --duration-s
+      - "${LOADGEN_DURATION_SECONDS:?rendered duration required}"
+      - --report-json
+      - /var/run/loadgen/load-report.json
+      - --release-digest
+      - "${LOADGEN_RELEASE_DIGEST:?rendered release digest required}"
+    environment:
+      KG_DAEMON_ROLE: client
+      GRAPH_SERVICE_ENDPOINTS: "${GRAPH_SERVICE_ENDPOINTS:?required}"
+      KG_AUTH_TOKEN_REF: "secret://loadgen-engine-auth"
+      ENGINE_TLS_PROFILE_REF: "secret://loadgen-engine-tls"
+      LOADGEN_TENANT: "${LOADGEN_TENANT:?required}"
+      LOADGEN_PRINCIPAL: "${LOADGEN_PRINCIPAL:?required}"
+      LOADGEN_AUDIENCE: "${LOADGEN_AUDIENCE:?required}"
+      LOADGEN_RELEASE_DIGEST: "${LOADGEN_RELEASE_DIGEST:?rendered release digest required}"
+      LOADGEN_TOPOLOGY_DIGEST: "${LOADGEN_TOPOLOGY_DIGEST:?rendered topology digest required}"
+      LOADGEN_IMAGE_DIGEST: "${LOADGEN_IMAGE_DIGEST:?rendered image digest required}"
+      LOADGEN_WORKLOAD_CONTRACT_DIGEST: "${LOADGEN_WORKLOAD_CONTRACT_DIGEST:?rendered contract digest required}"
+      LOADGEN_SOURCE_REPOSITORY: "${LOADGEN_SOURCE_REPOSITORY:?rendered source repository required}"
+      LOADGEN_SOURCE_REVISION: "${LOADGEN_SOURCE_REVISION:?rendered source revision required}"
+      LOADGEN_SOURCE_MANIFEST_DIGEST: "${LOADGEN_SOURCE_MANIFEST_DIGEST:?rendered source manifest digest required}"
+      LOADGEN_SOURCE_AUTHORITY_DIGEST: "${LOADGEN_SOURCE_AUTHORITY_DIGEST:?rendered source authority digest required}"
+    secrets:
+      - source: loadgen-engine-auth
+        target: loadgen-engine-auth
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: loadgen-engine-tls
+        target: loadgen-engine-tls
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+      - source: loadgen-workload-identity
+        target: loadgen-workload-identity
+        uid: "10001"
+        gid: "10001"
+        mode: 0400
+    tmpfs:
+      - /var/run/loadgen:rw,noexec,nosuid,nodev,size=256m,uid=10001,gid=10001,mode=0700
+    networks: [loadgen-internal]
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: none
+      resources:
+        reservations: {cpus: "0.50", memory: 512M}
+        limits: {cpus: "2.00", memory: 2G}
+
+secrets:
+  loadgen-engine-auth: {external: true}
+  loadgen-engine-tls: {external: true}
+  loadgen-workload-identity: {external: true}
+
+networks:
+  loadgen-internal:
+    external: true
+    name: kg-backbone_backbone

@@ -214,6 +214,8 @@ _STATIC_REQUIRED_MEMBERS = {
     "scripts/certification/subprocess_boundary.py",
     "scripts/scale/__init__.py",
     "scripts/scale/fake_engine.py",
+    "scripts/scale/live_contract.py",
+    "scripts/scale/loadgen_source_authority.py",
     "scripts/scale/loadgen.py",
     "scripts/scale/workload_contract.py",
 } | set(_RELEASE_RESOURCE_PATHS)

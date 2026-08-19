@@ -267,6 +267,7 @@ nav:
       - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
       - Capacity Model: scaling/capacity_model.md
       - Arrow Data Preparation & Profiling: architecture/data-prep-arrow-kernel.md
+      - Live Loadgen Certification: scaling/live-loadgen-certification.md
   - Reference:
       - Documentation Catalog (generated): reference/documentation-catalog.md
       - Metrics Reference: reference/metrics.md

@@ -369,7 +369,12 @@ def _run_scenario(
     }
 
 
-def _load_report_ok(report: dict[str, Any], *, configured_duration: int) -> bool:
+def _load_report_ok(
+    report: dict[str, Any],
+    *,
+    configured_duration: int,
+    expected_release_digest: str | None = None,
+) -> bool:
     if report.get("ok") is not True or float(report.get("scale", 0)) != 1.0:
         return False
     if (
@@ -379,7 +384,54 @@ def _load_report_ok(report: dict[str, Any], *, configured_duration: int) -> bool
         return False
     if not all(all(values.values()) for values in report.get("slo_pass", {}).values()):
         return False
+    if expected_release_digest is not None:
+        runtime = report.get("runtime")
+        if (
+            not isinstance(runtime, dict)
+            or runtime.get("mode") != "live"
+            or runtime.get("release_digest") != expected_release_digest
+        ):
+            return False
     return not any((report.get("invariant_violation_counts") or {}).values())
+
+
+def _validate_live_load_command(command: list[str]) -> None:
+    """Require the shipped loadgen entry point and explicit live pins.
+
+    The campaign is production-only.  CI may invoke ``--engine mock`` directly,
+    but a command configured for this signer must select the real entry point,
+    scale=1, and bind its report and release to the campaign.  Topology/image/
+    identity pins are validated by :mod:`scripts.scale.live_contract` inside the
+    loadgen process, where the deployed environment is authoritative.
+    """
+
+    executable = str(command[0]) if command else ""
+    if not (
+        executable.endswith("/graphos-certification-load")
+        or executable == "graphos-certification-load"
+        or "scripts.scale.loadgen" in command
+    ):
+        raise CampaignError(
+            "CERT_LOAD_COMMAND must invoke the packaged graphos-certification-load entry point"
+        )
+    required_pairs = {
+        "--engine": "live",
+        "--scale": "1.0",
+        "--duration-s": "{duration_seconds}",
+        "--report-json": "{report_file}",
+        "--release-digest": "{release_digest}",
+    }
+    for flag, expected in required_pairs.items():
+        if command.count(flag) != 1:
+            raise CampaignError(f"CERT_LOAD_COMMAND must contain exactly one {flag}")
+        try:
+            index = command.index(flag)
+        except ValueError as exc:
+            raise CampaignError(f"CERT_LOAD_COMMAND is missing {flag}") from exc
+        if index + 1 >= len(command) or command[index + 1] != expected:
+            raise CampaignError(
+                f"CERT_LOAD_COMMAND {flag} must bind the exact value {expected!r}"
+            )
 
 
 def _numeric_map(
@@ -459,6 +511,7 @@ def _normalize_load_report(report: dict[str, Any]) -> dict[str, Any]:
         "slo_pass",
         "invariants",
         "faults_applied",
+        "runtime",
     }
     if set(report) != expected or type(report.get("ok")) is not bool:
         raise CampaignError("load report structure is not exact")
@@ -491,6 +544,23 @@ def _normalize_load_report(report: dict[str, Any]) -> dict[str, Any]:
     faults = report["faults_applied"]
     if not isinstance(faults, list):
         raise CampaignError("load report faults are not a collection")
+    runtime = report["runtime"]
+    runtime_keys = {
+        "mode",
+        "release_digest",
+        "topology_digest",
+        "image_digest",
+        "contract_digest",
+        "identity_digest",
+        "engine_authority_digest",
+        "source_authority_digest",
+    }
+    if not isinstance(runtime, dict) or set(runtime) != runtime_keys:
+        raise CampaignError("load report runtime binding is not exact")
+    if runtime.get("mode") != "live":
+        raise CampaignError("production certification cannot consume a mock load report")
+    for field in sorted(runtime_keys - {"mode"}):
+        _proof_digest(runtime.get(field), f"load report runtime {field}")
     return {
         "ok": report["ok"],
         "scale": scale,
@@ -524,6 +594,7 @@ def _normalize_load_report(report: dict[str, Any]) -> dict[str, Any]:
             key: _observation_count(invariants[key]) for key in sorted(invariant_names)
         },
         "faults_applied_count": len(faults),
+        "runtime": {key: runtime[key] for key in sorted(runtime)},
     }
 
 
@@ -607,6 +678,7 @@ def execute(
         "release_digest": release_report["releaseDigest"],
     }
     load_template = _command(config.cert_load_command, "CERT_LOAD_COMMAND")
+    _validate_live_load_command(load_template)
     if not any("{report_file}" in part for part in load_template):
         raise CampaignError("load command must write the exact report_file placeholder")
     load_command = _render_command(load_template, values)
@@ -723,6 +795,7 @@ def execute(
     load_ok = load_returncode == 0 and _load_report_ok(
         load_report,
         configured_duration=duration,
+        expected_release_digest=release_report["releaseDigest"],
     )
     scenarios_ok = all(item["result"] == "pass" for item in scenarios)
     coverage_ok = sample_coverage >= float(campaign["minimumSampleCoverage"])

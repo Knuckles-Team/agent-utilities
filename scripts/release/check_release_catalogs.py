@@ -121,6 +121,8 @@ _CERTIFICATION_MODULES = (
     "scripts/certification/fault_hook.py",
     "scripts/certification/subprocess_boundary.py",
     "scripts/scale/fake_engine.py",
+    "scripts/scale/live_contract.py",
+    "scripts/scale/loadgen_source_authority.py",
     "scripts/scale/loadgen.py",
     "scripts/scale/workload_contract.py",
 )
