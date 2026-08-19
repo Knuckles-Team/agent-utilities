@@ -44,14 +44,213 @@ logger = logging.getLogger(__name__)
 #: dialect when the question maps cleanly onto one.
 _DIALECTS = ("uql", "cypher", "sql", "sparql")
 
+# Keep the client-side contract explicitly versioned with the dependency-free
+# ``eg-plan::uql::parser`` grammar.  UQL v1's predicate production accepts one
+# bare identifier for a property (``name = 'x'``); it does not have Cypher's
+# ``node.name`` or a nested ``props.name`` expression.  The engine remains the
+# final parser/authority.  This small boundary prevents a known model-shaped
+# spelling from reaching it and gives callers a stable evidence/error version.
+UQL_GRAMMAR_VERSION = "eg-plan.uql.v1"
+
+_UQL_IDENT_START = re.compile(r"[A-Za-z_]")
+_UQL_IDENT_CONTINUE = re.compile(r"[A-Za-z0-9_]")
+
+
+class UqlPlanError(ValueError):
+    """A generated UQL query cannot satisfy the versioned engine grammar.
+
+    This is deliberately distinct from an engine execution failure: callers can
+    feed it into a bounded corrective-planning attempt without ever treating the
+    invalid query as an empty result.
+    """
+
+    code = "uql_grammar_invalid"
+
+    def __init__(self, message: str, *, query: str, at: int | None = None) -> None:
+        self.query = query
+        self.at = at
+        self.grammar_version = UQL_GRAMMAR_VERSION
+        super().__init__(
+            f"{message} (grammar {UQL_GRAMMAR_VERSION})"
+            + (f" at byte {at}" if at is not None else "")
+        )
+
+
+def _is_uql_ident_start(char: str) -> bool:
+    return bool(char) and _UQL_IDENT_START.fullmatch(char) is not None
+
+
+def _is_uql_ident_continue(char: str) -> bool:
+    return bool(char) and _UQL_IDENT_CONTINUE.fullmatch(char) is not None
+
+
+def canonicalize_uql_query(
+    query: str,
+) -> tuple[str, list[dict[str, str]]]:
+    """Compile model-shaped UQL property references to the v1 surface syntax.
+
+    The native parser's ``pred = prop comparison value`` production consumes a
+    single identifier.  Models commonly borrow a property-graph JSON spelling
+    and emit ``props.name`` for a code-context request; the dot is not a UQL
+    token and the engine rejects it before producing any evidence.  ``props`` is
+    the only wrapper we lower automatically: it is an unambiguous serialization
+    wrapper, not a query alias.  Other dotted references (``node.name``,
+    ``n.name`` and so on) fail closed so a bounded caller can replan them rather
+    than silently changing their meaning.
+
+    Strings are copied verbatim, including dots in source names and URLs.  This
+    helper intentionally validates only the property-reference seam; the engine
+    remains authoritative for the complete UQL grammar and execution semantics.
+    """
+    if not isinstance(query, str):
+        raise UqlPlanError("UQL query must be text", query=str(query))
+
+    out: list[str] = []
+    corrections: list[dict[str, str]] = []
+    i = 0
+    n = len(query)
+    quote: str | None = None
+
+    while i < n:
+        char = query[i]
+
+        if quote is not None:
+            out.append(char)
+            if char == quote:
+                # UQL's lexer accepts doubled quotes inside either quote style.
+                if i + 1 < n and query[i + 1] == quote:
+                    out.append(query[i + 1])
+                    i += 2
+                    continue
+                quote = None
+            elif char == "\\" and quote == '"' and i + 1 < n:
+                # Match the engine lexer for the two supported double-quoted
+                # escapes; copying the escaped byte is sufficient here.
+                out.append(query[i + 1])
+                i += 2
+                continue
+            i += 1
+            continue
+
+        if char in ("'", '"'):
+            quote = char
+            out.append(char)
+            i += 1
+            continue
+
+        if char == "<":
+            # The v1 lexer also admits a whitespace-free angle-bracketed IRI
+            # (for example the target of `REASON <http://ex/Device>`).  Copy it
+            # as one opaque token so its path dots are not mistaken for a
+            # property qualifier; a numeric comparison (`year < 2024`) has no
+            # closing IRI shape and falls through unchanged.
+            close = query.find(">", i + 1)
+            if close != -1:
+                body = query[i + 1 : close]
+                if body and ":" in body and not any(c.isspace() for c in body):
+                    out.append(query[i : close + 1])
+                    i = close + 1
+                    continue
+
+        if _is_uql_ident_start(char):
+            start = i
+            i += 1
+            while i < n and _is_uql_ident_continue(query[i]):
+                i += 1
+            word = query[start:i]
+
+            # A dotted identifier is the exact cross-seam defect this contract
+            # owns.  Lower only the known model wrapper; reject every other
+            # qualifier instead of inventing alias semantics for UQL v1.
+            if (
+                i + 1 < n
+                and query[i] == "."
+                and _is_uql_ident_start(query[i + 1])
+            ):
+                dot_at = i
+                property_start = i + 1
+                i = property_start + 1
+                while i < n and _is_uql_ident_continue(query[i]):
+                    i += 1
+                prop = query[property_start:i]
+                dotted = f"{word}.{prop}"
+                if word.casefold() != "props":
+                    raise UqlPlanError(
+                        "UQL v1 WHERE properties must be bare identifiers; "
+                        f"dotted reference {dotted!r} is not parseable",
+                        query=query,
+                        at=dot_at,
+                    )
+                out.append(prop)
+                corrections.append(
+                    {
+                        "kind": "property_reference",
+                        "from": dotted,
+                        "to": prop,
+                        "reason": "UQL v1 predicates use bare property identifiers",
+                    }
+                )
+                continue
+
+            out.append(word)
+            continue
+
+        if char == ".":
+            # Preserve the two forms that are valid outside identifiers in the
+            # v1 lexer: hop ranges (`1..2`) and decimal numbers (`2.0`, `.5`).
+            if i + 1 < n and query[i + 1] == ".":
+                out.extend((".", "."))
+                i += 2
+                continue
+            if (i + 1 < n and query[i + 1].isdigit()) or (
+                i > 0
+                and query[i - 1].isdigit()
+                and (i + 1 == n or query[i + 1] != ".")
+            ):
+                out.append(char)
+                i += 1
+                continue
+            raise UqlPlanError(
+                "UQL v1 does not define a standalone `.` token in a property "
+                "expression; use one bare identifier",
+                query=query,
+                at=i,
+            )
+
+        out.append(char)
+        i += 1
+
+    return "".join(out), corrections
+
+
+def _normalize_plan(parsed: dict[str, Any]) -> dict[str, Any]:
+    """Apply the AU UQL boundary even when a caller injects another planner."""
+    normalized = dict(parsed)
+    if normalized.get("dialect") != "uql":
+        normalized.setdefault("corrections", [])
+        return normalized
+
+    query = str(normalized.get("query", "")).strip()
+    if not query:
+        raise UqlPlanError("UQL query must not be empty", query=query)
+    normalized["query"], corrections = canonicalize_uql_query(query)
+    normalized["grammar_version"] = UQL_GRAMMAR_VERSION
+    normalized["corrections"] = list(normalized.get("corrections") or []) + corrections
+    return normalized
+
 _SYSTEM_PROMPT = (
     "You are the query planner for a Knowledge Graph engine. Translate a "
     "natural-language request into a SINGLE read-only query the engine can execute. "
     "Choose one dialect:\n"
-    "  - uql:    the engine's native cross-modal Unified Query Language (PREFER this). "
+    f"  - uql:    the engine's native cross-modal Unified Query Language (PREFER this; "
+    f"grammar {UQL_GRAMMAR_VERSION}). "
     "Pipeline form: MATCH (:Label) [WHERE prop > n AND ...] |> TRAVERSE -[:REL]->{1,2} "
     "|> RANK BY ~[1.0, 0.0, 0.0, 0.0] |> LIMIT k. Use it for graph traversal + "
     "filtering + vector ranking in one query.\n"
+    "    UQL WHERE properties are ONE bare identifier only (for example "
+    "`name = 'build_code_context'`); never emit `props.name`, `node.name`, "
+    "an alias-qualified name, or bracket access. For a code-context request, "
+    "use `MATCH (:Code) WHERE name = '<symbol>' |> LIMIT k`.\n"
     "  - cypher: read-only Cypher over the property graph (MATCH ... RETURN ...).\n"
     "  - sql:    read-only SQL over the KG (SELECT ... FROM nodes ...). See the SQL "
     "schema note in the prompt for the real `nodes`/`edges` columns (label questions "
@@ -168,7 +367,7 @@ class AuNlPlanner:
         *,
         schema_hint: str = "",
         dialect: str = "auto",
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """Turn ``text`` into ``{dialect, query}`` via the fleet LLM (returns a query STRING).
 
         ``schema_hint`` is a compact description of the live schema (node labels / SQL
@@ -189,7 +388,7 @@ class AuNlPlanner:
         parsed = _parse_plan(raw)
         if forced and parsed["dialect"] != forced:
             parsed["dialect"] = forced
-        return parsed
+        return _normalize_plan(parsed)
 
 
 def _render_schema(schema: dict[str, Any], extra_hint: str = "") -> str:
@@ -198,6 +397,9 @@ def _render_schema(schema: dict[str, Any], extra_hint: str = "") -> str:
         f"Schema (node labels): {', '.join(schema.get('node_labels') or []) or '(unknown)'}",
         f"Schema (SQL tables): {', '.join(schema.get('tables') or []) or '(none)'}",
         f"Schema (SQL columns): {schema.get('sql_columns') or '(unknown)'}",
+        "Schema (UQL grammar): "
+        f"{UQL_GRAMMAR_VERSION}; WHERE property references are bare identifiers "
+        "only (for example `name`, never `props.name`).",
     ]
     if extra_hint:
         lines.append(f"Hint: {extra_hint}")
@@ -229,6 +431,7 @@ def nl_query(
     execute: bool = True,
     limit: int = 50,
     planner: AuNlPlanner | None = None,
+    max_corrections: int = 1,
 ) -> dict[str, Any]:
     """NL→query with agent-utilities' fleet LLM as the engine's planner (CONCEPT:AU-KG.query.ask-gateway-rest-twin).
 
@@ -244,7 +447,10 @@ def nl_query(
     running it. Pass a ``planner`` to substitute the model (tests / a caller-owned model).
 
     Returns ``{request, dialect, generated_query, planner, schema, results, row_count,
-    citations}`` — or a ``{..., error}`` on planning / execution failure.
+    citations}`` — or a ``{..., error}`` on planning / execution failure.  Invalid
+    UQL is never represented as an empty result: the direct path performs at most
+    ``max_corrections`` bounded replans (default one), retaining an attempt trace
+    and the grammar version in the evidence shape before returning a clean error.
     """
     if not text or not text.strip():
         return {"error": "empty request"}
@@ -265,36 +471,112 @@ def nl_query(
         planner = AuNlPlanner()
 
     schema = build_schema_context(engine)
-    try:
-        parsed = planner.plan(
-            text,
-            schema_hint=_render_schema(schema, schema_hint),
-            dialect=dialect,
-        )
-    except Exception as exc:  # noqa: BLE001 — planning failure is reported, not raised
-        return {"error": f"nl->query planning failed: {exc}", "schema": schema}
+    correction_budget = max(0, int(max_corrections))
+    schema_hint_text = _render_schema(schema, schema_hint)
+    attempts: list[dict[str, Any]] = []
+    plan_text = text
+    last_out: dict[str, Any] | None = None
+    last_error = ""
 
-    out: dict[str, Any] = {
-        "request": text,
-        "dialect": parsed["dialect"],
-        "generated_query": parsed["query"],
-        "planner": "agent-utilities-fleet-llm",
-        "schema": schema,
-    }
+    for attempt in range(1 + correction_budget):
+        try:
+            parsed = planner.plan(
+                plan_text,
+                schema_hint=schema_hint_text,
+                dialect=dialect,
+            )
+            # Keep the guard at the execution boundary as well as in
+            # ``AuNlPlanner``: injected planners are testable seams, not a way
+            # to bypass the grammar contract before a query reaches GraphOS.
+            parsed = _normalize_plan(parsed)
+        except Exception as exc:  # noqa: BLE001 — bounded planning failure
+            last_error = f"nl->query planning failed: {exc}"
+            attempts.append(
+                {
+                    "attempt": attempt + 1,
+                    "phase": "planning",
+                    "query": getattr(exc, "query", None),
+                    "error_code": getattr(exc, "code", "planner_error"),
+                    "error": last_error,
+                    "grammar_version": UQL_GRAMMAR_VERSION,
+                }
+            )
+            if attempt < correction_budget:
+                previous = attempts[-1]
+                plan_text = (
+                    f"{text}\n\nThe previous generated query failed the "
+                    f"{UQL_GRAMMAR_VERSION} contract and must be corrected. "
+                    f"Error: {previous['error']}\n"
+                    "Return one parseable, read-only query; never return an "
+                    "empty answer as a substitute."
+                )
+            continue
 
-    if _is_mutation(parsed["query"]):
-        out["error"] = "generated query is a mutation; refused (read-only surface)"
-        return out
+        parsed_query = str(parsed["query"])
+        plan_evidence = {
+            "grammar_version": parsed.get("grammar_version")
+            or (UQL_GRAMMAR_VERSION if parsed["dialect"] == "uql" else None),
+            "dialect": parsed["dialect"],
+            "query": parsed_query,
+            "corrections": list(parsed.get("corrections") or []),
+            "bounded": True,
+        }
+        out: dict[str, Any] = {
+            "request": text,
+            "dialect": parsed["dialect"],
+            "generated_query": parsed_query,
+            "planner": "agent-utilities-fleet-llm",
+            "schema": schema,
+            "plan": plan_evidence,
+            "attempts": attempts,
+        }
+        last_out = out
 
-    if not execute:
-        return out
+        if _is_mutation(parsed_query):
+            # Mutations are a hard refusal, never a self-correction candidate.
+            out["error"] = "generated query is a mutation; refused (read-only surface)"
+            return out
 
-    try:
-        rows = _execute(engine, parsed["dialect"], parsed["query"])
-        rows = list(rows or [])[:limit]
-        out["results"] = rows
-        out["row_count"] = len(rows)
-        out["citations"] = _citations(rows)
-    except Exception as exc:  # noqa: BLE001 — execution error reported with the query
-        out["error"] = f"query execution failed: {exc}"
-    return out
+        if not execute:
+            return out
+
+        try:
+            rows = _execute(engine, parsed["dialect"], parsed_query)
+            rows = list(rows or [])[:limit]
+            out["results"] = rows
+            out["row_count"] = len(rows)
+            out["citations"] = _citations(rows)
+            return out
+        except Exception as exc:  # noqa: BLE001 — bounded execution correction
+            last_error = f"query execution failed: {exc}"
+            step = {
+                "attempt": attempt + 1,
+                "phase": "execution",
+                "dialect": parsed["dialect"],
+                "query": parsed_query,
+                "error": last_error,
+                "grammar_version": plan_evidence["grammar_version"],
+            }
+            attempts.append(step)
+            if attempt < correction_budget:
+                plan_text = (
+                    f"{text}\n\nYour previous {parsed['dialect']} query failed "
+                    "and must be corrected.\n"
+                    f"Previous query: {parsed_query}\nError: {last_error}\n"
+                    "Generate one corrected read-only query grounded in the schema. "
+                    "Do not turn a query error into an empty answer."
+                )
+
+    # Every bounded attempt failed.  Preserve the final candidate and trace so
+    # EvidenceBundle can report a planner/engine error instead of a false empty
+    # result, while keeping the response shape useful to the operator.
+    if last_out is None:
+        last_out = {
+            "request": text,
+            "planner": "agent-utilities-fleet-llm",
+            "schema": schema,
+            "plan": {"grammar_version": UQL_GRAMMAR_VERSION, "bounded": True},
+        }
+    last_out["attempts"] = attempts
+    last_out["error"] = last_error or "nl->query planning failed"
+    return last_out

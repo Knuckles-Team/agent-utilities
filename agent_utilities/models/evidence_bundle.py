@@ -683,6 +683,12 @@ class EvidenceBundle(BaseModel):
                 "generated_query": payload.get("generated_query"),
                 "schema": payload.get("schema"),
                 "planner": payload.get("planner"),
+                # Preserve the planner's grammar/version/correction contract
+                # and bounded attempt trace as evidence; a served MCP/REST
+                # caller must not receive only the final query and lose why it
+                # was accepted or replanned.
+                "plan": payload.get("plan"),
+                "attempts": payload.get("attempts", []),
             }
         ]
         if error:
