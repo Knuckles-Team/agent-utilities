@@ -14,12 +14,12 @@ import math
 import threading
 from typing import TYPE_CHECKING, Any
 
-import httpx
-
 from agent_utilities._version import __version__ as __version__
 from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
+    import httpx
+
     from llama_index.core.embeddings import BaseEmbedding
 
 

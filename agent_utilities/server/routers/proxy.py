@@ -15,7 +15,6 @@ import logging
 import re
 from collections.abc import AsyncIterator
 
-import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
@@ -135,7 +134,7 @@ async def _upstream_lines(
 ) -> AsyncIterator[str]:
     """Yield raw lines from the upstream provider's streaming response."""
     async with create_async_http_client(
-        timeout=httpx.Timeout(120.0),
+        timeout=120.0,
         pin_egress=True,
         allowed_private_hosts=allowed_private_hosts,
         allow_loopback=False,

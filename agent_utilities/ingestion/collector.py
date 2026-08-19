@@ -117,8 +117,6 @@ def push_local_sessions(
     ``https://graph-os.example.test``). Bundles are sent in batches to
     ``/api/observability/sessions/upload``.
     """
-    import httpx
-
     gateway_url = gateway_url or setting("USAGE_GATEWAY_URL", "")
     tenant_id = tenant_id or setting("USAGE_TENANT_ID", "")
     if not gateway_url:
@@ -136,9 +134,12 @@ def push_local_sessions(
         if not pending:
             return
         try:
-            resp = httpx.post(url, params=params, json=pending, timeout=60.0)
-            resp.raise_for_status()
-            pushed += int(resp.json().get("ingested", 0))
+            from agent_utilities.core.http_client import create_http_client
+
+            with create_http_client(timeout=60.0) as client:
+                resp = client.post(url, params=params, json=pending, timeout=60.0)
+                resp.raise_for_status()
+                pushed += int(resp.json().get("ingested", 0))
         except Exception as exc:  # noqa: BLE001
             logger.warning(
                 "session_upload_failed count=%d error_type=%s",

@@ -5,16 +5,17 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
-
-import httpx
 
 from agent_utilities.core.http_client import (
     create_async_http_client,
     create_http_client,
 )
 from agent_utilities.core.transport_security import resolve_configured_tls_profile
+
+if TYPE_CHECKING:
+    import httpx
 
 _cache: dict[str, tuple[float, dict[str, Any]]] = {}
 _CACHE_TTL_S = 3600.0

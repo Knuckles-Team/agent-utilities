@@ -21,7 +21,8 @@ CONCEPT:AU-ECO.mcp.protocol-compat-bridge
   (`StreamableHttpTransport`, `SSETransport`, `mcp.client.sse.sse_client`,
   `mcp.client.streamable_http.streamable_http_client`) are typed against
   `httpx2`, not `httpx`.
-- **48 files** under `agent_utilities/` import `httpx` directly (`import
+- **The initial GOC-87 audit found 48 files** under `agent_utilities/` importing
+  `httpx` directly (`import
   httpx` / `from httpx import ...`); **2** import `httpx2`
   (`agent_utilities/mcp/httpx_boundary.py`, and its test).
 
@@ -96,6 +97,30 @@ construction anywhere except `agent_utilities/httpsupport/httpx2_adapter.py`
 for `httpx`). `tests/gates/test_http_egress_boundary.py::test_direct_httpx2_client_is_rejected`
 proves this against a known-bad input (a synthetic file constructing
 `httpx2.AsyncClient()` outside the adapter).
+
+## NE-015 closure contract
+
+The staged migration now has two independent ratchets:
+
+1. `tests/contract/http/test_transport_parity.py` runs one request/response,
+   request-kwargs, timeout/TLS-guard, async, and transport-error contract
+   against both adapters. The application-facing result is always the
+   package-neutral `HttpResponse` plus the AU-owned transport-error taxonomy.
+2. `scripts/check_http_transport_closure.py` inventories every tracked runtime
+   import of `httpx` or `httpx2`, rejects new direct imports unless a concrete
+   boundary is explicitly listed with its reason, rejects stale allowlist
+   entries, and fails if the lock drops `httpx` while a resolved package still
+   depends on it. This is the dependency-closure removal gate; it does not
+   remove `httpx` in the current wave.
+
+The allowlist is deliberately limited to the concrete factory/adapter modules,
+third-party SDK type boundaries, and security-sensitive compatibility surfaces
+that still need their own parity proof. Raw application-level calls in the ARD
+relay, media gateway, session collector, action webhook, message federation,
+LiteLLM pricing refresh, ontology loader, and provider proxy now use the
+governed `core.http_client` authority. OAuth/PKCE browser exchange,
+source-connector URL/exception compatibility, and SDK-auth/type surfaces remain
+explicitly deferred rather than being silently reclassified as migrated.
 
 ## What has been ported (W05) — and why it qualifies as low-risk
 

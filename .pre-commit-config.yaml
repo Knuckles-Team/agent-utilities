@@ -258,6 +258,15 @@ repos:
     # whole-package Windows-import-safety result cannot have changed either
     # (it was already checked, always_run, on every prior commit).
     files: ^(agent_utilities/.*|pyproject\.toml|uv\.lock)$
+  - id: check-http-transport-closure
+    name: Governed HTTP transport import and dependency closure (NE-015)
+    entry: python3 scripts/check_http_transport_closure.py
+    language: system
+    pass_filenames: false
+    # The scanner is deliberately cheap and always runs: a new direct import,
+    # a stale exception, or a dependency-lock edit can change the verdict even
+    # when the modified file is outside agent_utilities/.
+    always_run: true
   - id: check-no-env-sprawl
     name: Config-flag anti-sprawl (no new bare os.environ KG_/GRAPH_ reads)
     entry: python3 scripts/check_no_env_sprawl.py

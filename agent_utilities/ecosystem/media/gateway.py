@@ -17,10 +17,10 @@ Named backends (override endpoint/model via env or config):
   * **speech** — ``xtts`` (Coqui ``xtts-streaming-server``), ``openai`` (OpenAI-
     compatible ``/v1/audio/speech``).
 
-Transports are thin, lazy-``httpx`` clients: :class:`ImageGenerator` (REST/OpenAI
+Transports are thin, lazy governed HTTP clients: :class:`ImageGenerator` (REST/OpenAI
 txt2img), :class:`VideoGenerator` (REST), :class:`SpeechSynthesizer` (xtts), and
 :class:`ComfyUIClient` (workflow API). Endpoints come from ``{SERVICE}_URL`` env
-vars; ``httpx`` is imported lazily; an unreachable service raises a clear
+vars; the shared HTTP factory is imported lazily; an unreachable service raises a clear
 :class:`MediaServiceError` rather than hanging or returning an empty result.
 """
 
@@ -147,32 +147,34 @@ def _required_url(value: str | None, setting_name: str) -> str:
     return url
 
 
-def _httpx():
+def _http_client():
     try:
-        import httpx
+        from agent_utilities.core.http_client import create_http_client
 
-        return httpx
+        return create_http_client
     except ImportError as exc:  # pragma: no cover - environment without httpx
         raise MediaServiceError(
-            "media gateway needs 'httpx'. Install it, or pass http_fn for offline use."
+            "media gateway needs the governed HTTP transport. Install the HTTP extra, "
+            "or pass http_fn for offline use."
         ) from exc
 
 
 def _request(http_fn: HttpFn | None, method: str, url: str, **kwargs: Any) -> Any:
-    """Issue an HTTP request via the injected ``http_fn`` or lazy ``httpx``.
+    """Issue an HTTP request via the injected ``http_fn`` or governed factory.
 
-    The injected ``http_fn(method, url, **kwargs)`` returns an ``httpx.Response``
-    -like object (with ``.status_code`` / ``.json()`` / ``.content`` / ``.text``)
+    The injected ``http_fn(method, url, **kwargs)`` returns an HTTP response-like
+    object (with ``.status_code`` / ``.json()`` / ``.content`` / ``.text``)
     — used by tests with ``httpx.MockTransport`` semantics or a fake.
     """
     timeout = kwargs.pop("timeout", 600.0)
     if http_fn is not None:
         return http_fn(method, url, **kwargs)
-    httpx = _httpx()
     try:
-        resp = httpx.request(method, url, timeout=timeout, **kwargs)
-        resp.raise_for_status()
-        return resp
+        create_http_client = _http_client()
+        with create_http_client(timeout=timeout) as client:
+            resp = client.request(method, url, timeout=timeout, **kwargs)
+            resp.raise_for_status()
+            return resp
     except Exception as exc:  # noqa: BLE001 — surface as a clear gateway error
         raise MediaServiceError(f"{method} {url} failed: {exc}") from exc
 

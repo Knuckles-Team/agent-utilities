@@ -56,18 +56,19 @@ def fetch_litellm_pricing(
     Raises on network/HTTP/parse errors — callers should catch and keep the
     offline fallback so a refresh failure is never fatal.
 
-    GOC-73: httpx is imported here, not at module scope. This module's own
+    GOC-73: the governed HTTP factory is imported here, not at module scope. This module's own
     docstring already says "Network is optional: callers fall back to the
     embedded table" — before the GOC-73 split, `httpx` reached every base
-    install transitively through `epistemic-graph[full]`'s own httpx-accel
+    install transitively through `epistemic-graph[full]`'s own HTTP accelerator
     component, masking that httpx is not actually a base `agent-utilities`
     dependency (it lives only in optional extras like `[mcp]`). A module-level
     `import httpx` would have made `agent_utilities.observability` (which
     imports this module transitively via `usage`/`pricing`) unimportable on a
     bare `pip install agent-utilities`, contradicting "network is optional."
     """
-    import httpx
+    from agent_utilities.core.http_client import create_http_client
 
-    resp = httpx.get(url, timeout=timeout, follow_redirects=True)
-    resp.raise_for_status()
-    return parse_litellm_pricing(resp.content)
+    with create_http_client(timeout=timeout, follow_redirects=True) as client:
+        resp = client.get(url, timeout=timeout)
+        resp.raise_for_status()
+        return parse_litellm_pricing(resp.content)

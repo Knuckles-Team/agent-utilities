@@ -159,14 +159,15 @@ class ArdFederationRelay:
             return list(ex.map(lambda p: self._post(p["url"], body), peers))
 
     def _post(self, url: str, body: dict) -> list[dict]:
-        import httpx
-
         try:
-            resp = httpx.post(
-                f"{url.rstrip('/')}/search", json=body, timeout=_PEER_TIMEOUT_S
-            )
-            resp.raise_for_status()
-            data = resp.json()
+            from agent_utilities.core.http_client import create_http_client
+
+            with create_http_client(timeout=_PEER_TIMEOUT_S) as client:
+                resp = client.post(
+                    f"{url.rstrip('/')}/search", json=body, timeout=_PEER_TIMEOUT_S
+                )
+                resp.raise_for_status()
+                data = resp.json()
             if isinstance(data, str):
                 data = json.loads(data)
             results = data.get("results") if isinstance(data, dict) else None

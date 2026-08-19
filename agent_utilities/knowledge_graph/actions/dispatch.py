@@ -12,8 +12,9 @@ silent no-op:
     :class:`RecordingNotifier` appends a durable record (so even with no live
     channel wired the notification is journaled + auditable). Production code can
     register an :class:`Notifier` that forwards to e-mail/Slack/etc.
-  - :func:`send_webhook` POSTs the payload via ``httpx`` when the dependency is
-    importable; otherwise it returns a recorded *outbound* record marked
+  - :func:`send_webhook` POSTs the payload via the governed HTTP factory when
+    the optional dependency is importable; otherwise it returns a recorded
+    *outbound* record marked
     ``transport="recorded"`` so the attempt is never lost.
 
 Both return a plain ``dict`` outcome record that the executor stores on the
@@ -123,12 +124,12 @@ def send_notification(
 
 
 def send_webhook(spec: WebhookSpec, payload: dict[str, Any]) -> dict[str, Any]:
-    """POST ``payload`` to ``spec.url`` via httpx, else record the outbound attempt.
+    """POST ``payload`` to ``spec.url`` via the governed factory, or record it.
 
-    Returns an outcome record (status / transport). When ``httpx`` is importable
-    the request is dispatched for real (short timeout, errors captured); when it
-    is not, the attempt is journaled with ``transport="recorded"`` so a webhook
-    is never a silent no-op.
+    Returns an outcome record (status / transport). When the HTTP extra is
+    importable the request is dispatched for real (short timeout, errors
+    captured); when it is not, the attempt is journaled with
+    ``transport="recorded"`` so a webhook is never a silent no-op.
     """
     body = {**spec.payload, **payload}
     base = {
@@ -139,24 +140,35 @@ def send_webhook(spec: WebhookSpec, payload: dict[str, Any]) -> dict[str, Any]:
         "timestamp": time.time(),
     }
     try:
-        import httpx  # type: ignore
-    except Exception:  # noqa: BLE001 — httpx optional; record instead of dropping
-        logger.debug("httpx unavailable — recording configured webhook")
+        from agent_utilities.core.http_client import create_http_client
+    except Exception:  # noqa: BLE001 — HTTP optional; record instead of dropping
+        logger.debug(
+            "governed HTTP transport unavailable — recording configured webhook"
+        )
         return {**base, "delivered": False, "transport": "recorded"}
     try:
-        resp = httpx.request(
-            spec.method,
-            spec.url,
-            json=body,
-            headers=spec.headers or None,
-            timeout=5.0,
-        )
+        with create_http_client(timeout=5.0) as client:
+            resp = client.request(
+                spec.method,
+                spec.url,
+                json=body,
+                headers=spec.headers or None,
+                timeout=5.0,
+            )
         return {
             **base,
             "delivered": 200 <= resp.status_code < 300,
+            # Keep the historical outcome label stable for existing audit
+            # consumers; the implementation is now routed through the
+            # governed factory above.
             "transport": "httpx",
             "status_code": resp.status_code,
         }
     except Exception as exc:  # noqa: BLE001 — network failure is captured, not raised
         logger.warning("Webhook POST failed (%s)", type(exc).__name__)
-        return {**base, "delivered": False, "transport": "httpx", "error": str(exc)}
+        return {
+            **base,
+            "delivered": False,
+            "transport": "httpx",
+            "error": str(exc),
+        }

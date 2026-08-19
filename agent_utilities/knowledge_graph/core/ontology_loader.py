@@ -24,8 +24,6 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 logger = logging.getLogger(__name__)
 
 # Default cache directory
@@ -362,12 +360,14 @@ class OntologyLoader:
 
             logger.info("Fetched remote ontology (%d bytes)", len(content))
             return content
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code in _REMOTE_ABSENCE_STATUS_CODES:
-                _remember_remote_absence(url)
-            logger.warning("Failed to fetch remote ontology: %s", type(e).__name__)
-            return None
         except Exception as e:
+            # ``create_http_client`` is the concrete transport authority. Keep
+            # this module neutral by inspecting only the structural response
+            # field needed for the bounded 404/410 absence cache rather than
+            # importing a package-specific exception class.
+            response = getattr(e, "response", None)
+            if getattr(response, "status_code", None) in _REMOTE_ABSENCE_STATUS_CODES:
+                _remember_remote_absence(url)
             logger.warning("Failed to fetch remote ontology: %s", type(e).__name__)
             return None
 

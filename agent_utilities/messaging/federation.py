@@ -126,12 +126,15 @@ class BusFederationRelay:
         return {"ok": True, "group": group, "hubs": len(hubs), "results": results}
 
     def _post(self, url: str, body: dict[str, Any]) -> dict[str, Any]:
-        import httpx
-
         try:
-            resp = httpx.post(f"{url.rstrip('/')}/graph/bus", json=body, timeout=10.0)
-            resp.raise_for_status()
-            data = resp.json()
+            from agent_utilities.core.http_client import create_http_client
+
+            with create_http_client(timeout=10.0) as client:
+                resp = client.post(
+                    f"{url.rstrip('/')}/graph/bus", json=body, timeout=10.0
+                )
+                resp.raise_for_status()
+                data = resp.json()
             inner = data.get("result", data)
             return json.loads(inner) if isinstance(inner, str) else inner
         except Exception as exc:  # noqa: BLE001 — one peer must not break the others

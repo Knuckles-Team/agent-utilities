@@ -14,11 +14,12 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import AsyncIterator
-from typing import Any
-
-import httpx
+from typing import TYPE_CHECKING, Any
 
 from agent_utilities.httpsupport import AsyncBaseApiClient, TokenAuth
+
+if TYPE_CHECKING:
+    import httpx
 
 logger = logging.getLogger("agent_utilities.gateway_client")
 
