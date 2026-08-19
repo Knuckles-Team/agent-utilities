@@ -37,7 +37,13 @@ from agent_utilities.core.profile_guard import is_production_profile
 
 from ..telemetry import SandboxFatalError
 from . import _bridge
-from .base import Sandbox, SandboxCapabilities, SandboxEnv, SandboxResult
+from .base import (
+    Sandbox,
+    SandboxCapabilities,
+    SandboxEnv,
+    SandboxResult,
+    enforce_sandbox_admission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -154,6 +160,7 @@ class DockerSandbox(Sandbox):
         return self._runtime if isinstance(self._runtime, str) else None
 
     async def execute(self, code: str, env: SandboxEnv) -> SandboxResult:
+        enforce_sandbox_admission(env, payload=code)
         runtime = self._resolve_runtime()
         if runtime is None:
             # Router shouldn't route here if unavailable; if it did, the infra is gone.

@@ -27,8 +27,13 @@ Each materialized topology creates isolated subgraph instances with:
 """
 
 
+import hashlib
+import json
 import logging
+import math
 import time
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from ..models.knowledge_graph import (
@@ -39,6 +44,363 @@ if TYPE_CHECKING:
     from ..knowledge_graph.core.engine import IntelligenceGraphEngine
 
 logger = logging.getLogger(__name__)
+
+
+class TopologyAdmissionError(ValueError):
+    """A topology or sandbox request exceeded its immutable admission contract."""
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxResourceLimits:
+    """Actual per-sandbox resource ceilings carried by one admission.
+
+    The limits are deliberately a value object rather than a second mutable
+    policy.  Container backends translate them to kernel/runtime limits,
+    forkserver applies the process limits before user code starts, and
+    Wasmtime applies the memory/page and epoch/fuel limits to the real store.
+    A backend that cannot apply a requested limit must fail closed; recording a
+    number in metadata is not enforcement.
+    """
+
+    cpu_cores: float = 1.0
+    memory_bytes: int = 512 * 1024 * 1024
+    max_pids: int = 256
+    max_wasm_pages: int = 8_192
+    deadline_s: float = 120.0
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.memory_bytes, bool)
+            or not isinstance(self.memory_bytes, int)
+            or isinstance(self.max_pids, bool)
+            or not isinstance(self.max_pids, int)
+            or isinstance(self.max_wasm_pages, bool)
+            or not isinstance(self.max_wasm_pages, int)
+            or isinstance(self.cpu_cores, bool)
+            or not isinstance(self.cpu_cores, int | float)
+            or isinstance(self.deadline_s, bool)
+            or not isinstance(self.deadline_s, int | float)
+        ):
+            raise TopologyAdmissionError("sandbox integer limits must be integers")
+        try:
+            cpu = float(self.cpu_cores)
+            memory = self.memory_bytes
+            pids = self.max_pids
+            pages = self.max_wasm_pages
+            deadline = float(self.deadline_s)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TopologyAdmissionError("sandbox resource limits are invalid") from exc
+        if not math.isfinite(cpu) or not 0.1 <= cpu <= 16.0:
+            raise TopologyAdmissionError("sandbox CPU limit is out of range")
+        if not 64 * 1024 * 1024 <= memory <= 64 * 1024 * 1024 * 1024:
+            raise TopologyAdmissionError("sandbox memory limit is out of range")
+        if not 16 <= pids <= 1_024:
+            raise TopologyAdmissionError("sandbox PID limit is out of range")
+        if not 1 <= pages <= 1_048_576:
+            raise TopologyAdmissionError("sandbox WASM page limit is out of range")
+        if pages * 65_536 > memory:
+            raise TopologyAdmissionError(
+                "sandbox WASM page limit exceeds the memory limit"
+            )
+        if not math.isfinite(deadline) or not 1.0 <= deadline <= 600.0:
+            raise TopologyAdmissionError("sandbox deadline is out of range")
+        object.__setattr__(self, "cpu_cores", cpu)
+        object.__setattr__(self, "memory_bytes", memory)
+        object.__setattr__(self, "max_pids", pids)
+        object.__setattr__(self, "max_wasm_pages", pages)
+        object.__setattr__(self, "deadline_s", deadline)
+
+    def as_dict(self) -> dict[str, int | float]:
+        """Return only the runtime limits needed by a sandbox adapter."""
+        return {
+            "cpu_cores": self.cpu_cores,
+            "memory_bytes": self.memory_bytes,
+            "max_pids": self.max_pids,
+            "max_wasm_pages": self.max_wasm_pages,
+            "deadline_s": self.deadline_s,
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ElasticTopologyAdmission:
+    """Immutable tenant/delegation/capability/budget admission for elastic work.
+
+    This is the one contract shared by dynamic topology materialization, RLM
+    recursion/fan-out, and sandbox resource adapters.  It is content-addressed
+    so a resumed or retried run cannot silently adopt a newer budget.  Live
+    callers should construct it from their verified session/delegation and
+    pass the same object through the complete run; the ``local`` constructor is
+    only for isolated, engine-less unit use.
+    """
+
+    tenant: str = ""
+    delegation_id: str = ""
+    capabilities: tuple[str, ...] = ()
+    max_nodes: int = 64
+    max_depth: int = 8
+    max_fan_out: int = 16
+    max_parallelism: int = 16
+    max_tokens: int = 500_000
+    max_payload_bytes: int = 4 * 1024 * 1024
+    issued_at: float = field(default_factory=time.time)
+    deadline_unix: float | None = None
+    resource_limits: SandboxResourceLimits = field(
+        default_factory=SandboxResourceLimits
+    )
+    schema_version: str = "elastic-topology-admission.v1"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.tenant, str) or not isinstance(self.delegation_id, str):
+            raise TopologyAdmissionError("tenant and delegation_id must be strings")
+        tenant = str(self.tenant).strip()
+        delegation_id = str(self.delegation_id).strip()
+        if not tenant or not delegation_id:
+            raise TopologyAdmissionError(
+                "tenant and delegation_id are required for topology admission"
+            )
+        if any(ord(c) < 32 or ord(c) == 127 for c in tenant + delegation_id):
+            raise TopologyAdmissionError("tenant and delegation_id contain control characters")
+        if any(not isinstance(value, str) for value in self.capabilities):
+            raise TopologyAdmissionError("capability identifiers must be strings")
+        capabilities = tuple(sorted({value.strip() for value in self.capabilities}))
+        if any(not value or any(ord(c) < 32 for c in value) for value in capabilities):
+            raise TopologyAdmissionError("capability identifiers must be non-empty and printable")
+
+        integer_limits = {
+            "max_nodes": (self.max_nodes, 1, 1_024),
+            "max_depth": (self.max_depth, 1, 64),
+            "max_fan_out": (self.max_fan_out, 1, 256),
+            "max_parallelism": (self.max_parallelism, 1, 256),
+            "max_tokens": (self.max_tokens, 1, 10_000_000),
+            "max_payload_bytes": (self.max_payload_bytes, 1, 64 * 1024 * 1024),
+        }
+        for name, (raw, lower, upper) in integer_limits.items():
+            if isinstance(raw, bool) or not isinstance(raw, int) or not lower <= raw <= upper:
+                raise TopologyAdmissionError(f"{name} is out of range")
+
+        if not isinstance(self.resource_limits, SandboxResourceLimits):
+            raise TopologyAdmissionError("resource_limits must be SandboxResourceLimits")
+        try:
+            issued_at = float(self.issued_at)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TopologyAdmissionError("issued_at must be finite") from exc
+        if not math.isfinite(issued_at):
+            raise TopologyAdmissionError("issued_at must be finite")
+        try:
+            deadline = (
+                issued_at + self.resource_limits.deadline_s
+                if self.deadline_unix is None
+                else float(self.deadline_unix)
+            )
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TopologyAdmissionError("deadline_unix must be finite") from exc
+        if (
+            not math.isfinite(deadline)
+            or deadline <= issued_at
+            or deadline > issued_at + self.resource_limits.deadline_s
+        ):
+            raise TopologyAdmissionError("deadline_unix must be after issued_at")
+        if (
+            not isinstance(self.schema_version, str)
+            or not self.schema_version.strip()
+            or any(ord(c) < 32 or ord(c) == 127 for c in self.schema_version)
+        ):
+            raise TopologyAdmissionError("schema_version must be printable and non-empty")
+
+        object.__setattr__(self, "tenant", tenant)
+        object.__setattr__(self, "delegation_id", delegation_id)
+        object.__setattr__(self, "capabilities", capabilities)
+        object.__setattr__(self, "issued_at", issued_at)
+        object.__setattr__(self, "deadline_unix", deadline)
+
+    @classmethod
+    def local(cls, *, issued_at: float | None = None) -> "ElasticTopologyAdmission":
+        """Create the bounded, non-engine admission used by isolated tests."""
+        kwargs: dict[str, Any] = {}
+        if issued_at is not None:
+            kwargs["issued_at"] = issued_at
+        return cls(
+            tenant="local",
+            delegation_id="local:rlm",
+            capabilities=("rlm.execute", "topology.materialize"),
+            **kwargs,
+        )
+
+    @property
+    def digest(self) -> str:
+        """Stable identity of the exact authority and every enforced bound."""
+        payload = {
+            "schema_version": self.schema_version,
+            "tenant": self.tenant,
+            "delegation_id": self.delegation_id,
+            "capabilities": list(self.capabilities),
+            "max_nodes": self.max_nodes,
+            "max_depth": self.max_depth,
+            "max_fan_out": self.max_fan_out,
+            "max_parallelism": self.max_parallelism,
+            "max_tokens": self.max_tokens,
+            "max_payload_bytes": self.max_payload_bytes,
+            "issued_at": self.issued_at,
+            "deadline_unix": self.deadline_unix,
+            "resource_limits": self.resource_limits.as_dict(),
+        }
+        return hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    def require_capabilities(self, required: Sequence[str]) -> None:
+        missing = sorted(set(required) - set(self.capabilities))
+        if missing:
+            raise TopologyAdmissionError(
+                f"delegation {self.delegation_id!r} lacks capabilities: {', '.join(missing)}"
+            )
+
+    def remaining_seconds(self, *, now: float | None = None) -> float:
+        try:
+            current = time.time() if now is None else float(now)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TopologyAdmissionError("admission clock value is invalid") from exc
+        if not math.isfinite(current):
+            raise TopologyAdmissionError("admission clock value is not finite")
+        remaining = float(self.deadline_unix) - current
+        if remaining <= 0:
+            raise TopologyAdmissionError("topology admission deadline expired")
+        return remaining
+
+    @staticmethod
+    def payload_size(payload: Any) -> int:
+        if isinstance(payload, bytes):
+            return len(payload)
+        if isinstance(payload, str):
+            return len(payload.encode("utf-8"))
+        try:
+            encoded = json.dumps(
+                payload,
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+                default=None,
+            ).encode("utf-8")
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise TopologyAdmissionError("payload is not deterministically serializable") from exc
+        return len(encoded)
+
+    def require_payload(self, payload: Any, *, label: str = "payload") -> int:
+        size = self.payload_size(payload)
+        if size > self.max_payload_bytes:
+            raise TopologyAdmissionError(
+                f"{label} exceeds admission payload limit ({size} > {self.max_payload_bytes})"
+            )
+        return size
+
+    def work_item_metadata(self) -> dict[str, Any]:
+        """Render the queue-visible budget without creating a second authority."""
+        return {
+            "tenant": self.tenant,
+            "deadline_unix": self.deadline_unix,
+            "budget": {
+                "max_nodes": self.max_nodes,
+                "max_depth": self.max_depth,
+                "max_fan_out": self.max_fan_out,
+                "max_parallelism": self.max_parallelism,
+                "max_tokens": self.max_tokens,
+                "max_payload_bytes": self.max_payload_bytes,
+            },
+            "resource_limits": self.resource_limits.as_dict(),
+            "metadata": {
+                "admission_digest": self.digest,
+                "delegation_id": self.delegation_id,
+                "schema_version": self.schema_version,
+            },
+        }
+
+    def require_work_item(self, item: Mapping[str, Any] | None) -> None:
+        """Require a native WorkItem to carry this exact admission identity."""
+        if not isinstance(item, Mapping):
+            raise TopologyAdmissionError("native WorkItem is missing")
+        if str(item.get("tenant") or "") != self.tenant:
+            raise TopologyAdmissionError("WorkItem tenant does not match topology admission")
+        if item.get("deadline_unix") != self.deadline_unix:
+            raise TopologyAdmissionError("WorkItem deadline does not match topology admission")
+        metadata = item.get("metadata")
+        if not isinstance(metadata, Mapping):
+            raise TopologyAdmissionError("native WorkItem admission metadata is missing")
+        expected = self.work_item_metadata()
+        for key in ("tenant", "deadline_unix", "budget", "resource_limits"):
+            if metadata.get(key) != expected[key]:
+                raise TopologyAdmissionError(
+                    f"WorkItem {key} does not match topology admission"
+                )
+        nested = metadata.get("metadata")
+        observed_digest = metadata.get("admission_digest")
+        if isinstance(nested, Mapping):
+            observed_digest = observed_digest or nested.get("admission_digest")
+        if observed_digest != self.digest:
+            raise TopologyAdmissionError("WorkItem admission digest does not match")
+
+    def require_topology(
+        self,
+        specialists: Sequence[Mapping[str, Any]],
+        plan: Sequence[Mapping[str, Any]],
+        *,
+        parallel_groups: Sequence[Sequence[str]] = (),
+    ) -> None:
+        node_count = len(specialists)
+        if node_count > self.max_nodes:
+            raise TopologyAdmissionError(
+                f"topology node count exceeds admission ({node_count} > {self.max_nodes})"
+            )
+        if len(plan) > self.max_depth:
+            raise TopologyAdmissionError(
+                f"topology depth exceeds admission ({len(plan)} > {self.max_depth})"
+            )
+        roles: list[str] = []
+        for specialist in specialists:
+            if not isinstance(specialist, Mapping):
+                raise TopologyAdmissionError("topology nodes must be mappings")
+            raw_role = specialist.get("role", "")
+            if not isinstance(raw_role, str):
+                raise TopologyAdmissionError("topology node roles must be strings")
+            role = raw_role.strip()
+            if not role:
+                raise TopologyAdmissionError("every topology node requires a role")
+            roles.append(role)
+        if len(set(roles)) != len(roles):
+            raise TopologyAdmissionError("topology roles must be unique")
+        role_set = set(roles)
+        for step in plan:
+            if not isinstance(step, Mapping):
+                raise TopologyAdmissionError("topology steps must be mappings")
+            step_roles = step.get("roles", ())
+            if not isinstance(step_roles, Sequence) or isinstance(step_roles, (str, bytes)):
+                raise TopologyAdmissionError("topology step roles must be a sequence")
+            fan_out = len(step_roles)
+            if fan_out > self.max_fan_out:
+                raise TopologyAdmissionError(
+                    f"topology fan-out exceeds admission ({fan_out} > {self.max_fan_out})"
+                )
+            if str(step.get("mode", "")) == "parallel" and fan_out > self.max_parallelism:
+                raise TopologyAdmissionError(
+                    f"topology parallelism exceeds admission ({fan_out} > {self.max_parallelism})"
+                )
+            if any(not isinstance(role, str) for role in step_roles):
+                raise TopologyAdmissionError("topology step roles must be strings")
+            if len(set(step_roles)) != len(step_roles):
+                raise TopologyAdmissionError("topology step roles must be unique")
+            if any(str(role) not in role_set for role in step_roles):
+                raise TopologyAdmissionError("topology plan references an unknown role")
+        grouped_roles: set[str] = set()
+        for group in parallel_groups:
+            if len(group) > self.max_parallelism:
+                raise TopologyAdmissionError(
+                    f"parallel group exceeds admission ({len(group)} > {self.max_parallelism})"
+                )
+            if any(str(role) not in role_set for role in group):
+                raise TopologyAdmissionError("parallel group references an unknown role")
+            if len(set(group)) != len(group) or grouped_roles.intersection(group):
+                raise TopologyAdmissionError("parallel groups must be disjoint and unique")
+            grouped_roles.update(group)
+        self.require_payload(specialists, label="topology specialists")
 
 
 class TopologyEngine:
@@ -67,8 +429,13 @@ class TopologyEngine:
         engine: The IntelligenceGraphEngine for KG queries.
     """
 
-    def __init__(self, engine: IntelligenceGraphEngine | None = None):
+    def __init__(
+        self,
+        engine: IntelligenceGraphEngine | None = None,
+        admission: ElasticTopologyAdmission | None = None,
+    ):
         self.engine = engine
+        self.admission = admission
 
     def materialize(
         self,
@@ -94,14 +461,40 @@ class TopologyEngine:
         adaptive_agent_router = team_composition.adaptive_agent_router
         mode = team_composition.execution_mode
         parallel_groups = team_composition.parallel_groups
-
-        # Build execution plan
+        if self.admission is not None:
+            self.admission.require_capabilities(("topology.materialize",))
+            self.admission.remaining_seconds()
+            if len(adaptive_agent_router) > self.admission.max_nodes:
+                raise TopologyAdmissionError(
+                    "topology node count exceeds admission before planning"
+                )
         execution_plan = self._build_execution_plan(
             adaptive_agent_router, mode, parallel_groups
         )
-
-        # Build per-specialist configs with full context
         specialist_configs = self._build_specialist_configs(adaptive_agent_router)
+
+        if self.admission is not None:
+            self.admission.require_topology(
+                adaptive_agent_router,
+                execution_plan,
+                parallel_groups=parallel_groups,
+            )
+            self.admission.require_payload(
+                {
+                    "execution_plan": execution_plan,
+                    "specialist_configs": specialist_configs,
+                    "memory_channels": team_composition.memory_channels,
+                    "session_id": session_id,
+                    "team_id": team_composition.team_id,
+                },
+                label="materialized topology payload",
+            )
+        elif self.engine is not None:
+            # A live engine path cannot materialize an unscoped topology.  The
+            # engine-less path remains usable for pure planning/unit callers.
+            raise TopologyAdmissionError(
+                "live topology materialization requires an immutable admission"
+            )
 
         result = {
             "execution_plan": execution_plan,
@@ -113,6 +506,12 @@ class TopologyEngine:
             "execution_mode": mode,
             "materialized_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
+        if self.admission is not None:
+            result["admission_digest"] = self.admission.digest
+            result["tenant"] = self.admission.tenant
+            result["delegation_id"] = self.admission.delegation_id
+            result["resource_limits"] = self.admission.resource_limits.as_dict()
+            result["work_item_metadata"] = self.admission.work_item_metadata()
 
         # Track in KG
         if self.engine:
@@ -127,6 +526,32 @@ class TopologyEngine:
         )
 
         return result
+
+    def retire(self, work_item_id: str, *, reason: str = "topology-retired") -> bool:
+        """Retire a materialized run through the native WorkItem authority.
+
+        Topology state is observational; it never grows a parallel lifecycle.
+        A missing engine/item is a failed retirement, while the native cancel
+        verb owns idempotency, fencing, and terminal-state semantics.
+        """
+        if self.engine is None or not str(work_item_id).strip():
+            return False
+        if self.admission is None:
+            raise TopologyAdmissionError(
+                "live topology retirement requires an immutable admission"
+            )
+        from ..orchestration.work_item import cancel_work_item, get_work_item
+
+        item = get_work_item(self.engine, str(work_item_id))
+        self.admission.require_work_item(item)
+
+        return bool(
+            cancel_work_item(
+                self.engine,
+                str(work_item_id),
+                reason=reason,
+            )
+        )
 
     def _build_execution_plan(
         self,
@@ -330,6 +755,9 @@ class TopologyEngine:
                     "specialist_count": len(result.get("specialist_configs", {})),
                     "execution_mode": result.get("execution_mode", ""),
                     "materialized_at": result.get("materialized_at", ""),
+                    "admission_digest": result.get("admission_digest", ""),
+                    "tenant": result.get("tenant", ""),
+                    "delegation_id": result.get("delegation_id", ""),
                 },
             )
         except Exception as e:  # noqa: BLE001 — docstring: "Record the materialization event in the KG for provenance"; no caller reads the return value, and a write failure doesn't affect the materialization it's merely describing

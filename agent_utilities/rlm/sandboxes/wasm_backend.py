@@ -21,7 +21,6 @@ is False and the router never routes here. Module compilation is cached per back
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
@@ -34,15 +33,20 @@ import platformdirs
 
 from agent_utilities.core.config import setting
 
+from ..telemetry import SandboxFatalError
 from .base import (
     Sandbox,
     SandboxCapabilities,
     SandboxEnv,
     SandboxRejected,
     SandboxResult,
+    enforce_sandbox_admission,
+    sandbox_resource_limits,
 )
 
 logger = logging.getLogger(__name__)
+
+_WASM_PAGE_BYTES = 65_536
 
 # Only JSON-able namespace values can be seeded into the WASI process (no live refs cross the
 # boundary — and v1 has no helper bridge to reach host capabilities anyway).
@@ -122,10 +126,18 @@ class WasmSandbox(Sandbox):
         *,
         payload: str | os.PathLike[str] | None = None,
         memory_bytes: int = 1 << 30,  # 1 GiB cap on the WASI linear memory
+        max_wasm_pages: int | None = None,
         timeout_secs: float = 30.0,
     ):
         self._payload_override = Path(payload) if payload else None
-        self.memory_bytes = memory_bytes
+        self.memory_bytes = int(memory_bytes)
+        self.max_wasm_pages = (
+            int(max_wasm_pages)
+            if max_wasm_pages is not None
+            else self.memory_bytes // _WASM_PAGE_BYTES
+        )
+        if self.max_wasm_pages < 1 or self.max_wasm_pages * _WASM_PAGE_BYTES > self.memory_bytes:
+            raise ValueError("WASM page limit must fit inside the memory limit")
         self.timeout_secs = timeout_secs
         self._available: bool | None = None
         # `wasmtime` is an optional, lazily-imported dependency (never imported at
@@ -165,6 +177,10 @@ class WasmSandbox(Sandbox):
                 logger.debug(
                     "wasmtime epoch_interruption unavailable; timeout disabled"
                 )
+            try:
+                cfg.consume_fuel = True
+            except Exception:  # noqa: BLE001 - older wasmtime; epoch remains the real deadline
+                logger.debug("wasmtime fuel accounting unavailable; using epoch deadline")
             self._engine = wasmtime.Engine(cfg)
             payload = self._payload()
             if payload is None:  # pragma: no cover - guarded by is_available
@@ -174,6 +190,7 @@ class WasmSandbox(Sandbox):
         return self._module, self._engine
 
     async def execute(self, code: str, env: SandboxEnv) -> SandboxResult:
+        enforce_sandbox_admission(env, payload=code)
         if not self.is_available():
             # Router shouldn't route here; if it did, escalate (a WASI run has no side effects).
             raise SandboxRejected("wasm", "wasmtime or python.wasm payload unavailable")
@@ -213,12 +230,46 @@ class WasmSandbox(Sandbox):
 
             store = wasmtime.Store(engine)
             store.set_wasi(cfg)
-            with contextlib.suppress(Exception):
-                store.set_limits(memory_size=self.memory_bytes)
+            limits = sandbox_resource_limits(env)
+            if limits is not None and float(limits.cpu_cores) != 1.0:
+                raise SandboxFatalError(
+                    "Wasmtime cannot enforce a fractional or multi-core CPU share"
+                )
+            memory_bytes = min(
+                self.memory_bytes,
+                int(getattr(limits, "memory_bytes", self.memory_bytes)),
+            )
+            max_pages = min(
+                self.max_wasm_pages,
+                int(getattr(limits, "max_wasm_pages", self.max_wasm_pages)),
+                memory_bytes // _WASM_PAGE_BYTES,
+            )
+            if max_pages < 1:
+                raise SandboxFatalError("WASM admission has no usable linear-memory pages")
+            # Do not retain a metadata-only limit.  A missing or failed
+            # Wasmtime limiter is a hard runtime prerequisite, not a warning.
+            set_limits = getattr(store, "set_limits", None)
+            if not callable(set_limits):
+                raise SandboxFatalError("Wasmtime store limiter is unavailable")
+            try:
+                set_limits(memory_size=max_pages * _WASM_PAGE_BYTES)
+            except Exception as exc:  # noqa: BLE001 - limiter failure is fail-closed
+                raise SandboxFatalError("Wasmtime store limiter could not be applied") from exc
+            timeout_secs = min(
+                self.timeout_secs,
+                float(getattr(limits, "deadline_s", self.timeout_secs)),
+            )
+            set_fuel = getattr(store, "set_fuel", None)
+            if not callable(set_fuel):
+                raise SandboxFatalError("Wasmtime CPU fuel limiter is unavailable")
+            try:
+                set_fuel(max(1, int(timeout_secs * 1_000_000)))
+            except Exception as exc:  # noqa: BLE001 - advertised CPU guard failed
+                raise SandboxFatalError("Wasmtime CPU fuel limit could not be applied") from exc
             store.set_epoch_deadline(1)
 
             # Wall-clock timeout: bump the epoch after the budget to trap a runaway snippet.
-            timer = threading.Timer(self.timeout_secs, engine.increment_epoch)
+            timer = threading.Timer(timeout_secs, engine.increment_epoch)
             timer.daemon = True
             timer.start()
             trapped: str | None = None

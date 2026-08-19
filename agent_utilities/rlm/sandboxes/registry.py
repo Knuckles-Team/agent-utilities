@@ -18,7 +18,7 @@ import is skipped, so this file is safe to ship before the others.
 from __future__ import annotations
 
 import logging
-from typing import TypedDict
+from typing import Any, TypedDict
 
 from agent_utilities.core.config import setting
 
@@ -35,7 +35,17 @@ class _ContainerOptions(TypedDict):
     timeout_secs: float
 
 
-def _container_options() -> _ContainerOptions:
+def _admission_deadline(admission: Any | None) -> float | None:
+    limits = getattr(admission, "resource_limits", None)
+    if limits is None:
+        return None
+    deadline = float(limits.deadline_s)
+    if admission is not None:
+        deadline = min(deadline, float(admission.remaining_seconds()))
+    return deadline
+
+
+def _container_options(admission: Any | None = None) -> _ContainerOptions:
     image = "python:3.12-slim"
     image_ref = str(setting("RLM_CONTAINER_IMAGE_REF", "") or "").strip()
     if image_ref:
@@ -47,16 +57,27 @@ def _container_options() -> _ContainerOptions:
             if isinstance(resolved, bytes)
             else str(resolved or "")
         )
+    limits = getattr(admission, "resource_limits", None)
+    if limits is not None:
+        memory = f"{max(1, int(limits.memory_bytes / (1024 * 1024)))}m"
+        cpus = f"{float(limits.cpu_cores):g}"
+        pids_limit = int(limits.max_pids)
+        timeout_secs = float(_admission_deadline(admission))
+    else:
+        memory = str(setting("RLM_CONTAINER_MEMORY", "512m"))
+        cpus = str(setting("RLM_CONTAINER_CPUS", "1.0"))
+        pids_limit = int(setting("RLM_CONTAINER_PIDS_LIMIT", 256))
+        timeout_secs = float(setting("RLM_CONTAINER_TIMEOUT_SECONDS", 120.0))
     return {
         "image": image,
-        "memory": str(setting("RLM_CONTAINER_MEMORY", "512m")),
-        "cpus": str(setting("RLM_CONTAINER_CPUS", "1.0")),
-        "pids_limit": int(setting("RLM_CONTAINER_PIDS_LIMIT", 256)),
-        "timeout_secs": float(setting("RLM_CONTAINER_TIMEOUT_SECONDS", 120.0)),
+        "memory": memory,
+        "cpus": cpus,
+        "pids_limit": pids_limit,
+        "timeout_secs": timeout_secs,
     }
 
 
-def default_sandboxes() -> list[Sandbox]:
+def default_sandboxes(admission: Any | None = None) -> list[Sandbox]:
     """Build the available backend set, cheapest-first by preference rank.
 
     Construction is cheap (no daemons started, no payloads loaded — that is deferred to each
@@ -68,7 +89,16 @@ def default_sandboxes() -> list[Sandbox]:
     try:
         from .monty_backend import MontySandbox
 
-        backends.append(MontySandbox())
+        limits = getattr(admission, "resource_limits", None)
+        if limits is None:
+            backends.append(MontySandbox())
+        else:
+            # Monty's checked-in ResourceLimits currently exposes only a wall
+            # duration.  Do not route a governed admission to a backend that
+            # would silently ignore its memory/PID/CPU-share contract.
+            logger.debug(
+                "monty sandbox not registered: governed resource limits are unsupported"
+            )
     except Exception as exc:  # noqa: BLE001 - optional backend
         logger.debug("monty sandbox not registered: %s", type(exc).__name__)
 
@@ -76,7 +106,19 @@ def default_sandboxes() -> list[Sandbox]:
     try:
         from .wasm_backend import WasmSandbox
 
-        backends.append(WasmSandbox())
+        limits = getattr(admission, "resource_limits", None)
+        deadline = _admission_deadline(admission)
+        backends.append(
+            WasmSandbox(
+                memory_bytes=int(limits.memory_bytes)
+                if limits is not None
+                else 1 << 30,
+                max_wasm_pages=int(limits.max_wasm_pages)
+                if limits is not None
+                else None,
+                timeout_secs=deadline if deadline is not None else 30.0,
+            )
+        )
     except Exception as exc:  # noqa: BLE001 - optional backend
         logger.debug("wasm sandbox not registered: %s", type(exc).__name__)
 
@@ -87,7 +129,8 @@ def default_sandboxes() -> list[Sandbox]:
 
         backends.append(
             ForkServerSandbox(
-                timeout_secs=float(setting("RLM_CONTAINER_TIMEOUT_SECONDS", 120.0))
+                timeout_secs=_admission_deadline(admission)
+                or float(setting("RLM_CONTAINER_TIMEOUT_SECONDS", 120.0))
             )
         )
     except Exception as exc:  # noqa: BLE001 - optional backend
@@ -98,7 +141,7 @@ def default_sandboxes() -> list[Sandbox]:
     try:
         from .container_fork_backend import ContainerForkSandbox
 
-        backends.append(ContainerForkSandbox(**_container_options()))
+        backends.append(ContainerForkSandbox(**_container_options(admission)))
     except Exception as exc:  # noqa: BLE001 - optional backend
         logger.debug("container_fork sandbox not registered: %s", type(exc).__name__)
 
@@ -106,7 +149,7 @@ def default_sandboxes() -> list[Sandbox]:
     try:
         from .docker_backend import DockerSandbox
 
-        backends.append(DockerSandbox(**_container_options()))
+        backends.append(DockerSandbox(**_container_options(admission)))
     except Exception as exc:  # noqa: BLE001 - optional backend
         logger.debug("docker sandbox not registered: %s", type(exc).__name__)
 
@@ -116,7 +159,9 @@ def default_sandboxes() -> list[Sandbox]:
     try:
         from .firecracker_backend import FirecrackerSandbox
 
-        fc = FirecrackerSandbox()
+        fc = FirecrackerSandbox(
+            resource_limits=getattr(admission, "resource_limits", None)
+        )
         if fc.is_available():
             backends.append(fc)
     except Exception as exc:  # noqa: BLE001 - optional backend

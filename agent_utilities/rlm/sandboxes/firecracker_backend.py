@@ -44,6 +44,7 @@ from .base import (
     SandboxEnv,
     SandboxResult,
     WarmSpec,
+    enforce_sandbox_admission,
 )
 
 logger = logging.getLogger(__name__)
@@ -166,6 +167,11 @@ class FirecrackerSandbox(ForkableSandbox):
     """Run a snippet in a Firecracker microVM child forked from a warm forkd snapshot."""
 
     name = "firecracker"
+    # The checked-in forkd API does not yet accept/enforce per-child CPU,
+    # memory, PID, or page quotas (cgroup quotas are still a forkd roadmap
+    # item).  A governed admission must therefore not route here until the
+    # controller gains that authoritative contract.
+    _RESOURCE_LIMITS_SUPPORTED = False
     capabilities = SandboxCapabilities(
         host_callbacks=False,  # v1: microVM guest can't reach the host UDS bridge (needs vsock)
         third_party_libs=True,  # whatever the warm snapshot image baked in
@@ -184,6 +190,7 @@ class FirecrackerSandbox(ForkableSandbox):
         token: str | None = None,
         snapshot_tag: str | None = None,
         timeout_secs: float = 120.0,
+        resource_limits: object | None = None,
     ) -> None:
         # Deployment-varying (URL / secret / which snapshot) → justified config knobs, read
         # through config.setting (never bare os.environ), per Configuration discipline.
@@ -191,13 +198,21 @@ class FirecrackerSandbox(ForkableSandbox):
         self._token = token if token is not None else setting("FORKD_TOKEN", "")
         self.snapshot_tag = snapshot_tag or setting("FORKD_SNAPSHOT_TAG", "pyagent")
         self.timeout_secs = timeout_secs
-        self._client = _ForkdClient(self.base_url, self._token, timeout_secs)
+        self.resource_limits = resource_limits
+        client_timeout = min(
+            timeout_secs,
+            float(getattr(resource_limits, "deadline_s", timeout_secs)),
+        )
+        self._client = _ForkdClient(self.base_url, self._token, client_timeout)
         self._available: bool | None = None
 
     def is_available(self) -> bool:
         """Available only where a reachable forkd controller exists (implies x86_64+KVM+forkd)."""
         if self._available is None:
-            self._available = self._client.healthy()
+            if self.resource_limits is not None and not self._RESOURCE_LIMITS_SUPPORTED:
+                self._available = False
+            else:
+                self._available = self._client.healthy()
         return self._available
 
     def warm_spec(self) -> WarmSpec:
@@ -236,6 +251,11 @@ class FirecrackerSandbox(ForkableSandbox):
         """Fork one microVM child from the warm snapshot, eval the snippet, tear the child down."""
         import asyncio
 
+        enforce_sandbox_admission(env, payload=code)
+        if env.admission is not None and not self._RESOURCE_LIMITS_SUPPORTED:
+            raise SandboxFatalError(
+                "forkd does not authoritatively enforce governed sandbox resource limits"
+            )
         tag = parent.ref["snapshot"]
         return await asyncio.get_running_loop().run_in_executor(
             None, self._run_blocking, tag, code
@@ -244,8 +264,14 @@ class FirecrackerSandbox(ForkableSandbox):
     def _run_blocking(self, tag: str, code: str) -> SandboxResult:
         child_id: str | None = None
         try:
+            if self.resource_limits is not None and not self._RESOURCE_LIMITS_SUPPORTED:
+                raise SandboxFatalError(
+                    "forkd does not authoritatively enforce governed sandbox resource limits"
+                )
             spawned = self._client.request(
-                "POST", "/v1/sandboxes", {"snapshot_tag": tag, "n": 1}
+                "POST",
+                "/v1/sandboxes",
+                {"snapshot_tag": tag, "n": 1},
             )
             children = (
                 spawned if isinstance(spawned, list) else spawned.get("sandboxes", [])

@@ -26,12 +26,18 @@ import asyncio
 import contextlib
 import importlib.util
 import logging
+import math
 import multiprocessing
 import os
 import shutil
 import tempfile
 import threading
 from pathlib import Path
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows has no POSIX resource module
+    resource = None  # type: ignore[assignment]
 
 from ..telemetry import SandboxFatalError
 from . import _bridge
@@ -42,6 +48,8 @@ from .base import (
     SandboxEnv,
     SandboxResult,
     WarmSpec,
+    enforce_sandbox_admission,
+    sandbox_resource_limits,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,6 +70,48 @@ def _available_preload() -> tuple[str, ...]:
 
 def _noop() -> None:  # forkserver boot probe target (paid in warm(), not first execute)
     return None
+
+
+def _apply_process_limits(limits: dict[str, int | float] | None) -> None:
+    """Apply kernel process limits before the snippet entrypoint runs.
+
+    ``forkserver`` has no cgroup boundary of its own.  The child therefore
+    uses the kernel's resource limits for address space, data pages, CPU
+    seconds, and descendant process count.  A failure is raised in the child;
+    the parent then observes a missing result and fails the run closed.
+    """
+    if limits is None:
+        return
+    if resource is None:
+        raise RuntimeError("forkserver resource limits require POSIX resource support")
+    memory = int(limits["memory_bytes"])
+    cpu_seconds = max(1, int(math.ceil(float(limits["deadline_s"]))))
+    pids = int(limits["max_pids"])
+    if float(limits["cpu_cores"]) != 1.0:
+        raise RuntimeError("forkserver cannot enforce a fractional or multi-core CPU share")
+    if hasattr(resource, "RLIMIT_NPROC") and os.geteuid() == 0:
+        raise RuntimeError("forkserver PID limits are not enforceable for the root UID")
+
+    def _set(kind: int, value: int) -> None:
+        current_soft, current_hard = resource.getrlimit(kind)
+        hard = value if current_hard == resource.RLIM_INFINITY else min(value, current_hard)
+        soft = min(value, hard)
+        resource.setrlimit(kind, (soft, hard))
+
+    if hasattr(resource, "RLIMIT_AS"):
+        _set(resource.RLIMIT_AS, memory)
+    if hasattr(resource, "RLIMIT_DATA"):
+        _set(resource.RLIMIT_DATA, memory)
+    if hasattr(resource, "RLIMIT_CPU"):
+        _set(resource.RLIMIT_CPU, cpu_seconds)
+    if hasattr(resource, "RLIMIT_NPROC"):
+        _set(resource.RLIMIT_NPROC, pids)
+
+
+def _run_child_with_limits(data_dir: str, socket_path: str, limits: dict[str, int | float] | None) -> None:
+    """Set kernel limits, then enter the existing bridge child runner."""
+    _apply_process_limits(limits)
+    _bridge.run_child(data_dir, socket_path)
 
 
 class ForkServerSandbox(ForkableSandbox):
@@ -125,6 +175,7 @@ class ForkServerSandbox(ForkableSandbox):
     async def run_forked(
         self, parent: ParentHandle, code: str, env: SandboxEnv
     ) -> SandboxResult:
+        enforce_sandbox_admission(env, payload=code)
         ctx = parent.ref
         run_id = os.urandom(6).hex()
         tmpdir = Path(tempfile.mkdtemp(prefix=f"rlm-fork-{run_id}-"))
@@ -142,13 +193,20 @@ class ForkServerSandbox(ForkableSandbox):
                 runner_data_dir=None,  # child calls _bridge.run_child directly (no injected script)
             )
             server = await _bridge.start_bridge(sock_path, env.helpers, bridge_token)
+            limits = sandbox_resource_limits(env)
+            limit_values = limits.as_dict() if limits is not None else None
             proc = ctx.Process(
-                target=_bridge.run_child, args=(str(tmpdir), str(sock_path))
+                target=_run_child_with_limits,
+                args=(str(tmpdir), str(sock_path), limit_values),
             )
             # Fork + run in an executor thread so the event loop stays free to service the
             # bridge callbacks the child makes (rlm_query, FINAL_VAR, …) while it runs.
+            timeout = min(
+                self.timeout_secs,
+                float(getattr(limits, "deadline_s", self.timeout_secs)),
+            )
             killed = await asyncio.get_running_loop().run_in_executor(
-                None, _start_join, proc, self.timeout_secs
+                None, _start_join, proc, timeout
             )
             stdout, error, wrote = _bridge.read_result(tmpdir)
             if not wrote:

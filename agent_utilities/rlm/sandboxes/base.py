@@ -89,6 +89,29 @@ class SandboxEnv:
     vars: dict[str, Any]
     tool_sources: dict[str, str] = field(default_factory=dict)
     helpers: dict[str, Callable[..., Any]] = field(default_factory=dict)
+    # The one immutable tenant/delegation/budget contract for the complete
+    # topology run.  Kept as Any here to avoid a graph->sandbox import cycle;
+    # adapters consume its frozen ``resource_limits`` value object and fail
+    # closed when a requested runtime limit cannot be applied.
+    admission: Any | None = None
+
+
+def sandbox_resource_limits(env: SandboxEnv) -> Any | None:
+    """Return the immutable runtime limits carried by ``env``, if any."""
+    admission = env.admission
+    return getattr(admission, "resource_limits", None) if admission is not None else None
+
+
+def enforce_sandbox_admission(env: SandboxEnv, *, payload: Any = None) -> None:
+    """Apply the shared deadline/payload gate before a backend starts user code."""
+    admission = env.admission
+    if admission is None:
+        return
+    admission.remaining_seconds()
+    admission.require_payload(
+        {"vars": env.vars, "tool_sources": env.tool_sources, "payload": payload},
+        label="sandbox admission payload",
+    )
 
 
 @dataclass

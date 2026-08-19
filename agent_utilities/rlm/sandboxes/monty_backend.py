@@ -32,7 +32,10 @@ from .base import (
     SandboxEnv,
     SandboxRejected,
     SandboxResult,
+    enforce_sandbox_admission,
+    sandbox_resource_limits,
 )
+from ..telemetry import SandboxFatalError
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +78,11 @@ class MontySandbox(Sandbox):
         return self._available
 
     async def execute(self, code: str, env: SandboxEnv) -> SandboxResult:
+        enforce_sandbox_admission(env, payload=code)
+        if sandbox_resource_limits(env) is not None:
+            raise SandboxFatalError(
+                "Monty cannot authoritatively enforce governed memory/PID/CPU limits"
+            )
         # pydantic-monty >=0.0.18 replaced the old fresh-per-call `Monty(code, inputs=...)` +
         # `run_async(...)` object with a subprocess-worker-pool model: `AsyncMonty` is the pool
         # (spawned by `async with`), `pool.checkout(limits=...)` hands out a dedicated

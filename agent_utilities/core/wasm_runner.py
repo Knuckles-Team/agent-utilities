@@ -87,8 +87,50 @@ class WasmAgentRunner:
     Enables micro-second cold starts, linear memory boundaries, and strict CPU/memory isolation.
     """
 
-    def __init__(self, limit_memory_pages: int = 16):
-        self.limit_memory_pages = limit_memory_pages
+    def __init__(
+        self,
+        limit_memory_pages: int = 16,
+        *,
+        limit_cpu_fuel: int = 50_000_000,
+        max_payload_bytes: int = 4 * 1024 * 1024,
+        admission: Any | None = None,
+    ):
+        if (
+            isinstance(limit_memory_pages, bool)
+            or not isinstance(limit_memory_pages, int)
+            or not 1 <= limit_memory_pages <= 1_048_576
+        ):
+            raise ValueError("WASM memory page limit is out of range")
+        if (
+            isinstance(limit_cpu_fuel, bool)
+            or not isinstance(limit_cpu_fuel, int)
+            or not 1 <= limit_cpu_fuel <= 10_000_000_000
+        ):
+            raise ValueError("WASM CPU fuel limit is out of range")
+        if (
+            isinstance(max_payload_bytes, bool)
+            or not isinstance(max_payload_bytes, int)
+            or not 1 <= max_payload_bytes <= 64 * 1024 * 1024
+        ):
+            raise ValueError("WASM payload limit is out of range")
+        self.admission = admission
+        limits = getattr(admission, "resource_limits", None)
+        if admission is not None:
+            admission.require_capabilities(("rlm.execute",))
+            if limits is None:
+                raise ValueError("governed WASM execution requires resource limits")
+            if float(limits.cpu_cores) != 1.0:
+                raise ValueError("Wasmtime cannot enforce a fractional or multi-core CPU share")
+            self.limit_memory_pages = min(limit_memory_pages, int(limits.max_wasm_pages))
+            self.max_payload_bytes = min(max_payload_bytes, int(admission.max_payload_bytes))
+            self.limit_cpu_fuel = min(
+                limit_cpu_fuel,
+                max(1, int(float(limits.deadline_s) * 1_000_000)),
+            )
+        else:
+            self.limit_memory_pages = limit_memory_pages
+            self.limit_cpu_fuel = limit_cpu_fuel
+            self.max_payload_bytes = max_payload_bytes
         self.store: Any = None
         self.module: Any = None
         self.instance: Any = None
@@ -98,6 +140,10 @@ class WasmAgentRunner:
             # Configure wasmtime engine with memory/resource limits
             self.config = wasmtime.Config()
             self.config.strategy = "cranelift"
+            try:
+                self.config.consume_fuel = True
+            except Exception:  # noqa: BLE001 - epoch deadline remains the runtime guard
+                logger.debug("Wasmtime fuel accounting unavailable")
             self.engine = wasmtime.Engine(self.config)
         else:
             logger.warning(
@@ -106,12 +152,31 @@ class WasmAgentRunner:
 
     def load_agent(self, wasm_bytes: bytes) -> None:
         """Load and compile a pre-compiled WebAssembly micro-agent binary."""
+        if self.admission is not None:
+            self.admission.remaining_seconds()
+            self.admission.require_payload(wasm_bytes, label="WASM module payload")
         if not WASMTIME_AVAILABLE or wasmtime is None or self.engine is None:
+            if self.admission is not None:
+                raise RuntimeError("governed WASM execution requires Wasmtime")
             logger.info("Loaded WASM binary (fallback dry-run).")
             self.module = wasm_bytes  # store raw bytes for reference
             return
 
         self.store = wasmtime.Store(self.engine)
+        set_limits = getattr(self.store, "set_limits", None)
+        if not callable(set_limits):
+            raise RuntimeError("Wasmtime store limiter is unavailable")
+        try:
+            set_limits(memory_size=self.limit_memory_pages * 65_536)
+        except Exception as exc:  # noqa: BLE001 - a stored limit is not enforcement
+            raise RuntimeError("Wasmtime memory limiter could not be applied") from exc
+        set_fuel = getattr(self.store, "set_fuel", None)
+        if not callable(set_fuel):
+            raise RuntimeError("Wasmtime CPU fuel limiter is unavailable")
+        try:
+            set_fuel(self.limit_cpu_fuel)
+        except Exception as exc:  # noqa: BLE001 - fail closed when fuel was advertised but unusable
+            raise RuntimeError("Wasmtime CPU fuel limit could not be applied") from exc
         self.module = wasmtime.Module(self.engine, wasm_bytes)
 
         # Simple linker for importing standard env interfaces
@@ -125,7 +190,12 @@ class WasmAgentRunner:
 
         Serializes data directly to/from the WASM linear memory sandbox.
         """
-        input_str = json.dumps(input_data)
+        input_str = json.dumps(input_data, separators=(",", ":"))
+        if self.admission is not None:
+            self.admission.remaining_seconds()
+            self.admission.require_payload(input_str, label="WASM input payload")
+        elif len(input_str.encode("utf-8")) > self.max_payload_bytes:
+            raise ValueError("WASM input payload exceeds the admission limit")
 
         if (
             not WASMTIME_AVAILABLE
@@ -133,6 +203,8 @@ class WasmAgentRunner:
             or self.instance is None
             or self.store is None
         ):
+            if self.admission is not None:
+                raise RuntimeError("governed WASM execution requires a loaded Wasmtime module")
             # Emulation fallback mode for developers without wasmtime
             logger.info("Executing micro-agent in emulation/fallback mode.")
             action = input_data.get("action")

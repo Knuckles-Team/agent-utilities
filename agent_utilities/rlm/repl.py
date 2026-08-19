@@ -8,6 +8,10 @@ from pydantic_ai.messages import ModelRequest, UserPromptPart
 from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
 from ..graph.state import GraphDeps
+from ..graph.topology_engine import (
+    ElasticTopologyAdmission,
+    TopologyAdmissionError,
+)
 from .config import RLMConfig
 from .prompts import (
     build_system_prompt,  # CONCEPT:AU-ORCH.execution.drop-rlm-completion-client
@@ -31,18 +35,14 @@ from .telemetry import (  # CONCEPT:AU-ORCH.execution.typed-failure-classificati
 logger = logging.getLogger(__name__)
 
 
-def _accumulate_root_usage(usage: Any, res: Any) -> None:
-    """Fold one pydantic-ai run's token usage into the RunTrace ``usage`` (CONCEPT:AU-AHE.rlm.long-context-benchmark).
-
-    Best-effort and version-tolerant: maps request/input tokens → ``prompt_tokens`` and
-    response/output tokens → ``completion_tokens``. A missing usage object is a no-op.
-    """
+def _model_usage_tokens(res: Any) -> tuple[int, int]:
+    """Read version-tolerant request/response token counts from a model result."""
     try:
         u = res.usage() if callable(getattr(res, "usage", None)) else None
     except Exception:  # noqa: BLE001 — usage is telemetry, never fatal
         u = None
     if u is None:
-        return
+        return 0, 0
     prompt = next(
         (
             getattr(u, a)
@@ -59,8 +59,19 @@ def _accumulate_root_usage(usage: Any, res: Any) -> None:
         ),
         0,
     )
+    return prompt, completion
+
+
+def _accumulate_root_usage(usage: Any, res: Any) -> int:
+    """Fold one pydantic-ai run's token usage into the RunTrace ``usage`` (CONCEPT:AU-AHE.rlm.long-context-benchmark).
+
+    Best-effort and version-tolerant: maps request/input tokens → ``prompt_tokens`` and
+    response/output tokens → ``completion_tokens``. A missing usage object is a no-op.
+    """
+    prompt, completion = _model_usage_tokens(res)
     usage.prompt_tokens += prompt
     usage.completion_tokens += completion
+    return prompt + completion
 
 
 class RecursionLimitError(Exception):
@@ -106,11 +117,27 @@ class RLMEnvironment:
         outputs_keys: list[str] | None = None,
         tool_sources: dict[str, str] | None = None,
         output_contract: Any = None,
+        admission: ElasticTopologyAdmission | None = None,
+        work_item_id: str = "",
+        _usage_state: dict[str, int] | None = None,
     ):
         self.config = config or RLMConfig()
         self.depth = depth
         self.max_depth = self.config.max_depth
         self.max_turns = self.config.max_turns
+        self.admission = admission
+        self.work_item_id = str(work_item_id or "")
+        self._usage_state = _usage_state if _usage_state is not None else {"tokens": 0, "nodes": 1}
+        if self.admission is not None:
+            self.admission.require_capabilities(("rlm.execute",))
+            if self.depth > self.admission.max_depth:
+                raise TopologyAdmissionError(
+                    f"RLM depth exceeds admission ({self.depth} > {self.admission.max_depth})"
+                )
+            if self.max_depth > self.admission.max_depth:
+                raise TopologyAdmissionError(
+                    f"RLM max_depth exceeds admission ({self.max_depth} > {self.admission.max_depth})"
+                )
         self.graph_deps = graph_deps
         self.signature = signature
         self.inputs_keys = inputs_keys or []
@@ -126,6 +153,8 @@ class RLMEnvironment:
         self.last_run_trace: Any = None
 
         self.vars: dict[str, Any] = {"context": context, "depth": depth}
+        if self.admission is not None:
+            self.admission.require_payload(context, label="RLM context")
 
         # The global namespace for the REPL
         self.globals_dict = {
@@ -150,6 +179,81 @@ class RLMEnvironment:
         """Helper for the LLM to output its final result explicitly."""
         self.vars[name] = value
         self.vars["__FINAL__"] = name
+
+    def _check_admission(self, *, payload: Any = None, label: str = "payload") -> None:
+        if self.admission is None:
+            return
+        self.admission.remaining_seconds()
+        if payload is not None:
+            self.admission.require_payload(payload, label=label)
+        if self._usage_state["nodes"] > self.admission.max_nodes:
+            raise TopologyAdmissionError(
+                "RLM node budget exhausted before another recursive call"
+            )
+
+    def _register_node(self) -> None:
+        self._check_admission()
+        self._usage_state["nodes"] += 1
+        if self.admission is not None and self._usage_state["nodes"] > self.admission.max_nodes:
+            self._usage_state["nodes"] -= 1
+            raise TopologyAdmissionError(
+                f"RLM node count exceeds admission ({self._usage_state['nodes'] + 1} > {self.admission.max_nodes})"
+            )
+
+    def _record_usage(self, tokens: int) -> None:
+        if tokens <= 0:
+            return
+        self._usage_state["tokens"] += int(tokens)
+        if self.admission is not None and self._usage_state["tokens"] > self.admission.max_tokens:
+            raise TopologyAdmissionError(
+                f"RLM token budget exceeded ({self._usage_state['tokens']} > {self.admission.max_tokens})"
+            )
+
+    async def _run_model(self, agent: Any, prompt: str, **kwargs: Any) -> Any:
+        """Run one model call inside the immutable deadline and token contract."""
+        self._check_admission(payload=prompt, label="RLM model prompt")
+        if self.admission is not None and kwargs.get("message_history") is not None:
+            try:
+                history_size = len(repr(kwargs["message_history"]).encode("utf-8"))
+            except Exception as exc:  # noqa: BLE001 - an unbounded history fails closed
+                raise TopologyAdmissionError("RLM message history is not measurable") from exc
+            if history_size > self.admission.max_payload_bytes:
+                raise TopologyAdmissionError(
+                    "RLM message history exceeds admission payload limit"
+                )
+        if self.admission is None:
+            return await agent.run(prompt, **kwargs)
+        remaining = self.admission.remaining_seconds()
+        try:
+            return await asyncio.wait_for(agent.run(prompt, **kwargs), timeout=remaining)
+        except TimeoutError as exc:
+            raise TopologyAdmissionError("RLM model call exceeded its admission deadline") from exc
+
+    def _record_direct_model_usage(self, result: Any) -> None:
+        """Account model calls that do not run through ``run_full_rlm``."""
+        prompt, completion = _model_usage_tokens(result)
+        tokens = prompt + completion
+        self._record_usage(tokens)
+        if self.last_run_trace is not None:
+            self.last_run_trace.usage.sub_lm_tokens += tokens
+
+    def retire(self, *, reason: str = "rlm-retired") -> bool:
+        """Retire this run through the engine-native WorkItem cancel verb."""
+        if not self.work_item_id or not self.graph_deps:
+            return False
+        engine = getattr(self.graph_deps, "knowledge_engine", None)
+        if engine is None:
+            return False
+        if self.admission is None:
+            raise TopologyAdmissionError(
+                "live RLM retirement requires an immutable admission"
+            )
+        from ..orchestration.work_item import cancel_work_item, get_work_item
+
+        item = get_work_item(engine, self.work_item_id)
+        self.admission.require_work_item(item)
+
+        return bool(cancel_work_item(engine, self.work_item_id, reason=reason))
 
     def _absorb_sub_usage(self, sub_env: "RLMEnvironment") -> None:
         """Fold a recursive sub-call's total token usage into this run's ``sub_lm_tokens``.
@@ -280,6 +384,7 @@ class RLMEnvironment:
         self, prompt: str, agent_id: str | None = None, input_data: Any = None
     ) -> str:
         """Recursive dispatch to other adaptive_agent_router via the graph dispatcher."""
+        self._check_admission(payload={"prompt": prompt, "input": input_data}, label="sub-agent payload")
         if not self.graph_deps:
             return "Error: graph_deps not available"
 
@@ -299,7 +404,8 @@ class RLMEnvironment:
             model=self.config.sub_llm_model_small,
             system_prompt=f"You are a specialized sub-agent for: {agent_id or 'general'}",
         )
-        res = await agent.run(f"Context: {input_data}\n\nTask: {prompt}")
+        res = await self._run_model(agent, f"Context: {input_data}\n\nTask: {prompt}")
+        self._record_direct_model_usage(res)
         return res.output
 
     async def rlm_query(
@@ -313,10 +419,12 @@ class RLMEnvironment:
         lets the parent route on a clean structured value instead of re-parsing
         prose (CONCEPT:AU-ORCH.session.structured-subagent-contracts, structured subagent contracts).
         """
+        self._check_admission(payload={"prompt": prompt, "context": sub_context}, label="RLM child payload")
         if self.depth >= self.max_depth:
             raise RecursionLimitError(
                 f"RLM recursion depth exceeded (max {self.max_depth})"
             )
+        self._register_node()
 
         logger.info(
             f"RLM at depth {self.depth} spawning sub-RLM for prompt: {prompt[:50]}..."
@@ -329,6 +437,9 @@ class RLMEnvironment:
             output_contract=SchemaContract.from_spec(schema)
             if schema is not None
             else None,
+            admission=self.admission,
+            work_item_id=self.work_item_id,
+            _usage_state=self._usage_state,
         )
         result = await sub_env.run_full_rlm(prompt)
         self._absorb_sub_usage(
@@ -343,29 +454,53 @@ class RLMEnvironment:
         ``schema`` is optional and per-call — when present, that sub-agent must
         return a value conforming to it (structured fan-out, CONCEPT:AU-ORCH.session.structured-subagent-contracts).
         """
+        if self.admission is not None:
+            self._check_admission(payload=calls, label="RLM fan-out payload")
+            if len(calls) > self.admission.max_fan_out:
+                raise TopologyAdmissionError(
+                    f"RLM fan-out exceeds admission ({len(calls)} > {self.admission.max_fan_out})"
+                )
+
         if not self.config.async_enabled:
             results = []
             for item in calls:
                 results.append(await self._execute_sub_call(item))
             return results
 
-        async def _call(item):
-            return await self._execute_sub_call(item)
+        parallelism = len(calls)
+        if self.admission is not None:
+            parallelism = min(parallelism, self.admission.max_parallelism)
+        semaphore = asyncio.Semaphore(max(1, parallelism))
 
-        return await asyncio.gather(
+        async def _call(item):
+            async with semaphore:
+                return await self._execute_sub_call(item)
+
+        results = await asyncio.gather(
             *[_call(item) for item in calls], return_exceptions=True
         )
+        for result in results:
+            if isinstance(result, TopologyAdmissionError):
+                raise result
+        return results
 
     async def _execute_sub_call(self, item: dict[str, Any]) -> Any:
+        if not isinstance(item, dict):
+            raise TopologyAdmissionError("RLM fan-out entries must be mappings")
+        self._check_admission(payload=item, label="RLM child call")
         schema = item.get("schema")
         contract = SchemaContract.from_spec(schema) if schema is not None else None
         if self.depth < self.max_depth:
+            self._register_node()
             sub_env = RLMEnvironment(
                 context=item.get("context"),
                 depth=self.depth + 1,
                 config=self.config,
                 graph_deps=self.graph_deps,
                 output_contract=contract,
+                admission=self.admission,
+                work_item_id=self.work_item_id,
+                _usage_state=self._usage_state,
             )
             result = await sub_env.run_full_rlm(item["prompt"])
             self._absorb_sub_usage(
@@ -380,6 +515,7 @@ class RLMEnvironment:
             # single Python type to hand pydantic-ai, so it's conveyed as prompt
             # text instead (the caller still gets back whatever the model wrote —
             # there's no post-hoc ``.validate()`` at this recursion floor).
+            self._register_node()
             from agent_utilities.core.contextual_model import create_context_agent
 
             model_type = contract.model_type if contract else None
@@ -402,9 +538,11 @@ class RLMEnvironment:
                     model=self.config.sub_llm_model_small,
                     system_prompt="Answer the sub-task directly.",
                 )
-            res = await agent.run(
-                f"Context: {item.get('context')}\n\nPrompt: {item['prompt']}"
+            res = await self._run_model(
+                agent,
+                f"Context: {item.get('context')}\n\nPrompt: {item['prompt']}",
             )
+            self._record_direct_model_usage(res)
             return res.output
 
     def _build_sandbox_env(self) -> SandboxEnv:
@@ -414,6 +552,10 @@ class RLMEnvironment:
         bound methods). Confined backends wire ``helpers`` through their governed callback
         boundary (monty's ``external_functions`` or Docker's UDS bridge).
         """
+        if self.admission is not None:
+            self.admission.require_payload(
+                self.tool_sources, label="RLM tool-source payload"
+            )
         helpers = {
             name: self.globals_dict[name]
             for name in HELPER_NAMES
@@ -423,6 +565,7 @@ class RLMEnvironment:
             vars=self.vars,
             tool_sources=self.tool_sources,
             helpers=helpers,
+            admission=self.admission,
         )
 
     def _get_sandbox_router(self) -> SandboxRouter:
@@ -434,7 +577,7 @@ class RLMEnvironment:
             from .sandboxes.reward import SandboxRewardTracker
 
             router = SandboxRouter(
-                default_sandboxes(),
+                default_sandboxes(admission=self.admission),
                 reward_fn=SandboxRewardTracker.get().reward,
             )
             self._sandbox_router = router
@@ -456,6 +599,7 @@ class RLMEnvironment:
         Secure/default routing fails closed when no isolated backend can accept the
         code. Unsafe local execution requires an explicit configuration opt-in.
         """
+        self._check_admission(payload=code, label="RLM source payload")
         env = self._build_sandbox_env()
         forced = self.config.sandbox
         chain = self._get_sandbox_router().select(
@@ -706,24 +850,29 @@ class RLMEnvironment:
                 f"this JSON Schema:\n{self.output_contract.json_schema_str}"
             )
 
+        self._check_admission(payload=initial_prompt, label="RLM initial prompt")
+
         for turn in range(max_turns):
+            self._register_node()
             run_prompt = initial_prompt if turn == 0 else None
             if run_prompt:
-                res = await agent.run(
+                res = await self._run_model(
+                    agent,
                     run_prompt,
                     message_history=history,
                     model_settings=_profile_settings,
                 )
             else:
                 # Subsequent turns use the history with stdout metadata appended
-                res = await agent.run(
+                res = await self._run_model(
+                    agent,
                     "Continue.",
                     message_history=history,
                     model_settings=_profile_settings,
                 )
             history = res.all_messages()
-            _accumulate_root_usage(
-                run_trace.usage, res
+            self._record_usage(
+                _accumulate_root_usage(run_trace.usage, res)
             )  # CONCEPT:AU-AHE.rlm.long-context-benchmark cost capture
 
             output_text = res.output

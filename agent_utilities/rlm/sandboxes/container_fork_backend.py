@@ -43,7 +43,9 @@ from .base import (
     SandboxEnv,
     SandboxResult,
     WarmSpec,
+    enforce_sandbox_admission,
 )
+from .docker_backend import validate_container_configuration
 
 logger = logging.getLogger(__name__)
 
@@ -82,11 +84,15 @@ class ContainerForkSandbox(ForkableSandbox):
         pids_limit: int = 256,
         timeout_secs: float = 120.0,
     ) -> None:
-        self.image = image
-        self.memory = memory
-        self.cpus = cpus
-        self.pids_limit = pids_limit
-        self.timeout_secs = timeout_secs
+        (
+            self.image,
+            self.memory,
+            self.cpus,
+            self.pids_limit,
+            self.timeout_secs,
+        ) = validate_container_configuration(
+            image, memory, cpus, pids_limit, timeout_secs
+        )
         self._runtime: str | None | bool = None
 
     def is_available(self) -> bool:
@@ -180,6 +186,7 @@ class ContainerForkSandbox(ForkableSandbox):
     async def run_forked(
         self, parent: ParentHandle, code: str, env: SandboxEnv
     ) -> SandboxResult:
+        enforce_sandbox_admission(env, payload=code)
         runtime = parent.ref["runtime"]
         name = parent.ref["name"]
         pool_dir: Path = parent.ref["pool_dir"]

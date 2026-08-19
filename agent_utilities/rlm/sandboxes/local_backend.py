@@ -35,7 +35,14 @@ import threading
 import traceback
 from typing import IO, Any
 
-from .base import Sandbox, SandboxCapabilities, SandboxEnv, SandboxResult
+from ..telemetry import SandboxFatalError
+from .base import (
+    Sandbox,
+    SandboxCapabilities,
+    SandboxEnv,
+    SandboxResult,
+    enforce_sandbox_admission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +122,11 @@ class LocalSandbox(Sandbox):
         local-only globals). In-sandbox exceptions are captured into ``error`` rather than
         raised — the model reads them and retries.
         """
+        if env.admission is not None:
+            enforce_sandbox_admission(env, payload=code)
+            raise SandboxFatalError(
+                "local sandbox cannot satisfy a governed isolation/resource admission"
+            )
         # Names that are injected scaffolding, not user state to sync back.
         skip = {"__builtins__", "__async_exec__"} | set(env.helpers)
 
