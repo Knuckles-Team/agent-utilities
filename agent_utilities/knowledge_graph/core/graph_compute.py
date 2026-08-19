@@ -322,6 +322,70 @@ _CLIENT_NAMESPACES: tuple[str, ...] = (
 )
 
 
+def _encode_batch_operations(operations: list[dict[str, Any]]) -> bytes:
+    """Encode one ``BatchUpdate`` payload with binary wire fields intact.
+
+    The generated epistemic-graph client historically converted the encoded
+    payload to ``list[int]`` before passing it to ``_send``.  That changes a
+    MessagePack ``bin`` field into an array and makes the engine's bounded
+    allocation scanner charge one item per byte.  Keep this encoder at the AU
+    routed-client boundary so every graph operation uses the canonical binary
+    representation without changing the engine's byte/item/depth limits.
+    """
+    import msgpack
+
+    # Keep the operation-value codec identical to the generated client.  The
+    # surrounding RPC serializer owns the ``bin`` tag for this whole payload;
+    # changing property-value handling here would be an unrelated wire change.
+    return msgpack.packb(operations)
+
+
+def _encode_multi_graph_batches(
+    batches: dict[str, list[dict[str, Any]]],
+) -> bytes:
+    """Encode ``MultiGraphBatchUpdate`` with binary outer and inner payloads."""
+    import msgpack
+
+    encoded = [
+        (str(graph), _encode_batch_operations(list(operations)))
+        for graph, operations in batches.items()
+    ]
+    return msgpack.packb(encoded, use_bin_type=True)
+
+
+class _CanonicalLifecycleClient:
+    """Route lifecycle calls while owning the canonical batch wire encoding.
+
+    ``LifecycleClient`` is supplied by the optional native engine package.  Its
+    non-batch methods remain the generated implementation; the two batch
+    methods are deliberately owned here because AU's routed view is the one
+    client surface used by GraphComputeEngine.  No validation, chunking, or
+    mutation is performed in this adapter: the engine remains the sole
+    authority for all existing limits and atomicity guarantees.
+    """
+
+    def __init__(self, client: Any, delegate: Any) -> None:
+        self._client = client
+        self._delegate = delegate
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._delegate, name)
+
+    async def batch_update(self, operations: list[dict[str, Any]]) -> Any:
+        return await self._client._send(
+            "BatchUpdate",
+            {"operations_msgpack": _encode_batch_operations(operations)},
+        )
+
+    async def multi_graph_batch_update(
+        self, batches: dict[str, list[dict[str, Any]]]
+    ) -> dict[str, Any]:
+        return await self._client._send(
+            "MultiGraphBatchUpdate",
+            {"batches_msgpack": _encode_multi_graph_batches(batches)},
+        )
+
+
 def _traced_rpc(func: Any) -> Any:
     """Wrap :meth:`_SessionRoutedAsyncClient._send` with one OTel span per engine RPC.
 
@@ -407,7 +471,12 @@ class _SessionRoutedAsyncClient:
         self._server_ops: set[str] | None = None
         for name in _CLIENT_NAMESPACES:
             namespace = getattr(base, name)
-            setattr(self, name, type(namespace)(self))
+            routed_namespace = type(namespace)(self)
+            if name == "lifecycle":
+                routed_namespace = _CanonicalLifecycleClient(
+                    self, routed_namespace
+                )
+            setattr(self, name, routed_namespace)
 
     @staticmethod
     def _route_bound_params(
