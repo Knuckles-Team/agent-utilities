@@ -40,7 +40,8 @@ accounting reads those same nodes back, so the ledger is durable and shared
 across processes. Queue-approval reuses the existing fleet approvals flow:
 it files an ``ActionApproval`` node that ``GET /api/fleet/approvals`` lists
 and ``POST /api/fleet/approvals/grant`` resolves; the fleet reconciler tick
-executes granted entries (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
+executes granted entries through the durable action-outbox fence
+(CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
 """
 
 import fnmatch
@@ -805,7 +806,9 @@ class ActionPolicy:
         ``POST /api/fleet/approvals/grant`` (job_id = this node id); executed
         by the fleet reconciler's approved-action drain (CONCEPT:AU-OS.config.desired-state-fleet-reconciler).
         Deliberately not a WorkItem: the immutable approval request cannot be
-        claimed or executed before a separate authorized WorkItem exists.
+        claimed or executed before a separate authorized action-outbox intent
+        exists. The approval id becomes the replay identity for the granted
+        action; completion is closed by that same durable boundary.
         """
         if self.engine is None:
             return None

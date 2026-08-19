@@ -1,12 +1,13 @@
 #!/usr/bin/python
 from __future__ import annotations
 
-"""Reactive replica autoscaler — load signals → bounds → gated scale actions.
+"""Reactive replica autoscaler — signals → bounded, durable scale intents.
 
 CONCEPT:AU-OS.scaling.reactive-replica-autoscaling — Reactive replica autoscaling: a leader-only tick reads
 pluggable load signals, applies registry-declared min/max replica bounds via
-target tracking, and converges through the ActionPolicy gate, the actuator
-seam and the deploy-watch safety net.
+target tracking, and persists a revisioned ``ScaleIntent`` through the
+ActionPolicy gate. Native replica actuation belongs exclusively to the fleet
+reconciler; external HPA/KEDA modes are report-only.
 
 The last autonomy-gap item: the registry's replica counts were static — the
 platform could *converge* on a declared number (OS-5.25) but never *choose*
@@ -16,8 +17,8 @@ entirely from the existing autonomy primitives:
 * **bounds** — each service's optional registry/override ``scaling:`` block
   (:class:`~agent_utilities.orchestration.fleet_reconciler.ScalingSpec`):
   {min, max, signal, target, scale_up_step, scale_down_step, cooldown_s,
-  deadband, scale_up_stabilization_samples, scale_down_stabilization_samples}.
-  No block ⇒ never autoscaled.
+  deadband, scale_up_stabilization_samples, scale_down_stabilization_samples,
+  controller_mode}. No block ⇒ never autoscaled.
 * **signal** — a pluggable
   :class:`~agent_utilities.orchestration.scaling_signals.ScalingSignalProvider`
   (zero-infra local gauges by default, Prometheus via
@@ -32,19 +33,20 @@ entirely from the existing autonomy primitives:
   normalized to per-replica (``value / max(current, 1)``); the result is
   clamped to [min, max] and step-capped (at most ``scale_up_step`` added /
   ``scale_down_step`` removed per evaluation).
-* **cooldown + flap guard** — no scale action (either direction) within
-  ``cooldown_s`` of the service's last allowed/executed ``scale_service``
-  entry in the durable ActionDecision/ActionExecution ledger — which also
-  guarantees no opposite-direction flapping inside the window.
+* **cooldown + flap guard** — no real scale action (either direction) within
+  ``cooldown_s`` of the latest successful ``ActionExecution`` with
+  ``state=executed``; proposals, simulations, failures, and policy decisions
+  never consume the real-scale cooldown.
 * **deadband + stabilization** — values inside the declared relative deadband
   hold steady; fresh consecutive samples stabilize direction, with one sample
   for scale-up by default and three for scale-down. No-data and direction
   changes reset the streak.
-* **gate → actuate → watch** — proposals go through ActionPolicy
-  (CONCEPT:AU-OS.deployment.fleet-lifecycle-control; ``scale_service`` is approval_required under the shipped
-  default policy) and the FleetActuator seam; successful scale-UPs schedule
-  an OS-5.27 deploy watch (scale-downs too when the policy file sets
-  ``options: {watch_scale_down: true}``).
+* **gate → intent → reconcile** — native proposals go through ActionPolicy
+  (CONCEPT:AU-OS.deployment.fleet-lifecycle-control; ``scale_service`` is
+  approval_required under the shipped default policy) and an atomic durable
+  intent CAS. The fleet reconciler alone consumes accepted intents and calls
+  the FleetActuator; the autoscaler never writes observed replicas. External
+  HPA/KEDA modes stop at observation/reporting.
 * **audit** — at most one compact ``AutoscaleEvaluation`` node per tick (the
   per-action audit already lives in the ActionDecision/ActionExecution
   ledger), keeping KG noise low.
@@ -68,7 +70,6 @@ from agent_utilities.orchestration.action_policy import (
     get_action_policy,
 )
 from agent_utilities.orchestration.fleet_actuation import (
-    execute_action,
     get_fleet_actuator,
 )
 from agent_utilities.orchestration.fleet_health import (
@@ -82,8 +83,22 @@ from agent_utilities.orchestration.fleet_observation import (
     get_fleet_observer,
 )
 from agent_utilities.orchestration.fleet_reconciler import (
+    EngineScaleIntentStore,
+    SCALE_CONTROLLER_EXTERNAL_HPA,
+    SCALE_CONTROLLER_EXTERNAL_KEDA,
+    SCALE_CONTROLLER_NATIVE,
+    ScaleIntentStore,
     ScalingSpec,
+    _cas_succeeded,
+    _intent_metadata_valid,
+    _SCALE_INTENT_ACCEPTED,
+    _SCALE_INTENT_EXECUTED,
+    _SCALE_INTENT_OBSERVED,
+    _SCALE_INTENT_PROPOSED,
+    _SCALE_INTENT_RECOVERY_PENDING,
+    _SCALE_INTENT_SIMULATED,
     load_desired_state,
+    scale_intent_key,
 )
 from agent_utilities.orchestration.scaling_signals import (
     ScalingSignalSample,
@@ -96,10 +111,11 @@ from agent_utilities.orchestration.scaling_signals import (
 
 logger = logging.getLogger(__name__)
 
-# How many ledger rows the cooldown probe scans per service.
+# How many ledger rows the cooldown probe scans per service. The query orders
+# before applying this bound so the newest real execution cannot be evicted by
+# an arbitrary storage order.
 _LEDGER_SCAN_LIMIT = 200
-
-_ALLOWING = {"allow", "allow_notify"}
+_CLOCK_SKEW_FUTURE_TOLERANCE_S = 300.0
 _SAMPLE_UNSET = object()
 
 
@@ -148,7 +164,7 @@ class ServiceEvaluation:
     """One service's autoscale verdict inside a tick (compact audit row)."""
 
     service: str
-    outcome: str  # scaled | proposed | skipped
+    outcome: str  # intent_accepted | intent_proposed | reported | skipped
     reason: str = ""
     current: int | None = None
     desired: int | None = None
@@ -168,7 +184,7 @@ class ServiceEvaluation:
 
 
 class FleetAutoscaler:
-    """One autoscale pass: signal → target tracking → policy gate → actuate."""
+    """One autoscale pass: signal → target tracking → policy → durable intent."""
 
     def __init__(
         self,
@@ -180,6 +196,8 @@ class FleetAutoscaler:
         max_actions: int | None = None,
         health_provider: Callable[[], FleetHealthEvidence | FleetHealthSnapshot]
         | None = None,
+        intent_store: ScaleIntentStore | None = None,
+        clock: Any = None,
     ):
         self.engine = engine
         self.observer = observer or get_fleet_observer(engine)
@@ -191,6 +209,8 @@ class FleetAutoscaler:
         )
         self._last_signal_observed: dict[tuple[str, str], float] = {}
         self._stabilization: dict[tuple[str, str], tuple[str, int]] = {}
+        self.intent_store = intent_store or EngineScaleIntentStore(engine)
+        self._clock = clock or time.time
         if max_actions is None:
             try:
                 from agent_utilities.core.config import config as _cfg
@@ -264,60 +284,64 @@ class FleetAutoscaler:
     # ── cooldown (durable, shared across processes) ─────────────────
 
     def _last_scale_unix(self, service: str) -> float | None:
-        """Latest allowed/executed ``scale_service`` timestamp for ``service``.
+        """Return the latest successful *real* scale execution timestamp.
 
-        Reads BOTH ledgers: ActionDecision (covers allow/allow_notify gates,
-        including dry-run actuation) and ActionExecution (covers
-        approval-granted actions drained later by the reconciler, whose
-        decision row predates the actual scale). 0.0 = never scaled;
-        ``None`` = cooldown state UNKNOWN (a ledger scan failed — D-DST-6:
-        the caller must fail closed on ``None``, never treat it as "clear").
+        Cooldown is deliberately derived only from ``ActionExecution`` rows
+        with ``ok=true``, ``dry_run=false``, and ``state=executed``. Policy
+        decisions, intents, simulations, and failed actuations do not consume
+        a real-scale cooldown. The query orders before applying the bounded
+        scan, and the Python max makes the result deterministic even when a
+        test/backend returns rows out of order. ``None`` means the safety read
+        is unknown.
         """
         if self.engine is None:
             return 0.0
-        # D-DST-6: track whether EACH ledger scan actually completed, not just
-        # accumulate `latest`. This cooldown/flap-guard is a safety check — the
-        # same "guardrail crash reads as clean pass" shape as ActionPolicy's
-        # rate/blast-radius reads. Silently treating a failed scan as "no prior
-        # scale found" (the old behavior) reports "never scaled" during exactly
-        # the KG-outage window when the underlying actuator (docker/k8s) is
-        # still fully capable of firing repeated, unthrottled scale actions.
-        # `_evaluate_service` below now fails CLOSED (skips) when either scan
-        # didn't complete, instead of assuming the cooldown is clear.
-        latest = 0.0
-        decision_ok = execution_ok = False
-        try:
-            rows = self.engine.query_cypher(
-                "MATCH (d:ActionDecision {kind: $kind, target: $target}) "
-                "RETURN d.id AS id, d.decision AS decision, d.params_json AS params_json, "
-                f"d.decided_unix AS ts LIMIT {_LEDGER_SCAN_LIMIT}",
-                {"kind": "scale_service", "target": service},
-            )
-            decision_ok = True
-            for row in rows or []:
-                if not isinstance(row, dict):
-                    continue
-                if row.get("decision") in _ALLOWING:
-                    latest = max(latest, float(row.get("ts") or 0))
-        except Exception as e:  # noqa: BLE001 — decision-ledger read failed; caller fails closed below if the execution ledger doesn't cover it either
-            logger.warning("fleet_autoscaler: decision ledger scan failed: %s", e)
+        now = float(self._clock())
         try:
             rows = self.engine.query_cypher(
                 "MATCH (x:ActionExecution {kind: $kind, target: $target}) "
-                "RETURN x.id AS id, x.ok AS ok, x.executed_unix AS ts "
-                f"LIMIT {_LEDGER_SCAN_LIMIT}",
+                "WHERE x.ok = true AND x.dry_run = false "
+                "AND x.state = 'executed' "
+                "RETURN x.id AS id, x.ok AS ok, x.dry_run AS dry_run, "
+                "x.state AS state, x.executed_unix AS ts "
+                f"ORDER BY x.executed_unix DESC LIMIT {_LEDGER_SCAN_LIMIT}",
                 {"kind": "scale_service", "target": service},
             )
-            execution_ok = True
-            for row in rows or []:
-                if not isinstance(row, dict):
-                    continue
-                if row.get("ok"):
-                    latest = max(latest, float(row.get("ts") or 0))
-        except Exception as e:  # noqa: BLE001 — cooldown state is UNKNOWN when this read fails; treating it as "never scaled" would defeat the flap guard exactly when the KG backend is degraded
+        except Exception as e:  # noqa: BLE001 — cooldown state is UNKNOWN when the execution ledger cannot be read
             logger.warning("fleet_autoscaler: execution ledger scan failed: %s", e)
-        if not (decision_ok and execution_ok):
             return None
+        latest = 0.0
+        for row in rows or []:
+            if not isinstance(row, dict):
+                return None
+            # Missing execution metadata is not evidence that a row was real;
+            # fail closed rather than allowing a legacy/synthetic row to
+            # bypass cooldown.
+            if (
+                "ok" not in row
+                or "dry_run" not in row
+                or "state" not in row
+                or "ts" not in row
+            ):
+                return None
+            if (
+                not bool(row["ok"])
+                or bool(row["dry_run"])
+                or row["state"] != _SCALE_INTENT_EXECUTED
+            ):
+                continue
+            try:
+                timestamp = float(row["ts"])
+            except (TypeError, ValueError):
+                return None
+            if not math.isfinite(timestamp) or timestamp < 0:
+                return None
+            # A modest future timestamp is a bounded wall-clock skew: clamp
+            # it to the read time so it cannot create a negative cooldown.
+            # A larger skew is unknown and therefore fail-closed.
+            if timestamp > now + _CLOCK_SKEW_FUTURE_TOLERANCE_S:
+                return None
+            latest = max(latest, min(timestamp, now))
         return latest
 
     # ── one service ─────────────────────────────────────────────────
@@ -330,6 +354,7 @@ class FleetAutoscaler:
         *,
         sample: ScalingSignalSample | None | object = _SAMPLE_UNSET,
         definition: SignalDefinition | None | object = _SAMPLE_UNSET,
+        operator_override: bool = False,
     ) -> ServiceEvaluation:
         key = (name, spec.signal)
         if observation is None or observation.replicas is None:
@@ -378,6 +403,27 @@ class FleetAutoscaler:
         desired = compute_desired_replicas(
             current, value, spec, aggregation=sample.aggregation
         )
+        if spec.controller_mode in {
+            SCALE_CONTROLLER_EXTERNAL_HPA,
+            SCALE_CONTROLLER_EXTERNAL_KEDA,
+        }:
+            return ServiceEvaluation(
+                name,
+                "reported",
+                f"replica authority delegated to {spec.controller_mode}",
+                current=current,
+                desired=desired,
+                value=value,
+            )
+        if operator_override:
+            return ServiceEvaluation(
+                name,
+                "skipped",
+                "operator replica override is authoritative",
+                current=current,
+                desired=desired,
+                value=value,
+            )
         per_replica = _per_replica_value(current, value, sample.aggregation)
         if current > 0 and (
             abs(per_replica - spec.target) <= spec.target * spec.deadband
@@ -391,6 +437,57 @@ class FleetAutoscaler:
                 desired=current,
                 value=value,
             )
+        intent_complete, latest_intent = self.intent_store.latest(name)
+        if not intent_complete:
+            return ServiceEvaluation(
+                name,
+                "skipped",
+                "native scale-intent read unavailable — failing closed",
+                current=current,
+                desired=desired,
+                value=value,
+            )
+        expected_revision = 0
+        if latest_intent is not None:
+            if not _intent_metadata_valid(latest_intent):
+                return ServiceEvaluation(
+                    name,
+                    "skipped",
+                    "native scale intent malformed — failing closed",
+                    current=current,
+                    desired=desired,
+                    value=value,
+                )
+            expected_revision = int(latest_intent["revision"])
+            status = str(latest_intent.get("status") or "")
+            if status in {
+                _SCALE_INTENT_PROPOSED,
+                _SCALE_INTENT_ACCEPTED,
+                _SCALE_INTENT_EXECUTED,
+                _SCALE_INTENT_OBSERVED,
+                _SCALE_INTENT_RECOVERY_PENDING,
+            }:
+                return ServiceEvaluation(
+                    name,
+                    "skipped",
+                    f"scale intent revision {expected_revision} is awaiting "
+                    "execution or observation",
+                    current=current,
+                    desired=desired,
+                    value=value,
+                )
+            if status == _SCALE_INTENT_SIMULATED and int(
+                latest_intent["desired_replicas"]
+            ) == desired:
+                return ServiceEvaluation(
+                    name,
+                    "skipped",
+                    f"scale intent revision {expected_revision} was simulated; "
+                    "no real cooldown consumed",
+                    current=current,
+                    desired=desired,
+                    value=value,
+                )
         # CONCEPT:AU-OS.scaling.cost-aware-autoscaling — cost-aware scale-up cap. Keep the target-tracking math
         # unchanged; only trim a scale-up that would breach the hourly budget, and
         # carry the cost estimate forward for the audit row + ActionRequest.
@@ -449,7 +546,7 @@ class FleetAutoscaler:
                 desired=desired,
                 value=value,
             )
-        if last_scale and (time.time() - last_scale) < spec.cooldown_s:
+        if last_scale and (self._clock() - last_scale) < spec.cooldown_s:
             return ServiceEvaluation(
                 name,
                 "skipped",
@@ -471,6 +568,11 @@ class FleetAutoscaler:
                 "target": spec.target,
                 # CONCEPT:AU-OS.scaling.cost-aware-autoscaling — cost lens on every scaling action.
                 "est_cost_usd_per_hour": round(cost_per_hour, 4),
+                "scale_intent_id": scale_intent_key(
+                    name, SCALE_CONTROLLER_NATIVE, desired, expected_revision
+                ),
+                "scale_intent_revision": expected_revision + 1,
+                "scale_intent_expected_revision": expected_revision,
             },
             source="autoscaler",
             reason=(
@@ -482,31 +584,62 @@ class FleetAutoscaler:
         decision = self.policy.decide(request)
         evaluation = ServiceEvaluation(
             name,
-            "proposed",
+            "skipped",
             f"decision={decision.decision}",
             current=current,
             desired=desired,
             value=value,
         )
-        if not decision.allowed:
+        if decision.decision not in {"queue_approval", "allow", "allow_notify"}:
             return evaluation
-        execution = execute_action(self.engine, request, self.actuator)
-        evaluation.outcome = "scaled" if execution.get("ok") else "proposed"
-        evaluation.reason = (
-            f"decision={decision.decision} ok={bool(execution.get('ok'))}"
-            f"{' dry_run' if execution.get('dry_run') else ''}"
+        status = (
+            _SCALE_INTENT_ACCEPTED
+            if decision.allowed
+            else _SCALE_INTENT_PROPOSED
         )
-        if execution.get("ok"):
-            # A successful action consumed the streak. The next action in the
-            # same direction must observe its full declared sample count again;
-            # approval-pending/proposed actions intentionally retain state.
+        intent_result = self.intent_store.cas(
+            {
+                "operation": "put",
+                "service": name,
+                "intent_id": request.params["scale_intent_id"],
+                "controller_mode": SCALE_CONTROLLER_NATIVE,
+                "desired_replicas": desired,
+                "observed_replicas": current,
+                "expected_revision": expected_revision,
+                "revision": expected_revision + 1,
+                "status": status,
+                "source": "autoscaler",
+                "decision_id": decision.audit_id or "",
+                "operator_override": False,
+                "created_unix": self._clock(),
+            }
+        )
+        if not _cas_succeeded(intent_result):
+            reason = (
+                intent_result.get("reason")
+                if isinstance(intent_result, dict)
+                else "invalid CAS response"
+            )
+            evaluation.reason = (
+                f"decision={decision.decision}; native intent CAS rejected: "
+                f"{reason or 'revision conflict'}"
+            )
+            return evaluation
+        evaluation.outcome = (
+            "intent_accepted" if status == _SCALE_INTENT_ACCEPTED else "intent_proposed"
+        )
+        evaluation.reason = (
+            f"decision={decision.decision}; intent revision "
+            f"{expected_revision + 1} persisted; reconciler owns actuation"
+        )
+        if status == _SCALE_INTENT_ACCEPTED:
+            # A durably accepted intent consumed the streak: the reconciler
+            # now owns actuation (and, on real success, the deploy watch —
+            # see fleet_reconciler._reconcile_one). The next action in the
+            # same direction must observe its full declared sample count
+            # again; a merely-proposed (approval-pending) intent
+            # intentionally retains state.
             self._reset_stabilization(key)
-        if execution.get("ok") and (
-            direction == "up" or bool(self.policy.option("watch_scale_down", False))
-        ):
-            from agent_utilities.orchestration.deploy_watch import watch_deploy
-
-            watch_deploy(self.engine, name, source="autoscaler")
         return evaluation
 
     # ── one tick ────────────────────────────────────────────────────
@@ -540,6 +673,11 @@ class FleetAutoscaler:
             for name, want in sorted(desired_state.items())
             if want.scaling is not None and want.desired == "running"
         ]
+        operator_overrides = {
+            name: bool(want.operator_override)
+            for name, want in sorted(desired_state.items())
+            if want.scaling is not None and want.desired == "running"
+        }
         requests = [(name, spec.signal) for name, spec in candidates]
         definitions = {
             (name, spec.signal): self._signal_definition(name, spec)
@@ -566,15 +704,27 @@ class FleetAutoscaler:
                 observed.get(name),
                 sample=samples.get(key),
                 definition=definitions.get(key),
+                operator_override=operator_overrides.get(name, False),
             )
             evaluations.append(evaluation)
-            if evaluation.outcome in ("scaled", "proposed"):
+            if evaluation.outcome in (
+                "scaled",
+                "proposed",
+                "intent_accepted",
+                "intent_proposed",
+            ):
                 actions += 1
 
         report = {
             "evaluated": len(evaluations),
             "actions": actions,
             "scaled": sum(1 for e in evaluations if e.outcome == "scaled"),
+            "intents_accepted": sum(
+                1 for e in evaluations if e.outcome == "intent_accepted"
+            ),
+            "intents_proposed": sum(
+                1 for e in evaluations if e.outcome == "intent_proposed"
+            ),
             "evaluations": [e.compact() for e in evaluations],
             "actuator": getattr(self.actuator, "name", "?"),
             "signal_provider": getattr(self.signals, "name", "?"),
