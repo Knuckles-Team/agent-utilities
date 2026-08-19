@@ -237,6 +237,15 @@ def _show(repo_root: Path, sha: str, relpath: str) -> str | None:
         return None
 
 
+def _commit_timestamp(repo_root: Path, sha: str) -> str | None:
+    """Return the source commit's authored observation time when available."""
+    try:
+        value = _run_git(repo_root, "show", "-s", "--format=%cI", sha).strip()
+    except GitMarkdownError:
+        return None
+    return value or None
+
+
 def _privacy_safe_text(text: str) -> str:
     """Redact PII-shaped substrings before markdown body crosses the persistence
     boundary (mirrors ``source_sync._privacy_safe``'s exact rationale).
@@ -474,6 +483,7 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
         self.corpus = corpus or self.source_namespace
         self.doc_type_override = doc_type
         self.last_envelopes: list[ChangeEnvelope] = []
+        self.last_documentation_projections: list[Any] = []
 
     def health_check(self) -> bool:
         try:
@@ -557,6 +567,44 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
 
     # -- document + envelope construction -------------------------------------
 
+    def project_documentation(
+        self,
+        sha: str,
+        relpath: str,
+        *,
+        previous_revision: str | None = None,
+        previous_digest: str | None = None,
+    ) -> Any | None:
+        """Extract the governed metadata projection for one exact Git object.
+
+        The source body is read only to derive a digest and bounded frontmatter/
+        Concept-ID facts.  ``GovernedDocumentationProjection`` never carries
+        that body into its evidence or envelope; ``SourceDocument`` remains the
+        separate, existing body/chunk path for callers that explicitly need it.
+        """
+        text = _show(self.repo_root, sha, relpath)
+        if text is None or not text.strip():
+            return None
+        from agent_utilities.knowledge_graph.ingestion.governed_documentation import (
+            project_markdown,
+        )
+
+        commit_time = _commit_timestamp(self.repo_root, sha)
+        return project_markdown(
+            repository_id=self.source_namespace,
+            source_path=relpath,
+            source_revision=sha,
+            content=text,
+            valid_time=commit_time,
+            recorded_at=commit_time,
+            source_acl=self._access(),
+            connector="git_markdown",
+            source_instance=self.corpus,
+            document_id=self._revision_record_id(relpath),
+            previous_revision=previous_revision,
+            previous_digest=previous_digest,
+        )
+
     def _to_document(self, sha: str, relpath: str) -> SourceDocument | None:
         text = _show(self.repo_root, sha, relpath)
         if text is None or not text.strip():
@@ -583,7 +631,25 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
             updated_at=sha,
         )
 
-    def _upsert_envelope(self, sha: str, relpath: str) -> ChangeEnvelope:
+    def _upsert_envelope(
+        self,
+        sha: str,
+        relpath: str,
+        *,
+        previous_revision: str | None = None,
+        previous_digest: str | None = None,
+    ) -> ChangeEnvelope:
+        projection = self.project_documentation(
+            sha,
+            relpath,
+            previous_revision=previous_revision,
+            previous_digest=previous_digest,
+        )
+        if projection is not None:
+            # Preserve the established ChangeEnvelope identity and ACL while
+            # upgrading the payload to the metadata-only governed projection.
+            self.last_documentation_projections.append(projection)
+            return projection.to_envelope()
         node_id = self._revision_record_id(relpath)
         access = self._access()
         classification = (
@@ -609,7 +675,52 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
             provenance={"git_commit": sha, "corpus": self.corpus, "relpath": relpath},
         )
 
-    def _delete_envelope(self, sha: str, relpath: str) -> ChangeEnvelope:
+    def _delete_envelope(
+        self,
+        sha: str,
+        relpath: str,
+        *,
+        verified: bool = False,
+        previous_sha: str | None = None,
+    ) -> ChangeEnvelope:
+        if verified:
+            from agent_utilities.knowledge_graph.ingestion.governed_documentation import (
+                GovernedDocumentationProjector,
+            )
+
+            prior_digest: str | None = None
+            if previous_sha:
+                prior_text = _show(self.repo_root, previous_sha, relpath)
+                if prior_text is not None:
+                    prior_digest = (
+                        "sha256:"
+                        + hashlib.sha256(prior_text.encode("utf-8")).hexdigest()
+                    )
+            observed_at = _commit_timestamp(self.repo_root, sha)
+            if observed_at is None:
+                from datetime import UTC, datetime
+
+                observed_at = datetime.now(UTC).isoformat(timespec="microseconds").replace(
+                    "+00:00", "Z"
+                )
+            snapshot_digest = "sha256:" + hashlib.sha256(
+                f"{self.source_namespace}\x1f{sha}".encode("utf-8")
+            ).hexdigest()
+            projection = GovernedDocumentationProjector(
+                connector="git_markdown", source_instance=self.corpus
+            ).tombstone(
+                self.source_namespace,
+                relpath,
+                sha,
+                recorded_at=observed_at,
+                document_id=self._revision_record_id(relpath),
+                previous_revision=previous_sha,
+                previous_digest=prior_digest,
+                snapshot_digest=snapshot_digest,
+                reason="removed_from_verified_git_revision",
+            )
+            self.last_documentation_projections.append(projection)
+            return projection.to_envelope()
         node_id = self._revision_record_id(relpath)
         return ChangeEnvelope(
             connector="git_markdown",
@@ -625,6 +736,7 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
     def _full_batch(self, sha: str) -> list[SourceDocument]:
         documents: list[SourceDocument] = []
         envelopes: list[ChangeEnvelope] = []
+        self.last_documentation_projections = []
         for relpath in self._tracked_paths(sha):
             doc = self._to_document(sha, relpath)
             if doc is None:
@@ -662,6 +774,7 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
             )
         if prior_sha == new_sha:
             self.last_envelopes = []
+            self.last_documentation_projections = []
             return CheckpointedBatch(
                 documents=[],
                 checkpoint=ConnectorCheckpoint(has_more=False, watermark=new_sha),
@@ -670,14 +783,23 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
         changes = _diff_name_status(self.repo_root, prior_sha, new_sha, self.subdir)
         documents: list[SourceDocument] = []
         envelopes: list[ChangeEnvelope] = []
+        self.last_documentation_projections = []
         for status, path, old_path in changes:
             if old_path is not None and self._matches(old_path) and old_path != path:
                 # A tracked markdown file moved — tombstone the id it used to be
                 # filed under before (maybe) upserting the new one below.
-                envelopes.append(self._delete_envelope(new_sha, old_path))
+                envelopes.append(
+                    self._delete_envelope(
+                        new_sha, old_path, verified=True, previous_sha=prior_sha
+                    )
+                )
             if status.startswith("D"):
                 if self._matches(path):
-                    envelopes.append(self._delete_envelope(new_sha, path))
+                    envelopes.append(
+                        self._delete_envelope(
+                            new_sha, path, verified=True, previous_sha=prior_sha
+                        )
+                    )
                 continue
             if not self._matches(path):
                 continue
@@ -685,7 +807,24 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
             if doc is None:
                 continue
             documents.append(doc)
-            envelopes.append(self._upsert_envelope(new_sha, path))
+            previous_digest = None
+            previous_revision = None
+            if status.startswith("M"):
+                previous_text = _show(self.repo_root, prior_sha, path)
+                if previous_text is not None:
+                    previous_revision = prior_sha
+                    previous_digest = (
+                        "sha256:"
+                        + hashlib.sha256(previous_text.encode("utf-8")).hexdigest()
+                    )
+            envelopes.append(
+                self._upsert_envelope(
+                    new_sha,
+                    path,
+                    previous_revision=previous_revision,
+                    previous_digest=previous_digest,
+                )
+            )
 
         self.last_envelopes = envelopes
         return CheckpointedBatch(

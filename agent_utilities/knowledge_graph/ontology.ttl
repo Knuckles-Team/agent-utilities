@@ -54,6 +54,7 @@ docs/architecture/ontology_library.md for the full module catalog and roles.""" 
         <http://knuckles.team/kg/datascience>,
         <http://knuckles.team/kg/dockerhub>,
         <http://knuckles.team/kg/documentdb>,
+        <http://knuckles.team/kg/documentation>,
         <http://knuckles.team/kg/egeria>,
         <http://knuckles.team/kg/emerald>,
         <http://knuckles.team/kg/energy_geopolitics>,
@@ -1174,4 +1175,3 @@ bfo:0000001 a owl:Class ;
 
 [] a owl:AllDisjointClasses ;
     owl:members ( :Person :Organization :Server :Incident :Event ) .
-

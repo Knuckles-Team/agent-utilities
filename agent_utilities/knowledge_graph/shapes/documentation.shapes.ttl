@@ -1,0 +1,111 @@
+@prefix : <http://knuckles.team/kg#> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+# The graph is a reason/query projection; Markdown remains the source of truth.
+# These shapes are loaded by the governed documentation validation fixture and
+# can be registered with the engine's canonical SHACL gate.
+
+:DocumentationPageShape a sh:NodeShape ;
+    sh:targetClass :DocumentationPage ;
+    sh:property [
+        sh:path :repositoryId ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:message "DocumentationPage must carry an opaque repository identifier." ;
+    ] ;
+    sh:property [
+        sh:path :sourcePath ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:pattern "^[^/][^\\\\]*$" ;
+        sh:message "DocumentationPage sourcePath must be repository-relative POSIX text." ;
+    ] ;
+    sh:property [
+        sh:path :sourceRevision ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:pattern "^[0-9a-f]{40}([0-9a-f]{24})?$" ;
+        sh:message "DocumentationPage must carry the exact lowercase source revision." ;
+    ] ;
+    sh:property [
+        sh:path :contentDigest ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+        sh:pattern "^sha256:[0-9a-f]{64}$" ;
+        sh:message "DocumentationPage must carry a verifiable content digest." ;
+    ] ;
+    sh:property [
+        sh:path :lifecycleState ;
+        sh:datatype xsd:string ;
+        sh:in ( "current" "deprecated" "superseded" "archived" "tombstoned" ) ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path :current ;
+        sh:datatype xsd:boolean ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path :validFrom ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path :recordedAt ;
+        sh:datatype xsd:dateTime ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path :sourceRef ;
+        sh:datatype xsd:string ;
+        sh:minCount 1 ;
+        sh:maxCount 1 ;
+    ] ;
+    sh:property [
+        sh:path :aclVerified ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+    ] ;
+    sh:property [
+        sh:path :aclBeforeRetrieval ;
+        sh:datatype xsd:boolean ;
+        sh:hasValue true ;
+        sh:minCount 1 ;
+    ] ;
+    sh:sparql [
+        sh:message "A superseded, archived, or tombstoned page cannot remain current." ;
+        sh:select """
+            SELECT $this WHERE {
+                $this <http://knuckles.team/kg#lifecycleState> ?state ;
+                      <http://knuckles.team/kg#current> true .
+                FILTER (?state IN ("superseded", "archived", "tombstoned"))
+            }
+        """
+    ] .
+
+:DocumentationRevisionShape a sh:NodeShape ;
+    sh:targetClass :DocumentationRevision ;
+    sh:property [ sh:path :sourceRevision ; sh:datatype xsd:string ; sh:minCount 1 ] ;
+    sh:property [ sh:path :contentDigest ; sh:datatype xsd:string ; sh:pattern "^sha256:[0-9a-f]{64}$" ; sh:minCount 1 ] ;
+    sh:property [ sh:path :current ; sh:datatype xsd:boolean ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path :validFrom ; sh:datatype xsd:dateTime ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path :recordedAt ; sh:datatype xsd:dateTime ; sh:minCount 1 ; sh:maxCount 1 ] .
+
+:DocumentationEvidenceShape a sh:NodeShape ;
+    sh:targetClass :DocumentationEvidence ;
+    sh:property [ sh:path :evidenceId ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path :revisionId ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path :sourceRef ; sh:datatype xsd:string ; sh:minCount 1 ; sh:maxCount 1 ] ;
+    sh:property [ sh:path :contentDigest ; sh:datatype xsd:string ; sh:pattern "^sha256:[0-9a-f]{64}$" ; sh:minCount 1 ] ;
+    sh:not [ sh:property [ sh:path :text ] ] ;
+    sh:not [ sh:property [ sh:path :content ] ] .

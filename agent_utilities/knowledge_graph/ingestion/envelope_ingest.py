@@ -1084,6 +1084,13 @@ def _prepare_node_rows(
             if external_id and external_id not in live_ids:
                 updated = dict(properties)
                 updated["archived"] = True
+                updated["current"] = False
+                updated["deprecated"] = True
+                updated["lifecycle_state"] = "archived"
+                # Retrieval's legacy default gate keys on ``status``.  Keep
+                # the explicit lifecycle fields above while making a verified
+                # snapshot omission impossible to rank as current.
+                updated["status"] = "archived"
                 updated["archivedReason"] = f"absent-from-{envelope.connector}"
                 _stamp_ambient_valid_until(updated, envelope)
                 stale.append((existing_id, updated))
@@ -1108,10 +1115,21 @@ def _prepare_node_rows(
 
     if envelope.operation == "delete":
         current = _node_properties(client, node_id)
+        provenance_evidence = envelope.provenance.get("evidence")
+        if isinstance(provenance_evidence, list):
+            evidence = [
+                item for item in provenance_evidence if isinstance(item, dict)
+            ]
         current.update(
             {
                 "id": node_id,
                 "archived": True,
+                "current": False,
+                "deprecated": True,
+                "lifecycle_state": "tombstoned",
+                # Retrieval's default query excludes archived rows; callers
+                # must opt into temporal/history state to see this tombstone.
+                "status": "archived",
                 "archivedReason": f"tombstoned-by-{envelope.connector}",
             }
         )

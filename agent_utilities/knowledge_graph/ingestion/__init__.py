@@ -18,6 +18,20 @@ from .evidence_spine import (
     fragment_id_for,
     resolve_fragment,
 )
+from .governed_documentation import (
+    DOCUMENTATION_MAPPING_VERSION,
+    DOCUMENTATION_SCHEMA_VERSION,
+    DocumentationEvidence,
+    DocumentationLifecycle,
+    DocumentationProjectionBatch,
+    DocumentationProjectionError,
+    DocumentationSource,
+    GovernedDocumentationProjection,
+    GovernedDocumentationProjector,
+    extract_documentation,
+    project_markdown,
+    rebuild_documentation,
+)
 
 __all__ = [
     "ContentType",
@@ -34,4 +48,16 @@ __all__ = [
     "content_digest",
     "fragment_id_for",
     "resolve_fragment",
+    "DOCUMENTATION_MAPPING_VERSION",
+    "DOCUMENTATION_SCHEMA_VERSION",
+    "DocumentationEvidence",
+    "DocumentationLifecycle",
+    "DocumentationProjectionBatch",
+    "DocumentationProjectionError",
+    "DocumentationSource",
+    "GovernedDocumentationProjection",
+    "GovernedDocumentationProjector",
+    "extract_documentation",
+    "project_markdown",
+    "rebuild_documentation",
 ]

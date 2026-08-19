@@ -15,6 +15,32 @@ from .baseline_overfit_gate import (
 )
 from .contract_validator import ContractValidator, ToolContract
 from .decentralized_memory import Contribution, DecentralizedMemory, MemoryPool
+from .documentation_benchmark import (
+    DEFAULT_DOCUMENTATION_CORPUS,
+    BenchmarkBounds,
+    BenchmarkBoundExceeded,
+    CacheMode,
+    DocumentationAdapter,
+    DocumentationBenchmarkError,
+    DocumentationBenchmarkEvidence,
+    DocumentationBenchmarkRunner,
+    DocumentationCorpus,
+    DocumentationPath,
+    DocumentationQuestion,
+    MetricSet,
+    MetricStats,
+    PathAnswer,
+    PathComparison,
+    PathObservation,
+    PathRevision,
+    PathSummary,
+    ProjectType,
+    RegressionThresholds,
+    RepeatIdentity,
+    RequestRecorder,
+    TokenUsage,
+    compare_documentation_paths,
+)
 from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
 from .edit_engine import (
     Edit,
@@ -206,4 +232,29 @@ __all__ = [
     # Reproducible adaptation-speed benchmark (CONCEPT:AU-OS.scaling.safe-2)
     "AdaptationBenchmark",
     "BenchmarkEntry",
+    # Agent documentation benchmark (NE-145; CONCEPT:AU-AHE.evaluation.capability-benchmark-regression-ratchet)
+    "BenchmarkBounds",
+    "BenchmarkBoundExceeded",
+    "CacheMode",
+    "DocumentationAdapter",
+    "DocumentationBenchmarkError",
+    "DocumentationBenchmarkEvidence",
+    "DocumentationBenchmarkRunner",
+    "DocumentationCorpus",
+    "DocumentationPath",
+    "DocumentationQuestion",
+    "MetricSet",
+    "MetricStats",
+    "PathAnswer",
+    "PathComparison",
+    "PathObservation",
+    "PathRevision",
+    "PathSummary",
+    "ProjectType",
+    "RegressionThresholds",
+    "RepeatIdentity",
+    "RequestRecorder",
+    "TokenUsage",
+    "DEFAULT_DOCUMENTATION_CORPUS",
+    "compare_documentation_paths",
 ]
