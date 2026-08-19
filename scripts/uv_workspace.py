@@ -829,7 +829,7 @@ def has_own_tracked_lock(worktree: Path) -> bool:
     config flag a repo owner has to remember to set.
     """
     lock = worktree / "uv.lock"
-    if not lock.is_file():
+    if not lock.is_file() or lock.is_symlink():
         return False
     try:
         result = subprocess.run(
@@ -1257,6 +1257,41 @@ def materialize_own_siblings(worktree: Path, workspace: Path) -> None:
         _safe_symlink(worktree / _OWN_SIBLINGS_DIRNAME / name, target)
 
 
+def _materialized_sibling_lock_paths(worktree: Path) -> tuple[Path, ...]:
+    """Return the lock paths behind every declared own-lock sibling.
+
+    A standalone worktree may resolve an editable source through a symlink, but
+    lock generation must never accidentally write through that topology into a
+    sibling checkout.  Validate the links before taking the digest snapshot;
+    a missing, non-symlink, or non-directory target is an ambiguous topology and
+    therefore a refusal rather than an attempted resolution.
+    """
+    paths: list[Path] = []
+    for name in _own_sibling_member_names(worktree):
+        link = worktree / _OWN_SIBLINGS_DIRNAME / name
+        if not link.is_symlink() or not link.exists():
+            raise RuntimeError(
+                "refusing lock resolution with an unmaterialized sibling: "
+                f"{link}"
+            )
+        target = link.resolve()
+        if not target.is_dir():
+            raise RuntimeError(
+                "refusing lock resolution with a non-directory sibling target: "
+                f"{target}"
+            )
+        lock = target / "uv.lock"
+        if lock.exists() and not lock.is_file():
+            raise RuntimeError(
+                "refusing lock resolution with a non-file sibling lock: "
+                f"{lock}"
+            )
+        # Include absent locks too: a resolution that creates one in a sibling
+        # is just as much an unauthorized mutation as changing an existing one.
+        paths.append(lock)
+    return tuple(paths)
+
+
 def split_selection(tail: Sequence[str]) -> tuple[list[str], bool, int]:
     """Return the dependency-selecting flags leading *tail*, and whether the whole
     leading flag run was recognised, and the index at which the command begins.
@@ -1426,6 +1461,7 @@ class UvPlan(NamedTuple):
     selection_recognized: bool
     command_name: str | None
     execute_is_heavy_sync: bool = False
+    allow_worktree_lock_update: bool = False
 
 
 def uv_plan(
@@ -1458,7 +1494,14 @@ def uv_plan(
     if not arguments:
         raise RuntimeError("an uv subcommand is required")
     subcommand = arguments[0]
+    requested_locked = "--locked" in arguments[1:]
     tail = [argument for argument in arguments[1:] if argument != "--locked"]
+    lock_check = subcommand == "lock" and "--check" in tail
+    if subcommand == "lock" and not own_lock and not lock_check:
+        raise RuntimeError(
+            "refusing to resolve a lock without an own tracked uv.lock; "
+            "use `lock --check` for read-only shadow verification"
+        )
 
     selection: list[str] = []
     recognized = True
@@ -1473,6 +1516,7 @@ def uv_plan(
     # ``--prerelease`` is a per-subcommand option, not a global ``uv`` flag, so
     # it has to land after the subcommand token in every command built below.
     prerelease = ["--prerelease", "allow"] if own_lock else []
+    allow_worktree_lock_update = False
     if subcommand == "run":
         if recognized:
             # Synchronise explicitly, then exec without syncing, so this
@@ -1515,7 +1559,18 @@ def uv_plan(
             *tail,
         ]
     elif subcommand == "lock":
-        command = [*base, "lock", "--locked", *prerelease, *tail]
+        # A plain `lock` is the one explicit mutation this launcher permits:
+        # uv resolves against the target worktree's manifest and sibling paths.
+        # `--check` and an explicit `--locked` remain verification-only.
+        lock_verification = lock_check or requested_locked
+        allow_worktree_lock_update = own_lock and not lock_verification
+        command = [
+            *base,
+            "lock",
+            *(["--locked"] if lock_verification else []),
+            *prerelease,
+            *tail,
+        ]
     else:
         command = [*base, *arguments]
 
@@ -1560,6 +1615,7 @@ def uv_plan(
         selection_recognized=recognized,
         command_name=command_name,
         execute_is_heavy_sync=execute_is_heavy_sync,
+        allow_worktree_lock_update=allow_worktree_lock_update,
     )
 
 
@@ -1626,6 +1682,8 @@ def doctor_payload(
         return {
             "status": "ok",
             "resolution_mode": "own_tracked_lock",
+            "lock_resolution": "isolated_worktree_only",
+            "canonical_lock_mutation": False,
             "external_worktree": worktree != canonical,
             "worktree": str(worktree),
             "canonical_repository": str(canonical),
@@ -1646,6 +1704,8 @@ def doctor_payload(
     return {
         "status": "ok",
         "resolution_mode": "ecosystem_shadow",
+        "lock_resolution": "read_only_shadow",
+        "canonical_lock_mutation": False,
         "external_worktree": worktree != canonical,
         "worktree": str(worktree),
         "canonical_repository": str(canonical),
@@ -1665,6 +1725,15 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _optional_digest(path: Path) -> str | None:
+    """Digest a guarded path, retaining a stable marker for an absent file."""
+    if not path.exists():
+        return None
+    if not path.is_file():
+        raise RuntimeError(f"cannot guard a non-file path: {path}")
+    return _digest(path)
+
+
 def run_uv(
     command: list[str],
     *,
@@ -1676,6 +1745,8 @@ def run_uv(
     environment_path: Path | None = None,
     command_name: str | None = None,
     execute_is_heavy_sync: bool = False,
+    guard_paths: Sequence[Path] = (),
+    mutable_paths: Sequence[Path] = (),
 ) -> int:
     """Execute uv and prove neither authoritative nor generated inputs changed.
 
@@ -1706,16 +1777,47 @@ def run_uv(
     mutating the environment out from under our still-running child. See that
     function's docstring for exactly what this does and does not guarantee.
     """
-    protected = (
+    candidates = (
         workspace / "pyproject.toml",
         workspace / "uv.lock",
         shadow / "pyproject.toml",
         shadow / "uv.lock",
+        *guard_paths,
     )
-    before = {path: _digest(path) for path in protected}
+    mutable = {Path(path).resolve() for path in mutable_paths}
+    target_lock = worktree / "uv.lock"
+    target_lock_resolved = target_lock.resolve()
+    if mutable and mutable != {target_lock_resolved}:
+        raise RuntimeError(
+            "refusing to allow mutation outside the target worktree lock: "
+            + ", ".join(str(path) for path in sorted(mutable))
+        )
+    if mutable and (target_lock.is_symlink() or not target_lock.is_file()):
+        raise RuntimeError(
+            "refusing to resolve through a non-regular target worktree lock: "
+            f"{target_lock}"
+        )
+    protected: list[Path] = []
+    seen: set[Path] = set()
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved in mutable or resolved in seen:
+            continue
+        seen.add(resolved)
+        protected.append(path)
+    before = {path: _optional_digest(path) for path in protected}
 
     def _assert_unchanged() -> None:
-        changed = [str(path) for path in protected if _digest(path) != before[path]]
+        if mutable and (target_lock.is_symlink() or not target_lock.is_file()):
+            raise RuntimeError(
+                "uv replaced the target worktree lock with a non-regular path: "
+                f"{target_lock}"
+            )
+        changed = [
+            str(path)
+            for path in protected
+            if _optional_digest(path) != before[path]
+        ]
         if changed:
             raise RuntimeError(
                 "uv changed a lock-governed workspace input: " + ", ".join(changed)
@@ -1813,6 +1915,20 @@ def main(argv: list[str] | None = None) -> int:
     canonical = canonical_repository(worktree)
     workspace = workspace_root(canonical)
     own_lock = has_own_tracked_lock(worktree)
+    lock_requested = bool(namespace.uv_arguments) and namespace.uv_arguments[0] == "lock"
+    lock_check = lock_requested and "--check" in namespace.uv_arguments[1:]
+    if lock_requested and not lock_check:
+        if not own_lock:
+            raise RuntimeError(
+                "refusing to resolve a lock without an own tracked uv.lock; "
+                "use `lock --check` for read-only shadow verification"
+            )
+        if worktree == canonical:
+            raise RuntimeError(
+                "refusing to resolve a lock in the canonical checkout; "
+                "use a dedicated repository worktree"
+            )
+    sibling_lock_paths: tuple[Path, ...] = ()
     if own_lock:
         # D-75-1/D-CIP-19/D-W3BP-4: this repo ships its own tracked uv.lock --
         # resolve and validate directly against ITS OWN tree, not the shared
@@ -1820,6 +1936,7 @@ def main(argv: list[str] | None = None) -> int:
         # thing: locating the real sibling checkouts to symlink in (the
         # ecosystem workspace is not otherwise consulted).
         materialize_own_siblings(worktree, workspace)
+        sibling_lock_paths = _materialized_sibling_lock_paths(worktree)
         shadow = worktree
     else:
         shadow = shadow_workspace(worktree, canonical, workspace)
@@ -1858,6 +1975,14 @@ def main(argv: list[str] | None = None) -> int:
         environment_path=plan.environment_path,
         command_name=plan.command_name,
         execute_is_heavy_sync=plan.execute_is_heavy_sync,
+        guard_paths=(
+            canonical / "pyproject.toml",
+            canonical / "uv.lock",
+            *sibling_lock_paths,
+        ),
+        mutable_paths=(worktree / "uv.lock",)
+        if plan.allow_worktree_lock_update
+        else (),
     )
     _describe_environment(plan.environment_path, plan.selection)
     return returncode

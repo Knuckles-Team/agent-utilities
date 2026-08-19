@@ -281,3 +281,34 @@ back to loading it by file path under namespace stand-ins rather than executing
 `agent_utilities/__init__.py` (which pulls `httpx` and friends). A single module
 instance is kept, so there is one guardrail registry, and the degraded mode is
 announced on stderr rather than being silent.
+
+## Resolving an external worktree's own lock
+
+`scripts/uv_workspace.py` keeps lock generation separate from the shared venv
+authority.  For a repository with a tracked `uv.lock`, an explicit `lock`
+resolves against the exact external worktree and its materialized
+`.uv-workspace-siblings/` paths.  It is the only mutating mode: `sync` and
+`run` remain `--locked`, while `lock --check` is read-only and locked.  A plain
+`lock` from the canonical checkout, or from a repository without its own
+tracked lock, is refused rather than mutating a canonical or generated copy.
+
+The launcher snapshots the target manifest, canonical workspace inputs, the
+canonical repository lock, and every sibling lock before invoking uv.  Only
+the target worktree's `uv.lock` may differ afterwards; a missing or ambiguous
+sibling path and any sibling/canonical mutation fail closed.  Existing
+environment activity and dependency-sync locks remain held for the full
+resolution, so a relock cannot race another lane.
+
+```mermaid
+flowchart LR
+    A[external worktree: lock] --> B{own tracked uv.lock?}
+    B -- no --> X[refuse; lock --check only]
+    B -- yes --> C{canonical checkout?}
+    C -- yes --> X
+    C -- no --> D[materialize exact sibling links]
+    D --> E[snapshot canonical + sibling locks]
+    E --> F[uv lock in target worktree]
+    F --> G{only target uv.lock changed?}
+    G -- no --> X
+    G -- yes --> H[return resolved lock]
+```

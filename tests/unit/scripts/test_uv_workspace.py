@@ -254,7 +254,7 @@ def test_uv_execution_cannot_mutate_canonical_manifest_or_lock(
     assert canonical_lock.read_bytes() == original_lock
 
 
-def test_lock_invocation_is_always_locked(
+def test_lock_resolution_is_unlocked_for_an_own_worktree(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -264,9 +264,43 @@ def test_lock_invocation_is_always_locked(
         ["lock"],
         worktree=tmp_path / "worktree",
         shadow=tmp_path / "shadow",
+        own_lock=True,
     ).execute
 
-    assert list(command[-2:]) == ["lock", "--locked"]
+    assert "--locked" not in command
+    assert command[3] == "lock"
+
+
+def test_lock_check_is_read_only_and_locked(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    plan = uv_workspace.uv_plan(
+        ["lock", "--check"],
+        worktree=tmp_path / "worktree",
+        shadow=tmp_path / "shadow",
+        own_lock=True,
+    )
+
+    assert "--locked" in plan.execute
+    assert "--check" in plan.execute
+    assert plan.allow_worktree_lock_update is False
+
+
+def test_lock_mutation_without_an_own_lock_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    with pytest.raises(RuntimeError, match="without an own tracked uv.lock"):
+        uv_workspace.uv_plan(
+            ["lock"],
+            worktree=tmp_path / "worktree",
+            shadow=tmp_path / "shadow",
+        )
 
 
 def test_sync_invocation_is_always_locked(
@@ -282,6 +316,101 @@ def test_sync_invocation_is_always_locked(
     ).execute
 
     assert list(command[-4:]) == ["sync", "--locked", "--package", "agent-utilities"]
+
+
+def test_doctor_own_lock_reports_isolated_lock_authority(
+    tmp_path: Path,
+) -> None:
+    workspace, canonical, worktree = workspace_layout_for_own_lock(tmp_path)
+
+    payload = uv_workspace.doctor_payload(
+        worktree,
+        canonical,
+        workspace,
+        worktree,
+        own_lock=True,
+    )
+
+    assert payload["resolution_mode"] == "own_tracked_lock"
+    assert payload["lock_resolution"] == "isolated_worktree_only"
+    assert payload["canonical_lock_mutation"] is False
+    assert payload["external_worktree"] is True
+
+
+def workspace_layout_for_own_lock(tmp_path: Path) -> tuple[Path, Path, Path]:
+    workspace = tmp_path / "workspace"
+    canonical = workspace / "agent-packages" / "agent-utilities"
+    worktree = tmp_path / "xdg-state" / "repository-worktrees" / "agent-utilities"
+    for project in (canonical, worktree):
+        project.mkdir(parents=True)
+        (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
+        (project / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    (workspace / "pyproject.toml").write_text("[tool.ecosystem]\n", encoding="utf-8")
+    (workspace / "uv.lock").write_text("version = 1\n", encoding="utf-8")
+    return workspace, canonical, worktree
+
+
+def test_lock_resolution_allows_only_target_worktree_lock_to_change(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace, canonical, worktree = workspace_layout_for_own_lock(tmp_path)
+    sibling = workspace / "agent-packages" / "epistemic-graph"
+    sibling.mkdir(parents=True)
+    sibling_lock = sibling / "uv.lock"
+    sibling_lock.write_text("sibling\n", encoding="utf-8")
+    target_lock = worktree / "uv.lock"
+
+    def resolve_target(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        target_lock.write_text("resolved target\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(uv_workspace.subprocess, "run", resolve_target)
+
+    assert (
+        uv_workspace.run_uv(
+            ["/usr/bin/uv", "lock"],
+            worktree=worktree,
+            environment={},
+            workspace=workspace,
+            shadow=worktree,
+            execute_is_heavy_sync=True,
+            guard_paths=(canonical / "uv.lock", sibling_lock),
+            mutable_paths=(target_lock,),
+        )
+        == 0
+    )
+    assert target_lock.read_text(encoding="utf-8") == "resolved target\n"
+    assert sibling_lock.read_text(encoding="utf-8") == "sibling\n"
+
+
+def test_lock_resolution_rejects_sibling_lock_mutation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    workspace, canonical, worktree = workspace_layout_for_own_lock(tmp_path)
+    sibling = workspace / "agent-packages" / "epistemic-graph"
+    sibling.mkdir(parents=True)
+    sibling_lock = sibling / "uv.lock"
+    sibling_lock.write_text("sibling\n", encoding="utf-8")
+
+    def mutate_sibling(*_args: object, **_kwargs: object) -> SimpleNamespace:
+        sibling_lock.write_text("unauthorized\n", encoding="utf-8")
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(uv_workspace.subprocess, "run", mutate_sibling)
+
+    with pytest.raises(RuntimeError, match="changed a lock-governed workspace input"):
+        uv_workspace.run_uv(
+            ["/usr/bin/uv", "lock"],
+            worktree=worktree,
+            environment={},
+            workspace=workspace,
+            shadow=worktree,
+            execute_is_heavy_sync=True,
+            guard_paths=(canonical / "uv.lock", sibling_lock),
+            mutable_paths=(worktree / "uv.lock",),
+        )
 
 
 # ---------------------------------------------------------------------------
