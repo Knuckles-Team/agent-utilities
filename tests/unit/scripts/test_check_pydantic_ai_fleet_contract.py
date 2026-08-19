@@ -53,6 +53,92 @@ def test_fixture_clean_contract_and_generated_editable_path(tmp_path: Path) -> N
     assert result.files_scanned == 2
 
 
+def test_contract_authority_rejects_duplicate_literals(tmp_path: Path) -> None:
+    source = tmp_path / "protocol_compat.py"
+    source.write_text(
+        "_PYDANTIC_AI_CONTRACT_VERSION = '2.29.0'\n"
+        "_PYDANTIC_AI_CONTRACT_VERSION = '2.29.0'\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="multiple _PYDANTIC_AI_CONTRACT_VERSION"):
+        read_contract_version(source)
+
+
+def test_contract_authority_rejects_missing_literal(tmp_path: Path) -> None:
+    source = tmp_path / "protocol_compat.py"
+    source.write_text("CONTRACT_VERSION = '2.29.0'\n", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="has no _PYDANTIC_AI_CONTRACT_VERSION"):
+        read_contract_version(source)
+
+
+def test_fixture_rejects_ambiguous_pydantic_lock_resolution(tmp_path: Path) -> None:
+    contract = _contract(tmp_path)
+    lock = tmp_path / "consumer" / "uv.lock"
+    lock.parent.mkdir()
+    lock.write_text(
+        _lock("2.29.0")
+        + "\n[[package]]\n"
+        + 'name = "pydantic_ai_slim"\n'
+        + 'version = "2.29.0"\n',
+        encoding="utf-8",
+    )
+
+    result = scan_paths([lock], contract_source=contract)
+
+    assert not result.ok
+    assert any(finding.kind == "ambiguous-resolution" for finding in result.findings)
+
+
+def test_fixture_requires_lock_resolution_for_selected_runtime_manifest(
+    tmp_path: Path,
+) -> None:
+    contract = _contract(tmp_path)
+    lock = tmp_path / "consumer" / "uv.lock"
+    lock.parent.mkdir()
+    lock.write_text(
+        "[[package]]\n"
+        'name = "consumer"\n'
+        'version = "1.0.0"\n',
+        encoding="utf-8",
+    )
+    manifest = lock.parent / "pyproject.toml"
+    manifest.write_text(
+        '[project]\ndependencies = ["pydantic-ai-slim[mcp]>=2.29,<3"]\n',
+        encoding="utf-8",
+    )
+
+    result = scan_paths([lock, manifest], contract_source=contract)
+
+    assert not result.ok
+    assert [finding.kind for finding in result.findings] == ["missing-resolution"]
+
+
+def test_fixture_requires_lock_resolution_for_au_runtime_extra(
+    tmp_path: Path,
+) -> None:
+    contract = _contract(tmp_path)
+    lock = tmp_path / "consumer" / "uv.lock"
+    lock.parent.mkdir()
+    lock.write_text(
+        "[[package]]\n"
+        'name = "consumer"\n'
+        'version = "1.0.0"\n',
+        encoding="utf-8",
+    )
+    manifest = lock.parent / "pyproject.toml"
+    manifest.write_text(
+        '[project]\ndependencies = ["agent-utilities[agent-headless]>=2,<3"]\n',
+        encoding="utf-8",
+    )
+
+    result = scan_paths([manifest, lock], contract_source=contract)
+
+    assert not result.ok
+    assert [finding.kind for finding in result.findings] == ["missing-resolution"]
+
+
 def test_fixture_reports_resolved_manifest_and_editable_drift(tmp_path: Path) -> None:
     contract = _contract(tmp_path)
     lock = tmp_path / "consumer" / "uv.lock"

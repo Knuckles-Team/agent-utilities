@@ -5,6 +5,9 @@ The expected version is read from AU's one runtime contract constant rather
 than copied into this gate. Callers pass the lock/manifest paths they own or
 want to audit; directory expansion and printed findings are bounded so a
 workspace-wide check cannot become an unreviewable output or memory sink.
+Every selected runtime manifest must have one normalized
+``pydantic-ai-slim`` lock resolution; duplicate, missing, or drifted
+resolutions fail closed.
 """
 
 from __future__ import annotations
@@ -28,6 +31,14 @@ _PYDANTIC_REQUIREMENT_RE = re.compile(
     r"(?:\s*,\s*(?:===|==|!=|~=|>=|<=|>|<)\s*[0-9A-Za-z.+!-]+)*)?",
     re.IGNORECASE,
 )
+_AGENT_UTILITIES_EXTRA_RE = re.compile(
+    r"\bagent-utilities\[([^\]\r\n]+)\]", re.IGNORECASE
+)
+# These AU extras expose the Pydantic-AI-backed agent/MCP runtime.  Keep this
+# set as an integration rule, not a version authority: the version still comes
+# only from ``protocol_compat.py`` below. ``graphos`` alone is intentionally not
+# listed: it is the engine-only extra and must not force a Python agent runtime.
+_PYDANTIC_AI_AU_EXTRAS = frozenset({"agent-headless", "agent-runtime", "mcp"})
 _SUPPORTED_FILENAMES = {"uv.lock", "pyproject.toml", "requirements.txt"}
 _SIBLINGS_MARKER = ".uv-workspace-siblings"
 _WINDOWS_ABSOLUTE_RE = re.compile(r"^[A-Za-z]:[\\/]")
@@ -151,6 +162,7 @@ def read_contract_version(contract_source: Path | None = None) -> str:
     except (OSError, SyntaxError) as exc:
         raise RuntimeError(f"cannot read AU contract source {source}: {exc}") from exc
 
+    versions: list[str] = []
     for node in tree.body:
         targets: list[ast.expr] = []
         value: ast.expr | None = None
@@ -175,7 +187,16 @@ def read_contract_version(contract_source: Path | None = None) -> str:
             raise RuntimeError(
                 f"AU contract {_CONTRACT_SYMBOL} is not a valid version: {version!r}"
             )
-        return version
+        versions.append(version)
+
+    if len(versions) > 1:
+        # Even duplicate assignments with the same value are ambiguous: a
+        # future edit could change only one and silently split the fleet.
+        raise RuntimeError(
+            f"AU contract source {source} has multiple {_CONTRACT_SYMBOL} literals"
+        )
+    if versions:
+        return versions[0]
 
     raise RuntimeError(f"AU contract source {source} has no {_CONTRACT_SYMBOL} literal")
 
@@ -208,6 +229,43 @@ def _requirement_strings(
 
     for match in _PYDANTIC_REQUIREMENT_RE.finditer(text):
         yield match.group(0)
+
+
+def _manifest_requires_pydantic_resolution(
+    path: Path,
+    text: str,
+    parsed: Mapping[str, Any] | None = None,
+) -> bool:
+    """Whether a manifest selects AU's Pydantic-AI runtime surface.
+
+    A direct ``pydantic-ai-slim`` requirement is authoritative.  Consumers
+    that select an AU runtime extra are also required to carry a resolved
+    package in their lock; otherwise a stale/incomplete lock can appear clean
+    simply because the package row is absent.
+    """
+
+    values: Iterable[str]
+    if path.name == "pyproject.toml":
+        if parsed is None:
+            try:
+                parsed = tomllib.loads(text)
+            except tomllib.TOMLDecodeError:
+                return False
+        values = _iter_strings(parsed)
+    else:
+        values = (
+            line for line in text.splitlines() if not line.lstrip().startswith("#")
+        )
+
+    for value in values:
+        lower = value.lower()
+        if "pydantic-ai-slim" in lower:
+            return True
+        for extras in _AGENT_UTILITIES_EXTRA_RE.findall(value):
+            selected = {part.strip().lower() for part in extras.split(",")}
+            if selected.intersection(_PYDANTIC_AI_AU_EXTRAS):
+                return True
+    return False
 
 
 def _check_manifest(
@@ -270,9 +328,16 @@ def _check_manifest(
     return findings
 
 
-def _check_lock(path: Path, parsed: Mapping[str, Any], expected: str) -> list[Finding]:
+def _check_lock(
+    path: Path,
+    parsed: Mapping[str, Any],
+    expected: str,
+    *,
+    require_resolution: bool = False,
+) -> list[Finding]:
     findings: list[Finding] = []
     versions: list[str] = []
+    package_rows = 0
     packages = parsed.get("package")
     if packages is None:
         packages = []
@@ -288,27 +353,43 @@ def _check_lock(path: Path, parsed: Mapping[str, Any], expected: str) -> list[Fi
             )
             continue
         name = package.get("name")
-        if not isinstance(name, str) or name.lower() != "pydantic-ai-slim":
+        if (
+            not isinstance(name, str)
+            or _pep503_normalize(name) != "pydantic-ai-slim"
+        ):
             continue
+        package_rows += 1
         version = package.get("version")
         if not isinstance(version, str):
-            findings.append(
-                Finding(
-                    str(path),
-                    "missing-resolution",
-                    "pydantic-ai-slim has no locked version",
-                )
-            )
             continue
         versions.append(version)
-        if version != expected:
-            findings.append(
-                Finding(
-                    str(path),
-                    "resolved-version-mismatch",
-                    f"uv.lock resolves pydantic-ai-slim {version}; expected {expected}",
-                )
+
+    if package_rows > 1:
+        # uv should have exactly one distribution resolution. Multiple rows
+        # are ambiguous even when they currently carry the same version.
+        findings.append(
+            Finding(
+                str(path),
+                "ambiguous-resolution",
+                f"uv.lock contains {package_rows} pydantic-ai-slim package rows",
             )
+        )
+    elif package_rows == 1 and not versions:
+        findings.append(
+            Finding(
+                str(path),
+                "missing-resolution",
+                "pydantic-ai-slim has no locked version",
+            )
+        )
+    elif len(versions) == 1 and versions[0] != expected:
+        findings.append(
+            Finding(
+                str(path),
+                "resolved-version-mismatch",
+                f"uv.lock resolves pydantic-ai-slim {versions[0]}; expected {expected}",
+            )
+        )
 
     # uv stores dependency metadata in more than the legacy [manifest] table.
     # Inspect the parsed document (comments remain inert) so a dependency named
@@ -316,12 +397,12 @@ def _check_lock(path: Path, parsed: Mapping[str, Any], expected: str) -> list[Fi
     lock_mentions_pydantic = any(
         "pydantic-ai-slim" in value.lower() for value in _iter_strings(parsed)
     )
-    if not versions and lock_mentions_pydantic:
+    if package_rows == 0 and (lock_mentions_pydantic or require_resolution):
         findings.append(
             Finding(
                 str(path),
                 "missing-resolution",
-                "lock metadata mentions pydantic-ai-slim but uv.lock has no package resolution",
+                "lock requires pydantic-ai-slim but uv.lock has no package resolution",
             )
         )
     return findings
@@ -931,6 +1012,33 @@ def scan_paths(
     expected = read_contract_version(resolved_contract_source)
     au_root = resolved_contract_source.resolve().parents[2]
     candidates, omitted = _candidate_files(paths, max_files)
+    # Pair manifests with locks by directory before scanning either order. A
+    # lock that omits the package row must fail when its sibling manifest
+    # explicitly selects the AU Pydantic-AI runtime surface.
+    required_resolution_dirs: set[Path] = set()
+    for candidate in candidates:
+        if candidate.name != "pyproject.toml" and not candidate.name.startswith(
+            "requirements"
+        ):
+            continue
+        try:
+            if candidate.stat().st_size > max_bytes:
+                continue
+            candidate_text = candidate.read_text(encoding="utf-8")
+            candidate_document: Mapping[str, Any] | None = None
+            if candidate.name == "pyproject.toml":
+                candidate_parsed = tomllib.loads(candidate_text)
+                if not isinstance(candidate_parsed, Mapping):
+                    continue
+                candidate_document = candidate_parsed
+            if _manifest_requires_pydantic_resolution(
+                candidate, candidate_text, candidate_document
+            ):
+                required_resolution_dirs.add(candidate.parent.resolve())
+        except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+            # The main scan reports malformed/unreadable manifests. Do not
+            # hide that primary finding behind this pairing pre-pass.
+            continue
     raw_findings: list[Finding] = []
     files_scanned = 0
     for path in candidates:
@@ -965,7 +1073,16 @@ def scan_paths(
 
         if path.name == "uv.lock":
             assert document is not None
-            raw_findings.extend(_check_lock(path, document, expected))
+            raw_findings.extend(
+                _check_lock(
+                    path,
+                    document,
+                    expected,
+                    require_resolution=(
+                        path.parent.resolve() in required_resolution_dirs
+                    ),
+                )
+            )
         else:
             raw_findings.extend(_check_manifest(path, text, expected, document))
         if document is not None:
