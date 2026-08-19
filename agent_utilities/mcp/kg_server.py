@@ -918,6 +918,18 @@ def _make_tool_endpoint(tool_name: str):
                 return JSONResponse(
                     {"status": "failed", "result": parsed}, status_code=400
                 )
+            if (
+                tool_name == "graph_sessions"
+                and isinstance(parsed, dict)
+                and isinstance(parsed.get("evidence"), dict)
+                and parsed["evidence"].get("ready") is False
+            ):
+                # Fleet health/topology are supervisory evidence, not ordinary
+                # session CRUD. Preserve the shared fail-closed HTTP signal
+                # while returning the exact typed evidence body used by MCP.
+                return JSONResponse(
+                    {"status": "unavailable", "result": parsed}, status_code=503
+                )
             return JSONResponse({"status": "success", "result": parsed})
         except UnsupportedToolFieldError as e:
             # U-74: a caller-supplied field the tool doesn't accept is a

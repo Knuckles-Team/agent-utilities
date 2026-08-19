@@ -232,11 +232,19 @@ class IntelligenceGraphEngine(
                 register_process_data_prep_runtime,
             )
 
-            register_process_data_prep_runtime(self)
+            if not register_process_data_prep_runtime(self):
+                logger.warning(
+                    "data-prep provider installed with unavailable startup dependencies"
+                )
+        except ImportError:  # pragma: no cover - optional MCP package absent
+            logger.debug("data-prep MCP surface is unavailable during graph startup")
         except (
             Exception
         ):  # pragma: no cover - optional MCP surface must not block engine boot
-            logger.debug(
+            # A graph-engine construction error remains governed by the graph
+            # lifecycle; it must not be hidden as a successful data-prep setup
+            # by silently downgrading it to a routine "deferred" DEBUG line.
+            logger.warning(
                 "data-prep provider composition deferred until MCP startup",
                 exc_info=True,
             )

@@ -637,10 +637,10 @@ def _privacy_gate(envelope: ChangeEnvelope) -> ChangeEnvelope:
         envelope,
         typed_payload=clean_payload,
         blob_ref=clean_operational.get("blob_ref"),
-        structured_evidence=clean_evidence,
         checkpoint=clean_operational.get("checkpoint"),
         trace_context=clean_operational.get("trace_context"),
         provenance=clean_provenance,
+        structured_evidence=clean_evidence,
         source_acl=access,
     )
 
