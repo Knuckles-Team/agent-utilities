@@ -164,6 +164,12 @@ def regenerate(
         native_argv += ["--output-dir", str(Path("/tmp") / "goc16-native-dry-run")]  # noqa: S108
     if now:
         native_argv += ["--now", now]
+    if not sign:
+        # Honour this script's own contract: every mode short of --sign needs no
+        # key custody. Without this the generators called ReleaseSigner
+        # .from_runtime() unconditionally and a PREVIEW failed for want of a key
+        # it never used, which is what made the whole flow un-automatable.
+        native_argv.append("--unsigned")
     proc = _run(native_argv)
     report["results"].append(
         {
@@ -187,6 +193,8 @@ def regenerate(
             fleet_argv += ["--now", now]
         if dry_run:
             fleet_argv.append("--dry-run")
+        if not sign:
+            fleet_argv.append("--unsigned")
         proc = _run(fleet_argv)
         report["results"].append(
             {

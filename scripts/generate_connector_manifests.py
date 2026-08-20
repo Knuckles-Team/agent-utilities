@@ -723,6 +723,7 @@ def build_manifest(
     now: datetime | None = None,
     release_signer: ontology_integrity.ReleaseSigner | None = None,
     registry_path: Path | None = None,
+    unsigned: bool = False,
 ) -> ConnectorManifest:
     """Build a :class:`ConnectorManifest` for one connector — pure, deterministic, offline."""
     connector = connector_project_name(connector_root)
@@ -812,8 +813,13 @@ def build_manifest(
     digest, triple_count = ontology_integrity.canonical_hash(g)
     stamp = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    signer = release_signer or ontology_integrity.release_signer_for_publication(
-        lock_path=ONTOLOGY_LOCK
+    # See generate_native_connector_manifest.py: an UNSIGNED preview must not
+    # require key custody. release_signer_for_publication stays the ONLY path to
+    # a real signature.
+    signer = release_signer or (
+        ontology_integrity.unsigned_release_placeholder()
+        if unsigned
+        else ontology_integrity.release_signer_for_publication(lock_path=ONTOLOGY_LOCK)
     )
     unsigned_provenance = ProvenanceSpec(
         generated_at=stamp,
@@ -827,12 +833,18 @@ def build_manifest(
         # signed, so a lock drift after generation is provable, not assumed.
         dependency_lock_digest=ontology_integrity.dependency_lock_digest(),
     )
-    unsigned = placeholder.model_copy(update={"provenance": unsigned_provenance})
-    manifest_hash = ontology_integrity.canonical_manifest_hash(unsigned)
+    # NOTE: local renamed from `unsigned` -- that name is now the parameter
+    # selecting UNSIGNED-preview mode, and shadowing it here would silently
+    # disable the preview path.
+    draft = placeholder.model_copy(update={"provenance": unsigned_provenance})
+    if unsigned:
+        # Preview: exactly the content that WOULD be signed, with no signature.
+        return draft
+    manifest_hash = ontology_integrity.canonical_manifest_hash(draft)
     provenance = unsigned_provenance.model_copy(
         update={"signature": signer.sign(manifest_hash)}
     )
-    return unsigned.model_copy(update={"provenance": provenance})
+    return draft.model_copy(update={"provenance": provenance})
 
 
 def _to_yaml(manifest: ConnectorManifest) -> str:
@@ -850,6 +862,7 @@ def write_manifest(
     dry_run: bool = False,
     generate_a2a: bool = True,
     registry_path: Path | None = None,
+    unsigned: bool = False,
 ) -> ConnectorManifest:
     # a2a.json is generated FIRST (CONCEPT:AU-KG.ontology.a2a-card-generation): the
     # manifest's ``actions`` are read back from a2a.json's ``capabilities``
@@ -858,7 +871,9 @@ def write_manifest(
     # never a parallel/manual step.
     if generate_a2a and (connector_root / "pyproject.toml").is_file():
         write_a2a_card(connector_root, dry_run=dry_run)
-    manifest = build_manifest(connector_root, now=now, registry_path=registry_path)
+    manifest = build_manifest(
+        connector_root, now=now, registry_path=registry_path, unsigned=unsigned
+    )
     text = _to_yaml(manifest)
     output_label = f"{output.parent.name}/{output.name}"
     if dry_run:
@@ -895,6 +910,15 @@ def main() -> int:
         "--now", help="ISO-8601 UTC timestamp override, for reproducible runs"
     )
     ap.add_argument("--dry-run", action="store_true", help="print instead of write")
+    ap.add_argument(
+        "--unsigned",
+        action="store_true",
+        help=(
+            "produce an UNSIGNED preview that needs no key custody. The result "
+            "fails signature verification by construction and can never be "
+            "promoted to a certified artifact."
+        ),
+    )
     ap.add_argument(
         "--skip-a2a",
         action="store_true",
@@ -975,6 +999,7 @@ def main() -> int:
             dry_run=args.dry_run,
             generate_a2a=not args.skip_a2a,
             registry_path=args.registry,
+            unsigned=args.unsigned,
         )
         print(
             f"generated {out.parent.name}/{out.name}: {len(manifest.resources)} "

@@ -25,6 +25,8 @@ import yaml
 __all__ = [
     "DEFAULT_SIGNER_ID",
     "DEFAULT_TRUSTED_SIGNERS",
+    "UNSIGNED_SIGNER_ID",
+    "unsigned_release_placeholder",
     "active_release_public_key",
     "assert_signing_key_matches_locks",
     "canonical_hash",
@@ -159,6 +161,45 @@ class ReleaseSigner:
             raise ReleaseSigningError("ontology release digest is invalid")
         message = f"{self.signer_id}:{digest_hex}".encode("ascii")
         return _b64url_encode(self._private_key.sign(message))
+
+
+UNSIGNED_SIGNER_ID = "UNSIGNED-PREVIEW"
+
+
+def unsigned_release_placeholder() -> ReleaseSigner:
+    """A signer-shaped placeholder for UNSIGNED preview regeneration.
+
+    CONCEPT:AU-KG.ontology.release-key-rotation. The release orchestrator
+    documents that every mode short of ``--sign`` needs no key and is safe to
+    run anywhere, so a reviewer (or an automated job) can produce the content
+    diff before an operator ever touches custody. That contract could not be
+    honoured while the generators called :meth:`ReleaseSigner.from_runtime`
+    unconditionally -- a preview failed for want of a key it never used.
+
+    This placeholder carries only the identity fields the provenance block
+    needs in order to be well-formed, and **cannot sign**: :meth:`sign` raises,
+    and ``UNSIGNED_SIGNER_ID`` is deliberately absent from
+    ``DEFAULT_TRUSTED_SIGNERS``, so any artifact produced with it fails
+    :func:`verify_release_signature` by construction. An unsigned preview can
+    therefore never be mistaken for, or promoted to, a certified artifact.
+    """
+
+    return _UnsignedReleaseSigner(
+        signer_id=UNSIGNED_SIGNER_ID,
+        public_key="",
+        algorithm="none",
+    )
+
+
+@dataclass(frozen=True)
+class _UnsignedReleaseSigner(ReleaseSigner):
+    """Fails closed: preview-only, never a signing authority."""
+
+    def sign(self, digest_hex: str) -> str:  # noqa: ARG002 - refuses by contract
+        raise ReleaseSigningError(
+            "unsigned preview placeholder cannot sign; run the governed signing "
+            "job with a versioned vault:// or secret:// key reference"
+        )
 
 
 def _valid_digest(value: str) -> bool:

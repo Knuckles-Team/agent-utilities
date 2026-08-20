@@ -145,6 +145,7 @@ def build_manifest(
     *,
     now: datetime | None = None,
     release_signer: ontology_integrity.ReleaseSigner | None = None,
+    unsigned: bool = False,
 ) -> tuple[ConnectorManifest, dict[str, str]]:
     """Build the signed native manifest and its code-fingerprint inventory."""
 
@@ -159,7 +160,15 @@ def build_manifest(
     graph.parse(data=ttl, format="turtle")
     digest, triple_count = ontology_integrity.canonical_hash(graph)
     stamp = (now or datetime.now(UTC)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    signer = release_signer or ontology_integrity.ReleaseSigner.from_runtime()
+    # An UNSIGNED preview must not require key custody: the release
+    # orchestrator's contract is that every mode short of --sign is safe to
+    # run anywhere. The placeholder cannot sign and fails verification, so a
+    # preview can never be mistaken for a certified artifact.
+    signer = release_signer or (
+        ontology_integrity.unsigned_release_placeholder()
+        if unsigned
+        else ontology_integrity.ReleaseSigner.from_runtime()
+    )
     provenance = ProvenanceSpec(
         generated_by="scripts/generate_native_connector_manifest.py",
         generated_at=stamp,
@@ -177,9 +186,17 @@ def build_manifest(
         # signed, so a lock drift after generation is provable, not assumed.
         dependency_lock_digest=ontology_integrity.dependency_lock_digest(),
     )
-    unsigned = placeholder.model_copy(update={"provenance": provenance})
-    manifest_hash = ontology_integrity.canonical_manifest_hash(unsigned)
-    signed = unsigned.model_copy(
+    # NOTE: local renamed from `unsigned` -- that name is now the parameter
+    # selecting UNSIGNED-preview mode, and shadowing it here would silently
+    # disable the preview path.
+    draft = placeholder.model_copy(update={"provenance": provenance})
+    if unsigned:
+        # Preview: return the exact content that WOULD be signed, with no
+        # signature. The placeholder signer cannot sign and its id is untrusted,
+        # so this artifact fails verification by construction.
+        return draft, fingerprints
+    manifest_hash = ontology_integrity.canonical_manifest_hash(draft)
+    signed = draft.model_copy(
         update={
             "provenance": provenance.model_copy(
                 update={"signature": signer.sign(manifest_hash)}
@@ -219,8 +236,11 @@ def write_bundle(
     *,
     now: datetime | None = None,
     release_signer: ontology_integrity.ReleaseSigner | None = None,
+    unsigned: bool = False,
 ) -> ConnectorManifest:
-    manifest, fingerprints = build_manifest(now=now, release_signer=release_signer)
+    manifest, fingerprints = build_manifest(
+        now=now, release_signer=release_signer, unsigned=unsigned
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "tool_schema_fingerprints.json").write_text(
         _fingerprints_json(fingerprints), encoding="utf-8"
@@ -235,13 +255,22 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--now", help="ISO-8601 UTC timestamp override")
+    parser.add_argument(
+        "--unsigned",
+        action="store_true",
+        help=(
+            "produce an UNSIGNED preview that needs no key custody. The result "
+            "fails signature verification by construction and can never be "
+            "promoted to a certified artifact."
+        ),
+    )
     args = parser.parse_args()
     now = (
         datetime.strptime(args.now, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=UTC)
         if args.now
         else None
     )
-    manifest = write_bundle(args.output_dir, now=now)
+    manifest = write_bundle(args.output_dir, now=now, unsigned=args.unsigned)
     print(
         f"generated {CONNECTOR}: {len(manifest.sync)} native sources, "
         f"{args.output_dir.name}/connector_manifest.yml"
