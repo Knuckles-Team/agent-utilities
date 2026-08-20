@@ -1,0 +1,124 @@
+# The CANONICAL build job for `knucklessg1/graph-os-unified` — the one unified
+# graph-os image (docker/graphos-unified.Dockerfile, workstream W-C).
+#
+# This file is the manifest that Dockerfile's own header has always named. It
+# supersedes the dated one-off variants (`graphos-unified-engine-fix-0801-…`),
+# which differed from each other only in which staging directory they mounted and
+# which tag they pushed — both of which are now parameters rather than forks. Copying
+# the job per build is what let the referenced canonical manifest go missing while
+# three near-identical descendants drifted apart; there is one job here on purpose.
+#
+# Every environment-specific value is a `${VAR}` placeholder with NO default, so a
+# missing one fails loudly at render time instead of silently building the wrong tree.
+# Render and apply with `envsubst`:
+#
+#   export BUILD_NODE=<node hosting the paths below, e.g. the workspace NFS server>
+#   export SOURCE_DIR=<agent-utilities checkout to build (the Dockerfile + au source)>
+#   export EG_WHEEL_DIR=<dir holding exactly one staged epistemic_graph-*.whl>
+#   export LANGFUSE_AGENT_DIR=<agent-packages/agents/langfuse-agent checkout>
+#   export IMAGE_TAG=<destination tag, e.g. a short git rev — never `latest`>
+#   export SOURCE_REVISION=$(git -C "$SOURCE_DIR" rev-parse HEAD)
+#   envsubst < docker/graphos-unified-kaniko-job.yaml | kubectl apply -f -
+#   kubectl -n image-build logs -f job/graphos-unified-image-build
+#
+# ── Why a Job on the cluster and not a local `docker build` ──
+# The hosts run containerd under RKE2; there is no dockerd anywhere to build with.
+# kaniko builds in-cluster and pushes straight to the registry.
+#
+# ── Context composition ──
+# kaniko takes exactly ONE --context directory, but the build needs the au checkout
+# (Dockerfile + au source) AND two artifacts that live outside it. Those are MOUNTED at
+# paths inside the context rather than copied in. Both land at the context ROOT under
+# build-artifacts/, never under docker/: this repo's .dockerignore excludes `docker/*`
+# wholesale, so anything staged there is silently dropped from the build context (a
+# sibling job hit exactly this — kaniko logged "No files to copy" and the later
+# `uv pip install` failed with "Distribution not found").
+#
+# ── SOURCE_REVISION ──
+# Threaded through as a build arg so the image carries a truthful provenance marker
+# (U-26/BUG-172); without it agent_utilities' live_mount_guard cannot tell a deliberate
+# no-live-mount image from a drifted one and logs a false CRITICAL on every boot.
+#
+# ── IMAGE_TAG must not be `latest` ──
+# The Deployment pins by DIGEST, so a moving tag would neither trigger nor describe a
+# rollout, and it destroys the ability to say which build is live. Use a short git rev.
+#
+# ── Caching stays ON ──
+# `--cache=false` was tried on a sibling job and wedges kaniko in uninterruptible disk
+# sleep during "Taking snapshot of full filesystem" (25+ min at 0m CPU, State: D).
+# Caching is safe: kaniko's composite key for a RUN layer covers the command string plus
+# the content hash of every context file copied in, so a changed eg wheel or changed au
+# source cannot hit a warm entry for the layer that consumes it.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: graphos-unified-image-build
+  namespace: image-build
+  labels:
+    app: graphos-unified-image-build
+    purpose: graphos-unified
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: graphos-unified-image-build
+        purpose: graphos-unified
+    spec:
+      restartPolicy: Never
+      # All three hostPaths below live on this node, so the build must land there.
+      nodeSelector:
+        kubernetes.io/hostname: ${BUILD_NODE}
+      containers:
+        - name: kaniko
+          image: gcr.io/kaniko-project/executor:latest
+          args:
+            - --context=dir:///workspace
+            - --dockerfile=/workspace/docker/graphos-unified.Dockerfile
+            - --destination=knucklessg1/graph-os-unified:${IMAGE_TAG}
+            - --build-arg=SOURCE_REVISION=${SOURCE_REVISION}
+            - --cache=true
+            - --cache-repo=knucklessg1/graph-os-unified-cache
+            - --verbosity=info
+          resources:
+            requests:
+              cpu: "1"
+              memory: 2Gi
+              ephemeral-storage: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+              ephemeral-storage: 24Gi
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+            - name: eg-wheel
+              mountPath: /workspace/build-artifacts/eg-wheel
+            - name: langfuse-agent-src
+              mountPath: /workspace/build-artifacts/langfuse-agent-src
+            - name: docker-config
+              mountPath: /kaniko/.docker/config.json
+              subPath: config.json
+      volumes:
+        - name: workspace
+          hostPath:
+            path: ${SOURCE_DIR}
+            type: Directory
+        # A DEDICATED staging dir, never the shared one that is NFS-mounted read-only
+        # into the live graph-os pod: overwriting a wheel in place would mutate a path
+        # the running production pod can see.
+        - name: eg-wheel
+          hostPath:
+            path: ${EG_WHEEL_DIR}
+            type: Directory
+        - name: langfuse-agent-src
+          hostPath:
+            path: ${LANGFUSE_AGENT_DIR}
+            type: Directory
+        - name: docker-config
+          secret:
+            secretName: kaniko-dockerhub-config
+            items:
+              - key: config.json
+                path: config.json

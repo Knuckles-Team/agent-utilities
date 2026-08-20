@@ -53,6 +53,73 @@ key.
 Nothing new needs to be typed into a `.env` file, a GitHub secret, or an agent session.
 Everything below is infrastructure the operator applies directly against the live cluster.
 
+### 0. The signing key itself — mint it and store it under a version
+
+**Verify first; this step is not always needed.** As of 2026-08-20 it *is*: a cluster-wide
+sweep found `ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY` in no `ExternalSecret` and no `Secret`,
+so the reference `vault://agent-utilities#ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY@2` that
+`deploy/release/connector-manifest-signing-job.yaml` resolves does not exist yet and the
+Job would fail closed at startup. Re-check before assuming:
+
+```bash
+kubectl get externalsecrets,secrets -A -o json \
+  | grep -c ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY   # 0 => this step is required
+```
+
+This step is called out separately, and deliberately left to a human, because it mints a
+**root of trust**. Everything else in this document is recoverable by re-running it; a
+signing key is not. `ontology_integrity.py` refuses an `env://` reference by design
+(D-OB-5), so the key must land in versioned custody — the `@2` suffix pins the exact
+version the Job reads, which is what makes a rotation observable instead of silent.
+
+The private key is ed25519, stored as base64 of the 32-byte seed. Generate it **off the
+cluster**, on a host you trust, and never let it transit an agent session or a shell
+history file:
+
+```bash
+umask 077
+python3 - <<'EOF' > /dev/shm/ontology-signing-key.json
+import base64, json
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives import serialization
+k = Ed25519PrivateKey.generate()
+priv = k.private_bytes(serialization.Encoding.Raw,
+                       serialization.PrivateFormat.Raw,
+                       serialization.NoEncryption())
+pub = k.public_key().public_bytes(serialization.Encoding.Raw,
+                                  serialization.PublicFormat.Raw)
+print(json.dumps({"private": base64.b64encode(priv).decode(),
+                  "public":  base64.b64encode(pub).decode()}))
+EOF
+```
+
+Write it to the `apps/agent-utilities` secret **without disturbing the other keys already
+there** (`bao kv patch`, never `put` — `put` replaces the whole secret and would silently
+drop every co-resident value):
+
+```bash
+P=$(kubectl -n platform get pod -l app=openbao -o name | head -1)
+jq -r .private /dev/shm/ontology-signing-key.json \
+  | kubectl -n platform exec -i "$P" -- env BAO_ADDR=http://127.0.0.1:8200 \
+      BAO_TOKEN="$BAO_ROOT_TOKEN" \
+      bao kv patch apps/agent-utilities ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY=-
+kubectl -n platform exec "$P" -- env BAO_ADDR=http://127.0.0.1:8200 \
+      BAO_TOKEN="$BAO_ROOT_TOKEN" bao kv metadata get -format=json apps/agent-utilities \
+  | jq .data.current_version    # must equal the @N pinned in the Job manifest
+shred -u /dev/shm/ontology-signing-key.json
+```
+
+If `current_version` is not `2`, update the `@N` in
+`deploy/release/connector-manifest-signing-job.yaml` to the printed value rather than
+writing the key again to force the number — a rewrite to reach a version number produces
+two live keys and no way to tell which signed a given manifest.
+
+Finally, publish the **public** half: add it to `DEFAULT_TRUSTED_SIGNERS` in
+`agent_utilities/knowledge_graph/ontology/ontology_integrity.py` under the signer id the
+Job passes. Until that lands, `verify_release_signature()` returns `False` for everything
+this key signs — which is the intended fail-closed default, not a bug, and is exactly what
+`UNSIGNED-PREVIEW` relies on to stay unverifiable.
+
 ### 1. An OpenBao read-only policy, scoped to exactly one secret
 
 Add to `services/openbao/k8s/bootstrap-policies.sh` (or run once by hand, same
