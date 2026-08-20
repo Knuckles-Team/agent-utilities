@@ -167,11 +167,63 @@ No secret values, ever: ``command``/``args`` are deliberately never stored
 (they can carry local paths and secrets) and no column added here can carry a
 credential, token, or endpoint auth material — the same discipline
 :func:`write_fleet_catalog`'s docstring already documented, unchanged.
+
+**NE-052 / AU-CATALOG — migrating an already-deployed pre-NE-007 store.**
+``CREATE TABLE IF NOT EXISTS`` is a silent no-op against a table that
+already exists under the OLD (pre-NE-007) shape — 5 tables, no
+``mcp_server_discovery``, no ``tenant_id``/``revision``/``idempotency_key``/
+``schema_digest``/``discovery_*`` columns anywhere. Every CAS write built in
+this module assumes those columns exist, so an un-migrated deployment fails
+at INSERT/UPDATE time referencing columns the live table does not have.
+:func:`_claim_and_migrate` (invoked by :func:`ensure_fleet_catalog_tables`)
+closes that gap:
+
+* **Detection is column-based, not version-based.** The pre-NE-007 store has
+  no version marker at all, so every call re-introspects each table's real
+  columns via ``information_schema.columns`` (:func:`_existing_table_columns`)
+  rather than trusting a cached/assumed generation.
+* **A forward-only, checksummed ledger** (table
+  ``fleet_catalog_schema_migrations``) records one append-only row per
+  applied migration step (:data:`_MIGRATION_COLUMN_STEPS`, each identified
+  by a stable id and a content checksum of the columns it adds) plus one
+  singleton row (id ``"schema_state"``) tracking the store's current
+  version/checksum — so a later start can cheaply confirm "already current"
+  without repeating the migration.
+* **Ordered, idempotent ``ALTER TABLE ADD COLUMN`` steps** bring an old store
+  up to the frozen NE-007/current shape, with an explicit, narrow one-time
+  backfill of ``tenant_id``/``revision``/``idempotency_key``/
+  ``schema_digest`` for pre-existing rows (never the ``discovery_*``
+  columns — those stay unbound/NULL for legacy rows exactly as this module
+  already documented, since there is no way to retroactively know who ran a
+  pre-NE-007 probe). Existing rows and their other columns are never
+  dropped or rewritten.
+* ``tenant_id`` backfill uses the reserved sentinel
+  :data:`LEGACY_TENANT_SENTINEL` — never a caller/session tenant — because a
+  pre-existing row predates per-tenant scoping and guessing a real tenant
+  would silently mis-attribute historical data.
+* **Fail closed.** A store whose columns don't correspond to any known
+  schema generation (:func:`_detect_diverged_schema`), or whose ledger
+  records a migration id this code version does not recognize, raises
+  :class:`FleetCatalogSchemaDivergedError` / :class:`FleetCatalogSchemaTooNewError`
+  — the one deliberate exception to this module's usual "never raises,
+  always best-effort" contract, because silently limping forward against an
+  unverified schema is exactly the defect this closes.
+* **Concurrency** is a claim on the ledger's singleton lock row via
+  ``INSERT ... ON CONFLICT (id) DO NOTHING`` (the engine's own single-column
+  ``PRIMARY KEY`` already enforces first-writer-wins on that one row); a
+  process that loses the claim performs no DDL and returns ``False`` for
+  that attempt rather than racing the winner — a genuine no-op, not an
+  error — and picks up the now-migrated schema on its next call.
+* **Verification**: after applying every needed step, the winner
+  re-introspects every table and asserts the columns now match the frozen
+  current shape (:data:`_CURRENT_SCHEMA_COLUMNS`) before recording the
+  ledger as ``"complete"`` and returning success.
 """
 
 import hashlib
 import json
 import logging
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -193,6 +245,51 @@ DISCOVERY_AUTHORITY_TENANT_LOCAL: Literal["tenant_local"] = "tenant_local"
 _DISCOVERY_AUTHORITY_KINDS = frozenset(
     {DISCOVERY_AUTHORITY_OAUTH_GRANT, DISCOVERY_AUTHORITY_TENANT_LOCAL}
 )
+
+
+class FleetCatalogMigrationError(RuntimeError):
+    """Base for a fleet-catalog schema state this code refuses to serve.
+
+    Raised only by :func:`_claim_and_migrate` / :func:`ensure_fleet_catalog_tables`
+    — the one deliberate exception to this module's usual "best-effort, never
+    raises" contract (see the module docstring's NE-052 section). A store in
+    one of these states must not be silently written to: doing so is exactly
+    the class of defect (a write against columns the code cannot verify)
+    this hardening closes.
+    """
+
+
+class FleetCatalogSchemaDivergedError(FleetCatalogMigrationError):
+    """The store's actual columns match no known schema generation.
+
+    Raised when a table's introspected column set is neither the frozen
+    pre-NE-007 legacy shape, the current shape, nor any valid point on the
+    ordered forward-only migration path between them (see
+    :func:`_detect_diverged_schema`) — i.e. the table was hand-modified or
+    partially/out-of-order migrated by something other than this module.
+    """
+
+
+class FleetCatalogSchemaTooNewError(FleetCatalogMigrationError):
+    """The migration ledger records a migration this code version does not know.
+
+    Raised when ``fleet_catalog_schema_migrations`` already names a
+    ``migration_id`` outside this module's own :data:`_MIGRATION_COLUMN_STEPS`
+    — the store was migrated forward by a newer revision of this module and
+    this (older) code cannot safely verify or extend that schema.
+    """
+
+
+# Reserved sentinel for ``tenant_id`` on a row that predates per-tenant
+# scoping (a pre-NE-007 row, migrated forward by :func:`_claim_and_migrate`).
+# Deliberately NOT a real tenant, and never derived from ambient/session
+# authority: a caller's/session's tenant is who is running the migration,
+# not who originally owned the un-scoped historical row, and guessing the
+# latter would silently mis-attribute data no verified authority ever
+# claimed. Chosen to be obviously synthetic (never collides with a real
+# tenant id, which this codebase always resolves from verified session/actor
+# identity, never a literal containing this reserved prefix).
+LEGACY_TENANT_SENTINEL = "__legacy_pre_tenant_scope__"
 
 
 @dataclass(frozen=True)
@@ -548,13 +645,448 @@ def _bound_row_id(base_id: str, discovery_grant_digest: str) -> str:
     return f"{base_id}__{discovery_grant_digest or DISCOVERY_AUTHORITY_TENANT_LOCAL}"
 
 
-def ensure_fleet_catalog_tables(engine: Any) -> bool:
-    """``CREATE TABLE IF NOT EXISTS`` for all 6 fleet-catalog tables.
+# ---------------------------------------------------------------------------
+# NE-052 / AU-CATALOG: versioned migration ledger for an already-deployed
+# (pre-NE-007 or partially-migrated) store. See the module docstring's
+# "NE-052 / AU-CATALOG" section for the overall design.
+# ---------------------------------------------------------------------------
 
-    Returns ``False`` (never raises) when the engine has no SQL surface —
-    the same graceful degrade :mod:`~.table_ingest` uses, so a caller that
-    also writes KG nodes is never blocked by this table not being creatable
-    yet (e.g. in a unit test with a bare fake engine).
+_MIGRATION_LEDGER = "fleet_catalog_schema_migrations"
+
+_LEDGER_DDL = f"""CREATE TABLE IF NOT EXISTS {_MIGRATION_LEDGER} (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    claimant TEXT NOT NULL,
+    claimed_at TEXT NOT NULL,
+    version BIGINT NOT NULL,
+    migration_id TEXT NOT NULL,
+    checksum TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+)"""
+
+_LOCK_ROW_ID = "schema_state"
+_CURRENT_MARKER = "current"
+_SCHEMA_VERSION_CURRENT = 1
+
+# The 5 tables that existed pre-NE-007 and can therefore carry legacy rows
+# needing a one-time backfill. ``mcp_server_discovery`` is a brand-new
+# append-only table introduced BY NE-007 — it never has legacy rows.
+_STEP1_TABLES: tuple[str, ...] = (
+    TABLE_MCP_SERVERS,
+    TABLE_MCP_TOOLS,
+    TABLE_MCP_PROMPTS,
+    TABLE_MCP_RESOURCES,
+    TABLE_SKILLS,
+)
+
+# Ordered, forward-only migration steps. Each entry is
+# ``(migration_id, {table: (new_column, ...)})``. Applied in order; a step
+# already fully present (every listed column already exists) is skipped.
+# Step 3 reuses ``_DISCOVERY_BINDING_MIGRATION`` verbatim — this is the SAME
+# mechanism the pre-NE-052 code already used for those 3 columns, now simply
+# tracked as one named, checksummed, ledgered step instead of a standalone
+# loop, per "no second write path".
+_MIGRATION_COLUMN_STEPS: tuple[tuple[str, dict[str, tuple[str, ...]]], ...] = (
+    (
+        "0001_tenant_revision_idempotency",
+        {
+            table: ("tenant_id", "revision", "idempotency_key")
+            for table in _STEP1_TABLES
+        },
+    ),
+    ("0002_tool_schema_digest", {TABLE_MCP_TOOLS: ("schema_digest",)}),
+    ("0003_discovery_binding_columns", dict(_DISCOVERY_BINDING_MIGRATION)),
+)
+
+_KNOWN_MIGRATION_IDS = frozenset(mid for mid, _cols in _MIGRATION_COLUMN_STEPS)
+
+# The exact pre-NE-007 column set per table (copied from commit 1f96b7bce,
+# the last revision before the NE-007 hardening), used only to recognize a
+# genuinely legacy store as a KNOWN, valid starting point — never to create
+# it (this code only ever adds columns going forward).
+_LEGACY_SCHEMA_COLUMNS: dict[str, frozenset[str]] = {
+    TABLE_MCP_SERVERS: frozenset(
+        {
+            "id",
+            "name",
+            "transport",
+            "url",
+            "enabled",
+            "reachable",
+            "last_probe_at",
+            "last_error",
+            "tool_count",
+            "skill_count",
+            "prompt_count",
+            "resource_count",
+            "updated_at",
+        }
+    ),
+    TABLE_MCP_TOOLS: frozenset(
+        {
+            "id",
+            "server_id",
+            "server_name",
+            "name",
+            "description",
+            "input_schema",
+            "tool_mode",
+            "enabled",
+            "updated_at",
+        }
+    ),
+    TABLE_MCP_PROMPTS: frozenset(
+        {"id", "server_id", "server_name", "name", "description", "uri", "updated_at"}
+    ),
+    TABLE_MCP_RESOURCES: frozenset(
+        {
+            "id",
+            "server_id",
+            "server_name",
+            "uri",
+            "name",
+            "description",
+            "mime_type",
+            "resource_kind",
+            "updated_at",
+        }
+    ),
+    TABLE_SKILLS: frozenset(
+        {
+            "id",
+            "name",
+            "description",
+            "uri",
+            "skill_type",
+            "classification",
+            "provider",
+            "mcp_server",
+            "enabled",
+            "updated_at",
+        }
+    ),
+    # mcp_server_discovery did not exist pre-NE-007 — no legacy baseline.
+}
+
+
+def _parse_ddl_columns(ddl: str) -> frozenset[str]:
+    """Column names declared by one ``CREATE TABLE (...)`` DDL string.
+
+    Derives the "current" expected schema straight from the frozen
+    :data:`_DDL` text rather than a hand-maintained parallel list, so the two
+    can never drift apart. Safe for this module's DDL specifically: no
+    column definition here contains a literal comma (no ``DEFAULT '...,...'``
+    etc.), so a plain top-level split is exact.
+    """
+    body = ddl[ddl.index("(") + 1 : ddl.rindex(")")]
+    columns: set[str] = set()
+    for part in body.split(","):
+        token = part.strip().split()
+        if token:
+            columns.add(token[0])
+    return frozenset(columns)
+
+
+_CURRENT_SCHEMA_COLUMNS: dict[str, frozenset[str]] = {
+    table: _parse_ddl_columns(ddl) for table, ddl in _DDL.items()
+}
+
+
+def _table_schema_digest(columns: dict[str, set[str]]) -> str:
+    payload = {table: sorted(cols) for table, cols in columns.items()}
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _step_checksum(migration_id: str, table_columns: dict[str, tuple[str, ...]]) -> str:
+    payload = {migration_id: {t: sorted(c) for t, c in table_columns.items()}}
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _steps_needed(current_columns: dict[str, set[str]]) -> list[str]:
+    """Which ordered migration steps still have a missing column, in order."""
+    needed = []
+    for migration_id, table_columns in _MIGRATION_COLUMN_STEPS:
+        if any(
+            set(columns) - current_columns.get(table, set())
+            for table, columns in table_columns.items()
+        ):
+            needed.append(migration_id)
+    return needed
+
+
+def _is_reachable_state(
+    table: str, current: set[str], legacy: frozenset[str], expected: frozenset[str]
+) -> bool:
+    """Is ``current`` the legacy shape, the current shape, or a valid
+    in-between point on the ordered forward-only migration path — never a
+    step applied out of order or only partially."""
+    if current == legacy or current == expected:
+        return True
+    accumulated = set(legacy)
+    for _migration_id, table_columns in _MIGRATION_COLUMN_STEPS:
+        columns = table_columns.get(table)
+        if not columns:
+            continue
+        accumulated |= set(columns)
+        if current == accumulated:
+            return True
+    return False
+
+
+def _detect_diverged_schema(current_columns: dict[str, set[str]]) -> str | None:
+    """Return a human-readable reason if a table's columns match no known
+    schema generation, else ``None``."""
+    for table in _DDL:
+        current = current_columns.get(table, set())
+        if not current:
+            continue  # table does not exist yet -- CREATE TABLE establishes it fresh
+        expected = _CURRENT_SCHEMA_COLUMNS[table]
+        legacy = _LEGACY_SCHEMA_COLUMNS.get(table, frozenset())
+        unexpected = current - (expected | legacy)
+        if unexpected:
+            return (
+                f"table {table!r} has unrecognized column(s) {sorted(unexpected)} "
+                "not part of any known fleet-catalog schema generation"
+            )
+        if not _is_reachable_state(table, current, legacy, expected):
+            return (
+                f"table {table!r} column set {sorted(current)} does not "
+                "correspond to any known point on the forward-only "
+                "migration path"
+            )
+    return None
+
+
+def _backfill_legacy_rows(gc: Any, table: str, added_columns: list[str]) -> None:
+    """One-time backfill of newly-added columns for a table's pre-existing rows.
+
+    Per-row ``UPDATE`` (never a mass unscoped one — the engine's own SQL
+    tier refuses an ``UPDATE``/``DELETE`` with no ``WHERE`` clause) is a
+    deliberate, narrow exception to this module's "batch, never per-element"
+    rule for steady-state writes: this runs at most once ever per legacy
+    row (gated by the migration ledger), not on every ingest cycle.
+    """
+    rows = gc.sql_exec(f"SELECT * FROM {_safe_ident(table)}")
+    if not isinstance(rows, list):
+        return
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        row_id = row.get("id")
+        if row_id is None:
+            continue
+        set_parts: list[str] = []
+        if "tenant_id" in added_columns and not row.get("tenant_id"):
+            set_parts.append(f"tenant_id = {_sql_literal(LEGACY_TENANT_SENTINEL)}")
+        if "revision" in added_columns and not row.get("revision"):
+            set_parts.append(f"revision = {_sql_literal(0)}")
+        if "idempotency_key" in added_columns and not row.get("idempotency_key"):
+            set_parts.append(
+                f"idempotency_key = {_sql_literal(f'legacy-migration-{row_id}')}"
+            )
+        if (
+            table == TABLE_MCP_TOOLS
+            and "schema_digest" in added_columns
+            and not row.get("schema_digest")
+        ):
+            raw_schema = row.get("input_schema")
+            try:
+                parsed_schema = (
+                    json.loads(raw_schema)
+                    if isinstance(raw_schema, str) and raw_schema
+                    else {}
+                )
+            except (TypeError, ValueError):
+                parsed_schema = {}
+            if not isinstance(parsed_schema, dict):
+                parsed_schema = {}
+            set_parts.append(
+                f"schema_digest = {_sql_literal(_schema_digest(parsed_schema))}"
+            )
+        if not set_parts:
+            continue
+        gc.sql_exec(
+            f"UPDATE {_safe_ident(table)} SET {', '.join(set_parts)} "
+            f"WHERE id = {_sql_literal(row_id)}"
+        )
+
+
+def _apply_step(
+    gc: Any, migration_id: str, current_columns: dict[str, set[str]]
+) -> None:
+    table_columns = next(
+        cols for mid, cols in _MIGRATION_COLUMN_STEPS if mid == migration_id
+    )
+    for table, columns in table_columns.items():
+        existing = current_columns.setdefault(table, set())
+        newly_added: list[str] = []
+        for column in columns:
+            if column in existing:
+                continue
+            col_type = "BIGINT" if column == "revision" else "TEXT"
+            gc.sql_exec(
+                f"ALTER TABLE {_safe_ident(table)} ADD COLUMN "
+                f"{_safe_ident(column)} {col_type}"
+            )
+            existing.add(column)
+            newly_added.append(column)
+        if not newly_added:
+            continue
+        # Discovery-binding columns are deliberately left NULL/unbound for
+        # legacy rows (see module docstring / _DISCOVERY_BINDING_MIGRATION)
+        # -- every OTHER step's newly-added columns get a real backfill.
+        if migration_id != "0003_discovery_binding_columns":
+            _backfill_legacy_rows(gc, table, newly_added)
+    checksum = _step_checksum(migration_id, table_columns)
+    gc.sql_exec(
+        f"INSERT INTO {_MIGRATION_LEDGER} "
+        "(id, status, claimant, claimed_at, version, migration_id, checksum, applied_at) "
+        f"VALUES ({_sql_literal('step__' + migration_id)}, {_sql_literal('applied')}, "
+        f"{_sql_literal('')}, {_sql_literal('')}, {_sql_literal(0)}, "
+        f"{_sql_literal(migration_id)}, {_sql_literal(checksum)}, {_sql_literal(_now_iso())}) "
+        "ON CONFLICT (id) DO NOTHING"
+    )
+
+
+def _read_ledger_row(gc: Any, row_id: str) -> dict[str, Any] | None:
+    try:
+        rows = gc.sql_exec(
+            f"SELECT * FROM {_MIGRATION_LEDGER} WHERE id = {_sql_literal(row_id)}"
+        )
+    except Exception:  # noqa: BLE001 - best-effort ledger read, caller decides fallback
+        logger.debug("fleet catalog migration ledger read failed for %s", row_id)
+        return None
+    if not isinstance(rows, list) or not rows:
+        return None
+    row = rows[0]
+    return dict(row) if isinstance(row, Mapping) else None
+
+
+def _finalize_ledger(gc: Any, columns: dict[str, set[str]], *, claimant: str) -> None:
+    digest = _table_schema_digest(columns)
+    now = _now_iso()
+    gc.sql_exec(
+        f"INSERT INTO {_MIGRATION_LEDGER} "
+        "(id, status, claimant, claimed_at, version, migration_id, checksum, applied_at) "
+        f"VALUES ({_sql_literal(_LOCK_ROW_ID)}, {_sql_literal('complete')}, "
+        f"{_sql_literal(claimant)}, {_sql_literal(now)}, {_sql_literal(_SCHEMA_VERSION_CURRENT)}, "
+        f"{_sql_literal(_CURRENT_MARKER)}, {_sql_literal(digest)}, {_sql_literal(now)}) "
+        "ON CONFLICT (id) DO UPDATE SET "
+        f"status = {_sql_literal('complete')}, claimant = {_sql_literal(claimant)}, "
+        f"claimed_at = {_sql_literal(now)}, version = {_sql_literal(_SCHEMA_VERSION_CURRENT)}, "
+        f"migration_id = {_sql_literal(_CURRENT_MARKER)}, checksum = {_sql_literal(digest)}, "
+        f"applied_at = {_sql_literal(now)}"
+    )
+
+
+def _claim_and_migrate(engine: Any) -> bool:
+    """Detect, migrate (if needed), verify, and record the fleet-catalog schema.
+
+    See the module docstring's "NE-052 / AU-CATALOG" section. Returns
+    ``False`` for the same best-effort reasons :func:`ensure_fleet_catalog_tables`
+    always has (no SQL surface, a transient read failure, losing a
+    concurrent migration claim) — never raises for those. Raises
+    :class:`FleetCatalogSchemaDivergedError` / :class:`FleetCatalogSchemaTooNewError`
+    when the store's schema cannot be safely verified — a deliberate
+    fail-closed exception to this module's usual contract.
+    """
+    gc = _graph_compute(engine)
+    if gc is None or not hasattr(gc, "sql_exec"):
+        return False
+
+    for ddl in _DDL.values():
+        gc.sql_exec(ddl)
+    gc.sql_exec(_LEDGER_DDL)
+
+    current_columns: dict[str, set[str]] = {}
+    for table in _DDL:
+        cols = _existing_table_columns(gc, table)
+        if cols is None:
+            return False
+        current_columns[table] = cols
+
+    diverged_reason = _detect_diverged_schema(current_columns)
+    if diverged_reason:
+        raise FleetCatalogSchemaDivergedError(diverged_reason)
+
+    lock_row = _read_ledger_row(gc, _LOCK_ROW_ID)
+    if lock_row is not None:
+        recorded = str(lock_row.get("migration_id") or "")
+        if (
+            recorded
+            and recorded != _CURRENT_MARKER
+            and recorded not in _KNOWN_MIGRATION_IDS
+        ):
+            raise FleetCatalogSchemaTooNewError(
+                f"fleet catalog migration ledger records unknown migration "
+                f"{recorded!r}; this code version cannot verify or extend "
+                "that schema"
+            )
+
+    needed = _steps_needed(current_columns)
+    if not needed:
+        if lock_row is None or lock_row.get("status") != "complete":
+            _finalize_ledger(gc, current_columns, claimant="")
+        return True
+
+    token = uuid.uuid4().hex
+    gc.sql_exec(
+        f"INSERT INTO {_MIGRATION_LEDGER} "
+        "(id, status, claimant, claimed_at, version, migration_id, checksum, applied_at) "
+        f"VALUES ({_sql_literal(_LOCK_ROW_ID)}, {_sql_literal('migrating')}, "
+        f"{_sql_literal(token)}, {_sql_literal(_now_iso())}, {_sql_literal(0)}, "
+        f"{_sql_literal('')}, {_sql_literal('')}, {_sql_literal('')}) "
+        "ON CONFLICT (id) DO NOTHING"
+    )
+    claimed = _read_ledger_row(gc, _LOCK_ROW_ID)
+    if claimed is None or str(claimed.get("claimant")) != token:
+        if claimed is not None and claimed.get("status") == "complete":
+            return True  # someone else already finished -- no-op success
+        logger.info(
+            "fleet catalog schema migration already claimed by another "
+            "process; skipping this attempt (will retry on the next call)"
+        )
+        return False  # lost the race -- a genuine no-op, not an error
+
+    for migration_id in needed:
+        _apply_step(gc, migration_id, current_columns)
+
+    verified_columns: dict[str, set[str]] = {}
+    for table in _DDL:
+        cols = _existing_table_columns(gc, table)
+        if cols is None:
+            raise FleetCatalogSchemaDivergedError(
+                "post-migration verification could not read back the schema"
+            )
+        verified_columns[table] = cols
+    if _steps_needed(verified_columns):
+        raise FleetCatalogSchemaDivergedError(
+            "post-migration verification failed: schema still does not "
+            "match the expected current shape"
+        )
+
+    _finalize_ledger(gc, verified_columns, claimant=token)
+    return True
+
+
+def ensure_fleet_catalog_tables(engine: Any) -> bool:
+    """Ensure all 6 fleet-catalog tables exist AND are migrated to the
+    current (NE-007/NE-052) shape, once per store per process.
+
+    Returns ``False`` (never raises) when the engine has no SQL surface, a
+    schema read failed transiently, or a concurrent migration was lost to
+    another process — the same graceful degrade :mod:`~.table_ingest` uses,
+    so a caller that also writes KG nodes is never blocked by this not being
+    ready yet (e.g. in a unit test with a bare fake engine). The one
+    exception: raises :class:`FleetCatalogMigrationError` when the store's
+    schema cannot be safely verified/migrated (unknown/newer or
+    diverged/hand-modified) — see the module docstring's "NE-052 /
+    AU-CATALOG" section; that case must never be swallowed into a silent
+    skip.
     """
     gc = _graph_compute(engine)
     if gc is None or not hasattr(gc, "sql_exec"):
@@ -562,29 +1094,10 @@ def ensure_fleet_catalog_tables(engine: Any) -> bool:
     key = id(gc)
     if key in _ensured_stores:
         return True
-    for ddl in _DDL.values():
-        gc.sql_exec(ddl)
-    # CREATE TABLE IF NOT EXISTS cannot alter an installation created before
-    # grant binding was introduced.  Add the columns explicitly and leave them
-    # nullable for legacy rows: the registry and writer reject NULL/blank rows
-    # rather than relabelling them as globally visible.  The custom engine
-    # parser accepts ADD COLUMN but does not preserve IF NOT EXISTS on that
-    # action, so schema-read first through information_schema and issue a plain
-    # ADD only when the column is absent.
-    for table, columns in _DISCOVERY_BINDING_MIGRATION.items():
-        existing = _existing_table_columns(gc, table)
-        if existing is None:
-            return False
-        for column in columns:
-            if column in existing:
-                continue
-            gc.sql_exec(
-                f"ALTER TABLE {_safe_ident(table)} ADD COLUMN "
-                f"{_safe_ident(column)} TEXT"
-            )
-            existing.add(column)
-    _ensured_stores.add(key)
-    return True
+    ok = _claim_and_migrate(engine)
+    if ok:
+        _ensured_stores.add(key)
+    return ok
 
 
 def _select_existing(
