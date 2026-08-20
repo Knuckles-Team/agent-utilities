@@ -246,3 +246,4 @@ stable allow-listed codes, safe field pointers, a digest-based report
 reference and the activation digest; native reasons, source values, graph
 names and secrets are not copied into evidence. The engine remains the final
 SHACL/ICV authority, including nonconformance rejection.
+
