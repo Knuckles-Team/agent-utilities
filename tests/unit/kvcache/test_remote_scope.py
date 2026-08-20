@@ -33,7 +33,7 @@ def test_strict_remote_scope_denies_missing_auth_and_bindings() -> None:
             base_url=BASE,
             tenant_ref="tenant-a",
             principal_ref="worker-a",
-            token="not-attached-to-injected-client",
+            token="mock-not-attached-to-injected-client",
             require_tenant_scope=True,
         ),
         client=client,

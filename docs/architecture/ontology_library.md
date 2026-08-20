@@ -98,6 +98,7 @@ set of domain-module files on disk. No module is loaded-but-unlinked or linked-b
 | `ontology_system.ttl` | `…/kg/system` | System: interface link constraints, system-level types. |
 | `ontology_trm.ttl` | `…/kg/trm` | Threat & risk-management (TRM) domain. |
 | `ontology_worldview.ttl` | `…/kg/worldview` | WorldView subject-domain upper taxonomy (`:WorldViewDomain`/`:Topic`, SKOS `broader`/`narrower`) every topic classification hangs from (CONCEPT:AU-KG.enrichment.worldview-subject-ontology). |
+| `ontology_documentation.ttl` | `…/kg/documentation` | Governed documentation projection (`:DocumentationPage`/`:DocumentationRevision`/`:DocumentationEvidence`) for docs-as-code ingestion with provenance and temporal versioning. Markdown remains the source of truth; the graph is a reason/query projection (CONCEPT:AU-KG.ingest.governed-documentation-projection). |
 
 ### Federated (package-contributed) ontologies — CONCEPT:AU-KG.ontology.federation-provider-leg
 
@@ -115,6 +116,7 @@ the import is a tolerated superset no-op (registered in
 | File (in provider wheel) | IRI | Provider package | Role |
 |------|-----|------------------|------|
 | `archivebox.ttl` (`archivebox_api/ontology/`) | `…/kg/archivebox` | `archivebox-api` | Web-archive snapshots, extractor results, and capture provenance. |
+| `documentation.shapes.ttl` (`agent_utilities/knowledge_graph/shapes/`) | Governed documentation SHACL shapes | `agent-utilities` | Constrains `:DocumentationPage`, `:DocumentationRevision` and `:DocumentationEvidence` so a projected page cannot omit its source, revision lineage or evidence. |
 | `connector.shacl.ttl` (`archivebox_api/ontology/shapes/`) | ArchiveBox SHACL shapes | `archivebox-api` | Required source, tenant, access-policy, and evidence metadata for archived results. |
 | `gramps.ttl` (`gramps_mcp/ontology/`) | `…/kg/gramps` | `gramps-mcp` | Genealogy families, events, places, citations, repositories, and media relations. |
 | `connector.shacl.ttl` (`gramps_mcp/ontology/shapes/`) | Gramps SHACL shapes | `gramps-mcp` | Required source, tenant, access-policy, and evidence metadata for citations. |

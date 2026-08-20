@@ -104,6 +104,6 @@ the bundle with `scripts/release/render_loadgen_assets.py` and
 `source-registration.json` is deterministic metadata, not a substitute for the
 canonical Git source gate.
 
-Against the current `/home/apps/workspace/services/loadgen` snapshot the gate
+Against the current `<workspace-root>/services/loadgen` snapshot the gate
 must stop at `source_git_authority_missing`; that is the expected safe result,
 not a reason to initialize a repository beside the snapshot.

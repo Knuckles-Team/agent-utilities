@@ -21,7 +21,7 @@ from agent_utilities.orchestration.agent_dispatch_worker import (
     DispatchWorkerLifecycle,
 )
 
-_CARRIER_SECRET = "unit-only-dispatch-carrier-secret"
+_CARRIER_SECRET = "mock-unit-only-dispatch-carrier-secret"
 
 
 def _carrier(*, now: float = 100.0, tenant: str = "tenant-a") -> DispatchCarrier:

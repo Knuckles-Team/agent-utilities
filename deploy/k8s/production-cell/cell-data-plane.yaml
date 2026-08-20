@@ -123,7 +123,7 @@ spec:
             - {name: SSL_CERT_FILE, value: /var/run/graphos/trust/ca-bundle.pem}
             - {name: GRAPH_SERVICE_TLS_CERT, value: /var/run/graphos/engine-tls/tls.crt}
             - {name: GRAPH_SERVICE_TLS_KEY, value: /var/run/graphos/engine-tls/tls.key}
-            - {name: GRAPH_SERVICE_TLS_SERVER_NAME, value: epistemic-graph-raft.graphos-cell.svc.cluster.local}
+            - {name: GRAPH_SERVICE_TLS_SERVER_NAME, value: "${GRAPHOS_ENGINE_TLS_SERVER_NAME:?required}"}
             - {name: WORKLOAD_IDENTITY_TOKEN_FILE, value: /var/run/secrets/tokens/graphos-token}
           volumeMounts:
             - {name: engine-data, mountPath: /var/lib/epistemic-graph/data}

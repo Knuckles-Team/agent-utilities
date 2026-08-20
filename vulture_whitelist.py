@@ -17,3 +17,18 @@ settings_cls: object = None
 dotenv_settings: object = None
 file_secret_settings: object = None
 _ = (settings_cls, dotenv_settings, file_secret_settings)
+
+# agent_utilities/control_plane/{agents,connectors}/repository.py: the keyset
+# cursor Protocol methods AgentRepository.cursor_for / ConnectorRepository
+# .cursor_for. Their parameter names are the contract -- each one names a real
+# field on the corresponding cursor model (AgentKeysetCursor.after_agent_id at
+# agents/models.py:709, ConnectorKeysetCursor.after_server_id at
+# connectors/models.py:583, both typed Identifier), so they cannot be renamed or
+# underscore-prefixed without breaking the keyset pagination contract.
+# Vulture reports them only because a Protocol body is a docstring and the
+# durable adapters that will implement these are still unlanded (tracked as
+# Case B in the Wire-First disposition), so no implementation binds the names yet.
+after_agent_id: object = None
+after_version_id: object = None
+after_server_id: object = None
+_ = (after_agent_id, after_version_id, after_server_id)

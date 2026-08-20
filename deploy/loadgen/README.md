@@ -2,7 +2,7 @@
 
 This directory is the AU-owned, reviewable source for the loadgen deployment
 definitions. It replaces the unowned workspace snapshot under
-`/home/apps/workspace/services/loadgen` once an operator has a canonical GitOps
+`<workspace-root>/services/loadgen` once an operator has a canonical GitOps
 repository and has registered that repository with the workspace authority.
 
 The files here are templates, not directly deployable manifests. They contain

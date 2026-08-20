@@ -129,8 +129,13 @@ def test_wheel_privacy_gate_rejects_a_planted_credential_uri(tmp_path: Path) -> 
     # match -- the concatenated bytes written into the fixture wheel below
     # are byte-for-byte identical to the un-split literal, which is what
     # check_wheel_privacy.py's own detector must still catch.
+    # Built by explicit ``+`` concatenation, NOT implicit adjacency: ruff format
+    # re-joins adjacent literals that fit on one line, which silently undid the
+    # BUG-228 split and put the complete span back on a single tracked line.
+    # ``+`` survives formatting, and the concatenated bytes are byte-for-byte
+    # identical to the un-split literal.
     planted_credential_line = (
-        b'GRAPH_DB_URI = "postgresql://agent:hunter2@pggraph:5432/agent_kg"'
+        b'GRAPH_DB_URI = "postgresql://agent:hunter2' + b"@" + b'pggraph:5432/agent_kg"'
     )
     wheel = _wheel(
         tmp_path,
