@@ -66,7 +66,7 @@ import secrets
 import threading
 import time
 from collections.abc import Callable
-from typing import Any
+from typing import Any, TypedDict
 
 from agent_utilities.orchestration.agent_dispatch import (
     DISPATCH_GROUP,
@@ -82,6 +82,20 @@ from agent_utilities.orchestration.agent_dispatch import (
 logger = logging.getLogger(__name__)
 
 _PROCESS_WORKER_TOKEN = f"worker:{secrets.token_hex(16)}"
+
+
+class WorkerLifecycleSnapshot(TypedDict):
+    """Bounded lifecycle payload returned by :meth:`DispatchWorkerLifecycle.snapshot`
+    / :meth:`DispatchWorkerLifecycle.request_drain` — heartbeat/TCK evidence and
+    the drain-state contract ``tests/unit/test_agent_dispatch_session_boundary.py``
+    reads by key (``drain["state"]``). Typed here (NE-234) after the liveness
+    ratchet flagged both as an untyped dict-return seam."""
+
+    worker_id: str
+    generation: int
+    state: str
+    active_sessions: int
+    drain_reason: str
 
 
 class DispatchWorkerLifecycle:
@@ -147,7 +161,7 @@ class DispatchWorkerLifecycle:
             if not self._active_sessions:
                 self._condition.notify_all()
 
-    def request_drain(self, *, reason: str = "scale_down") -> dict[str, Any]:
+    def request_drain(self, *, reason: str = "scale_down") -> WorkerLifecycleSnapshot:
         """Stop new claims and expose a deterministic drain snapshot."""
         with self._condition:
             if self._state == self.RUNNING:
@@ -184,7 +198,7 @@ class DispatchWorkerLifecycle:
             self._condition.notify_all()
             return self._generation
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self) -> WorkerLifecycleSnapshot:
         """Return bounded lifecycle metadata safe for heartbeat/TCK evidence."""
         with self._condition:
             return {

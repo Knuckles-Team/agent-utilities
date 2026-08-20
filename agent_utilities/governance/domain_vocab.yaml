@@ -98,6 +98,12 @@ pillars:
     scaling:       [scaling, sharding, capacity, autoscaler, loadgen, gateway-scaling, ha]
     audit:         [audit, compliance, ledger, action-outcome, provenance]
     measurement:   [measurement, verdict, exit-code, load-gate, copy-integrity, merged-tree, safe-process-targeting, background-run, provenance-header]
+    # Added per this file's two-step rule, not ad hoc: the control plane is a
+    # first-class subsystem with 12 typed domains and 10 design documents under
+    # docs/architecture/ (control-plane-foundation, -connectors, -agents,
+    # -migrations, -webui, economics-, connector-, agent-, source-control-plane).
+    # Signals key off the agent_utilities/control_plane/ module dir.
+    control-plane: [control-plane, control_plane, tenant, organization, principal, universal-object, release-pointer, projection, outbox, economics, price-card]
 
   # ─────────────────────────────────────────────────────────────────────────
   GBOT: # GeniusBot Desktop Cockpit — the desktop frontend.

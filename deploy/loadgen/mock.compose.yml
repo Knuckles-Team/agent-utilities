@@ -4,7 +4,7 @@ version: "3.9"
 
 services:
   certification-load-mock:
-    image: "${LOADGEN_IMAGE:?rendered immutable image required}"
+    image: "${LOADGEN_RUNTIME_IMAGE_DIGEST:?rendered immutable image required}"
     user: "10001:10001"
     read_only: true
     cap_drop: ["ALL"]

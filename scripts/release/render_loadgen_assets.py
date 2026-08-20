@@ -255,7 +255,13 @@ def _write_template(
 
 def _values(inputs: LoadgenRenderInputs) -> dict[str, str]:
     return {
-        _token("LOADGEN_IMAGE", ":?rendered immutable image required"): inputs.image,
+        # Named *_IMAGE_DIGEST because the value IS a digest-pinned reference
+        # (repo@sha256:...). check_fleet_supply_chain.py SC-CTR-006 accepts a
+        # required image variable only when its NAME asserts immutability, so a
+        # bare LOADGEN_IMAGE could not be distinguished from a mutable tag.
+        _token(
+            "LOADGEN_RUNTIME_IMAGE_DIGEST", ":?rendered immutable image required"
+        ): inputs.image,
         _token("LOADGEN_IMAGE_REPOSITORY", ":?required"): inputs.image.rsplit("@", 1)[
             0
         ],
