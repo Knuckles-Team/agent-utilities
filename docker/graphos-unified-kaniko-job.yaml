@@ -16,6 +16,7 @@
 #   export SOURCE_DIR=<agent-utilities checkout to build (the Dockerfile + au source)>
 #   export EG_WHEEL_DIR=<dir holding exactly one staged epistemic_graph-*.whl>
 #   export LANGFUSE_AGENT_DIR=<agent-packages/agents/langfuse-agent checkout>
+#   export REGISTRY_CA_CONFIGMAP=<ConfigMap holding the registry's CA, see below>
 #   export IMAGE_REPO=<registry/repository to push to — default the LAN registry>
 #   export CACHE_REPO=<repository for kaniko's layer cache, alongside IMAGE_REPO>
 #   export IMAGE_TAG=<destination tag, e.g. a short git rev — never `latest`>
@@ -33,10 +34,20 @@
 # only for that deliberate promotion step.
 #
 # The LAN registry serves a Caddy-local-CA certificate that kaniko's stock trust store
-# does not carry, so the `homelab-ca-bundle` ConfigMap is mounted into kaniko's cert
-# directory below. That is why this Job trusts the registry WITHOUT `--skip-tls-verify`:
-# disabling verification would also disable it for whatever `IMAGE_REPO` is pointed at
-# next, which is exactly the wrong default to leave lying in a manifest.
+# does not carry, so `${REGISTRY_CA_CONFIGMAP}` is mounted into kaniko's cert directory
+# below. Populate it from the SAME file the cluster nodes already trust for this registry
+# (`/etc/rancher/rke2/registries.yaml` -> `configs.<registry>.tls.ca_file`), so the build
+# and the kubelet that later pulls the image agree on one root:
+#
+#   sudo cat /etc/rancher/rke2/registry.arpa-ca.pem > /tmp/registry-ca.pem
+#   kubectl -n image-build create configmap registry-arpa-ca \
+#     --from-file=ca-bundle.pem=/tmp/registry-ca.pem
+#
+# Do NOT reach for the general `homelab-ca-bundle` here: it carries `CN=homelab-arpa-ca`,
+# which does not sign this registry (openssl verify fails with code 20), so it looks
+# plausible and silently does nothing. And this Job deliberately does not pass
+# `--skip-tls-verify`: that would also disable verification for whatever `IMAGE_REPO` is
+# pointed at next, which is the wrong default to leave lying in a manifest.
 #
 # ── Why a Job on the cluster and not a local `docker build` ──
 # The hosts run containerd under RKE2; there is no dockerd anywhere to build with.
@@ -117,10 +128,12 @@ spec:
             - name: docker-config
               mountPath: /kaniko/.docker/config.json
               subPath: config.json
-            # Trust the internal registry's Caddy-local-CA chain. Mounted at the path
-            # kaniko's Go TLS stack already reads, so no --skip-tls-verify is needed.
-            - name: homelab-ca
-              mountPath: /kaniko/ssl/certs/ca-certificates.crt
+            # Trust the internal registry's Caddy-local-CA chain. kaniko APPENDS this
+            # specific path to its own trust store on startup; mounting over
+            # ca-certificates.crt instead replaces the public roots and breaks the base
+            # image pull, and is also silently ignored for the registry check.
+            - name: registry-ca
+              mountPath: /kaniko/ssl/certs/additional-ca-cert-bundle.crt
               subPath: ca-bundle.pem
       volumes:
         - name: workspace
@@ -144,9 +157,9 @@ spec:
             items:
               - key: config.json
                 path: config.json
-        - name: homelab-ca
+        - name: registry-ca
           configMap:
-            name: homelab-ca-bundle
+            name: ${REGISTRY_CA_CONFIGMAP}
             items:
               - key: ca-bundle.pem
                 path: ca-bundle.pem
