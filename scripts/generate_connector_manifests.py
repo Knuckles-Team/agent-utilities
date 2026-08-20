@@ -951,10 +951,17 @@ def main() -> int:
     if args.all:
         if not args.agents_root:
             ap.error("--all requires --agents-root")
+        # A connector package is identified by shipping a pyproject.toml -- NOT
+        # by merely being a subdirectory. `agents/tests/` is a stress-test
+        # directory with no package identity, and enumerating it blindly made
+        # --all abort with "provider is not registered in the MCP fleet
+        # registry" for something that was never a provider.
         roots = sorted(
             d
             for d in args.agents_root.iterdir()
-            if d.is_dir() and not d.name.startswith(".")
+            if d.is_dir()
+            and not d.name.startswith(".")
+            and (d / "pyproject.toml").is_file()
         )
     elif args.connector_root:
         roots = [args.connector_root]
