@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-389 publishable pages · 197 direct nav targets · 129 public capabilities · 873 action rows · 568 typed configuration fields · 365 runtime-only call-site inputs.
+409 publishable pages · 201 direct nav targets · 129 public capabilities · 873 action rows · 572 typed configuration fields · 368 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -146,6 +146,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 - [ACL Registration Convergence — Write-Time Registration + Read-Time Fallback](../architecture/acl_registration_convergence.md) — direct nav
 - [Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity](../architecture/adaptive_model_concurrency.md) — direct nav
+- [Agent control-plane release admission](../architecture/agent-control-plane.md) — direct nav
 - [The Agent-Operator Program — closing the loops](../architecture/agent-operator-program.md) — direct nav
 - [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — direct nav
 - [Agent Communication Bus (AgentBus)](../architecture/agent_bus.md) — direct nav
@@ -158,6 +159,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Camunda + ARIS ↔ Knowledge Graph (bidirectional, OWL/RDF-native)](../architecture/camunda_aris_kg_integration.md) — direct nav
 - [Chunked async drain — one big sourcesync(full) → capacity-guarded waves](../architecture/chunked-async-drain.md) — direct nav
 - [CISO Assistant ↔ Knowledge Graph (bidirectional, OWL/RDF-native)](../architecture/ciso_assistant_kg_integration.md) — direct nav
+- [Engine-authoritative cluster discovery and session continuity](../architecture/cluster-discovery-session-continuity.md) — catalog
 - [Code Intelligence — type/scope-resolved call graph (CONCEPT:EG-KG.compute.type-scope-resolved-call)](../architecture/code_intelligence.md) — direct nav
 - [Codebase context via the KG — query, don't grep](../architecture/codebase-context.md) — direct nav
 - [Company Brain Runtime — Wiring the 6 Layers](../architecture/company_brain_runtime.md) — direct nav
@@ -165,8 +167,14 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Cross-host concept reservation authority](../architecture/concept-reservation-authority.md) — catalog
 - [Knowledge Graph Ingestion — Concept Extraction Standards](../architecture/concept_extraction_standards.md) — catalog
 - [Configuration Reference & Flag Audit](../architecture/configuration.md) — direct nav
+- [Connector control-plane contract](../architecture/connector-control-plane.md) — catalog
 - [Containerized deployment](../architecture/containerized-deployment.md) — direct nav
 - [Content-Aware Ingestion (ArchiveBox · crawl4ai · scholarx)](../architecture/content-aware-ingestion.md) — direct nav
+- [Control-plane foundation contracts](../architecture/control-plane-foundation.md) — catalog
+- [Governed control-plane migrations](../architecture/control-plane-migrations.md) — catalog
+- [Control-plane Web UI authority](../architecture/control-plane-webui.md) — catalog
+- [Policy-bound resolved runs](../architecture/control_plane_policy_runs.md) — catalog
+- [Immutable workflow control plane](../architecture/control_plane_workflows.md) — catalog
 - [NE-115 real data-preparation acceptance](../architecture/data-prep-acceptance.md) — direct nav
 - [Arrow data-preparation kernel](../architecture/data-prep-arrow-kernel.md) — direct nav
 - [Optional operator data-quality certification](../architecture/data-quality-certification.md) — direct nav
@@ -176,6 +184,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Drift-proof release & versioning](../architecture/drift_proof_release.md) — direct nav
 - [Durable Execution — the unified plane (supersedes restate natively)](../architecture/durable-execution.md) — direct nav
 - [Dynamic graph construction](../architecture/dynamic-graph-construction.md) — catalog
+- [Economics and SLO control-plane contract](../architecture/economics-control-plane.md) — catalog
 - [Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)](../architecture/edit_application_engine.md) — direct nav
 - [Empirical Development Standards — the incidents behind the rules](../architecture/empirical-development-standards.md) — catalog
 - [Tenant-Partitioned Engine Sharding](../architecture/engine_sharding.md) — direct nav
@@ -191,6 +200,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [The Evolvable Surface — Native Program Optimization](../architecture/evolvable_surface.md) — direct nav
 - [Failure-Driven Evolution (CONCEPT:AU-AHE.harness.failure-evolution)](../architecture/failure_driven_evolution.md) — direct nav
 - [fastmcp 4 as the default MCP stack (CONCEPT:AU-ECO.mcp.protocol-compat-bridge)](../architecture/fastmcp4-default.md) — direct nav
+- [Fleet scale authority](../architecture/fleet-scale-authority.md) — catalog
 - [Fleet Autonomy Control Plane (OS-5.24 — AU-OS.config.health-gated-deploy-rollback, OS-5.29)](../architecture/fleet_autonomy.md) — direct nav
 - [FrontendContribution.v1 — package-authored WebUI descriptors (GOC-24)](../architecture/frontend-contributions.md) — direct nav
 - [Gateway daemon — the one host process and everything it runs](../architecture/gateway_daemon.md) — direct nav
@@ -199,6 +209,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Global Workspace Attention (GWT)](../architecture/global_workspace_attention.md) — direct nav
 - [GOC-44 dependency/runtime compatibility — baseline revalidation (2026-08-16)](../architecture/goc-44-dependency-runtime-compatibility-baseline.md) — catalog
 - [Governed JSON-OCEL exchange](../architecture/governed_ocel.md) — direct nav
+- [Governed retrieval](../architecture/governed_retrieval.md) — catalog
 - [Graph Authority Convergence](../architecture/graph-authority-convergence.md) — direct nav
 - [Graph Backend Architecture](../architecture/graph_backends_architecture.md) — direct nav
 - [Epistemic Graph Service Layer Architecture](../architecture/graph_service_layer.md) — catalog
@@ -240,6 +251,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Observability — Metrics, Logs, Traces, Alerts](../architecture/observability.md) — direct nav
 - [Ontology Federation & Package Migration](../architecture/ontology-federation.md) — direct nav
 - [Ontology-Guided Ingestion & Entity Resolution](../architecture/ontology-guided-ingestion.md) — direct nav
+- [Ontology integrity-policy activation (CONCEPT:AU-KG.ontology.integrity-bootstrap)](../architecture/ontology-integrity-activation.md) — catalog
 - [Ontology-native classification — full handoff (Phase A → checkpoint → Phase B)](../architecture/ontology-native-classification.md) — catalog
 - [Ontology Library](../architecture/ontology_library.md) — direct nav
 - [Architecture: The Unified Ontology System](../architecture/ontology_system.md) — direct nav
@@ -257,16 +269,22 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — direct nav
 - [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — direct nav
 - [Relational authority and registry read model](../architecture/relational-authority.md) — direct nav
+- [Relational control-plane authority and placement](../architecture/relational-control-plane.md) — catalog
 - [Repository-development WorkItem authority](../architecture/repository-workitem-authority.md) — direct nav
+- [Resource-pool capability authority](../architecture/resource-pool-authority.md) — catalog
 - [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — direct nav
 - [Runtime-Reliability Loop — detect → signal → gap → heal](../architecture/runtime-reliability-loop.md) — direct nav
 - [Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)](../architecture/sampling_profiles.md) — direct nav
+- [Scaling Authority Contract (NE-164)](../architecture/scaling-authority.md) — direct nav
+- [Durable ScaleIntent actuation](../architecture/scaling-intent-actuation.md) — catalog
 - [The Self-Evolution Flywheel — transparent, steerable, governed](../architecture/self-evolution-flywheel.md) — direct nav
 - [Self-Improving Reasoning Substrate](../architecture/self_improving_reasoning_substrate.md) — direct nav
+- [Service-surface scale units](../architecture/service-scale-units.md) — catalog
 - [The shared workspace .venv — sync, flip-on-merge, drift, upgrade](../architecture/shared-venv-lifecycle.md) — catalog
 - [Shortcut-Resistant Search-Task Synthesis](../architecture/shortcut_resistant_search_synthesis.md) — catalog
 - [Skill-Workflow → Knowledge-Graph Ingestion](../architecture/skill_workflow_ingestion.md) — catalog
 - [Skills-over-MCP: One Ranked Capability Space (CONCEPT:AU-KG.retrieval.unified-capability-contract)](../architecture/skills_over_mcp.md) — direct nav
+- [Source authority and evidence-gated checkpoints](../architecture/source-control-plane.md) — direct nav
 - [Durable-State Externalization & Multi-Host Operation](../architecture/state_externalization.md) — direct nav
 - [Canonical execution trace and outcome ontology](../architecture/trace_outcome_ontology.md) — direct nav
 - [Cross-layer deployment troubleshooting — the troubleshoot context provider](../architecture/troubleshooting.md) — direct nav
@@ -400,6 +418,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 ## Scaling
 
 - [Capacity Model (Plan 07: Path to Scale)](../scaling/capacity_model.md) — direct nav
+- [Live workload certification contract](../scaling/live-loadgen-certification.md) — direct nav
+- [Agent-utilities scale claim register](../scaling/scale_claims.md) — catalog
 
 ## Learn
 

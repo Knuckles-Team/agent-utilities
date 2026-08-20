@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1212
+total_concepts: 1216
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -164,6 +164,8 @@ concepts:
   pillar: AU-AHE
   status: live
   code_paths:
+  - agent_utilities/harness/__init__.py
+  - agent_utilities/harness/documentation_benchmark.py
   - agent_utilities/knowledge_graph/research/capability_ratchet.py
   doc: capability-benchmark regression ratchet re-measuring a published worktree against a persisted baseline
     and abandoning the branch on any tracked-capability regression
@@ -790,6 +792,7 @@ concepts:
   pillar: AU-AHE
   status: live
   code_paths:
+  - agent_utilities/control_plane/agents/models.py
   - agent_utilities/knowledge_graph/research/evolution_state.py
   - agent_utilities/models/knowledge_graph.py
   doc: skill
@@ -1266,6 +1269,7 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/control_plane/connectors/models.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
@@ -3845,17 +3849,18 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/engine.py
   doc: build the capability writeback callable
 - id: AU-KG.ingest.change-envelope
-  name: boundary gate
+  name: AU-ECO.connector.incremental-poll-watermark
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/automation/worldmodel_pipeline.py
+  - agent_utilities/data_prep/connector_contract.py
   - agent_utilities/knowledge_graph/argumentation/aif.py
   - agent_utilities/knowledge_graph/ingestion/change_envelope.py
   - agent_utilities/knowledge_graph/ingestion/engine.py
   - agent_utilities/knowledge_graph/ingestion/external_graph.py
   - agent_utilities/knowledge_graph/ingestion/graphql_connection.py
-  doc: boundary gate
+  doc: AU-ECO.connector.incremental-poll-watermark
 - id: AU-KG.ingest.chunk-overlap-stage
   name: the one-call form the ingestion engine / MCP wrapper invokes
   pillar: AU-KG
@@ -4191,6 +4196,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/control_plane/sources/models.py
   - agent_utilities/gateway/registry_api.py
   - agent_utilities/knowledge_graph/core/fleet_catalog_tables.py
   - agent_utilities/knowledge_graph/core/source_sync.py
@@ -4240,6 +4246,13 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/promotion.py
   - agent_utilities/mcp/tools/claim_tools.py
   doc: per-pack/per-domain
+- id: AU-KG.ingest.governed-documentation-projection
+  name: AU-KG.ingest.governed-documentation-projection
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/governed_documentation.py
+  doc: AU-KG.ingest.governed-documentation-projection
 - id: AU-KG.ingest.hardened-priority-scheduled-task
   name: Hardened priority and scheduled task queue with retry and dead-letter
   pillar: AU-KG
@@ -5092,6 +5105,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/data_prep/connector_activation.py
   - agent_utilities/knowledge_graph/ontology/lifecycle.py
   doc: an
 - id: AU-KG.ontology.activation-icv-fallback
@@ -5251,6 +5265,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/knowledge_graph/ontology/activation.py
   - agent_utilities/knowledge_graph/ontology/evolution.py
   - agent_utilities/knowledge_graph/ontology/lifecycle.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -5431,16 +5446,16 @@ concepts:
   doc: InferenceProfile + SamplingConfigurable ontology interfaces and a first-class Model object type
     projecting configured models and their tuned sampling profiles to OWL
 - id: AU-KG.ontology.integrity-bootstrap
-  name: ontology integrity-policy activation
+  name: the shadow graph is a real
   pillar: AU-KG
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/ontology/activation.py
   - agent_utilities/knowledge_graph/ontology/evolution.py
   - agent_utilities/knowledge_graph/ontology/lifecycle.py
-  doc: register + verify a dedicated ontology graph's SHACL/ICV integrity policy (IcvConfigure)
-    before any AddTriples, binding (tenant, graph, policy digest) with a typed mismatch error,
-    idempotent on rerun, with bounded retry/backoff and readiness-visible failure
+  - agent_utilities/knowledge_graph/readiness.py
+  - agent_utilities/mcp/kg_server.py
+  doc: the shadow graph is a real
 - id: AU-KG.ontology.kg-2
   name: AU-KG.ontology.kg-2
   pillar: AU-KG
@@ -6886,6 +6901,13 @@ concepts:
   - agent_utilities/knowledge_graph/retrieval/reasoning_reranker.py
   - agent_utilities/knowledge_graph/retrieval/score_gate.py
   doc: Unset → the dependency-free
+- id: AU-KG.sharding.cluster-members-discovery-session
+  name: Verified
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/cluster_discovery.py
+  doc: Verified
 - id: AU-KG.sharding.elastic-over-kg-shard
   name: The elastic layer over KG-2.58 shard routing
   pillar: AU-KG
@@ -9102,6 +9124,13 @@ concepts:
   code_paths:
   - agent_utilities/nested_context.py
   doc: Nested Subfolder Instructions
+- id: AU-OS.control-plane.economics
+  name: auditable usage, pricing, and SLO read
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/control_plane/economics/models.py
+  doc: auditable usage, pricing, and SLO read
 - id: AU-OS.deployment.agent-factory-autoload
   name: the agent factory loads flat
   pillar: AU-OS
@@ -9185,7 +9214,7 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/manifest.py
   doc: flagging repos
 - id: AU-OS.deployment.fleet-lifecycle-control
-  name: this function only actuates + records
+  name: Allowed ⇒ actuate + schedule an
   pillar: AU-OS
   status: live
   code_paths:
@@ -9199,7 +9228,7 @@ concepts:
   - agent_utilities/orchestration/fleet_autoscaler.py
   - agent_utilities/orchestration/fleet_reconciler.py
   - agent_utilities/runtime/policy.py
-  doc: this function only actuates + records
+  doc: Allowed ⇒ actuate + schedule an
 - id: AU-OS.deployment.genesis-environment-profiles
   name: see
   pillar: AU-OS
@@ -9879,6 +9908,7 @@ concepts:
   pillar: AU-OS
   status: live
   code_paths:
+  - agent_utilities/control_plane/foundation/models.py
   - agent_utilities/security/tenant_rbac_admission.py
   doc: root-cause fix for the P0
 - id: AU-OS.identity.tenant-rbac-admission-deploy-bridge
@@ -10373,6 +10403,9 @@ concepts:
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/orchestration/action_policy.py
   - agent_utilities/orchestration/fleet_autoscaler.py
+  - agent_utilities/orchestration/scaling_authority.py
+  - agent_utilities/orchestration/scaling_intent_reconciler.py
+  - agent_utilities/orchestration/scaling_signal_authority.py
   - agent_utilities/orchestration/scaling_signals.py
   doc: Reactive replica autoscaling
 - id: AU-OS.scaling.resolve-active-channel-once
@@ -10390,6 +10423,13 @@ concepts:
   - agent_utilities/harness/__init__.py
   - agent_utilities/harness/adaptation_benchmark.py
   doc: AU-OS.scaling.safe-2
+- id: AU-OS.scaling.service-scale-units
+  name: one typed scale policy for ingestion
+  pillar: AU-OS
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/service_scale_units.py
+  doc: one typed scale policy for ingestion
 - id: AU-OS.scaling.shard-topology-visibility-per
   name: Shard topology visibility with per-shard reachability status surfaces and per-endpoint engine
     gauges and counters
@@ -10754,16 +10794,14 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/event_log_adapter.py
   doc: this module is the lossless-boundary
 - id: EG-KG.ontology.rdf-update-guard
-  name: mandatory graph-scoped SHACL/ICV write guard -- AddTriples/RemoveTriples/ApplyMutation reject
-    every write against a graph with no registered integrity policy (IcvConfigure), no pass-through
+  name: rejects the load outright
   pillar: EG-KG
   status: live
   code_paths:
-  - epistemic-graph/src/server/icv_guard.rs
-  - epistemic-graph/src/server/mod.rs
-  - epistemic-graph/epistemic_graph/client.py
-  doc: mandatory graph-scoped SHACL/ICV write guard -- AddTriples/RemoveTriples/ApplyMutation reject
-    every write against a graph with no registered integrity policy (IcvConfigure), no pass-through
+  - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/ontology/activation.py
+  - agent_utilities/knowledge_graph/ontology/lifecycle.py
+  doc: rejects the load outright
 - id: EG-KG.ontology.resp2-resp3-codec-round
   name: Redis RESP2/RESP3 wire protocol + core structures over the KV surface
   pillar: EG-KG

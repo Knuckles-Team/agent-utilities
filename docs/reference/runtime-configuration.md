@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-568 typed fields · 365 runtime-only call-site inputs.
+572 typed fields · 368 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -749,7 +749,7 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `AGENT_UTILITIES_SELF_INGEST_SPILL_PATH` | 1 |
 | `AGENT_UTILITIES_SELF_INGEST_TIMEOUT` | 1 |
 | `AGENT_UTILITIES_TESTING` | 8 |
-| `AGENT_UTILITIES_TOKEN_SECRET` | 2 |
+| `AGENT_UTILITIES_TOKEN_SECRET` | 3 |
 | `APPDATA` | 1 |
 | `ARCHI_MODEL_PATH` | 1 |
 | `ARD_FEDERATION_MODE` | 1 |
@@ -798,6 +798,9 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `ENGINE_SURFACE_PROMETHEUS_URL` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_ADDR` | 2 |
 | `EPISTEMIC_GRAPH_KVCACHE_MAX_CONNECTIONS` | 1 |
+| `EPISTEMIC_GRAPH_KVCACHE_PRINCIPAL` | 1 |
+| `EPISTEMIC_GRAPH_KVCACHE_REQUIRE_AUTH` | 1 |
+| `EPISTEMIC_GRAPH_KVCACHE_TENANT` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_TIMEOUT_S` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE` | 1 |
 | `EPISTEMIC_GRAPH_KVCACHE_TLS_PROFILE_REF` | 1 |
