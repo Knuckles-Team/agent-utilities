@@ -2323,8 +2323,16 @@ def _get_engine():
             )
 
             register_process_data_prep_runtime(value)
-        except ImportError:
-            pass
+        except ImportError as exc:
+            # Best-effort: a deployment profile without the data-prep tools
+            # module simply has nothing to register here. Logged (not
+            # silently dropped) so a genuinely broken import inside an
+            # extra that IS supposed to be installed is still visible.
+            logger.warning(
+                "runtime authority registration skipped — data_prep_tools "
+                "unavailable: %s",
+                exc,
+            )
         return value
 
     engine = IntelligenceGraphEngine.get_active()

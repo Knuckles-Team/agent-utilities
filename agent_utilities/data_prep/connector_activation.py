@@ -343,7 +343,9 @@ class ActivationAdmissionReport(ProtocolModel):
     outcome: AdmissionOutcome
     report_ref: OpaqueReference
     binding_digest: Digest | None = None
-    findings: tuple[ActivationFinding, ...] = Field(default_factory=tuple, max_length=16)
+    findings: tuple[ActivationFinding, ...] = Field(
+        default_factory=tuple, max_length=16
+    )
     native_status: NativeStatus | None = None
 
     @model_validator(mode="after")
@@ -425,6 +427,23 @@ def _identity_findings(
     return findings
 
 
+# Keyed by the same "mapping"/"shacl"/"icv" artifact kind as `expected`
+# below. An f-string built from `kind` (e.g. f"{kind}_ref_mismatch") is only
+# a plain `str` to the type checker even though every value it can produce
+# at runtime is a real `FindingCode` member -- this explicit table keeps the
+# mapping typed instead of asserting the narrowing away.
+_REF_MISMATCH_CODES: dict[str, FindingCode] = {
+    "mapping": "mapping_ref_mismatch",
+    "shacl": "shacl_ref_mismatch",
+    "icv": "icv_ref_mismatch",
+}
+_DIGEST_MISMATCH_CODES: dict[str, FindingCode] = {
+    "mapping": "mapping_digest_mismatch",
+    "shacl": "shacl_digest_mismatch",
+    "icv": "icv_digest_mismatch",
+}
+
+
 def _artifact_findings(
     artifacts: Mapping[str, Any] | None,
     binding: ActivationBinding,
@@ -448,9 +467,9 @@ def _artifact_findings(
         if actual.get("kind") != kind:
             findings.append(("prep_artifact_mismatch", f"{pointer}/kind"))
         if actual.get("ref") != approved.ref:
-            findings.append((f"{kind}_ref_mismatch", f"{pointer}/ref"))
+            findings.append((_REF_MISMATCH_CODES[kind], f"{pointer}/ref"))
         if actual.get("digest") != approved.digest:
-            findings.append((f"{kind}_digest_mismatch", f"{pointer}/digest"))
+            findings.append((_DIGEST_MISMATCH_CODES[kind], f"{pointer}/digest"))
     return findings
 
 
@@ -518,7 +537,11 @@ def _activation_claim_findings(
     binding: ActivationBinding,
 ) -> list[tuple[FindingCode, str | None]]:
     provenance = getattr(envelope, "provenance", None)
-    claim = provenance.get("connector_activation") if isinstance(provenance, Mapping) else None
+    claim = (
+        provenance.get("connector_activation")
+        if isinstance(provenance, Mapping)
+        else None
+    )
     if not isinstance(claim, Mapping):
         return [("activation_claim_missing", "/provenance/connector_activation")]
     if claim.get("binding_digest") != binding.binding_digest:
@@ -534,7 +557,10 @@ def _activation_claim_findings(
         )
     if claim.get("connector_version") != binding.connector_version:
         findings.append(
-            ("connector_version_mismatch", "/provenance/connector_activation/connector_version")
+            (
+                "connector_version_mismatch",
+                "/provenance/connector_activation/connector_version",
+            )
         )
     if claim.get("target_graph") != binding.target_graph:
         findings.append(
@@ -551,7 +577,9 @@ def _activation_claim_findings(
     return findings
 
 
-def _session_findings(session: Any | None, binding: ActivationBinding) -> list[tuple[FindingCode, str | None]]:
+def _session_findings(
+    session: Any | None, binding: ActivationBinding
+) -> list[tuple[FindingCode, str | None]]:
     if session is None:
         return [("session_missing", "/session")]
     findings: list[tuple[FindingCode, str | None]] = []
@@ -591,7 +619,9 @@ def bind_activation(
 
     findings = _identity_findings(envelope, binding)
     if prepared_contract is not None:
-        findings.extend(_contract_identity_findings(envelope, binding, prepared_contract))
+        findings.extend(
+            _contract_identity_findings(envelope, binding, prepared_contract)
+        )
     provenance = getattr(envelope, "provenance", {})
     if isinstance(provenance, Mapping) and "connector_activation" in provenance:
         # A caller may re-bind an envelope only to the same approved binding;
@@ -689,7 +719,11 @@ class ActivationAdmissionAdapter:
         if status == "rejected":
             code: FindingCode = "engine_rejected"
             native_status = "rejected"
-        elif status == "failed" and isinstance(result, Mapping) and result.get("error") == "NativeChangeEnvelopeUnavailable":
+        elif (
+            status == "failed"
+            and isinstance(result, Mapping)
+            and result.get("error") == "NativeChangeEnvelopeUnavailable"
+        ):
             code = "native_unavailable"
             native_status = "unavailable"
         else:
