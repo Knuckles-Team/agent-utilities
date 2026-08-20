@@ -40,6 +40,9 @@ class _FakeGraphCompute:
         self.added = []
         self.removed = []
 
+    def icv_configure(self, shapes, *, graph=None, mode="enforce"):
+        return True
+
     def add_triples(self, turtle=None, ntriples=None):
         self.added.append(turtle)
         return {"triples": 3}
@@ -71,7 +74,14 @@ def test_delete_retracts_axioms_from_engine():
 
 def test_delete_reports_gap_when_retract_unavailable():
     class _NoRetract:
-        graph_compute = type("GC", (), {"add_triples": lambda self, **k: {}})()
+        graph_compute = type(
+            "GC",
+            (),
+            {
+                "icv_configure": lambda self, shapes, **k: True,
+                "add_triples": lambda self, **k: {},
+            },
+        )()
 
     lc = OntologyLifecycle(engine=_NoRetract())
     lc.load(PETS_TTL, source_type="text")
@@ -94,10 +104,18 @@ def test_delete_no_engine_is_registry_only():
 
 
 class _FailingGraphCompute:
-    """A live engine attached, but ``add_triples`` always rejects the candidate
-    (e.g. the engine's SHACL/ICV write guard rejecting malformed identifiers)."""
+    """A live engine attached: the integrity POLICY registers/verifies fine
+    (the zero-triple activation probe succeeds), but the real ontology
+    CONTENT is rejected once loaded (e.g. the candidate violates a
+    domain-specific SHACL constraint the generic activation shapes don't
+    cover)."""
+
+    def icv_configure(self, shapes, *, graph=None, mode="enforce"):
+        return True
 
     def add_triples(self, turtle=None, ntriples=None):
+        if not turtle:
+            return {"triples": 0}  # the activation module's readback probe
         raise RuntimeError("engine rejected candidate: SHACL/ICV violation")
 
 
@@ -201,6 +219,9 @@ class _FakeNodeStore:
             for nid, p in self._node_data.items()
             if p.get("node_type") == label
         ]
+
+    def icv_configure(self, shapes, *, graph=None, mode="enforce"):
+        return True
 
     def add_triples(self, turtle=None, ntriples=None):
         return {"triples": 3}

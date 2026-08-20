@@ -17,7 +17,12 @@ green while queries fail is worse than one that is red.
 **What this module is.** ``collect_readiness_snapshot()`` is the ONE snapshot
 authority that joins: engine reachability, the (GOC-15-owned) identity/policy
 carrier, a canonical-route catalog digest, source-sync connector coverage,
-dense/sparse retrieval-index signal, and — the check that actually proves the
+dense/sparse retrieval-index signal, ontology integrity-policy activation
+(CONCEPT:AU-KG.ontology.integrity-bootstrap — ``ontology_activation``, closing the
+sibling defect class where the engine's RDF write guard rejects every
+ontology load with no registered SHACL/ICV policy and the process keeps
+serving anyway; see :mod:`agent_utilities.knowledge_graph.ontology.activation`),
+and — the check that actually proves the
 defect class above is closed — a **synthetic query canary** that runs the SAME
 ``build_code_context`` implementation the live ``graph_code(action=
 "code_context")`` MCP/REST route dispatches to
@@ -464,6 +469,45 @@ def _check_sparse_index(
 
 
 # --------------------------------------------------------------------------- #
+# ontology_activation — CONCEPT:AU-KG.ontology.integrity-bootstrap. The live
+# incident this check exists to close: the engine's RDF write guard rejects
+# EVERY ontology AddTriples until a SHACL/ICV policy is registered for the
+# graph, ontology activation silently fails at boot, and the process keeps
+# serving anyway — a permanent half-initialised state that no prior check
+# caught (``engine``/``catalog`` only prove a listener + importable routes
+# exist, not that ontology bootstrap actually completed). A graph that was
+# NEVER attempted, or whose attempt gave up, reads ``unavailable`` here —
+# fails closed, never silently ``ready``, mirroring ``synthetic_query``'s own
+# "never trust a signal about state; check state" contract.
+# --------------------------------------------------------------------------- #
+def _check_ontology_activation(engine: Any, tenant: str) -> ReadinessCheckDict:
+    if engine is None:
+        return _check("unavailable", reason="no_engine_supplied")
+
+    from .core.shard_topology import tenant_graph_name
+    from .ontology.activation import get_activation_status
+
+    graph_name = tenant_graph_name(tenant or "", base="ontology")
+    status = get_activation_status(graph_name)
+    if status is None:
+        return _check(
+            "unavailable",
+            reason="ontology_activation_not_attempted",
+            detail={"graph": graph_name},
+        )
+    if status.get("state") == "ready":
+        return _check(
+            "ready",
+            detail={"graph": graph_name, **(status.get("detail") or {})},
+        )
+    return _check(
+        "unavailable",
+        reason=status.get("reason") or "ontology_activation_failed",
+        detail={"graph": graph_name, **(status.get("detail") or {})},
+    )
+
+
+# --------------------------------------------------------------------------- #
 # rollup + the public collector
 # --------------------------------------------------------------------------- #
 def _rollup(
@@ -521,6 +565,7 @@ def collect_readiness_snapshot(
     )
     checks["catalog"] = _check_catalog(dict(required_routes or DEFAULT_REQUIRED_ROUTES))
     checks["source_sync"] = _check_source_sync(connector_freshness)
+    checks["ontology_activation"] = _check_ontology_activation(engine, tenant)
     checks["synthetic_query"] = _check_synthetic_query(
         engine, query=synthetic_query, node_id=synthetic_node_id, deadline_s=deadline_s
     )

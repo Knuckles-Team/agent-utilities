@@ -344,6 +344,24 @@ def materialize_shadow(
             "loaded_to_engine": False,
             "reason": "no engine RDF surface",
         }
+    # CONCEPT:AU-KG.ontology.integrity-bootstrap — the shadow graph is a real
+    # named graph the engine's RDF write guard governs exactly like the
+    # tenant's durable ontology graph: it rejects EVERY AddTriples until a
+    # SHACL/ICV policy is registered. Ephemeral does not mean exempt.
+    from .activation import OntologyActivationError, ensure_ontology_graph_activated
+
+    try:
+        ensure_ontology_graph_activated(
+            shadow_gc,
+            tenant=tenant,
+            graph_name=shadow_graph,
+            ontology_turtle=turtle,
+        )
+    except OntologyActivationError as exc:
+        return shadow_graph, {
+            "loaded_to_engine": False,
+            "reason": f"integrity policy activation failed: {exc}",
+        }
     try:
         report = shadow_gc.add_triples(turtle=turtle)
         return shadow_graph, {"loaded_to_engine": True, **(report or {})}

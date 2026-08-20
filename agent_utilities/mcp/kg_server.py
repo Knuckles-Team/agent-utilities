@@ -3552,11 +3552,27 @@ def _ingest_self_tool_surface_at_boot(engine: Any) -> None:
 
 
 def _sync_ontologies_at_boot(engine: Any) -> None:
-    """Load package ontologies after runnable resources are available."""
+    """Load package ontologies after runnable resources are available.
+
+    CONCEPT:AU-KG.ontology.integrity-bootstrap — ``activate_graph()`` runs FIRST
+    and unconditionally, so the dedicated ontology graph's SHACL/ICV integrity
+    policy is registered even on a boot with zero federated ontology content
+    to load (which would otherwise never reach the ``load()``/``_load_axioms``
+    chokepoint that also performs activation). Idempotent; safe every boot.
+    """
     from agent_utilities.knowledge_graph.ontology.lifecycle import OntologyLifecycle
     from agent_utilities.mcp.tools.ontology_tools import _sync_package_ontologies
 
-    report = _sync_package_ontologies(OntologyLifecycle(engine=engine))
+    lc = OntologyLifecycle(engine=engine)
+    activation = lc.activate_graph()
+    if not activation.get("activated") and activation.get("reason") not in (
+        "no engine RDF surface",
+    ):
+        logger.error(
+            "Ontology graph activation failed at boot: %s", activation.get("reason")
+        )
+
+    report = _sync_package_ontologies(lc)
     if report.get("providers_loaded"):
         logger.info(
             "Ontology federation: loaded %d package ontolog(ies) at boot",

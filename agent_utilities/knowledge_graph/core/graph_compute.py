@@ -3896,8 +3896,30 @@ class GraphComputeEngine:
         CONCEPT:AU-KG.compute.native-sparql-owl-shacl — routes to ``client.rdf.add_triples``. Used to seed OWL
         axioms / RDF facts the native reasoner and SPARQL surface operate over. Raises
         if the engine/op is unavailable.
+
+        The engine's RDF write guard (CONCEPT:EG-KG.ontology.rdf-update-guard) rejects
+        EVERY call here — even a zero-triple one — until the connection's graph has a
+        registered SHACL/ICV policy via :meth:`icv_configure`. There is no "no policy
+        configured" pass-through; see
+        :mod:`agent_utilities.knowledge_graph.ontology.activation`.
         """
         return dict(self._client.rdf.add_triples(turtle=turtle, ntriples=ntriples))
+
+    def icv_configure(
+        self, shapes: str, *, graph: str | None = None, mode: str = "enforce"
+    ) -> bool:
+        """(Re)register the connection's graph's SHACL shapes as write-time ICV.
+
+        CONCEPT:EG-KG.ontology.rdf-update-guard — routes to ``client.rdf.icv_configure``,
+        the engine's OWN policy-registration authority: ``add_triples``/
+        ``remove_triples`` REQUIRE a graph to carry a registered integrity policy
+        before they accept any RDF write at all. This is the ONLY supported way to
+        satisfy that requirement — never bypass or relax the guard from this client.
+        Registration is policy-idempotent server-side (re-registering the same
+        ``shapes``/``mode`` on the same graph replays the prior result rather than
+        erroring or duplicating). Raises if the engine/op is unavailable.
+        """
+        return bool(self._client.rdf.icv_configure(shapes, graph=graph, mode=mode))
 
     def _send_wire(self, method: str, payload: dict[str, Any] | None = None) -> Any:
         """Invoke a raw engine wire op by name (one round-trip).

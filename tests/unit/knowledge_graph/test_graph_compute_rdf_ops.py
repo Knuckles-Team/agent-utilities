@@ -36,6 +36,21 @@ class _RdfTyped:
         self.calls.append(("drop_named_graph", graph))
         return {"dropped": graph}
 
+    def icv_configure(self, shapes, *, graph=None, mode="enforce"):
+        self.calls.append(("icv_configure", shapes, graph, mode))
+        return True
+
+
+def test_icv_configure_routes_to_client_rdf_icv_configure():
+    """CONCEPT:AU-KG.ontology.integrity-bootstrap — ``icv_configure`` is the ONLY
+    supported way to register a graph's SHACL/ICV policy; it must route straight
+    through to ``client.rdf.icv_configure`` with the caller's exact args."""
+    rdf = _RdfTyped()
+    eng = _engine_with_client(type("C", (), {"rdf": rdf})())
+    out = eng.icv_configure("@prefix sh: <x> .", graph="ontology", mode="enforce")
+    assert out is True
+    assert rdf.calls[0] == ("icv_configure", "@prefix sh: <x> .", "ontology", "enforce")
+
 
 def test_remove_triples_prefers_typed_wrapper():
     rdf = _RdfTyped()
