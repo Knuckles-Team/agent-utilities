@@ -291,6 +291,27 @@ _WATCHED_KINDS = {
     "rollback_service",
 }
 
+# `scale_service` is watched CONDITIONALLY, so it is deliberately not a member
+# of `_WATCHED_KINDS`. Before actuation moved here from the autoscaler, a
+# successful scale scheduled a deploy watch when the direction was up, or when
+# the policy file set `options: {watch_scale_down: true}`. Moving actuation to
+# the reconciler dropped that watch entirely and left `watch_scale_down` a dead
+# option read by nothing -- a silent capability loss rather than a design
+# decision, since the fleet-scale-authority document records every other
+# behaviour change and says nothing about removing it.
+_SCALE_KIND = "scale_service"
+
+
+def _should_watch(request: Any, policy: Any) -> bool:
+    """Whether a successful actuation of ``request`` schedules a deploy watch."""
+    if request.kind in _WATCHED_KINDS:
+        return True
+    if request.kind != _SCALE_KIND:
+        return False
+    if str(request.params.get("direction") or "").lower() == "up":
+        return True
+    return bool(policy.option("watch_scale_down", False))
+
 
 def _now_iso() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -1016,7 +1037,17 @@ class FleetReconciler:
             if not complete or target is None:
                 continue
             if obs.status == STATUS_UP and obs.replicas is not None and obs.replicas != target:
-                params = {"replicas": target}
+                # Record the direction the reconciler is actuating. The
+                # autoscaler's own request carried it, but the reconciler
+                # rebuilds this request from the intent and previously dropped
+                # it -- which left `_should_watch` unable to tell a scale-up
+                # from a scale-down, and made the audit row poorer than the
+                # proposal it came from.
+                params = {
+                    "replicas": target,
+                    "from_replicas": obs.replicas,
+                    "direction": "up" if target > obs.replicas else "down",
+                }
                 if intent is not None and str(intent.get("status")) == _SCALE_INTENT_ACCEPTED:
                     params.update(
                         {
@@ -1174,6 +1205,25 @@ class FleetReconciler:
             entry["intent_transition"] = (
                 next_status if _cas_succeeded(transition) else "conflict"
             )
+            # The accepted-intent branch is the PRIMARY actuation path for
+            # native autoscaling, and it carried no health watch at all -- the
+            # scale-up watch the autoscaler used to schedule was lost when
+            # actuation moved here. Same predicate and same simulated/ok guards
+            # as the policy-decision path below, so a dry run still never
+            # schedules one.
+            if (
+                _should_watch(request, self.policy)
+                and execution.get("ok")
+                and next_status != _SCALE_INTENT_SIMULATED
+            ):
+                from agent_utilities.orchestration.deploy_watch import watch_deploy
+
+                entry["watch_job"] = watch_deploy(
+                    self.engine,
+                    request.target,
+                    version=str(request.params.get("version") or ""),
+                    source="reconciler",
+                )
             return entry
         decision = self.policy.decide(request)
         entry: dict[str, Any] = {
@@ -1199,7 +1249,7 @@ class FleetReconciler:
                 else _SCALE_INTENT_FAILED,
             )
             if (
-                request.kind in _WATCHED_KINDS
+                _should_watch(request, self.policy)
                 and entry["execution"].get("ok")
                 and entry["state"] != _SCALE_INTENT_SIMULATED
             ):
@@ -1478,7 +1528,7 @@ class FleetReconciler:
                                 e,
                             )
             if (
-                request.kind in _WATCHED_KINDS
+                _should_watch(request, self.policy)
                 and execution.get("ok")
                 and execution.get("state") != _SCALE_INTENT_SIMULATED
             ):
