@@ -16,9 +16,9 @@ import pytest
 from agent_utilities.core.shared_resource_leases import (
     LeaseDenied,
     LeaseScopeMismatch,
-    SQLiteResourceLeaseAuthority,
     ResourceCell,
     ResourceLeaseRequest,
+    SQLiteResourceLeaseAuthority,
     StaleLeaseEpoch,
     StaleLeaseFence,
 )
@@ -68,12 +68,14 @@ def _cross_process_contender(path: str, output: object) -> None:
 
     authority = SQLiteResourceLeaseAuthority(path)
     try:
-        authority.acquire(_request(tenant="tenant-b", principal="worker-b", key="child"), now_ms=10)
+        authority.acquire(
+            _request(tenant="tenant-b", principal="worker-b", key="child"), now_ms=10
+        )
     except LeaseDenied:
         # A full cell held by the first process must deny the second process.
-        getattr(output, "put")("denied")
+        output.put("denied")
     else:
-        getattr(output, "put")("admitted")
+        output.put("admitted")
 
 
 def test_two_process_contenders_share_one_durable_cell(tmp_path: Path) -> None:
@@ -85,7 +87,9 @@ def test_two_process_contenders_share_one_durable_cell(tmp_path: Path) -> None:
     # persisted transaction, not a Python lock, owns the contention decision.
     second = SQLiteResourceLeaseAuthority(path)
     with pytest.raises(LeaseDenied):
-        second.acquire(_request(tenant="tenant-b", principal="worker-b", key="second"), now_ms=2)
+        second.acquire(
+            _request(tenant="tenant-b", principal="worker-b", key="second"), now_ms=2
+        )
 
     queue = multiprocessing.Queue()
     process = multiprocessing.Process(
@@ -117,7 +121,9 @@ def test_crashed_holder_expires_and_is_reclaimed(tmp_path: Path) -> None:
     second = SQLiteResourceLeaseAuthority(path)
     first.acquire(_request(key="crashed"), now_ms=1)
     with pytest.raises(LeaseDenied):
-        second.acquire(_request(tenant="tenant-b", principal="worker-b", key="wait"), now_ms=50)
+        second.acquire(
+            _request(tenant="tenant-b", principal="worker-b", key="wait"), now_ms=50
+        )
     assert second.reclaim_expired(now_ms=101) == ("gpu_concurrency:gpu-group-a:1",)
     recovered = second.acquire(
         _request(tenant="tenant-b", principal="worker-b", key="recovered"),
@@ -172,7 +178,9 @@ def test_tenant_quota_and_reserved_floor_preserve_fairness(tmp_path: Path) -> No
     )
     authority = SQLiteResourceLeaseAuthority(path, cells=(cell,))
 
-    def request(tenant: str, key: str, priority: str = "background") -> ResourceLeaseRequest:
+    def request(
+        tenant: str, key: str, priority: str = "background"
+    ) -> ResourceLeaseRequest:
         return ResourceLeaseRequest(
             resource_kind="kv_cache_slots",
             resource_id="kv-a",
@@ -195,7 +203,9 @@ def test_tenant_quota_and_reserved_floor_preserve_fairness(tmp_path: Path) -> No
     with pytest.raises(LeaseDenied):
         authority.acquire(request("tenant-a", "a-2"), now_ms=1)
     # The reserved interactive floor remains available during the background flood.
-    interactive = authority.acquire(request("tenant-b", "interactive", "interactive"), now_ms=1)
+    interactive = authority.acquire(
+        request("tenant-b", "interactive", "interactive"), now_ms=1
+    )
     assert interactive.request.priority_class == "interactive"
 
 

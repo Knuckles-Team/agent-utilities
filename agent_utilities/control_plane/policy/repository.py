@@ -9,7 +9,9 @@ from typing import Protocol, runtime_checkable
 
 from .models import (
     ApprovalDecision,
+    ApprovalRef,
     CapabilityBinding,
+    ExceptionRef,
     ExecutionBudget,
     PolicyAuthorization,
     PolicyException,

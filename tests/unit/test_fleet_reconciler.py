@@ -275,9 +275,7 @@ def test_granted_approval_is_executed_and_stamped(engine, tmp_path, patch_desire
     # execution now stamps ``simulated``, not ``executed``, and never
     # schedules a watch.
     reconciler_actuator = RecordingActuator()
-    rec = patch_desired(
-        _reconciler(engine, {}, tmp_path, actuator=reconciler_actuator)
-    )
+    rec = patch_desired(_reconciler(engine, {}, tmp_path, actuator=reconciler_actuator))
     engine.add_node(
         "action_approval:xyz",
         "ActionApproval",

@@ -30,7 +30,6 @@ from agent_utilities.control_plane.economics import (
     window_for,
 )
 
-
 NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
 DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64

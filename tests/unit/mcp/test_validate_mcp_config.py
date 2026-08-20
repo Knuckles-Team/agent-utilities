@@ -52,7 +52,9 @@ def test_validate_all_valid():
     config = {
         "mcpServers": {
             "github-mcp": {"url": "http://github-mcp.example/mcp"},
-            "container-manager-mcp": {"url": "http://container-manager-mcp.example/mcp"},
+            "container-manager-mcp": {
+                "url": "http://container-manager-mcp.example/mcp"
+            },
             "graph-os": {"command": "graph-os"},
         }
     }
@@ -60,7 +62,9 @@ def test_validate_all_valid():
     # off, since an unscoped Caddyfile may legitimately route third-party hosts
     # never meant to appear in mcp_config.json); opt in to ".example" to exercise
     # the coverage-gap detection this test is about.
-    report = vmc.validate(config, vmc.parse_caddy_hosts(CADDY), managed_suffix=".example")
+    report = vmc.validate(
+        config, vmc.parse_caddy_hosts(CADDY), managed_suffix=".example"
+    )
     assert report["passed"] is True
     assert report["invalid"] == {}
     assert set(report["ok"]) == {"github-mcp", "container-manager-mcp"}
@@ -85,7 +89,9 @@ def test_validate_live_marks_unreachable(monkeypatch):
     config = {
         "mcpServers": {
             "github-mcp": {"url": "http://github-mcp.example/mcp"},
-            "container-manager-mcp": {"url": "http://container-manager-mcp.example/mcp"},
+            "container-manager-mcp": {
+                "url": "http://container-manager-mcp.example/mcp"
+            },
         }
     }
 

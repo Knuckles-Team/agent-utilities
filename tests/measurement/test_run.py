@@ -37,10 +37,20 @@ def test_run_rejects_shell_string_to_prevent_pipeline_shape():
 
 def test_run_distinguishes_signal_kill_from_pass():
     with pytest.raises(KilledBySignalError):
-        run([sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGTERM)"])
+        run(
+            [
+                sys.executable,
+                "-c",
+                "import os, signal; os.kill(os.getpid(), signal.SIGTERM)",
+            ]
+        )
 
     result = run(
-        [sys.executable, "-c", "import os, signal; os.kill(os.getpid(), signal.SIGTERM)"],
+        [
+            sys.executable,
+            "-c",
+            "import os, signal; os.kill(os.getpid(), signal.SIGTERM)",
+        ],
         raise_on_signal=False,
     )
     assert result.killed_by_signal == 15
@@ -59,9 +69,7 @@ def test_linter_catches_incident_1_exact_shape():
 def test_linter_does_not_flag_pipefail_guarded_version():
     """The correct fix (pipefail + PIPESTATUS) must not be flagged."""
     script = (
-        "set -o pipefail\n"
-        "python3 script.py | tail -25\n"
-        'echo "EXIT=${PIPESTATUS[0]}"\n'
+        'set -o pipefail\npython3 script.py | tail -25\necho "EXIT=${PIPESTATUS[0]}"\n'
     )
     hits = scan_for_pipeline_exit_antipattern(script)
     assert hits == []

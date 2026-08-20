@@ -558,7 +558,9 @@ def _normalize_load_report(report: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(runtime, dict) or set(runtime) != runtime_keys:
         raise CampaignError("load report runtime binding is not exact")
     if runtime.get("mode") != "live":
-        raise CampaignError("production certification cannot consume a mock load report")
+        raise CampaignError(
+            "production certification cannot consume a mock load report"
+        )
     for field in sorted(runtime_keys - {"mode"}):
         _proof_digest(runtime.get(field), f"load report runtime {field}")
     return {

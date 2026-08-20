@@ -32,7 +32,6 @@ from agent_utilities.orchestration.service_scale_units import (
     evaluate_scale,
 )
 
-
 NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
 FUTURE = NOW + timedelta(minutes=5)
 
@@ -118,7 +117,9 @@ def _continuity(
     )
 
 
-def _safety(*, overloaded: bool = False, noisy_neighbor: bool = False) -> LoadSafetyObservation:
+def _safety(
+    *, overloaded: bool = False, noisy_neighbor: bool = False
+) -> LoadSafetyObservation:
     return LoadSafetyObservation(
         overloaded=overloaded,
         noisy_neighbor=noisy_neighbor,
@@ -233,7 +234,12 @@ def _api_contract(
             allow_scale_to_zero=allow_scale_to_zero,
             allow_scale_from_zero=allow_scale_from_zero,
         ),
-        allowed_signals=("request_rate", "in_flight", "p95_latency_ms", "error_rate_ppm"),
+        allowed_signals=(
+            "request_rate",
+            "in_flight",
+            "p95_latency_ms",
+            "error_rate_ppm",
+        ),
         required_capacity_axes=axes,
         replica_demands=_demands(axes),
         continuity=ContinuityContract(
@@ -289,7 +295,9 @@ def test_missing_signal_blocks_without_optimistic_scale() -> None:
 
     assert decision.action == "blocked"
     assert "signal_missing" in decision.reasons
-    assert any(item.status == "missing" and item.kind == "signal" for item in decision.evidence)
+    assert any(
+        item.status == "missing" and item.kind == "signal" for item in decision.evidence
+    )
 
 
 def test_stale_provider_budget_blocks_mcp() -> None:
@@ -356,7 +364,12 @@ def test_query_reader_refuses_to_scale_when_engine_authority_is_saturated() -> N
             scale_up_cooldown_s=0,
             scale_down_cooldown_s=0,
         ),
-        allowed_signals=("request_rate", "in_flight", "p95_latency_ms", "error_rate_ppm"),
+        allowed_signals=(
+            "request_rate",
+            "in_flight",
+            "p95_latency_ms",
+            "error_rate_ppm",
+        ),
         required_capacity_axes=axes,
         replica_demands=_demands(axes),
         engine_authority_axes=("read_admission_slots", "engine_bytes", "fsync_iops"),
@@ -490,7 +503,9 @@ def test_partition_lease_and_drain_bounds_fail_closed() -> None:
     with pytest.raises(ValueError, match="partitions_per_replica"):
         PartitionLeaseContract(partitioned=True)
     with pytest.raises(ValueError, match="TTL and fencing"):
-        PartitionLeaseContract(partitioned=True, partitions_per_replica=1, lease_required=True)
+        PartitionLeaseContract(
+            partitioned=True, partitions_per_replica=1, lease_required=True
+        )
 
     decision = evaluate_scale(
         _mcp_contract(drain_seconds=301),

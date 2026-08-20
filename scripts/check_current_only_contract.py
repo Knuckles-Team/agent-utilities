@@ -24,8 +24,8 @@ violation silenced -- without a documented reason.
 
 from __future__ import annotations
 
-import subprocess
 import argparse
+import subprocess
 import sys
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -797,6 +797,7 @@ def main(argv: list[str] | None = None) -> int:
     if report.new:
         return 1
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

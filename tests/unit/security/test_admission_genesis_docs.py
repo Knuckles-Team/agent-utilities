@@ -96,7 +96,7 @@ def test_reference_doc_exists_and_is_substantial() -> None:
         "## Rotation and revocation",
         "openssl rand -hex 32",
         # Failure modes keyed to the real symptoms named in the brief.
-        "Pattern(\"tenant__homelab__*\")",
+        'Pattern("tenant__homelab__*")',
         "SystemAdmissionError",
         # Honest current-state disclosure (hard rule: never claim it works
         # live on this deployment).

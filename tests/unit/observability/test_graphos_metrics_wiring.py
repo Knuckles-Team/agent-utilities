@@ -520,7 +520,9 @@ class TestOtlpTraceWiring:
             "http://tempo.example.invalid:4318/v1/traces",
         )
         assert (
-            obs._resolve_traces_endpoint("https://langfuse.example.invalid/api/public/otel")
+            obs._resolve_traces_endpoint(
+                "https://langfuse.example.invalid/api/public/otel"
+            )
             == "http://tempo.example.invalid:4318/v1/traces"
         )
 

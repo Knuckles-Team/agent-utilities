@@ -135,7 +135,10 @@ def test_bug004_from_code_context_answer_degraded_status_becomes_real_error():
         error={"code": "engine_degraded", "cause_type": "EngineCircuitOpenError"},
     )
     b = EvidenceBundle.from_code_context_answer(ans)
-    assert b.error == {"code": "engine_degraded", "cause_type": "EngineCircuitOpenError"}
+    assert b.error == {
+        "code": "engine_degraded",
+        "cause_type": "EngineCircuitOpenError",
+    }
     # The misleading re-ingest suggestion must NOT appear for a degraded read.
     assert not any("source_sync" in a for a in b.next_actions)
     assert any("retry" in a.lower() for a in b.next_actions)

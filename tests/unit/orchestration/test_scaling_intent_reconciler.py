@@ -7,7 +7,7 @@ execution-key dedupe contract; they do not belong in this unit fixture.
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -20,8 +20,8 @@ from agent_utilities.orchestration.scaling_intent_reconciler import (
     ScaleControllerMode,
     ScaleFence,
     ScaleIntentConflict,
-    ScaleIntentRecord,
     ScaleIntentReconciler,
+    ScaleIntentRecord,
     ScaleIntentState,
     ScaleLeaseUnavailable,
     ScaleObservationStatus,
@@ -33,10 +33,12 @@ from agent_utilities.orchestration.scaling_intent_reconciler import (
 pytestmark = pytest.mark.concept("AU-OS.scaling.reactive-replica-autoscaling")
 
 
-NOW = datetime(2026, 1, 1, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 1, 1, 12, tzinfo=UTC)
 
 
-def _target(*, uid: str = "target-uid-1", resource_version: str = "rv-1") -> ScaleTargetBinding:
+def _target(
+    *, uid: str = "target-uid-1", resource_version: str = "rv-1"
+) -> ScaleTargetBinding:
     return ScaleTargetBinding(
         cluster_id="cluster-1",
         runtime_id="runtime-1",
@@ -192,9 +194,7 @@ def test_crash_after_result_repairs_observation_without_reinvoking_actuator() ->
         now=NOW,
     )
 
-    result = _reconciler(ledger, actuator).reconcile(
-        intent, controller_id="writer-1"
-    )
+    result = _reconciler(ledger, actuator).reconcile(intent, controller_id="writer-1")
 
     assert result.replayed is True
     assert result.observation is not None
@@ -211,9 +211,7 @@ def test_crash_before_result_retries_same_execution_key_under_new_call() -> None
     assert lease is not None
     ledger.mark_started(intent, persisted.execution, lease, now=NOW)
 
-    result = _reconciler(ledger, actuator).reconcile(
-        intent, controller_id="writer-1"
-    )
+    result = _reconciler(ledger, actuator).reconcile(intent, controller_id="writer-1")
 
     assert result.state == ScaleIntentState.VERIFIED.value
     assert len(actuator.calls) == 1
@@ -234,7 +232,10 @@ def test_retryable_failure_reuses_key_but_requires_a_newer_fenced_attempt() -> N
     assert second.state == ScaleIntentState.VERIFIED.value
     assert len(actuator.calls) == 2
     assert {call.execution_key for call in actuator.calls} == {intent.execution_key}
-    assert actuator.calls[0].lease.lease_instance_id != actuator.calls[1].lease.lease_instance_id
+    assert (
+        actuator.calls[0].lease.lease_instance_id
+        != actuator.calls[1].lease.lease_instance_id
+    )
     assert second.execution.result_attempt == 2
 
 
@@ -286,7 +287,9 @@ def test_missing_policy_fails_closed_before_actuation() -> None:
         clock=lambda: NOW,
     )
 
-    result = reconciler.reconcile(_intent(execution_key="scale-no-policy-1"), controller_id="writer-1")
+    result = reconciler.reconcile(
+        _intent(execution_key="scale-no-policy-1"), controller_id="writer-1"
+    )
 
     assert result.state == ScaleIntentState.DENIED.value
     assert actuator.calls == []
@@ -319,7 +322,9 @@ def test_denial_requires_scoped_break_glass_audit_before_actuation() -> None:
 
     assert approved.break_glass_audit is not None
     assert approved.state == ScaleIntentState.VERIFIED.value
-    assert ledger.events.index("break_glass:audit") < ledger.events.index("actuator:call")
+    assert ledger.events.index("break_glass:audit") < ledger.events.index(
+        "actuator:call"
+    )
     assert len(actuator.calls) == 1
 
 

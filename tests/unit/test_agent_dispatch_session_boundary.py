@@ -21,7 +21,6 @@ from agent_utilities.orchestration.agent_dispatch_worker import (
     DispatchWorkerLifecycle,
 )
 
-
 _CARRIER_SECRET = "unit-only-dispatch-carrier-secret"
 
 

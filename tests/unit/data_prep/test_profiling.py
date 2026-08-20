@@ -60,9 +60,7 @@ def test_empty_profile_is_typed_and_value_free() -> None:
 
 
 def test_all_null_column_suppresses_statistics() -> None:
-    result = CleanPipeline(_plan()).profile(
-        pa.table({"value": [None, None, None]})
-    )
+    result = CleanPipeline(_plan()).profile(pa.table({"value": [None, None, None]}))
 
     column = result.column_profiles[0]
     assert column.null_count == 3

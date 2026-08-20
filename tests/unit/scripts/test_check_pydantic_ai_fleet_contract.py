@@ -98,9 +98,7 @@ def test_fixture_requires_lock_resolution_for_selected_runtime_manifest(
     lock = tmp_path / "consumer" / "uv.lock"
     lock.parent.mkdir()
     lock.write_text(
-        "[[package]]\n"
-        'name = "consumer"\n'
-        'version = "1.0.0"\n',
+        '[[package]]\nname = "consumer"\nversion = "1.0.0"\n',
         encoding="utf-8",
     )
     manifest = lock.parent / "pyproject.toml"
@@ -122,9 +120,7 @@ def test_fixture_requires_lock_resolution_for_au_runtime_extra(
     lock = tmp_path / "consumer" / "uv.lock"
     lock.parent.mkdir()
     lock.write_text(
-        "[[package]]\n"
-        'name = "consumer"\n'
-        'version = "1.0.0"\n',
+        '[[package]]\nname = "consumer"\nversion = "1.0.0"\n',
         encoding="utf-8",
     )
     manifest = lock.parent / "pyproject.toml"

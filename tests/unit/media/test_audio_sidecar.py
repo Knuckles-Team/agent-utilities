@@ -142,7 +142,12 @@ def _mock_decode_result(**overrides):
     raw = {
         "segments": [
             {"start_ms": 0, "end_ms": 1500, "text": "hello there", "confidence": 0.95},
-            {"start_ms": 1500, "end_ms": 3200, "text": "general kenobi", "confidence": 0.88},
+            {
+                "start_ms": 1500,
+                "end_ms": 3200,
+                "text": "general kenobi",
+                "confidence": 0.88,
+            },
         ],
     }
     raw.update(overrides)

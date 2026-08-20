@@ -81,7 +81,7 @@ def strip_inherited_git_repository_env() -> None:
             os.environ.pop(name, None)
 
 
-def sanitized_git_env(base: "dict[str, str] | None" = None) -> "dict[str, str]":
+def sanitized_git_env(base: dict[str, str] | None = None) -> dict[str, str]:
     """Return a copy of ``base`` (default ``os.environ``) with the dangerous
     vars stripped, for a call site that wants to pass an explicit ``env=``
     rather than mutate the whole process's environment."""

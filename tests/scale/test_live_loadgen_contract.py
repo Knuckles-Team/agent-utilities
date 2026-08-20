@@ -29,7 +29,12 @@ from scripts.scale.loadgen_source_authority import (
 )
 from scripts.scale.workload_contract import load_workload_contract
 
-_FIXTURE = Path(__file__).resolve().parents[1] / "fixtures" / "scale" / "live-loadgen-runtime.json"
+_FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures"
+    / "scale"
+    / "live-loadgen-runtime.json"
+)
 
 
 def _environment() -> dict[str, str]:
@@ -147,7 +152,9 @@ def test_production_campaign_binds_the_real_loadgen_entry_point() -> None:
         {"--report-json": "./report.json"},
     ],
 )
-def test_production_campaign_rejects_mock_or_unbound_loadgen(mutation: dict[str, str]) -> None:
+def test_production_campaign_rejects_mock_or_unbound_loadgen(
+    mutation: dict[str, str],
+) -> None:
     command = [
         "/opt/agent-utilities/bin/graphos-certification-load",
         "--engine",

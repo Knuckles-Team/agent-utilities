@@ -98,8 +98,8 @@ class WorkloadEvidence:
 
     @classmethod
     def from_mapping(
-        cls, contract: "WorkloadContract", raw: Mapping[str, Any]
-    ) -> "WorkloadEvidence":
+        cls, contract: WorkloadContract, raw: Mapping[str, Any]
+    ) -> WorkloadEvidence:
         if not hasattr(contract, "contract_digest"):
             raise WorkloadContractError("workload evidence requires a loaded contract")
         if not isinstance(raw, Mapping):
@@ -225,7 +225,9 @@ def _mapping(value: Any, ctx: str) -> dict[str, Any]:
 def _integer(value: Any, field: str) -> int:
     if isinstance(value, bool):
         raise WorkloadContractError(f"workload contract {field} must be an integer")
-    if isinstance(value, float) and (not math.isfinite(value) or not value.is_integer()):
+    if isinstance(value, float) and (
+        not math.isfinite(value) or not value.is_integer()
+    ):
         raise WorkloadContractError(f"workload contract {field} must be an integer")
     if isinstance(value, str) and not re.fullmatch(r"[+-]?\d+", value.strip()):
         raise WorkloadContractError(f"workload contract {field} must be an integer")
@@ -243,11 +245,11 @@ def _number(value: Any, field: str) -> float:
     try:
         number = float(value)
     except (TypeError, ValueError, OverflowError) as exc:
-        raise WorkloadContractError(f"workload contract {field} must be numeric") from exc
-    if not math.isfinite(number):
         raise WorkloadContractError(
-            f"workload contract {field} must be finite"
-        )
+            f"workload contract {field} must be numeric"
+        ) from exc
+    if not math.isfinite(number):
+        raise WorkloadContractError(f"workload contract {field} must be finite")
     return number
 
 
@@ -274,12 +276,14 @@ def _contract_digest(raw: Mapping[str, Any]) -> str:
             material, sort_keys=True, separators=(",", ":"), allow_nan=False
         ).encode("utf-8")
     except (TypeError, ValueError) as exc:
-        raise WorkloadContractError("workload contract cannot be canonically hashed") from exc
+        raise WorkloadContractError(
+            "workload contract cannot be canonically hashed"
+        ) from exc
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def bind_workload_evidence(
-    contract: "WorkloadContract", evidence: Mapping[str, Any] | None = None, **fields: Any
+    contract: WorkloadContract, evidence: Mapping[str, Any] | None = None, **fields: Any
 ) -> WorkloadEvidence:
     """Bind a result to one explicit mock/live authority and four digests.
 
@@ -299,7 +303,7 @@ def bind_workload_evidence(
 
 
 def bind_evidence(
-    contract: "WorkloadContract", evidence: Mapping[str, Any] | None = None, **fields: Any
+    contract: WorkloadContract, evidence: Mapping[str, Any] | None = None, **fields: Any
 ) -> WorkloadEvidence:
     """Compatibility spelling for callers that use the shorter evidence name."""
 
@@ -514,7 +518,9 @@ def _validate(c: WorkloadContract) -> None:
             "and reference_active_fraction"
         )
     if c.avg_turn_duration_s < 0:
-        raise WorkloadContractError("concurrency.avg_turn_duration_s must be non-negative")
+        raise WorkloadContractError(
+            "concurrency.avg_turn_duration_s must be non-negative"
+        )
     if c.concurrent_turns_in_flight > 0 and c.avg_turn_duration_s <= 0:
         raise WorkloadContractError(
             "concurrency.avg_turn_duration_s must be > 0 when turns are in flight"
@@ -571,9 +577,15 @@ def _validate(c: WorkloadContract) -> None:
     for field_name, value in (
         ("mix.interactive_fraction", c.interactive_fraction),
         ("mix.background_fraction", c.background_fraction),
-        ("tenants.elephant_tenant.residents_fraction", c.tenants.elephant.residents_fraction),
+        (
+            "tenants.elephant_tenant.residents_fraction",
+            c.tenants.elephant.residents_fraction,
+        ),
         ("tenants.elephant_tenant.active_fraction", c.tenants.elephant.active_fraction),
-        ("tenants.elephant_tenant.messages_fraction", c.tenants.elephant.messages_fraction),
+        (
+            "tenants.elephant_tenant.messages_fraction",
+            c.tenants.elephant.messages_fraction,
+        ),
     ):
         if not math.isfinite(value) or not 0.0 <= value <= 1.0:
             raise WorkloadContractError(
@@ -596,14 +608,21 @@ def _validate(c: WorkloadContract) -> None:
         raise WorkloadContractError(
             "tenants.elephant_tenant.residents_fraction must be in (0, 1]"
         )
-    if not (math.isfinite(c.availability_target_percent) and 0.0 < c.availability_target_percent <= 100.0):
+    if not (
+        math.isfinite(c.availability_target_percent)
+        and 0.0 < c.availability_target_percent <= 100.0
+    ):
         raise WorkloadContractError(
             "availability.target_percent must be finite and in (0, 100]"
         )
     if not math.isfinite(c.rpo_seconds) or c.rpo_seconds < 0:
-        raise WorkloadContractError("availability.rpo_seconds must be finite and non-negative")
+        raise WorkloadContractError(
+            "availability.rpo_seconds must be finite and non-negative"
+        )
     if not math.isfinite(c.rto_seconds) or c.rto_seconds < 0:
-        raise WorkloadContractError("availability.rto_seconds must be finite and non-negative")
+        raise WorkloadContractError(
+            "availability.rto_seconds must be finite and non-negative"
+        )
     if c.rto_seconds < c.rpo_seconds:
         raise WorkloadContractError("availability.rto_seconds must be >= rpo_seconds")
     for axis, target in c.slo.items():

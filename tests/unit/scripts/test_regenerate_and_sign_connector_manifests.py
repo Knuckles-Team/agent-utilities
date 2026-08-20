@@ -18,8 +18,6 @@ import json
 from pathlib import Path
 from unittest import mock
 
-import pytest
-
 _SPEC = importlib.util.spec_from_file_location(
     "regenerate_and_sign_connector_manifests",
     Path(__file__).resolve().parents[3]
@@ -34,7 +32,9 @@ _SPEC.loader.exec_module(orch)
 
 class TestVerifyFreeze:
     def test_clean_tree_and_matching_sha_has_no_problems(self, monkeypatch):
-        monkeypatch.setattr(orch, "_git", lambda *a: "" if a[0] == "status" else "abc123")
+        monkeypatch.setattr(
+            orch, "_git", lambda *a: "" if a[0] == "status" else "abc123"
+        )
         problems = orch.verify_freeze(frozen_sha="abc123", expected_lock_digest=None)
         assert problems == []
 
@@ -46,12 +46,16 @@ class TestVerifyFreeze:
         assert any("not clean" in p for p in problems)
 
     def test_sha_mismatch_is_a_problem(self, monkeypatch):
-        monkeypatch.setattr(orch, "_git", lambda *a: "" if a[0] == "status" else "def456")
+        monkeypatch.setattr(
+            orch, "_git", lambda *a: "" if a[0] == "status" else "def456"
+        )
         problems = orch.verify_freeze(frozen_sha="abc123", expected_lock_digest=None)
         assert any("!= expected frozen commit" in p for p in problems)
 
     def test_dependency_lock_drift_is_a_problem(self, monkeypatch):
-        monkeypatch.setattr(orch, "_git", lambda *a: "" if a[0] == "status" else "abc123")
+        monkeypatch.setattr(
+            orch, "_git", lambda *a: "" if a[0] == "status" else "abc123"
+        )
         monkeypatch.setattr(
             "agent_utilities.knowledge_graph.ontology.ontology_integrity.dependency_lock_digest",
             lambda: "f" * 64,
@@ -64,10 +68,14 @@ class TestVerifyFreeze:
     def test_unreadable_lock_is_a_problem_not_a_crash(self, monkeypatch):
         from agent_utilities.knowledge_graph.ontology import ontology_integrity
 
-        monkeypatch.setattr(orch, "_git", lambda *a: "" if a[0] == "status" else "abc123")
+        monkeypatch.setattr(
+            orch, "_git", lambda *a: "" if a[0] == "status" else "abc123"
+        )
 
         def _raise():
-            raise ontology_integrity.ReleaseSigningError("dependency lock is unreadable")
+            raise ontology_integrity.ReleaseSigningError(
+                "dependency lock is unreadable"
+            )
 
         monkeypatch.setattr(
             "agent_utilities.knowledge_graph.ontology.ontology_integrity.dependency_lock_digest",
@@ -115,7 +123,9 @@ class TestMainRefusesOnFreezeFailureBeforeRegenerating:
     def test_frozen_sha_mismatch_exits_nonzero_without_calling_regenerate(
         self, monkeypatch, capsys
     ):
-        monkeypatch.setattr(orch, "_git", lambda *a: "" if a[0] == "status" else "wrong-sha")
+        monkeypatch.setattr(
+            orch, "_git", lambda *a: "" if a[0] == "status" else "wrong-sha"
+        )
         regenerate_called = mock.Mock()
         monkeypatch.setattr(orch, "regenerate", regenerate_called)
         monkeypatch.setattr(

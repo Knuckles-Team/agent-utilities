@@ -24,8 +24,15 @@ def _minimal_valid_body() -> dict:
         "envelope_id": "11111111-1111-1111-1111-111111111111",
         "manifest_digest": "sha256:" + "a" * 64,
         "state": "EVIDENCE-FLUSHED",
-        "state_history": [{"state": "DECLARED", "at": "2026-08-16T00:00:00Z", "reason": None}],
-        "candidate": {"repo": "agent-utilities", "git_sha": "deadbeef", "branch": "goc/goc-38", "dirty": False},
+        "state_history": [
+            {"state": "DECLARED", "at": "2026-08-16T00:00:00Z", "reason": None}
+        ],
+        "candidate": {
+            "repo": "agent-utilities",
+            "git_sha": "deadbeef",
+            "branch": "goc/goc-38",
+            "dirty": False,
+        },
         "environment": {
             "sys_executable": "/venv/bin/python3",
             "sys_prefix": "/venv",
@@ -43,7 +50,13 @@ def _minimal_valid_body() -> dict:
             "os": "Linux",
         },
         "command": {
-            "argv": ["/venv/bin/python3", "-m", "pytest", "-q", "tests/gates/test_cpd_gate.py"],
+            "argv": [
+                "/venv/bin/python3",
+                "-m",
+                "pytest",
+                "-q",
+                "tests/gates/test_cpd_gate.py",
+            ],
             "shell": False,
             "cwd": "/repo",
             "adapter": "pytest",
@@ -97,7 +110,12 @@ def _minimal_valid_body() -> dict:
             "adapter_native_exit_code": 0,
             "signal": None,
             "normalized_outcome": "PASSED",
-            "assertion_summary": {"passed": 214, "failed": 0, "errors": 0, "skipped": 0},
+            "assertion_summary": {
+                "passed": 214,
+                "failed": 0,
+                "errors": 0,
+                "skipped": 0,
+            },
             "provenance": "direct_waitpid",
         },
         "contamination": {
@@ -106,7 +124,11 @@ def _minimal_valid_body() -> dict:
             "findings": [],
             "invalidated": False,
         },
-        "redaction": {"policy": "default-v1", "redacted_patterns": ["token"], "applied": True},
+        "redaction": {
+            "policy": "default-v1",
+            "redacted_patterns": ["token"],
+            "applied": True,
+        },
         "audit": {
             "actor": "goc-38-harness",
             "lane": "GOC-38",

@@ -91,7 +91,9 @@ def _install_widget_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         "agent_utilities.protocols.source_connectors.connectors.mcp_tool.provider_tool_schema_fingerprints",
         lambda provider: (
-            {"widget_records": _WIDGET_SCHEMA_SHA256} if provider == "widget-mcp" else None
+            {"widget_records": _WIDGET_SCHEMA_SHA256}
+            if provider == "widget-mcp"
+            else None
         ),
     )
 
@@ -113,7 +115,9 @@ def _write_signed_widget_manifest(
     manifest = ConnectorManifest(
         connector=pkg,
         resources=[ResourceSpec(name="Widget", id_prefix="widget")],
-        schema_mappings={"Widget": SchemaMapping(fields=fields or {"name": "xsd:string"})},
+        schema_mappings={
+            "Widget": SchemaMapping(fields=fields or {"name": "xsd:string"})
+        },
         sync=[
             SyncSpec(
                 preset="widget-records",
@@ -193,7 +197,9 @@ def _load_native_manifest_generator():
     return module
 
 
-def _write_single_source_native_bundle(tmp_path: Path, monkeypatch, *, source: str) -> Path:
+def _write_single_source_native_bundle(
+    tmp_path: Path, monkeypatch, *, source: str
+) -> Path:
     """A self-consistent, correctly signed native ``connector_manifest.yml`` (plus its
     ``tool_schema_fingerprints.json`` sidecar) whose ``sync`` list covers exactly
     ``{source}`` — generated against the REAL, currently-installed native connector
@@ -324,9 +330,7 @@ def test_dependency_lock_drift_blocks_activation(tmp_path: Path, monkeypatch) ->
     comparison catches this).
     """
     frozen_digest = dependency_lock_digest()
-    path = _write_signed_widget_manifest(
-        tmp_path, "widget-mcp", dependency_lock=frozen_digest
-    )
+    _write_signed_widget_manifest(tmp_path, "widget-mcp", dependency_lock=frozen_digest)
     _install_widget_provider(monkeypatch)
 
     clean = gate.precheck_source("widget", agents_root=tmp_path)

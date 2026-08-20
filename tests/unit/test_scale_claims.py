@@ -4,7 +4,6 @@ from pathlib import Path
 
 from scripts.check_scale_claims import check_claim_register
 
-
 ROOT = Path(__file__).resolve().parents[2]
 
 

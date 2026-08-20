@@ -237,7 +237,9 @@ class _MemoryRepository:
             return authority if authority.authority_digest == authority_digest else None
         return authority
 
-    def get_manifest(self, scope: SourceScope, manifest_id: str) -> SourceManifest | None:
+    def get_manifest(
+        self, scope: SourceScope, manifest_id: str
+    ) -> SourceManifest | None:
         del scope
         return self.manifests.get(manifest_id)
 
@@ -262,7 +264,9 @@ class _MemoryRepository:
         del scope
         return self.reconciliations.get(reconciliation_id)
 
-    def get_checkpoint(self, scope: SourceScope, authority_id: str) -> SourceCheckpoint | None:
+    def get_checkpoint(
+        self, scope: SourceScope, authority_id: str
+    ) -> SourceCheckpoint | None:
         del scope, authority_id
         return self.checkpoint
 
@@ -275,7 +279,10 @@ class _MemoryRepository:
         del scope
         current_revision = self.checkpoint.revision if self.checkpoint else 0
         current_id = self.checkpoint.checkpoint_id if self.checkpoint else None
-        if mutation.expected_revision != current_revision or mutation.expected_checkpoint_id != current_id:
+        if (
+            mutation.expected_revision != current_revision
+            or mutation.expected_checkpoint_id != current_id
+        ):
             raise RepositoryContractError("checkpoint CAS conflict")
         self.checkpoint = checkpoint
         return checkpoint
@@ -319,9 +326,8 @@ def _request(
         scope=scope,
         authority_id=authority.authority_id,
         manifest_id=manifest.manifest_id,
-        selected_entry_ids=selected or tuple(
-            sorted(outcome.entry_id for outcome in outcomes)
-        ),
+        selected_entry_ids=selected
+        or tuple(sorted(outcome.entry_id for outcome in outcomes)),
         outcomes=outcomes,
         expected_checkpoint_revision=expected_revision,
         expected_checkpoint_id=expected_checkpoint_id,
@@ -346,7 +352,7 @@ def test_path_identity_and_raw_or_dirty_source_content_fail_closed() -> None:
         SourceCatalogEntry(
             **{
                 **_entry(authority).model_dump(mode="json"),
-                "artifact_ref": "body:{\"raw\":true}",
+                "artifact_ref": 'body:{"raw":true}',
             }
         )
 
@@ -477,4 +483,6 @@ def test_projection_is_bounded_and_scope_mismatch_is_rejected() -> None:
     )[0]
     assert entry.relative_path not in entry_projection.model_dump_json()
     with pytest.raises(RepositoryContractError):
-        plane.project(_scope("tenant:other"), authority.authority_id, manifest.manifest_id)
+        plane.project(
+            _scope("tenant:other"), authority.authority_id, manifest.manifest_id
+        )

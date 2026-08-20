@@ -152,7 +152,9 @@ def _request(generation: str = "generation:one") -> RetrievalRequest:
     )
 
 
-def _evidence(request: RetrievalRequest, chunks: tuple[ChunkRef, ...]) -> AuthorizationEvidence:
+def _evidence(
+    request: RetrievalRequest, chunks: tuple[ChunkRef, ...]
+) -> AuthorizationEvidence:
     return AuthorizationEvidence(
         authorization_id="acl:request-one",
         request_id=request.request_id,
@@ -268,7 +270,9 @@ def test_acl_precedes_ranking_and_denied_rows_never_enter_cache() -> None:
     assert cache.get(request.request_digest) is None
 
 
-def test_successful_result_is_exactly_bound_and_cache_reuses_only_authorized_rows() -> None:
+def test_successful_result_is_exactly_bound_and_cache_reuses_only_authorized_rows() -> (
+    None
+):
     request = _request()
     first = _chunk("one", digest_letter="a")
     second = _chunk("two", digest_letter="b")

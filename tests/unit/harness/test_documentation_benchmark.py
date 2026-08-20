@@ -9,8 +9,8 @@ import pytest
 
 from agent_utilities.harness.documentation_benchmark import (
     DEFAULT_DOCUMENTATION_CORPUS,
-    BenchmarkBounds,
     BenchmarkBoundExceeded,
+    BenchmarkBounds,
     DocumentationBenchmarkError,
     DocumentationBenchmarkRunner,
     DocumentationPath,
@@ -103,8 +103,12 @@ def _run(*, baseline=None, generated=None, clock=None):
             DocumentationPath.AGENT_GENERATED: generated,
         },
         revisions={
-            DocumentationPath.HTML_BASELINE: _revisions(DocumentationPath.HTML_BASELINE),
-            DocumentationPath.AGENT_GENERATED: _revisions(DocumentationPath.AGENT_GENERATED),
+            DocumentationPath.HTML_BASELINE: _revisions(
+                DocumentationPath.HTML_BASELINE
+            ),
+            DocumentationPath.AGENT_GENERATED: _revisions(
+                DocumentationPath.AGENT_GENERATED
+            ),
         },
         reset_cache=lambda _path: None,
     )
@@ -126,7 +130,9 @@ def test_runner_measures_both_paths_and_repeated_identity() -> None:
     for summary in evidence.summaries:
         assert summary.repeat_identity.identity_rate == 1.0
         assert summary.all_metrics.correctness.mean == 1.0
-        expected_reasoning_tokens = 4.0 if summary.path == DocumentationPath.HTML_BASELINE else 2.0
+        expected_reasoning_tokens = (
+            4.0 if summary.path == DocumentationPath.HTML_BASELINE else 2.0
+        )
         assert summary.all_metrics.reasoning_tokens.mean == expected_reasoning_tokens
 
 
@@ -154,8 +160,12 @@ def test_clean_cache_callback_is_required() -> None:
                 DocumentationPath.AGENT_GENERATED: _FixtureAdapter(),
             },
             revisions={
-                DocumentationPath.HTML_BASELINE: _revisions(DocumentationPath.HTML_BASELINE),
-                DocumentationPath.AGENT_GENERATED: _revisions(DocumentationPath.AGENT_GENERATED),
+                DocumentationPath.HTML_BASELINE: _revisions(
+                    DocumentationPath.HTML_BASELINE
+                ),
+                DocumentationPath.AGENT_GENERATED: _revisions(
+                    DocumentationPath.AGENT_GENERATED
+                ),
             },
             reset_cache=None,
         )
@@ -171,8 +181,12 @@ def test_request_bound_fails_loudly() -> None:
                 DocumentationPath.AGENT_GENERATED: _FixtureAdapter(),
             },
             revisions={
-                DocumentationPath.HTML_BASELINE: _revisions(DocumentationPath.HTML_BASELINE),
-                DocumentationPath.AGENT_GENERATED: _revisions(DocumentationPath.AGENT_GENERATED),
+                DocumentationPath.HTML_BASELINE: _revisions(
+                    DocumentationPath.HTML_BASELINE
+                ),
+                DocumentationPath.AGENT_GENERATED: _revisions(
+                    DocumentationPath.AGENT_GENERATED
+                ),
             },
             reset_cache=lambda _path: None,
         )
@@ -209,7 +223,10 @@ def test_comparison_requires_reviewed_measured_improvement() -> None:
     assert comparison.efficiency_improved is True
     assert comparison.promotion_ready is False
     assert comparison.reviewed is False
-    assert "efficiency improvement has not been explicitly reviewed" in comparison.uncertainty
+    assert (
+        "efficiency improvement has not been explicitly reviewed"
+        in comparison.uncertainty
+    )
 
     reviewed = compare_documentation_paths(evidence, reviewed=True)
     assert reviewed.promotion_ready is True
@@ -235,7 +252,9 @@ def test_missing_revision_is_rejected_before_execution() -> None:
                 DocumentationPath.AGENT_GENERATED: _FixtureAdapter(),
             },
             revisions={
-                DocumentationPath.HTML_BASELINE: _revisions(DocumentationPath.HTML_BASELINE),
+                DocumentationPath.HTML_BASELINE: _revisions(
+                    DocumentationPath.HTML_BASELINE
+                ),
                 DocumentationPath.AGENT_GENERATED: generated,
             },
             reset_cache=lambda _path: None,

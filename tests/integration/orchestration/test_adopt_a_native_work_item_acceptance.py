@@ -121,9 +121,7 @@ def test_native_work_item_submit_checkpoint_input_priority_conflict_and_readback
     assert wi.set_work_item_priority(engine, item_id, 3, now=1000.1)
     assert wi.get_work_item(engine, item_id)["prio_bucket"] == 3
 
-    claim = _claim(
-        engine, item_id, worker="worker:acceptance-a", now=1001.0, ttl=20.0
-    )
+    claim = _claim(engine, item_id, worker="worker:acceptance-a", now=1001.0, ttl=20.0)
     assert wi.checkpoint_work_item(
         engine,
         item_id,

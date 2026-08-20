@@ -23,7 +23,9 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(acq, "data_dir", lambda: tmp_path)
 
 
-def _manifest(status: VoiceManifestStatus = VoiceManifestStatus.VERIFIED) -> VoiceModelManifest:
+def _manifest(
+    status: VoiceManifestStatus = VoiceManifestStatus.VERIFIED,
+) -> VoiceModelManifest:
     return VoiceModelManifest(
         manifest_id=_SHA,
         source_host="huggingface.co",

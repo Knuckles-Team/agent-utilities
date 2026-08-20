@@ -182,7 +182,9 @@ def build_manifest(
     return manifest
 
 
-def filtered_env(allowlist: list[str], source_env: dict[str, str] | None = None) -> tuple[dict[str, str], list[str]]:
+def filtered_env(
+    allowlist: list[str], source_env: dict[str, str] | None = None
+) -> tuple[dict[str, str], list[str]]:
     """Returns (child_env, rejected_vars). ``source_env`` defaults to the
     current process environment; passed explicitly so callers/tests can
     simulate an inherited UV_PROJECT_ENVIRONMENT without mutating os.environ.

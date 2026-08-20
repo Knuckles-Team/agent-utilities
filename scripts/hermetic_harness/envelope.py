@@ -59,7 +59,12 @@ def _digest_bytes(data: bytes) -> str:
 
 
 def build_stream_record(
-    data: bytes, *, truncated: bool, truncation_marker: str | None, path: str, retention_class: str = "raw-30d"
+    data: bytes,
+    *,
+    truncated: bool,
+    truncation_marker: str | None,
+    path: str,
+    retention_class: str = "raw-30d",
 ) -> dict[str, Any]:
     return {
         "byte_count": len(data),
@@ -81,7 +86,9 @@ def compute_verdict(envelope_body: dict[str, Any]) -> dict[str, Any]:
 
     venv_identity_match = envelope_body["environment"]["venv_identity_match"]
     if not venv_identity_match:
-        reasons.append("interpreter identity does not match the manifest's expected venv")
+        reasons.append(
+            "interpreter identity does not match the manifest's expected venv"
+        )
 
     survivor_clean = envelope_body["resources"]["survivor_check"]["clean"]
     if not survivor_clean:
@@ -98,7 +105,9 @@ def compute_verdict(envelope_body: dict[str, Any]) -> dict[str, Any]:
 
     provenance = envelope_body["exit"]["provenance"]
     if provenance not in ("direct_waitpid", "direct_wait4"):
-        reasons.append(f"exit-status provenance is not a direct wait status ({provenance!r})")
+        reasons.append(
+            f"exit-status provenance is not a direct wait status ({provenance!r})"
+        )
 
     normalized_outcome = envelope_body["exit"]["normalized_outcome"]
 
@@ -111,7 +120,11 @@ def compute_verdict(envelope_body: dict[str, Any]) -> dict[str, Any]:
             outcome = "FAILED"
         green = False
     else:
-        outcome = normalized_outcome if normalized_outcome in ("PASSED", "FAILED") else normalized_outcome
+        outcome = (
+            normalized_outcome
+            if normalized_outcome in ("PASSED", "FAILED")
+            else normalized_outcome
+        )
         green = normalized_outcome == "PASSED"
 
     falsifiable = (
@@ -119,7 +132,8 @@ def compute_verdict(envelope_body: dict[str, Any]) -> dict[str, Any]:
         and venv_identity_match
         and not invalidated
         and all(
-            not envelope_body["streams"][s]["truncated"] or envelope_body["streams"][s]["digest"]
+            not envelope_body["streams"][s]["truncated"]
+            or envelope_body["streams"][s]["digest"]
             for s in ("stdout", "stderr")
         )
     )

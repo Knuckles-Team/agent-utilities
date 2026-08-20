@@ -188,12 +188,16 @@ def test_record_event_rejects_a_span_with_no_trace_id_rather_than_fabricating_on
 
     assert be.get_trace("") is None
     assert be.get_trace(None) is None  # type: ignore[arg-type]
-    assert be._traces == {}, "no bucket of any kind was created for the missing trace_id"
+    assert be._traces == {}, (
+        "no bucket of any kind was created for the missing trace_id"
+    )
     assert kg.nodes == {}, "nothing was persisted for an unattributed span"
 
     # A real trace_id right after the rejected calls still works normally (the guard
     # doesn't wedge the sink).
-    be.record_event(trace_id="trace:attributed", span_id="root", name="ok", is_root=True)
+    be.record_event(
+        trace_id="trace:attributed", span_id="root", name="ok", is_root=True
+    )
     assert be.get_trace("trace:attributed") is not None
 
 

@@ -109,9 +109,13 @@ def test_unit_conftest_importable_probe_reports_both_branches():
     from tests.unit import conftest as unit_conftest
 
     # Present branch: this very module is importable.
-    assert unit_conftest._importable(f"{__name__}.test_unit_conftest_importable_probe_reports_both_branches")
+    assert unit_conftest._importable(
+        f"{__name__}.test_unit_conftest_importable_probe_reports_both_branches"
+    )
     # Absent branch: an optional consumer that cannot import is skipped, not fatal.
-    assert not unit_conftest._importable("agent_utilities._no_such_optional_module.factory")
+    assert not unit_conftest._importable(
+        "agent_utilities._no_such_optional_module.factory"
+    )
 
 
 def test_optional_rebinds_are_filtered_not_assumed():
@@ -122,4 +126,7 @@ def test_optional_rebinds_are_filtered_not_assumed():
     # The rebind list must be consulted through the probe, never iterated raw.
     assert "if _importable(t)" in source
     assert unit_conftest.OPTIONAL_EMBEDDING_FACTORY_REBINDS
-    assert unit_conftest.CANONICAL_EMBEDDING_FACTORY not in unit_conftest.OPTIONAL_EMBEDDING_FACTORY_REBINDS
+    assert (
+        unit_conftest.CANONICAL_EMBEDDING_FACTORY
+        not in unit_conftest.OPTIONAL_EMBEDDING_FACTORY_REBINDS
+    )

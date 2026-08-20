@@ -69,7 +69,9 @@ def test_upstream_methods_retain_both_mcp_field_surfaces() -> None:
     assert ".taskSupport" not in get_tools_source
 
 
-def test_install_bridge_refuses_an_unverified_version(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_install_bridge_refuses_an_unverified_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Version drift fails closed rather than silently disabling the contract."""
     real_version = importlib.metadata.version
 
@@ -97,9 +99,13 @@ def test_mcp_field_matrix_accepts_current_and_legacy_surfaces(
     both = SimpleNamespace(**{current_name: "current", legacy_name: "legacy"})
     legacy = SimpleNamespace(**{legacy_name: "legacy"})
 
-    assert protocol_compat._read_mcp_field(current, current_name, legacy_name) == "current"
+    assert (
+        protocol_compat._read_mcp_field(current, current_name, legacy_name) == "current"
+    )
     assert protocol_compat._read_mcp_field(both, current_name, legacy_name) == "current"
-    assert protocol_compat._read_mcp_field(legacy, current_name, legacy_name) == "legacy"
+    assert (
+        protocol_compat._read_mcp_field(legacy, current_name, legacy_name) == "legacy"
+    )
 
 
 def test_mcp_field_matrix_rejects_an_unknown_surface() -> None:
@@ -167,5 +173,11 @@ def test_version_contract_matches_manifest_lock_and_image() -> None:
 
     requirements = (root / "requirements.txt").read_text(encoding="utf-8")
     image = (root / "docker/graphos-unified.Dockerfile").read_text(encoding="utf-8")
-    assert f"pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]{expected}" in requirements
-    assert f'"pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]{expected}"' in image
+    assert (
+        f"pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]{expected}"
+        in requirements
+    )
+    assert (
+        f'"pydantic-ai-slim[mcp,openai,ag-ui,ui,web,cli,google,groq]{expected}"'
+        in image
+    )

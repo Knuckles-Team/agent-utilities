@@ -18,8 +18,12 @@ from scripts.hermetic_harness.launcher import ProcessGroupLauncher
 
 
 def test_normal_command_completes_without_timeout():
-    launcher = ProcessGroupLauncher(deadline_seconds=5.0, grace_seconds=1.0, poll_interval=0.02)
-    result = launcher.run([sys.executable, "-c", "print('ok')"], cwd=Path.cwd(), env=dict(os.environ))
+    launcher = ProcessGroupLauncher(
+        deadline_seconds=5.0, grace_seconds=1.0, poll_interval=0.02
+    )
+    result = launcher.run(
+        [sys.executable, "-c", "print('ok')"], cwd=Path.cwd(), env=dict(os.environ)
+    )
     assert not result.timed_out
     assert not result.escalated
     assert result.exit_code == 0
@@ -45,16 +49,26 @@ def test_signal_alone_does_not_prove_survivor_clean_but_group_kill_does():
         f"subprocess.Popen([sys.executable, '-c', {grandchild_script!r}]); "
         "time.sleep(30)"
     )
-    launcher = ProcessGroupLauncher(deadline_seconds=0.5, grace_seconds=0.5, poll_interval=0.02)
+    launcher = ProcessGroupLauncher(
+        deadline_seconds=0.5, grace_seconds=0.5, poll_interval=0.02
+    )
     start = time.monotonic()
-    result = launcher.run([sys.executable, "-c", child_script], cwd=Path.cwd(), env=dict(os.environ))
+    result = launcher.run(
+        [sys.executable, "-c", child_script], cwd=Path.cwd(), env=dict(os.environ)
+    )
     elapsed = time.monotonic() - start
 
     assert result.timed_out is True
-    assert result.escalated is True, "SIGTERM-ignoring tree must force SIGKILL escalation"
+    assert result.escalated is True, (
+        "SIGTERM-ignoring tree must force SIGKILL escalation"
+    )
     assert "SIGKILL->group" in result.signal_sequence
-    assert result.survivors_before_kill != [], "expected at least parent+grandchild alive at deadline"
-    assert result.survivors_after_kill == [], "process-group kill must leave zero survivors"
+    assert result.survivors_before_kill != [], (
+        "expected at least parent+grandchild alive at deadline"
+    )
+    assert result.survivors_after_kill == [], (
+        "process-group kill must leave zero survivors"
+    )
     # Bounded: deadline (0.5) + grace (0.5) + small overhead, never anywhere
     # near the 30s sleep the script requested -- proves the kill actually
     # interrupted it rather than the process exiting on its own schedule.
@@ -74,4 +88,6 @@ def test_shell_is_never_used_argv_is_exec_d_directly():
     except FileNotFoundError:
         pass
     else:
-        raise AssertionError("expected FileNotFoundError -- shell must never interpret argv")
+        raise AssertionError(
+            "expected FileNotFoundError -- shell must never interpret argv"
+        )

@@ -15,7 +15,6 @@ the internal-function level.
 
 from __future__ import annotations
 
-import asyncio
 import importlib.metadata
 import tomllib
 from pathlib import Path
@@ -110,4 +109,7 @@ def test_pin_is_the_one_declared_across_manifest_lock_and_image() -> None:
     assert all(requirement.endswith(expected) for requirement in declared)
 
     requirements_txt = (_ROOT / "requirements.txt").read_text(encoding="utf-8")
-    assert f"pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]{expected}" in requirements_txt
+    assert (
+        f"pydantic-ai-slim[mcp,openai,anthropic,ag-ui,ui,web,cli]{expected}"
+        in requirements_txt
+    )

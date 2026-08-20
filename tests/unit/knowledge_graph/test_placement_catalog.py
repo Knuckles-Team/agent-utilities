@@ -370,9 +370,7 @@ def test_route_endpoint_hint_cannot_authorize_without_cluster_discovery() -> Non
             "tenant:workspace",
             contacts,
             config=_Config(),
-            client_factory=lambda _endpoint: _Client(
-                answer, [], discovery_answer=None
-            ),
+            client_factory=lambda _endpoint: _Client(answer, [], discovery_answer=None),
         )
 
 
@@ -399,9 +397,7 @@ def test_empty_legacy_route_endpoints_do_not_fall_back_for_placed_route() -> Non
             "tenant:workspace",
             ["tls://coordinator.invalid:9443"],
             config=_Config(),
-            client_factory=lambda _endpoint: _Client(
-                answer, [], discovery_answer=None
-            ),
+            client_factory=lambda _endpoint: _Client(answer, [], discovery_answer=None),
         )
 
 
@@ -435,9 +431,7 @@ def test_cluster_members_reflect_the_current_leader_after_a_refresh() -> None:
     )
 
     def factory(_endpoint: str) -> _Client:
-        return _Client(
-            next(answers), [], discovery_answer=next(discovery_answers)
-        )
+        return _Client(next(answers), [], discovery_answer=next(discovery_answers))
 
     before = resolve_placement(
         "tenant:workspace", contacts, config=_Config(), client_factory=factory

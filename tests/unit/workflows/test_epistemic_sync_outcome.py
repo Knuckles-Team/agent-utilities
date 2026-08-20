@@ -31,12 +31,8 @@ class _FakeConfig:
 async def test_run_sync_cycle_reports_completed_on_success() -> None:
     wf = _bare_workflow()
     wf.config = _FakeConfig()
-    wf.ingestor = type(
-        "I", (), {"ingest_entities": lambda self, limit=100: 7}
-    )()
-    wf.engine = type(
-        "E", (), {"flush_ledger_to_backend": lambda self, backend: 3}
-    )()
+    wf.ingestor = type("I", (), {"ingest_entities": lambda self, limit=100: 7})()
+    wf.engine = type("E", (), {"flush_ledger_to_backend": lambda self, backend: 3})()
     wf.backend = object()
 
     outcome = await wf.run_sync_cycle()
@@ -56,9 +52,7 @@ async def test_run_sync_cycle_reports_failed_not_none_on_ingest_error() -> None:
         raise RuntimeError("simulated SPARQL endpoint failure")
 
     wf.ingestor = type("I", (), {"ingest_entities": _raise})()
-    wf.engine = type(
-        "E", (), {"flush_ledger_to_backend": lambda self, backend: 0}
-    )()
+    wf.engine = type("E", (), {"flush_ledger_to_backend": lambda self, backend: 0})()
     wf.backend = object()
 
     outcome = await wf.run_sync_cycle()
@@ -73,9 +67,7 @@ async def test_run_sync_cycle_reports_failed_on_flush_error() -> None:
     from a clean success — not just the ingest step."""
     wf = _bare_workflow()
     wf.config = _FakeConfig()
-    wf.ingestor = type(
-        "I", (), {"ingest_entities": lambda self, limit=100: 5}
-    )()
+    wf.ingestor = type("I", (), {"ingest_entities": lambda self, limit=100: 5})()
 
     def _raise(self, backend):
         raise RuntimeError("simulated LadybugDB flush failure")

@@ -133,22 +133,22 @@ def test_multi_graph_uses_bin_for_outer_and_inner_payloads() -> None:
     decoded = msgpack.unpackb(payload, raw=False)
     assert [graph for graph, _operations in decoded] == list(batches)
     assert all(isinstance(operations, bytes) for _graph, operations in decoded)
-    assert [msgpack.unpackb(operations, raw=False) for _graph, operations in decoded] == list(
-        batches.values()
-    )
+    assert [
+        msgpack.unpackb(operations, raw=False) for _graph, operations in decoded
+    ] == list(batches.values())
 
 
 @pytest.mark.parametrize("extra_items", [0, 1])
-def test_exact_item_boundary_and_one_over_are_preserved_as_bin(extra_items: int) -> None:
+def test_exact_item_boundary_and_one_over_are_preserved_as_bin(
+    extra_items: int,
+) -> None:
     # The outer map/key/value consume three structural items.  The old list[int]
     # representation therefore reaches the boundary at MAX-3, while the binary
     # representation remains one opaque value regardless of payload length.
     encoded_length = _MAX_WIRE_ITEMS - 3 + extra_items
     # ``bin32`` has a five-byte header; the resulting payload is valid MessagePack
     # and carries no collection members for the structural scanner to enumerate.
-    payload = msgpack.packb(
-        bytes(encoded_length - 5), use_bin_type=True
-    )
+    payload = msgpack.packb(bytes(encoded_length - 5), use_bin_type=True)
     assert len(payload) == encoded_length
 
     legacy_wire = msgpack.packb(
@@ -161,9 +161,7 @@ def test_exact_item_boundary_and_one_over_are_preserved_as_bin(extra_items: int)
     else:
         assert legacy_items == _MAX_WIRE_ITEMS
 
-    canonical_wire = msgpack.packb(
-        {"operations_msgpack": payload}, use_bin_type=True
-    )
+    canonical_wire = msgpack.packb({"operations_msgpack": payload}, use_bin_type=True)
     canonical_decoded = msgpack.unpackb(canonical_wire, raw=False)
     assert _shape_items(canonical_decoded) == 3
 

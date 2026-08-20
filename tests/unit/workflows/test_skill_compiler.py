@@ -169,9 +169,7 @@ Do step 2 task.
                 "agent_utilities.knowledge_graph.workflow_store.WorkflowStore.save_workflow",
                 side_effect=RuntimeError("simulated KG write failure"),
             ):
-                outcome = SkillCompiler.register_in_kg(
-                    _RealLookingEngine(), skill_dir
-                )
+                outcome = SkillCompiler.register_in_kg(_RealLookingEngine(), skill_dir)
 
         assert outcome["registered"] is False
         assert outcome["workflow_id"] is None

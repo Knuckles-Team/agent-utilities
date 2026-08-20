@@ -144,7 +144,7 @@ class LoadgenRenderInputs:
         source_authority_digest_value: str,
         workload_identity_audience: str,
         duration_seconds: int,
-    ) -> "LoadgenRenderInputs":
+    ) -> LoadgenRenderInputs:
         image_ref, image_digest = _image(image)
         source_revision_value = _revision(source_revision)
         source_manifest = _digest(source_manifest_digest, "source manifest digest")
@@ -162,7 +162,10 @@ class LoadgenRenderInputs:
         )
         if authority != expected_authority:
             raise LoadgenRenderError("source authority digest does not match pins")
-        if type(duration_seconds) is not int or not 86_400 <= duration_seconds <= 259_200:
+        if (
+            type(duration_seconds) is not int
+            or not 86_400 <= duration_seconds <= 259_200
+        ):
             raise LoadgenRenderError("duration must be a bounded 24-72 hour campaign")
         return cls(
             image=image_ref,
@@ -193,7 +196,9 @@ def _template_digest() -> str:
                 or not stat.S_ISREG(metadata.st_mode)
                 or metadata.st_size > _MAX_TEMPLATE_BYTES
             ):
-                raise LoadgenRenderError("loadgen template is not a bounded regular file")
+                raise LoadgenRenderError(
+                    "loadgen template is not a bounded regular file"
+                )
             payload = path.read_bytes()
         except LoadgenRenderError:
             raise
@@ -216,7 +221,9 @@ def _replace_tokens(source: str, values: dict[str, str]) -> str:
         if token not in _PRODUCTION_ALLOWED_RUNTIME_TOKENS
     }
     if unresolved:
-        raise LoadgenRenderError("rendered loadgen output retains required substitutions")
+        raise LoadgenRenderError(
+            "rendered loadgen output retains required substitutions"
+        )
     return rendered
 
 
@@ -249,17 +256,41 @@ def _write_template(
 def _values(inputs: LoadgenRenderInputs) -> dict[str, str]:
     return {
         _token("LOADGEN_IMAGE", ":?rendered immutable image required"): inputs.image,
-        _token("LOADGEN_IMAGE_REPOSITORY", ":?required"): inputs.image.rsplit("@", 1)[0],
-        _token("LOADGEN_IMAGE_DIGEST", ":?rendered image digest required"): inputs.image_digest,
-        _token("LOADGEN_RELEASE_DIGEST", ":?rendered release digest required"): inputs.release_digest,
-        _token("LOADGEN_TOPOLOGY_DIGEST", ":?rendered topology digest required"): inputs.topology_digest,
-        _token("LOADGEN_WORKLOAD_CONTRACT_DIGEST", ":?rendered contract digest required"): inputs.contract_digest,
-        _token("LOADGEN_SOURCE_REPOSITORY", ":?rendered source repository required"): inputs.source_repository,
-        _token("LOADGEN_SOURCE_REVISION", ":?rendered source revision required"): inputs.source_revision,
-        _token("LOADGEN_SOURCE_MANIFEST_DIGEST", ":?rendered source manifest digest required"): inputs.source_manifest_digest,
-        _token("LOADGEN_SOURCE_AUTHORITY_DIGEST", ":?rendered source authority digest required"): inputs.source_authority_digest,
-        _token("LOADGEN_WORKLOAD_IDENTITY_AUDIENCE", ":?required"): inputs.workload_identity_audience,
-        _token("LOADGEN_DURATION_SECONDS", ":?rendered duration required"): str(inputs.duration_seconds),
+        _token("LOADGEN_IMAGE_REPOSITORY", ":?required"): inputs.image.rsplit("@", 1)[
+            0
+        ],
+        _token(
+            "LOADGEN_IMAGE_DIGEST", ":?rendered image digest required"
+        ): inputs.image_digest,
+        _token(
+            "LOADGEN_RELEASE_DIGEST", ":?rendered release digest required"
+        ): inputs.release_digest,
+        _token(
+            "LOADGEN_TOPOLOGY_DIGEST", ":?rendered topology digest required"
+        ): inputs.topology_digest,
+        _token(
+            "LOADGEN_WORKLOAD_CONTRACT_DIGEST", ":?rendered contract digest required"
+        ): inputs.contract_digest,
+        _token(
+            "LOADGEN_SOURCE_REPOSITORY", ":?rendered source repository required"
+        ): inputs.source_repository,
+        _token(
+            "LOADGEN_SOURCE_REVISION", ":?rendered source revision required"
+        ): inputs.source_revision,
+        _token(
+            "LOADGEN_SOURCE_MANIFEST_DIGEST",
+            ":?rendered source manifest digest required",
+        ): inputs.source_manifest_digest,
+        _token(
+            "LOADGEN_SOURCE_AUTHORITY_DIGEST",
+            ":?rendered source authority digest required",
+        ): inputs.source_authority_digest,
+        _token(
+            "LOADGEN_WORKLOAD_IDENTITY_AUDIENCE", ":?required"
+        ): inputs.workload_identity_audience,
+        _token("LOADGEN_DURATION_SECONDS", ":?rendered duration required"): str(
+            inputs.duration_seconds
+        ),
         "$(LOADGEN_DURATION_SECONDS)": str(inputs.duration_seconds),
         "$(LOADGEN_RELEASE_DIGEST)": inputs.release_digest,
     }
@@ -310,7 +341,9 @@ def render(
         output_dir / "production/k8s/kustomization.yaml",
         values,
     )
-    _write_template("k8s/loadgen.yaml", output_dir / "production/k8s/loadgen.yaml", values)
+    _write_template(
+        "k8s/loadgen.yaml", output_dir / "production/k8s/loadgen.yaml", values
+    )
     _write_template("mock.compose.yml", output_dir / "mock/compose.yml", values)
     _write_template(
         "k8s/mock/kustomization.yaml",

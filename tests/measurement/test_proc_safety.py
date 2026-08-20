@@ -33,7 +33,9 @@ from agent_utilities.measurement.proc_safety import (
 PATTERN = "measure_target.py"
 
 
-def _table_with_self_and_target(self_pid: int = 100, shell_pid: int = 1) -> list[ProcCandidate]:
+def _table_with_self_and_target(
+    self_pid: int = 100, shell_pid: int = 1
+) -> list[ProcCandidate]:
     return [
         # init
         ProcCandidate(pid=1, ppid=0, argv=("/sbin/init",)),
@@ -42,7 +44,11 @@ def _table_with_self_and_target(self_pid: int = 100, shell_pid: int = 1) -> list
         # the CALLING process itself -- its own command line happens to
         # MENTION the pattern (e.g. it built the pattern string into its own
         # argv), exactly like incident 8.
-        ProcCandidate(pid=self_pid, ppid=shell_pid, argv=("python3", "orchestrator.py", "--watch", PATTERN)),
+        ProcCandidate(
+            pid=self_pid,
+            ppid=shell_pid,
+            argv=("python3", "orchestrator.py", "--watch", PATTERN),
+        ),
         # the actual intended target
         ProcCandidate(pid=200, ppid=1, argv=("python3", PATTERN)),
     ]
@@ -65,12 +71,21 @@ def test_incident_8_ancestor_shell_is_also_excluded():
     shell_pid = 1
     table_with_shell_match = [
         ProcCandidate(pid=1, ppid=0, argv=("/sbin/init",)),
-        ProcCandidate(pid=shell_pid, ppid=1, argv=("/bin/bash", "-c", f"...{PATTERN}...")),
-        ProcCandidate(pid=100, ppid=shell_pid, argv=("python3", "orchestrator.py", "--watch", PATTERN)),
+        ProcCandidate(
+            pid=shell_pid, ppid=1, argv=("/bin/bash", "-c", f"...{PATTERN}...")
+        ),
+        ProcCandidate(
+            pid=100,
+            ppid=shell_pid,
+            argv=("python3", "orchestrator.py", "--watch", PATTERN),
+        ),
         ProcCandidate(pid=200, ppid=1, argv=("python3", PATTERN)),
     ]
     matched, excluded = find_candidates(
-        PATTERN, proc_table=table_with_shell_match, self_pid=100, require_token_match=False
+        PATTERN,
+        proc_table=table_with_shell_match,
+        self_pid=100,
+        require_token_match=False,
     )
     assert shell_pid in excluded
     assert [c.pid for c in matched] == [200]
@@ -101,7 +116,9 @@ def test_kill_by_pattern_refuses_when_only_the_caller_matches(monkeypatch):
     correct behavior is zero targets -- not falling back to killing self."""
     table = [
         ProcCandidate(pid=1, ppid=0, argv=("/sbin/init",)),
-        ProcCandidate(pid=100, ppid=1, argv=("python3", "orchestrator.py", "--watch", PATTERN)),
+        ProcCandidate(
+            pid=100, ppid=1, argv=("python3", "orchestrator.py", "--watch", PATTERN)
+        ),
     ]
     killed_pids: list[int] = []
     result = kill_by_pattern(
@@ -123,7 +140,9 @@ def test_ambiguous_match_refused_without_allow_multiple():
         ProcCandidate(pid=201, ppid=1, argv=("python3", PATTERN, "--replica")),
     ]
     with pytest.raises(AmbiguousMatchError):
-        kill_by_pattern(PATTERN, proc_table=table, self_pid=999, require_token_match=False)
+        kill_by_pattern(
+            PATTERN, proc_table=table, self_pid=999, require_token_match=False
+        )
 
 
 def test_require_token_match_rejects_a_bare_substring_mention():
@@ -138,7 +157,9 @@ def test_require_token_match_rejects_a_bare_substring_mention():
             argv=("/bin/bash", "-c", f"echo 'looking for {PATTERN} in logs'"),
         ),
     ]
-    matched, _ = find_candidates(PATTERN, proc_table=table, self_pid=999, require_token_match=True)
+    matched, _ = find_candidates(
+        PATTERN, proc_table=table, self_pid=999, require_token_match=True
+    )
     assert matched == []
 
 
@@ -147,7 +168,9 @@ def test_require_token_match_accepts_a_real_invocation():
         ProcCandidate(pid=1, ppid=0, argv=("/sbin/init",)),
         ProcCandidate(pid=300, ppid=1, argv=("python3", PATTERN, "--flag")),
     ]
-    matched, _ = find_candidates(PATTERN, proc_table=table, self_pid=999, require_token_match=True)
+    matched, _ = find_candidates(
+        PATTERN, proc_table=table, self_pid=999, require_token_match=True
+    )
     assert [c.pid for c in matched] == [300]
 
 

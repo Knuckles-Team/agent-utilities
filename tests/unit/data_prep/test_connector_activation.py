@@ -16,7 +16,6 @@ from agent_utilities.data_prep import (
     ActivationAdmissionAdapter,
     ActivationArtifact,
     ActivationBinding,
-    ActivationState,
     activation_binding_digest,
     begin_activation_rotation,
     bind_activation,
@@ -25,7 +24,6 @@ from agent_utilities.data_prep import (
     rollback_activation,
 )
 from agent_utilities.knowledge_graph.ingestion.change_envelope import ChangeEnvelope
-
 
 _DIGESTS = {
     "mapping": "sha256:" + "1" * 64,
@@ -172,7 +170,9 @@ def test_digest_substitution_is_rejected_with_a_stable_bounded_code() -> None:
     assert "sha256:" + "f" * 64 not in report.model_dump_json()
 
 
-def test_rejected_preflight_is_atomic_and_native_reason_is_redacted(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_rejected_preflight_is_atomic_and_native_reason_is_redacted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     binding = _binding()
     state = initial_activation(binding)
     bound, _ = bind_activation(_envelope(binding), binding)
@@ -186,8 +186,10 @@ def test_rejected_preflight_is_atomic_and_native_reason_is_redacted(monkeypatch:
     )
     monkeypatch.setattr(
         "agent_utilities.data_prep.connector_activation._native_ingest",
-        lambda engine, envelope: calls.append(envelope)
-        or {"status": "rejected", "reason": "raw-provider-secret"},
+        lambda engine, envelope: (
+            calls.append(envelope)
+            or {"status": "rejected", "reason": "raw-provider-secret"}
+        ),
     )
     report = ActivationAdmissionAdapter().admit(object(), denied, state)
     assert report.outcome == "rejected"

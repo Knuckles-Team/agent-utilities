@@ -7,7 +7,7 @@ controllers, metric collection, graph persistence, and Kubernetes adapters
 remain outside this slice.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
@@ -20,8 +20,8 @@ from agent_utilities.orchestration.scaling_authority import (
     FailureDomainStatus,
     LeaseFence,
     MaintenanceWindow,
-    OfflineRecoveryPolicy,
     ObservedOutcome,
+    OfflineRecoveryPolicy,
     QuotaPolicy,
     ResourcePool,
     RollbackPolicy,
@@ -39,7 +39,7 @@ from agent_utilities.orchestration.scaling_authority import (
 
 pytestmark = pytest.mark.concept("AU-OS.scaling.reactive-replica-autoscaling")
 
-NOW = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2030, 1, 1, 12, 0, tzinfo=UTC)
 LATER = NOW + timedelta(minutes=5)
 
 
@@ -336,9 +336,7 @@ def test_scale_intent_enforces_bounds_quota_headroom_and_revision() -> None:
 
 
 def test_offline_hold_and_unverified_execution_states_fail_closed() -> None:
-    offline = _authority(
-        failure_domain=_failure_domain(FailureDomainStatus.OFFLINE)
-    )
+    offline = _authority(failure_domain=_failure_domain(FailureDomainStatus.OFFLINE))
     with pytest.raises(ValueError, match="failure domain is offline"):
         validate_scale_intent(_intent(), offline)
 

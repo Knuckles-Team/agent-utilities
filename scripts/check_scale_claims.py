@@ -10,9 +10,9 @@ an AU-local checker: it does not import or duplicate epistemic-graph claims.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import re
 import sys
+from pathlib import Path
 
 DEFAULT_REGISTER = Path("docs/scaling/scale_claims.md")
 STATUSES = frozenset(
@@ -39,7 +39,9 @@ def _repo_relative(path: Path, repo_root: Path) -> tuple[Path | None, str | None
     return candidate, None
 
 
-def check_claim_register(register_path: Path, repo_root: Path | None = None) -> list[str]:
+def check_claim_register(
+    register_path: Path, repo_root: Path | None = None
+) -> list[str]:
     """Return deterministic validation errors for one claim register."""
 
     register_path = Path(register_path)
@@ -56,13 +58,21 @@ def check_claim_register(register_path: Path, repo_root: Path | None = None) -> 
         if not _ROW.match(line) or line.lstrip().startswith("|---"):
             continue
         cells = [cell.strip() for cell in line.strip()[1:-1].split("|")]
-        if not cells or cells[0] == "ID" or all(set(cell) <= {"-", ":"} for cell in cells):
+        if (
+            not cells
+            or cells[0] == "ID"
+            or all(set(cell) <= {"-", ":"} for cell in cells)
+        ):
             continue
         if len(cells) != 5:
-            errors.append(f"{register_path}:{line_no}: claim row must have five columns")
+            errors.append(
+                f"{register_path}:{line_no}: claim row must have five columns"
+            )
             continue
         rows += 1
-        claim_id, status, source, fragment, evidence = (_unquote(cell) for cell in cells)
+        claim_id, status, source, fragment, evidence = (
+            _unquote(cell) for cell in cells
+        )
         prefix = f"{register_path}:{line_no}"
         if not claim_id.startswith("AU-SCALE-"):
             errors.append(f"{prefix}: claim ID must start with AU-SCALE-")
@@ -88,7 +98,9 @@ def check_claim_register(register_path: Path, repo_root: Path | None = None) -> 
             errors.append(f"{prefix}: cannot read source {source_name!r}: {exc}")
             continue
         if anchor not in source_text:
-            errors.append(f"{prefix}: source anchor {anchor!r} is absent from {source_name}")
+            errors.append(
+                f"{prefix}: source anchor {anchor!r} is absent from {source_name}"
+            )
         if fragment not in source_text:
             errors.append(f"{prefix}: required fragment is absent from {source_name}")
         if status in {"LIVE", "1M-CERTIFIED"} and (
@@ -117,4 +129,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

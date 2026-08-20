@@ -10,6 +10,7 @@ wiring — including the prose fallback for un-attributed proposals.
 from __future__ import annotations
 
 import subprocess
+from pathlib import Path
 
 import pytest
 

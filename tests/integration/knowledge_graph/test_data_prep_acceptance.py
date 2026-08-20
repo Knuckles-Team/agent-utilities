@@ -25,9 +25,10 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Iterator
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 import pytest
 
@@ -82,15 +83,21 @@ def _exact_revision(name: str, repository: Path) -> str:
     if not _GIT_SHA_RE.fullmatch(expected):
         raise AcceptanceUnavailable(f"{name} must be one exact 40-hex revision")
     try:
-        actual = subprocess.run(
-            ["git", "-C", str(repository), "rev-parse", "--verify", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-            timeout=5,
-        ).stdout.strip().lower()
+        actual = (
+            subprocess.run(
+                ["git", "-C", str(repository), "rev-parse", "--verify", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            .stdout.strip()
+            .lower()
+        )
     except (OSError, subprocess.SubprocessError) as exc:
-        raise AcceptanceUnavailable(f"cannot resolve {name} repository revision") from exc
+        raise AcceptanceUnavailable(
+            f"cannot resolve {name} repository revision"
+        ) from exc
     if actual != expected:
         raise AcceptanceUnavailable(f"{name} does not match the checked-out HEAD")
     return expected
@@ -232,7 +239,9 @@ def _assert_digest(value: str, label: str) -> str:
 
 def _check_cancelled(cancelled: bool) -> None:
     if cancelled:
-        raise AcceptanceUnavailable("acceptance operation cancelled before engine contact")
+        raise AcceptanceUnavailable(
+            "acceptance operation cancelled before engine contact"
+        )
 
 
 def _require_profile_contract() -> dict[str, Any]:
@@ -277,7 +286,9 @@ class BoundedArrowInput:
 
     def read(self) -> Any:
         if not isinstance(self.raw, bytes) or len(self.raw) > self.max_bytes:
-            raise AcceptanceInvariantError("Arrow IPC input exceeds the wire byte bound")
+            raise AcceptanceInvariantError(
+                "Arrow IPC input exceeds the wire byte bound"
+            )
         try:
             import pyarrow as pa
 
@@ -324,7 +335,10 @@ class _AcceptanceTrace:
         self.events.append(event)
 
     def checkpoint(self) -> None:
-        if not self.events or self.events[-1] not in {"commit:durable", "commit:replay"}:
+        if not self.events or self.events[-1] not in {
+            "commit:durable",
+            "commit:replay",
+        }:
             raise AcceptanceInvariantError(
                 "checkpoint advanced before a durable commit or replay receipt"
             )
@@ -361,7 +375,9 @@ def _real_engine(config: AcceptanceConfig) -> Iterator[Any]:
         )
         from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
     except ImportError as exc:
-        raise AcceptanceUnavailable("the AU native engine adapter is unavailable") from exc
+        raise AcceptanceUnavailable(
+            "the AU native engine adapter is unavailable"
+        ) from exc
 
     engine = IntelligenceGraphEngine(
         backend=EpistemicGraphBackend(graph_name=config.graph),
@@ -398,9 +414,9 @@ def _close_real_engine(engine: Any) -> None:
 
 
 def _session(tenant: str, graph: str) -> Any:
+    from agent_utilities.knowledge_graph.core.session import GraphSession
     from agent_utilities.models.company_brain import ActorType
     from agent_utilities.security.brain_context import ActorContext
-    from agent_utilities.knowledge_graph.core.session import GraphSession
 
     actor = ActorContext(
         actor_id="service:ne115-data-prep-acceptance",
@@ -426,7 +442,9 @@ def _require_acl(access: Any, *, roles: tuple[str, ...]) -> None:
         return
     allowed = set(getattr(access, "read_roles", ()) or ())
     if not allowed.intersection(roles):
-        raise AcceptanceInvariantError("ACL denies profiling before any data is inspected")
+        raise AcceptanceInvariantError(
+            "ACL denies profiling before any data is inspected"
+        )
 
 
 def _assert_lossy_cast_rejected(
@@ -477,7 +495,9 @@ def _safe_arrow_table(rows: list[dict[str, Any]]) -> Any:
     except ImportError as exc:
         raise AcceptanceUnavailable("pyarrow is required for NE-115") from exc
     except Exception as exc:
-        raise AcceptanceInvariantError("dirty GitLab fixture is not valid Arrow input") from exc
+        raise AcceptanceInvariantError(
+            "dirty GitLab fixture is not valid Arrow input"
+        ) from exc
     if table.num_rows > _MAX_ROWS or table.num_columns > _MAX_COLUMNS:
         raise AcceptanceInvariantError("fixture exceeds Arrow bounds")
     if table.nbytes > _MAX_PROFILE_BYTES:
@@ -531,7 +551,9 @@ def _assert_negative_local_guards(profile_api: dict[str, Any], table: Any) -> No
     except Exception:
         pass
     else:
-        raise AcceptanceInvariantError("Arrow column/byte profile bounds were not enforced")
+        raise AcceptanceInvariantError(
+            "Arrow column/byte profile bounds were not enforced"
+        )
 
     if table.num_rows <= 0:
         raise AcceptanceInvariantError("negative fixture guard needs one bounded row")
@@ -582,7 +604,9 @@ def _secret_row() -> dict[str, Any]:
 
 def _reject_secret_row(row: dict[str, Any]) -> None:
     if any(_UNSAFE_FIELD_RE.search(str(key)) for key in row):
-        raise AcceptanceInvariantError("secret-bearing source row rejected before profiling")
+        raise AcceptanceInvariantError(
+            "secret-bearing source row rejected before profiling"
+        )
 
 
 def _build_plan(profile_api: dict[str, Any], model_digest: str) -> Any:
@@ -632,7 +656,9 @@ def _map_envelope(
     row = rows[0]
     object_digest = hashlib.sha256(str(row["id"]).encode("ascii")).hexdigest()
     object_id = f"artifact:gitlab-api:{object_digest}"
-    content_digest = f"sha256:{hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest()}"
+    content_digest = (
+        f"sha256:{hashlib.sha256(json.dumps(row, sort_keys=True).encode()).hexdigest()}"
+    )
     evidence = prepared.evidence.model_dump(mode="json")
     profile_json = profile.model_dump(mode="json")
     profile_digest = _assert_digest(profile_api["profile_digest"](profile), "profile")
@@ -693,17 +719,27 @@ def _map_envelope(
     return envelope
 
 
-def _guard_envelope_scope(envelope: Any, config: AcceptanceConfig, shape_digest: str) -> None:
+def _guard_envelope_scope(
+    envelope: Any, config: AcceptanceConfig, shape_digest: str
+) -> None:
     if not envelope.tenant or envelope.tenant != config.tenant:
-        raise AcceptanceInvariantError("omitted or wrong tenant rejected before native commit")
+        raise AcceptanceInvariantError(
+            "omitted or wrong tenant rejected before native commit"
+        )
     if envelope.provenance.get("shape_digest") != shape_digest:
-        raise AcceptanceInvariantError("wrong shape digest rejected before native commit")
+        raise AcceptanceInvariantError(
+            "wrong shape digest rejected before native commit"
+        )
     if envelope.structured_evidence is None:
         raise AcceptanceInvariantError("native commit requires structured evidence")
 
 
 def _native_profile(
-    profile_api: dict[str, Any], client: Any, config: AcceptanceConfig, *, as_of_lsn: int | None
+    profile_api: dict[str, Any],
+    client: Any,
+    config: AcceptanceConfig,
+    *,
+    as_of_lsn: int | None,
 ) -> Any:
     ProfileLimits = profile_api["ProfileLimits"]
     ProfileRequest = profile_api["ProfileRequest"]
@@ -731,7 +767,9 @@ def _native_profile(
     return profile_api["profile_with_client"](_NativeProfileAdapter(client), request)
 
 
-def _read_isolated_graph(engine: Any, session: Any, config: AcceptanceConfig) -> list[Any]:
+def _read_isolated_graph(
+    engine: Any, session: Any, config: AcceptanceConfig
+) -> list[Any]:
     with _use_session(session):
         backend = getattr(engine, "backend", None)
         reader = getattr(backend, "execute_read", None)
@@ -762,15 +800,18 @@ def test_ne115_real_data_prep_to_native_commit_and_replay() -> None:
     try:
         config = AcceptanceConfig.from_env()
         profile_api = _require_profile_contract()
+        from pydantic import ConfigDict
+
         from agent_utilities.data_prep import (
             CleanPipeline,
             RowModelRegistry,
             row_model_digest,
         )
+        from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+            ingest_envelope,
+        )
         from agent_utilities.protocols.epistemic_operations import ProtocolModel
-        from agent_utilities.knowledge_graph.ingestion.envelope_ingest import ingest_envelope
         from agent_utilities.protocols.source_connectors.base import ExternalAccess
-        from pydantic import ConfigDict
     except AcceptanceUnavailable as exc:
         pytest.skip(str(exc))
 
@@ -832,7 +873,9 @@ def test_ne115_real_data_prep_to_native_commit_and_replay() -> None:
     prepared = CleanPipeline(plan, model_registry=registry).run(table)
     _assert_lossy_cast_rejected(profile_api, table, registry, plan.model_ref)
     if not prepared.evidence.checkpoint_eligible or prepared.evidence.rows_out != 1:
-        raise AcceptanceInvariantError("cleaned fixture did not produce one checkpoint-eligible row")
+        raise AcceptanceInvariantError(
+            "cleaned fixture did not produce one checkpoint-eligible row"
+        )
     shape_digest = _shape_digest()
     envelope = _map_envelope(
         profile_api,
@@ -863,29 +906,43 @@ def test_ne115_real_data_prep_to_native_commit_and_replay() -> None:
                 )
             trace.add("commit:durable")
             if result.get("watermark_advanced") is not True:
-                raise AcceptanceInvariantError("successful native commit did not advance checkpoint")
+                raise AcceptanceInvariantError(
+                    "successful native commit did not advance checkpoint"
+                )
 
             # A current and an as-of profile are both mandatory native reads,
             # after the durable table exists and before any replay is accepted.
-            current_profile = _native_profile(profile_api, client, config, as_of_lsn=None)
+            current_profile = _native_profile(
+                profile_api, client, config, as_of_lsn=None
+            )
             historical_lsn = current_profile.as_of_lsn
             if historical_lsn is None:
-                raise AcceptanceInvariantError("current native profile did not return an LSN")
+                raise AcceptanceInvariantError(
+                    "current native profile did not return an LSN"
+                )
             historical_profile = _native_profile(
                 profile_api, client, config, as_of_lsn=historical_lsn
             )
             if historical_profile.as_of_lsn != historical_lsn:
-                raise AcceptanceInvariantError("historical profile ignored its requested LSN")
-            if profile_api["profile_digest"](current_profile) != profile_api["profile_digest"](
-                historical_profile
-            ):
-                raise AcceptanceInvariantError("same-LSN current and historical profiles differ")
+                raise AcceptanceInvariantError(
+                    "historical profile ignored its requested LSN"
+                )
+            if profile_api["profile_digest"](current_profile) != profile_api[
+                "profile_digest"
+            ](historical_profile):
+                raise AcceptanceInvariantError(
+                    "same-LSN current and historical profiles differ"
+                )
             _forbidden_material(
                 {
                     "current": current_profile.model_dump(mode="json"),
                     "historical": historical_profile.model_dump(mode="json"),
                 },
-                ("compiler regression", "gitlab.example.invalid", "fixture-only-secret"),
+                (
+                    "compiler regression",
+                    "gitlab.example.invalid",
+                    "fixture-only-secret",
+                ),
             )
             trace.add("profile:native-current")
             trace.add("profile:native-historical")
@@ -905,7 +962,9 @@ def test_ne115_real_data_prep_to_native_commit_and_replay() -> None:
             )
             invalid_result = ingest_envelope(runtime, invalid)
             if invalid_result.get("status") != "rejected":
-                raise AcceptanceInvariantError("authoritative ICV rejection was not observed")
+                raise AcceptanceInvariantError(
+                    "authoritative ICV rejection was not observed"
+                )
             if invalid_result.get("watermark_advanced"):
                 raise AcceptanceInvariantError("ICV rejection advanced a checkpoint")
             trace.add("commit:icv-rejected")
@@ -924,14 +983,19 @@ def test_ne115_real_data_prep_to_native_commit_and_replay() -> None:
                 replace(envelope, tenant="ne115:wrong-tenant"),
                 replace(
                     envelope,
-                    provenance={**envelope.provenance, "shape_digest": "sha256:" + "0" * 64},
+                    provenance={
+                        **envelope.provenance,
+                        "shape_digest": "sha256:" + "0" * 64,
+                    },
                 ),
             ):
                 try:
                     _guard_envelope_scope(bad, config, shape_digest)
                 except AcceptanceInvariantError:
                     continue
-                raise AcceptanceInvariantError("invalid envelope reached the commit seam")
+                raise AcceptanceInvariantError(
+                    "invalid envelope reached the commit seam"
+                )
 
             # Crash-before-replay: close the transport before admission; the
             # failed call cannot advance a source checkpoint.  The restarted
@@ -941,9 +1005,13 @@ def test_ne115_real_data_prep_to_native_commit_and_replay() -> None:
             _close_real_engine(runtime)
             failed = ingest_envelope(runtime, envelope)
             if failed.get("status") not in {"failed", "rejected"}:
-                raise AcceptanceInvariantError("crash-before-commit unexpectedly committed")
+                raise AcceptanceInvariantError(
+                    "crash-before-commit unexpectedly committed"
+                )
             if failed.get("watermark_advanced"):
-                raise AcceptanceInvariantError("crash-before-commit advanced a checkpoint")
+                raise AcceptanceInvariantError(
+                    "crash-before-commit advanced a checkpoint"
+                )
 
     # A second explicit connection is required after the first runtime closes;
     # it is intentionally outside the context above so the test proves that
@@ -957,10 +1025,16 @@ def test_ne115_real_data_prep_to_native_commit_and_replay() -> None:
                 raise AcceptanceInvariantError("restarted native runtime has no client")
             replay_after_restart = ingest_envelope(restarted, envelope)
             if replay_after_restart.get("status") != "skipped":
-                raise AcceptanceInvariantError("restart/re-read did not preserve replay identity")
-            receipt = (replay_after_restart.get("write_result") or {}).get("receipt") or {}
+                raise AcceptanceInvariantError(
+                    "restart/re-read did not preserve replay identity"
+                )
+            receipt = (replay_after_restart.get("write_result") or {}).get(
+                "receipt"
+            ) or {}
             if receipt.get("replayed") is not True:
-                raise AcceptanceInvariantError("restart/re-read replay was not authoritative")
+                raise AcceptanceInvariantError(
+                    "restart/re-read replay was not authoritative"
+                )
             trace.add("restart:reread")
             trace.add("commit:replay")
             trace.checkpoint()

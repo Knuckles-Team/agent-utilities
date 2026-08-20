@@ -32,8 +32,6 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
 from agent_utilities.orchestration import agent_dispatch_worker as worker
 from agent_utilities.orchestration import agent_runner
 

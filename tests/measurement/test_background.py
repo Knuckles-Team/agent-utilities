@@ -22,7 +22,8 @@ import pytest
 from agent_utilities.measurement.background import poll, run_background, wait_for_unit
 
 pytestmark = pytest.mark.skipif(
-    shutil.which("systemd-run") is None, reason="no systemd-run on PATH in this environment"
+    shutil.which("systemd-run") is None,
+    reason="no systemd-run on PATH in this environment",
 )
 
 
@@ -38,7 +39,9 @@ def test_redirect_is_built_inside_the_bash_c_command(monkeypatch, tmp_path):
         captured_argv["argv"] = argv
         return FakeCompleted()
 
-    monkeypatch.setattr("agent_utilities.measurement.background.subprocess.run", fake_run)
+    monkeypatch.setattr(
+        "agent_utilities.measurement.background.subprocess.run", fake_run
+    )
 
     result = run_background("echo hello", unit_name="test-unit-xyz", log_dir=tmp_path)
 

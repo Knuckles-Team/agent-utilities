@@ -130,8 +130,7 @@ def test_wheel_privacy_gate_rejects_a_planted_credential_uri(tmp_path: Path) -> 
     # are byte-for-byte identical to the un-split literal, which is what
     # check_wheel_privacy.py's own detector must still catch.
     planted_credential_line = (
-        b'GRAPH_DB_URI = "postgresql://agent:hunter2@'
-        b'pggraph:5432/agent_kg"'
+        b'GRAPH_DB_URI = "postgresql://agent:hunter2@pggraph:5432/agent_kg"'
     )
     wheel = _wheel(
         tmp_path,

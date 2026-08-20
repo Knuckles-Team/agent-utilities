@@ -63,10 +63,12 @@ class _MemoryRepository:
     versions: dict[str, ConnectorVersion] = field(default_factory=dict)
     desired: dict[str, DesiredConnectorState] = field(default_factory=dict)
     observations: dict[str, Observation] = field(default_factory=dict)
-    authorizations: dict[tuple[str, str], AuthorizationSet] = field(default_factory=dict)
-    authorization_decisions: dict[
-        tuple[str, str], dict[str, AuthorizationDecision]
-    ] = field(default_factory=dict)
+    authorizations: dict[tuple[str, str], AuthorizationSet] = field(
+        default_factory=dict
+    )
+    authorization_decisions: dict[tuple[str, str], dict[str, AuthorizationDecision]] = (
+        field(default_factory=dict)
+    )
     page: ConnectorPage | None = None
     append_count: int = 0
 
@@ -102,17 +104,29 @@ class _MemoryRepository:
 
     def get_server(self, scope: AccessScope, server_id: str) -> ServerIdentity | None:
         value = self.servers.get(server_id)
-        return value if value is not None and value.tenant_id == scope.tenant_id else None
+        return (
+            value if value is not None and value.tenant_id == scope.tenant_id else None
+        )
 
-    def get_version(self, scope: AccessScope, version_id: str) -> ConnectorVersion | None:
+    def get_version(
+        self, scope: AccessScope, version_id: str
+    ) -> ConnectorVersion | None:
         del scope
         return self.versions.get(version_id)
 
-    def get_desired(self, scope: AccessScope, server_id: str) -> DesiredConnectorState | None:
+    def get_desired(
+        self, scope: AccessScope, server_id: str
+    ) -> DesiredConnectorState | None:
         value = self.desired.get(server_id)
-        return value if value is not None and value.server.tenant_id == scope.tenant_id else None
+        return (
+            value
+            if value is not None and value.server.tenant_id == scope.tenant_id
+            else None
+        )
 
-    def get_latest_observation(self, scope: AccessScope, server_id: str) -> Observation | None:
+    def get_latest_observation(
+        self, scope: AccessScope, server_id: str
+    ) -> Observation | None:
         del scope
         return self.observations.get(server_id)
 
@@ -120,7 +134,9 @@ class _MemoryRepository:
         self, scope: AccessScope, server_id: str, version_id: str
     ) -> AuthorizationSet | None:
         value = self.authorizations.get((server_id, version_id))
-        if value is None or any(item.tenant_id != scope.tenant_id for item in value.decisions):
+        if value is None or any(
+            item.tenant_id != scope.tenant_id for item in value.decisions
+        ):
             return None
         return value
 
@@ -129,7 +145,9 @@ class _MemoryRepository:
         assert self.page is not None
         return self.page
 
-    def cursor_for(self, scope: AccessScope, after_server_id: str, after_version_id: str) -> KeysetCursor:
+    def cursor_for(
+        self, scope: AccessScope, after_server_id: str, after_version_id: str
+    ) -> KeysetCursor:
         return KeysetCursor(
             cursor_version="connector-keyset-cursor.v1",
             scope_digest=scope.scope_digest,
@@ -138,7 +156,9 @@ class _MemoryRepository:
         )
 
 
-def _fixture() -> tuple[_MemoryRepository, ConnectorControlPlane, AccessScope, ConnectorRegistration]:
+def _fixture() -> tuple[
+    _MemoryRepository, ConnectorControlPlane, AccessScope, ConnectorRegistration
+]:
     tenant = "tenant:alpha"
     connector_id = connector_id_for("knuckles", "gitlab-api")
     identity = ConnectorIdentity(
@@ -228,7 +248,9 @@ def _fixture() -> tuple[_MemoryRepository, ConnectorControlPlane, AccessScope, C
     return repository, plane, scope, registration
 
 
-def _observation(registration: ConnectorRegistration, **overrides: object) -> Observation:
+def _observation(
+    registration: ConnectorRegistration, **overrides: object
+) -> Observation:
     values: dict[str, object] = {
         "observation_version": "connector-observation.v1",
         "observation_ref": "observation:1",
@@ -277,7 +299,10 @@ def test_identity_and_version_records_are_stable_and_immutable() -> None:
     assert registration.version.version_id.startswith("version:")
     with pytest.raises(ValidationError):
         registration.version.model_validate(
-            {**registration.version.model_dump(mode="json"), "manifest_digest": _digest("e")}
+            {
+                **registration.version.model_dump(mode="json"),
+                "manifest_digest": _digest("e"),
+            }
         )
 
 

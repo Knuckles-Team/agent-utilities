@@ -15,9 +15,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[3]
 JOB_SOURCE = ROOT / "deploy/release/connector-manifest-signing-job.yaml"
 WORKFLOW_SOURCE = ROOT / ".github/workflows/advisory.yml"
-INPUT_FIXTURE = (
-    ROOT / "tests/fixtures/release/connector-manifest-signing-inputs.yml"
-)
+INPUT_FIXTURE = ROOT / "tests/fixtures/release/connector-manifest-signing-inputs.yml"
 
 
 def _job_document() -> dict:
@@ -83,10 +81,10 @@ def test_job_installs_wheel_and_generates_bundles_before_signing() -> None:
         "--no-index",
         "--no-deps",
         "--only-binary=:all:",
-        "--target \"${STAGING_ROOT}/site-packages\"",
+        '--target "${STAGING_ROOT}/site-packages"',
         "direct_url.json",
         "scripts/generate_connector_capability_bundles.py",
-        "--bundled-output \"${PUBLIC_OUTPUT_ROOT}/connector-bundles\"",
+        '--bundled-output "${PUBLIC_OUTPUT_ROOT}/connector-bundles"',
         "--apply",
         "scripts/release/regenerate_and_sign_connector_manifests.py",
         "--require-built-artifact",

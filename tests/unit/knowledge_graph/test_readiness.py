@@ -37,7 +37,12 @@ class _FakeEngine:
     coupling, docs) — never raises for those.
     """
 
-    def __init__(self, *, anchor_rows: list[dict] | None = None, raise_exc: Exception | None = None):
+    def __init__(
+        self,
+        *,
+        anchor_rows: list[dict] | None = None,
+        raise_exc: Exception | None = None,
+    ):
         self._anchor_rows = anchor_rows or []
         self._raise_exc = raise_exc
 
@@ -71,7 +76,10 @@ def _healthy_report(engine_ok: bool = True) -> dict:
                 "name": "engine",
                 "status": "ok" if engine_ok else "unhealthy",
                 "reason": None if engine_ok else "no engine endpoint reachable",
-                "detail": {"resolved_mode": "shared", "reachable_count": 1 if engine_ok else 0},
+                "detail": {
+                    "resolved_mode": "shared",
+                    "reachable_count": 1 if engine_ok else 0,
+                },
                 "latency_ms": 1.2,
             },
             {
@@ -87,11 +95,15 @@ def _healthy_report(engine_ok: bool = True) -> dict:
 # --------------------------------------------------------------------------- #
 # KNOWN-BAD PROOF: engine unreachable during the synthetic query -> NOT ready
 # --------------------------------------------------------------------------- #
-def test_synthetic_query_reports_unavailable_when_engine_degraded(monkeypatch: pytest.MonkeyPatch):
+def test_synthetic_query_reports_unavailable_when_engine_degraded(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """The exact class the audit flagged: a transport-down engine must make
     readiness UNAVAILABLE, never a false 'ready' because the engine handle
     itself was non-None."""
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True))
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
     engine = _FakeEngine(raise_exc=ConnectionError("engine transport down"))
 
     snapshot = rd.collect_readiness_snapshot(engine, deadline_s=2.0)
@@ -107,7 +119,9 @@ def test_synthetic_query_reports_unavailable_when_engine_degraded(monkeypatch: p
 
 def test_readiness_unavailable_when_no_engine_supplied(monkeypatch: pytest.MonkeyPatch):
     """No engine handle at all must never be silently skipped into 'ready'."""
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True))
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
 
     snapshot = rd.collect_readiness_snapshot(None, deadline_s=1.0)
 
@@ -117,14 +131,22 @@ def test_readiness_unavailable_when_no_engine_supplied(monkeypatch: pytest.Monke
     assert rd.is_snapshot_ready(snapshot) is False
 
 
-def test_synthetic_query_zero_evidence_is_degraded_not_ready(monkeypatch: pytest.MonkeyPatch):
+def test_synthetic_query_zero_evidence_is_degraded_not_ready(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """A REAL, non-degraded answer that grounds on nothing is DEGRADED with
     reason evidence_coverage_zero — the exact BUG-004 empty-index shape — and
     must never read as a successful grounding."""
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True))
-    engine = _FakeEngine(anchor_rows=[])  # engine answers fine; genuinely nothing matches
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
+    engine = _FakeEngine(
+        anchor_rows=[]
+    )  # engine answers fine; genuinely nothing matches
 
-    snapshot = rd.collect_readiness_snapshot(engine, synthetic_query="no_such_symbol_xyz", deadline_s=2.0)
+    snapshot = rd.collect_readiness_snapshot(
+        engine, synthetic_query="no_such_symbol_xyz", deadline_s=2.0
+    )
 
     synth = snapshot["checks"]["synthetic_query"]
     assert synth["state"] == "degraded"
@@ -142,8 +164,12 @@ def test_synthetic_query_zero_evidence_is_degraded_not_ready(monkeypatch: pytest
 # --------------------------------------------------------------------------- #
 # KNOWN-GOOD PROOF: a real grounded answer -> ready, only when genuinely so
 # --------------------------------------------------------------------------- #
-def test_synthetic_query_ready_when_real_evidence_found(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True))
+def test_synthetic_query_ready_when_real_evidence_found(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: [],
@@ -176,7 +202,9 @@ def test_synthetic_query_ready_when_real_evidence_found(monkeypatch: pytest.Monk
 
 def test_full_snapshot_ready_end_to_end(monkeypatch: pytest.MonkeyPatch):
     """Every required + optional check green -> and ONLY then -> overall ready."""
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True))
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: ["leanix"],
@@ -219,14 +247,18 @@ def test_full_snapshot_ready_end_to_end(monkeypatch: pytest.MonkeyPatch):
 # gate 2 / BUG-013's certification-never-skips-required-modules invariant).
 # --------------------------------------------------------------------------- #
 def test_catalog_required_module_missing_fails_closed(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True))
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
     bad_routes = {
         "graph_code_context": "agent_utilities.knowledge_graph.retrieval.code_context:build_code_context",
         "totally_missing_route": "agent_utilities.nonexistent_module:nonexistent_attr",
     }
 
-    snapshot = rd.collect_readiness_snapshot(engine, required_routes=bad_routes, deadline_s=2.0)
+    snapshot = rd.collect_readiness_snapshot(
+        engine, required_routes=bad_routes, deadline_s=2.0
+    )
 
     catalog = snapshot["checks"]["catalog"]
     assert catalog["state"] == "unavailable"
@@ -248,7 +280,9 @@ def test_catalog_ready_when_every_required_route_resolves():
 # engine check — reuses runtime_health, never a second authority
 # --------------------------------------------------------------------------- #
 def test_engine_check_reflects_unreachable_engine(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=False))
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=False)
+    )
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
 
     snapshot = rd.collect_readiness_snapshot(engine, deadline_s=2.0)
@@ -264,7 +298,9 @@ def test_engine_check_ready_reuses_health_report_verbatim():
     assert result["version"] == "shared"
 
 
-def test_readiness_unavailable_when_health_collector_itself_raises(monkeypatch: pytest.MonkeyPatch):
+def test_readiness_unavailable_when_health_collector_itself_raises(
+    monkeypatch: pytest.MonkeyPatch,
+):
     """A broken health collector must report unavailable, never fall back to ready.
 
     ``_collect_health_report`` itself already converts a raised exception into
@@ -283,12 +319,16 @@ def test_readiness_unavailable_when_health_collector_itself_raises(monkeypatch: 
 # identity_policy — never infers authority from a bare tenant/subject string
 # --------------------------------------------------------------------------- #
 def test_identity_policy_not_configured_without_session_or_principal():
-    result = rd._check_identity_policy(session=None, subject="", tenant="", policy_epoch=0)
+    result = rd._check_identity_policy(
+        session=None, subject="", tenant="", policy_epoch=0
+    )
     assert result["state"] == "not_configured"
 
 
 def test_identity_policy_degraded_when_principal_supplied_without_session():
-    result = rd._check_identity_policy(session=None, subject="alice", tenant="tenant-a", policy_epoch=1)
+    result = rd._check_identity_policy(
+        session=None, subject="alice", tenant="tenant-a", policy_epoch=1
+    )
     assert result["state"] == "degraded"
     assert result["carrier"] == "unverified"
 
@@ -302,7 +342,9 @@ def test_identity_policy_degraded_when_session_actor_unauthenticated():
         tenant = "tenant-a"
         policy_version = 1
 
-    result = rd._check_identity_policy(session=_Session(), subject="", tenant="", policy_epoch=0)
+    result = rd._check_identity_policy(
+        session=_Session(), subject="", tenant="", policy_epoch=0
+    )
     assert result["state"] == "degraded"
     assert result["carrier"] == "unverified"
 
@@ -310,7 +352,9 @@ def test_identity_policy_degraded_when_session_actor_unauthenticated():
 # --------------------------------------------------------------------------- #
 # source_sync
 # --------------------------------------------------------------------------- #
-def test_source_sync_not_configured_when_nothing_expected(monkeypatch: pytest.MonkeyPatch):
+def test_source_sync_not_configured_when_nothing_expected(
+    monkeypatch: pytest.MonkeyPatch,
+):
     monkeypatch.setattr(
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: [],
@@ -435,7 +479,9 @@ def test_ontology_activation_failure_makes_whole_snapshot_not_ready(
 # schema + payload hygiene
 # --------------------------------------------------------------------------- #
 def test_snapshot_schema_shape(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True))
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
     snapshot = rd.collect_readiness_snapshot(engine, deadline_s=2.0)
 
@@ -458,12 +504,18 @@ def test_snapshot_schema_shape(monkeypatch: pytest.MonkeyPatch):
     assert "T" in snapshot["observed_at"]
 
 
-def test_snapshot_never_carries_the_raw_query_text_or_answer_prose(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True))
+def test_snapshot_never_carries_the_raw_query_text_or_answer_prose(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
     secret_looking_query = "SELECT password FROM secrets WHERE token='abc123'"
 
-    snapshot = rd.collect_readiness_snapshot(engine, synthetic_query=secret_looking_query, deadline_s=2.0)
+    snapshot = rd.collect_readiness_snapshot(
+        engine, synthetic_query=secret_looking_query, deadline_s=2.0
+    )
 
     serialized = json.dumps(snapshot)
     assert secret_looking_query not in serialized
@@ -471,8 +523,12 @@ def test_snapshot_never_carries_the_raw_query_text_or_answer_prose(monkeypatch: 
     assert "sections" not in snapshot["checks"]["synthetic_query"]
 
 
-def test_snapshot_is_json_serializable_with_a_well_formed_digest(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setattr(rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True))
+def test_snapshot_is_json_serializable_with_a_well_formed_digest(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(
+        rd, "_collect_health_report", lambda: _healthy_report(engine_ok=True)
+    )
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])
     s1 = rd.collect_readiness_snapshot(engine, deadline_s=2.0)
     s2 = rd.collect_readiness_snapshot(engine, deadline_s=2.0)
@@ -504,7 +560,11 @@ def test_snapshot_is_json_serializable_with_a_well_formed_digest(monkeypatch: py
 @pytest.mark.parametrize(
     ("states", "required_failures", "expected"),
     [
-        ({"engine": "ready", "catalog": "ready", "synthetic_query": "ready"}, [], "ready"),
+        (
+            {"engine": "ready", "catalog": "ready", "synthetic_query": "ready"},
+            [],
+            "ready",
+        ),
         ({"engine": "unavailable"}, ["engine"], "unavailable"),
         ({"engine": "ready", "source_sync": "degraded"}, [], "degraded"),
         ({"engine": "ready", "dense_index": "stale"}, [], "stale"),

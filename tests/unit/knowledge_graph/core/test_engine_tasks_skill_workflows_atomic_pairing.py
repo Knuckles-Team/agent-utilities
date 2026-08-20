@@ -43,7 +43,13 @@ async def test_skill_workflows_job_also_runs_atomic_skill_ingest():
     with (
         patch(
             "agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_skill_workflows",
-            return_value={"workflows": 3, "steps": 9, "skill_links": 2, "skipped": 0, "errors": 0},
+            return_value={
+                "workflows": 3,
+                "steps": 9,
+                "skill_links": 2,
+                "skipped": 0,
+                "errors": 0,
+            },
         ) as workflows_mock,
         patch(
             "agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_atomic_skills",
@@ -60,7 +66,9 @@ async def test_skill_workflows_job_also_runs_atomic_skill_ingest():
     workflows_mock.assert_called_once()
     atomic_mock.assert_called_once()
     # Both legs share the SAME resolved corpus root argument.
-    assert workflows_mock.call_args.kwargs.get("root") == atomic_mock.call_args.kwargs.get("root")
+    assert workflows_mock.call_args.kwargs.get(
+        "root"
+    ) == atomic_mock.call_args.kwargs.get("root")
 
     job_id, status, payload = engine.updates[-1]
     assert job_id == "job:1"
@@ -81,7 +89,13 @@ async def test_skill_workflows_job_survives_atomic_leg_failure():
     with (
         patch(
             "agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_skill_workflows",
-            return_value={"workflows": 1, "steps": 1, "skill_links": 0, "skipped": 0, "errors": 0},
+            return_value={
+                "workflows": 1,
+                "steps": 1,
+                "skill_links": 0,
+                "skipped": 0,
+                "errors": 0,
+            },
         ) as workflows_mock,
         patch(
             "agent_utilities.knowledge_graph.ingestion.skill_workflow_ingest.ingest_atomic_skills",

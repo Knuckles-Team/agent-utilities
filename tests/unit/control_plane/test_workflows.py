@@ -16,8 +16,8 @@ from agent_utilities.control_plane.workflows import (
     WorkflowBudget,
     WorkflowCatalog,
     WorkflowConflictError,
-    WorkflowDomainError,
     WorkflowDefinition,
+    WorkflowDomainError,
     WorkflowStep,
     WorkflowTemplate,
 )
@@ -58,7 +58,9 @@ def _binding(kind: str, binding_id: str, letter: str) -> ApprovedBinding:
     )
 
 
-def _step(step_id: str, binding: ApprovedBinding, depends_on: tuple[str, ...] = ()) -> WorkflowStep:
+def _step(
+    step_id: str, binding: ApprovedBinding, depends_on: tuple[str, ...] = ()
+) -> WorkflowStep:
     artifact = ArtifactRef(ref=f"schema:{step_id}", digest=_digest("e"))
     return WorkflowStep(
         step_id=step_id,
@@ -152,7 +154,9 @@ def test_budget_escalation_and_graph_bounds_are_rejected() -> None:
         _step("c", agent, ("b",)),
     )
     with pytest.raises(ValidationError, match="workflow_depth_budget_exceeded"):
-        _definition(steps=chain, budget=_budget(max_depth=2), policy_budget=_budget(max_depth=2))
+        _definition(
+            steps=chain, budget=_budget(max_depth=2), policy_budget=_budget(max_depth=2)
+        )
 
 
 def test_alias_and_inline_payload_fields_are_rejected() -> None:
@@ -193,7 +197,10 @@ def test_catalog_requires_exact_bindings_and_cas_release() -> None:
     assert resolved.definition.definition_digest == definition.definition_digest
     assert resolved.pointer_generation == pointer.generation
     assert resolved.resolution_digest.startswith("sha256:")
-    assert "body" not in catalog.summary(definition.workflow_id, channel="stable").model_dump()
+    assert (
+        "body"
+        not in catalog.summary(definition.workflow_id, channel="stable").model_dump()
+    )
 
     with pytest.raises(WorkflowConflictError, match="release_pointer_cas_conflict"):
         catalog.release(definition, channel="stable")

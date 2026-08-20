@@ -786,9 +786,7 @@ def test_cas_work_item_metadata_deterministic_conflict_never_silently_overwrites
     assert claim is not None
 
     # Contender A wins.
-    assert wi.checkpoint_work_item(
-        engine, item_id, claim, "checkpoint:1", now=11.0
-    )
+    assert wi.checkpoint_work_item(engine, item_id, claim, "checkpoint:1", now=11.0)
     assert wi.get_work_item(engine, item_id)["checkpoint_id"] == "checkpoint:1"
 
     # Contender B holds the SAME claim/lease (still fenced correctly -- this
@@ -2272,9 +2270,7 @@ def test_hostile_request_input_keys_never_escape_the_namespaced_result(
         "physical_graph": "attacker-graph",
         "status": "succeeded",
     }
-    assert wi.request_work_item_input(
-        engine, item_id, claim, request=hostile, now=11.0
-    )
+    assert wi.request_work_item_input(engine, item_id, claim, request=hostile, now=11.0)
     item = wi.get_work_item(engine, item_id)
     assert item["tenant"] == "tenant-a"
     assert item["kind"] == "generic"
@@ -2328,7 +2324,9 @@ def test_ensure_ingest_task_work_item_rejects_a_mismatched_tenant_on_reuse(
     id must still readback-verify the ADMITTED tenant matches what THIS call
     asked for -- a caller must not silently believe it admitted a job under
     its own tenant when the durable row actually belongs to another."""
-    wi.ensure_ingest_task_work_item(cas_engine, "job-tenant-mismatch", tenant="real-owner")
+    wi.ensure_ingest_task_work_item(
+        cas_engine, "job-tenant-mismatch", tenant="real-owner"
+    )
     with pytest.raises(wi.WorkItemBackendUnavailable):
         wi.ensure_ingest_task_work_item(
             cas_engine, "job-tenant-mismatch", tenant="different-tenant"
@@ -2356,8 +2354,7 @@ class ResultCommitCrashEngine(CasEngine):
         raise RuntimeError("transport dropped mid-call")
 
 
-def test_crash_during_commit_leaves_no_partial_result_or_terminal_state(
-) -> None:
+def test_crash_during_commit_leaves_no_partial_result_or_terminal_state() -> None:
     """KNOWN-BAD class: crash-between-result-and-terminal-commit. On this
     tree the two are not separable RPCs, so the only reachable failure mode
     is "the single atomic call never landed" -- proven here by asserting the

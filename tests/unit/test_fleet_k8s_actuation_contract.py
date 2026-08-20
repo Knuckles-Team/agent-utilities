@@ -18,7 +18,6 @@ from agent_utilities.orchestration.fleet_actuation import (
 from .fleet_autonomy_fakes import FakeEngine
 from .test_fleet_action_outbox import DurableActionOutbox
 
-
 BASE_IDENTITY = {
     "cluster": "production",
     "context": "production-admin",
@@ -72,7 +71,9 @@ class RecordingKubernetesActuator(KubernetesActuator):
             **kwargs,
         )
 
-    def _run(self, *args: str, context: str | None = None, namespace: str | None = None):
+    def _run(
+        self, *args: str, context: str | None = None, namespace: str | None = None
+    ):
         self._last_error = ""
         command = []
         if context:
@@ -85,7 +86,9 @@ class RecordingKubernetesActuator(KubernetesActuator):
 
 
 class TimeoutKubernetesActuator(RecordingKubernetesActuator):
-    def _run(self, *args: str, context: str | None = None, namespace: str | None = None):
+    def _run(
+        self, *args: str, context: str | None = None, namespace: str | None = None
+    ):
         self._last_error = "timeout"
         command = []
         if context:

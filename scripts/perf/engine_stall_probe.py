@@ -14,12 +14,12 @@ def snap():
         .decode()
     )
     s, c = {}, {}
-    for l in d.splitlines():
-        if l.startswith("#"):
+    for line in d.splitlines():
+        if line.startswith("#"):
             continue
         m = re.match(
             r'epistemic_graph_request_duration_seconds_(sum|count)\{op="(.*?)"\} (.*)',
-            l,
+            line,
         )
         if m:
             (s if m.group(1) == "sum" else c)[m.group(2)] = float(m.group(3))

@@ -73,9 +73,7 @@ def test_schemed_internal_hostname_fails() -> None:
 
 def test_rfc_reserved_documentation_domain_passes() -> None:
     gate = _gate_module()
-    assert (
-        _flags_internal_endpoint(gate, 'CONTACT = "user@example.invalid"') is False
-    )
+    assert _flags_internal_endpoint(gate, 'CONTACT = "user@example.invalid"') is False
 
 
 def test_labelled_fake_internal_hostname_passes() -> None:

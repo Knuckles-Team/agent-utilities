@@ -87,9 +87,11 @@ tests/
 def mock_engine():
     """IntelligenceGraphEngine with in-memory backend."""
 
+
 @pytest.fixture
 def sample_graph():
     """Pre-populated NetworkX graph with test nodes."""
+
 
 @pytest.fixture
 def mock_agent():

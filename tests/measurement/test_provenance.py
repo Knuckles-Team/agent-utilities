@@ -75,8 +75,12 @@ def test_incident_6_taskset_vs_real_ci_core_count_is_caught():
 
 
 def test_incident_7_sccache_env_fingerprint_is_caught():
-    local_with_sccache = _header(env_fingerprint={"RUSTC_WRAPPER": "sccache", "VIRTUAL_ENV": None})
-    ci_without_sccache = _header(env_fingerprint={"RUSTC_WRAPPER": None, "VIRTUAL_ENV": None})
+    local_with_sccache = _header(
+        env_fingerprint={"RUSTC_WRAPPER": "sccache", "VIRTUAL_ENV": None}
+    )
+    ci_without_sccache = _header(
+        env_fingerprint={"RUSTC_WRAPPER": None, "VIRTUAL_ENV": None}
+    )
     diffs = environment_mismatches(local_with_sccache, ci_without_sccache)
     assert "env_fingerprint" in diffs
     with pytest.raises(EnvironmentMismatchError):

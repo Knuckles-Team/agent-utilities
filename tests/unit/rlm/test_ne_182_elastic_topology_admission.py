@@ -85,7 +85,9 @@ def test_materialization_rejects_fanout_before_engine_write():
 def test_materialization_rejects_depth_and_node_bounds():
     admission = _admission(max_nodes=1, max_depth=1)
     with pytest.raises(TopologyAdmissionError, match="node count"):
-        TopologyEngine(admission=admission).materialize(_team(count=2, mode="sequential"))
+        TopologyEngine(admission=admission).materialize(
+            _team(count=2, mode="sequential")
+        )
 
 
 @pytest.mark.asyncio

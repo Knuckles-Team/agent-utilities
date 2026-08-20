@@ -84,7 +84,9 @@ def _direct_imports(path: Path) -> set[str]:
 def _runtime_files(package: Path) -> list[Path]:
     if not package.is_dir():
         raise FileNotFoundError(f"runtime package is not a directory: {package}")
-    return sorted(path for path in package.rglob("*.py") if "__pycache__" not in path.parts)
+    return sorted(
+        path for path in package.rglob("*.py") if "__pycache__" not in path.parts
+    )
 
 
 def _import_inventory(package: Path) -> dict[str, set[str]]:
@@ -190,7 +192,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--lock", type=Path, default=LOCK)
     args = parser.parse_args(argv)
     try:
-        errors = validate(package=args.package, pyproject=args.pyproject, lock=args.lock)
+        errors = validate(
+            package=args.package, pyproject=args.pyproject, lock=args.lock
+        )
     except (OSError, tomllib.TOMLDecodeError, SyntaxError) as exc:
         print(json.dumps({"ok": False, "error": str(exc)}, sort_keys=True))
         return 1

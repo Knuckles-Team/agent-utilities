@@ -25,7 +25,6 @@ from agent_utilities.httpsupport.httpx2_adapter import (
 )
 from agent_utilities.httpsupport.httpx_adapter import AsyncHttpxAdapter, HttpxAdapter
 
-
 _KINDS = ("httpx", "httpx2")
 
 

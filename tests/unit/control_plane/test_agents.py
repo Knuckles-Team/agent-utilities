@@ -424,9 +424,7 @@ def test_stale_approval_and_budget_or_delegation_escalation_are_denied() -> None
             _request(scope, identity, version, approval, requested_tokens=10_001)
         )
     with pytest.raises(AgentResolutionError, match="delegation_depth_escalation"):
-        plane.resolve(
-            _request(scope, identity, version, approval, delegation_depth=3)
-        )
+        plane.resolve(_request(scope, identity, version, approval, delegation_depth=3))
     with pytest.raises(AgentResolutionError, match="approval_required"):
         plane.resolve(
             _request(scope, identity, version, approval, approval_id="approval:missing")

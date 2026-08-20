@@ -3,8 +3,6 @@ and the interpreter-identity helper never relies on realpath()."""
 
 from __future__ import annotations
 
-import inspect
-import os
 import sys
 from pathlib import Path
 
@@ -30,7 +28,7 @@ def _fake_venv(tmp_path: Path, *, with_pyvenv_cfg: bool = True) -> Path:
     py.symlink_to(sys.executable)
     if with_pyvenv_cfg:
         (venv / "pyvenv.cfg").write_text("home = /usr\nversion = 3.14.4\n")
-    site_packages = venv / f"lib/python3.14/site-packages"
+    site_packages = venv / "lib/python3.14/site-packages"
     site_packages.mkdir(parents=True)
     (site_packages / "foo-1.0.dist-info").mkdir()
     (site_packages / "bar-2.0.dist-info").mkdir()
@@ -153,7 +151,9 @@ def test_filtered_env_strips_inherited_uv_project_environment():
         "UV_PROJECT_ENVIRONMENT": "/home/x/some/other/lane/.venv",
         "SOME_RANDOM_SECRET": "shh",
     }
-    child_env, rejected = filtered_env(list(manifest_mod.DEFAULT_ENV_ALLOWLIST), source_env)
+    child_env, rejected = filtered_env(
+        list(manifest_mod.DEFAULT_ENV_ALLOWLIST), source_env
+    )
     assert "UV_PROJECT_ENVIRONMENT" not in child_env
     assert "UV_PROJECT_ENVIRONMENT" in rejected
     assert "SOME_RANDOM_SECRET" not in child_env

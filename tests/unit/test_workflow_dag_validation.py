@@ -82,7 +82,9 @@ def _install_fake_run_agent(monkeypatch) -> list[str]:
 
     dispatched: list[str] = []
 
-    async def _fake_run_agent(*, agent_name, task, engine, max_steps, context, session_id, reasoning_effort):
+    async def _fake_run_agent(
+        *, agent_name, task, engine, max_steps, context, session_id, reasoning_effort
+    ):
         dispatched.append(agent_name)
         return f"ok:{agent_name}"
 
@@ -174,9 +176,7 @@ class TestCyclicWorkflowDagNeverExecutesAsFallbackWave:
 
 
 class TestDanglingDependencyWorkflowDagNeverExecutesAsFallbackWave:
-    async def test_dependency_on_unknown_step_id_dispatches_no_steps(
-        self, monkeypatch
-    ):
+    async def test_dependency_on_unknown_step_id_dispatches_no_steps(self, monkeypatch):
         """``step-a`` depends on ``step-ghost``, which is not any step in the
         plan. No step can ever become 'ready' -- reproduces the same
         no-ready-step fallback via a dangling reference instead of a cycle.

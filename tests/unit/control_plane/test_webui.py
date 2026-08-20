@@ -91,7 +91,9 @@ def _conversation(
 
 def test_models_reject_inline_material_and_scope_drift() -> None:
     context = _context()
-    with pytest.raises(ValidationError, match="inline_ui_material_or_authority_forbidden"):
+    with pytest.raises(
+        ValidationError, match="inline_ui_material_or_authority_forbidden"
+    ):
         ContentReference(
             tenant_ref=context.tenant_ref,
             workspace_ref=context.workspace_ref,
@@ -139,12 +141,18 @@ def test_scope_is_explicit_and_cross_scope_reads_are_non_oracular() -> None:
     entity = _conversation(context, "conversation:one")
 
     service.save_conversation(entity, context=context)
-    assert service.get_entity("conversation", entity.conversation_ref, context=other) is None
-    assert service.list_entities(
-        "conversation",
-        context=other,
-        request=PageRequest(limit=10),
-    ).items == ()
+    assert (
+        service.get_entity("conversation", entity.conversation_ref, context=other)
+        is None
+    )
+    assert (
+        service.list_entities(
+            "conversation",
+            context=other,
+            request=PageRequest(limit=10),
+        ).items
+        == ()
+    )
     with pytest.raises(WebUiAuthorizationError):
         service.save_conversation(entity, context=other)
     with pytest.raises(WebUiEntityNotFoundError):
@@ -164,7 +172,9 @@ def test_cas_and_pagination_are_bounded_and_deterministic() -> None:
         _conversation(context, "conversation:one"),
         context=context,
     )
-    service.save_conversation(_conversation(context, "conversation:two"), context=context)
+    service.save_conversation(
+        _conversation(context, "conversation:two"), context=context
+    )
     updated = _conversation(context, "conversation:one", version=2)
     service.save_conversation(updated, context=context, expected_version=first.version)
     with pytest.raises(WebUiCasConflictError):

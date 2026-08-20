@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -12,8 +11,8 @@ from pydantic import ValidationError
 from agent_utilities.control_plane.policy import (
     ApprovalDecision,
     CapabilityBinding,
-    ExecutionBudget,
     ExactSignatureVerifier,
+    ExecutionBudget,
     InMemoryPolicyRepository,
     PolicyAuthority,
     PolicyDomainError,
@@ -154,7 +153,9 @@ def _resolution(authority: PolicyAuthority, *, request_digest: str) -> RunResolu
         tool_binding_digest=tool.digest,
         input_digest=request_digest,
         trace_ref=TraceRef(trace_id="trace:research", digest=_digest("r")),
-        artifact_refs=(ArtifactRef(artifact_id="artifact:source", digest=_digest("s")),),
+        artifact_refs=(
+            ArtifactRef(artifact_id="artifact:source", digest=_digest("s")),
+        ),
     )
     return RunResolution(
         tenant_ref="tenant:demo",
@@ -186,7 +187,9 @@ def _admission_request(resolution: RunResolution) -> NativeAdmissionRequest:
     return NativeAdmissionRequest(resolution=resolution, work_item=item)
 
 
-def test_policy_pins_exact_versions_and_rejects_budget_or_privilege_escalation() -> None:
+def test_policy_pins_exact_versions_and_rejects_budget_or_privilege_escalation() -> (
+    None
+):
     policy = _policy()
     assert policy.ref.digest == policy.policy_digest
     with pytest.raises(ValidationError, match="policy_rule_budget_escalation"):
@@ -244,7 +247,9 @@ def test_stale_approval_and_expired_signed_exception_fail_closed() -> None:
     verifier = ExactSignatureVerifier(
         ((exception.signer_ref, exception.exception_digest, exception.signature),)
     )
-    authority = PolicyAuthority(InMemoryPolicyRepository(), verifier=verifier, clock=lambda: 100)
+    authority = PolicyAuthority(
+        InMemoryPolicyRepository(), verifier=verifier, clock=lambda: 100
+    )
     authority.publish(policy)
     authority.record_exception(exception)
     with pytest.raises(PolicyDomainError, match="exception_expired_or_not_yet_valid"):
@@ -259,7 +264,9 @@ def test_stale_approval_and_expired_signed_exception_fail_closed() -> None:
         )
 
 
-def test_admission_is_one_run_one_work_item_and_duplicate_delivery_is_idempotent() -> None:
+def test_admission_is_one_run_one_work_item_and_duplicate_delivery_is_idempotent() -> (
+    None
+):
     policy = _policy()
     request_digest = _digest("q")
     approval = _approval(policy, request_digest=request_digest)

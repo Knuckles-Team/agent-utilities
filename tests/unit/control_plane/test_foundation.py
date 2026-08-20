@@ -36,12 +36,13 @@ from agent_utilities.control_plane.foundation import (
     upstream_id_for,
 )
 
-
 _ZERO = "sha256:" + "0" * 64
 
 
 def _digest(value: object) -> str:
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -86,7 +87,9 @@ def _tenant(organization: OrganizationIdentity, slug: str = "prod") -> TenantIde
     )
 
 
-def _principal(tenant: TenantIdentity, subject: str = "idp:user-1") -> PrincipalIdentity:
+def _principal(
+    tenant: TenantIdentity, subject: str = "idp:user-1"
+) -> PrincipalIdentity:
     return _finalize(
         PrincipalIdentity,
         "identity_digest",
@@ -115,7 +118,11 @@ def _retention_policy(tenant: TenantIdentity) -> RetentionPolicy:
     )
 
 
-def _scope(organization: OrganizationIdentity, tenant: TenantIdentity, principal: PrincipalIdentity) -> TenantScope:
+def _scope(
+    organization: OrganizationIdentity,
+    tenant: TenantIdentity,
+    principal: PrincipalIdentity,
+) -> TenantScope:
     return TenantScope(
         scope_version="tenant-scope.v1",
         organization_id=organization.organization_id,
@@ -134,7 +141,9 @@ def _scope(organization: OrganizationIdentity, tenant: TenantIdentity, principal
     )
 
 
-def _upstream(tenant: TenantIdentity, version: int, name: str = "api") -> GatewayUpstreamVersion:
+def _upstream(
+    tenant: TenantIdentity, version: int, name: str = "api"
+) -> GatewayUpstreamVersion:
     return _finalize(
         GatewayUpstreamVersion,
         "record_digest",
@@ -221,7 +230,9 @@ def test_scope_and_opaque_references_fail_closed() -> None:
         auth_policy_ref="policy:default",
         lifecycle=_lifecycle(),
     )
-    with pytest.raises(FoundationLifecycleError, match="route_upstream_scope_or_version_missing"):
+    with pytest.raises(
+        FoundationLifecycleError, match="route_upstream_scope_or_version_missing"
+    ):
         plane.register_route(scope, cross_scope_route)
 
     assert "body:{" not in first.model_dump_json()
@@ -317,7 +328,12 @@ def test_route_config_and_feature_bind_exact_versions() -> None:
     upstream_ref = _version_ref(
         tenant, "upstream", first.upstream_id, first.version, first.record_digest
     )
-    component_refs = tuple(sorted((route_ref, upstream_ref), key=lambda ref: (ref.target_kind, ref.target_id, ref.target_version)))
+    component_refs = tuple(
+        sorted(
+            (route_ref, upstream_ref),
+            key=lambda ref: (ref.target_kind, ref.target_id, ref.target_version),
+        )
+    )
     config = _finalize(
         GatewayConfigVersion,
         "record_digest",
@@ -392,7 +408,9 @@ def test_tombstone_blocks_active_release_and_later_reactivation() -> None:
         activated_at="2026-08-19T00:05:00Z",
     )
     plane.register_tombstone(scope, tombstone)
-    assert repository.get_tombstone(scope, "upstream", first.upstream_id, 1) == tombstone
+    assert (
+        repository.get_tombstone(scope, "upstream", first.upstream_id, 1) == tombstone
+    )
     with pytest.raises(FoundationLifecycleError, match="tombstoned"):
         plane.activate(
             scope,

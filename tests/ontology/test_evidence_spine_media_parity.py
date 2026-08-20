@@ -43,7 +43,7 @@ def _media_store_source() -> str:
     return Path(spec.origin).read_text(encoding="utf-8")
 
 
-def _canonical_graph() -> "rdflib.Graph":
+def _canonical_graph() -> rdflib.Graph:
     g = rdflib.Graph()
     g.parse(_kg_dir() / "ontology.ttl", format="turtle")
     return g

@@ -74,9 +74,9 @@ async def main():
         t = time.monotonic()
         try:
             if asyncio.iscoroutinefunction(fn):
-                r = await fn(msgs, "qwen/qwen3.6-27b")
+                await fn(msgs, "qwen/qwen3.6-27b")
             else:
-                r = await asyncio.to_thread(fn, msgs, "qwen/qwen3.6-27b")
+                await asyncio.to_thread(fn, msgs, "qwen/qwen3.6-27b")
             print(f"  [{i}] OK in {time.monotonic() - t:.2f}s", flush=True)
         except Exception as e:
             print(

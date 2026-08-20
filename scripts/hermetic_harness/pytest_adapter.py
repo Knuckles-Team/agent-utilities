@@ -83,7 +83,9 @@ def parse_assertion_summary(stdout: str) -> dict[str, int]:
     return summary
 
 
-def normalize_outcome(exit_code: int | None, timed_out: bool, collection_count: int) -> str:
+def normalize_outcome(
+    exit_code: int | None, timed_out: bool, collection_count: int
+) -> str:
     if timed_out:
         return "TIMEOUT"
     if exit_code is None:
@@ -121,7 +123,14 @@ def run_pytest(
     )
 
     # Phase 1: collection.
-    collect_argv = [str(python_path), "-m", "pytest", "--collect-only", "-q", *test_paths]
+    collect_argv = [
+        str(python_path),
+        "-m",
+        "pytest",
+        "--collect-only",
+        "-q",
+        *test_paths,
+    ]
     collect_result = launcher.run(collect_argv, cwd=repo_path, env=child_env)
     collect_stdout = collect_result.stdout.decode("utf-8", errors="replace")
     collection_count, deselection_count = parse_collection(collect_stdout)
@@ -140,7 +149,9 @@ def run_pytest(
     launch: LaunchResult = launcher.run(argv, cwd=repo_path, env=child_env)
     run_stdout = launch.stdout.decode("utf-8", errors="replace")
     assertion_summary = parse_assertion_summary(run_stdout)
-    normalized_outcome = normalize_outcome(launch.exit_code, launch.timed_out, collection_count)
+    normalized_outcome = normalize_outcome(
+        launch.exit_code, launch.timed_out, collection_count
+    )
 
     stdout_dir.mkdir(parents=True, exist_ok=True)
     stdout_path = stdout_dir / "stdout.raw"
@@ -169,8 +180,12 @@ def run_pytest(
         collection_source="pytest --collect-only -q",
         stdout_path=str(stdout_path),
         stderr_path=str(stderr_path),
-        stdout_truncation_marker="truncated at max_stream_bytes" if launch.stdout_truncated else None,
-        stderr_truncation_marker="truncated at max_stream_bytes" if launch.stderr_truncated else None,
+        stdout_truncation_marker="truncated at max_stream_bytes"
+        if launch.stdout_truncated
+        else None,
+        stderr_truncation_marker="truncated at max_stream_bytes"
+        if launch.stderr_truncated
+        else None,
         assertion_summary=assertion_summary,
         normalized_outcome=normalized_outcome,
         exit_provenance="direct_waitpid",

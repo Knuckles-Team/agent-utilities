@@ -57,7 +57,10 @@ def test_metrics_url_drops_v1_and_appends_metrics():
         "http://vllm-embed.example/metrics"
     )
     assert metrics_url_from_base("http://vllm.example") == "http://vllm.example/metrics"
-    assert metrics_url_from_base("http://vllm.example/v1/") == "http://vllm.example/metrics"
+    assert (
+        metrics_url_from_base("http://vllm.example/v1/")
+        == "http://vllm.example/metrics"
+    )
 
 
 @pytest.mark.parametrize(

@@ -253,9 +253,7 @@ def test_engine_dispatch_client_error_scoping_is_narrow(_fake_client):
     )
     # A real result, a listing response, and a non-client-error payload must
     # NOT be reclassified as a 4xx.
-    assert not kg_server._is_engine_dispatch_client_error(
-        [{"name": "__commons__"}]
-    )
+    assert not kg_server._is_engine_dispatch_client_error([{"name": "__commons__"}])
     assert not kg_server._is_engine_dispatch_client_error(
         {"domain": "tenants", "actions": ["list"], "admin_domain": False}
     )

@@ -19,7 +19,9 @@ import pytest
 #: The canonical embedding factory. Blocking this is what makes the suite
 #: hermetic, so it MUST be patchable in every profile -- a failure to import it
 #: is a real defect, not an optional-dependency condition.
-CANONICAL_EMBEDDING_FACTORY = "agent_utilities.core.embedding_utilities.create_embedding_model"
+CANONICAL_EMBEDDING_FACTORY = (
+    "agent_utilities.core.embedding_utilities.create_embedding_model"
+)
 
 #: Modules that bind ``create_embedding_model`` by name at import time. Patching
 #: the canonical factory alone would not intercept those already-bound

@@ -77,7 +77,10 @@ def main() -> int:
             )
 
     if violations:
-        print(f"\nFAIL: {violations} exit-code antipattern violation(s) found.", file=sys.stderr)
+        print(
+            f"\nFAIL: {violations} exit-code antipattern violation(s) found.",
+            file=sys.stderr,
+        )
         return 1
     print("OK: no `cmd | filter` + bare `$?` antipattern found.")
     return 0

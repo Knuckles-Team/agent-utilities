@@ -17,13 +17,12 @@ from typing import Any
 from agent_utilities.orchestration.action_policy import ActionPolicy, ActionRequest
 from agent_utilities.orchestration.fleet_actuation import DryRunActuator
 from agent_utilities.orchestration.fleet_autoscaler import FleetAutoscaler
+from agent_utilities.orchestration.fleet_health import FleetHealthSnapshot
 from agent_utilities.orchestration.fleet_reconciler import (
     FleetReconciler,
     load_desired_state,
     parse_scaling_spec,
 )
-
-from agent_utilities.orchestration.fleet_health import FleetHealthSnapshot
 
 from .fleet_autonomy_fakes import (
     FakeEngine,
@@ -105,7 +104,12 @@ class DurableIntentCAS:
             if expected != current_revision:
                 return {"accepted": False, "reason": "revision conflict"}
             for key, value in request.items():
-                if key not in {"operation", "service", "intent_id", "expected_revision"}:
+                if key not in {
+                    "operation",
+                    "service",
+                    "intent_id",
+                    "expected_revision",
+                }:
                     current[key] = value
             return {"accepted": True, "status": current["status"]}
         return {"accepted": False, "reason": "unknown operation"}
@@ -212,12 +216,8 @@ def _setup(
         "load_desired_state",
         lambda *args, **kwargs: load_desired_state(registry_path=str(registry)),
     )
-    monkeypatch.setattr(
-        autoscaler_module, "collect_fleet_health", _healthy_snapshot
-    )
-    monkeypatch.setattr(
-        reconciler_module, "collect_fleet_health", _healthy_snapshot
-    )
+    monkeypatch.setattr(autoscaler_module, "collect_fleet_health", _healthy_snapshot)
+    monkeypatch.setattr(reconciler_module, "collect_fleet_health", _healthy_snapshot)
     return engine, observer, signals, policy
 
 
@@ -369,7 +369,9 @@ def test_concurrent_leaders_cannot_both_commit_revision_one(tmp_path, monkeypatc
     assert store.intents["vector-mcp"]["revision"] == 1
 
 
-def test_restart_reuses_pending_intent_and_cooldown_prevents_duplicate(tmp_path, monkeypatch):
+def test_restart_reuses_pending_intent_and_cooldown_prevents_duplicate(
+    tmp_path, monkeypatch
+):
     store = DurableIntentCAS()
     engine, observer, signals, policy = _setup(tmp_path, monkeypatch, store)
     first = FleetAutoscaler(
@@ -559,9 +561,7 @@ def test_clock_skew_clamps_small_future_and_fails_closed_on_large_future(
     assert scaler._last_scale_unix("vector-mcp") is None
 
 
-def test_dry_run_is_simulated_without_watch_or_real_cooldown(
-    tmp_path, monkeypatch
-):
+def test_dry_run_is_simulated_without_watch_or_real_cooldown(tmp_path, monkeypatch):
     store = DurableIntentCAS()
     engine = ScaleLedgerEngine()
     engine, observer, signals, policy = _setup(
@@ -778,7 +778,9 @@ def test_operator_override_wins_over_pending_native_intent(tmp_path, monkeypatch
     )
     scaler.evaluate()
     override = tmp_path / "override.yml"
-    override.write_text("services:\n  - name: vector-mcp\n    replicas: 2\n", encoding="utf-8")
+    override.write_text(
+        "services:\n  - name: vector-mcp\n    replicas: 2\n", encoding="utf-8"
+    )
     import agent_utilities.orchestration.fleet_autoscaler as autoscaler_module
     import agent_utilities.orchestration.fleet_reconciler as reconciler_module
 

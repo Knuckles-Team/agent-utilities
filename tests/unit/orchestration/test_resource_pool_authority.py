@@ -7,22 +7,21 @@ from pydantic import ValidationError
 
 from agent_utilities.orchestration.resource_pool_authority import (
     CapabilityAttestation,
-    CpuCapability,
     CostCapability,
+    CpuCapability,
     EnergyCapability,
     GpuCapability,
     NetworkCapability,
     NvmeRequirement,
     PlacementRequirement,
     ResourceAccounting,
+    ResourceAmount,
     ResourceCapabilities,
     ResourcePoolSnapshot,
-    ResourceAmount,
     StorageCapability,
     capability_payload_digest,
     place,
 )
-
 
 NOW = datetime(2026, 8, 19, 12, tzinfo=UTC)
 
@@ -149,9 +148,7 @@ def test_known_capability_placement_is_order_independent_and_replayable() -> Non
 
 def test_unknown_and_unverified_capabilities_fail_closed() -> None:
     requirement = PlacementRequirement(cpu_milli=1_000, memory_mib=1_024)
-    unknown_decision = place(
-        requirement, (snapshot(memory_state="unknown"),), now=NOW
-    )
+    unknown_decision = place(requirement, (snapshot(memory_state="unknown"),), now=NOW)
     assert unknown_decision.status == "denied"
     assert "unknown_memory" in unknown_decision.denial_reasons
 

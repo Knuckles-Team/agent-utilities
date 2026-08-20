@@ -7,7 +7,7 @@ relational and GraphOS adapter acceptance.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 import pytest
@@ -21,8 +21,9 @@ from agent_utilities.control_plane.projection import (
     ObservationPromotion,
     ObservationPromotionPolicy,
     OutboxEnvelope,
-    ProjectionService,
+    ProjectionCheckpoint,
     ProjectionScope,
+    ProjectionService,
     Tombstone,
     commit_authoritative_change,
     promote_graph_observation,
@@ -30,8 +31,7 @@ from agent_utilities.control_plane.projection import (
     sha256_digest,
 )
 
-
-NOW = datetime(2026, 8, 19, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 19, 12, 0, tzinfo=UTC)
 
 
 def _mutation(
@@ -54,7 +54,9 @@ def _mutation(
     )
 
 
-def _event(mutation: AuthoritativeMutation, *, tombstone: bool = False) -> OutboxEnvelope:
+def _event(
+    mutation: AuthoritativeMutation, *, tombstone: bool = False
+) -> OutboxEnvelope:
     event_operation: Literal["upsert", "tombstone"] = (
         "tombstone" if tombstone else "upsert"
     )
@@ -175,7 +177,9 @@ class GraphFixture:
         if self.fail:
             raise RuntimeError("fixture graph is unavailable")
         if event.event_id in self.applied:
-            return GraphProjectionReceipt(event_id=event.event_id, applied=False, replayed=True)
+            return GraphProjectionReceipt(
+                event_id=event.event_id, applied=False, replayed=True
+            )
         self.applied.append(event.event_id)
         return GraphProjectionReceipt(event_id=event.event_id, applied=True)
 

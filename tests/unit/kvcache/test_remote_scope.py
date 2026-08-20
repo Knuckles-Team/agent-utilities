@@ -7,7 +7,6 @@ import httpx
 from agent_utilities.core.http_client import create_http_client
 from agent_utilities.kvcache import EpistemicGraphKVBackend, KvCacheConfig
 
-
 BASE = "http://kv.test"
 
 

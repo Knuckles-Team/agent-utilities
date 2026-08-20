@@ -18,8 +18,8 @@ import hashlib
 import json
 import os
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 from scripts.scale.loadgen_source_authority import (
     source_authority_digest as build_source_authority_digest,
@@ -71,7 +71,9 @@ def _env_value(
 ) -> str:
     configured = str(environment.get(name, "") or "").strip()
     if override is not None and configured and configured != str(override).strip():
-        raise LiveRuntimeContractError(f"live workload {name} disagrees with its argv pin")
+        raise LiveRuntimeContractError(
+            f"live workload {name} disagrees with its argv pin"
+        )
     return _text(override if override is not None else configured, name)
 
 
@@ -184,7 +186,7 @@ class LiveRuntimeContract:
         principal: str | None = None,
         audience: str | None = None,
         environment: Mapping[str, str] | None = None,
-    ) -> "LiveRuntimeContract":
+    ) -> LiveRuntimeContract:
         # An explicitly supplied empty mapping is a useful deterministic
         # fixture and must not accidentally inherit credentials or endpoints
         # from the invoking host.
@@ -199,9 +201,7 @@ class LiveRuntimeContract:
         release = _env_value(env, "LOADGEN_RELEASE_DIGEST", release_digest)
         topology = _env_value(env, "LOADGEN_TOPOLOGY_DIGEST", topology_digest)
         image = _env_value(env, "LOADGEN_IMAGE_DIGEST", image_digest)
-        workload = _env_value(
-            env, "LOADGEN_WORKLOAD_CONTRACT_DIGEST", contract_digest
-        )
+        workload = _env_value(env, "LOADGEN_WORKLOAD_CONTRACT_DIGEST", contract_digest)
         if workload != contract.contract_digest:
             raise LiveRuntimeContractError(
                 "LOADGEN_WORKLOAD_CONTRACT_DIGEST does not match the loaded contract"
@@ -211,12 +211,8 @@ class LiveRuntimeContract:
         audience_ref = _env_value(env, "LOADGEN_AUDIENCE", audience)
         source_repository = _env_value(env, "LOADGEN_SOURCE_REPOSITORY", None)
         source_revision = _env_value(env, "LOADGEN_SOURCE_REVISION", None)
-        source_manifest_digest = _env_value(
-            env, "LOADGEN_SOURCE_MANIFEST_DIGEST", None
-        )
-        source_authority = _env_value(
-            env, "LOADGEN_SOURCE_AUTHORITY_DIGEST", None
-        )
+        source_manifest_digest = _env_value(env, "LOADGEN_SOURCE_MANIFEST_DIGEST", None)
+        source_authority = _env_value(env, "LOADGEN_SOURCE_AUTHORITY_DIGEST", None)
         expected_source_authority = build_source_authority_digest(
             source_repository,
             source_revision,
@@ -231,9 +227,9 @@ class LiveRuntimeContract:
             "principal": principal_ref,
             "audience": audience_ref,
         }
-        identity_digest = "sha256:" + hashlib.sha256(
-            _canonical(identity_payload)
-        ).hexdigest()
+        identity_digest = (
+            "sha256:" + hashlib.sha256(_canonical(identity_payload)).hexdigest()
+        )
         return cls(
             release_digest=_digest(release, "release digest"),
             topology_digest=_digest(topology, "topology digest"),

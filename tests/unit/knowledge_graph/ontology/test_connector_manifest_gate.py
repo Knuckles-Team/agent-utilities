@@ -251,7 +251,9 @@ def _load_native_manifest_generator():
     return module
 
 
-def _write_single_source_native_bundle(tmp_path: Path, monkeypatch, *, source: str) -> Path:
+def _write_single_source_native_bundle(
+    tmp_path: Path, monkeypatch, *, source: str
+) -> Path:
     """Generate a self-consistent ``native-source-connectors`` bundle whose
 
     ``sync`` list covers exactly ``{source}`` — isolates the coverage

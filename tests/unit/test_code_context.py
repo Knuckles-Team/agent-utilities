@@ -196,9 +196,7 @@ def test_bug004_engine_degraded_during_anchor_resolution_is_not_reported_as_no_s
         def query_cypher(self, cypher, params):
             raise EngineCircuitOpenError("engine")
 
-    res = build_code_context(
-        BreakerOpenEngine(), query="dispatch_intent", intent="how"
-    )
+    res = build_code_context(BreakerOpenEngine(), query="dispatch_intent", intent="how")
     assert res["status"] == "degraded"
     assert res["error"] is not None
     assert res["error"]["code"] == "engine_degraded"

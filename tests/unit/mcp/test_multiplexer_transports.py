@@ -220,9 +220,7 @@ async def test_remote_child_unaffected_by_stdio_prohibition(
 
     monkeypatch.setattr(config, "mcp_stdio_prohibited", True)
     mux = MCPMultiplexer(tmp_path / "c.json")
-    res = await mux._start_child(
-        "egeria-mcp", {"url": "http://egeria-mcp.example/mcp"}
-    )
+    res = await mux._start_child("egeria-mcp", {"url": "http://egeria-mcp.example/mcp"})
     assert res is not None
     assert len(transports["http"]) == 1 and not transports["stdio"]
 

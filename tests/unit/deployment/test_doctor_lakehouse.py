@@ -128,9 +128,7 @@ def test_fuseki_live_probe_uses_ping_endpoint(monkeypatch):
 def test_seaweedfs_s3_live_probe_unreachable_fails(monkeypatch):
     monkeypatch.setattr(
         "agent_utilities.core.config.AgentConfig",
-        lambda: _cfg(
-            lakehouse_s3_endpoint="http://s3gw.example.invalid:8333"
-        ),
+        lambda: _cfg(lakehouse_s3_endpoint="http://s3gw.example.invalid:8333"),
     )
     monkeypatch.setattr(D, "_probe_tcp", lambda *_a, **_k: False)
 
@@ -167,9 +165,7 @@ def test_spark_runner_unreachable_live_is_warn_not_fail(monkeypatch):
     """The UI listener is disabled between jobs -- unreachable is expected, not fatal."""
     monkeypatch.setattr(
         "agent_utilities.core.config.AgentConfig",
-        lambda: _cfg(
-            spark_runner_endpoint="http://spark.example.invalid:4040"
-        ),
+        lambda: _cfg(spark_runner_endpoint="http://spark.example.invalid:4040"),
     )
     monkeypatch.setattr(D, "_probe_tcp", lambda *_a, **_k: False)
 
@@ -352,7 +348,9 @@ def test_interactive_apply_confirmed_without_executor_stays_plan_only():
     assert "PLAN-ONLY" in outcomes[0]["reason"]
 
 
-def test_interactive_apply_confirmed_with_executor_applies_and_reruns_proof(monkeypatch):
+def test_interactive_apply_confirmed_with_executor_applies_and_reruns_proof(
+    monkeypatch,
+):
     """Only when BOTH confirmed AND an executor is supplied does it apply --
     and the underlying check is re-run live to prove the result, not trusted
     blindly from the executor's own report."""
@@ -376,7 +374,9 @@ def test_interactive_apply_confirmed_with_executor_applies_and_reruns_proof(monk
 
     assert outcomes[0]["confirmed"] is True
     assert outcomes[0]["applied"] is True
-    assert rerun_calls == [True]  # kafka is in _LIVE_CHECK_NAMES -> re-run with live=True
+    assert rerun_calls == [
+        True
+    ]  # kafka is in _LIVE_CHECK_NAMES -> re-run with live=True
     assert outcomes[0]["proof"]["status"] == "ok"
 
 
@@ -388,7 +388,9 @@ def test_interactive_apply_ignores_ok_and_skip_checks():
         ]
     }
 
-    outcomes = D.interactive_apply(report, confirm=lambda _p: True, output=lambda _l: None)
+    outcomes = D.interactive_apply(
+        report, confirm=lambda _p: True, output=lambda _l: None
+    )
 
     assert outcomes == []
 
@@ -398,20 +400,26 @@ def test_interactive_apply_skips_checks_without_a_prescription():
     there is nothing actionable to confirm."""
     report = {"checks": [D._result("python_env", "warn", "old python")]}
 
-    outcomes = D.interactive_apply(report, confirm=lambda _p: True, output=lambda _l: None)
+    outcomes = D.interactive_apply(
+        report, confirm=lambda _p: True, output=lambda _l: None
+    )
 
     assert outcomes == []
 
 
-def test_main_interactive_flag_declines_on_non_interactive_terminal(monkeypatch, capsys):
+def test_main_interactive_flag_declines_on_non_interactive_terminal(
+    monkeypatch, capsys
+):
     """`--interactive` on a non-TTY (CI) must decline every prompt, never hang,
     and never apply anything -- non-interactive/CI invocation must keep working
     exactly as before."""
     monkeypatch.setattr(
         D,
         "run_doctor",
-        lambda *a, **k: _failing_report_with_prescription()
-        | {"summary": "unhealthy: attend to ['kafka']."},
+        lambda *a, **k: (
+            _failing_report_with_prescription()
+            | {"summary": "unhealthy: attend to ['kafka']."}
+        ),
     )
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
 
@@ -419,4 +427,6 @@ def test_main_interactive_flag_declines_on_non_interactive_terminal(monkeypatch,
 
     captured = capsys.readouterr()
     assert "declining" in captured.out
-    assert exit_code == 1  # unhealthy report; interactive flag does not change the verdict
+    assert (
+        exit_code == 1
+    )  # unhealthy report; interactive flag does not change the verdict

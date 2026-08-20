@@ -32,6 +32,7 @@ from agent_utilities.core.execution.provider_proxy import (
     stream_proxy,
 )
 from agent_utilities.core.http_client import create_async_http_client
+from agent_utilities.httpsupport import HttpTransportError
 
 logger = logging.getLogger(__name__)
 
@@ -311,7 +312,12 @@ async def proxy_stream(
                 ),
             ):
                 yield sse
-        except (httpx.HTTPError, RuntimeError):  # bounded upstream failure
+        # This router was migrated to the implementation-neutral client seam,
+        # but the handler still named httpx -- an undefined name here, and
+        # re-adding the import would undo the migration. HttpTransportError is
+        # the seam's own bounded failure type (it subclasses RuntimeError, so
+        # the behaviour is unchanged; naming it makes the contract explicit).
+        except (HttpTransportError, RuntimeError):  # bounded upstream failure
             logger.warning("provider proxy upstream request failed")
             yield event_to_sse(
                 ExecEvent(ExecEventType.ERROR, text="provider request failed")

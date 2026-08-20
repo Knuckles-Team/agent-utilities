@@ -55,7 +55,9 @@ async def test_transcribe_voice_joins_segment_text_in_order() -> None:
         "agent_utilities.media.sidecar_delegate.delegate_extract",
         return_value=fake_result,
     ) as mock_delegate:
-        result = await transcribe_voice(content=b"clip-bytes", content_type="audio/webm")
+        result = await transcribe_voice(
+            content=b"clip-bytes", content_type="audio/webm"
+        )
 
     assert result == {"text": "hello world"}
     # Called with modality="audio" -- the SAME sidecar ingest_audio_via_sidecar
@@ -94,7 +96,9 @@ async def test_transcribe_voice_computes_its_own_digest_never_persists() -> None
 
 
 @pytest.mark.asyncio
-async def test_transcribe_voice_raises_never_fabricates_on_sidecar_unavailable() -> None:
+async def test_transcribe_voice_raises_never_fabricates_on_sidecar_unavailable() -> (
+    None
+):
     """The sidecar being unavailable (e.g. audio-transcriber-mcp unreachable)
     must raise so the WebUI route answers a genuine 500 -- never a canned or
     empty-string "transcript"."""

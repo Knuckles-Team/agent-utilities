@@ -163,9 +163,7 @@ def test_remote_plaintext_member_and_expired_certificate_fail_closed() -> None:
     with pytest.raises(ClusterDiscoveryRejected):
         authority.read(plaintext, verified_context=context)
 
-    expired = _Client(
-        _answer(context, not_after_ms=1_699_999_999_000), context
-    )
+    expired = _Client(_answer(context, not_after_ms=1_699_999_999_000), context)
     with pytest.raises(ClusterDiscoveryStale):
         ClusterTopologyAuthority(
             monotonic=lambda: 10.0,

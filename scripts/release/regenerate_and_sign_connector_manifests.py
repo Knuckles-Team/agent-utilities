@@ -69,7 +69,9 @@ def _git(*args: str) -> str:
     return result.stdout.strip()
 
 
-def verify_freeze(*, frozen_sha: str | None, expected_lock_digest: str | None) -> list[str]:
+def verify_freeze(
+    *, frozen_sha: str | None, expected_lock_digest: str | None
+) -> list[str]:
     """Step 1 — the working tree must be EXACTLY the reviewed commit and lock.
 
     No manifest may ever be generated against a moving target (GOC-84's own explicit

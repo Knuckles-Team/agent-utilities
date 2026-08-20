@@ -7,8 +7,8 @@ authority boundary without starting Prometheus, a graph engine, or a live
 service.
 """
 
-from datetime import datetime, timedelta, timezone
 import math
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
@@ -21,9 +21,9 @@ from agent_utilities.orchestration.scaling_signal_authority import (
     SignalKind,
     SignalReadPolicy,
     SignalReadRequest,
+    SignalSample,
     SignalSourceBinding,
     SignalSourceKind,
-    SignalSample,
     SignalSummary,
     query_digest,
     summarize_signal_page,
@@ -31,7 +31,7 @@ from agent_utilities.orchestration.scaling_signal_authority import (
 
 pytestmark = pytest.mark.concept("AU-OS.scaling.reactive-replica-autoscaling")
 
-NOW = datetime(2030, 1, 1, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2030, 1, 1, 12, 0, tzinfo=UTC)
 WINDOW_START = NOW - timedelta(minutes=2)
 WINDOW_END = NOW
 SNAPSHOT_DIGEST = "b" * 64
@@ -177,7 +177,7 @@ def test_signal_vocabulary_is_finite_and_request_is_query_digest_bound() -> None
     with pytest.raises(ValidationError, match="query_digest"):
         _request(query_digest="c" * 64)
     with pytest.raises(ValidationError, match="credential"):
-        _request(query="sum(rate(requests_total{token=\"secret\"}[5m]))")
+        _request(query='sum(rate(requests_total{token="secret"}[5m]))')
 
 
 def test_invalid_values_timestamps_and_metadata_fail_closed() -> None:
@@ -195,7 +195,12 @@ def test_invalid_values_timestamps_and_metadata_fail_closed() -> None:
 def test_authenticated_batch_read_and_summary_keep_samples_out_of_graph() -> None:
     sample = _sample()
     provider, request = _provider(
-        SignalBackendPage(iter((sample,)), next_cursor=None, has_more=False, snapshot_digest=SNAPSHOT_DIGEST)
+        SignalBackendPage(
+            iter((sample,)),
+            next_cursor=None,
+            has_more=False,
+            snapshot_digest=SNAPSHOT_DIGEST,
+        )
     )
     page = provider.read_batch(request)
     assert page.samples == (sample,)
@@ -216,7 +221,9 @@ def test_authenticated_batch_read_and_summary_keep_samples_out_of_graph() -> Non
 
 def test_missing_batch_is_not_interpreted_as_zero() -> None:
     provider, request = _provider(
-        SignalBackendPage(iter(()), next_cursor=None, has_more=False, snapshot_digest=SNAPSHOT_DIGEST)
+        SignalBackendPage(
+            iter(()), next_cursor=None, has_more=False, snapshot_digest=SNAPSHOT_DIGEST
+        )
     )
     page = provider.read_batch(request)
     assert page.samples == ()
@@ -226,21 +233,36 @@ def test_missing_batch_is_not_interpreted_as_zero() -> None:
 def test_scope_source_freshness_and_authentication_are_enforced() -> None:
     stale = _sample(sample_time=NOW - timedelta(minutes=10), freshness_s=10)
     provider, request = _provider(
-        SignalBackendPage(iter((stale,)), next_cursor=None, has_more=False, snapshot_digest=SNAPSHOT_DIGEST)
+        SignalBackendPage(
+            iter((stale,)),
+            next_cursor=None,
+            has_more=False,
+            snapshot_digest=SNAPSHOT_DIGEST,
+        )
     )
     with pytest.raises(ValueError, match="stale"):
         provider.read_batch(request)
 
     cross_service = _sample(service_scope="service:other")
     provider, request = _provider(
-        SignalBackendPage(iter((cross_service,)), next_cursor=None, has_more=False, snapshot_digest=SNAPSHOT_DIGEST)
+        SignalBackendPage(
+            iter((cross_service,)),
+            next_cursor=None,
+            has_more=False,
+            snapshot_digest=SNAPSHOT_DIGEST,
+        )
     )
     with pytest.raises(ValueError, match="scope"):
         provider.read_batch(request)
 
     spoofed = _sample(source_id="source:spoof")
     provider, request = _provider(
-        SignalBackendPage(iter((spoofed,)), next_cursor=None, has_more=False, snapshot_digest=SNAPSHOT_DIGEST)
+        SignalBackendPage(
+            iter((spoofed,)),
+            next_cursor=None,
+            has_more=False,
+            snapshot_digest=SNAPSHOT_DIGEST,
+        )
     )
     with pytest.raises(ValueError, match="source"):
         provider.read_batch(request)
@@ -265,7 +287,10 @@ def test_scope_source_freshness_and_authentication_are_enforced() -> None:
 def test_replayed_and_out_of_order_samples_are_rejected_without_zero_fallback() -> None:
     sample = _sample()
     page = SignalBackendPage(
-        iter((sample,)), next_cursor=None, has_more=False, snapshot_digest=SNAPSHOT_DIGEST
+        iter((sample,)),
+        next_cursor=None,
+        has_more=False,
+        snapshot_digest=SNAPSHOT_DIGEST,
     )
     provider, request = _provider(page)
     provider.read_batch(request)
@@ -354,7 +379,10 @@ def test_query_and_catalog_bounds_are_rejected_before_backend_read() -> None:
 
     backend = _Backend(
         SignalBackendPage(
-            iter((_sample(),)), next_cursor=None, has_more=False, snapshot_digest=SNAPSHOT_DIGEST
+            iter((_sample(),)),
+            next_cursor=None,
+            has_more=False,
+            snapshot_digest=SNAPSHOT_DIGEST,
         )
     )
     request = _request(service_scope="service:other")

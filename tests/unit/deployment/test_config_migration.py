@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 from agent_utilities.core.config import (
+    ConfigurationSourceError,
     plaintext_secret_keys,
     retired_configuration_keys,
     strip_retired_configuration_keys,
@@ -104,7 +105,10 @@ def test_canonicalize_passes_through_connector_keys() -> None:
     assert out["CAMUNDA_URL"] == "http://c"  # dynamic key preserved
     assert "WORKSPACE_PATH" in out  # known field canonicalized
 
-    with pytest.raises(Exception):  # genuine ambiguity still rejected
+    # Assert the EXACT error: a bare `Exception` would pass on any failure at
+    # all, including an unrelated import or type error, so it would not actually
+    # prove that genuine key ambiguity is what gets rejected.
+    with pytest.raises(ConfigurationSourceError, match="AmbiguousKeyError"):
         _canonicalize_xdg_configuration({"camunda_url": "a", "CAMUNDA_URL": "b"})
 
 

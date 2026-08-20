@@ -130,12 +130,23 @@ async def _run(
     print(f"identity ok tenant={session.tenant} graph={session.graph!r}", flush=True)
 
     try:
-        await _run_backfill(limit=limit, batch_size=batch_size, execute=execute)
+        await _run_backfill(
+            limit=limit,
+            batch_size=batch_size,
+            execute=execute,
+            node_types=node_types,
+        )
     finally:
         _stop_process_authority_supervisor()
 
 
-async def _run_backfill(*, limit: int, batch_size: int, execute: bool) -> None:
+async def _run_backfill(
+    *,
+    limit: int,
+    batch_size: int,
+    execute: bool,
+    node_types: tuple[str, ...] | None = None,
+) -> None:
     from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
 
     engine = (

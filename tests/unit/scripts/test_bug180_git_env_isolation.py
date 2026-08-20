@@ -46,7 +46,9 @@ sys.modules[SPEC.name] = CHECK_WIRING
 SPEC.loader.exec_module(CHECK_WIRING)
 
 ENV_MODULE = Path(__file__).parents[3] / "scripts" / "_git_subprocess_env.py"
-ENV_SPEC = importlib.util.spec_from_file_location("_git_subprocess_env_bug180", ENV_MODULE)
+ENV_SPEC = importlib.util.spec_from_file_location(
+    "_git_subprocess_env_bug180", ENV_MODULE
+)
 assert ENV_SPEC is not None and ENV_SPEC.loader is not None
 GIT_ENV = importlib.util.module_from_spec(ENV_SPEC)
 sys.modules[ENV_SPEC.name] = GIT_ENV

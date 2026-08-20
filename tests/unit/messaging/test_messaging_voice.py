@@ -18,7 +18,9 @@ from agent_utilities.messaging.models import (
 async def test_transcribe_attachments_uses_voice(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    async def _fake(url: str, *, headers: dict[str, str] | None = None, mime_type: str = "") -> str:
+    async def _fake(
+        url: str, *, headers: dict[str, str] | None = None, mime_type: str = ""
+    ) -> str:
         return "hello from voice"
 
     monkeypatch.setattr(voice, "transcribe_voice", _fake)
@@ -42,7 +44,9 @@ async def test_transcribe_attachments_forwards_auth_header_and_mime(
     Telegram's pre-signed URL); the core path must forward it, not drop it."""
     seen: dict[str, object] = {}
 
-    async def _fake(url: str, *, headers: dict[str, str] | None = None, mime_type: str = "") -> str:
+    async def _fake(
+        url: str, *, headers: dict[str, str] | None = None, mime_type: str = ""
+    ) -> str:
         seen["url"] = url
         seen["headers"] = headers
         seen["mime_type"] = mime_type
@@ -95,7 +99,9 @@ async def test_transcribe_attachments_had_audio_true_on_empty_transcript(
     transcription must still report ``had_audio=True`` so the caller can surface an
     explicit failure instead of silently dropping the message."""
 
-    async def _fails(url: str, *, headers: dict[str, str] | None = None, mime_type: str = "") -> str:
+    async def _fails(
+        url: str, *, headers: dict[str, str] | None = None, mime_type: str = ""
+    ) -> str:
         return ""
 
     monkeypatch.setattr(voice, "transcribe_voice", _fails)

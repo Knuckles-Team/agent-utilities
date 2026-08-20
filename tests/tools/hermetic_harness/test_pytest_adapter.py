@@ -63,11 +63,15 @@ def test_normalize_outcome_maps_exit_5_to_vacuous():
     assert normalize_outcome(None, timed_out=True, collection_count=0) == "TIMEOUT"
 
 
-@pytest.mark.skipif(not _venv_available, reason="repo's real .venv/uv.lock not present in this checkout")
+@pytest.mark.skipif(
+    not _venv_available, reason="repo's real .venv/uv.lock not present in this checkout"
+)
 def test_run_pytest_end_to_end_real_pass_is_green(tmp_path):
     fixture_dir = tmp_path / "fixture_tests"
     fixture_dir.mkdir()
-    (fixture_dir / "test_ok.py").write_text("def test_trivially_true():\n    assert 1 == 1\n")
+    (fixture_dir / "test_ok.py").write_text(
+        "def test_trivially_true():\n    assert 1 == 1\n"
+    )
 
     manifest = build_manifest(
         repo="agent-utilities",
@@ -95,7 +99,9 @@ def test_run_pytest_end_to_end_real_pass_is_green(tmp_path):
     assert envelope["resources"]["survivor_check"]["clean"] is True
 
 
-@pytest.mark.skipif(not _venv_available, reason="repo's real .venv/uv.lock not present in this checkout")
+@pytest.mark.skipif(
+    not _venv_available, reason="repo's real .venv/uv.lock not present in this checkout"
+)
 def test_run_pytest_end_to_end_vacuous_run_is_never_green(tmp_path):
     """KNOWN-BAD PROOF (real subprocess, not a stand-in): an empty directory
     with zero collectible tests must come back FAILED/VACUOUS, never green,
@@ -144,7 +150,9 @@ def test_run_pytest_end_to_end_wrong_interpreter_is_never_green(tmp_path):
     whether the wrong interpreter happens to pass the tests it can run."""
     fixture_dir = tmp_path / "fixture_tests"
     fixture_dir.mkdir()
-    (fixture_dir / "test_ok.py").write_text("def test_trivially_true():\n    assert 1 == 1\n")
+    (fixture_dir / "test_ok.py").write_text(
+        "def test_trivially_true():\n    assert 1 == 1\n"
+    )
 
     manifest = build_manifest(
         repo="agent-utilities",

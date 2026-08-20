@@ -252,12 +252,15 @@ def test_staged_authority_reaches_checkpoint_and_replays_without_delta() -> None
         expected_plan_version=plan.version,
     )
     assert plan.state == "checkpointed"
-    assert authority.checkpoint_projection(
-        plan.plan_ref,
-        checkpoint,
-        gate=gate,
-        expected_plan_version=1,
-    ) == plan
+    assert (
+        authority.checkpoint_projection(
+            plan.plan_ref,
+            checkpoint,
+            gate=gate,
+            expected_plan_version=1,
+        )
+        == plan
+    )
 
     retirement = LegacyRetirement(
         retirement_ref="retirement:one",

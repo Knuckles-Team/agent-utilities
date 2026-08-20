@@ -30,7 +30,9 @@ def source_tree(tmp_path: Path) -> Path:
         (src / f"file_{i}.py").write_text(f"# file {i}\n" * 10)
     # The incident's specific artifact: a hardlinked file (2 links).
     (src / "distributed_state_manager.py").write_text("# shared state\n")
-    os.link(src / "distributed_state_manager.py", src / "distributed_state_manager_link.py")
+    os.link(
+        src / "distributed_state_manager.py", src / "distributed_state_manager_link.py"
+    )
     return src
 
 
@@ -62,7 +64,9 @@ def test_verify_copy_passes_on_a_complete_copy(source_tree: Path, tmp_path: Path
     result.raise_if_bad()  # must not raise
 
 
-def test_copy_tree_with_rsync_dash_h_preserves_hardlinked_file(source_tree: Path, tmp_path: Path):
+def test_copy_tree_with_rsync_dash_h_preserves_hardlinked_file(
+    source_tree: Path, tmp_path: Path
+):
     """The actual fix: rsync -aH (not -a) must not reproduce the incident."""
     if shutil.which("rsync") is None:
         pytest.skip("rsync not available")

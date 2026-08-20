@@ -77,10 +77,9 @@ class DurableActionOutbox:
             return {"accepted": False, "reason": "fixture completion loss"}
         key = str(request["idempotency_key"])
         record = self.records[key]
-        if (
-            record.get("request_digest") != request.get("request_digest")
-            or record.get("approval_id") != request.get("approval_id", "")
-        ):
+        if record.get("request_digest") != request.get("request_digest") or record.get(
+            "approval_id"
+        ) != request.get("approval_id", ""):
             return {
                 "accepted": False,
                 "durability_available": True,
@@ -127,9 +126,7 @@ class CountingActuator:
 class ProjectionFailEngine(FakeEngine):
     """Compatibility projection failure; the durable outbox remains authority."""
 
-    def add_node(
-        self, node_id: str, node_type: str, properties: dict | None = None
-    ):
+    def add_node(self, node_id: str, node_type: str, properties: dict | None = None):
         if node_type == "ActionExecution":
             raise RuntimeError("fixture projection write failure")
         return super().add_node(node_id, node_type, properties)

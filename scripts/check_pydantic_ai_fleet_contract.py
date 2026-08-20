@@ -353,10 +353,7 @@ def _check_lock(
             )
             continue
         name = package.get("name")
-        if (
-            not isinstance(name, str)
-            or _pep503_normalize(name) != "pydantic-ai-slim"
-        ):
+        if not isinstance(name, str) or _pep503_normalize(name) != "pydantic-ai-slim":
             continue
         package_rows += 1
         version = package.get("version")

@@ -99,7 +99,9 @@ def test_gpu_group_defaults_to_base_url_host_when_untagged(monkeypatch):
     cfg = _FakeConfig(group=None)
     monkeypatch.setattr("agent_utilities.core.config.config", cfg, raising=False)
     assert cfg.gpu_group("qwen3.5-9b") == "vllm.example"
-    assert cfg.gpu_group("bge-m3") == "vllm-embed.example"  # different hosts → diff groups
+    assert (
+        cfg.gpu_group("bge-m3") == "vllm-embed.example"
+    )  # different hosts → diff groups
 
 
 # --- budget caps the SUM of member targets ----------------------------------

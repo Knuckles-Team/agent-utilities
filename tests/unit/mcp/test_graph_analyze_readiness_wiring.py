@@ -113,8 +113,18 @@ def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatc
             "status": "healthy",
             "generated_at": "2026-08-16T00:00:00+00:00",
             "checks": [
-                {"name": "engine", "status": "ok", "detail": {"resolved_mode": "shared"}, "latency_ms": 1.0},
-                {"name": "embedding_endpoint", "status": "ok", "detail": {}, "latency_ms": 0.5},
+                {
+                    "name": "engine",
+                    "status": "ok",
+                    "detail": {"resolved_mode": "shared"},
+                    "latency_ms": 1.0,
+                },
+                {
+                    "name": "embedding_endpoint",
+                    "status": "ok",
+                    "detail": {},
+                    "latency_ms": 0.5,
+                },
             ],
         },
     )
@@ -132,7 +142,9 @@ def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatc
     assert "ConnectionError" not in serialized
 
 
-def test_readiness_action_rejected_by_the_generic_analyze_tool_before_the_split(monkeypatch):
+def test_readiness_action_rejected_by_the_generic_analyze_tool_before_the_split(
+    monkeypatch,
+):
     """Sanity: an unrelated bogus action still gets the existing focused-tool
     redirect, proving the allowlist add didn't loosen the guard."""
     engine = _FakeEngine(anchor_rows=[_ANCHOR_ROW])

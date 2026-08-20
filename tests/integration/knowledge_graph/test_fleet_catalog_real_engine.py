@@ -54,8 +54,7 @@ def _rows(gc: Any, statement: str) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for row in result:
         assert isinstance(row, Mapping), (
-            "the real SQL surface must return mapping rows; "
-            f"got {type(row).__name__}"
+            f"the real SQL surface must return mapping rows; got {type(row).__name__}"
         )
         rows.append(dict(row))
     return rows
@@ -184,9 +183,7 @@ def test_fleet_catalog_ddl_dml_and_cas_round_trip_on_real_engine(
     discovery_id = f"disc_{server_id}_{attempt[:24]}"
     tool_id = fct._bound_row_id(f"tool_{server_name}_catalog-tool", "")
     skill_id = fct._bound_row_id(f"skill_{server_name}_catalog-skill", "")
-    prompt_id = fct._bound_row_id(
-        f"prompt_{server_name}__catalog-prompt", ""
-    )
+    prompt_id = fct._bound_row_id(f"prompt_{server_name}__catalog-prompt", "")
     resource_skill_id = fct._bound_row_id(
         f"resource_{server_name}_skill_catalog-skill", ""
     )
@@ -196,27 +193,26 @@ def test_fleet_catalog_ddl_dml_and_cas_round_trip_on_real_engine(
 
     # Read back one row from every table.  These are real SQL rows emitted by
     # the production writer, not an in-memory table owned by this test.
+    assert _row(gc, fct.TABLE_MCP_SERVERS, tenant_id, server_id)["revision"] == revision
     assert (
-        _row(gc, fct.TABLE_MCP_SERVERS, tenant_id, server_id)["revision"]
-        == revision
+        _row(gc, fct.TABLE_MCP_SERVER_DISCOVERY, tenant_id, discovery_id)["reachable"]
+        is True
     )
-    assert _row(
-        gc, fct.TABLE_MCP_SERVER_DISCOVERY, tenant_id, discovery_id
-    )["reachable"] is True
-    assert (
-        _row(gc, fct.TABLE_MCP_TOOLS, tenant_id, tool_id)["name"]
-        == "catalog-tool"
-    )
+    assert _row(gc, fct.TABLE_MCP_TOOLS, tenant_id, tool_id)["name"] == "catalog-tool"
     assert (
         _row(gc, fct.TABLE_MCP_PROMPTS, tenant_id, prompt_id)["name"]
         == "catalog-prompt"
     )
-    assert _row(
-        gc, fct.TABLE_MCP_RESOURCES, tenant_id, resource_skill_id
-    )["resource_kind"] == "skill"
-    assert _row(
-        gc, fct.TABLE_MCP_RESOURCES, tenant_id, resource_prompt_id
-    )["resource_kind"] == "prompt"
+    assert (
+        _row(gc, fct.TABLE_MCP_RESOURCES, tenant_id, resource_skill_id)["resource_kind"]
+        == "skill"
+    )
+    assert (
+        _row(gc, fct.TABLE_MCP_RESOURCES, tenant_id, resource_prompt_id)[
+            "resource_kind"
+        ]
+        == "prompt"
+    )
     assert _row(gc, fct.TABLE_SKILLS, tenant_id, skill_id)["revision"] == revision
 
     # A retry may carry a newly computed revision, but the same explicit key
@@ -241,10 +237,7 @@ def test_fleet_catalog_ddl_dml_and_cas_round_trip_on_real_engine(
     assert replay["cas"][fct.TABLE_MCP_PROMPTS]["noop_replay"] == 1
     assert replay["cas"][fct.TABLE_MCP_RESOURCES]["noop_replay"] == 2
     assert replay["cas"][fct.TABLE_SKILLS]["noop_replay"] == 1
-    assert (
-        _row(gc, fct.TABLE_MCP_SERVERS, tenant_id, server_id)["revision"]
-        == revision
-    )
+    assert _row(gc, fct.TABLE_MCP_SERVERS, tenant_id, server_id)["revision"] == revision
 
     # Exercise the same production CAS seam with an existing skill row: a
     # stale revision cannot clobber the durable value, while a newer revision

@@ -1271,8 +1271,7 @@ def _materialized_sibling_lock_paths(worktree: Path) -> tuple[Path, ...]:
         link = worktree / _OWN_SIBLINGS_DIRNAME / name
         if not link.is_symlink() or not link.exists():
             raise RuntimeError(
-                "refusing lock resolution with an unmaterialized sibling: "
-                f"{link}"
+                f"refusing lock resolution with an unmaterialized sibling: {link}"
             )
         target = link.resolve()
         if not target.is_dir():
@@ -1283,8 +1282,7 @@ def _materialized_sibling_lock_paths(worktree: Path) -> tuple[Path, ...]:
         lock = target / "uv.lock"
         if lock.exists() and not lock.is_file():
             raise RuntimeError(
-                "refusing lock resolution with a non-file sibling lock: "
-                f"{lock}"
+                f"refusing lock resolution with a non-file sibling lock: {lock}"
             )
         # Include absent locks too: a resolution that creates one in a sibling
         # is just as much an unauthorized mutation as changing an existing one.
@@ -1814,9 +1812,7 @@ def run_uv(
                 f"{target_lock}"
             )
         changed = [
-            str(path)
-            for path in protected
-            if _optional_digest(path) != before[path]
+            str(path) for path in protected if _optional_digest(path) != before[path]
         ]
         if changed:
             raise RuntimeError(
@@ -1915,7 +1911,9 @@ def main(argv: list[str] | None = None) -> int:
     canonical = canonical_repository(worktree)
     workspace = workspace_root(canonical)
     own_lock = has_own_tracked_lock(worktree)
-    lock_requested = bool(namespace.uv_arguments) and namespace.uv_arguments[0] == "lock"
+    lock_requested = (
+        bool(namespace.uv_arguments) and namespace.uv_arguments[0] == "lock"
+    )
     lock_check = lock_requested and "--check" in namespace.uv_arguments[1:]
     if lock_requested and not lock_check:
         if not own_lock:

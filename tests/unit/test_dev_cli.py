@@ -221,13 +221,17 @@ def test_main_voice_model_license_and_status_live_path(monkeypatch, tmp_path, ca
     out = json.loads(capsys.readouterr().out)
     assert out["license_decision"]["counsel_decision"] == "approved"
 
-    rc = cli.main(["--json", "voice-model", "status", "--asset-id", manifest.manifest_id])
+    rc = cli.main(
+        ["--json", "voice-model", "status", "--asset-id", manifest.manifest_id]
+    )
     assert rc == 0
     out = json.loads(capsys.readouterr().out)
     assert out["ready_for_promotion_handoff"] is True
 
 
-def test_main_voice_model_status_unknown_asset_reports_error(monkeypatch, tmp_path, capsys):
+def test_main_voice_model_status_unknown_asset_reports_error(
+    monkeypatch, tmp_path, capsys
+):
     from agent_utilities.protocols.voice_supply_chain import acquisition as voice_acq
 
     monkeypatch.setattr(voice_acq, "data_dir", lambda: tmp_path)

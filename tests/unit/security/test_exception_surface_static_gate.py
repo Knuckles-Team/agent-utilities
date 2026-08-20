@@ -335,7 +335,9 @@ def test_covered_logger_raw_exception_is_not_flagged(tmp_path: Path) -> None:
     ``logging.getLogger(__name__)`` logger passing the caught exception via
     ``%s`` formatting is the recommended "log the detail server-side"
     mitigation, not a leak -- ``install_log_privacy_boundary`` sanitizes it."""
-    assert _findings_for_source(tmp_path, "covered_fstring", _COVERED_LOGGER_FSTRING) == []
+    assert (
+        _findings_for_source(tmp_path, "covered_fstring", _COVERED_LOGGER_FSTRING) == []
+    )
 
 
 def test_covered_logger_exception_method_is_not_flagged(tmp_path: Path) -> None:
@@ -349,7 +351,9 @@ def test_covered_logger_exception_method_is_not_flagged(tmp_path: Path) -> None:
 
 def test_covered_logger_exc_info_true_is_not_flagged(tmp_path: Path) -> None:
     assert (
-        _findings_for_source(tmp_path, "covered_exc_info", _COVERED_LOGGER_EXC_INFO_TRUE)
+        _findings_for_source(
+            tmp_path, "covered_exc_info", _COVERED_LOGGER_EXC_INFO_TRUE
+        )
         == []
     )
 
@@ -360,7 +364,9 @@ def test_get_logger_helper_leak_is_still_flagged(tmp_path: Path) -> None:
     This is the exact real shape client_credentials.py had (fixed this same
     commit); the gate must still catch it if it recurs."""
     assert (
-        _findings_for_source(tmp_path, "uncovered_get_logger", _UNCOVERED_GET_LOGGER_LEAK)
+        _findings_for_source(
+            tmp_path, "uncovered_get_logger", _UNCOVERED_GET_LOGGER_LEAK
+        )
         != []
     )
 

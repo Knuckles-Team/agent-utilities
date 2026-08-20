@@ -37,7 +37,9 @@ result = graph_query(cypher="MATCH (n:Concept) WHERE n.pillar = 'ORCH' RETURN n"
 ### graph_search — Semantic + keyword hybrid search
 ```python
 # Modes: hybrid, concept, analogy, memory, discover, dci
-result = graph_search(query="multi-agent orchestration patterns", mode="hybrid", top_k=10)
+result = graph_search(
+    query="multi-agent orchestration patterns", mode="hybrid", top_k=10
+)
 
 # Look up a specific concept
 result = graph_search(query="ORCH-1.2", mode="concept")
@@ -46,12 +48,17 @@ result = graph_search(query="ORCH-1.2", mode="concept")
 ### graph_write — Mutate the KG
 ```python
 # Add a node
-graph_write(action="add_node", node_id="my_agent", node_type="Agent",
-            properties='{"name": "My Agent", "description": "..."}')
+graph_write(
+    action="add_node",
+    node_id="my_agent",
+    node_type="Agent",
+    properties='{"name": "My Agent", "description": "..."}',
+)
 
 # Add an edge
-graph_write(action="add_edge", source_id="agent_1", target_id="tool_1",
-            rel_type="USES_TOOL")
+graph_write(
+    action="add_edge", source_id="agent_1", target_id="tool_1", rel_type="USES_TOOL"
+)
 
 # Store a memory
 graph_write(action="store_memory", properties='{"content": "...", "tier": "semantic"}')
@@ -105,7 +112,7 @@ results = await x_search("multi-agent systems research")
 # Browse a specific post with auto-ingestion to KG
 result = await browse_x_post(
     "https://x.com/i/status/2057129225593741768",
-    auto_ingest=True  # Automatically classifies and persists to KG
+    auto_ingest=True,  # Automatically classifies and persists to KG
 )
 ```
 

@@ -68,7 +68,6 @@ async def main():
     # ---------- B. per-call stall ----------
     print("\n=== B. PER-CALL STALL (same trivial op, 60x) ===", flush=True)
     cli = getattr(b, "client", None)
-    gname = getattr(b, "graph_name", None) or s.graph
     if cli is None:
         print("  no .client on backend; skipping", flush=True)
     else:

@@ -258,7 +258,8 @@ def test_is_loopback_url_advertised_self_host(monkeypatch) -> None:
     cluster_local_url = "http://selfhost.platform.svc." + "cluster.local" + "/mcp"
     _self_hosts_setting(
         monkeypatch,
-        "selfhost.example,selfhost.platform.svc,selfhost.platform.svc." + "cluster.local,"
+        "selfhost.example,selfhost.platform.svc,selfhost.platform.svc."
+        + "cluster.local,"
         "selfhost,localhost,127.0.0.1",
     )
     assert base_utilities.is_loopback_url("http://selfhost.example/mcp") is True

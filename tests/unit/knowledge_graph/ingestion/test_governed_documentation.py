@@ -12,7 +12,6 @@ from agent_utilities.knowledge_graph.ingestion.governed_documentation import (
 )
 from agent_utilities.protocols.source_connectors.base import ExternalAccess
 
-
 REVISION_1 = "a" * 40
 REVISION_2 = "b" * 40
 RECORDED_AT = "2026-08-19T12:00:00Z"
@@ -31,9 +30,7 @@ def test_projection_is_metadata_only_and_carries_provenance() -> None:
 
     assert projection.lifecycle == DocumentationLifecycle.CURRENT
     assert projection.current is True
-    assert projection.concept_ids == (
-        "AU-KG.retrieval.acl-aware-vector-retrieval",
-    )
+    assert projection.concept_ids == ("AU-KG.retrieval.acl-aware-vector-retrieval",)
     envelope = projection.to_envelope()
     assert envelope.source_version == REVISION_1
     assert envelope.source_acl is not None and envelope.source_acl.is_public

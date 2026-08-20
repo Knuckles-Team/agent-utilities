@@ -25,6 +25,8 @@ if str(_REPOSITORY_ROOT) not in sys.path:
 from scripts.release.production_cell_topology import (
     apply_to_documents,
     canonical_contract,
+)
+from scripts.release.production_cell_topology import (
     validate as validate_topology,
 )
 
@@ -106,7 +108,9 @@ def render(
     )
     topology = None
     if topology_path is not None:
-        contract_path = engine_identity_contract_path or (template_dir / "engine-identity-contract.v1.json")
+        contract_path = engine_identity_contract_path or (
+            template_dir / "engine-identity-contract.v1.json"
+        )
         contract = _load_topology(contract_path)
         topology = validate_topology(
             _load_topology(topology_path),
@@ -117,7 +121,11 @@ def render(
         raise ValueError("render output directory must be empty")
     output_dir.mkdir(parents=True, exist_ok=True)
     for source in template_dir.iterdir():
-        if source.is_file() and source.name not in {"topology-input.schema.json", "production-input.example.json", "engine-identity-contract.v1.json"}:
+        if source.is_file() and source.name not in {
+            "topology-input.schema.json",
+            "production-input.example.json",
+            "engine-identity-contract.v1.json",
+        }:
             shutil.copy2(source, output_dir / source.name)
     if topology is not None:
         yaml_paths = sorted(output_dir.glob("*.yaml"))
@@ -133,7 +141,10 @@ def render(
         documents = apply_to_documents(documents, topology, rollback=rollback)
         after_ids = {id(document) for document in documents}
         for path, path_documents in grouped.items():
-            _write_documents(path, [document for document in path_documents if id(document) in after_ids])
+            _write_documents(
+                path,
+                [document for document in path_documents if id(document) in after_ids],
+            )
         if before_ids == after_ids and not documents:
             raise ValueError("topology renderer produced no Kubernetes documents")
     kustomization_path = output_dir / "kustomization.yaml"
@@ -147,7 +158,11 @@ def render(
         if logical_name not in pins:
             continue
         if topology is not None and rollback:
-            rollback_image = topology["engine_rollback_image"] if logical_name == "epistemic-graph-image" else topology["workloads"]["gateway"]["rollback_image"]
+            rollback_image = (
+                topology["engine_rollback_image"]
+                if logical_name == "epistemic-graph-image"
+                else topology["workloads"]["gateway"]["rollback_image"]
+            )
             repository, digest = _oci_parts(rollback_image)
         else:
             repository, digest = pins[logical_name]
@@ -194,8 +209,12 @@ def render(
                 "rollback_manifest_ref": topology["rollback_manifest_ref"],
                 "engine_current_image": topology["engine_current_image"],
                 "engine_rollback_image": topology["engine_rollback_image"],
-                "gateway_current_image": topology["workloads"]["gateway"]["current_image"],
-                "gateway_rollback_image": topology["workloads"]["gateway"]["rollback_image"],
+                "gateway_current_image": topology["workloads"]["gateway"][
+                    "current_image"
+                ],
+                "gateway_rollback_image": topology["workloads"]["gateway"][
+                    "rollback_image"
+                ],
                 "session_store_service": f"{topology['session_service']}.{topology['session_namespace']}.svc.cluster.local",
                 "session_store_authority_ref": topology["session_ref"],
                 "action_audit_authority_ref": topology["action_audit_ref"],
@@ -212,7 +231,9 @@ def render(
         resources.append("release-pins.yaml")
     if topology is not None:
         (output_dir / "topology-contract.yaml").write_text(
-            yaml.safe_dump(canonical_contract(topology, rollback=rollback), sort_keys=False),
+            yaml.safe_dump(
+                canonical_contract(topology, rollback=rollback), sort_keys=False
+            ),
             encoding="utf-8",
         )
         if "topology-contract.yaml" not in resources:
@@ -224,7 +245,14 @@ def render(
         "ok": True,
         "releaseId": report["releaseId"],
         "releaseDigest": report["releaseDigest"],
-        **({"topologyInputDigest": topology["input_digest"], "renderMode": "rollback" if rollback else "forward"} if topology is not None else {}),
+        **(
+            {
+                "topologyInputDigest": topology["input_digest"],
+                "renderMode": "rollback" if rollback else "forward",
+            }
+            if topology is not None
+            else {}
+        ),
     }
 
 
@@ -240,9 +268,21 @@ def main(argv: list[str] | None = None) -> int:
         default=Path("deploy/k8s/production-cell"),
     )
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--topology-input", type=Path, help="measured production-cell topology JSON/YAML")
-    parser.add_argument("--engine-identity-contract", type=Path, help="canonical versioned engine identity contract")
-    parser.add_argument("--rollback", action="store_true", help="render the topology's previous immutable image digests")
+    parser.add_argument(
+        "--topology-input",
+        type=Path,
+        help="measured production-cell topology JSON/YAML",
+    )
+    parser.add_argument(
+        "--engine-identity-contract",
+        type=Path,
+        help="canonical versioned engine identity contract",
+    )
+    parser.add_argument(
+        "--rollback",
+        action="store_true",
+        help="render the topology's previous immutable image digests",
+    )
     args = parser.parse_args(argv)
     try:
         report = render(

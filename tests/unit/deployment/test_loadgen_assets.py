@@ -50,12 +50,8 @@ def test_canonical_templates_have_no_deployable_image_or_secret_material() -> No
         assert "latest" not in text.casefold()
         assert "PRIVATE_KEY" not in text
         assert "secretValue" not in text
-    assert "      - live" in (source / "compose.yml").read_text(
-        encoding="utf-8"
-    )
-    assert "      - mock" in (source / "mock.compose.yml").read_text(
-        encoding="utf-8"
-    )
+    assert "      - live" in (source / "compose.yml").read_text(encoding="utf-8")
+    assert "      - mock" in (source / "mock.compose.yml").read_text(encoding="utf-8")
 
 
 def test_renderer_rejects_mutable_images_and_authority_drift(tmp_path: Path) -> None:
@@ -97,14 +93,20 @@ def test_rendered_bundle_is_deterministic_and_has_explicit_mock_boundary(
         "mock/k8s/loadgen.yaml",
         "source-registration.json",
     ]
-    assert [
-        (first / relative).read_bytes() for relative in files
-    ] == [(second / relative).read_bytes() for relative in files]
+    assert [(first / relative).read_bytes() for relative in files] == [
+        (second / relative).read_bytes() for relative in files
+    ]
     report = check_loadgen_assets.validate(first)
     assert report["ok"] is True
-    assert "--engine" in json.loads(
-        (first / "source-registration.json").read_text(encoding="utf-8")
-    )["commands"]["mock"]
-    assert "live" not in json.loads(
-        (first / "source-registration.json").read_text(encoding="utf-8")
-    )["commands"]["mock"]
+    assert (
+        "--engine"
+        in json.loads((first / "source-registration.json").read_text(encoding="utf-8"))[
+            "commands"
+        ]["mock"]
+    )
+    assert (
+        "live"
+        not in json.loads(
+            (first / "source-registration.json").read_text(encoding="utf-8")
+        )["commands"]["mock"]
+    )

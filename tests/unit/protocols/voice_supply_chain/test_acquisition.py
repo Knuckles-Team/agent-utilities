@@ -30,7 +30,11 @@ _REVISION = "0123456789abcdef0123456789abcdef01234567"
 _MODEL_BYTES = b"\x00fake-onnx-graph-bytes\x01" * 4
 _MODEL_SHA = hashlib.sha256(_MODEL_BYTES).hexdigest()
 _CONFIG_JSON = json.dumps(
-    {"audio": {"sample_rate": 22050}, "phoneme_id_map": {"a": [1]}, "espeak": {"voice": "en"}}
+    {
+        "audio": {"sample_rate": 22050},
+        "phoneme_id_map": {"a": [1]},
+        "espeak": {"voice": "en"},
+    }
 ).encode()
 _CONFIG_SHA = hashlib.sha256(_CONFIG_JSON).hexdigest()
 
@@ -65,7 +69,9 @@ def _config_source(**overrides: object) -> PinnedVoiceSource:
 
 
 def _transport_returning(content: bytes) -> httpx.MockTransport:
-    return httpx.MockTransport(lambda request: httpx.Response(200, content=content, request=request))
+    return httpx.MockTransport(
+        lambda request: httpx.Response(200, content=content, request=request)
+    )
 
 
 # ── Pin validation (DEF-017 + immutability) ────────────────────────────
@@ -93,7 +99,9 @@ def test_immutable_url_uses_pinned_revision_not_a_branch() -> None:
 @pytest.mark.asyncio
 async def test_acquire_voice_model_verifies_digest_and_quarantines() -> None:
     source = _model_source()
-    manifest = await acquire_voice_model(source, transport=_transport_returning(_MODEL_BYTES))
+    manifest = await acquire_voice_model(
+        source, transport=_transport_returning(_MODEL_BYTES)
+    )
 
     assert manifest.sha256 == _MODEL_SHA
     assert manifest.status == VoiceManifestStatus.QUARANTINED
@@ -124,10 +132,14 @@ async def test_byte_length_mismatch_fails_closed() -> None:
 @pytest.mark.asyncio
 async def test_reacquiring_same_digest_is_idempotent_no_second_fetch() -> None:
     source = _model_source()
-    first = await acquire_voice_model(source, transport=_transport_returning(_MODEL_BYTES))
+    first = await acquire_voice_model(
+        source, transport=_transport_returning(_MODEL_BYTES)
+    )
 
     def _boom(request: httpx.Request) -> httpx.Response:
-        raise AssertionError("must not re-fetch an already-quarantined identical digest")
+        raise AssertionError(
+            "must not re-fetch an already-quarantined identical digest"
+        )
 
     second = await acquire_voice_model(source, transport=httpx.MockTransport(_boom))
     assert second == first
@@ -142,16 +154,22 @@ async def test_reacquiring_same_source_different_digest_conflicts() -> None:
     await acquire_voice_model(source, transport=_transport_returning(_MODEL_BYTES))
 
     other_bytes = _MODEL_BYTES + b"tampered"
-    other_source = _model_source(expected_sha256=hashlib.sha256(other_bytes).hexdigest())
+    other_source = _model_source(
+        expected_sha256=hashlib.sha256(other_bytes).hexdigest()
+    )
     with pytest.raises(VoiceSourcePinConflict):
-        await acquire_voice_model(other_source, transport=_transport_returning(other_bytes))
+        await acquire_voice_model(
+            other_source, transport=_transport_returning(other_bytes)
+        )
 
 
 # ── Config pair validation ──────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_acquire_voice_config_pairs_with_model_and_validates_piper_schema() -> None:
+async def test_acquire_voice_config_pairs_with_model_and_validates_piper_schema() -> (
+    None
+):
     model = await acquire_voice_model(
         _model_source(), transport=_transport_returning(_MODEL_BYTES)
     )

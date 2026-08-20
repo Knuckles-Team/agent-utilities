@@ -121,7 +121,9 @@ def _metadata(directory: Path) -> dict[str, Any]:
     try:
         Draft202012Validator(schema).validate(metadata)
     except Exception as exc:  # noqa: BLE001 - one stable gate boundary
-        raise LoadgenAssetError("loadgen source-registration metadata is invalid") from exc
+        raise LoadgenAssetError(
+            "loadgen source-registration metadata is invalid"
+        ) from exc
     source = metadata["source"]
     try:
         expected = source_authority_digest(
@@ -130,7 +132,9 @@ def _metadata(directory: Path) -> dict[str, Any]:
             source["manifestDigest"],
         )
     except Exception as exc:  # noqa: BLE001 - path-free gate boundary
-        raise LoadgenAssetError("loadgen source-registration authority is invalid") from exc
+        raise LoadgenAssetError(
+            "loadgen source-registration authority is invalid"
+        ) from exc
     if source["authorityDigest"] != expected:
         raise LoadgenAssetError("loadgen source-registration authority drifted")
     image = _image(metadata["image"], "registered image")
@@ -192,7 +196,9 @@ def _production_compose(path: Path, metadata: dict[str, Any]) -> None:
         raise LoadgenAssetError("production Compose image drifted")
     if service.get("command") != metadata["commands"]["production"]:
         raise LoadgenAssetError("production Compose command drifted")
-    if (service.get("labels") or {}).get("agent-utilities.io/certification") != "production":
+    if (service.get("labels") or {}).get(
+        "agent-utilities.io/certification"
+    ) != "production":
         raise LoadgenAssetError("production Compose certification label is absent")
     environment = service.get("environment") or {}
     if not isinstance(environment, dict):
@@ -219,14 +225,23 @@ def _production_compose(path: Path, metadata: dict[str, Any]) -> None:
     if set(environment) != set(required) | runtime or any(
         environment.get(key) != value for key, value in required.items()
     ):
-        raise LoadgenAssetError("production Compose digest or authority binding drifted")
-    for key in ("GRAPH_SERVICE_ENDPOINTS", "LOADGEN_TENANT", "LOADGEN_PRINCIPAL", "LOADGEN_AUDIENCE"):
+        raise LoadgenAssetError(
+            "production Compose digest or authority binding drifted"
+        )
+    for key in (
+        "GRAPH_SERVICE_ENDPOINTS",
+        "LOADGEN_TENANT",
+        "LOADGEN_PRINCIPAL",
+        "LOADGEN_AUDIENCE",
+    ):
         _reject_unresolved(environment.get(key), compose=True)
     secrets = compose.get("secrets") or {}
     if set(secrets) != _SECRET_REFS - {"graphos-loadgen-secrets"} or any(
         value != {"external": True} for value in secrets.values()
     ):
-        raise LoadgenAssetError("production Compose Secret declarations are not external")
+        raise LoadgenAssetError(
+            "production Compose Secret declarations are not external"
+        )
     mounts = service.get("secrets") or []
     expected_mounts = {
         name: {
@@ -250,7 +265,10 @@ def _production_compose(path: Path, metadata: dict[str, Any]) -> None:
 def _production_kubernetes(path: Path, metadata: dict[str, Any]) -> None:
     documents = _yaml_documents(path)
     by_identity = {
-        (str(document.get("kind")), str((document.get("metadata") or {}).get("name"))): document
+        (
+            str(document.get("kind")),
+            str((document.get("metadata") or {}).get("name")),
+        ): document
         for document in documents
     }
     if len(documents) != 3 or len(by_identity) != len(documents):
@@ -335,9 +353,12 @@ def _production_kubernetes(path: Path, metadata: dict[str, Any]) -> None:
         *expected_secret_bindings,
     }
     env = container.get("env") or []
-    if not isinstance(env, list) or len(env) != len(expected_env) or {
-        str(entry.get("name")) for entry in env if isinstance(entry, dict)
-    } != expected_env:
+    if (
+        not isinstance(env, list)
+        or len(env) != len(expected_env)
+        or {str(entry.get("name")) for entry in env if isinstance(entry, dict)}
+        != expected_env
+    ):
         raise LoadgenAssetError("production Kubernetes environment is not exact")
     env_by_name = {
         entry["name"]: entry
@@ -351,15 +372,23 @@ def _production_kubernetes(path: Path, metadata: dict[str, Any]) -> None:
         "name": "WORKLOAD_IDENTITY_TOKEN_FILE",
         "value": "/var/run/secrets/tokens/loadgen-token",
     }:
-        raise LoadgenAssetError("production Kubernetes runtime identity binding drifted")
+        raise LoadgenAssetError(
+            "production Kubernetes runtime identity binding drifted"
+        )
     actual_secret_bindings: dict[str, str] = {}
     for entry in env:
-        if not isinstance(entry, dict) or entry.get("name") not in expected_secret_bindings:
+        if (
+            not isinstance(entry, dict)
+            or entry.get("name") not in expected_secret_bindings
+        ):
             continue
         ref = (entry.get("valueFrom") or {}).get("secretKeyRef")
         if not isinstance(ref, dict) or ref.get("optional") is not False:
             raise LoadgenAssetError("production Kubernetes SecretRefs are optional")
-        if set(ref) != {"name", "key", "optional"} or ref.get("name") != "graphos-loadgen-secrets":
+        if (
+            set(ref) != {"name", "key", "optional"}
+            or ref.get("name") != "graphos-loadgen-secrets"
+        ):
             raise LoadgenAssetError("production Kubernetes SecretRefs are not exact")
         actual_secret_bindings[entry["name"]] = str(ref.get("key"))
     if actual_secret_bindings != expected_secret_bindings:
