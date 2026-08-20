@@ -113,7 +113,7 @@ COPY build-artifacts/eg-wheel/*.whl /tmp/wheels/
 COPY scripts/release/check_epistemic_graph_client_preflight.py /tmp/check_epistemic_graph_client_preflight.py
 RUN set -eu; \
     uv pip install --system --break-system-packages \
-        "/tmp/wheels/$$(python3 /tmp/check_epistemic_graph_client_preflight.py \
+        "/tmp/wheels/$(python3 /tmp/check_epistemic_graph_client_preflight.py \
             --wheel-dir /tmp/wheels --print-wheel-basename)[full]"
 
 # 2) au itself — EDITABLE install from the local worktree source (the "editable-source
