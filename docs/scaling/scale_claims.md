@@ -50,4 +50,3 @@ scale claim.
 | `AU-SCALE-010` | `IMPLEMENTED` | `deploy/k8s/production-cell/autoscaling.yaml#kind: HorizontalPodAutoscaler` | `kind: HorizontalPodAutoscaler` | committed HPA reference/staged asset; not evidence of a live HPA |
 | `AU-SCALE-011` | `IMPLEMENTED` | `deploy/README.md#check-graphos-compatibility` | `kubectl apply -k RENDERED_DIRECTORY` | exact release gate + rendered directory are required before deployment |
 | `AU-SCALE-012` | `UNIT-PROVEN` | `tests/unit/test_fleet_actuation.py#def test_scale_service_issues_real_kubectl_scale_call` | `deployment/graph-os-dispatch` | mocked argv contract only; no cluster was contacted by the fixture |
-

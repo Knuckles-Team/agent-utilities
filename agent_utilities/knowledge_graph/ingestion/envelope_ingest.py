@@ -1117,9 +1117,7 @@ def _prepare_node_rows(
         current = _node_properties(client, node_id)
         provenance_evidence = envelope.provenance.get("evidence")
         if isinstance(provenance_evidence, list):
-            evidence = [
-                item for item in provenance_evidence if isinstance(item, dict)
-            ]
+            evidence = [item for item in provenance_evidence if isinstance(item, dict)]
         current.update(
             {
                 "id": node_id,

@@ -24,10 +24,11 @@ controller mode is observation-only, so a native AU controller and HPA/KEDA
 cannot oscillate over the same desired state.
 """
 
-from datetime import datetime
-from enum import Enum
 import re
-from typing import Any, Iterable, Literal
+from collections.abc import Iterable
+from datetime import datetime
+from enum import StrEnum
+from typing import Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -48,7 +49,7 @@ _CLOCK_WINDOW_RE = re.compile(
 )
 
 
-class ScaleCadence(str, Enum):
+class ScaleCadence(StrEnum):
     """Independent control loops; they must not collapse into one tick."""
 
     ENGINE_LOCAL = "engine_local"
@@ -66,21 +67,21 @@ GRAPH_CADENCES = frozenset(
 )
 
 
-class ControllerMode(str, Enum):
+class ControllerMode(StrEnum):
     """The sole replica-writer mode for a scale unit."""
 
     NATIVE = "native"
     DELEGATED = "delegated"
 
 
-class DelegatedController(str, Enum):
+class DelegatedController(StrEnum):
     """Supported external replica writers."""
 
     HPA = "hpa"
     KEDA = "keda"
 
 
-class FailureDomainStatus(str, Enum):
+class FailureDomainStatus(StrEnum):
     HEALTHY = "healthy"
     DEGRADED = "degraded"
     OFFLINE = "offline"
@@ -333,7 +334,9 @@ class ScaleUnit(_ContractModel):
     @model_validator(mode="after")
     def validate_bounds_and_mode(self) -> ScaleUnit:
         if self.max_replicas < self.min_replicas:
-            raise ValueError("max_replicas must be greater than or equal to min_replicas")
+            raise ValueError(
+                "max_replicas must be greater than or equal to min_replicas"
+            )
         if self.tenant_quota.max_units < self.min_replicas:
             raise ValueError("tenant quota must cover min_replicas")
         if self.cadence == ScaleCadence.ENGINE_LOCAL.value and (
@@ -392,9 +395,7 @@ class SignalSummaryRef(_ContractModel):
     _validate_summary_id = field_validator("summary_id")(
         lambda value: _identifier(value, "summary_id")
     )
-    _validate_digest = field_validator("summary_digest")(
-        lambda value: _digest(value)
-    )
+    _validate_digest = field_validator("summary_digest")(lambda value: _digest(value))
     _validate_unit_id = field_validator("unit_id")(
         lambda value: _identifier(value, "unit_id")
     )
@@ -591,6 +592,7 @@ class ScaleExecution(_ContractModel):
     _validate_started_at = field_validator("started_at")(
         lambda value: _aware_datetime(value, "started_at")
     )
+
     @field_validator("completed_at")
     @classmethod
     def _completed_at_aware(cls, value: datetime | None) -> datetime | None:
@@ -662,7 +664,9 @@ class ObservedOutcome(_ContractModel):
     @model_validator(mode="after")
     def validate_rollback(self) -> ObservedOutcome:
         if self.status == "rolled_back" and not self.rollback_required:
-            raise ValueError("rolled_back outcome must retain rollback_required evidence")
+            raise ValueError(
+                "rolled_back outcome must retain rollback_required evidence"
+            )
         return self
 
 
@@ -692,7 +696,10 @@ class ScaleAuthority(_ContractModel):
         self._unique((workload.workload_id for workload in self.workloads), "workload")
         self._unique((unit.unit_id for unit in self.units), "scale unit")
         self._unique(
-            (f"{registration.unit_id}:{registration.controller_id}" for registration in self.controllers),
+            (
+                f"{registration.unit_id}:{registration.controller_id}"
+                for registration in self.controllers
+            ),
             "controller registration",
         )
         pool_map = {pool.pool_id: pool for pool in self.pools}
@@ -805,15 +812,32 @@ def _reject_dependency_cycles(units: Iterable[ScaleUnit]) -> None:
 def validate_scale_intent(intent: ScaleIntent, authority: ScaleAuthority) -> None:
     """Validate a proposed intent against the current authority revision."""
 
-    unit = next((candidate for candidate in authority.units if candidate.unit_id == intent.unit_id), None)
+    unit = next(
+        (
+            candidate
+            for candidate in authority.units
+            if candidate.unit_id == intent.unit_id
+        ),
+        None,
+    )
     if unit is None:
         raise ValueError("scale intent references an unknown unit")
-    pool = next((candidate for candidate in authority.pools if candidate.pool_id == unit.resource_pool_id), None)
+    pool = next(
+        (
+            candidate
+            for candidate in authority.pools
+            if candidate.pool_id == unit.resource_pool_id
+        ),
+        None,
+    )
     if pool is None:  # pragma: no cover - ScaleAuthority already rejects this
         raise ValueError("scale intent references an unknown resource pool")
     if intent.expected_unit_revision != unit.revision:
         raise ValueError("scale intent expected_unit_revision is stale")
-    if intent.cadence != unit.cadence or intent.cadence == ScaleCadence.ENGINE_LOCAL.value:
+    if (
+        intent.cadence != unit.cadence
+        or intent.cadence == ScaleCadence.ENGINE_LOCAL.value
+    ):
         raise ValueError("scale intent cadence does not match graph-owned unit cadence")
     if intent.replica_writer_id != unit.replica_writer_id:
         raise ValueError("scale intent replica writer is not the unit authority")
@@ -846,7 +870,10 @@ def validate_scale_lifecycle(
 ) -> None:
     """Ensure every lifecycle record remains on one intent/unit/fence chain."""
 
-    if decision.intent_id != intent.intent_id or decision.intent_revision != intent.revision:
+    if (
+        decision.intent_id != intent.intent_id
+        or decision.intent_revision != intent.revision
+    ):
         raise ValueError("scale decision is not bound to the intent revision")
     if decision.unit_id != intent.unit_id:
         raise ValueError("scale decision is not bound to the intent unit")
@@ -855,13 +882,22 @@ def validate_scale_lifecycle(
         or decision.delegated_controller != intent.delegated_controller
     ):
         raise ValueError("scale decision controller mode changed from the intent")
-    if execution.intent_id != intent.intent_id or execution.intent_revision != intent.revision:
+    if (
+        execution.intent_id != intent.intent_id
+        or execution.intent_revision != intent.revision
+    ):
         raise ValueError("scale execution is not bound to the intent revision")
-    if execution.decision_id != decision.decision_id or execution.unit_id != intent.unit_id:
+    if (
+        execution.decision_id != decision.decision_id
+        or execution.unit_id != intent.unit_id
+    ):
         raise ValueError("scale execution is not bound to the decision/unit")
     if execution.controller_mode != intent.controller_mode:
         raise ValueError("scale execution controller mode changed from the intent")
-    if outcome.execution_id != execution.execution_id or outcome.unit_id != intent.unit_id:
+    if (
+        outcome.execution_id != execution.execution_id
+        or outcome.unit_id != intent.unit_id
+    ):
         raise ValueError("observed outcome is not bound to the execution/unit")
     fences = (
         intent.lease_fence,
@@ -869,7 +905,9 @@ def validate_scale_lifecycle(
         execution.lease_fence,
         outcome.lease_fence,
     )
-    identity = {(fence.lease_id, fence.lease_epoch, fence.fence_token) for fence in fences}
+    identity = {
+        (fence.lease_id, fence.lease_epoch, fence.fence_token) for fence in fences
+    }
     if len(identity) != 1:
         raise ValueError("scale lifecycle lease/fence identity changed mid-flight")
     if execution.replica_writer_id != intent.replica_writer_id:

@@ -66,9 +66,13 @@ class InMemoryObservationLedger:
             if rows:
                 prior = rows[-1]
                 if observation.run_id != prior.run_id:
-                    raise ObservationDiscontinuityError("observation_run_identity_drift")
+                    raise ObservationDiscontinuityError(
+                        "observation_run_identity_drift"
+                    )
                 if observation.sequence < prior.sequence:
-                    raise ObservationDiscontinuityError("observation_sequence_regressed")
+                    raise ObservationDiscontinuityError(
+                        "observation_sequence_regressed"
+                    )
                 if observation.observed_at < prior.observed_at:
                     raise ObservationDiscontinuityError("observation_time_regressed")
                 if observation.sequence == prior.sequence:

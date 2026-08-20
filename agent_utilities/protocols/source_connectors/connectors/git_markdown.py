@@ -700,12 +700,17 @@ class GitMarkdownConnector(LoadConnector, PollConnector, PermSyncConnector):
             if observed_at is None:
                 from datetime import UTC, datetime
 
-                observed_at = datetime.now(UTC).isoformat(timespec="microseconds").replace(
-                    "+00:00", "Z"
+                observed_at = (
+                    datetime.now(UTC)
+                    .isoformat(timespec="microseconds")
+                    .replace("+00:00", "Z")
                 )
-            snapshot_digest = "sha256:" + hashlib.sha256(
-                f"{self.source_namespace}\x1f{sha}".encode("utf-8")
-            ).hexdigest()
+            snapshot_digest = (
+                "sha256:"
+                + hashlib.sha256(
+                    f"{self.source_namespace}\x1f{sha}".encode()
+                ).hexdigest()
+            )
             projection = GovernedDocumentationProjector(
                 connector="git_markdown", source_instance=self.corpus
             ).tombstone(

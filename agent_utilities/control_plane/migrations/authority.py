@@ -38,7 +38,9 @@ _MAX_VERSION = 2_147_483_647
 
 
 def _digest_for(data: dict[str, object]) -> str:
-    return canonical_digest({key: value for key, value in data.items() if key != "digest"})
+    return canonical_digest(
+        {key: value for key, value in data.items() if key != "digest"}
+    )
 
 
 class InMemoryMigrationAuthority:
@@ -189,7 +191,9 @@ class InMemoryMigrationAuthority:
 
         with self._lock:
             plan = self._plan(plan_ref)
-            snapshot = self._snapshot(plan.source_snapshot_ref, plan.source_snapshot_digest)
+            snapshot = self._snapshot(
+                plan.source_snapshot_ref, plan.source_snapshot_digest
+            )
             source_file_refs = {
                 source_file.source_file_ref for source_file in snapshot.files
             }
@@ -251,7 +255,10 @@ class InMemoryMigrationAuthority:
                 or batch.source_snapshot_digest != plan.source_snapshot_digest
             ):
                 raise MigrationConflictError("backfill_snapshot_binding_mismatch")
-            if plan.inventory_ref is None or plan.inventory_ref not in self._inventories:
+            if (
+                plan.inventory_ref is None
+                or plan.inventory_ref not in self._inventories
+            ):
                 raise MigrationPrerequisiteError("frozen_inventory_missing")
             inventory = self._inventories[plan.inventory_ref]
             inventory_refs = {item.canonical_ref for item in inventory.items}
@@ -276,9 +283,7 @@ class InMemoryMigrationAuthority:
             if plan.state not in {"inventory_frozen", "backfill_observing"}:
                 raise MigrationPrerequisiteError("backfill_stage_invalid")
             next_state = (
-                "backfill_observing"
-                if plan.state == "inventory_frozen"
-                else plan.state
+                "backfill_observing" if plan.state == "inventory_frozen" else plan.state
             )
             updated = self._next_plan(
                 plan,
@@ -360,9 +365,13 @@ class InMemoryMigrationAuthority:
                 raise MigrationPrerequisiteError("shadow_stage_invalid")
             source_map = {record.canonical_ref: record for record in source_records}
             target_map = {record.canonical_ref: record for record in target_records}
-            if len(source_map) != len(source_records) or len(target_map) != len(target_records):
+            if len(source_map) != len(source_records) or len(target_map) != len(
+                target_records
+            ):
                 raise MigrationConflictError("shadow_record_duplicate")
-            if any(record.source_revision != snapshot.revision for record in source_records):
+            if any(
+                record.source_revision != snapshot.revision for record in source_records
+            ):
                 raise MigrationConflictError("shadow_source_revision_mismatch")
             observations = self._observations_for(plan)
             if not observations:
@@ -406,9 +415,13 @@ class InMemoryMigrationAuthority:
                             target_digest=None,
                         )
                     )
-                elif source is not None and target is not None and (
-                    source.record_digest != target.record_digest
-                    or source.source_revision != target.source_revision
+                elif (
+                    source is not None
+                    and target is not None
+                    and (
+                        source.record_digest != target.record_digest
+                        or source.source_revision != target.source_revision
+                    )
                 ):
                     deltas.append(
                         self._delta(

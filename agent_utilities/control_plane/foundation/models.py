@@ -68,7 +68,9 @@ _MAX_RETENTION_DAYS = 36_500
 
 
 def _digest_payload(value: object) -> str:
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 
 
@@ -90,13 +92,17 @@ def _opaque_ref(value: str, field_name: str) -> str:
         "authorization:",
         "bearer ",
         "-----begin",
-        "{\"",
+        '{"',
         "[{",
     )
-    if lowered.startswith(forbidden_prefixes) or any(
-        marker in lowered for marker in inline_markers
-    ) or ":" not in value:
-        raise ValueError(f"{field_name} must be an opaque reference, not payload material")
+    if (
+        lowered.startswith(forbidden_prefixes)
+        or any(marker in lowered for marker in inline_markers)
+        or ":" not in value
+    ):
+        raise ValueError(
+            f"{field_name} must be an opaque reference, not payload material"
+        )
     return value
 
 
@@ -143,83 +149,122 @@ def organization_id_for(organization_slug: str) -> str:
 
 
 def tenant_id_for(organization_id: str, tenant_slug: str) -> str:
-    return "tenant:" + hashlib.sha256(
-        f"{organization_id}\x1f{tenant_slug}".encode("utf-8")
-    ).hexdigest()
+    return (
+        "tenant:"
+        + hashlib.sha256(f"{organization_id}\x1f{tenant_slug}".encode()).hexdigest()
+    )
 
 
 def principal_id_for(tenant_id: str, subject_ref: str) -> str:
-    return "principal:" + hashlib.sha256(
-        f"{tenant_id}\x1f{subject_ref}".encode("utf-8")
-    ).hexdigest()
+    return (
+        "principal:"
+        + hashlib.sha256(f"{tenant_id}\x1f{subject_ref}".encode()).hexdigest()
+    )
 
 
 def client_id_for(tenant_id: str, client_name: str) -> str:
-    return "client:" + hashlib.sha256(
-        f"{tenant_id}\x1f{client_name}".encode("utf-8")
-    ).hexdigest()
+    return (
+        "client:" + hashlib.sha256(f"{tenant_id}\x1f{client_name}".encode()).hexdigest()
+    )
 
 
 def permission_id_for(tenant_id: str, action: str, resource_ref: str) -> str:
-    return "permission:" + hashlib.sha256(
-        f"{tenant_id}\x1f{action}\x1f{resource_ref}".encode("utf-8")
-    ).hexdigest()
+    return (
+        "permission:"
+        + hashlib.sha256(
+            f"{tenant_id}\x1f{action}\x1f{resource_ref}".encode()
+        ).hexdigest()
+    )
 
 
 def role_id_for(tenant_id: str, role_name: str) -> str:
-    return "role:" + hashlib.sha256(f"{tenant_id}\x1f{role_name}".encode("utf-8")).hexdigest()
+    return "role:" + hashlib.sha256(f"{tenant_id}\x1f{role_name}".encode()).hexdigest()
 
 
 def membership_id_for(tenant_id: str, principal_id: str, role_id: str) -> str:
-    return "membership:" + hashlib.sha256(
-        f"{tenant_id}\x1f{principal_id}\x1f{role_id}".encode("utf-8")
-    ).hexdigest()
+    return (
+        "membership:"
+        + hashlib.sha256(
+            f"{tenant_id}\x1f{principal_id}\x1f{role_id}".encode()
+        ).hexdigest()
+    )
 
 
-def entitlement_id_for(tenant_id: str, subject_kind: SubjectKind, subject_id: str, name: str) -> str:
-    return "entitlement:" + hashlib.sha256(
-        f"{tenant_id}\x1f{subject_kind}\x1f{subject_id}\x1f{name}".encode("utf-8")
-    ).hexdigest()
+def entitlement_id_for(
+    tenant_id: str, subject_kind: SubjectKind, subject_id: str, name: str
+) -> str:
+    return (
+        "entitlement:"
+        + hashlib.sha256(
+            f"{tenant_id}\x1f{subject_kind}\x1f{subject_id}\x1f{name}".encode()
+        ).hexdigest()
+    )
 
 
 def quota_id_for(tenant_id: str, subject_kind: SubjectKind, subject_id: str) -> str:
-    return "quota:" + hashlib.sha256(
-        f"{tenant_id}\x1f{subject_kind}\x1f{subject_id}".encode("utf-8")
-    ).hexdigest()
+    return (
+        "quota:"
+        + hashlib.sha256(
+            f"{tenant_id}\x1f{subject_kind}\x1f{subject_id}".encode()
+        ).hexdigest()
+    )
 
 
 def upstream_id_for(tenant_id: str, upstream_name: str) -> str:
-    return "upstream:" + hashlib.sha256(f"{tenant_id}\x1f{upstream_name}".encode("utf-8")).hexdigest()
+    return (
+        "upstream:"
+        + hashlib.sha256(f"{tenant_id}\x1f{upstream_name}".encode()).hexdigest()
+    )
 
 
 def route_id_for(tenant_id: str, route_name: str) -> str:
-    return "route:" + hashlib.sha256(f"{tenant_id}\x1f{route_name}".encode("utf-8")).hexdigest()
+    return (
+        "route:" + hashlib.sha256(f"{tenant_id}\x1f{route_name}".encode()).hexdigest()
+    )
 
 
 def config_id_for(tenant_id: str, config_name: str) -> str:
-    return "config:" + hashlib.sha256(f"{tenant_id}\x1f{config_name}".encode("utf-8")).hexdigest()
+    return (
+        "config:" + hashlib.sha256(f"{tenant_id}\x1f{config_name}".encode()).hexdigest()
+    )
 
 
 def feature_id_for(tenant_id: str, feature_name: str) -> str:
-    return "feature:" + hashlib.sha256(f"{tenant_id}\x1f{feature_name}".encode("utf-8")).hexdigest()
+    return (
+        "feature:"
+        + hashlib.sha256(f"{tenant_id}\x1f{feature_name}".encode()).hexdigest()
+    )
 
 
 def release_pointer_id(tenant_id: str, target_kind: TargetKind, target_id: str) -> str:
-    return "release:" + hashlib.sha256(
-        f"{tenant_id}\x1f{target_kind}\x1f{target_id}".encode("utf-8")
-    ).hexdigest()
+    return (
+        "release:"
+        + hashlib.sha256(
+            f"{tenant_id}\x1f{target_kind}\x1f{target_id}".encode()
+        ).hexdigest()
+    )
 
 
-def tombstone_id(tenant_id: str, resource_kind: TargetKind, resource_id: str, version: int) -> str:
-    return "tombstone:" + hashlib.sha256(
-        f"{tenant_id}\x1f{resource_kind}\x1f{resource_id}\x1f{version}".encode("utf-8")
-    ).hexdigest()
+def tombstone_id(
+    tenant_id: str, resource_kind: TargetKind, resource_id: str, version: int
+) -> str:
+    return (
+        "tombstone:"
+        + hashlib.sha256(
+            f"{tenant_id}\x1f{resource_kind}\x1f{resource_id}\x1f{version}".encode()
+        ).hexdigest()
+    )
 
 
-def activation_id_for(pointer_id: str, release_revision: int, activation_digest: str) -> str:
-    return "activation:" + hashlib.sha256(
-        f"{pointer_id}\x1f{release_revision}\x1f{activation_digest}".encode("utf-8")
-    ).hexdigest()
+def activation_id_for(
+    pointer_id: str, release_revision: int, activation_digest: str
+) -> str:
+    return (
+        "activation:"
+        + hashlib.sha256(
+            f"{pointer_id}\x1f{release_revision}\x1f{activation_digest}".encode()
+        ).hexdigest()
+    )
 
 
 class LifecycleState(ProtocolModel):
@@ -371,7 +416,9 @@ class Permission(ProtocolModel):
     @model_validator(mode="after")
     def permission_is_stable(self) -> Permission:
         _opaque_ref(self.resource_ref, "resource_ref")
-        if self.permission_id != permission_id_for(self.tenant_id, self.action, self.resource_ref):
+        if self.permission_id != permission_id_for(
+            self.tenant_id, self.action, self.resource_ref
+        ):
             raise ValueError("permission identity is not content-derived")
         if self.record_digest != _record_digest(self):
             raise ValueError("permission digest drift")
@@ -410,7 +457,9 @@ class Membership(ProtocolModel):
 
     @model_validator(mode="after")
     def membership_is_stable(self) -> Membership:
-        if self.membership_id != membership_id_for(self.tenant_id, self.principal_id, self.role_id):
+        if self.membership_id != membership_id_for(
+            self.tenant_id, self.principal_id, self.role_id
+        ):
             raise ValueError("membership identity is not content-derived")
         if self.record_digest != _record_digest(self):
             raise ValueError("membership digest drift")
@@ -462,7 +511,9 @@ class QuotaContract(ProtocolModel):
     def quota_is_stable_without_hot_state(self) -> QuotaContract:
         names = tuple(item.dimension_name for item in self.dimensions)
         _sorted_unique(names, "quota dimension names")
-        if self.quota_id != quota_id_for(self.tenant_id, self.subject_kind, self.subject_id):
+        if self.quota_id != quota_id_for(
+            self.tenant_id, self.subject_kind, self.subject_id
+        ):
             raise ValueError("quota identity is not content-derived")
         if self.record_digest != _record_digest(self):
             raise ValueError("quota digest drift")
@@ -512,7 +563,9 @@ class GatewayRouteVersion(ProtocolModel):
 
     @model_validator(mode="after")
     def route_is_stable_and_safe(self) -> GatewayRouteVersion:
-        if not self.path_template.startswith("/") or ".." in self.path_template.split("/"):
+        if not self.path_template.startswith("/") or ".." in self.path_template.split(
+            "/"
+        ):
             raise ValueError("gateway route path must be absolute and escape-free")
         _opaque_ref(self.auth_policy_ref, "auth_policy_ref")
         if self.route_id != route_id_for(self.tenant_id, self.route_name):
@@ -546,17 +599,22 @@ class GatewayConfigVersion(ProtocolModel):
     tenant_id: Identifier
     config_name: NameText
     version: int = Field(ge=1)
-    component_refs: tuple[GatewayVersionRef, ...] = Field(min_length=1, max_length=_MAX_LIST)
+    component_refs: tuple[GatewayVersionRef, ...] = Field(
+        min_length=1, max_length=_MAX_LIST
+    )
     lifecycle: LifecycleState
     record_digest: Digest
 
     @model_validator(mode="after")
     def config_is_stable_and_normalized(self) -> GatewayConfigVersion:
         refs = tuple(
-            (ref.target_kind, ref.target_id, ref.target_version) for ref in self.component_refs
+            (ref.target_kind, ref.target_id, ref.target_version)
+            for ref in self.component_refs
         )
         if tuple(sorted(refs)) != refs or len(set(refs)) != len(refs):
-            raise ValueError("gateway config component references must be unique and sorted")
+            raise ValueError(
+                "gateway config component references must be unique and sorted"
+            )
         if self.config_id != config_id_for(self.tenant_id, self.config_name):
             raise ValueError("config identity is not content-derived")
         if self.record_digest != _record_digest(self):
@@ -593,7 +651,9 @@ class CircuitHistory(ProtocolModel):
     organization_id: Identifier
     tenant_id: Identifier
     state: CircuitState
-    history_refs: tuple[OpaqueRef, ...] = Field(default=(), max_length=_MAX_CIRCUIT_REFS)
+    history_refs: tuple[OpaqueRef, ...] = Field(
+        default=(), max_length=_MAX_CIRCUIT_REFS
+    )
     transition_count: int = Field(ge=0, le=10**9)
     observed_at: Timestamp
     record_digest: Digest

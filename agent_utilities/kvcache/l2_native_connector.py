@@ -68,12 +68,12 @@ from concurrent.futures import ThreadPoolExecutor
 from itertools import count
 from typing import TYPE_CHECKING
 
-from agent_utilities.kvcache.config import KvCacheConfig, _addr_to_base_url
-from agent_utilities.kvcache.remote_backend import EpistemicGraphKVBackend
 from agent_utilities.core.shared_resource_leases import (
     ResourceLease,
     SharedResourceLeaseAuthority,
 )
+from agent_utilities.kvcache.config import KvCacheConfig, _addr_to_base_url
+from agent_utilities.kvcache.remote_backend import EpistemicGraphKVBackend
 
 if TYPE_CHECKING:  # pragma: no cover
     from collections.abc import Sequence

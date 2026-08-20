@@ -186,7 +186,7 @@ class AccessContext(_FrozenModel):
     private_boundary: Literal[True] = True
 
     @model_validator(mode="after")
-    def _authority_is_private_and_unambiguous(self) -> "AccessContext":
+    def _authority_is_private_and_unambiguous(self) -> AccessContext:
         if len(self.permissions) != len(set(self.permissions)):
             raise ValueError("ui_permission_duplicate")
         if self.anonymous_pilot:
@@ -218,7 +218,7 @@ class WorkspaceIdentity(_IdentityModel):
     state: Literal["active", "deleted"] = "active"
 
     @model_validator(mode="after")
-    def _exact_refs(self) -> "WorkspaceIdentity":
+    def _exact_refs(self) -> WorkspaceIdentity:
         _reject_alias(self.workspace_ref, "workspace")
         return self
 
@@ -249,7 +249,7 @@ class SessionIdentity(_IdentityModel):
     expires_at: Timestamp
 
     @model_validator(mode="after")
-    def _session_is_bounded(self) -> "SessionIdentity":
+    def _session_is_bounded(self) -> SessionIdentity:
         _reject_alias(self.session_ref, "session")
         if self.expires_at <= self.issued_at:
             raise ValueError("session_expiry_invalid")
@@ -290,7 +290,7 @@ class AttachmentIdentity(_IdentityModel):
     size_bytes: int = Field(ge=0, le=256 * 1024 * 1024)
 
     @model_validator(mode="after")
-    def _content_scope_matches(self) -> "AttachmentIdentity":
+    def _content_scope_matches(self) -> AttachmentIdentity:
         if self.content_ref.tenant_ref != self.tenant_ref:
             raise ValueError("attachment_tenant_drift")
         if self.content_ref.workspace_ref != self.workspace_ref:
@@ -309,7 +309,7 @@ class MessageIdentity(_IdentityModel):
     state: Literal["active", "deleted"] = "active"
 
     @model_validator(mode="after")
-    def _content_scope_matches(self) -> "MessageIdentity":
+    def _content_scope_matches(self) -> MessageIdentity:
         if self.content_ref.tenant_ref != self.tenant_ref:
             raise ValueError("message_content_tenant_drift")
         if self.content_ref.workspace_ref != self.workspace_ref:
@@ -340,7 +340,7 @@ class SavedQueryIdentity(_IdentityModel):
     visibility: Visibility = "private"
 
     @model_validator(mode="after")
-    def _no_public_visibility(self) -> "SavedQueryIdentity":
+    def _no_public_visibility(self) -> SavedQueryIdentity:
         _reject_alias(self.visibility, "query_visibility")
         return self
 
@@ -363,7 +363,7 @@ class DashboardIdentity(_IdentityModel):
     widgets: tuple[WidgetIdentity, ...] = Field(max_length=MAX_WIDGETS)
 
     @model_validator(mode="after")
-    def _widgets_are_scoped(self) -> "DashboardIdentity":
+    def _widgets_are_scoped(self) -> DashboardIdentity:
         _reject_alias(self.visibility, "dashboard_visibility")
         refs = []
         for widget in self.widgets:
@@ -388,7 +388,7 @@ class NotificationIdentity(_IdentityModel):
     state: Literal["unread", "read"] = "unread"
 
     @model_validator(mode="after")
-    def _content_scope_matches(self) -> "NotificationIdentity":
+    def _content_scope_matches(self) -> NotificationIdentity:
         if self.content_ref.tenant_ref != self.tenant_ref:
             raise ValueError("notification_content_tenant_drift")
         if self.content_ref.workspace_ref != self.workspace_ref:
@@ -407,7 +407,7 @@ class FeedbackIdentity(_IdentityModel):
     category: OpaqueRef
 
     @model_validator(mode="after")
-    def _feedback_scope_matches(self) -> "FeedbackIdentity":
+    def _feedback_scope_matches(self) -> FeedbackIdentity:
         if self.conversation_ref is None and self.message_ref is None:
             raise ValueError("feedback_target_missing")
         if self.content_ref.tenant_ref != self.tenant_ref:
@@ -427,7 +427,7 @@ class SupportIdentity(_IdentityModel):
     state: Literal["open", "closed"] = "open"
 
     @model_validator(mode="after")
-    def _support_scope_matches(self) -> "SupportIdentity":
+    def _support_scope_matches(self) -> SupportIdentity:
         if self.content_ref.tenant_ref != self.tenant_ref:
             raise ValueError("support_content_tenant_drift")
         if self.content_ref.workspace_ref != self.workspace_ref:
@@ -447,7 +447,7 @@ class RetentionRecord(_FrozenModel):
     effective_at: Timestamp
 
     @model_validator(mode="after")
-    def _hold_state_is_consistent(self) -> "RetentionRecord":
+    def _hold_state_is_consistent(self) -> RetentionRecord:
         if self.state == "legal_hold":
             if self.legal_hold_ref is None or self.resume_state is None:
                 raise ValueError("legal_hold_metadata_missing")
@@ -511,7 +511,7 @@ class AnonymousPilotSession(_FrozenModel):
     private_boundary: Literal[True] = True
 
     @model_validator(mode="after")
-    def _pilot_is_private(self) -> "AnonymousPilotSession":
+    def _pilot_is_private(self) -> AnonymousPilotSession:
         if not self.session.anonymous_pilot:
             raise ValueError("pilot_session_not_anonymous")
         return self

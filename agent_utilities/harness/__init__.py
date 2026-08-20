@@ -15,10 +15,11 @@ from .baseline_overfit_gate import (
 )
 from .contract_validator import ContractValidator, ToolContract
 from .decentralized_memory import Contribution, DecentralizedMemory, MemoryPool
+from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
 from .documentation_benchmark import (
     DEFAULT_DOCUMENTATION_CORPUS,
-    BenchmarkBounds,
     BenchmarkBoundExceeded,
+    BenchmarkBounds,
     CacheMode,
     DocumentationAdapter,
     DocumentationBenchmarkError,
@@ -41,7 +42,6 @@ from .documentation_benchmark import (
     TokenUsage,
     compare_documentation_paths,
 )
-from .distributed_state_manager import BranchMergeStateLocker, OptimisticStateLocker
 from .edit_engine import (
     Edit,
     EditOutcome,

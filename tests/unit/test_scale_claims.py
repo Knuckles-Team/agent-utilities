@@ -15,4 +15,3 @@ def test_scale_claim_register_is_source_anchored():
 def test_planted_scale_claim_drift_is_rejected():
     errors = check_claim_register(ROOT / "tests/fixtures/scale_claims_planted_drift.md")
     assert any("required fragment is absent" in error for error in errors)
-

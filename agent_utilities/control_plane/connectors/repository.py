@@ -70,7 +70,9 @@ class ConnectorRepository(Protocol):
     def get_server(self, scope: AccessScope, server_id: str) -> ServerIdentity | None:
         """Read one server only inside the verified scope."""
 
-    def get_version(self, scope: AccessScope, version_id: str) -> ConnectorVersion | None:
+    def get_version(
+        self, scope: AccessScope, version_id: str
+    ) -> ConnectorVersion | None:
         """Read one immutable version only inside the verified scope."""
 
     def get_desired(
@@ -110,4 +112,3 @@ class ConnectorRepository(Protocol):
         after_version_id: str,
     ) -> KeysetCursor:
         """Create a scope-bound keyset position without exposing a database token."""
-

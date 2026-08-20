@@ -123,7 +123,6 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "ontology_repository_provenance": ("write",),
         "document_process": ("write",),
         "graph_media_sidecar": ("write", "act"),
-        "graph_data_prep": ("ask", "write"),
         "spec_ticket": ("write", "ask"),
         "engine_nodes": ("write", "ask"),
         "engine_edges": ("write",),
@@ -236,9 +235,6 @@ READ_ONLY_ACTIONS: Mapping[str, frozenset[str]] = MappingProxyType(
         # ``reload`` re-reads from disk without writing, so it is a read of the
         # world, not a change to it.
         "graph_config": frozenset({"describe", "get", "diff", "reload"}),
-        "graph_data_prep": frozenset(
-            {"profile_dataset", "clean_dataset", "validate_prepared"}
-        ),
     }
 )
 

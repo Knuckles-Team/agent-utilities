@@ -23,7 +23,6 @@ from pydantic import Field, StrictBool, StrictInt, field_validator, model_valida
 
 from agent_utilities.protocols.epistemic_operations import ProtocolModel
 
-
 SCHEMA_VERSION: Literal["1"] = "1"
 MAX_REF_LENGTH = 256
 MAX_DIMENSIONS = 16
@@ -162,9 +161,9 @@ class AllocationRef(ProtocolModel):
     tenant_id: Annotated[str, Field(min_length=1, max_length=MAX_REF_LENGTH)]
     project_ref: Annotated[str, Field(min_length=1, max_length=MAX_REF_LENGTH)]
     cost_center_ref: Annotated[str, Field(min_length=1, max_length=MAX_REF_LENGTH)]
-    workload_ref: Annotated[
-        str, Field(min_length=1, max_length=MAX_REF_LENGTH)
-    ] | None = None
+    workload_ref: (
+        Annotated[str, Field(min_length=1, max_length=MAX_REF_LENGTH)] | None
+    ) = None
 
     @field_validator("tenant_id", "project_ref", "cost_center_ref", "workload_ref")
     @classmethod
@@ -192,12 +191,12 @@ class UsageFact(ProtocolModel):
     occurred_at: datetime
     metric: MetricKind
     quantity: Annotated[StrictInt, Field(ge=0, le=MAX_FACT_QUANTITY)]
-    input_quantity: Annotated[
-        StrictInt, Field(ge=0, le=MAX_FACT_QUANTITY)
-    ] | None = None
-    output_quantity: Annotated[
-        StrictInt, Field(ge=0, le=MAX_FACT_QUANTITY)
-    ] | None = None
+    input_quantity: Annotated[StrictInt, Field(ge=0, le=MAX_FACT_QUANTITY)] | None = (
+        None
+    )
+    output_quantity: Annotated[StrictInt, Field(ge=0, le=MAX_FACT_QUANTITY)] | None = (
+        None
+    )
     service_ref: Annotated[str, Field(min_length=1, max_length=MAX_REF_LENGTH)]
     meter_ref: Annotated[str, Field(min_length=1, max_length=MAX_REF_LENGTH)]
     sample_sequence: Annotated[StrictInt, Field(ge=0, le=2**63 - 1)] | None = None
@@ -230,7 +229,7 @@ class UsageFact(ProtocolModel):
         )
 
     @model_validator(mode="after")
-    def validate_identity_and_coherence(self) -> "UsageFact":
+    def validate_identity_and_coherence(self) -> UsageFact:
         if self.allocation.tenant_id != self.tenant_id:
             raise TenantScopeError("allocation tenant_id must match usage tenant_id")
         keys = [dimension.key for dimension in self.dimensions]
@@ -243,8 +242,7 @@ class UsageFact(ProtocolModel):
                 )
             if (
                 self.input_quantity is not None
-                and self.quantity
-                != self.input_quantity + self.output_quantity  # type: ignore[operator]
+                and self.quantity != self.input_quantity + self.output_quantity  # type: ignore[operator]
             ):
                 raise ValueError("token quantity must equal input plus output")
         elif self.input_quantity is not None or self.output_quantity is not None:
@@ -337,7 +335,7 @@ class PriceCard(ProtocolModel):
         )
 
     @model_validator(mode="after")
-    def validate_immutability(self) -> "PriceCard":
+    def validate_immutability(self) -> PriceCard:
         if self.effective_to is not None and self.effective_to <= self.effective_from:
             raise ValueError("price card effective_to must follow effective_from")
         metrics = [rate.metric for rate in self.rates]
@@ -397,7 +395,7 @@ class UsageWindow(ProtocolModel):
         )
 
     @model_validator(mode="after")
-    def validate_alignment(self) -> "UsageWindow":
+    def validate_alignment(self) -> UsageWindow:
         start = self.window_start.astimezone(UTC)
         if start.minute or start.second or start.microsecond:
             raise ValueError("window_start must be aligned to an hour")
@@ -461,7 +459,7 @@ class WindowAggregate(ProtocolModel):
         return _ensure_digest(value, field_name="price_card_digest")
 
     @model_validator(mode="after")
-    def validate_aggregate_identity(self) -> "WindowAggregate":
+    def validate_aggregate_identity(self) -> WindowAggregate:
         if self.allocation.tenant_id != self.tenant_id:
             raise TenantScopeError("aggregate allocation crosses tenant scope")
         if len(set(self.fact_ids)) != len(self.fact_ids):
@@ -524,7 +522,7 @@ class WatermarkPolicy(ProtocolModel):
         return _ensure_ref(value, field_name="policy_version")
 
     @model_validator(mode="after")
-    def validate_lateness_bounds(self) -> "WatermarkPolicy":
+    def validate_lateness_bounds(self) -> WatermarkPolicy:
         if self.max_correction_age_seconds < self.allowed_lateness_seconds:
             raise ValueError("correction age cannot be shorter than allowed lateness")
         return self
@@ -548,7 +546,7 @@ class Watermark(ProtocolModel):
         return _ensure_utc(value, field_name=str(getattr(info, "field_name", "time")))
 
     @model_validator(mode="after")
-    def validate_order(self) -> "Watermark":
+    def validate_order(self) -> Watermark:
         if self.observed_at < self.watermark_at:
             raise ValueError("observed_at cannot precede watermark_at")
         return self
@@ -562,12 +560,12 @@ class UsageCorrection(ProtocolModel):
     tenant_id: Annotated[str, Field(min_length=1, max_length=MAX_REF_LENGTH)]
     original_fact_id: Annotated[str, Field(min_length=1, max_length=80)]
     original_fact_digest: Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
-    replacement_fact_id: Annotated[
-        str, Field(min_length=1, max_length=80)
-    ] | None = None
-    replacement_fact_digest: Annotated[
-        str, Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    ] | None = None
+    replacement_fact_id: Annotated[str, Field(min_length=1, max_length=80)] | None = (
+        None
+    )
+    replacement_fact_digest: (
+        Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")] | None
+    ) = None
     reason: Literal[
         "late_event", "source_correction", "privacy_retraction", "reconciliation"
     ]
@@ -595,7 +593,7 @@ class UsageCorrection(ProtocolModel):
         return _ensure_utc(value, field_name="created_at")
 
     @model_validator(mode="after")
-    def validate_replacement(self) -> "UsageCorrection":
+    def validate_replacement(self) -> UsageCorrection:
         if (self.replacement_fact_id is None) != (self.replacement_fact_digest is None):
             raise ValueError("replacement fact id and digest must be supplied together")
         if self.replacement_fact_id == self.original_fact_id:
@@ -664,7 +662,7 @@ class UsageTombstone(ProtocolModel):
         return _ensure_utc(value, field_name="effective_at")
 
     @model_validator(mode="after")
-    def validate_identity(self) -> "UsageTombstone":
+    def validate_identity(self) -> UsageTombstone:
         identity = {
             "schema_version": self.schema_version,
             "tenant_id": self.tenant_id,
@@ -703,7 +701,7 @@ class SloObjective(ProtocolModel):
         return _ensure_ref(value, field_name=str(getattr(info, "field_name", "ref")))
 
     @model_validator(mode="after")
-    def validate_target(self) -> "SloObjective":
+    def validate_target(self) -> SloObjective:
         if self.sli == "latency_ms" and self.latency_threshold_ms is None:
             raise ValueError("latency SLO requires latency_threshold_ms")
         if self.sli != "latency_ms" and self.latency_threshold_ms is not None:
@@ -711,9 +709,7 @@ class SloObjective(ProtocolModel):
         if self.percentile_micros is not None and self.sli != "latency_ms":
             raise ValueError("percentile is valid only for latency SLOs")
         expected_comparison = (
-            "gte"
-            if self.sli in {"availability", "throughput"}
-            else "lte"
+            "gte" if self.sli in {"availability", "throughput"} else "lte"
         )
         if self.comparison != expected_comparison:
             raise ValueError(
@@ -779,7 +775,7 @@ class SloWindowRollup(ProtocolModel):
         return tuple(sorted(values))
 
     @model_validator(mode="after")
-    def validate_rollup(self) -> "SloWindowRollup":
+    def validate_rollup(self) -> SloWindowRollup:
         if self.good_events > self.total_events or self.bad_events > self.total_events:
             raise ValueError("SLO good/bad events cannot exceed total events")
         if self.total_events == 0:
@@ -851,12 +847,12 @@ class KeysetCursor(ProtocolModel):
 class UsageReadRequest(ProtocolModel):
     scope: TenantReadScope
     granularity: WindowGranularity | None = None
-    allocation_project_ref: Annotated[
-        str, Field(min_length=1, max_length=MAX_REF_LENGTH)
-    ] | None = None
-    allocation_cost_center_ref: Annotated[
-        str, Field(min_length=1, max_length=MAX_REF_LENGTH)
-    ] | None = None
+    allocation_project_ref: (
+        Annotated[str, Field(min_length=1, max_length=MAX_REF_LENGTH)] | None
+    ) = None
+    allocation_cost_center_ref: (
+        Annotated[str, Field(min_length=1, max_length=MAX_REF_LENGTH)] | None
+    ) = None
     limit: Annotated[StrictInt, Field(gt=0, le=MAX_PAGE_SIZE)] = 100
     after: KeysetCursor | None = None
 
@@ -870,7 +866,7 @@ class UsageReadRequest(ProtocolModel):
         )
 
     @model_validator(mode="after")
-    def validate_cursor_scope(self) -> "UsageReadRequest":
+    def validate_cursor_scope(self) -> UsageReadRequest:
         if self.after is not None and self.after.tenant_id != self.scope.tenant_id:
             raise TenantScopeError("cursor tenant does not match read scope")
         return self
@@ -894,7 +890,7 @@ class UsageReadPage(ProtocolModel):
     exhausted: StrictBool
 
     @model_validator(mode="after")
-    def validate_page(self) -> "UsageReadPage":
+    def validate_page(self) -> UsageReadPage:
         if any(row.tenant_id != self.scope.tenant_id for row in self.rows):
             raise TenantScopeError("usage read page contains a foreign tenant row")
         if (
@@ -915,13 +911,11 @@ class SloReadRequest(ProtocolModel):
     @classmethod
     def validate_objective_id(cls, value: str | None) -> str | None:
         return (
-            _ensure_ref(value, field_name="objective_id")
-            if value is not None
-            else None
+            _ensure_ref(value, field_name="objective_id") if value is not None else None
         )
 
     @model_validator(mode="after")
-    def validate_cursor_scope(self) -> "SloReadRequest":
+    def validate_cursor_scope(self) -> SloReadRequest:
         if self.after is not None and self.after.tenant_id != self.scope.tenant_id:
             raise TenantScopeError("cursor tenant does not match SLO read scope")
         return self
@@ -943,7 +937,7 @@ class SloReadPage(ProtocolModel):
     exhausted: StrictBool
 
     @model_validator(mode="after")
-    def validate_page(self) -> "SloReadPage":
+    def validate_page(self) -> SloReadPage:
         if any(row.tenant_id != self.scope.tenant_id for row in self.rows):
             raise TenantScopeError("SLO read page contains a foreign tenant row")
         if (
@@ -1023,7 +1017,7 @@ class ReconciliationReport(ProtocolModel):
         )
 
     @model_validator(mode="after")
-    def validate_report(self) -> "ReconciliationReport":
+    def validate_report(self) -> ReconciliationReport:
         if self.status == "complete" and (
             self.missing
             or self.unexpected

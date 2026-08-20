@@ -54,7 +54,11 @@ from .models import (
     upstream_id_for,
 )
 from .repository import FoundationRepository, FoundationRepositoryError, ReleaseConflict
-from .service import FoundationControlPlane, FoundationLifecycleError, InMemoryFoundationRepository
+from .service import (
+    FoundationControlPlane,
+    FoundationLifecycleError,
+    InMemoryFoundationRepository,
+)
 
 __all__ = [
     "ActivationRecord",

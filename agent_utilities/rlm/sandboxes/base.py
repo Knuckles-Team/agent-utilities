@@ -99,7 +99,9 @@ class SandboxEnv:
 def sandbox_resource_limits(env: SandboxEnv) -> Any | None:
     """Return the immutable runtime limits carried by ``env``, if any."""
     admission = env.admission
-    return getattr(admission, "resource_limits", None) if admission is not None else None
+    return (
+        getattr(admission, "resource_limits", None) if admission is not None else None
+    )
 
 
 def enforce_sandbox_admission(env: SandboxEnv, *, payload: Any = None) -> None:

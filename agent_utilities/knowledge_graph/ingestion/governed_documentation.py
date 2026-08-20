@@ -61,9 +61,7 @@ _MAX_SUPERSEDER = 512
 
 _REVISION_RE = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$", re.ASCII)
 _DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$", re.ASCII)
-_OPAQUE_REPOSITORY_RE = re.compile(
-    r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$", re.ASCII
-)
+_OPAQUE_REPOSITORY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$", re.ASCII)
 _CONCEPT_MARKER_RE = re.compile(
     r"\bCONCEPT\s*:\s*([A-Za-z0-9][A-Za-z0-9._/-]{0,159})",
     re.ASCII,
@@ -97,7 +95,10 @@ class DocumentationLifecycle(StrEnum):
         # Deprecated material is still the current revision of its source page;
         # callers can choose whether to include it without confusing it with a
         # removed/superseded page.
-        return self in {DocumentationLifecycle.CURRENT, DocumentationLifecycle.DEPRECATED}
+        return self in {
+            DocumentationLifecycle.CURRENT,
+            DocumentationLifecycle.DEPRECATED,
+        }
 
     @property
     def is_archived(self) -> bool:
@@ -133,7 +134,11 @@ def _now_iso() -> str:
 
 def _validate_repository_id(value: str) -> str:
     raw = str(value or "").strip()
-    if not raw or len(raw) > _MAX_REPOSITORY_ID or not _OPAQUE_REPOSITORY_RE.fullmatch(raw):
+    if (
+        not raw
+        or len(raw) > _MAX_REPOSITORY_ID
+        or not _OPAQUE_REPOSITORY_RE.fullmatch(raw)
+    ):
         raise DocumentationProjectionError(
             "repository_id must be a bounded opaque repository identifier"
         )
@@ -205,7 +210,9 @@ def _split_frontmatter_values(value: str) -> list[str]:
     return [item.strip().strip("'\"") for item in rendered.split(",") if item.strip()]
 
 
-def _extract_concept_ids(markdown: str, frontmatter: Mapping[str, str]) -> tuple[str, ...]:
+def _extract_concept_ids(
+    markdown: str, frontmatter: Mapping[str, str]
+) -> tuple[str, ...]:
     candidates = list(_CONCEPT_MARKER_RE.findall(markdown))
     for key, value in frontmatter.items():
         if _CONCEPT_FRONTMATTER_RE.match(f"{key}: {value}"):
@@ -237,18 +244,17 @@ def _lifecycle_from_frontmatter(
             break
     if frontmatter.get("archived", "").strip().casefold() in {"1", "true", "yes"}:
         raw_status = "archived"
-    elif (
-        frontmatter.get("deprecated", "").strip().casefold() in {"1", "true", "yes"}
-        and raw_status not in {"archived", "superseded", "tombstoned"}
-    ):
+    elif frontmatter.get("deprecated", "").strip().casefold() in {
+        "1",
+        "true",
+        "yes",
+    } and raw_status not in {"archived", "superseded", "tombstoned"}:
         raw_status = "deprecated"
     superseded_by = frontmatter.get("superseded_by") or frontmatter.get("superseded-by")
     superseded_by = superseded_by.strip() if superseded_by else None
     supersedes = tuple(
         _validate_source_path(item)
-        for item in _split_frontmatter_values(
-            frontmatter.get("supersedes", "")
-        )
+        for item in _split_frontmatter_values(frontmatter.get("supersedes", ""))
         if item
     )
     aliases = {
@@ -277,7 +283,9 @@ def _lifecycle_from_frontmatter(
 
 
 def _classification_for(access: ExternalAccess) -> DataClassification:
-    return DataClassification.PUBLIC if access.is_public else DataClassification.INTERNAL
+    return (
+        DataClassification.PUBLIC if access.is_public else DataClassification.INTERNAL
+    )
 
 
 class DocumentationSource(BaseModel):
@@ -414,14 +422,19 @@ class GovernedDocumentationProjection(BaseModel):
     def _invariants(self) -> GovernedDocumentationProjection:
         if self.operation not in {"upsert", "delete"}:
             raise DocumentationProjectionError("documentation operation is invalid")
-        if self.operation == "delete" and self.lifecycle != DocumentationLifecycle.TOMBSTONED:
+        if (
+            self.operation == "delete"
+            and self.lifecycle != DocumentationLifecycle.TOMBSTONED
+        ):
             raise DocumentationProjectionError("delete projection must be tombstoned")
         if self.lifecycle.is_archived and self.current:
             raise DocumentationProjectionError(
                 "superseded, archived, and tombstoned documentation cannot be current"
             )
         if self.lifecycle == DocumentationLifecycle.DEPRECATED and not self.deprecated:
-            raise DocumentationProjectionError("deprecated projection must be marked deprecated")
+            raise DocumentationProjectionError(
+                "deprecated projection must be marked deprecated"
+            )
         if self.operation == "delete" and not self.tombstone_verified:
             raise DocumentationProjectionError("tombstones require verified provenance")
         return self
@@ -490,7 +503,10 @@ class GovernedDocumentationProjection(BaseModel):
             nodes.append(
                 {
                     "id": _stable_id(
-                        "doc-revision", self.document_id, self.previous_revision, previous_digest
+                        "doc-revision",
+                        self.document_id,
+                        self.previous_revision,
+                        previous_digest,
                     ),
                     "node_type": "DocumentationRevision",
                     "document_id": self.document_id,
@@ -614,20 +630,22 @@ def _projection_from_source(
     previous_digest: str | None = None,
 ) -> GovernedDocumentationProjection:
     frontmatter = _parse_frontmatter(source.content)
-    lifecycle, superseded_by, supersedes_paths = _lifecycle_from_frontmatter(frontmatter)
+    lifecycle, superseded_by, supersedes_paths = _lifecycle_from_frontmatter(
+        frontmatter
+    )
     recorded_at = source.recorded_at or _now_iso()
     valid_from = source.valid_time or recorded_at
     digest = _digest_content(source.content)
     page_id = document_id or _stable_id(
         "doc-page", source.repository_id, source.source_path
     )
-    revision_id = _stable_id(
-        "doc-revision", page_id, source.source_revision, digest
-    )
+    revision_id = _stable_id("doc-revision", page_id, source.source_revision, digest)
     evidence_id = _stable_id(
         "doc-evidence", revision_id, source.repository_id, source.source_path
     )
-    source_ref = f"repo://{source.repository_id}/{source.source_path}@{source.source_revision}"
+    source_ref = (
+        f"repo://{source.repository_id}/{source.source_path}@{source.source_revision}"
+    )
     return GovernedDocumentationProjection(
         document_id=page_id,
         revision_id=revision_id,
@@ -730,9 +748,18 @@ class GovernedDocumentationProjector:
         self.connector = connector
         self.source_instance = source_instance
 
-    def project(self, source: DocumentationSource | Mapping[str, Any]) -> GovernedDocumentationProjection:
-        record = source if isinstance(source, DocumentationSource) else DocumentationSource.model_validate(source)
-        if record.connector == "governed_documentation" and self.connector != record.connector:
+    def project(
+        self, source: DocumentationSource | Mapping[str, Any]
+    ) -> GovernedDocumentationProjection:
+        record = (
+            source
+            if isinstance(source, DocumentationSource)
+            else DocumentationSource.model_validate(source)
+        )
+        if (
+            record.connector == "governed_documentation"
+            and self.connector != record.connector
+        ):
             record = record.model_copy(update={"connector": self.connector})
         if self.source_instance and not record.source_instance:
             record = record.model_copy(update={"source_instance": self.source_instance})
@@ -757,7 +784,9 @@ class GovernedDocumentationProjector:
         records.sort(key=lambda item: (item.repository_id, item.source_path))
         current_keys = [(item.repository_id, item.source_path) for item in records]
         if len(current_keys) != len(set(current_keys)):
-            raise DocumentationProjectionError("rebuild contains duplicate source paths")
+            raise DocumentationProjectionError(
+                "rebuild contains duplicate source paths"
+            )
         prior = [
             source
             if isinstance(source, DocumentationSource)
@@ -791,8 +820,14 @@ class GovernedDocumentationProjector:
         projections: list[GovernedDocumentationProjection] = []
         for record in records:
             old = prior_by_key.get((record.repository_id, record.source_path))
-            prior_revision = old.source_revision if old and old.source_revision != record.source_revision else None
-            prior_digest = _digest_content(old.content) if prior_revision and old else None
+            prior_revision = (
+                old.source_revision
+                if old and old.source_revision != record.source_revision
+                else None
+            )
+            prior_digest = (
+                _digest_content(old.content) if prior_revision and old else None
+            )
             if record.recorded_at is None or record.valid_time is None:
                 record = record.model_copy(
                     update={
@@ -846,7 +881,9 @@ class GovernedDocumentationProjector:
         for repository_id, path in removed_keys:
             prior_record = prior_by_key.get((repository_id, path))
             previous_revision = prior_record.source_revision if prior_record else ""
-            previous_digest = _digest_content(prior_record.content) if prior_record else ""
+            previous_digest = (
+                _digest_content(prior_record.content) if prior_record else ""
+            )
             tombstone_revision = snapshot_revision or ""
             tombstones.append(
                 self.tombstone(
@@ -874,7 +911,10 @@ class GovernedDocumentationProjector:
         previous_revision: str | None = None,
         previous_digest: str | None = None,
     ) -> GovernedDocumentationProjection:
-        if source.connector == "governed_documentation" and self.connector != source.connector:
+        if (
+            source.connector == "governed_documentation"
+            and self.connector != source.connector
+        ):
             source = source.model_copy(update={"connector": self.connector})
         if self.source_instance and not source.source_instance:
             source = source.model_copy(update={"source_instance": self.source_instance})

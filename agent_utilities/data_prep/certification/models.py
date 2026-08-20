@@ -35,6 +35,8 @@ FailureCode: TypeAlias = Literal[
     "signer_invalid",
 ]
 Digest: TypeAlias = Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")]
+
+
 # A reference is an opaque local identifier, not a URL, path, query, token, or
 # provider configuration.  In particular, ``/``, ``?``, ``#``, ``@`` and ``%``
 # are intentionally absent from the grammar.  The semantic validator also
@@ -138,13 +140,9 @@ class AdapterObservation(ProtocolModel):
     def counts_and_status_are_consistent(self) -> AdapterObservation:
         if self.checks_total != self.checks_passed + self.checks_failed:
             raise ValueError("quality check counts must reconcile")
-        if self.status == "passed" and (
-            self.checks_failed or self.failure_codes
-        ):
+        if self.status == "passed" and (self.checks_failed or self.failure_codes):
             raise ValueError("a passed observation cannot contain failures")
-        if self.status == "failed" and not (
-            self.checks_failed or self.failure_codes
-        ):
+        if self.status == "failed" and not (self.checks_failed or self.failure_codes):
             raise ValueError("a failed observation must identify a bounded failure")
         return self
 
@@ -175,13 +173,9 @@ class SignedResultSummary(ProtocolModel):
     def counts_and_status_are_consistent(self) -> SignedResultSummary:
         if self.checks_total != self.checks_passed + self.checks_failed:
             raise ValueError("signed quality check counts must reconcile")
-        if self.status == "passed" and (
-            self.checks_failed or self.failure_codes
-        ):
+        if self.status == "passed" and (self.checks_failed or self.failure_codes):
             raise ValueError("a signed passed result cannot contain failures")
-        if self.status == "failed" and not (
-            self.checks_failed or self.failure_codes
-        ):
+        if self.status == "failed" and not (self.checks_failed or self.failure_codes):
             raise ValueError("a signed failed result must identify a bounded failure")
         if self.report_artifact_ref is None and (
             self.report_content_digest is not None or self.report_byte_size is not None
@@ -212,13 +206,11 @@ class CertificationResult(ProtocolModel):
             if self.state not in {"failed", "passed"}:
                 raise ValueError("only executed states may carry a signed summary")
             if self.report is not None and (
-                self.report.artifact_ref
-                != self.signed_summary.report_artifact_ref
+                self.report.artifact_ref != self.signed_summary.report_artifact_ref
             ):
                 raise ValueError("report and signed summary references differ")
             if self.report is not None and (
-                self.report.content_digest
-                != self.signed_summary.report_content_digest
+                self.report.content_digest != self.signed_summary.report_content_digest
                 or self.report.byte_size != self.signed_summary.report_byte_size
             ):
                 raise ValueError("report and signed summary digests differ")

@@ -5,6 +5,35 @@ tables and bounded preparation evidence; source checkpoint advancement and
 native ChangeEnvelope admission remain outside this package's authority.
 """
 
+from .connector_activation import (
+    ActivationAdmissionAdapter,
+    ActivationAdmissionReport,
+    ActivationArtifact,
+    ActivationBinding,
+    ActivationFinding,
+    ActivationState,
+    ActivationStateError,
+    activation_binding_digest,
+    begin_activation_rotation,
+    bind_activation,
+    commit_activation_rotation,
+    initial_activation,
+    rollback_activation,
+)
+from .connector_contract import (
+    ConnectorArtifact,
+    ConnectorArtifacts,
+    ConnectorMapper,
+    ConnectorPageLimits,
+    ConnectorPreparation,
+    ConnectorPreparationDiagnostic,
+    ConnectorPreparationError,
+    ConnectorPrepContract,
+    PageCertification,
+    PageNotCertifiedError,
+    PreparedConnectorPage,
+    build_native_change_envelope,
+)
 from .kernel import (
     ArrowAdapter,
     CleanPipeline,
@@ -22,35 +51,6 @@ from .kernel import (
     profile_table,
     row_model_digest,
     schema_digest,
-)
-from .connector_contract import (
-    ConnectorArtifact,
-    ConnectorArtifacts,
-    ConnectorMapper,
-    ConnectorPageLimits,
-    ConnectorPreparation,
-    ConnectorPreparationDiagnostic,
-    ConnectorPreparationError,
-    ConnectorPrepContract,
-    PageCertification,
-    PageNotCertifiedError,
-    PreparedConnectorPage,
-    build_native_change_envelope,
-)
-from .connector_activation import (
-    ActivationAdmissionAdapter,
-    ActivationAdmissionReport,
-    ActivationArtifact,
-    ActivationBinding,
-    ActivationFinding,
-    ActivationState,
-    ActivationStateError,
-    activation_binding_digest,
-    begin_activation_rotation,
-    bind_activation,
-    commit_activation_rotation,
-    initial_activation,
-    rollback_activation,
 )
 from .models import (
     STEP_VERBS,

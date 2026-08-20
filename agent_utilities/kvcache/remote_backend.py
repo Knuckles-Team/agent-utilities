@@ -53,8 +53,8 @@ connector stays usable — and unit-testable — with lmcache absent.
 
 from __future__ import annotations
 
-import json
 import hashlib
+import json
 import logging
 from collections.abc import Mapping
 from types import TracebackType
@@ -266,7 +266,9 @@ class EpistemicGraphKVBackend:
         # An injected client owns its own auth lifecycle; merely placing a token
         # in config must not make an unauthenticated injected transport eligible.
         configured_auth = self.config.token if self._owns_client else None
-        return bool(authorization or getattr(self._client, "auth", None) or configured_auth)
+        return bool(
+            authorization or getattr(self._client, "auth", None) or configured_auth
+        )
 
     def _scope_key(self, key: str) -> str:
         """Make identical logical keys distinct across authenticated tenants."""
@@ -275,7 +277,7 @@ class EpistemicGraphKVBackend:
         if not self.config.require_tenant_scope:
             return rendered
         return hashlib.sha256(
-            f"{self.config.tenant_ref}\x00{rendered}".encode("utf-8")
+            f"{self.config.tenant_ref}\x00{rendered}".encode()
         ).hexdigest()
 
     def _path(self, key: str) -> str:

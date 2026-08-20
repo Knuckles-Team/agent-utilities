@@ -1,2 +1,1 @@
 """Control-plane domain fixtures."""
-

@@ -88,13 +88,19 @@ def _apply_process_limits(limits: dict[str, int | float] | None) -> None:
     cpu_seconds = max(1, int(math.ceil(float(limits["deadline_s"]))))
     pids = int(limits["max_pids"])
     if float(limits["cpu_cores"]) != 1.0:
-        raise RuntimeError("forkserver cannot enforce a fractional or multi-core CPU share")
+        raise RuntimeError(
+            "forkserver cannot enforce a fractional or multi-core CPU share"
+        )
     if hasattr(resource, "RLIMIT_NPROC") and os.geteuid() == 0:
         raise RuntimeError("forkserver PID limits are not enforceable for the root UID")
 
     def _set(kind: int, value: int) -> None:
         current_soft, current_hard = resource.getrlimit(kind)
-        hard = value if current_hard == resource.RLIM_INFINITY else min(value, current_hard)
+        hard = (
+            value
+            if current_hard == resource.RLIM_INFINITY
+            else min(value, current_hard)
+        )
         soft = min(value, hard)
         resource.setrlimit(kind, (soft, hard))
 
@@ -108,7 +114,9 @@ def _apply_process_limits(limits: dict[str, int | float] | None) -> None:
         _set(resource.RLIMIT_NPROC, pids)
 
 
-def _run_child_with_limits(data_dir: str, socket_path: str, limits: dict[str, int | float] | None) -> None:
+def _run_child_with_limits(
+    data_dir: str, socket_path: str, limits: dict[str, int | float] | None
+) -> None:
     """Set kernel limits, then enter the existing bridge child runner."""
     _apply_process_limits(limits)
     _bridge.run_child(data_dir, socket_path)

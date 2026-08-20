@@ -147,8 +147,7 @@ class _FrozenModel(BaseModel):
             keys = {
                 str(key).casefold().replace("-", "_")
                 for key in value
-                if str(key).casefold().replace("-", "_")
-                in _FORBIDDEN_INLINE_KEYS
+                if str(key).casefold().replace("-", "_") in _FORBIDDEN_INLINE_KEYS
             }
             if keys:
                 raise ValueError("migration_inline_payload_forbidden")
@@ -189,7 +188,7 @@ class SourceSnapshot(_VersionedModel):
     snapshot_digest: Digest
 
     @model_validator(mode="after")
-    def _files_are_unique_and_bound(self) -> "SourceSnapshot":
+    def _files_are_unique_and_bound(self) -> SourceSnapshot:
         refs = [item.source_file_ref for item in self.files]
         if len(refs) != len(set(refs)):
             raise ValueError("source_file_duplicate")
@@ -218,7 +217,7 @@ class SourceSnapshot(_VersionedModel):
         revision: str,
         files: tuple[SourceFileSnapshot, ...],
         version: int = 1,
-    ) -> "SourceSnapshot":
+    ) -> SourceSnapshot:
         snapshot_digest = canonical_digest(
             {
                 "source_ref": source_ref,
@@ -261,7 +260,7 @@ class MigrationPlan(_VersionedModel):
     retirement_ref: OpaqueRef | None = None
 
     @model_validator(mode="after")
-    def _stage_state_is_consistent(self) -> "MigrationPlan":
+    def _stage_state_is_consistent(self) -> MigrationPlan:
         expected = {
             "planned": "stage_0_inventory_freeze",
             "inventory_frozen": "stage_0_inventory_freeze",
@@ -288,7 +287,7 @@ class MigrationPlan(_VersionedModel):
         source_snapshot_ref: str,
         source_snapshot_digest: str,
         target_authority_ref: str,
-    ) -> "MigrationPlan":
+    ) -> MigrationPlan:
         return cls(
             migration_ref=migration_ref,
             plan_ref=plan_ref,
@@ -336,7 +335,7 @@ class MigrationInventory(_VersionedModel):
     inventory_digest: Digest
 
     @model_validator(mode="after")
-    def _inventory_is_deterministic(self) -> "MigrationInventory":
+    def _inventory_is_deterministic(self) -> MigrationInventory:
         refs = [item.canonical_ref for item in self.items]
         if len(refs) != len(set(refs)):
             raise ValueError("inventory_identity_duplicate")
@@ -355,7 +354,7 @@ class MigrationInventory(_VersionedModel):
         source_snapshot_digest: str,
         items: tuple[InventoryItem, ...],
         version: int = 1,
-    ) -> "MigrationInventory":
+    ) -> MigrationInventory:
         inventory_digest = canonical_digest(items)
         return cls(
             inventory_ref=inventory_ref,
@@ -395,7 +394,7 @@ class BackfillObservation(_VersionedModel):
     observed_at: Timestamp
 
     @model_validator(mode="after")
-    def _approval_is_explicit(self) -> "BackfillObservation":
+    def _approval_is_explicit(self) -> BackfillObservation:
         if self.approval_state == "approved":
             if self.disposition != "accepted":
                 raise ValueError("nonaccepted_backfill_cannot_approve")
@@ -420,7 +419,7 @@ class BackfillBatch(_VersionedModel):
     batch_digest: Digest
 
     @model_validator(mode="after")
-    def _observations_are_bound(self) -> "BackfillBatch":
+    def _observations_are_bound(self) -> BackfillBatch:
         if any(
             item.migration_ref != self.migration_ref
             or item.source_snapshot_digest != self.source_snapshot_digest
@@ -444,7 +443,7 @@ class BackfillBatch(_VersionedModel):
         source_snapshot_digest: str,
         observations: tuple[BackfillObservation, ...],
         version: int = 1,
-    ) -> "BackfillBatch":
+    ) -> BackfillBatch:
         batch_digest = canonical_digest(observations)
         return cls(
             batch_ref=batch_ref,
@@ -485,7 +484,7 @@ class ShadowDelta(_VersionedModel):
     evidence_digest: Digest
 
     @model_validator(mode="after")
-    def _delta_has_expected_digests(self) -> "ShadowDelta":
+    def _delta_has_expected_digests(self) -> ShadowDelta:
         if self.kind == "add" and self.source_digest is None:
             raise ValueError("shadow_add_source_missing")
         if self.kind == "delete" and self.target_digest is None:
@@ -511,7 +510,7 @@ class ShadowReconciliation(_VersionedModel):
     deterministic: Literal[True] = True
 
     @model_validator(mode="after")
-    def _delta_summary_is_exact(self) -> "ShadowReconciliation":
+    def _delta_summary_is_exact(self) -> ShadowReconciliation:
         if self.delta_count != len(self.deltas):
             raise ValueError("shadow_delta_count_mismatch")
         if self.delta_digest != canonical_digest(self.deltas):
@@ -532,7 +531,7 @@ class GateCheck(_FrozenModel):
     failure_code: OpaqueRef | None = None
 
     @model_validator(mode="after")
-    def _failure_is_consistent(self) -> "GateCheck":
+    def _failure_is_consistent(self) -> GateCheck:
         if self.passed and self.failure_code is not None:
             raise ValueError("passed_gate_check_has_failure")
         if not self.passed and self.failure_code is None:
@@ -551,7 +550,7 @@ class PrerequisiteGate(_VersionedModel):
     decision: Literal["passed", "blocked"]
 
     @model_validator(mode="after")
-    def _decision_is_fail_closed(self) -> "PrerequisiteGate":
+    def _decision_is_fail_closed(self) -> PrerequisiteGate:
         refs = [check.check_ref for check in self.checks]
         if len(refs) != len(set(refs)):
             raise ValueError("gate_check_duplicate")
@@ -592,7 +591,7 @@ class WriteCutoverFence(_VersionedModel):
     state: Literal["active", "rolled_back"] = "active"
 
     @model_validator(mode="after")
-    def _cohorts_are_unique(self) -> "WriteCutoverFence":
+    def _cohorts_are_unique(self) -> WriteCutoverFence:
         if len(self.cohort_refs) != len(set(self.cohort_refs)):
             raise ValueError("write_fence_cohort_duplicate")
         return self
@@ -628,7 +627,7 @@ class LegacyRetirement(_VersionedModel):
     state: Literal["ready", "retired", "rolled_back"]
 
     @model_validator(mode="after")
-    def _retirement_is_proven(self) -> "LegacyRetirement":
+    def _retirement_is_proven(self) -> LegacyRetirement:
         if self.state == "retired" and (
             self.remaining_consumers != 0 or self.remaining_facades != 0
         ):
@@ -651,7 +650,7 @@ class MigrationRollback(_VersionedModel):
     decision: Literal["requested", "applied", "failed"]
 
     @model_validator(mode="after")
-    def _rollback_direction_is_explicit(self) -> "MigrationRollback":
+    def _rollback_direction_is_explicit(self) -> MigrationRollback:
         if self.from_stage == self.to_stage:
             raise ValueError("rollback_stage_unchanged")
         return self

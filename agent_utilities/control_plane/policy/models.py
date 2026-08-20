@@ -122,7 +122,7 @@ def canonical_digest(value: object) -> str:
     return f"sha256:{hashlib.sha256(payload).hexdigest()}"
 
 
-def _within(requested: "ExecutionBudget", ceiling: "ExecutionBudget") -> bool:
+def _within(requested: ExecutionBudget, ceiling: ExecutionBudget) -> bool:
     return all(
         getattr(requested, name) <= getattr(ceiling, name)
         for name in (
@@ -183,7 +183,7 @@ class ApprovalRequirement(_FrozenModel):
     approver_scope: OpaqueRef = "scope:operator"
 
     @model_validator(mode="after")
-    def _required_has_approvers(self) -> "ApprovalRequirement":
+    def _required_has_approvers(self) -> ApprovalRequirement:
         if self.required and self.min_approvers < 1:
             raise ValueError("approval_approver_count_missing")
         if not self.required and self.min_approvers != 0:
@@ -219,7 +219,7 @@ class PolicyVersion(_FrozenModel):
         return _safe_summary(value)
 
     @model_validator(mode="after")
-    def _validate_policy(self) -> "PolicyVersion":
+    def _validate_policy(self) -> PolicyVersion:
         rule_names = [rule.operation for rule in self.rules]
         if len(rule_names) != len(set(rule_names)):
             raise ValueError("policy_operation_ambiguous")
@@ -228,13 +228,16 @@ class PolicyVersion(_FrozenModel):
                 raise ValueError("policy_rule_budget_escalation")
 
         binding_keys = [
-            (binding.kind, binding.binding_id, binding.version) for binding in self.bindings
+            (binding.kind, binding.binding_id, binding.version)
+            for binding in self.bindings
         ]
         if len(binding_keys) != len(set(binding_keys)):
             raise ValueError("policy_binding_ambiguous")
         privilege_level = {"read": 0, "write": 1, "admin": 2}
         ceiling = privilege_level[self.max_privilege]
-        if any(privilege_level[binding.privilege] > ceiling for binding in self.bindings):
+        if any(
+            privilege_level[binding.privilege] > ceiling for binding in self.bindings
+        ):
             raise ValueError("policy_privilege_escalation")
         return self
 
@@ -275,7 +278,7 @@ class ApprovalDecision(_FrozenModel):
     signature: Signature
 
     @model_validator(mode="after")
-    def _validate_decision(self) -> "ApprovalDecision":
+    def _validate_decision(self) -> ApprovalDecision:
         if self.expires_at <= self.issued_at:
             raise ValueError("approval_expiry_invalid")
         if len(self.approver_refs) != len(set(self.approver_refs)):
@@ -291,7 +294,7 @@ class ApprovalDecision(_FrozenModel):
         )
 
     @property
-    def ref(self) -> "ApprovalRef":
+    def ref(self) -> ApprovalRef:
         return ApprovalRef(
             approval_id=self.approval_id,
             decision_digest=self.decision_digest,
@@ -314,7 +317,7 @@ class PolicyException(_FrozenModel):
     signature: Signature
 
     @model_validator(mode="after")
-    def _validate_expiry(self) -> "PolicyException":
+    def _validate_expiry(self) -> PolicyException:
         if self.expires_at <= self.issued_at:
             raise ValueError("exception_expiry_invalid")
         return self
@@ -326,7 +329,7 @@ class PolicyException(_FrozenModel):
         )
 
     @property
-    def ref(self) -> "ExceptionRef":
+    def ref(self) -> ExceptionRef:
         return ExceptionRef(
             exception_id=self.exception_id,
             exception_digest=self.exception_digest,

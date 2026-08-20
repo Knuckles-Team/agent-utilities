@@ -42,7 +42,9 @@ _INCOMPLETE_OUTCOMES = {"failed", "partial", "timeout"}
 
 def _scope_authority(scope: SourceScope, authority: SourceAuthority) -> None:
     if authority.tenant_id != scope.tenant_id:
-        raise RepositoryContractError("repository returned a cross-tenant source authority")
+        raise RepositoryContractError(
+            "repository returned a cross-tenant source authority"
+        )
 
 
 def _scope_entry(scope: SourceScope, entry: SourceCatalogEntry) -> None:
@@ -52,7 +54,9 @@ def _scope_entry(scope: SourceScope, entry: SourceCatalogEntry) -> None:
 
 def _scope_manifest(scope: SourceScope, manifest: SourceManifest) -> None:
     if manifest.tenant_id != scope.tenant_id:
-        raise RepositoryContractError("repository returned a cross-tenant source manifest")
+        raise RepositoryContractError(
+            "repository returned a cross-tenant source manifest"
+        )
 
 
 class SourceControlPlane:
@@ -77,7 +81,9 @@ class SourceControlPlane:
             raise SourceReconciliationError("source_manifest_unavailable")
         _scope_manifest(scope, manifest)
         if manifest.manifest_id != manifest_id:
-            raise RepositoryContractError("repository returned a mismatched source manifest")
+            raise RepositoryContractError(
+                "repository returned a mismatched source manifest"
+            )
         authority = self._repository.get_authority(
             scope, authority_id, manifest.authority_digest
         )
@@ -85,9 +91,13 @@ class SourceControlPlane:
             raise SourceReconciliationError("source_authority_unavailable")
         _scope_authority(scope, authority)
         if authority.authority_id != authority_id:
-            raise RepositoryContractError("repository returned a mismatched source authority")
+            raise RepositoryContractError(
+                "repository returned a mismatched source authority"
+            )
         if manifest.authority_id != authority.authority_id:
-            raise RepositoryContractError("repository returned a cross-authority manifest")
+            raise RepositoryContractError(
+                "repository returned a cross-authority manifest"
+            )
         if manifest.authority_digest != authority.authority_digest:
             raise SourceReconciliationError("source_authority_digest_drift")
         return manifest
@@ -129,7 +139,9 @@ class SourceControlPlane:
                 raise SourceReconciliationError("tombstone_source_entry_unavailable")
             _scope_entry(scope, previous)
             if previous.authority_id != manifest.authority_id:
-                raise RepositoryContractError("repository returned a cross-authority entry")
+                raise RepositoryContractError(
+                    "repository returned a cross-authority entry"
+                )
             if previous.entry_digest != outcome.expected_entry_digest:
                 raise SourceReconciliationError("tombstone_digest_drift")
             if previous.relative_path != outcome.relative_path:
@@ -223,13 +235,19 @@ class SourceControlPlane:
         )
         self._validate_manifest_for_checkpoint(manifest)
         selected_entry_ids = request.selected_entry_ids or manifest.entry_ids
-        if set(outcome.entry_id for outcome in request.outcomes) != set(selected_entry_ids):
-            raise SourceReconciliationError("reconciliation_selection_not_fully_evidenced")
+        if set(outcome.entry_id for outcome in request.outcomes) != set(
+            selected_entry_ids
+        ):
+            raise SourceReconciliationError(
+                "reconciliation_selection_not_fully_evidenced"
+            )
         if tuple(sorted(selected_entry_ids)) != selected_entry_ids:
             raise SourceReconciliationError("reconciliation_selection_not_sorted")
         for outcome in request.outcomes:
             self._validate_outcome(request.scope, manifest, outcome)
-        reconciliation = self._build_reconciliation(request, manifest, selected_entry_ids)
+        reconciliation = self._build_reconciliation(
+            request, manifest, selected_entry_ids
+        )
         existing = self._repository.get_reconciliation(
             request.scope, reconciliation.reconciliation_id
         )
@@ -241,7 +259,9 @@ class SourceControlPlane:
                 or existing.manifest_id != reconciliation.manifest_id
                 or existing.manifest_digest != reconciliation.manifest_digest
             ):
-                raise RepositoryContractError("repository returned digest-drifted reconciliation")
+                raise RepositoryContractError(
+                    "repository returned digest-drifted reconciliation"
+                )
             reconciliation = existing
         else:
             self._repository.put_reconciliation(reconciliation)
@@ -257,10 +277,15 @@ class SourceControlPlane:
             current.authority_id != manifest.authority_id
             or current.tenant_id != request.scope.tenant_id
         ):
-            raise RepositoryContractError("repository returned a cross-scope source checkpoint")
+            raise RepositoryContractError(
+                "repository returned a cross-scope source checkpoint"
+            )
         current_revision = current.revision if current is not None else 0
         current_id = current.checkpoint_id if current is not None else None
-        if current is not None and current.reconciliation_id == reconciliation.reconciliation_id:
+        if (
+            current is not None
+            and current.reconciliation_id == reconciliation.reconciliation_id
+        ):
             checkpoint = current
             return SourceReconcileResult(
                 result_version="source-reconcile-result.v1",
@@ -268,13 +293,18 @@ class SourceControlPlane:
                 checkpoint=checkpoint,
                 result_digest=_result_digest(reconciliation, checkpoint),
             )
-        if current is not None and manifest.manifest_revision < current.manifest_revision:
+        if (
+            current is not None
+            and manifest.manifest_revision < current.manifest_revision
+        ):
             raise SourceReconciliationError("checkpoint_manifest_revision_conflict")
         if request.expected_checkpoint_revision != current_revision:
             raise SourceReconciliationError("checkpoint_revision_conflict")
         if request.expected_checkpoint_id != current_id:
             raise SourceReconciliationError("checkpoint_identity_conflict")
-        checkpoint = self._checkpoint_for(manifest, reconciliation, current_revision + 1)
+        checkpoint = self._checkpoint_for(
+            manifest, reconciliation, current_revision + 1
+        )
         mutation = CheckpointMutation(
             mutation_version="source-checkpoint-mutation.v1",
             authority_id=manifest.authority_id,
@@ -291,7 +321,9 @@ class SourceControlPlane:
             request.scope, mutation, checkpoint
         )
         if applied != checkpoint:
-            raise RepositoryContractError("repository returned a different source checkpoint")
+            raise RepositoryContractError(
+                "repository returned a different source checkpoint"
+            )
         return SourceReconcileResult(
             result_version="source-reconcile-result.v1",
             reconciliation=reconciliation,
@@ -310,7 +342,9 @@ class SourceControlPlane:
             checkpoint.authority_id != manifest.authority_id
             or checkpoint.tenant_id != scope.tenant_id
         ):
-            raise RepositoryContractError("repository returned a cross-scope source checkpoint")
+            raise RepositoryContractError(
+                "repository returned a cross-scope source checkpoint"
+            )
         if checkpoint is not None and checkpoint.manifest_id != manifest.manifest_id:
             checkpoint = None
         reconciliation_id = checkpoint.reconciliation_id if checkpoint else None
@@ -337,7 +371,9 @@ class SourceControlPlane:
         if reconciliation is None:
             raise SourceReconciliationError("source_reconciliation_unavailable")
         if reconciliation.tenant_id != scope.tenant_id:
-            raise RepositoryContractError("repository returned a cross-tenant reconciliation")
+            raise RepositoryContractError(
+                "repository returned a cross-tenant reconciliation"
+            )
         return tuple(
             SourceEntryProjection(
                 projection_version="source-entry-projection.v1",

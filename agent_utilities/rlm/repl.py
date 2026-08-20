@@ -127,7 +127,9 @@ class RLMEnvironment:
         self.max_turns = self.config.max_turns
         self.admission = admission
         self.work_item_id = str(work_item_id or "")
-        self._usage_state = _usage_state if _usage_state is not None else {"tokens": 0, "nodes": 1}
+        self._usage_state = (
+            _usage_state if _usage_state is not None else {"tokens": 0, "nodes": 1}
+        )
         if self.admission is not None:
             self.admission.require_capabilities(("rlm.execute",))
             if self.depth > self.admission.max_depth:
@@ -194,7 +196,10 @@ class RLMEnvironment:
     def _register_node(self) -> None:
         self._check_admission()
         self._usage_state["nodes"] += 1
-        if self.admission is not None and self._usage_state["nodes"] > self.admission.max_nodes:
+        if (
+            self.admission is not None
+            and self._usage_state["nodes"] > self.admission.max_nodes
+        ):
             self._usage_state["nodes"] -= 1
             raise TopologyAdmissionError(
                 f"RLM node count exceeds admission ({self._usage_state['nodes'] + 1} > {self.admission.max_nodes})"
@@ -204,7 +209,10 @@ class RLMEnvironment:
         if tokens <= 0:
             return
         self._usage_state["tokens"] += int(tokens)
-        if self.admission is not None and self._usage_state["tokens"] > self.admission.max_tokens:
+        if (
+            self.admission is not None
+            and self._usage_state["tokens"] > self.admission.max_tokens
+        ):
             raise TopologyAdmissionError(
                 f"RLM token budget exceeded ({self._usage_state['tokens']} > {self.admission.max_tokens})"
             )
@@ -216,7 +224,9 @@ class RLMEnvironment:
             try:
                 history_size = len(repr(kwargs["message_history"]).encode("utf-8"))
             except Exception as exc:  # noqa: BLE001 - an unbounded history fails closed
-                raise TopologyAdmissionError("RLM message history is not measurable") from exc
+                raise TopologyAdmissionError(
+                    "RLM message history is not measurable"
+                ) from exc
             if history_size > self.admission.max_payload_bytes:
                 raise TopologyAdmissionError(
                     "RLM message history exceeds admission payload limit"
@@ -225,9 +235,13 @@ class RLMEnvironment:
             return await agent.run(prompt, **kwargs)
         remaining = self.admission.remaining_seconds()
         try:
-            return await asyncio.wait_for(agent.run(prompt, **kwargs), timeout=remaining)
+            return await asyncio.wait_for(
+                agent.run(prompt, **kwargs), timeout=remaining
+            )
         except TimeoutError as exc:
-            raise TopologyAdmissionError("RLM model call exceeded its admission deadline") from exc
+            raise TopologyAdmissionError(
+                "RLM model call exceeded its admission deadline"
+            ) from exc
 
     def _record_direct_model_usage(self, result: Any) -> None:
         """Account model calls that do not run through ``run_full_rlm``."""
@@ -384,7 +398,9 @@ class RLMEnvironment:
         self, prompt: str, agent_id: str | None = None, input_data: Any = None
     ) -> str:
         """Recursive dispatch to other adaptive_agent_router via the graph dispatcher."""
-        self._check_admission(payload={"prompt": prompt, "input": input_data}, label="sub-agent payload")
+        self._check_admission(
+            payload={"prompt": prompt, "input": input_data}, label="sub-agent payload"
+        )
         if not self.graph_deps:
             return "Error: graph_deps not available"
 
@@ -419,7 +435,10 @@ class RLMEnvironment:
         lets the parent route on a clean structured value instead of re-parsing
         prose (CONCEPT:AU-ORCH.session.structured-subagent-contracts, structured subagent contracts).
         """
-        self._check_admission(payload={"prompt": prompt, "context": sub_context}, label="RLM child payload")
+        self._check_admission(
+            payload={"prompt": prompt, "context": sub_context},
+            label="RLM child payload",
+        )
         if self.depth >= self.max_depth:
             raise RecursionLimitError(
                 f"RLM recursion depth exceeded (max {self.max_depth})"

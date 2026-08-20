@@ -31,7 +31,6 @@ from pydantic import (
 
 from agent_utilities.protocols.epistemic_operations import ProtocolModel
 
-
 SCHEMA_VERSION: Literal["1"] = "1"
 MAX_REF_LENGTH = 256
 MAX_SIGNALS = 16
@@ -185,14 +184,18 @@ class ScalePolicy(ProtocolModel):
     target_signal: SignalKind
     scale_up_step: Annotated[StrictInt, Field(gt=0, le=MAX_REPLICAS)] = 1
     scale_down_step: Annotated[StrictInt, Field(gt=0, le=MAX_REPLICAS)] = 1
-    scale_up_cooldown_s: Annotated[StrictInt, Field(ge=0, le=MAX_STALENESS_SECONDS)] = 30
-    scale_down_cooldown_s: Annotated[StrictInt, Field(ge=0, le=MAX_STALENESS_SECONDS)] = 300
+    scale_up_cooldown_s: Annotated[StrictInt, Field(ge=0, le=MAX_STALENESS_SECONDS)] = (
+        30
+    )
+    scale_down_cooldown_s: Annotated[
+        StrictInt, Field(ge=0, le=MAX_STALENESS_SECONDS)
+    ] = 300
     drain_seconds: Annotated[StrictInt, Field(ge=0, le=MAX_STALENESS_SECONDS)] = 60
     allow_scale_to_zero: StrictBool = False
     allow_scale_from_zero: StrictBool = True
 
     @model_validator(mode="after")
-    def validate_bounds(self) -> "ScalePolicy":
+    def validate_bounds(self) -> ScalePolicy:
         if self.min_replicas > self.max_replicas:
             raise ScaleContractError("min_replicas cannot exceed max_replicas")
         if self.allow_scale_to_zero and self.min_replicas != 0:
@@ -226,7 +229,7 @@ class QuotaBinding(ProtocolModel):
         return _ref(value, name="quota_ref")
 
     @model_validator(mode="after")
-    def validate_global_quota(self) -> "QuotaBinding":
+    def validate_global_quota(self) -> QuotaBinding:
         if self.scope == "provider_global" and self.multiplicative:
             raise ScaleContractError(
                 "provider-global quota cannot be multiplied per replica"
@@ -248,15 +251,13 @@ class PartitionLeaseContract(ProtocolModel):
     fencing_required: StrictBool = False
 
     @model_validator(mode="after")
-    def validate_contract(self) -> "PartitionLeaseContract":
+    def validate_contract(self) -> PartitionLeaseContract:
         if self.partitioned and self.partitions_per_replica < 1:
-            raise ScaleContractError("partitioned surfaces require partitions_per_replica")
-        if self.lease_required and (
-            self.lease_ttl_s < 1 or not self.fencing_required
-        ):
             raise ScaleContractError(
-                "leased surfaces require a TTL and fencing"
+                "partitioned surfaces require partitions_per_replica"
             )
+        if self.lease_required and (self.lease_ttl_s < 1 or not self.fencing_required):
+            raise ScaleContractError("leased surfaces require a TTL and fencing")
         if self.fencing_required and not self.lease_required:
             raise ScaleContractError("fencing cannot be declared without leases")
         return self
@@ -277,9 +278,11 @@ class ContinuityContract(ProtocolModel):
         return _ref(value, name="external_store_ref") if value is not None else None
 
     @model_validator(mode="after")
-    def validate_mode(self) -> "ContinuityContract":
+    def validate_mode(self) -> ContinuityContract:
         if self.mode == "externalized" and self.external_store_ref is None:
-            raise ScaleContractError("externalized continuity requires a store reference")
+            raise ScaleContractError(
+                "externalized continuity requires a store reference"
+            )
         if self.mode != "externalized" and self.external_store_ref is not None:
             raise ScaleContractError(
                 "only externalized continuity may declare a store reference"
@@ -323,7 +326,7 @@ class SignalObservation(ProtocolModel):
         return _digest(value, name="signal_source_digest")
 
     @model_validator(mode="after")
-    def validate_window(self) -> "SignalObservation":
+    def validate_window(self) -> SignalObservation:
         if self.expires_at <= self.observed_at:
             raise ValueError("signal expires_at must follow observed_at")
         return self
@@ -357,7 +360,7 @@ class CapacityObservation(ProtocolModel):
         return _digest(value, name="capacity_source_digest")
 
     @model_validator(mode="after")
-    def validate_capacity(self) -> "CapacityObservation":
+    def validate_capacity(self) -> CapacityObservation:
         if not self.used <= self.reserved <= self.allocatable:
             raise ScaleContractError(
                 "capacity must satisfy used <= reserved <= allocatable"
@@ -399,7 +402,7 @@ class QuotaObservation(ProtocolModel):
         return _utc(value, name=str(getattr(info, "field_name", "quota_time")))
 
     @model_validator(mode="after")
-    def validate_quota(self) -> "QuotaObservation":
+    def validate_quota(self) -> QuotaObservation:
         if self.used > self.limit:
             raise ScaleContractError("quota usage cannot exceed its limit")
         if self.expires_at <= self.observed_at:
@@ -434,7 +437,7 @@ class ContinuityObservation(ProtocolModel):
         return _utc(value, name=str(getattr(info, "field_name", "continuity_time")))
 
     @model_validator(mode="after")
-    def validate_window(self) -> "ContinuityObservation":
+    def validate_window(self) -> ContinuityObservation:
         if self.expires_at <= self.observed_at:
             raise ValueError("continuity expires_at must follow observed_at")
         return self
@@ -454,7 +457,11 @@ class LoadSafetyObservation(ProtocolModel):
     @field_validator("reason_ref", "source_ref")
     @classmethod
     def validate_refs(cls, value: str | None, info: object) -> str | None:
-        return _ref(value, name=str(getattr(info, "field_name", "safety_ref"))) if value is not None else None
+        return (
+            _ref(value, name=str(getattr(info, "field_name", "safety_ref")))
+            if value is not None
+            else None
+        )
 
     @field_validator("source_digest")
     @classmethod
@@ -467,7 +474,7 @@ class LoadSafetyObservation(ProtocolModel):
         return _utc(value, name=str(getattr(info, "field_name", "safety_time")))
 
     @model_validator(mode="after")
-    def validate_window(self) -> "LoadSafetyObservation":
+    def validate_window(self) -> LoadSafetyObservation:
         if self.expires_at <= self.observed_at:
             raise ValueError("safety expires_at must follow observed_at")
         if (self.overloaded or self.noisy_neighbor) and self.reason_ref is None:
@@ -490,64 +497,118 @@ class SurfaceProfile(ProtocolModel):
     continuity_modes: Annotated[tuple[ContinuityMode, ...], Field(max_length=3)]
     partition_lease_required: StrictBool = False
     provider_quota_required: StrictBool = False
-    provider_quota_axes: Annotated[
-        tuple[CapacityAxis, ...], Field(max_length=4)
-    ] = ()
+    provider_quota_axes: Annotated[tuple[CapacityAxis, ...], Field(max_length=4)] = ()
 
 
 _SURFACE_PROFILES: dict[SurfaceKind, SurfaceProfile] = {
     "ingest_worker": SurfaceProfile(
-        allowed_signals=("queue_depth", "consumer_lag", "backlog_age_ms", "p95_latency_ms"),
+        allowed_signals=(
+            "queue_depth",
+            "consumer_lag",
+            "backlog_age_ms",
+            "p95_latency_ms",
+        ),
         required_capacity_axes=(
-            "cpu_milli", "memory_mib", "partition_slots", "lease_slots",
-            "engine_write_bytes_per_s", "fsync_iops",
+            "cpu_milli",
+            "memory_mib",
+            "partition_slots",
+            "lease_slots",
+            "engine_write_bytes_per_s",
+            "fsync_iops",
         ),
         engine_authority_axes=("engine_write_bytes_per_s", "fsync_iops"),
         continuity_modes=("stateless", "externalized"),
         partition_lease_required=True,
     ),
     "dispatch_worker": SurfaceProfile(
-        allowed_signals=("queue_depth", "consumer_lag", "active_sessions", "p95_latency_ms"),
-        required_capacity_axes=("cpu_milli", "memory_mib", "partition_slots", "lease_slots"),
+        allowed_signals=(
+            "queue_depth",
+            "consumer_lag",
+            "active_sessions",
+            "p95_latency_ms",
+        ),
+        required_capacity_axes=(
+            "cpu_milli",
+            "memory_mib",
+            "partition_slots",
+            "lease_slots",
+        ),
         continuity_modes=("stateless", "externalized"),
         partition_lease_required=True,
     ),
     "graphos_gateway": SurfaceProfile(
-        allowed_signals=("request_rate", "in_flight", "p95_latency_ms", "error_rate_ppm"),
+        allowed_signals=(
+            "request_rate",
+            "in_flight",
+            "p95_latency_ms",
+            "error_rate_ppm",
+        ),
         required_capacity_axes=(
-            "cpu_milli", "memory_mib", "session_slots", "read_admission_slots",
-            "engine_bytes", "fsync_iops",
+            "cpu_milli",
+            "memory_mib",
+            "session_slots",
+            "read_admission_slots",
+            "engine_bytes",
+            "fsync_iops",
         ),
         engine_authority_axes=("read_admission_slots", "engine_bytes", "fsync_iops"),
         continuity_modes=("session_affine", "externalized"),
     ),
     "mcp_gateway": SurfaceProfile(
         allowed_signals=(
-            "request_rate", "in_flight", "p95_latency_ms", "active_sessions",
-            "continuity_load", "provider_in_flight", "error_rate_ppm",
+            "request_rate",
+            "in_flight",
+            "p95_latency_ms",
+            "active_sessions",
+            "continuity_load",
+            "provider_in_flight",
+            "error_rate_ppm",
         ),
-        required_capacity_axes=("cpu_milli", "memory_mib", "session_slots", "continuity_slots"),
+        required_capacity_axes=(
+            "cpu_milli",
+            "memory_mib",
+            "session_slots",
+            "continuity_slots",
+        ),
         continuity_modes=("session_affine", "externalized"),
         provider_quota_required=True,
         provider_quota_axes=("provider_global_quota",),
     ),
     "api_gateway": SurfaceProfile(
-        allowed_signals=("request_rate", "in_flight", "p95_latency_ms", "error_rate_ppm"),
+        allowed_signals=(
+            "request_rate",
+            "in_flight",
+            "p95_latency_ms",
+            "error_rate_ppm",
+        ),
         required_capacity_axes=("cpu_milli", "memory_mib", "session_slots"),
         continuity_modes=("stateless", "externalized"),
     ),
     "query_reader": SurfaceProfile(
-        allowed_signals=("request_rate", "in_flight", "p95_latency_ms", "error_rate_ppm"),
+        allowed_signals=(
+            "request_rate",
+            "in_flight",
+            "p95_latency_ms",
+            "error_rate_ppm",
+        ),
         required_capacity_axes=(
-            "cpu_milli", "memory_mib", "read_admission_slots", "engine_bytes", "fsync_iops",
+            "cpu_milli",
+            "memory_mib",
+            "read_admission_slots",
+            "engine_bytes",
+            "fsync_iops",
         ),
         engine_authority_axes=("read_admission_slots", "engine_bytes", "fsync_iops"),
         continuity_modes=("stateless", "externalized"),
     ),
     "connector_pool": SurfaceProfile(
         allowed_signals=(
-            "queue_depth", "consumer_lag", "request_rate", "provider_in_flight",
-            "p95_latency_ms", "error_rate_ppm",
+            "queue_depth",
+            "consumer_lag",
+            "request_rate",
+            "provider_in_flight",
+            "p95_latency_ms",
+            "error_rate_ppm",
         ),
         required_capacity_axes=("cpu_milli", "memory_mib", "upstream_rate"),
         continuity_modes=("stateless", "externalized"),
@@ -555,15 +616,33 @@ _SURFACE_PROFILES: dict[SurfaceKind, SurfaceProfile] = {
         provider_quota_axes=("upstream_rate", "provider_global_quota"),
     ),
     "media_pool": SurfaceProfile(
-        allowed_signals=("queue_depth", "request_rate", "gpu_utilization_ppm", "p95_latency_ms"),
-        required_capacity_axes=("cpu_milli", "memory_mib", "gpu_count", "gpu_memory_mib"),
+        allowed_signals=(
+            "queue_depth",
+            "request_rate",
+            "gpu_utilization_ppm",
+            "p95_latency_ms",
+        ),
+        required_capacity_axes=(
+            "cpu_milli",
+            "memory_mib",
+            "gpu_count",
+            "gpu_memory_mib",
+        ),
         continuity_modes=("stateless", "externalized"),
     ),
     "rlm_pool": SurfaceProfile(
         allowed_signals=(
-            "queue_depth", "request_rate", "gpu_utilization_ppm", "active_sessions",
+            "queue_depth",
+            "request_rate",
+            "gpu_utilization_ppm",
+            "active_sessions",
         ),
-        required_capacity_axes=("cpu_milli", "memory_mib", "gpu_count", "gpu_memory_mib"),
+        required_capacity_axes=(
+            "cpu_milli",
+            "memory_mib",
+            "gpu_count",
+            "gpu_memory_mib",
+        ),
         continuity_modes=("stateless", "externalized"),
     ),
 }
@@ -581,9 +660,13 @@ class ScaleUnitContract(ProtocolModel):
     required_capacity_axes: Annotated[
         tuple[CapacityAxis, ...], Field(max_length=MAX_CAPACITY_AXES)
     ]
-    replica_demands: Annotated[tuple[CapacityDemand, ...], Field(max_length=MAX_DEMANDS)]
+    replica_demands: Annotated[
+        tuple[CapacityDemand, ...], Field(max_length=MAX_DEMANDS)
+    ]
     quotas: Annotated[tuple[QuotaBinding, ...], Field(max_length=MAX_QUOTAS)] = ()
-    partition_lease: PartitionLeaseContract = Field(default_factory=PartitionLeaseContract)
+    partition_lease: PartitionLeaseContract = Field(
+        default_factory=PartitionLeaseContract
+    )
     continuity: ContinuityContract
     safety_required: StrictBool = True
     engine_authority_axes: Annotated[
@@ -598,7 +681,7 @@ class ScaleUnitContract(ProtocolModel):
         return _ref(value, name="unit_ref")
 
     @model_validator(mode="after")
-    def validate_surface_and_identity(self) -> "ScaleUnitContract":
+    def validate_surface_and_identity(self) -> ScaleUnitContract:
         profile = _SURFACE_PROFILES[self.surface]
         allowed = set(self.allowed_signals)
         required_axes = set(self.required_capacity_axes)
@@ -658,8 +741,7 @@ class ScaleUnitContract(ProtocolModel):
                     f"{self.surface} requires one provider-global quota binding"
                 )
             if not any(
-                quota.axis in profile.provider_quota_axes
-                for quota in provider_bindings
+                quota.axis in profile.provider_quota_axes for quota in provider_bindings
             ):
                 raise ScaleContractError(
                     f"{self.surface} provider quota binding has an unsupported axis"
@@ -672,19 +754,27 @@ class ScaleUnitContract(ProtocolModel):
             "policy": self.policy.model_dump(mode="json"),
             "allowed_signals": sorted(self.allowed_signals),
             "required_capacity_axes": sorted(self.required_capacity_axes),
-            "replica_demands": [item.model_dump(mode="json") for item in self.replica_demands],
+            "replica_demands": [
+                item.model_dump(mode="json") for item in self.replica_demands
+            ],
             "quotas": [item.model_dump(mode="json") for item in self.quotas],
             "partition_lease": self.partition_lease.model_dump(mode="json"),
             "continuity": self.continuity.model_dump(mode="json"),
             "safety_required": self.safety_required,
             "engine_authority_axes": sorted(self.engine_authority_axes),
         }
-        expected_id = "scale-unit:" + hashlib.sha256(_canonical(identity)).hexdigest()[:32]
-        expected_digest = content_digest({"kind": "scale_unit_contract", "identity": identity})
+        expected_id = (
+            "scale-unit:" + hashlib.sha256(_canonical(identity)).hexdigest()[:32]
+        )
+        expected_digest = content_digest(
+            {"kind": "scale_unit_contract", "identity": identity}
+        )
         if self.contract_id and self.contract_id != expected_id:
             raise ScaleContractError("contract_id does not match immutable identity")
         if self.contract_digest and self.contract_digest != expected_digest:
-            raise ScaleContractError("contract_digest does not match immutable identity")
+            raise ScaleContractError(
+                "contract_digest does not match immutable identity"
+            )
         object.__setattr__(self, "contract_id", expected_id)
         object.__setattr__(self, "contract_digest", expected_digest)
         return self
@@ -723,7 +813,9 @@ class ScaleDecision(ProtocolModel):
     action: ActionKind
     reasons: Annotated[tuple[DecisionReason, ...], Field(max_length=MAX_REASONS)]
     drain_required: StrictBool = False
-    evidence: Annotated[tuple[DecisionEvidence, ...], Field(max_length=MAX_EVIDENCE)] = ()
+    evidence: Annotated[
+        tuple[DecisionEvidence, ...], Field(max_length=MAX_EVIDENCE)
+    ] = ()
 
     @field_validator("contract_id")
     @classmethod
@@ -736,10 +828,13 @@ class ScaleDecision(ProtocolModel):
         return _utc(value, name="evaluated_at")
 
     @model_validator(mode="after")
-    def validate_decision(self) -> "ScaleDecision":
+    def validate_decision(self) -> ScaleDecision:
         if self.action == "scale_up" and self.desired_replicas <= self.current_replicas:
             raise ScaleContractError("scale_up must increase replicas")
-        if self.action == "scale_down" and self.desired_replicas >= self.current_replicas:
+        if (
+            self.action == "scale_down"
+            and self.desired_replicas >= self.current_replicas
+        ):
             raise ScaleContractError("scale_down must decrease replicas")
         if self.action == "hold" and self.desired_replicas != self.current_replicas:
             raise ScaleContractError("hold must preserve replica count")
@@ -758,12 +853,18 @@ class ScaleDecision(ProtocolModel):
             "drain_required": self.drain_required,
             "evidence": [item.model_dump(mode="json") for item in self.evidence],
         }
-        expected_id = "scale-decision:" + hashlib.sha256(_canonical(identity)).hexdigest()[:32]
-        expected_digest = content_digest({"kind": "scale_decision", "identity": identity})
+        expected_id = (
+            "scale-decision:" + hashlib.sha256(_canonical(identity)).hexdigest()[:32]
+        )
+        expected_digest = content_digest(
+            {"kind": "scale_decision", "identity": identity}
+        )
         if self.decision_id and self.decision_id != expected_id:
             raise ScaleContractError("decision_id does not match immutable identity")
         if self.decision_digest and self.decision_digest != expected_digest:
-            raise ScaleContractError("decision_digest does not match immutable identity")
+            raise ScaleContractError(
+                "decision_digest does not match immutable identity"
+            )
         object.__setattr__(self, "decision_id", expected_id)
         object.__setattr__(self, "decision_digest", expected_digest)
         return self
@@ -865,20 +966,32 @@ def evaluate_scale(
         reasons.append("signal_mismatch")
         evidence.append(
             _profile_evidence(
-                "signal", signal.source_ref, signal.source_digest, "blocked", "signal_mismatch"
+                "signal",
+                signal.source_ref,
+                signal.source_digest,
+                "blocked",
+                "signal_mismatch",
             )
         )
     elif not _fresh(signal.observed_at, signal.expires_at, current):
         reasons.append("signal_stale")
         evidence.append(
             _profile_evidence(
-                "signal", signal.source_ref, signal.source_digest, "stale", "signal_stale"
+                "signal",
+                signal.source_ref,
+                signal.source_digest,
+                "stale",
+                "signal_stale",
             )
         )
     else:
         evidence.append(
             _profile_evidence(
-                "signal", signal.source_ref, signal.source_digest, "accepted", signal.signal
+                "signal",
+                signal.source_ref,
+                signal.source_digest,
+                "accepted",
+                signal.signal,
             )
         )
 
@@ -941,7 +1054,9 @@ def evaluate_scale(
                 _profile_evidence(
                     "quota",
                     binding.quota_ref,
-                    content_digest({"quota_ref": binding.quota_ref, "state": "missing"}),
+                    content_digest(
+                        {"quota_ref": binding.quota_ref, "state": "missing"}
+                    ),
                     "missing",
                     "provider_quota_missing"
                     if binding.scope == "provider_global"
@@ -978,7 +1093,11 @@ def evaluate_scale(
         else:
             evidence.append(
                 _profile_evidence(
-                    "quota", observation.source_ref, observation.source_digest, "accepted", binding.scope
+                    "quota",
+                    observation.source_ref,
+                    observation.source_digest,
+                    "accepted",
+                    binding.scope,
                 )
             )
             if observation.used >= observation.limit:
@@ -1013,20 +1132,32 @@ def evaluate_scale(
             reasons.append("continuity_stale")
             evidence.append(
                 _profile_evidence(
-                    "continuity", continuity.source_ref, continuity.source_digest, "stale", "continuity_stale"
+                    "continuity",
+                    continuity.source_ref,
+                    continuity.source_digest,
+                    "stale",
+                    "continuity_stale",
                 )
             )
         elif not continuity.ready:
             reasons.append("continuity_not_ready")
             evidence.append(
                 _profile_evidence(
-                    "continuity", continuity.source_ref, continuity.source_digest, "blocked", "continuity_not_ready"
+                    "continuity",
+                    continuity.source_ref,
+                    continuity.source_digest,
+                    "blocked",
+                    "continuity_not_ready",
                 )
             )
         else:
             evidence.append(
                 _profile_evidence(
-                    "continuity", continuity.source_ref, continuity.source_digest, "accepted", contract.continuity.mode
+                    "continuity",
+                    continuity.source_ref,
+                    continuity.source_digest,
+                    "accepted",
+                    contract.continuity.mode,
                 )
             )
     elif continuity is not None and not _fresh(
@@ -1050,13 +1181,21 @@ def evaluate_scale(
             reasons.append("overload_shedding_active")
             evidence.append(
                 _profile_evidence(
-                    "safety", safety.source_ref, safety.source_digest, "stale", "safety_stale"
+                    "safety",
+                    safety.source_ref,
+                    safety.source_digest,
+                    "stale",
+                    "safety_stale",
                 )
             )
         else:
             evidence.append(
                 _profile_evidence(
-                    "safety", safety.source_ref, safety.source_digest, "accepted", "safety"
+                    "safety",
+                    safety.source_ref,
+                    safety.source_digest,
+                    "accepted",
+                    "safety",
                 )
             )
             if safety.overloaded:
@@ -1084,7 +1223,9 @@ def evaluate_scale(
         )
 
     if signal is None:
-        raise ScaleContractError("signal validation unexpectedly completed without a signal")
+        raise ScaleContractError(
+            "signal validation unexpectedly completed without a signal"
+        )
     raw_desired = _target_replicas(contract.policy, signal.value)
     if raw_desired > current_replicas:
         desired = min(current_replicas + contract.policy.scale_up_step, raw_desired)
@@ -1104,7 +1245,11 @@ def evaluate_scale(
             evaluated_at=current,
         )
 
-    if action == "scale_up" and current_replicas == 0 and not contract.policy.allow_scale_from_zero:
+    if (
+        action == "scale_up"
+        and current_replicas == 0
+        and not contract.policy.allow_scale_from_zero
+    ):
         return _decision(
             contract,
             current=current_replicas,
@@ -1181,9 +1326,14 @@ def evaluate_scale(
             if binding.scope == "provider_global":
                 if binding.multiplicative:
                     reasons.append("provider_quota_not_multiplicative")
-                if observation.used + additional * binding.per_replica > observation.limit:
+                if (
+                    observation.used + additional * binding.per_replica
+                    > observation.limit
+                ):
                     reasons.append("provider_quota_exhausted")
-            elif observation.used + additional * binding.per_replica > observation.limit:
+            elif (
+                observation.used + additional * binding.per_replica > observation.limit
+            ):
                 reasons.append("capacity_exhausted")
         for axis in contract.engine_authority_axes:
             if cap_map[axis].available <= 0:
@@ -1202,7 +1352,10 @@ def evaluate_scale(
             )
 
     drain_required = action == "scale_down" and contract.continuity.drain_required
-    if drain_required and contract.policy.drain_seconds > contract.continuity.max_drain_seconds:
+    if (
+        drain_required
+        and contract.policy.drain_seconds > contract.continuity.max_drain_seconds
+    ):
         return _decision(
             contract,
             current=current_replicas,

@@ -136,7 +136,10 @@ class WasmSandbox(Sandbox):
             if max_wasm_pages is not None
             else self.memory_bytes // _WASM_PAGE_BYTES
         )
-        if self.max_wasm_pages < 1 or self.max_wasm_pages * _WASM_PAGE_BYTES > self.memory_bytes:
+        if (
+            self.max_wasm_pages < 1
+            or self.max_wasm_pages * _WASM_PAGE_BYTES > self.memory_bytes
+        ):
             raise ValueError("WASM page limit must fit inside the memory limit")
         self.timeout_secs = timeout_secs
         self._available: bool | None = None
@@ -180,7 +183,9 @@ class WasmSandbox(Sandbox):
             try:
                 cfg.consume_fuel = True
             except Exception:  # noqa: BLE001 - older wasmtime; epoch remains the real deadline
-                logger.debug("wasmtime fuel accounting unavailable; using epoch deadline")
+                logger.debug(
+                    "wasmtime fuel accounting unavailable; using epoch deadline"
+                )
             self._engine = wasmtime.Engine(cfg)
             payload = self._payload()
             if payload is None:  # pragma: no cover - guarded by is_available
@@ -245,7 +250,9 @@ class WasmSandbox(Sandbox):
                 memory_bytes // _WASM_PAGE_BYTES,
             )
             if max_pages < 1:
-                raise SandboxFatalError("WASM admission has no usable linear-memory pages")
+                raise SandboxFatalError(
+                    "WASM admission has no usable linear-memory pages"
+                )
             # Do not retain a metadata-only limit.  A missing or failed
             # Wasmtime limiter is a hard runtime prerequisite, not a warning.
             set_limits = getattr(store, "set_limits", None)
@@ -254,7 +261,9 @@ class WasmSandbox(Sandbox):
             try:
                 set_limits(memory_size=max_pages * _WASM_PAGE_BYTES)
             except Exception as exc:  # noqa: BLE001 - limiter failure is fail-closed
-                raise SandboxFatalError("Wasmtime store limiter could not be applied") from exc
+                raise SandboxFatalError(
+                    "Wasmtime store limiter could not be applied"
+                ) from exc
             timeout_secs = min(
                 self.timeout_secs,
                 float(getattr(limits, "deadline_s", self.timeout_secs)),
@@ -265,7 +274,9 @@ class WasmSandbox(Sandbox):
             try:
                 set_fuel(max(1, int(timeout_secs * 1_000_000)))
             except Exception as exc:  # noqa: BLE001 - advertised CPU guard failed
-                raise SandboxFatalError("Wasmtime CPU fuel limit could not be applied") from exc
+                raise SandboxFatalError(
+                    "Wasmtime CPU fuel limit could not be applied"
+                ) from exc
             store.set_epoch_deadline(1)
 
             # Wall-clock timeout: bump the epoch after the budget to trap a runaway snippet.

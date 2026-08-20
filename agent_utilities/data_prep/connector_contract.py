@@ -24,8 +24,8 @@ from typing import TYPE_CHECKING, Annotated, Any, Literal, Protocol, TypeAlias
 
 from pydantic import Field, model_validator
 
-from agent_utilities.protocols.source_connectors.checkpoint import ConnectorCheckpoint
 from agent_utilities.protocols.epistemic_operations import ProtocolModel
+from agent_utilities.protocols.source_connectors.checkpoint import ConnectorCheckpoint
 
 from .kernel import (
     CleanPipeline,
@@ -247,7 +247,9 @@ class ConnectorPrepContract(ProtocolModel):
             raise ValueError("prep-plan artifact digest does not match the CleanPlan")
         if self.plan.model_digest is not None:
             if self.artifacts.raw_model.digest != self.plan.model_digest:
-                raise ValueError("raw-model artifact digest does not match the CleanPlan")
+                raise ValueError(
+                    "raw-model artifact digest does not match the CleanPlan"
+                )
         expected_disposition = (
             "fail" if self.validation_mode == "strict" else "quarantine"
         )
@@ -475,9 +477,7 @@ class ConnectorPreparation:
             return self._failure_page(
                 checkpoint=checkpoint,
                 fetch_complete=fetch_complete,
-                diagnostic=(
-                    ConnectorPreparationDiagnostic.for_code("prep_failed")
-                ),
+                diagnostic=(ConnectorPreparationDiagnostic.for_code("prep_failed")),
                 cause=exc,
             )
 
@@ -648,9 +648,7 @@ class ConnectorPreparation:
         if len(mapped) > limits.max_rows:
             return ConnectorPreparationDiagnostic.for_code("page_limit_exceeded")
         if len({item.source_object_id for item in mapped}) > limits.max_cardinality:
-            return ConnectorPreparationDiagnostic.for_code(
-                "cardinality_limit_exceeded"
-            )
+            return ConnectorPreparationDiagnostic.for_code("cardinality_limit_exceeded")
         from agent_utilities.knowledge_graph.ingestion.change_envelope import (
             ChangeEnvelope,
         )
@@ -693,9 +691,8 @@ class ConnectorPreparation:
                     field_pointer="/operation",
                 )
             if (
-                (result.evidence.outcome != "complete" or not fetch_complete)
-                and item.operation == "delete"
-            ):
+                result.evidence.outcome != "complete" or not fetch_complete
+            ) and item.operation == "delete":
                 return ConnectorPreparationDiagnostic.for_code(
                     "deletion_blocked_on_partial",
                     field_pointer="/operation",
@@ -899,9 +896,7 @@ def _evidence_summary(evidence: Any) -> dict[str, Any]:
         "algorithm": getattr(evidence, "algorithm", None),
         "algorithm_version": getattr(evidence, "algorithm_version", None),
         "outcome": getattr(evidence, "outcome", None),
-        "checkpoint_eligible": bool(
-            getattr(evidence, "checkpoint_eligible", False)
-        ),
+        "checkpoint_eligible": bool(getattr(evidence, "checkpoint_eligible", False)),
         "plan_digest": getattr(evidence, "plan_digest", None),
         "input_schema_digest": getattr(evidence, "input_schema_digest", None),
         "output_schema_digest": getattr(evidence, "output_schema_digest", None),

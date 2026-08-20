@@ -120,7 +120,9 @@ class CheckpointStore(Protocol):
 class GraphOSProjection(Protocol):
     """GraphOS write projection with event-id idempotency."""
 
-    def apply_event(self, event: OutboxEnvelope, fence_token: int) -> GraphProjectionReceipt:
+    def apply_event(
+        self, event: OutboxEnvelope, fence_token: int
+    ) -> GraphProjectionReceipt:
         """Apply one event, returning a replay receipt for an existing event ID."""
 
     def reset_projection(self, scope: ProjectionScope, fence_token: int) -> None:
@@ -207,7 +209,9 @@ def _commit_validated_change(
     except ProjectionRepositoryUnavailable:
         raise
     except Exception as exc:
-        raise ProjectionRepositoryUnavailable("authority_transaction_unavailable") from exc
+        raise ProjectionRepositoryUnavailable(
+            "authority_transaction_unavailable"
+        ) from exc
     if receipt.mutation_id != mutation.mutation_id:
         raise ProjectionContractError("authority_receipt_mutation_mismatch")
     if (

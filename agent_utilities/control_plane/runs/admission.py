@@ -96,7 +96,9 @@ class InMemoryNativeAdmission:
                         now=self.clock(),
                     )
                 except Exception as exc:  # fail closed at the admission boundary
-                    raise NativeAdmissionError("authorization_stale_or_invalid") from exc
+                    raise NativeAdmissionError(
+                        "authorization_stale_or_invalid"
+                    ) from exc
             if self.audit is not None:
                 try:
                     self.audit.require_valid()

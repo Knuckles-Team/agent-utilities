@@ -150,9 +150,7 @@ _SCALE_INTENT_VISIBLE = frozenset({_SCALE_INTENT_ACCEPTED})
 def normalize_scale_controller_mode(raw: Any) -> str | None:
     """Canonicalize the one allowed replica-controller declaration."""
 
-    value = (
-        SCALE_CONTROLLER_NATIVE if raw is None else str(raw).strip().lower()
-    )
+    value = SCALE_CONTROLLER_NATIVE if raw is None else str(raw).strip().lower()
     return _EXTERNAL_CONTROLLER_ALIASES.get(value)
 
 
@@ -218,11 +216,14 @@ class EngineScaleIntentStore:
         if not callable(query):
             return False, None
         try:
-            rows = query(
-                "MATCH (i:ScaleIntent {service: $service}) "
-                "RETURN i ORDER BY i.revision DESC LIMIT 1",
-                {"service": service},
-            ) or []
+            rows = (
+                query(
+                    "MATCH (i:ScaleIntent {service: $service}) "
+                    "RETURN i ORDER BY i.revision DESC LIMIT 1",
+                    {"service": service},
+                )
+                or []
+            )
             row = rows[0] if rows else None
             value = row.get("i") if isinstance(row, dict) else row
             return True, value if isinstance(value, dict) else None
@@ -266,9 +267,10 @@ def _intent_metadata_valid(intent: dict[str, Any] | None) -> bool:
 
 
 def _intent_is_valid(intent: dict[str, Any] | None) -> bool:
-    return _intent_metadata_valid(intent) and str(
-        intent.get("status") or ""
-    ) in _SCALE_INTENT_VISIBLE
+    return (
+        _intent_metadata_valid(intent)
+        and str(intent.get("status") or "") in _SCALE_INTENT_VISIBLE
+    )
 
 
 def _cas_succeeded(result: Any) -> bool:
@@ -499,7 +501,9 @@ def parse_kubernetes_resource(raw: Any, service: str) -> KubernetesResourceRef |
     kind = kind_aliases.get(values["workload_kind"].lower())
     mode = normalize_scale_controller_mode(values["controller_mode"])
     if kind is None or mode is None:
-        logger.warning("kubernetes resource for %s has unsupported kind/controller", service)
+        logger.warning(
+            "kubernetes resource for %s has unsupported kind/controller", service
+        )
         return None
     if values["name"] != service:
         logger.warning("kubernetes resource for %s names a different workload", service)
@@ -512,7 +516,9 @@ def parse_kubernetes_resource(raw: Any, service: str) -> KubernetesResourceRef |
     elif str(quorum_raw).strip().lower() in {"0", "false", "no", ""}:
         quorum_required = False
     else:
-        logger.warning("kubernetes resource for %s has invalid quorum_required", service)
+        logger.warning(
+            "kubernetes resource for %s has invalid quorum_required", service
+        )
         return None
     return KubernetesResourceRef(
         cluster=values["cluster"],
@@ -547,11 +553,15 @@ def parse_scaling_spec(raw: Any, service: str) -> ScalingSpec | None:
             for key in ("controller_mode", "controller", "mode")
             if key in raw and raw[key] is not None
         ]
-        normalized_modes = [normalize_scale_controller_mode(value) for value in declared_modes]
+        normalized_modes = [
+            normalize_scale_controller_mode(value) for value in declared_modes
+        ]
         if not declared_modes:
             controller_mode = SCALE_CONTROLLER_NATIVE
-        elif normalized_modes and normalized_modes[0] in SCALE_CONTROLLER_MODES and all(
-            value == normalized_modes[0] for value in normalized_modes
+        elif (
+            normalized_modes
+            and normalized_modes[0] in SCALE_CONTROLLER_MODES
+            and all(value == normalized_modes[0] for value in normalized_modes)
         ):
             controller_mode = normalized_modes[0]
         else:
@@ -879,7 +889,10 @@ class FleetReconciler:
             return None, None, False
         if intent is None:
             return None, None, True
-        if not _intent_metadata_valid(intent) or str(intent.get("service")) != want.name:
+        if (
+            not _intent_metadata_valid(intent)
+            or str(intent.get("service")) != want.name
+        ):
             return None, None, True
         status = str(intent.get("status") or "")
         if status in {
@@ -1025,18 +1038,21 @@ class FleetReconciler:
                     )
                 )
                 continue
-            if (
-                want.scaling is not None
-                and want.scaling.controller_mode
-                in {SCALE_CONTROLLER_EXTERNAL_HPA, SCALE_CONTROLLER_EXTERNAL_KEDA}
-            ):
+            if want.scaling is not None and want.scaling.controller_mode in {
+                SCALE_CONTROLLER_EXTERNAL_HPA,
+                SCALE_CONTROLLER_EXTERNAL_KEDA,
+            }:
                 # HPA/KEDA owns replicas. AU may still restart a down service,
                 # but it must never write a competing replica value.
                 continue
             target, intent, complete = self._intent_target(want, obs.replicas)
             if not complete or target is None:
                 continue
-            if obs.status == STATUS_UP and obs.replicas is not None and obs.replicas != target:
+            if (
+                obs.status == STATUS_UP
+                and obs.replicas is not None
+                and obs.replicas != target
+            ):
                 # Record the direction the reconciler is actuating. The
                 # autoscaler's own request carried it, but the reconciler
                 # rebuilds this request from the intent and previously dropped
@@ -1048,7 +1064,10 @@ class FleetReconciler:
                     "from_replicas": obs.replicas,
                     "direction": "up" if target > obs.replicas else "down",
                 }
-                if intent is not None and str(intent.get("status")) == _SCALE_INTENT_ACCEPTED:
+                if (
+                    intent is not None
+                    and str(intent.get("status")) == _SCALE_INTENT_ACCEPTED
+                ):
                     params.update(
                         {
                             "scale_intent_id": intent.get("intent_id"),
@@ -1062,7 +1081,9 @@ class FleetReconciler:
                             target=name,
                             params=params,
                             source=(
-                                "intent-reconciler" if intent is not None else "reconciler"
+                                "intent-reconciler"
+                                if intent is not None
+                                else "reconciler"
                             ),
                             reason=(
                                 f"intent_accepted scale intent revision {intent['revision']} "
@@ -1173,7 +1194,10 @@ class FleetReconciler:
                 outbox_store=self.action_outbox_store,
             )
             entry["execution"] = execution
-            if execution.get("dry_run") or execution.get("state") == _SCALE_INTENT_SIMULATED:
+            if (
+                execution.get("dry_run")
+                or execution.get("state") == _SCALE_INTENT_SIMULATED
+            ):
                 next_status = _SCALE_INTENT_SIMULATED
             elif execution.get("state") == _SCALE_INTENT_RECOVERY_PENDING:
                 next_status = _SCALE_INTENT_RECOVERY_PENDING
@@ -1186,9 +1210,7 @@ class FleetReconciler:
                     "operation": "transition",
                     "service": request.target,
                     "intent_id": request.params["scale_intent_id"],
-                    "expected_revision": int(
-                        request.params["scale_intent_revision"]
-                    ),
+                    "expected_revision": int(request.params["scale_intent_revision"]),
                     "status": next_status,
                     "execution_id": execution.get("execution_id", ""),
                     "idempotency_key": execution.get(
@@ -1351,8 +1373,7 @@ class FleetReconciler:
                 confirmed = (
                     observed.status == STATUS_UP
                     and observed.replicas is not None
-                    and int(observed.replicas)
-                    == int(request.params.get("replicas"))
+                    and int(observed.replicas) == int(request.params.get("replicas"))
                 )
             except (TypeError, ValueError):
                 confirmed = False
@@ -1442,7 +1463,9 @@ class FleetReconciler:
             request = self._bind_kubernetes_resource(
                 request, load_desired_state().get(request.target)
             )
-            if request.kind == "scale_service" and request.params.get("scale_intent_id"):
+            if request.kind == "scale_service" and request.params.get(
+                "scale_intent_id"
+            ):
                 execution = self._accept_approved_scale_intent(request)
             elif request.kind == "scale_service":
                 direct_allowed, direct_reason = self._direct_scale_allowed(

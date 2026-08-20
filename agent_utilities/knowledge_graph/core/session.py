@@ -381,9 +381,8 @@ class GraphSession:
             0, int(minimum_ttl_seconds)
         ) >= int(expiry):
             raise SessionExpiredError("Verified graph authority expires too soon")
-        if (
-            self.continuity_expires_at is not None
-            and time.monotonic() >= float(self.continuity_expires_at)
+        if self.continuity_expires_at is not None and time.monotonic() >= float(
+            self.continuity_expires_at
         ):
             raise SessionExpiredError(
                 "Discovered engine route continuity has expired; refresh ClusterMembers"

@@ -17,15 +17,15 @@ PromQL client.  Backend adapters must stream deterministic pages for a fixed
 snapshot and must not materialize a million-resource catalog in the provider.
 """
 
-from collections import OrderedDict
-from collections.abc import Iterable, Sequence
-from datetime import datetime, timedelta, timezone
-from enum import Enum
 import hashlib
 import math
 import re
 import threading
-from typing import Any, Callable, Literal, Protocol, runtime_checkable
+from collections import OrderedDict
+from collections.abc import Callable, Iterable, Sequence
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from pydantic import (
     BaseModel,
@@ -63,7 +63,7 @@ _SENSITIVE_QUERY_RE = re.compile(
 )
 
 
-class SignalKind(str, Enum):
+class SignalKind(StrEnum):
     """Finite normalized vocabulary shared by signal adapters."""
 
     CPU = "cpu"
@@ -79,7 +79,7 @@ class SignalKind(str, Enum):
     SHARD = "shard"
 
 
-class SignalAggregation(str, Enum):
+class SignalAggregation(StrEnum):
     """Allowed aggregation semantics; adapters may not invent operators."""
 
     LAST = "last"
@@ -93,7 +93,7 @@ class SignalAggregation(str, Enum):
     COUNT = "count"
 
 
-class SignalSourceKind(str, Enum):
+class SignalSourceKind(StrEnum):
     """Known source families; source identity is separately scope-bound."""
 
     PROMETHEUS = "prometheus"
@@ -118,14 +118,20 @@ def _identifier(value: str, field_name: str) -> str:
 
 
 def _reference(value: str, field_name: str) -> str:
-    if not isinstance(value, str) or len(value) == 0 or len(value) > MAX_REFERENCE_LENGTH:
+    if (
+        not isinstance(value, str)
+        or len(value) == 0
+        or len(value) > MAX_REFERENCE_LENGTH
+    ):
         raise ValueError(f"{field_name} must be a bounded opaque reference")
     if any(char.isspace() or ord(char) < 0x20 for char in value):
         raise ValueError(f"{field_name} must not contain whitespace or controls")
     if _IDENTIFIER_RE.fullmatch(value) is None:
         raise ValueError(f"{field_name} contains unsupported characters")
     lowered = value.lower()
-    if any(secret in lowered for secret in ("bearer", "token=", "secret=", "password=")):
+    if any(
+        secret in lowered for secret in ("bearer", "token=", "secret=", "password=")
+    ):
         raise ValueError(f"{field_name} must not contain credentials")
     return value
 
@@ -139,7 +145,7 @@ def _digest(value: str, field_name: str) -> str:
 def _aware_datetime(value: datetime, field_name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field_name} must be timezone-aware")
-    return value.astimezone(timezone.utc)
+    return value.astimezone(UTC)
 
 
 def _finite_non_negative(value: float, field_name: str) -> float:
@@ -204,11 +210,17 @@ class SignalSourceBinding(_SignalModel):
 class SignalReadPolicy(_SignalModel):
     """Deployment caps; every value is bounded by the global hard maximum."""
 
-    max_query_length: StrictInt = Field(default=MAX_QUERY_LENGTH, ge=1, le=MAX_QUERY_LENGTH)
-    max_timeout_s: float = Field(default=MAX_QUERY_TIMEOUT_S, gt=0, le=MAX_QUERY_TIMEOUT_S)
+    max_query_length: StrictInt = Field(
+        default=MAX_QUERY_LENGTH, ge=1, le=MAX_QUERY_LENGTH
+    )
+    max_timeout_s: float = Field(
+        default=MAX_QUERY_TIMEOUT_S, gt=0, le=MAX_QUERY_TIMEOUT_S
+    )
     max_window_s: float = Field(default=MAX_QUERY_WINDOW_S, gt=0, le=MAX_QUERY_WINDOW_S)
     max_page_size: StrictInt = Field(default=MAX_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE)
-    max_batch_items: StrictInt = Field(default=MAX_BATCH_ITEMS, ge=1, le=MAX_BATCH_ITEMS)
+    max_batch_items: StrictInt = Field(
+        default=MAX_BATCH_ITEMS, ge=1, le=MAX_BATCH_ITEMS
+    )
     max_signal_kinds: StrictInt = Field(
         default=MAX_SIGNAL_KINDS_PER_QUERY,
         ge=1,
@@ -285,14 +297,10 @@ class SignalReadRequest(_SignalModel):
         lambda value: _aware_datetime(value, "window_end")
     )
     _validate_cursor = field_validator("cursor")(
-        lambda value: None
-        if value is None
-        else _validate_cursor_value(value)
+        lambda value: None if value is None else _validate_cursor_value(value)
     )
     _validate_snapshot = field_validator("snapshot_digest")(
-        lambda value: None
-        if value is None
-        else _digest(value, "snapshot_digest")
+        lambda value: None if value is None else _digest(value, "snapshot_digest")
     )
 
     @model_validator(mode="after")
@@ -437,9 +445,7 @@ class SignalPage(_SignalModel):
         lambda value: _digest(value, "snapshot_digest")
     )
     _validate_cursor = field_validator("next_cursor")(
-        lambda value: None
-        if value is None
-        else _validate_cursor_value(value)
+        lambda value: None if value is None else _validate_cursor_value(value)
     )
 
     @model_validator(mode="after")
@@ -707,7 +713,7 @@ class AuthenticatedSignalProvider:
         if not isinstance(self._authenticator, SignalAuthenticator):
             raise TypeError("signal authenticator must implement the verifier contract")
         self._replay_guard = replay_guard or ReplayGuard()
-        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     def read_batch(self, request: SignalReadRequest) -> SignalPage:
         """Read one bounded page; malformed or unauthorized pages fail closed."""
@@ -721,7 +727,10 @@ class AuthenticatedSignalProvider:
         if not isinstance(backend_page, SignalBackendPage):
             raise ValueError("signal backend returned an invalid page")
         snapshot_digest = _digest(backend_page.snapshot_digest, "snapshot_digest")
-        if request.snapshot_digest is not None and snapshot_digest != request.snapshot_digest:
+        if (
+            request.snapshot_digest is not None
+            and snapshot_digest != request.snapshot_digest
+        ):
             raise ValueError("signal backend changed snapshots during pagination")
         if backend_page.has_more != (backend_page.next_cursor is not None):
             raise ValueError("backend page cursor/has_more contract is invalid")
@@ -771,7 +780,9 @@ class AuthenticatedSignalProvider:
         ):
             raise ValueError("signal query window exceeds policy duration")
 
-    def _validate_sample(self, sample: SignalSample, request: SignalReadRequest) -> None:
+    def _validate_sample(
+        self, sample: SignalSample, request: SignalReadRequest
+    ) -> None:
         if not isinstance(sample, SignalSample):
             raise ValueError("signal backend returned an invalid sample")
         if sample.source_id != self._binding.source_id:
@@ -800,9 +811,15 @@ class AuthenticatedSignalProvider:
         age = (now - sample.sample_time).total_seconds()
         if age < -self._policy.max_future_skew_s:
             raise ValueError("signal sample timestamp is from the future")
-        if age > self._policy.max_freshness_s or sample.freshness_s > self._policy.max_freshness_s:
+        if (
+            age > self._policy.max_freshness_s
+            or sample.freshness_s > self._policy.max_freshness_s
+        ):
             raise ValueError("stale signal sample")
-        if sample.sample_time < request.window_start or sample.sample_time > request.window_end:
+        if (
+            sample.sample_time < request.window_start
+            or sample.sample_time > request.window_end
+        ):
             raise ValueError("signal sample is outside the requested window")
 
 
@@ -814,7 +831,10 @@ def summarize_signal_page(
 
     if page.request_id != request.request_id or page.source_id != request.source_id:
         raise ValueError("signal page is not bound to the request")
-    if page.snapshot_digest != request.snapshot_digest and request.snapshot_digest is not None:
+    if (
+        page.snapshot_digest != request.snapshot_digest
+        and request.snapshot_digest is not None
+    ):
         raise ValueError("signal page snapshot differs from request")
     if page.has_more:
         raise ValueError("cannot summarize an incomplete signal page")
@@ -841,7 +861,9 @@ def summarize_signal_page(
     }:
         ordered_values = sorted(values)
         percentile = float(request.aggregation[1:]) / 100
-        index = min(len(ordered_values) - 1, math.ceil(percentile * len(ordered_values)) - 1)
+        index = min(
+            len(ordered_values) - 1, math.ceil(percentile * len(ordered_values)) - 1
+        )
         value = ordered_values[index]
     elif request.aggregation == SignalAggregation.SUM.value:
         value = sum(values)
@@ -851,7 +873,11 @@ def summarize_signal_page(
         value = sum(values) / len(values)
 
     digest_material = "|".join(
-        [request.query_digest, page.snapshot_digest, *sorted(sample.sample_digest for sample in page.samples)]
+        [
+            request.query_digest,
+            page.snapshot_digest,
+            *sorted(sample.sample_digest for sample in page.samples),
+        ]
     )
     summary_digest = hashlib.sha256(digest_material.encode("utf-8")).hexdigest()
     first = page.samples[0]

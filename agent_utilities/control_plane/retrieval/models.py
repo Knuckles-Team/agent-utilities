@@ -64,9 +64,7 @@ Digest: TypeAlias = Annotated[str, Field(pattern=_DIGEST_RE.pattern)]
 Timestamp: TypeAlias = Annotated[int, Field(ge=0)]
 Dimension: TypeAlias = Annotated[int, Field(ge=1, le=65_536)]
 Score: TypeAlias = Annotated[float, Field(ge=-1.0, le=1.0)]
-GenerationState: TypeAlias = Literal[
-    "active", "retiring", "deleted", "cleanup_failed"
-]
+GenerationState: TypeAlias = Literal["active", "retiring", "deleted", "cleanup_failed"]
 
 _FORBIDDEN_INLINE_KEYS = {
     "body",
@@ -158,7 +156,7 @@ class DocumentRef(_FrozenModel):
     artifact_ref: ArtifactRef
 
     @model_validator(mode="after")
-    def _artifact_hash_matches(self) -> "DocumentRef":
+    def _artifact_hash_matches(self) -> DocumentRef:
         _require_exact_ref(self.source_version, "source_version")
         _require_exact_ref(self.generation_id, "generation")
         if self.content_digest != self.artifact_ref.digest:
@@ -180,7 +178,7 @@ class ChunkRef(_FrozenModel):
     artifact_ref: ArtifactRef
 
     @model_validator(mode="after")
-    def _artifact_hash_matches(self) -> "ChunkRef":
+    def _artifact_hash_matches(self) -> ChunkRef:
         if self.content_digest != self.artifact_ref.digest:
             raise ValueError("chunk_artifact_digest_drift")
         return self
@@ -220,7 +218,7 @@ class VectorAuthorityRef(_FrozenModel):
     source_content_digest: Digest
 
     @model_validator(mode="after")
-    def _dimension_matches_model(self) -> "VectorAuthorityRef":
+    def _dimension_matches_model(self) -> VectorAuthorityRef:
         _require_exact_ref(self.generation_id, "generation")
         if self.dimension != self.model.dimension:
             raise ValueError("vector_dimension_drift")
@@ -244,7 +242,7 @@ class IndexRef(_FrozenModel):
     dimension: Dimension
 
     @model_validator(mode="after")
-    def _dimension_matches_model(self) -> "IndexRef":
+    def _dimension_matches_model(self) -> IndexRef:
         _require_exact_ref(self.index_id, "index")
         _require_exact_ref(self.generation_id, "generation")
         if self.dimension != self.model.dimension:
@@ -269,7 +267,7 @@ class GenerationManifest(_FrozenModel):
     expected_chunks: int = Field(ge=1, le=MAX_INDEX_CHUNKS)
 
     @model_validator(mode="after")
-    def _generation_bindings_match(self) -> "GenerationManifest":
+    def _generation_bindings_match(self) -> GenerationManifest:
         _require_exact_ref(self.generation_id, "generation")
         _require_exact_ref(self.source_version, "source_version")
         index = self.index_ref
@@ -302,7 +300,7 @@ class CleanupCheckpoint(_FrozenModel):
     recorded_at: Timestamp
 
     @model_validator(mode="after")
-    def _checkpoint_is_deterministic(self) -> "CleanupCheckpoint":
+    def _checkpoint_is_deterministic(self) -> CleanupCheckpoint:
         if self.index_ref.tenant_ref != self.tenant_ref:
             raise ValueError("cleanup_tenant_drift")
         if self.index_ref.graph_ref != self.graph_ref:
@@ -316,7 +314,8 @@ class CleanupCheckpoint(_FrozenModel):
         if self.deleted_vectors + self.remaining_vectors != self.expected_vectors:
             raise ValueError("cleanup_checkpoint_partial_accounting")
         if self.complete != (
-            self.deleted_vectors == self.expected_vectors and self.remaining_vectors == 0
+            self.deleted_vectors == self.expected_vectors
+            and self.remaining_vectors == 0
         ):
             raise ValueError("cleanup_completion_claim_invalid")
         expected_digest = canonical_digest(
@@ -335,7 +334,7 @@ class GenerationRecord(_FrozenModel):
     cleanup_checkpoint: CleanupCheckpoint | None = None
 
     @model_validator(mode="after")
-    def _state_is_consistent(self) -> "GenerationRecord":
+    def _state_is_consistent(self) -> GenerationRecord:
         checkpoint = self.cleanup_checkpoint
         if self.state == "active" and checkpoint is not None:
             raise ValueError("active_generation_has_cleanup_checkpoint")
@@ -365,7 +364,7 @@ class AuthorizationEvidence(_FrozenModel):
     expires_at: Timestamp
 
     @model_validator(mode="after")
-    def _authorization_is_exact(self) -> "AuthorizationEvidence":
+    def _authorization_is_exact(self) -> AuthorizationEvidence:
         if self.expires_at <= self.evaluated_at:
             raise ValueError("authorization_expiry_invalid")
         if self.index_ref.tenant_ref != self.tenant_ref:
@@ -407,7 +406,7 @@ class RetrievalRequest(_FrozenModel):
     limit: int = Field(ge=1, le=MAX_HITS)
 
     @model_validator(mode="after")
-    def _request_bindings_match(self) -> "RetrievalRequest":
+    def _request_bindings_match(self) -> RetrievalRequest:
         index = self.index_ref
         vector = self.query_vector_ref
         if index.tenant_ref != self.tenant_ref or index.graph_ref != self.graph_ref:
@@ -437,7 +436,7 @@ class EngineCandidate(_FrozenModel):
     engine_result_ref: OpaqueRef
 
     @model_validator(mode="after")
-    def _candidate_bindings_match(self) -> "EngineCandidate":
+    def _candidate_bindings_match(self) -> EngineCandidate:
         if not math.isfinite(self.score):
             raise ValueError("candidate_score_non_finite")
         if self.chunk.document.tenant_ref != self.index_ref.tenant_ref:
@@ -476,7 +475,7 @@ class RankedHit(_FrozenModel):
     engine_result_ref: OpaqueRef
 
     @model_validator(mode="after")
-    def _score_is_finite(self) -> "RankedHit":
+    def _score_is_finite(self) -> RankedHit:
         if not math.isfinite(self.score):
             raise ValueError("ranked_score_non_finite")
         return self
@@ -494,7 +493,7 @@ class RetrievalResult(_FrozenModel):
     hits: tuple[RankedHit, ...] = Field(max_length=MAX_HITS)
 
     @model_validator(mode="after")
-    def _result_is_authorized(self) -> "RetrievalResult":
+    def _result_is_authorized(self) -> RetrievalResult:
         if self.authorization.request_id != self.request.request_id:
             raise ValueError("result_request_identity_drift")
         if self.authorization.tenant_ref != self.request.tenant_ref:
@@ -538,7 +537,7 @@ class CitationRef(_FrozenModel):
     generation_id: StableId
 
     @model_validator(mode="after")
-    def _source_continuity(self) -> "CitationRef":
+    def _source_continuity(self) -> CitationRef:
         if self.request_id == "":
             raise ValueError("citation_request_missing")
         if self.source_version != self.chunk.document.source_version:
@@ -561,7 +560,7 @@ class CitationRecord(_FrozenModel):
     citations: tuple[CitationRef, ...] = Field(max_length=MAX_CITATIONS)
 
     @model_validator(mode="after")
-    def _citations_are_continuous(self) -> "CitationRecord":
+    def _citations_are_continuous(self) -> CitationRecord:
         hit_keys = {hit.chunk.chunk_key for hit in self.retrieval.hits}
         citation_keys = []
         for citation in self.citations:
@@ -586,7 +585,7 @@ class EvaluationMetric(_FrozenModel):
     value: float = Field(ge=0.0, le=1.0)
 
     @model_validator(mode="after")
-    def _finite(self) -> "EvaluationMetric":
+    def _finite(self) -> EvaluationMetric:
         if not math.isfinite(self.value):
             raise ValueError("evaluation_metric_non_finite")
         return self
@@ -606,8 +605,11 @@ class EvaluationRecord(_FrozenModel):
     verdict: Literal["pass", "fail", "inconclusive"]
 
     @model_validator(mode="after")
-    def _evaluation_is_bound(self) -> "EvaluationRecord":
-        if self.citation_record is not None and self.citation_record.retrieval != self.retrieval:
+    def _evaluation_is_bound(self) -> EvaluationRecord:
+        if (
+            self.citation_record is not None
+            and self.citation_record.retrieval != self.retrieval
+        ):
             raise ValueError("evaluation_citation_retrieval_drift")
         names = [metric.name for metric in self.metrics]
         if len(names) != len(set(names)):

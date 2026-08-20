@@ -9,8 +9,8 @@ as zero.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
-from typing import Iterable
 
 from .models import (
     EconomicsContractError,
@@ -184,10 +184,7 @@ def aggregate_daily_from_hours(
     if day.granularity != "day":
         raise ValueError("daily composition requires a day window")
     hours = tuple(hourly)
-    expected = {
-        day.window_start + timedelta(hours=index)
-        for index in range(24)
-    }
+    expected = {day.window_start + timedelta(hours=index) for index in range(24)}
     actual = {item.window.window_start for item in hours}
     if actual != expected or len(hours) != 24:
         raise EconomicsContractError("daily aggregate requires all 24 hourly windows")
@@ -270,11 +267,15 @@ def build_slo_rollup(
             )
         if measured_micros < 0 or measured_micros > 1_000_000:
             raise ValueError("SLO measurement must be in bounded micros")
-        status = "met" if (
-            measured_micros >= objective.target_micros
-            if objective.comparison == "gte"
-            else measured_micros <= objective.target_micros
-        ) else "breached"
+        status = (
+            "met"
+            if (
+                measured_micros >= objective.target_micros
+                if objective.comparison == "gte"
+                else measured_micros <= objective.target_micros
+            )
+            else "breached"
+        )
     supplied_digests = tuple(source_fact_digests)
     digests = tuple(sorted(set(supplied_digests)))
     if len(digests) != len(supplied_digests):
@@ -341,17 +342,11 @@ def reconcile_samples(
     unexpected = tuple(
         observed_refs[index]
         for index, key in enumerate(observed_keys_in_order)
-        if key not in expected_keys
-        and key not in observed_keys_in_order[:index]
+        if key not in expected_keys and key not in observed_keys_in_order[:index]
     )
     duplicate_sample_keys = sorted(
-        {
-            key
-            for key, count in expected_key_counts.items()
-            if count > 1
-        }
-        | {
-            key for key, count in observed_counts.items() if count > 1}
+        {key for key, count in expected_key_counts.items() if count > 1}
+        | {key for key, count in observed_counts.items() if count > 1}
     )
     sample_by_key = {
         (item.source_ref, item.source_digest, item.sample_sequence): item
@@ -360,9 +355,7 @@ def reconcile_samples(
     duplicate_samples = tuple(sample_by_key[key] for key in duplicate_sample_keys)
     duplicate_fact_ids = tuple(
         fact_id
-        for fact_id, count in Counter(
-            fact.fact_id for fact in observed_items
-        ).items()
+        for fact_id, count in Counter(fact.fact_id for fact in observed_items).items()
         if count > 1
     )
     status = (

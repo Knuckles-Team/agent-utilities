@@ -48,9 +48,7 @@ Timestamp: TypeAlias = Annotated[
 ProtocolName = Literal["mcp", "a2a", "source"]
 CapabilityKind = Literal["tool", "resource", "prompt"]
 DesiredStatus = Literal["disabled", "enabled", "quarantined"]
-ObservationStatus = Literal[
-    "ready", "empty", "unreachable", "failed", "quarantined"
-]
+ObservationStatus = Literal["ready", "empty", "unreachable", "failed", "quarantined"]
 DriftStatus = Literal["clear", "degraded", "drifted", "quarantined"]
 AuthorizationKind = Literal["approval", "install", "credential_access", "enable"]
 AuthorizationOutcome = Literal["pending", "approved", "denied", "revoked"]
@@ -66,7 +64,9 @@ def _canonical(value: str) -> str:
 
 
 def _digest_payload(value: object) -> str:
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 
 
@@ -77,21 +77,33 @@ def connector_id_for(
 ) -> str:
     """Return a stable connector identity without embedding a host or secret."""
 
-    return "connector:" + hashlib.sha256(
-        "\x1f".join((_canonical(publisher), _canonical(package_name), protocol)).encode(
-            "utf-8"
-        )
-    ).hexdigest()
+    return (
+        "connector:"
+        + hashlib.sha256(
+            "\x1f".join(
+                (_canonical(publisher), _canonical(package_name), protocol)
+            ).encode("utf-8")
+        ).hexdigest()
+    )
 
 
-def server_id_for(tenant_id: str, connector_id: str, instance_ref: str = "default") -> str:
+def server_id_for(
+    tenant_id: str, connector_id: str, instance_ref: str = "default"
+) -> str:
     """Return a tenant-scoped stable server identity."""
 
-    return "server:" + hashlib.sha256(
-        "\x1f".join(
-            (_canonical(tenant_id), _canonical(connector_id), _canonical(instance_ref))
-        ).encode("utf-8")
-    ).hexdigest()
+    return (
+        "server:"
+        + hashlib.sha256(
+            "\x1f".join(
+                (
+                    _canonical(tenant_id),
+                    _canonical(connector_id),
+                    _canonical(instance_ref),
+                )
+            ).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def activation_digest(value: Mapping[str, object] | object) -> str:
@@ -105,14 +117,17 @@ def activation_digest(value: Mapping[str, object] | object) -> str:
 
 
 def capability_id_for(kind: CapabilityKind, name: str, version: str) -> str:
-    return "capability:" + hashlib.sha256(
-        "\x1f".join((_canonical(kind), _canonical(name), _canonical(version))).encode(
-            "utf-8"
-        )
-    ).hexdigest()
+    return (
+        "capability:"
+        + hashlib.sha256(
+            "\x1f".join(
+                (_canonical(kind), _canonical(name), _canonical(version))
+            ).encode("utf-8")
+        ).hexdigest()
+    )
 
 
-def capability_set_digest(capabilities: Iterable["CapabilityBinding"]) -> str:
+def capability_set_digest(capabilities: Iterable[CapabilityBinding]) -> str:
     ordered = [
         capability.model_dump(mode="json")
         for capability in sorted(capabilities, key=lambda item: item.binding_id)
@@ -127,11 +142,20 @@ def version_id_for(
     mapping_digest: str,
     capability_digest: str,
 ) -> str:
-    return "version:" + hashlib.sha256(
-        "\x1f".join(
-            (connector_id, version, manifest_digest, mapping_digest, capability_digest)
-        ).encode("utf-8")
-    ).hexdigest()
+    return (
+        "version:"
+        + hashlib.sha256(
+            "\x1f".join(
+                (
+                    connector_id,
+                    version,
+                    manifest_digest,
+                    mapping_digest,
+                    capability_digest,
+                )
+            ).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 class ConnectorIdentity(ProtocolModel):
@@ -266,7 +290,9 @@ class InventoryReference(ProtocolModel):
             )
             for value in values
         ):
-            raise ValueError("inventory references must use controlled opaque coordinates")
+            raise ValueError(
+                "inventory references must use controlled opaque coordinates"
+            )
         return self
 
 
@@ -364,10 +390,16 @@ class Observation(ProtocolModel):
             and self.probe_complete
             and self.authoritative_snapshot
         ):
-            raise ValueError("only a complete authoritative empty snapshot may be verified")
+            raise ValueError(
+                "only a complete authoritative empty snapshot may be verified"
+            )
         if self.status in {"unreachable", "failed"} and self.verified_empty:
             raise ValueError("failed or transient probes cannot be verified empty")
-        if self.status == "empty" and self.authoritative_snapshot and not self.probe_complete:
+        if (
+            self.status == "empty"
+            and self.authoritative_snapshot
+            and not self.probe_complete
+        ):
             raise ValueError("authoritative empty snapshots must be complete")
         if self.status in {"unreachable", "failed"} and self.failure_code is None:
             raise ValueError("failed observations require a bounded failure code")
@@ -376,7 +408,9 @@ class Observation(ProtocolModel):
         if self.status == "ready" and (
             self.manifest_digest is None or self.compatibility is None
         ):
-            raise ValueError("ready observations require manifest and compatibility evidence")
+            raise ValueError(
+                "ready observations require manifest and compatibility evidence"
+            )
         return self
 
 
@@ -500,9 +534,7 @@ class AuthorizationEvaluation(ProtocolModel):
     server_id: Identifier
     version_id: Identifier
     allowed: bool
-    missing_or_denied: tuple[AuthorizationKind, ...] = Field(
-        default=(), max_length=4
-    )
+    missing_or_denied: tuple[AuthorizationKind, ...] = Field(default=(), max_length=4)
 
 
 def scope_digest_for(
@@ -537,7 +569,9 @@ class AccessScope(ProtocolModel):
         if self.scope_digest != scope_digest_for(
             self.tenant_id, self.principal_id, self.grant_digests
         ):
-            raise ValueError("access scope digest does not match its subject and grants")
+            raise ValueError(
+                "access scope digest does not match its subject and grants"
+            )
         return self
 
 
@@ -559,8 +593,13 @@ class ConnectorListRequest(ProtocolModel):
 
     @model_validator(mode="after")
     def cursor_is_scope_bound(self) -> ConnectorListRequest:
-        if self.cursor is not None and self.cursor.scope_digest != self.scope.scope_digest:
-            raise ValueError("connector cursor is bound to a different visibility scope")
+        if (
+            self.cursor is not None
+            and self.cursor.scope_digest != self.scope.scope_digest
+        ):
+            raise ValueError(
+                "connector cursor is bound to a different visibility scope"
+            )
         return self
 
 

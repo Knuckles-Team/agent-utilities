@@ -42,4 +42,3 @@ flowchart LR
   claim, lease, fence, complete, or return results for WorkItems.
 - Audit events are bounded, material-free, and hash-chained. Discontinuity or
   capacity exhaustion fails closed rather than silently truncating history.
-

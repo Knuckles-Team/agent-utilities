@@ -49,7 +49,9 @@ PathText: TypeAlias = Annotated[
     Field(min_length=1, max_length=2048, pattern=r"^[^\x00]+$"),
 ]
 
-SourceKind = Literal["git", "filesystem", "api", "database", "object_store", "workspace"]
+SourceKind = Literal[
+    "git", "filesystem", "api", "database", "object_store", "workspace"
+]
 ManifestStatus = Literal["complete", "partial", "failed", "timeout"]
 EntryKind = Literal["file", "directory", "record", "object"]
 EntryOutcome = Literal[
@@ -78,7 +80,7 @@ _INLINE_MARKERS = (
     "token=",
     "authorization:",
     "-----begin",
-    "{\"",
+    '{"',
     "[{",
 )
 
@@ -88,7 +90,9 @@ def _canonical(value: str) -> str:
 
 
 def _digest_payload(value: object) -> str:
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 
 
@@ -176,9 +180,12 @@ def authority_digest_for(
 
 def entry_id_for(authority_id: str, relative_path: str) -> str:
     _validate_relative_path(relative_path)
-    return "source-entry:" + hashlib.sha256(
-        "\x1f".join((authority_id, relative_path)).encode("utf-8")
-    ).hexdigest()
+    return (
+        "source-entry:"
+        + hashlib.sha256(
+            "\x1f".join((authority_id, relative_path)).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def catalog_entry_digest_for(
@@ -215,7 +222,7 @@ def manifest_digest_for(
     observation_status: ManifestStatus,
     observed_at: str,
     dirty: bool,
-    entries: Iterable["SourceCatalogEntry"],
+    entries: Iterable[SourceCatalogEntry],
     verified_empty: bool,
     empty_evidence_ref: str | None,
     empty_evidence_digest: str | None,
@@ -240,12 +247,17 @@ def manifest_digest_for(
     )
 
 
-def manifest_id_for(authority_id: str, manifest_revision: int, manifest_digest: str) -> str:
-    return "source-manifest:" + hashlib.sha256(
-        "\x1f".join((authority_id, str(manifest_revision), manifest_digest)).encode(
-            "utf-8"
-        )
-    ).hexdigest()
+def manifest_id_for(
+    authority_id: str, manifest_revision: int, manifest_digest: str
+) -> str:
+    return (
+        "source-manifest:"
+        + hashlib.sha256(
+            "\x1f".join((authority_id, str(manifest_revision), manifest_digest)).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+    )
 
 
 def reconciliation_digest_for(
@@ -254,7 +266,7 @@ def reconciliation_digest_for(
     manifest_id: str,
     manifest_digest: str,
     selected_entry_ids: Iterable[str],
-    outcomes: Iterable["EntryReconciliation"],
+    outcomes: Iterable[EntryReconciliation],
 ) -> str:
     return _digest_payload(
         {
@@ -274,9 +286,14 @@ def reconciliation_digest_for(
 def reconciliation_id_for(
     authority_id: str, manifest_id: str, reconciliation_digest: str
 ) -> str:
-    return "source-reconciliation:" + hashlib.sha256(
-        "\x1f".join((authority_id, manifest_id, reconciliation_digest)).encode("utf-8")
-    ).hexdigest()
+    return (
+        "source-reconciliation:"
+        + hashlib.sha256(
+            "\x1f".join((authority_id, manifest_id, reconciliation_digest)).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+    )
 
 
 def checkpoint_digest_for(
@@ -304,9 +321,14 @@ def checkpoint_digest_for(
 
 
 def checkpoint_id_for(authority_id: str, revision: int, checkpoint_digest: str) -> str:
-    return "source-checkpoint:" + hashlib.sha256(
-        "\x1f".join((authority_id, str(revision), checkpoint_digest)).encode("utf-8")
-    ).hexdigest()
+    return (
+        "source-checkpoint:"
+        + hashlib.sha256(
+            "\x1f".join((authority_id, str(revision), checkpoint_digest)).encode(
+                "utf-8"
+            )
+        ).hexdigest()
+    )
 
 
 def path_digest_for(relative_path: str) -> str:
@@ -452,13 +474,20 @@ class SourceManifest(ProtocolModel):
             raise ValueError("dirty source manifests are not admissible")
         if len(set(self.entry_ids)) != len(self.entry_ids):
             raise ValueError("source manifest entry identities must be unique")
-        if tuple(sorted(self.entries, key=lambda entry: entry.entry_id)) != self.entries:
+        if (
+            tuple(sorted(self.entries, key=lambda entry: entry.entry_id))
+            != self.entries
+        ):
             raise ValueError("source manifest entries must be sorted")
         if self.entries:
             if self.verified_empty or self.empty_evidence_ref is not None:
-                raise ValueError("non-empty source manifest cannot claim verified empty")
+                raise ValueError(
+                    "non-empty source manifest cannot claim verified empty"
+                )
             if self.empty_evidence_digest is not None:
-                raise ValueError("non-empty source manifest cannot carry empty evidence")
+                raise ValueError(
+                    "non-empty source manifest cannot carry empty evidence"
+                )
         else:
             if self.observation_status == "complete":
                 if (
@@ -466,13 +495,17 @@ class SourceManifest(ProtocolModel):
                     or self.empty_evidence_ref is None
                     or self.empty_evidence_digest is None
                 ):
-                    raise ValueError("complete empty source manifest requires verified evidence")
+                    raise ValueError(
+                        "complete empty source manifest requires verified evidence"
+                    )
             elif (
                 self.verified_empty
                 or self.empty_evidence_ref is not None
                 or self.empty_evidence_digest is not None
             ):
-                raise ValueError("incomplete empty source manifest cannot claim verified empty")
+                raise ValueError(
+                    "incomplete empty source manifest cannot claim verified empty"
+                )
         if self.empty_evidence_ref is not None:
             _opaque_ref(self.empty_evidence_ref, "empty_evidence_ref")
         expected_digest = manifest_digest_for(
@@ -526,8 +559,13 @@ class EntryReconciliation(ProtocolModel):
         if self.terminal != expected_terminal:
             raise ValueError("entry reconciliation terminal state is inconsistent")
         if self.outcome == "added":
-            if self.expected_entry_digest is not None or self.observed_entry_digest is None:
-                raise ValueError("added entry evidence must contain only observed digest")
+            if (
+                self.expected_entry_digest is not None
+                or self.observed_entry_digest is None
+            ):
+                raise ValueError(
+                    "added entry evidence must contain only observed digest"
+                )
         elif self.outcome == "updated":
             if (
                 self.expected_entry_digest is None
@@ -549,11 +587,17 @@ class EntryReconciliation(ProtocolModel):
             ):
                 raise ValueError("tombstone requires verified absence evidence")
         else:
-            if self.expected_entry_digest is not None or self.observed_entry_digest is not None:
+            if (
+                self.expected_entry_digest is not None
+                or self.observed_entry_digest is not None
+            ):
                 raise ValueError("incomplete entry outcomes cannot carry a digest")
             if self.absence_verification != "not_applicable":
                 raise ValueError("incomplete entry outcomes cannot verify absence")
-        if self.outcome != "tombstoned" and self.absence_verification != "not_applicable":
+        if (
+            self.outcome != "tombstoned"
+            and self.absence_verification != "not_applicable"
+        ):
             raise ValueError("only tombstones may carry absence verification")
         return self
 
@@ -584,12 +628,16 @@ class SourceReconciliation(ProtocolModel):
         outcome_ids = tuple(outcome.entry_id for outcome in self.outcomes)
         if len(set(outcome_ids)) != len(outcome_ids):
             raise ValueError("source reconciliation outcomes must be unique")
-        if tuple(sorted(self.outcomes, key=lambda outcome: outcome.entry_id)) != self.outcomes:
+        if (
+            tuple(sorted(self.outcomes, key=lambda outcome: outcome.entry_id))
+            != self.outcomes
+        ):
             raise ValueError("source reconciliation outcomes must be sorted")
         if set(outcome_ids) != set(self.selected_entry_ids):
             raise ValueError("source reconciliation outcomes must cover the selection")
         if any(
-            outcome.authority_id != self.authority_id or outcome.tenant_id != self.tenant_id
+            outcome.authority_id != self.authority_id
+            or outcome.tenant_id != self.tenant_id
             for outcome in self.outcomes
         ):
             raise ValueError("source reconciliation contains a cross-scope outcome")
@@ -715,7 +763,9 @@ class SourceReconcileResult(ProtocolModel):
             self.checkpoint.reconciliation_id != self.reconciliation.reconciliation_id
             or self.checkpoint.manifest_id != self.reconciliation.manifest_id
         ):
-            raise ValueError("source result checkpoint is not bound to its reconciliation")
+            raise ValueError(
+                "source result checkpoint is not bound to its reconciliation"
+            )
         expected = _digest_payload(
             {
                 "reconciliation": self.reconciliation.model_dump(mode="json"),
@@ -725,7 +775,9 @@ class SourceReconcileResult(ProtocolModel):
             }
         )
         if self.result_digest != expected:
-            raise ValueError("source reconcile result digest does not match its evidence")
+            raise ValueError(
+                "source reconcile result digest does not match its evidence"
+            )
         return self
 
 

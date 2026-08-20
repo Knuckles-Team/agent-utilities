@@ -120,9 +120,15 @@ class WasmAgentRunner:
             if limits is None:
                 raise ValueError("governed WASM execution requires resource limits")
             if float(limits.cpu_cores) != 1.0:
-                raise ValueError("Wasmtime cannot enforce a fractional or multi-core CPU share")
-            self.limit_memory_pages = min(limit_memory_pages, int(limits.max_wasm_pages))
-            self.max_payload_bytes = min(max_payload_bytes, int(admission.max_payload_bytes))
+                raise ValueError(
+                    "Wasmtime cannot enforce a fractional or multi-core CPU share"
+                )
+            self.limit_memory_pages = min(
+                limit_memory_pages, int(limits.max_wasm_pages)
+            )
+            self.max_payload_bytes = min(
+                max_payload_bytes, int(admission.max_payload_bytes)
+            )
             self.limit_cpu_fuel = min(
                 limit_cpu_fuel,
                 max(1, int(float(limits.deadline_s) * 1_000_000)),
@@ -204,7 +210,9 @@ class WasmAgentRunner:
             or self.store is None
         ):
             if self.admission is not None:
-                raise RuntimeError("governed WASM execution requires a loaded Wasmtime module")
+                raise RuntimeError(
+                    "governed WASM execution requires a loaded Wasmtime module"
+                )
             # Emulation fallback mode for developers without wasmtime
             logger.info("Executing micro-agent in emulation/fallback mode.")
             action = input_data.get("action")

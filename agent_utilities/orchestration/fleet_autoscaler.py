@@ -83,20 +83,20 @@ from agent_utilities.orchestration.fleet_observation import (
     get_fleet_observer,
 )
 from agent_utilities.orchestration.fleet_reconciler import (
-    EngineScaleIntentStore,
-    SCALE_CONTROLLER_EXTERNAL_HPA,
-    SCALE_CONTROLLER_EXTERNAL_KEDA,
-    SCALE_CONTROLLER_NATIVE,
-    ScaleIntentStore,
-    ScalingSpec,
-    _cas_succeeded,
-    _intent_metadata_valid,
     _SCALE_INTENT_ACCEPTED,
     _SCALE_INTENT_EXECUTED,
     _SCALE_INTENT_OBSERVED,
     _SCALE_INTENT_PROPOSED,
     _SCALE_INTENT_RECOVERY_PENDING,
     _SCALE_INTENT_SIMULATED,
+    SCALE_CONTROLLER_EXTERNAL_HPA,
+    SCALE_CONTROLLER_EXTERNAL_KEDA,
+    SCALE_CONTROLLER_NATIVE,
+    EngineScaleIntentStore,
+    ScaleIntentStore,
+    ScalingSpec,
+    _cas_succeeded,
+    _intent_metadata_valid,
     load_desired_state,
     scale_intent_key,
 )
@@ -476,9 +476,10 @@ class FleetAutoscaler:
                     desired=desired,
                     value=value,
                 )
-            if status == _SCALE_INTENT_SIMULATED and int(
-                latest_intent["desired_replicas"]
-            ) == desired:
+            if (
+                status == _SCALE_INTENT_SIMULATED
+                and int(latest_intent["desired_replicas"]) == desired
+            ):
                 return ServiceEvaluation(
                     name,
                     "skipped",
@@ -592,11 +593,7 @@ class FleetAutoscaler:
         )
         if decision.decision not in {"queue_approval", "allow", "allow_notify"}:
             return evaluation
-        status = (
-            _SCALE_INTENT_ACCEPTED
-            if decision.allowed
-            else _SCALE_INTENT_PROPOSED
-        )
+        status = _SCALE_INTENT_ACCEPTED if decision.allowed else _SCALE_INTENT_PROPOSED
         intent_result = self.intent_store.cas(
             {
                 "operation": "put",

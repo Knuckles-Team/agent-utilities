@@ -77,7 +77,7 @@ class TaskRef(_FrozenModel):
     depends_on: tuple[StableId, ...] = ()
 
     @model_validator(mode="after")
-    def _dependencies_are_unique(self) -> "TaskRef":
+    def _dependencies_are_unique(self) -> TaskRef:
         if self.task_id in self.depends_on:
             raise ValueError("task_self_dependency")
         if len(self.depends_on) != len(set(self.depends_on)):
@@ -89,7 +89,7 @@ class ToolBindingRef(_FrozenModel):
     binding: CapabilityBinding
 
     @model_validator(mode="after")
-    def _tool_only(self) -> "ToolBindingRef":
+    def _tool_only(self) -> ToolBindingRef:
         if self.binding.kind != "tool":
             raise ValueError("tool_binding_kind_invalid")
         return self
@@ -113,8 +113,10 @@ class InvocationRef(_FrozenModel):
     artifact_refs: tuple[ArtifactRef, ...] = ()
 
     @model_validator(mode="after")
-    def _artifacts_are_unique(self) -> "InvocationRef":
-        refs = [(artifact.artifact_id, artifact.digest) for artifact in self.artifact_refs]
+    def _artifacts_are_unique(self) -> InvocationRef:
+        refs = [
+            (artifact.artifact_id, artifact.digest) for artifact in self.artifact_refs
+        ]
         if len(refs) != len(set(refs)):
             raise ValueError("invocation_artifact_duplicate")
         return self
@@ -155,7 +157,7 @@ class RunResolution(_FrozenModel):
     artifact_refs: tuple[ArtifactRef, ...] = Field(default=(), max_length=512)
 
     @model_validator(mode="after")
-    def _validate_resolution(self) -> "RunResolution":
+    def _validate_resolution(self) -> RunResolution:
         if self.authorization.request_digest != self.request_digest:
             raise ValueError("authorization_request_digest_mismatch")
         if len(self.tasks) > self.authorization.budget.max_tasks:
@@ -176,14 +178,17 @@ class RunResolution(_FrozenModel):
         if fanout > self.authorization.budget.max_fanout:
             raise ValueError("run_fanout_budget_exceeded")
 
-        binding_map = {
-            binding.binding_id: binding
-            for binding in self.tool_bindings
-        }
+        binding_map = {binding.binding_id: binding for binding in self.tool_bindings}
         if len(binding_map) != len(self.tool_bindings):
             raise ValueError("tool_binding_duplicate")
         allowed = {
-            (binding.kind, binding.binding_id, binding.version, binding.digest, binding.privilege)
+            (
+                binding.kind,
+                binding.binding_id,
+                binding.version,
+                binding.digest,
+                binding.privilege,
+            )
             for binding in self.authorization.bindings
         }
         for tool in self.tool_bindings:
@@ -205,7 +210,9 @@ class RunResolution(_FrozenModel):
             binding = binding_map.get(invocation.tool_binding_id)
             if binding is None or binding.digest != invocation.tool_binding_digest:
                 raise ValueError("invocation_tool_binding_drift")
-        artifact_ids = [(artifact.artifact_id, artifact.digest) for artifact in self.artifact_refs]
+        artifact_ids = [
+            (artifact.artifact_id, artifact.digest) for artifact in self.artifact_refs
+        ]
         if len(artifact_ids) != len(set(artifact_ids)):
             raise ValueError("run_artifact_duplicate")
         return self
@@ -238,7 +245,7 @@ class NativeWorkItemAdmission(_FrozenModel):
     depends_on: tuple[StableId, ...] = ()
 
     @model_validator(mode="after")
-    def _identity_is_deterministic(self) -> "NativeWorkItemAdmission":
+    def _identity_is_deterministic(self) -> NativeWorkItemAdmission:
         expected_run = deterministic_admission_id(self.tenant_ref, self.idempotency_key)
         if self.run_id != expected_run:
             raise ValueError("native_admission_run_identity_mismatch")
@@ -256,7 +263,7 @@ class NativeAdmissionRequest(_FrozenModel):
     work_item: NativeWorkItemAdmission
 
     @model_validator(mode="after")
-    def _run_and_item_are_one_pair(self) -> "NativeAdmissionRequest":
+    def _run_and_item_are_one_pair(self) -> NativeAdmissionRequest:
         resolution = self.resolution
         item = self.work_item
         if item.run_id != resolution.run_id:

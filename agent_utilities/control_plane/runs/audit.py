@@ -70,7 +70,9 @@ class AuditChain:
             if not self.can_append():
                 raise AuditDiscontinuityError("audit_capacity_exceeded")
             sequence = len(self._events)
-            previous_hash = self._events[-1].chain_hash if self._events else GENESIS_HASH
+            previous_hash = (
+                self._events[-1].chain_hash if self._events else GENESIS_HASH
+            )
             chain_hash = canonical_digest(
                 {
                     "sequence": sequence,
@@ -102,7 +104,10 @@ class AuditChain:
         with self._lock:
             previous = GENESIS_HASH
             for expected_sequence, event in enumerate(self._events):
-                if event.sequence != expected_sequence or event.previous_hash != previous:
+                if (
+                    event.sequence != expected_sequence
+                    or event.previous_hash != previous
+                ):
                     return False
                 expected_hash = canonical_digest(
                     {
@@ -116,7 +121,10 @@ class AuditChain:
                 )
                 if event.chain_hash != expected_hash:
                     return False
-                if event.event_id != f"audit:{event.chain_hash.removeprefix('sha256:')}":
+                if (
+                    event.event_id
+                    != f"audit:{event.chain_hash.removeprefix('sha256:')}"
+                ):
                     return False
                 previous = event.chain_hash
             return True

@@ -428,7 +428,9 @@ def _column_profile(
                     q=probabilities,
                     interpolation="linear",
                 )
-                for probability, value in zip(probabilities, quantile_values):
+                for probability, value in zip(
+                    probabilities, quantile_values, strict=False
+                ):
                     number = _profile_number(value.as_py())
                     if number is not None:
                         quantiles.append(
@@ -471,9 +473,7 @@ def _column_profile(
                 value = item["values"]
                 if isinstance(value, float) and not math.isfinite(value):
                     continue
-                top_k.append(
-                    TopKEntry(value=value, count=int(item["count"]))
-                )
+                top_k.append(TopKEntry(value=value, count=int(item["count"])))
         except (pa.ArrowException, NotImplementedError, TypeError, ValueError):
             warnings.append(_profile_warning("topk_suppressed"))
     _check_profile_deadline(deadline)
@@ -934,9 +934,7 @@ class CleanPipeline:
             table,
             self._plan.profile,
             target_ref=(
-                self._plan.artifact_ref
-                or self._plan.source_ref
-                or self._plan.plan_ref
+                self._plan.artifact_ref or self._plan.source_ref or self._plan.plan_ref
             ),
         )
 

@@ -38,9 +38,9 @@ from .models import (
     SupportIdentity,
     TenantIdentity,
     UserIdentity,
+    WebUiEntity,
     WidgetIdentity,
     WorkspaceIdentity,
-    WebUiEntity,
 )
 
 __all__ = ["InMemoryWebUiRepository", "entity_kind_for"]
@@ -164,10 +164,7 @@ class InMemoryWebUiRepository:
         permission: str,
     ) -> None:
         cls._require_context(context, permission)
-        if (
-            context.tenant_ref != tenant_ref
-            or context.workspace_ref != workspace_ref
-        ):
+        if context.tenant_ref != tenant_ref or context.workspace_ref != workspace_ref:
             raise WebUiAuthorizationError()
 
     @staticmethod

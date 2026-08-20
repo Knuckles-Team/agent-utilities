@@ -152,7 +152,9 @@ class PolicyAuthority:
         exception: PolicyException | None = None,
         now: int | None = None,
     ) -> PolicyAuthorization:
-        if not isinstance(request_digest, str) or not _DIGEST_RE.fullmatch(request_digest):
+        if not isinstance(request_digest, str) or not _DIGEST_RE.fullmatch(
+            request_digest
+        ):
             raise PolicyDomainError("request_digest_invalid")
         policy = self.resolve(policy_ref)
         try:
@@ -173,7 +175,9 @@ class PolicyAuthority:
             current=current,
         )
         if rule.effect == "deny" and (
-            exception_ref is None or exception is None or not exception.allow_denied_operation
+            exception_ref is None
+            or exception is None
+            or not exception.allow_denied_operation
         ):
             raise PolicyDomainError("policy_denied")
 
@@ -223,7 +227,10 @@ class PolicyAuthority:
         if authorization.approval_ref is not None:
             with self._lock:
                 approval = self._approvals.get(
-                    (authorization.policy_ref.policy_id, authorization.approval_ref.approval_id)
+                    (
+                        authorization.policy_ref.policy_id,
+                        authorization.approval_ref.approval_id,
+                    )
                 )
             if (
                 approval is None
@@ -235,7 +242,10 @@ class PolicyAuthority:
         if authorization.exception_ref is not None:
             with self._lock:
                 exception = self._exceptions.get(
-                    (authorization.policy_ref.policy_id, authorization.exception_ref.exception_id)
+                    (
+                        authorization.policy_ref.policy_id,
+                        authorization.exception_ref.exception_id,
+                    )
                 )
             if (
                 exception is None
@@ -271,7 +281,13 @@ class PolicyAuthority:
         bindings: tuple[CapabilityBinding, ...],
     ) -> None:
         allowed = {
-            (binding.kind, binding.binding_id, binding.version, binding.digest, binding.privilege)
+            (
+                binding.kind,
+                binding.binding_id,
+                binding.version,
+                binding.digest,
+                binding.privilege,
+            )
             for binding in policy.bindings
         }
         for binding in bindings:
@@ -293,7 +309,7 @@ class PolicyAuthority:
         request_digest: str,
         required: bool,
         current: int,
-    ) -> "ApprovalRef | None":
+    ) -> ApprovalRef | None:
         if approval is None:
             if required:
                 raise PolicyDomainError("approval_required")
@@ -322,12 +338,15 @@ class PolicyAuthority:
         request_digest: str,
         requested_budget: ExecutionBudget,
         current: int,
-    ) -> "ExceptionRef | None":
+    ) -> ExceptionRef | None:
         if exception is None:
             return None
         if exception.policy_ref != policy.ref:
             raise PolicyConflictError("exception_policy_reference_mismatch")
-        if exception.operation != operation or exception.request_digest != request_digest:
+        if (
+            exception.operation != operation
+            or exception.request_digest != request_digest
+        ):
             raise PolicyConflictError("exception_request_drift")
         if current < exception.issued_at or current >= exception.expires_at:
             raise PolicyDomainError("exception_expired_or_not_yet_valid")

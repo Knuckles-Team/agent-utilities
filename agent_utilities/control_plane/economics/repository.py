@@ -13,6 +13,8 @@ from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import Field
 
+from agent_utilities.protocols.epistemic_operations import ProtocolModel
+
 from .models import (
     EconomicsConflict,
     KeysetCursor,
@@ -20,6 +22,7 @@ from .models import (
     SloReadPage,
     SloReadRequest,
     SloWindowRollup,
+    TenantScopeError,
     UsageCorrection,
     UsageFact,
     UsageReadPage,
@@ -27,10 +30,7 @@ from .models import (
     UsageTombstone,
     Watermark,
     WindowAggregate,
-    TenantScopeError,
 )
-from agent_utilities.protocols.epistemic_operations import ProtocolModel
-
 
 AppendDisposition = Literal["inserted", "replayed"]
 

@@ -33,9 +33,9 @@ from .models import (
     UiStateEntity,
     UiStateWriteReceipt,
     UserIdentity,
+    WebUiEntity,
     WidgetIdentity,
     WorkspaceIdentity,
-    WebUiEntity,
     canonical_digest,
 )
 from .protocols import WebUiRepository
@@ -69,13 +69,25 @@ class WebUiService:
             raise WebUiPilotBoundaryError()
         if getattr(entity, "session_ref", context.session_ref) != context.session_ref:
             raise WebUiPilotBoundaryError()
-        if getattr(entity, "user_ref", "user:anonymous-pilot") != "user:anonymous-pilot":
+        if (
+            getattr(entity, "user_ref", "user:anonymous-pilot")
+            != "user:anonymous-pilot"
+        ):
             raise WebUiPilotBoundaryError()
-        if getattr(entity, "owner_ref", "user:anonymous-pilot") != "user:anonymous-pilot":
+        if (
+            getattr(entity, "owner_ref", "user:anonymous-pilot")
+            != "user:anonymous-pilot"
+        ):
             raise WebUiPilotBoundaryError()
-        if getattr(entity, "actor_ref", "actor:anonymous-pilot") != "actor:anonymous-pilot":
+        if (
+            getattr(entity, "actor_ref", "actor:anonymous-pilot")
+            != "actor:anonymous-pilot"
+        ):
             raise WebUiPilotBoundaryError()
-        if getattr(entity, "requester_ref", "actor:anonymous-pilot") != "actor:anonymous-pilot":
+        if (
+            getattr(entity, "requester_ref", "actor:anonymous-pilot")
+            != "actor:anonymous-pilot"
+        ):
             raise WebUiPilotBoundaryError()
         if isinstance(entity, SessionIdentity) and not entity.anonymous_pilot:
             raise WebUiPilotBoundaryError()

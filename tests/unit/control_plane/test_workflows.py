@@ -236,4 +236,3 @@ def test_definition_catalog_has_no_workitem_claim_or_lease_authority() -> None:
     assert not hasattr(catalog, "claim_work_item")
     assert not hasattr(catalog, "renew_work_item_lease")
     assert not hasattr(catalog, "commit_work_item_result")
-

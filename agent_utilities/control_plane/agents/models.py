@@ -74,7 +74,7 @@ _INLINE_MARKERS = (
     "token=",
     "authorization:",
     "-----begin",
-    "{\"",
+    '{"',
     "[{",
 )
 
@@ -84,7 +84,9 @@ def _canonical(value: str) -> str:
 
 
 def _digest_payload(value: object) -> str:
-    payload = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    payload = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    )
     return f"sha256:{hashlib.sha256(payload.encode('utf-8')).hexdigest()}"
 
 
@@ -126,9 +128,12 @@ def binding_id_for(
 
 
 def pointer_id_for(agent_id: str, channel: ReleaseTrack) -> str:
-    return "agent-pointer:" + hashlib.sha256(
-        "\x1f".join((_canonical(agent_id), channel)).encode("utf-8")
-    ).hexdigest()
+    return (
+        "agent-pointer:"
+        + hashlib.sha256(
+            "\x1f".join((_canonical(agent_id), channel)).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def pointer_digest_for(
@@ -178,9 +183,7 @@ class ArtifactBinding(ProtocolModel):
     artifact_ref: Identifier
     artifact_digest: Digest
     schema_digest: Digest
-    depends_on: tuple[Identifier, ...] = Field(
-        default=(), max_length=_MAX_DEPENDENCIES
-    )
+    depends_on: tuple[Identifier, ...] = Field(default=(), max_length=_MAX_DEPENDENCIES)
 
     @model_validator(mode="after")
     def binding_is_exact(self) -> ArtifactBinding:
@@ -215,9 +218,7 @@ class AgentBindings(ProtocolModel):
     connectors: tuple[ArtifactBinding, ...] = Field(
         default=(), max_length=_MAX_BINDINGS
     )
-    workflows: tuple[ArtifactBinding, ...] = Field(
-        default=(), max_length=_MAX_BINDINGS
-    )
+    workflows: tuple[ArtifactBinding, ...] = Field(default=(), max_length=_MAX_BINDINGS)
 
     @property
     def all_bindings(self) -> tuple[ArtifactBinding, ...]:
@@ -256,13 +257,19 @@ class AgentBindings(ProtocolModel):
                 raise ValueError("agent binding kind does not match its binding slot")
             logical_ids = [item.logical_id for item in items]
             if len(set(logical_ids)) != len(logical_ids):
-                raise ValueError("agent binding logical ids have an alias/version ambiguity")
+                raise ValueError(
+                    "agent binding logical ids have an alias/version ambiguity"
+                )
             if tuple(sorted(items, key=lambda item: item.binding_id)) != items:
                 raise ValueError("agent binding groups must be sorted by binding id")
 
         known = set(ids)
         dependencies = {item.binding_id: set(item.depends_on) for item in all_items}
-        if any(dependency not in known for values in dependencies.values() for dependency in values):
+        if any(
+            dependency not in known
+            for values in dependencies.values()
+            for dependency in values
+        ):
             raise ValueError("agent binding dependency references an unknown binding")
 
         visiting: set[str] = set()
@@ -438,7 +445,10 @@ class EvaluationEvidence(ProtocolModel):
             raise ValueError("evaluation dataset references must be unique")
         if len({item.run_ref for item in self.runs}) != len(self.runs):
             raise ValueError("evaluation run references must be unique")
-        if tuple(sorted(self.datasets, key=lambda item: item.dataset_ref)) != self.datasets:
+        if (
+            tuple(sorted(self.datasets, key=lambda item: item.dataset_ref))
+            != self.datasets
+        ):
             raise ValueError("evaluation dataset references must be sorted")
         if tuple(sorted(self.runs, key=lambda item: item.run_ref)) != self.runs:
             raise ValueError("evaluation run references must be sorted")
@@ -669,9 +679,7 @@ class ResolvedAgentPlan(ProtocolModel):
     channel: ReleaseTrack
     pointer_digest: Digest
     approval_id: Identifier
-    binding_ids: tuple[Identifier, ...] = Field(
-        min_length=3, max_length=_MAX_BINDINGS
-    )
+    binding_ids: tuple[Identifier, ...] = Field(min_length=3, max_length=_MAX_BINDINGS)
     policy_set_digest: Digest
     evaluation_digest: Digest
     resolution_digest: Digest
@@ -711,7 +719,10 @@ class AgentListRequest(ProtocolModel):
 
     @model_validator(mode="after")
     def cursor_is_scope_bound(self) -> AgentListRequest:
-        if self.cursor is not None and self.cursor.scope_digest != self.scope.scope_digest:
+        if (
+            self.cursor is not None
+            and self.cursor.scope_digest != self.scope.scope_digest
+        ):
             raise ValueError("agent cursor is bound to another visibility scope")
         return self
 

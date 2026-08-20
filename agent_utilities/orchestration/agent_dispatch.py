@@ -141,7 +141,11 @@ def _carrier_text(value: Any, field_name: str, *, allow_empty: bool = False) -> 
     encoded = rendered.encode("utf-8")
     if not rendered and allow_empty:
         return rendered
-    if not rendered or len(encoded) > DISPATCH_CARRIER_MAX_FIELD_BYTES or "\x00" in rendered:
+    if (
+        not rendered
+        or len(encoded) > DISPATCH_CARRIER_MAX_FIELD_BYTES
+        or "\x00" in rendered
+    ):
         raise DispatchCarrierError(f"dispatch carrier {field_name} is invalid")
     return rendered
 
@@ -251,7 +255,7 @@ class DispatchCarrier(BaseModel):
         nonce: str | None = None,
         secret: str | bytes | None = None,
         allow_empty_tenant: bool = False,
-    ) -> "DispatchCarrier":
+    ) -> DispatchCarrier:
         tenant = _carrier_text(tenant, "tenant", allow_empty=allow_empty_tenant)
         session_id = _carrier_text(session_id, "session_id")
         job_id = _carrier_text(job_id, "job_id")
@@ -260,16 +264,16 @@ class DispatchCarrier(BaseModel):
         agent_name = _carrier_text(agent_name, "agent_name", allow_empty=True)
         issued_at = float(time.time() if now is None else now)
         ttl = float(ttl_seconds)
-        if not math.isfinite(issued_at) or not math.isfinite(ttl) or (
-            deadline_unix is not None and not math.isfinite(float(deadline_unix))
+        if (
+            not math.isfinite(issued_at)
+            or not math.isfinite(ttl)
+            or (deadline_unix is not None and not math.isfinite(float(deadline_unix)))
         ):
             raise DispatchCarrierError("dispatch carrier timestamps must be finite")
         if ttl <= 0 or ttl > DISPATCH_CARRIER_TTL_S:
             raise DispatchCarrierError("dispatch carrier TTL is outside its bound")
         expires_at = issued_at + ttl
-        carrier_nonce = _carrier_text(
-            nonce or secrets.token_urlsafe(18), "nonce"
-        )
+        carrier_nonce = _carrier_text(nonce or secrets.token_urlsafe(18), "nonce")
         payload = cls._canonical_payload(
             version=DISPATCH_CARRIER_VERSION,
             tenant=tenant,
@@ -278,9 +282,7 @@ class DispatchCarrier(BaseModel):
             kind=kind,
             payload_ref=payload_ref,
             agent_name=agent_name,
-            deadline_unix=(
-                float(deadline_unix) if deadline_unix is not None else None
-            ),
+            deadline_unix=(float(deadline_unix) if deadline_unix is not None else None),
             issued_at=issued_at,
             expires_at=expires_at,
             nonce=carrier_nonce,
@@ -295,9 +297,7 @@ class DispatchCarrier(BaseModel):
             kind=kind,
             payload_ref=payload_ref,
             agent_name=agent_name,
-            deadline_unix=(
-                float(deadline_unix) if deadline_unix is not None else None
-            ),
+            deadline_unix=(float(deadline_unix) if deadline_unix is not None else None),
             issued_at=issued_at,
             expires_at=expires_at,
             nonce=carrier_nonce,
@@ -317,7 +317,7 @@ class DispatchCarrier(BaseModel):
         now: float | None = None,
         secret: str | bytes | None = None,
         require_tenant: bool = True,
-    ) -> "DispatchCarrier":
+    ) -> DispatchCarrier:
         expected_tenant = _carrier_text(
             tenant, "tenant", allow_empty=not require_tenant
         )
@@ -327,9 +327,7 @@ class DispatchCarrier(BaseModel):
         expected_payload_ref = _carrier_text(
             payload_ref, "payload_ref", allow_empty=True
         )
-        expected_agent_name = _carrier_text(
-            agent_name, "agent_name", allow_empty=True
-        )
+        expected_agent_name = _carrier_text(agent_name, "agent_name", allow_empty=True)
         if deadline_unix is not None and not math.isfinite(float(deadline_unix)):
             raise DispatchCarrierError("dispatch deadline must be finite")
         if self.version != DISPATCH_CARRIER_VERSION:

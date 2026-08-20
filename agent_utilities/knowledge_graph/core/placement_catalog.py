@@ -450,11 +450,15 @@ def _attempt_route(
             if route.placed and route.group > 0:
                 try:
                     authority = _discovery_authority(config)
-                    discovery_context = verified_context or authority.context_for(client)
+                    discovery_context = verified_context or authority.context_for(
+                        client
+                    )
                     if discovery_context is not None:
                         prior_discovery = authority.last_good_for(
                             verified_context=discovery_context,
-                            expected_cluster_id=getattr(config, "graph_cluster_id", None),
+                            expected_cluster_id=getattr(
+                                config, "graph_cluster_id", None
+                            ),
                         )
                     discovery = authority.read(
                         client,

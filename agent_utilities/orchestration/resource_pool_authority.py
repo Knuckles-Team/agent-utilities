@@ -16,13 +16,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Iterable
 from datetime import UTC, datetime
-from typing import Annotated, Iterable, Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, StrictBool, StrictInt, field_validator, model_validator
 
 from agent_utilities.protocols.epistemic_operations import ProtocolModel
-
 
 SCHEMA_VERSION: Literal["1"] = "1"
 MAX_REF_LENGTH = 256
@@ -129,7 +129,7 @@ class ResourceAmount(ProtocolModel):
     value: Annotated[StrictInt, Field(ge=0, le=MAX_RESOURCE_VALUE)] | None = None
 
     @model_validator(mode="after")
-    def validate_truth(self) -> "ResourceAmount":
+    def validate_truth(self) -> ResourceAmount:
         if self.state == "known":
             if self.value is None or self.value < 0:
                 raise ValueError("known resource amounts require non-negative values")
@@ -138,11 +138,11 @@ class ResourceAmount(ProtocolModel):
         return self
 
     @classmethod
-    def known(cls, value: int) -> "ResourceAmount":
+    def known(cls, value: int) -> ResourceAmount:
         return cls(state="known", value=value)
 
     @classmethod
-    def missing(cls, state: CapabilityState = "unknown") -> "ResourceAmount":
+    def missing(cls, state: CapabilityState = "unknown") -> ResourceAmount:
         if state == "known":
             raise ValueError("known amount requires a value")
         return cls(state=state)
@@ -161,7 +161,7 @@ class ResourceAccounting(ProtocolModel):
     used: ResourceAmount
 
     @model_validator(mode="after")
-    def validate_order(self) -> "ResourceAccounting":
+    def validate_order(self) -> ResourceAccounting:
         amounts = (self.allocatable, self.reserved, self.used)
         if all(item.state == "known" for item in amounts):
             allocatable = self.allocatable.value
@@ -186,7 +186,7 @@ class ResourceAccounting(ProtocolModel):
     @classmethod
     def known(
         cls, allocatable: int, reserved: int = 0, used: int = 0
-    ) -> "ResourceAccounting":
+    ) -> ResourceAccounting:
         return cls(
             allocatable=ResourceAmount.known(allocatable),
             reserved=ResourceAmount.known(reserved),
@@ -194,7 +194,7 @@ class ResourceAccounting(ProtocolModel):
         )
 
     @classmethod
-    def missing(cls, state: CapabilityState = "unknown") -> "ResourceAccounting":
+    def missing(cls, state: CapabilityState = "unknown") -> ResourceAccounting:
         return cls(
             allocatable=ResourceAmount.missing(state),
             reserved=ResourceAmount.missing(state),
@@ -223,7 +223,7 @@ class CpuCapability(ProtocolModel):
         return normalized
 
     @model_validator(mode="after")
-    def validate_truth(self) -> "CpuCapability":
+    def validate_truth(self) -> CpuCapability:
         if self.architecture_state == "known" and self.architecture is None:
             raise ValueError("known CPU architecture requires an architecture")
         if self.architecture_state != "known" and self.architecture is not None:
@@ -267,7 +267,7 @@ class GpuCapability(ProtocolModel):
         return _ref(value, name="runtime_version_ref") if value is not None else None
 
     @model_validator(mode="after")
-    def validate_truth(self) -> "GpuCapability":
+    def validate_truth(self) -> GpuCapability:
         if self.state == "known":
             if self.runtime in {None, "none"} or self.device_count.state != "known":
                 raise ValueError(
@@ -293,7 +293,7 @@ class StorageCapability(ProtocolModel):
     nvme_write_iops: ResourceAmount
 
     @model_validator(mode="after")
-    def validate_nvme_truth(self) -> "StorageCapability":
+    def validate_nvme_truth(self) -> StorageCapability:
         if self.nvme_state == "known":
             if self.nvme_device_count.state != "known":
                 raise ValueError("known NVMe capability requires device count")
@@ -334,7 +334,7 @@ class CostCapability(ProtocolModel):
     micros_per_hour: ResourceAmount
 
     @model_validator(mode="after")
-    def validate_currency(self) -> "CostCapability":
+    def validate_currency(self) -> CostCapability:
         if self.state == "known" and self.currency is None:
             raise ValueError("known cost capability requires a currency")
         if self.state != "known" and self.currency is not None:
@@ -381,7 +381,7 @@ class CapabilityAttestation(ProtocolModel):
         return _utc(value, name=str(getattr(info, "field_name", "attestation_time")))
 
     @model_validator(mode="after")
-    def validate_window(self) -> "CapabilityAttestation":
+    def validate_window(self) -> CapabilityAttestation:
         if self.expires_at <= self.observed_at:
             raise ValueError("attestation expires_at must follow observed_at")
         return self
@@ -415,7 +415,7 @@ class ResourcePoolSnapshot(ProtocolModel):
         return _utc(value, name=str(getattr(info, "field_name", "snapshot_time")))
 
     @model_validator(mode="after")
-    def validate_attestation_and_identity(self) -> "ResourcePoolSnapshot":
+    def validate_attestation_and_identity(self) -> ResourcePoolSnapshot:
         if self.expires_at <= self.observed_at:
             raise ValueError("snapshot expires_at must follow observed_at")
         if self.attestation.observed_at > self.observed_at:
@@ -480,7 +480,7 @@ class GpuRequirement(ProtocolModel):
         return _ref(value, name="mig_profile_ref") if value is not None else None
 
     @model_validator(mode="after")
-    def validate_requirement(self) -> "GpuRequirement":
+    def validate_requirement(self) -> GpuRequirement:
         if self.count == 0 and (
             self.memory_mib
             or self.runtime is not None
@@ -499,7 +499,7 @@ class NvmeRequirement(ProtocolModel):
     write_iops: Annotated[StrictInt, Field(ge=0, le=10**9)] = 0
 
     @model_validator(mode="after")
-    def validate_requirement(self) -> "NvmeRequirement":
+    def validate_requirement(self) -> NvmeRequirement:
         if not self.required and any(
             (self.device_count, self.read_iops, self.write_iops)
         ):
@@ -543,7 +543,7 @@ class PlacementRequirement(ProtocolModel):
         return normalized
 
     @model_validator(mode="after")
-    def validate_identity(self) -> "PlacementRequirement":
+    def validate_identity(self) -> PlacementRequirement:
         identity = {
             "schema_version": self.schema_version,
             "architecture": self.architecture,
@@ -592,7 +592,7 @@ class PlacementEvidence(ProtocolModel):
         return _digest(value, name="snapshot_digest")
 
     @model_validator(mode="after")
-    def validate_decision(self) -> "PlacementEvidence":
+    def validate_decision(self) -> PlacementEvidence:
         if self.eligible and self.denial_reasons:
             raise ValueError("eligible evidence cannot carry denial reasons")
         if not self.eligible and not self.denial_reasons:
@@ -611,9 +611,9 @@ class PlacementDecision(ProtocolModel):
     status: DecisionStatus
     selected_pool_ref: Annotated[str, Field(max_length=MAX_REF_LENGTH)] | None = None
     selected_snapshot_id: Annotated[str, Field(max_length=100)] | None = None
-    selected_snapshot_digest: Annotated[
-        str, Field(pattern=r"^sha256:[0-9a-f]{64}$")
-    ] | None = None
+    selected_snapshot_digest: (
+        Annotated[str, Field(pattern=r"^sha256:[0-9a-f]{64}$")] | None
+    ) = None
     denial_reasons: Annotated[
         tuple[DenialReason, ...], Field(max_length=MAX_DENIAL_REASONS)
     ] = ()
@@ -647,7 +647,7 @@ class PlacementDecision(ProtocolModel):
         return _utc(value, name="evaluated_at")
 
     @model_validator(mode="after")
-    def validate_result(self) -> "PlacementDecision":
+    def validate_result(self) -> PlacementDecision:
         if self.candidate_count < len(self.evidence):
             raise ValueError("evidence cannot contain more rows than candidates")
         if self.candidate_count <= MAX_EVIDENCE and (
@@ -707,7 +707,8 @@ class PlacementDecision(ProtocolModel):
 
 def _known(accounting: ResourceAccounting) -> bool:
     return all(
-        item.state == "known" for item in (
+        item.state == "known"
+        for item in (
             accounting.allocatable,
             accounting.reserved,
             accounting.used,
@@ -717,9 +718,7 @@ def _known(accounting: ResourceAccounting) -> bool:
 
 def _amount_at_least(amount: ResourceAmount, minimum: int) -> bool:
     return (
-        amount.state == "known"
-        and amount.value is not None
-        and amount.value >= minimum
+        amount.state == "known" and amount.value is not None and amount.value >= minimum
     )
 
 
@@ -853,9 +852,7 @@ def _check_snapshot(
 
     energy = snapshot.capabilities.energy
     if requirement.max_power_watts is not None:
-        if energy.state != "known" or not _amount_at_least(
-            energy.max_power_watts, 0
-        ):
+        if energy.state != "known" or not _amount_at_least(energy.max_power_watts, 0):
             reasons.append("unknown_energy")
         elif (
             energy.max_power_watts.value is None
@@ -928,11 +925,7 @@ def place(
         )
         for snapshot, reasons in checked
     )
-    eligible = [
-        snapshot
-        for snapshot, reasons in checked
-        if not reasons
-    ]
+    eligible = [snapshot for snapshot, reasons in checked if not reasons]
     selected = min(eligible, key=_candidate_rank) if eligible else None
     evidence_rows = list(all_evidence[:MAX_EVIDENCE])
     if selected is not None and all(
@@ -955,13 +948,7 @@ def place(
         selected_snapshot_id = None
         selected_snapshot_digest = None
         denial_reasons = tuple(
-            sorted(
-                {
-                    reason
-                    for _, reasons in checked
-                    for reason in reasons
-                }
-            )
+            sorted({reason for _, reasons in checked for reason in reasons})
         )[:MAX_DENIAL_REASONS]
         if not denial_reasons:
             denial_reasons = ("unknown_cpu",)

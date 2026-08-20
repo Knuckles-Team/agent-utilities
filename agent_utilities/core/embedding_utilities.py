@@ -19,7 +19,6 @@ from agent_utilities.core.config import setting
 
 if TYPE_CHECKING:
     import httpx
-
     from llama_index.core.embeddings import BaseEmbedding
 
 

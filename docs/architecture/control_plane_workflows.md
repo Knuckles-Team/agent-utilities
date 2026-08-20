@@ -34,4 +34,3 @@ flowchart LR
   mutate or delete the newer version.
 - The catalog has no claim/lease/result methods. Native `WorkItem` remains the
   sole execution authority after a caller materializes a resolved definition.
-

@@ -20,10 +20,18 @@ import json
 import math
 import re
 from collections.abc import Mapping
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Annotated, Literal, TypeAlias
 
-from pydantic import Field, StrictBool, StrictFloat, StrictInt, StrictStr, field_validator, model_validator
+from pydantic import (
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    field_validator,
+    model_validator,
+)
 
 from agent_utilities.protocols.epistemic_operations import ProtocolModel
 
@@ -126,7 +134,9 @@ Identifier: TypeAlias = Annotated[
 AggregateType: TypeAlias = Identifier
 EventType: TypeAlias = Annotated[
     str,
-    Field(min_length=1, max_length=MAX_EVENT_TYPE_LENGTH, pattern=_EVENT_TYPE_RE.pattern),
+    Field(
+        min_length=1, max_length=MAX_EVENT_TYPE_LENGTH, pattern=_EVENT_TYPE_RE.pattern
+    ),
 ]
 Digest: TypeAlias = Annotated[str, Field(pattern=_DIGEST_RE)]
 SummaryValue: TypeAlias = StrictBool | StrictInt | StrictFloat | StrictStr
@@ -142,10 +152,13 @@ def _canonical(value: object) -> object:
     if isinstance(value, ProtocolModel):
         return _canonical(value.model_dump(mode="python"))
     if isinstance(value, datetime):
-        normalized = value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
-        return normalized.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        normalized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+        return normalized.astimezone(UTC).isoformat().replace("+00:00", "Z")
     if isinstance(value, Mapping):
-        return {str(key): _canonical(item) for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))}
+        return {
+            str(key): _canonical(item)
+            for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+        }
     if isinstance(value, (tuple, list)):
         return [_canonical(item) for item in value]
     return value
@@ -164,7 +177,9 @@ def _canonical_json(value: object) -> str:
 def sha256_digest(value: object) -> str:
     """Return the versioned digest spelling used by every projection record."""
 
-    return "sha256:" + hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+    return (
+        "sha256:" + hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+    )
 
 
 def _require_utc(value: datetime, field_name: str) -> datetime:
@@ -237,19 +252,22 @@ def event_id_for(
 ) -> str:
     """Derive one stable event identity from the exact authority change."""
 
-    return "event:" + hashlib.sha256(
-        _canonical_json(
-            {
-                "aggregate_digest": aggregate_digest,
-                "aggregate_id": aggregate_id,
-                "aggregate_type": aggregate_type,
-                "event_type": event_type,
-                "operation": operation,
-                "payload_digest": payload_digest,
-                "sequence": sequence,
-            }
-        ).encode("utf-8")
-    ).hexdigest()
+    return (
+        "event:"
+        + hashlib.sha256(
+            _canonical_json(
+                {
+                    "aggregate_digest": aggregate_digest,
+                    "aggregate_id": aggregate_id,
+                    "aggregate_type": aggregate_type,
+                    "event_type": event_type,
+                    "operation": operation,
+                    "payload_digest": payload_digest,
+                    "sequence": sequence,
+                }
+            ).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def event_digest_for(material: Mapping[str, object]) -> str:
@@ -265,17 +283,20 @@ def authoritative_mutation_id_for(
     operation: MutationOperation,
     change_digest: str,
 ) -> str:
-    return "mutation:" + hashlib.sha256(
-        _canonical_json(
-            {
-                "aggregate_id": aggregate_id,
-                "aggregate_type": aggregate_type,
-                "change_digest": change_digest,
-                "operation": operation,
-                "sequence": sequence,
-            }
-        ).encode("utf-8")
-    ).hexdigest()
+    return (
+        "mutation:"
+        + hashlib.sha256(
+            _canonical_json(
+                {
+                    "aggregate_id": aggregate_id,
+                    "aggregate_type": aggregate_type,
+                    "change_digest": change_digest,
+                    "operation": operation,
+                    "sequence": sequence,
+                }
+            ).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def checkpoint_digest_for(material: Mapping[str, object]) -> str:
@@ -283,9 +304,14 @@ def checkpoint_digest_for(material: Mapping[str, object]) -> str:
 
 
 def observation_promotion_id_for(observation_id: str, policy_ref: str) -> str:
-    return "promotion:" + hashlib.sha256(
-        _canonical_json({"observation_id": observation_id, "policy_ref": policy_ref}).encode("utf-8")
-    ).hexdigest()
+    return (
+        "promotion:"
+        + hashlib.sha256(
+            _canonical_json(
+                {"observation_id": observation_id, "policy_ref": policy_ref}
+            ).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 class _ProjectionModel(ProtocolModel):
@@ -307,7 +333,9 @@ class ProjectionScope(_ProjectionModel):
 class Tombstone(_ProjectionModel):
     """Bounded deletion evidence; it is not a copy of the deleted record."""
 
-    reason_code: Annotated[str, Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9._-]*$")]
+    reason_code: Annotated[
+        str, Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9._-]*$")
+    ]
     target_digest: Digest
     deleted_at: Timestamp
 
@@ -419,7 +447,9 @@ class OutboxEnvelope(_ProjectionModel):
                 aggregate_digest,
             ),
             event_digest=event_digest_for(material),
-            **{key: value for key, value in material.items() if key != "schema_version"},
+            **{
+                key: value for key, value in material.items() if key != "schema_version"
+            },
         )
 
 
@@ -460,7 +490,10 @@ class AuthoritativeMutation(_ProjectionModel):
         )
         if self.mutation_id != expected:
             raise ValueError("mutation_id_is_not_content_derived")
-        if self.expected_revision is not None and self.expected_revision >= self.authoritative_revision:
+        if (
+            self.expected_revision is not None
+            and self.expected_revision >= self.authoritative_revision
+        ):
             raise ValueError("expected_revision_must_precede_authoritative_revision")
         return self
 
@@ -588,18 +621,25 @@ class ProjectionCheckpoint(_ProjectionModel):
 
     @model_validator(mode="after")
     def _checkpoint_identity_is_exact(self) -> ProjectionCheckpoint:
-        if self.last_sequence == 0 and (self.last_event_id is not None or self.last_event_digest is not None):
+        if self.last_sequence == 0 and (
+            self.last_event_id is not None or self.last_event_digest is not None
+        ):
             raise ValueError("initial_checkpoint_cannot_have_event_identity")
-        if self.last_sequence > 0 and (self.last_event_id is None or self.last_event_digest is None):
+        if self.last_sequence > 0 and (
+            self.last_event_id is None or self.last_event_digest is None
+        ):
             raise ValueError("advanced_checkpoint_requires_event_identity")
-        expected_id = "checkpoint:" + hashlib.sha256(
-            _canonical_json(
-                {
-                    "projector_id": self.projector_id,
-                    "scope": self.scope,
-                }
-            ).encode("utf-8")
-        ).hexdigest()
+        expected_id = (
+            "checkpoint:"
+            + hashlib.sha256(
+                _canonical_json(
+                    {
+                        "projector_id": self.projector_id,
+                        "scope": self.scope,
+                    }
+                ).encode("utf-8")
+            ).hexdigest()
+        )
         if self.checkpoint_id != expected_id:
             raise ValueError("checkpoint_id_is_not_scope_derived")
         expected_digest = checkpoint_digest_for(self._digest_material())
@@ -619,7 +659,9 @@ class ProjectionCheckpoint(_ProjectionModel):
         }
 
     @classmethod
-    def initial(cls, *, projector_id: str, scope: ProjectionScope, fence_token: int) -> ProjectionCheckpoint:
+    def initial(
+        cls, *, projector_id: str, scope: ProjectionScope, fence_token: int
+    ) -> ProjectionCheckpoint:
         material = {
             "checkpoint_version": "control-plane-projection-checkpoint.v1",
             "fence_token": fence_token,
@@ -630,11 +672,18 @@ class ProjectionCheckpoint(_ProjectionModel):
             "scope": scope,
         }
         return cls(
-            checkpoint_id="checkpoint:" + hashlib.sha256(
-                _canonical_json({"projector_id": projector_id, "scope": scope}).encode("utf-8")
+            checkpoint_id="checkpoint:"
+            + hashlib.sha256(
+                _canonical_json({"projector_id": projector_id, "scope": scope}).encode(
+                    "utf-8"
+                )
             ).hexdigest(),
             checkpoint_digest=checkpoint_digest_for(material),
-            **{key: value for key, value in material.items() if key != "checkpoint_version"},
+            **{
+                key: value
+                for key, value in material.items()
+                if key != "checkpoint_version"
+            },
         )
 
     @classmethod
@@ -647,7 +696,10 @@ class ProjectionCheckpoint(_ProjectionModel):
     ) -> ProjectionCheckpoint:
         if event.sequence != prior.last_sequence + 1:
             raise ValueError("checkpoint_event_must_be_next_sequence")
-        if event.aggregate_type != prior.scope.aggregate_type or event.aggregate_id != prior.scope.aggregate_id:
+        if (
+            event.aggregate_type != prior.scope.aggregate_type
+            or event.aggregate_id != prior.scope.aggregate_id
+        ):
             raise ValueError("checkpoint_event_scope_mismatch")
         material = {
             "checkpoint_version": "control-plane-projection-checkpoint.v1",
@@ -661,7 +713,11 @@ class ProjectionCheckpoint(_ProjectionModel):
         return cls(
             checkpoint_id=prior.checkpoint_id,
             checkpoint_digest=checkpoint_digest_for(material),
-            **{key: value for key, value in material.items() if key != "checkpoint_version"},
+            **{
+                key: value
+                for key, value in material.items()
+                if key != "checkpoint_version"
+            },
         )
 
 
@@ -685,7 +741,9 @@ class ProjectionOutcome(_ProjectionModel):
     aggregate_id: Identifier
     sequence: int = Field(ge=1)
     event_id: Identifier
-    reason_code: str | None = Field(default=None, max_length=64, pattern=r"^[a-z][a-z0-9._-]*$")
+    reason_code: str | None = Field(
+        default=None, max_length=64, pattern=r"^[a-z][a-z0-9._-]*$"
+    )
 
 
 class DriftRecord(_ProjectionModel):
@@ -735,9 +793,14 @@ class ObservationPromotionPolicy(_ProjectionModel):
 
     @model_validator(mode="after")
     def _policy_is_normalized(self) -> ObservationPromotionPolicy:
-        if len(set(self.allowed_observation_types)) != len(self.allowed_observation_types):
+        if len(set(self.allowed_observation_types)) != len(
+            self.allowed_observation_types
+        ):
             raise ValueError("promotion_policy_observation_types_must_be_unique")
-        if tuple(sorted(self.allowed_observation_types)) != self.allowed_observation_types:
+        if (
+            tuple(sorted(self.allowed_observation_types))
+            != self.allowed_observation_types
+        ):
             raise ValueError("promotion_policy_observation_types_must_be_sorted")
         return self
 

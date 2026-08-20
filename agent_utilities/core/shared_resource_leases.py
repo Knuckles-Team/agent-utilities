@@ -33,10 +33,10 @@ import os
 import sqlite3
 import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from typing import Any, Iterator, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 __all__ = [
     "RESOURCE_LEASE_SCHEMA",
@@ -155,7 +155,9 @@ class ResourceCell:
             object.__setattr__(self, name, _text(getattr(self, name), name))
         _positive_int(self.capacity, "capacity")
         _positive_int(self.epoch, "epoch")
-        if isinstance(self.reserved_floor, bool) or not isinstance(self.reserved_floor, int):
+        if isinstance(self.reserved_floor, bool) or not isinstance(
+            self.reserved_floor, int
+        ):
             raise ValueError("reserved_floor must be an integer")
         if not 0 <= self.reserved_floor <= self.capacity:
             raise ValueError("reserved_floor must be within capacity")
@@ -379,7 +381,9 @@ class InMemoryResourceLeaseAuthority:
 
     def __init__(self, cells: Sequence[ResourceCell] = ()) -> None:
         self._lock = threading.RLock()
-        self._cells: dict[str, ResourceCell] = {cell.logical_key: cell for cell in cells}
+        self._cells: dict[str, ResourceCell] = {
+            cell.logical_key: cell for cell in cells
+        }
         self._leases: dict[str, _MemoryRecord] = {}
         self._idempotency: dict[tuple[str, str, str], str] = {}
         self._next_fence = 1
@@ -407,7 +411,10 @@ class InMemoryResourceLeaseAuthority:
     def _reclaim_locked(self, now_ms: int) -> tuple[str, ...]:
         reclaimed: list[str] = []
         for lease_id, record in self._leases.items():
-            if record.lease.state in _ACTIVE_STATES and now_ms >= record.lease.expires_at_ms:
+            if (
+                record.lease.state in _ACTIVE_STATES
+                and now_ms >= record.lease.expires_at_ms
+            ):
                 record.lease = replace(record.lease, state="reclaimed")
                 reclaimed.append(lease_id)
         return tuple(reclaimed)
@@ -428,12 +435,18 @@ class InMemoryResourceLeaseAuthority:
         with self._lock:
             self._reclaim_locked(now)
             cell = self._cell_for(request)
-            idem = (request.cell_logical_key, request.tenant_ref, request.idempotency_key)
+            idem = (
+                request.cell_logical_key,
+                request.tenant_ref,
+                request.idempotency_key,
+            )
             prior_id = self._idempotency.get(idem)
             if prior_id is not None:
                 prior = self._leases[prior_id].lease
                 if prior.request.digest != request.digest:
-                    raise LeaseIdempotencyConflict("idempotency key changed request scope")
+                    raise LeaseIdempotencyConflict(
+                        "idempotency key changed request scope"
+                    )
                 prior.assert_live(now_ms=now)
                 return prior
             active = self._active_amount_locked(request.cell_logical_key, now)
@@ -453,8 +466,12 @@ class InMemoryResourceLeaseAuthority:
                 ceiling = max(0, ceiling - cell.reserved_floor)
             available = ceiling - active
             if available < request.amount:
-                raise LeaseDenied(f"shared resource capacity exhausted ({available} available)")
-            lease_id = f"{request.resource_kind}:{request.resource_id}:{self._next_fence}"
+                raise LeaseDenied(
+                    f"shared resource capacity exhausted ({available} available)"
+                )
+            lease_id = (
+                f"{request.resource_kind}:{request.resource_id}:{self._next_fence}"
+            )
             fence = self._next_fence
             self._next_fence += 1
             self._revision += 1
@@ -484,12 +501,19 @@ class InMemoryResourceLeaseAuthority:
         if record is None:
             raise LeaseNotFound(lease_id)
         lease = record.lease
-        if lease.request.tenant_ref != tenant_ref or lease.request.principal_ref != principal_ref:
+        if (
+            lease.request.tenant_ref != tenant_ref
+            or lease.request.principal_ref != principal_ref
+        ):
             raise LeaseScopeMismatch("lease owner identity does not match")
         if lease.request.lease_epoch != lease_epoch:
             raise StaleLeaseEpoch("lease epoch is stale")
         cell = self._cells.get(lease.request.cell_logical_key)
-        if cell is None or cell.device_id != lease.request.device_id or cell.epoch != lease_epoch:
+        if (
+            cell is None
+            or cell.device_id != lease.request.device_id
+            or cell.epoch != lease_epoch
+        ):
             raise StaleLeaseEpoch("resource device or epoch is stale")
         if lease.fence_token != fence_token:
             raise StaleLeaseFence("lease fence token does not match")
@@ -584,14 +608,23 @@ class InMemoryResourceLeaseAuthority:
         """Atomically fence a device/MIG replacement and publish its new epoch."""
 
         with self._lock:
-            logical = ":".join((_text(resource_kind, "resource_kind"), _text(resource_id, "resource_id"), _text(node_id, "node_id")))
+            logical = ":".join(
+                (
+                    _text(resource_kind, "resource_kind"),
+                    _text(resource_id, "resource_id"),
+                    _text(node_id, "node_id"),
+                )
+            )
             prior = self._cells.get(logical)
             if prior is None:
                 raise LeaseDenied("cannot rebind an unknown resource cell")
             if epoch <= prior.epoch:
                 raise StaleLeaseEpoch("device epoch must increase")
             for record in self._leases.values():
-                if record.lease.request.cell_logical_key == logical and record.lease.state in _ACTIVE_STATES:
+                if (
+                    record.lease.request.cell_logical_key == logical
+                    and record.lease.state in _ACTIVE_STATES
+                ):
                     record.lease = replace(record.lease, state="stale")
             cell = replace(
                 prior,
@@ -609,7 +642,10 @@ class InMemoryResourceLeaseAuthority:
                 "authority": "in_memory_test_only",
                 "cells": len(self._cells),
                 "leases": len(self._leases),
-                "active": sum(record.lease.state in _ACTIVE_STATES for record in self._leases.values()),
+                "active": sum(
+                    record.lease.state in _ACTIVE_STATES
+                    for record in self._leases.values()
+                ),
                 "revision": self._revision,
             }
 
@@ -624,7 +660,9 @@ class SQLiteResourceLeaseAuthority:
 
     test_only = True
 
-    def __init__(self, path: str | os.PathLike[str], cells: Sequence[ResourceCell] = ()) -> None:
+    def __init__(
+        self, path: str | os.PathLike[str], cells: Sequence[ResourceCell] = ()
+    ) -> None:
         self.path = os.fspath(path)
         if not self.path:
             raise ValueError("lease database path is required")
@@ -691,7 +729,9 @@ class SQLiteResourceLeaseAuthority:
 
     @staticmethod
     def _upsert_cell(conn: sqlite3.Connection, cell: ResourceCell) -> None:
-        quotas = json.dumps(dict(cell.tenant_quotas), sort_keys=True, separators=(",", ":"))
+        quotas = json.dumps(
+            dict(cell.tenant_quotas), sort_keys=True, separators=(",", ":")
+        )
         conn.execute(
             """INSERT INTO resource_cells(logical_key, resource_kind, resource_id, node_id,
                        device_id, capacity, epoch, reserved_floor, policy_digest, tenant_quotas)
@@ -702,8 +742,18 @@ class SQLiteResourceLeaseAuthority:
                  capacity=excluded.capacity, epoch=excluded.epoch,
                  reserved_floor=excluded.reserved_floor, policy_digest=excluded.policy_digest,
                  tenant_quotas=excluded.tenant_quotas""",
-            (cell.logical_key, cell.resource_kind, cell.resource_id, cell.node_id, cell.device_id,
-             cell.capacity, cell.epoch, cell.reserved_floor, cell.policy_digest, quotas),
+            (
+                cell.logical_key,
+                cell.resource_kind,
+                cell.resource_id,
+                cell.node_id,
+                cell.device_id,
+                cell.capacity,
+                cell.epoch,
+                cell.reserved_floor,
+                cell.policy_digest,
+                quotas,
+            ),
         )
 
     @staticmethod
@@ -713,37 +763,64 @@ class SQLiteResourceLeaseAuthority:
         if not isinstance(quotas, dict):
             raise LeaseDenied("stored tenant quota metadata is malformed")
         return ResourceCell(
-            resource_kind=values[1], resource_id=values[2], node_id=values[3], device_id=values[4],
-            capacity=int(values[5]), epoch=int(values[6]), reserved_floor=int(values[7]),
-            policy_digest=values[8], tenant_quotas=tuple((str(k), int(v)) for k, v in quotas.items()),
+            resource_kind=values[1],
+            resource_id=values[2],
+            node_id=values[3],
+            device_id=values[4],
+            capacity=int(values[5]),
+            epoch=int(values[6]),
+            reserved_floor=int(values[7]),
+            policy_digest=values[8],
+            tenant_quotas=tuple((str(k), int(v)) for k, v in quotas.items()),
         )
 
     @staticmethod
     def _lease(row: sqlite3.Row | tuple[Any, ...]) -> ResourceLease:
         values = tuple(row)
         request = ResourceLeaseRequest(
-            resource_kind=values[2], resource_id=values[3], node_id=values[4], device_id=values[5],
-            tenant_ref=values[6], principal_ref=values[7], amount=int(values[8]),
-            idempotency_key=values[9], lease_epoch=int(values[10]), ttl_ms=int(values[11]),
-            priority_class=values[12], policy_digest=values[13],
+            resource_kind=values[2],
+            resource_id=values[3],
+            node_id=values[4],
+            device_id=values[5],
+            tenant_ref=values[6],
+            principal_ref=values[7],
+            amount=int(values[8]),
+            idempotency_key=values[9],
+            lease_epoch=int(values[10]),
+            ttl_ms=int(values[11]),
+            priority_class=values[12],
+            policy_digest=values[13],
         )
         if request.digest != values[14]:
             raise LeaseDenied("stored lease request digest is invalid")
         return ResourceLease(
-            lease_id=values[0], request=request, fence_token=int(values[15]),
-            issued_at_ms=int(values[16]), expires_at_ms=int(values[17]), state=values[18],
+            lease_id=values[0],
+            request=request,
+            fence_token=int(values[15]),
+            issued_at_ms=int(values[16]),
+            expires_at_ms=int(values[17]),
+            state=values[18],
             authority_revision=int(values[19]),
         )
 
     @staticmethod
     def _next(conn: sqlite3.Connection, name: str) -> int:
-        conn.execute("UPDATE resource_meta SET value = value + 1 WHERE name = ?", (name,))
-        return int(conn.execute("SELECT value FROM resource_meta WHERE name = ?", (name,)).fetchone()[0])
+        conn.execute(
+            "UPDATE resource_meta SET value = value + 1 WHERE name = ?", (name,)
+        )
+        return int(
+            conn.execute(
+                "SELECT value FROM resource_meta WHERE name = ?", (name,)
+            ).fetchone()[0]
+        )
 
     def register_cell(self, cell: ResourceCell) -> None:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
-            row = conn.execute("SELECT * FROM resource_cells WHERE logical_key = ?", (cell.logical_key,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM resource_cells WHERE logical_key = ?",
+                (cell.logical_key,),
+            ).fetchone()
             if row is not None and cell.epoch < int(row[6]):
                 conn.rollback()
                 raise StaleLeaseEpoch("cell epoch moved backwards")
@@ -762,12 +839,17 @@ class SQLiteResourceLeaseAuthority:
             (now_ms,),
         )
 
-    def acquire(self, request: ResourceLeaseRequest, *, now_ms: int | None = None) -> ResourceLease:
+    def acquire(
+        self, request: ResourceLeaseRequest, *, now_ms: int | None = None
+    ) -> ResourceLease:
         now = _now_ms() if now_ms is None else int(now_ms)
         conn = self._begin()
         try:
             self._prune(conn, now)
-            row = conn.execute("SELECT * FROM resource_cells WHERE logical_key = ?", (request.cell_logical_key,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM resource_cells WHERE logical_key = ?",
+                (request.cell_logical_key,),
+            ).fetchone()
             if row is None:
                 raise LeaseDenied("unknown shared resource cell")
             cell = self._cell(row)
@@ -779,12 +861,19 @@ class SQLiteResourceLeaseAuthority:
                 raise LeaseScopeMismatch("resource policy digest does not match")
             idem = conn.execute(
                 "SELECT * FROM resource_leases WHERE logical_key = ? AND tenant_ref = ? AND principal_ref = ? AND idempotency_key = ?",
-                (request.cell_logical_key, request.tenant_ref, request.principal_ref, request.idempotency_key),
+                (
+                    request.cell_logical_key,
+                    request.tenant_ref,
+                    request.principal_ref,
+                    request.idempotency_key,
+                ),
             ).fetchone()
             if idem is not None:
                 prior = self._lease(idem)
                 if prior.request.digest != request.digest:
-                    raise LeaseIdempotencyConflict("idempotency key changed request scope")
+                    raise LeaseIdempotencyConflict(
+                        "idempotency key changed request scope"
+                    )
                 prior.assert_live(now_ms=now)
                 conn.commit()
                 return prior
@@ -799,10 +888,16 @@ class SQLiteResourceLeaseAuthority:
             quota = cell.quota_for(request.tenant_ref)
             if quota is not None and int(tenant_active) + request.amount > quota:
                 raise LeaseDenied("tenant resource quota exhausted")
-            ceiling = cell.capacity if request.priority_class in {"interactive", "foreground"} else max(0, cell.capacity - cell.reserved_floor)
+            ceiling = (
+                cell.capacity
+                if request.priority_class in {"interactive", "foreground"}
+                else max(0, cell.capacity - cell.reserved_floor)
+            )
             available = ceiling - int(active)
             if available < request.amount:
-                raise LeaseDenied(f"shared resource capacity exhausted ({available} available)")
+                raise LeaseDenied(
+                    f"shared resource capacity exhausted ({available} available)"
+                )
             fence = self._next(conn, "fence")
             revision = self._next(conn, "revision")
             lease_id = f"{request.resource_kind}:{request.resource_id}:{fence}"
@@ -811,12 +906,31 @@ class SQLiteResourceLeaseAuthority:
                    device_id, tenant_ref, principal_ref, amount, idempotency_key, lease_epoch, ttl_ms,
                    priority_class, policy_digest, request_digest, fence_token, issued_at_ms, expires_at_ms,
                    state, authority_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)""",
-                (lease_id, request.cell_logical_key, request.resource_kind, request.resource_id, request.node_id,
-                 request.device_id, request.tenant_ref, request.principal_ref, request.amount, request.idempotency_key,
-                 request.lease_epoch, request.ttl_ms, request.priority_class, request.policy_digest, request.digest,
-                 fence, now, now + request.ttl_ms, revision),
+                (
+                    lease_id,
+                    request.cell_logical_key,
+                    request.resource_kind,
+                    request.resource_id,
+                    request.node_id,
+                    request.device_id,
+                    request.tenant_ref,
+                    request.principal_ref,
+                    request.amount,
+                    request.idempotency_key,
+                    request.lease_epoch,
+                    request.ttl_ms,
+                    request.priority_class,
+                    request.policy_digest,
+                    request.digest,
+                    fence,
+                    now,
+                    now + request.ttl_ms,
+                    revision,
+                ),
             )
-            row = conn.execute("SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)
+            ).fetchone()
             conn.commit()
             return self._lease(row)
         except Exception:
@@ -826,10 +940,19 @@ class SQLiteResourceLeaseAuthority:
             conn.close()
 
     def _owner_row(
-        self, conn: sqlite3.Connection, lease_id: str, *, tenant_ref: str, principal_ref: str,
-        fence_token: int, lease_epoch: int, now_ms: int,
+        self,
+        conn: sqlite3.Connection,
+        lease_id: str,
+        *,
+        tenant_ref: str,
+        principal_ref: str,
+        fence_token: int,
+        lease_epoch: int,
+        now_ms: int,
     ) -> sqlite3.Row | tuple[Any, ...]:
-        row = conn.execute("SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)
+        ).fetchone()
         if row is None:
             raise LeaseNotFound(lease_id)
         if row[6] != tenant_ref or row[7] != principal_ref:
@@ -838,26 +961,51 @@ class SQLiteResourceLeaseAuthority:
             raise StaleLeaseEpoch("lease epoch is stale")
         if int(row[15]) != fence_token:
             raise StaleLeaseFence("lease fence token does not match")
-        cell = conn.execute("SELECT * FROM resource_cells WHERE logical_key = ?", (row[1],)).fetchone()
+        cell = conn.execute(
+            "SELECT * FROM resource_cells WHERE logical_key = ?", (row[1],)
+        ).fetchone()
         if cell is None or cell[4] != row[5] or int(cell[6]) != lease_epoch:
             raise StaleLeaseEpoch("resource device or epoch is stale")
         if row[18] not in _ACTIVE_STATES or int(row[17]) <= now_ms:
-            conn.execute("UPDATE resource_leases SET state = 'expired' WHERE lease_id = ?", (lease_id,))
+            conn.execute(
+                "UPDATE resource_leases SET state = 'expired' WHERE lease_id = ?",
+                (lease_id,),
+            )
             raise LeaseExpired(lease_id)
         return row
 
-    def renew(self, lease_id: str, *, tenant_ref: str, principal_ref: str, fence_token: int,
-              lease_epoch: int, ttl_ms: int, now_ms: int | None = None) -> ResourceLease:
+    def renew(
+        self,
+        lease_id: str,
+        *,
+        tenant_ref: str,
+        principal_ref: str,
+        fence_token: int,
+        lease_epoch: int,
+        ttl_ms: int,
+        now_ms: int | None = None,
+    ) -> ResourceLease:
         now = _now_ms() if now_ms is None else int(now_ms)
         _positive_int(ttl_ms, "ttl_ms", maximum=_MAX_TTL_MS)
         conn = self._begin()
         try:
-            row = self._owner_row(conn, lease_id, tenant_ref=tenant_ref, principal_ref=principal_ref,
-                                  fence_token=fence_token, lease_epoch=lease_epoch, now_ms=now)
+            row = self._owner_row(
+                conn,
+                lease_id,
+                tenant_ref=tenant_ref,
+                principal_ref=principal_ref,
+                fence_token=fence_token,
+                lease_epoch=lease_epoch,
+                now_ms=now,
+            )
             revision = self._next(conn, "revision")
-            conn.execute("UPDATE resource_leases SET ttl_ms = ?, expires_at_ms = ?, state = 'renewed', authority_revision = ? WHERE lease_id = ?",
-                         (ttl_ms, now + ttl_ms, revision, lease_id))
-            row = conn.execute("SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)).fetchone()
+            conn.execute(
+                "UPDATE resource_leases SET ttl_ms = ?, expires_at_ms = ?, state = 'renewed', authority_revision = ? WHERE lease_id = ?",
+                (ttl_ms, now + ttl_ms, revision, lease_id),
+            )
+            row = conn.execute(
+                "SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)
+            ).fetchone()
             conn.commit()
             return self._lease(row)
         except Exception:
@@ -866,12 +1014,22 @@ class SQLiteResourceLeaseAuthority:
         finally:
             conn.close()
 
-    def release(self, lease_id: str, *, tenant_ref: str, principal_ref: str, fence_token: int,
-                lease_epoch: int, now_ms: int | None = None) -> None:
+    def release(
+        self,
+        lease_id: str,
+        *,
+        tenant_ref: str,
+        principal_ref: str,
+        fence_token: int,
+        lease_epoch: int,
+        now_ms: int | None = None,
+    ) -> None:
         now = _now_ms() if now_ms is None else int(now_ms)
         conn = self._begin()
         try:
-            row = conn.execute("SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM resource_leases WHERE lease_id = ?", (lease_id,)
+            ).fetchone()
             if row is None:
                 raise LeaseNotFound(lease_id)
             if row[6] != tenant_ref or row[7] != principal_ref:
@@ -883,9 +1041,19 @@ class SQLiteResourceLeaseAuthority:
             if row[18] in _TERMINAL_STATES:
                 conn.commit()
                 return
-            self._owner_row(conn, lease_id, tenant_ref=tenant_ref, principal_ref=principal_ref,
-                            fence_token=fence_token, lease_epoch=lease_epoch, now_ms=now)
-            conn.execute("UPDATE resource_leases SET state = 'released' WHERE lease_id = ?", (lease_id,))
+            self._owner_row(
+                conn,
+                lease_id,
+                tenant_ref=tenant_ref,
+                principal_ref=principal_ref,
+                fence_token=fence_token,
+                lease_epoch=lease_epoch,
+                now_ms=now,
+            )
+            conn.execute(
+                "UPDATE resource_leases SET state = 'released' WHERE lease_id = ?",
+                (lease_id,),
+            )
             self._next(conn, "revision")
             conn.commit()
         except Exception:
@@ -898,7 +1066,10 @@ class SQLiteResourceLeaseAuthority:
         now = _now_ms() if now_ms is None else int(now_ms)
         conn = self._begin()
         try:
-            rows = conn.execute("SELECT lease_id FROM resource_leases WHERE state IN ('active','renewed') AND expires_at_ms <= ?", (now,)).fetchall()
+            rows = conn.execute(
+                "SELECT lease_id FROM resource_leases WHERE state IN ('active','renewed') AND expires_at_ms <= ?",
+                (now,),
+            ).fetchall()
             ids = tuple(str(row[0]) for row in rows)
             self._prune(conn, now)
             if ids:
@@ -911,19 +1082,43 @@ class SQLiteResourceLeaseAuthority:
         finally:
             conn.close()
 
-    def rebind_device(self, *, resource_kind: str, resource_id: str, node_id: str,
-                      device_id: str, epoch: int, policy_digest: str) -> ResourceCell:
-        logical = ":".join((_text(resource_kind, "resource_kind"), _text(resource_id, "resource_id"), _text(node_id, "node_id")))
+    def rebind_device(
+        self,
+        *,
+        resource_kind: str,
+        resource_id: str,
+        node_id: str,
+        device_id: str,
+        epoch: int,
+        policy_digest: str,
+    ) -> ResourceCell:
+        logical = ":".join(
+            (
+                _text(resource_kind, "resource_kind"),
+                _text(resource_id, "resource_id"),
+                _text(node_id, "node_id"),
+            )
+        )
         conn = self._begin()
         try:
-            row = conn.execute("SELECT * FROM resource_cells WHERE logical_key = ?", (logical,)).fetchone()
+            row = conn.execute(
+                "SELECT * FROM resource_cells WHERE logical_key = ?", (logical,)
+            ).fetchone()
             if row is None:
                 raise LeaseDenied("cannot rebind an unknown resource cell")
             prior = self._cell(row)
             if epoch <= prior.epoch:
                 raise StaleLeaseEpoch("device epoch must increase")
-            conn.execute("UPDATE resource_leases SET state = 'stale' WHERE logical_key = ? AND state IN ('active','renewed')", (logical,))
-            cell = replace(prior, device_id=_text(device_id, "device_id"), epoch=epoch, policy_digest=_text(policy_digest, "policy_digest"))
+            conn.execute(
+                "UPDATE resource_leases SET state = 'stale' WHERE logical_key = ? AND state IN ('active','renewed')",
+                (logical,),
+            )
+            cell = replace(
+                prior,
+                device_id=_text(device_id, "device_id"),
+                epoch=epoch,
+                policy_digest=_text(policy_digest, "policy_digest"),
+            )
             self._upsert_cell(conn, cell)
             self._next(conn, "revision")
             conn.commit()
@@ -939,9 +1134,17 @@ class SQLiteResourceLeaseAuthority:
             return {
                 "authority": "sqlite_reference",
                 "path": self.path,
-                "cells": int(conn.execute("SELECT COUNT(*) FROM resource_cells").fetchone()[0]),
-                "leases": int(conn.execute("SELECT COUNT(*) FROM resource_leases").fetchone()[0]),
-                "active": int(conn.execute("SELECT COUNT(*) FROM resource_leases WHERE state IN ('active','renewed')").fetchone()[0]),
+                "cells": int(
+                    conn.execute("SELECT COUNT(*) FROM resource_cells").fetchone()[0]
+                ),
+                "leases": int(
+                    conn.execute("SELECT COUNT(*) FROM resource_leases").fetchone()[0]
+                ),
+                "active": int(
+                    conn.execute(
+                        "SELECT COUNT(*) FROM resource_leases WHERE state IN ('active','renewed')"
+                    ).fetchone()[0]
+                ),
             }
 
 
@@ -1002,7 +1205,9 @@ class EngineNativeResourceLeaseAuthority:
         body = dict(value)
         request = body.get("request")
         if not isinstance(request, Mapping):
-            raise LeaseAuthorityUnavailable("native lease response omitted request binding")
+            raise LeaseAuthorityUnavailable(
+                "native lease response omitted request binding"
+            )
         typed = ResourceLeaseRequest(
             resource_kind=request.get("resource_kind", ""),
             resource_id=request.get("resource_id", ""),
@@ -1030,33 +1235,64 @@ class EngineNativeResourceLeaseAuthority:
             authority_revision=int(body.get("authority_revision", 0)),
         )
 
-    def acquire(self, request: ResourceLeaseRequest, *, now_ms: int | None = None) -> ResourceLease:
+    def acquire(
+        self, request: ResourceLeaseRequest, *, now_ms: int | None = None
+    ) -> ResourceLease:
         payload = request.as_dict()
         if now_ms is not None:
             payload["now_ms"] = int(now_ms)
         lease = self._decode(self._call("AcquireResourceLease", payload))
         if lease.request.digest != request.digest:
-            raise LeaseScopeMismatch("native authority returned a different lease scope")
+            raise LeaseScopeMismatch(
+                "native authority returned a different lease scope"
+            )
         return lease
 
-    def renew(self, lease_id: str, *, tenant_ref: str, principal_ref: str, fence_token: int,
-              lease_epoch: int, ttl_ms: int, now_ms: int | None = None) -> ResourceLease:
+    def renew(
+        self,
+        lease_id: str,
+        *,
+        tenant_ref: str,
+        principal_ref: str,
+        fence_token: int,
+        lease_epoch: int,
+        ttl_ms: int,
+        now_ms: int | None = None,
+    ) -> ResourceLease:
         payload: dict[str, object] = {
-            "lease_id": lease_id, "tenant_ref": tenant_ref, "principal_ref": principal_ref,
-            "fence_token": fence_token, "lease_epoch": lease_epoch, "ttl_ms": ttl_ms,
+            "lease_id": lease_id,
+            "tenant_ref": tenant_ref,
+            "principal_ref": principal_ref,
+            "fence_token": fence_token,
+            "lease_epoch": lease_epoch,
+            "ttl_ms": ttl_ms,
         }
         if now_ms is not None:
             payload["now_ms"] = int(now_ms)
         lease = self._decode(self._call("RenewResourceLease", payload))
-        if lease.request.tenant_ref != tenant_ref or lease.request.principal_ref != principal_ref:
+        if (
+            lease.request.tenant_ref != tenant_ref
+            or lease.request.principal_ref != principal_ref
+        ):
             raise LeaseScopeMismatch("native authority returned a cross-owner renewal")
         return lease
 
-    def release(self, lease_id: str, *, tenant_ref: str, principal_ref: str, fence_token: int,
-                lease_epoch: int, now_ms: int | None = None) -> None:
+    def release(
+        self,
+        lease_id: str,
+        *,
+        tenant_ref: str,
+        principal_ref: str,
+        fence_token: int,
+        lease_epoch: int,
+        now_ms: int | None = None,
+    ) -> None:
         payload: dict[str, object] = {
-            "lease_id": lease_id, "tenant_ref": tenant_ref, "principal_ref": principal_ref,
-            "fence_token": fence_token, "lease_epoch": lease_epoch,
+            "lease_id": lease_id,
+            "tenant_ref": tenant_ref,
+            "principal_ref": principal_ref,
+            "fence_token": fence_token,
+            "lease_epoch": lease_epoch,
         }
         if now_ms is not None:
             payload["now_ms"] = int(now_ms)
@@ -1072,12 +1308,27 @@ class EngineNativeResourceLeaseAuthority:
             raise LeaseAuthorityUnavailable("native reclaim result is malformed")
         return tuple(str(value) for value in values)
 
-    def rebind_device(self, *, resource_kind: str, resource_id: str, node_id: str,
-                      device_id: str, epoch: int, policy_digest: str) -> dict[str, Any]:
-        return self._call("RebindResourceDevice", {
-            "resource_kind": resource_kind, "resource_id": resource_id, "node_id": node_id,
-            "device_id": device_id, "epoch": epoch, "policy_digest": policy_digest,
-        })
+    def rebind_device(
+        self,
+        *,
+        resource_kind: str,
+        resource_id: str,
+        node_id: str,
+        device_id: str,
+        epoch: int,
+        policy_digest: str,
+    ) -> dict[str, Any]:
+        return self._call(
+            "RebindResourceDevice",
+            {
+                "resource_kind": resource_kind,
+                "resource_id": resource_id,
+                "node_id": node_id,
+                "device_id": device_id,
+                "epoch": epoch,
+                "policy_digest": policy_digest,
+            },
+        )
 
     def status(self) -> dict[str, Any]:
         return self._call("ResourceLeaseStatus", {})

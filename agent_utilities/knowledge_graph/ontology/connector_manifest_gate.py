@@ -842,7 +842,9 @@ def _dependency_lock_violations(manifest: Any, *, label: str) -> list[str]:
     try:
         live = ontology_integrity.dependency_lock_digest()
     except ontology_integrity.ReleaseSigningError as exc:
-        return [f"[dependency-lock] {label}: live dependency lock is unavailable ({exc})"]
+        return [
+            f"[dependency-lock] {label}: live dependency lock is unavailable ({exc})"
+        ]
     if live != pinned:
         return [
             f"[dependency-lock] {label}: live uv.lock digest {live} != signed "

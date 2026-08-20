@@ -1955,9 +1955,7 @@ class IngestionEngine:
                         len(changed_files),
                         prior_sha[:8] if prior_sha else "?",
                     )
-                    summary = pipe.enrich_files(
-                        changed_files, source_root=source_path
-                    )
+                    summary = pipe.enrich_files(changed_files, source_root=source_path)
                 else:
                     summary = pipe.enrich(source_path)
         finally:

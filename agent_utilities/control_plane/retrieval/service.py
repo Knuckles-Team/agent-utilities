@@ -13,12 +13,12 @@ from .errors import (
     StaleGenerationError,
 )
 from .models import (
+    MAX_HITS,
     AuthorizationEvidence,
     CleanupCheckpoint,
     EngineCandidate,
     GenerationManifest,
     GenerationRecord,
-    MAX_HITS,
     RankedHit,
     RetrievalRequest,
     RetrievalResult,
@@ -258,7 +258,9 @@ class GenerationLifecycle:
             try:
                 self.catalog.fail_cleanup(generation, checkpoint)
             except Exception as state_exc:  # noqa: BLE001 — preserve fail-closed state
-                raise CleanupIncompleteError("cleanup_failure_state_unrecorded") from state_exc
+                raise CleanupIncompleteError(
+                    "cleanup_failure_state_unrecorded"
+                ) from state_exc
             raise CleanupIncompleteError("cleanup_failed") from exc
 
     def reembed(
@@ -283,7 +285,11 @@ class GenerationLifecycle:
             old_generation.tenant_ref,
             old_generation.graph_ref,
         )
-        if current is None or current.manifest != old_generation or current.state != "active":
+        if (
+            current is None
+            or current.manifest != old_generation
+            or current.state != "active"
+        ):
             raise StaleGenerationError("reembed_old_generation_stale")
         new_record = self.publish(
             new_generation,

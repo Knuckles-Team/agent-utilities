@@ -221,4 +221,3 @@ def test_rotating_state_denies_admission_until_commit() -> None:
         session=_session(active),
     )
     assert report.findings[0].code == "activation_rotating"
-

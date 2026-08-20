@@ -24,8 +24,9 @@ import ipaddress
 import logging
 import threading
 import time
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Callable, Mapping
+from typing import Any
 from urllib.parse import urlsplit
 
 logger = logging.getLogger(__name__)
@@ -73,49 +74,92 @@ def _is_digest(value: Any) -> bool:
         isinstance(value, str)
         and len(value) == _DIGEST_LENGTH
         and value.startswith(_DIGEST_PREFIX)
-        and all(character in "0123456789abcdefABCDEF" for character in value[len(_DIGEST_PREFIX) :])
+        and all(
+            character in "0123456789abcdefABCDEF"
+            for character in value[len(_DIGEST_PREFIX) :]
+        )
     )
 
 
 def _bounded_text(value: Any, *, field: str, required: bool = True) -> str | None:
     if value is None and not required:
         return None
-    if not isinstance(value, str) or not value or len(value.encode("utf-8")) > _MAX_FIELD_BYTES:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value.encode("utf-8")) > _MAX_FIELD_BYTES
+    ):
         raise ClusterDiscoveryRejected(f"ClusterMembers.{field} is malformed")
-    if any(character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F for character in value):
-        raise ClusterDiscoveryRejected(f"ClusterMembers.{field} contains unsafe characters")
+    if any(
+        character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+        for character in value
+    ):
+        raise ClusterDiscoveryRejected(
+            f"ClusterMembers.{field} contains unsafe characters"
+        )
     return value
 
 
 def _non_negative_int(value: Any, *, field: str) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= _MAX_U64:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or not 0 <= value <= _MAX_U64
+    ):
         raise ClusterDiscoveryRejected(f"ClusterMembers.{field} is malformed")
     return value
 
 
 def _endpoint_is_bounded(endpoint: Any) -> str:
-    if not isinstance(endpoint, str) or not endpoint or len(endpoint.encode("utf-8")) > _MAX_FIELD_BYTES:
+    if (
+        not isinstance(endpoint, str)
+        or not endpoint
+        or len(endpoint.encode("utf-8")) > _MAX_FIELD_BYTES
+    ):
         raise ClusterDiscoveryRejected("ClusterMembers.client_endpoint is malformed")
     if not (endpoint.startswith("tcp://") or endpoint.startswith("tls://")):
-        raise ClusterDiscoveryRejected("ClusterMembers.client_endpoint must use tcp:// or tls://")
-    if any(character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F for character in endpoint):
-        raise ClusterDiscoveryRejected("ClusterMembers.client_endpoint contains unsafe characters")
+        raise ClusterDiscoveryRejected(
+            "ClusterMembers.client_endpoint must use tcp:// or tls://"
+        )
+    if any(
+        character.isspace() or ord(character) < 0x20 or ord(character) == 0x7F
+        for character in endpoint
+    ):
+        raise ClusterDiscoveryRejected(
+            "ClusterMembers.client_endpoint contains unsafe characters"
+        )
     parsed = urlsplit(endpoint)
     host = parsed.hostname
-    if not host or parsed.username or parsed.password or parsed.path not in ("", "/") or parsed.query or parsed.fragment:
-        raise ClusterDiscoveryRejected("ClusterMembers.client_endpoint contains an authority escape")
+    if (
+        not host
+        or parsed.username
+        or parsed.password
+        or parsed.path not in ("", "/")
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ClusterDiscoveryRejected(
+            "ClusterMembers.client_endpoint contains an authority escape"
+        )
     try:
         port = parsed.port
     except ValueError as exc:
-        raise ClusterDiscoveryRejected("ClusterMembers.client_endpoint has an invalid port") from exc
+        raise ClusterDiscoveryRejected(
+            "ClusterMembers.client_endpoint has an invalid port"
+        ) from exc
     if port is None or not 1 <= port <= 65_535:
-        raise ClusterDiscoveryRejected("ClusterMembers.client_endpoint has an invalid port")
+        raise ClusterDiscoveryRejected(
+            "ClusterMembers.client_endpoint has an invalid port"
+        )
     # AU's native transport permits plaintext TCP only for loopback.  Keeping
     # that rule here prevents a discovery response from becoming an insecure
     # remote fallback before the transport layer gets a chance to reject it.
     if endpoint.startswith("tcp://"):
         try:
-            loopback = ipaddress.ip_address(host).is_loopback or host.casefold() in {"localhost", "localhost."}
+            loopback = ipaddress.ip_address(host).is_loopback or host.casefold() in {
+                "localhost",
+                "localhost.",
+            }
         except ValueError:
             loopback = False
         if not loopback:
@@ -150,11 +194,17 @@ class ClusterMember:
         clock_skew_s: float,
     ) -> None:
         skew_ms = int(max(0.0, clock_skew_s) * 1_000)
-        if self.certificate_not_before_ms is not None and self.certificate_not_before_ms > now_ms + skew_ms:
+        if (
+            self.certificate_not_before_ms is not None
+            and self.certificate_not_before_ms > now_ms + skew_ms
+        ):
             raise ClusterDiscoveryStale(
                 f"certificate for member {self.node_id} is not valid yet"
             )
-        if self.certificate_not_after_ms is not None and self.certificate_not_after_ms <= now_ms - skew_ms:
+        if (
+            self.certificate_not_after_ms is not None
+            and self.certificate_not_after_ms <= now_ms - skew_ms
+        ):
             raise ClusterDiscoveryStale(
                 f"certificate for member {self.node_id} has expired"
             )
@@ -187,7 +237,11 @@ class ClusterDiscoverySnapshot:
     @property
     def certificate_epoch(self) -> int:
         return max(
-            (member.certificate_rotation_epoch for _, members, _ in self.groups for member in members),
+            (
+                member.certificate_rotation_epoch
+                for _, members, _ in self.groups
+                for member in members
+            ),
             default=0,
         )
 
@@ -201,10 +255,18 @@ class ClusterDiscoverySnapshot:
     ) -> None:
         current_monotonic = time.monotonic() if now_monotonic is None else now_monotonic
         if current_monotonic >= self.expires_at_monotonic:
-            raise ClusterDiscoveryStale("ClusterMembers snapshot exceeded its freshness bound")
-        if min_membership_epoch is not None and self.membership_epoch < min_membership_epoch:
+            raise ClusterDiscoveryStale(
+                "ClusterMembers snapshot exceeded its freshness bound"
+            )
+        if (
+            min_membership_epoch is not None
+            and self.membership_epoch < min_membership_epoch
+        ):
             raise ClusterDiscoveryStale("ClusterMembers membership epoch is stale")
-        if min_placement_epoch is not None and self.placement_epoch < min_placement_epoch:
+        if (
+            min_placement_epoch is not None
+            and self.placement_epoch < min_placement_epoch
+        ):
             raise ClusterDiscoveryStale("ClusterMembers placement epoch is stale")
         wall_ms = int(time.time() * 1_000) if now_wall_ms is None else int(now_wall_ms)
         for _, members, _ in self.groups:
@@ -233,7 +295,9 @@ class ClusterDiscoverySnapshot:
         for member in ordered:
             if member.health == "healthy":
                 return member
-        raise ClusterDiscoveryStale(f"group {group_id} has no healthy discovered member")
+        raise ClusterDiscoveryStale(
+            f"group {group_id} has no healthy discovered member"
+        )
 
 
 class ClusterTopologyAuthority:
@@ -344,32 +408,55 @@ class ClusterTopologyAuthority:
             "signature",
         }
         if set(answer) != required:
-            raise ClusterDiscoveryRejected("ClusterMembers response has unexpected fields")
-        if answer["schema_version"] != _SCHEMA_VERSION or isinstance(answer["schema_version"], bool):
-            raise ClusterDiscoveryRejected("ClusterMembers schema version is unsupported")
+            raise ClusterDiscoveryRejected(
+                "ClusterMembers response has unexpected fields"
+            )
+        if answer["schema_version"] != _SCHEMA_VERSION or isinstance(
+            answer["schema_version"], bool
+        ):
+            raise ClusterDiscoveryRejected(
+                "ClusterMembers schema version is unsupported"
+            )
         cluster_id = answer["cluster_id"]
         if not _is_digest(cluster_id):
-            raise ClusterDiscoveryRejected("ClusterMembers cluster identity is malformed")
+            raise ClusterDiscoveryRejected(
+                "ClusterMembers cluster identity is malformed"
+            )
         if expected_cluster_id is not None and not _is_digest(expected_cluster_id):
             raise ClusterDiscoveryRejected("expected cluster identity is malformed")
         if expected_cluster_id is not None and cluster_id != expected_cluster_id:
-            raise ClusterDiscoveryRejected("ClusterMembers belongs to a different cluster")
+            raise ClusterDiscoveryRejected(
+                "ClusterMembers belongs to a different cluster"
+            )
         epoch = _non_negative_int(answer["epoch"], field="epoch")
-        membership_epoch = _non_negative_int(answer["membership_epoch"], field="membership_epoch")
-        placement_epoch = _non_negative_int(answer["placement_epoch"], field="placement_epoch")
+        membership_epoch = _non_negative_int(
+            answer["membership_epoch"], field="membership_epoch"
+        )
+        placement_epoch = _non_negative_int(
+            answer["placement_epoch"], field="placement_epoch"
+        )
         if epoch != membership_epoch:
-            raise ClusterDiscoveryRejected("ClusterMembers epoch alias does not match membership_epoch")
+            raise ClusterDiscoveryRejected(
+                "ClusterMembers epoch alias does not match membership_epoch"
+            )
         if min_membership_epoch is not None and membership_epoch < min_membership_epoch:
-            raise ClusterDiscoveryRejected("ClusterMembers membership snapshot is stale")
+            raise ClusterDiscoveryRejected(
+                "ClusterMembers membership snapshot is stale"
+            )
         if min_placement_epoch is not None and placement_epoch < min_placement_epoch:
             raise ClusterDiscoveryRejected("ClusterMembers placement snapshot is stale")
 
         binding = answer["auth_binding"]
-        if not isinstance(binding, Mapping) or set(binding) != {
-            "tenant_digest",
-            "principal_digest",
-            "agent_digest",
-        } or not all(_is_digest(binding[key]) for key in binding):
+        if (
+            not isinstance(binding, Mapping)
+            or set(binding)
+            != {
+                "tenant_digest",
+                "principal_digest",
+                "agent_digest",
+            }
+            or not all(_is_digest(binding[key]) for key in binding)
+        ):
             raise ClusterDiscoveryRejected("ClusterMembers auth binding is malformed")
         expected_context = (
             verified_context if verified_context is not None else client_context
@@ -388,12 +475,16 @@ class ClusterTopologyAuthority:
                 "agent_digest": _digest(str(expected_context.get("agent_id", ""))),
             }
             if binding != expected_binding:
-                raise ClusterDiscoveryRejected("ClusterMembers request context does not match")
+                raise ClusterDiscoveryRejected(
+                    "ClusterMembers request context does not match"
+                )
         else:
             # The engine client normally verifies this before returning.  A
             # client/fake without a verified-context seam is not an authority
             # source for a live AU process, so reject it instead of guessing.
-            raise ClusterDiscoveryRejected("ClusterMembers client has no verified context")
+            raise ClusterDiscoveryRejected(
+                "ClusterMembers client has no verified context"
+            )
 
         groups_raw = answer["groups"]
         if not isinstance(groups_raw, list) or len(groups_raw) > _MAX_GROUPS:
@@ -407,10 +498,14 @@ class ClusterTopologyAuthority:
                 "leader_id",
                 "members",
             }:
-                raise ClusterDiscoveryRejected("ClusterMembers group entry is malformed")
+                raise ClusterDiscoveryRejected(
+                    "ClusterMembers group entry is malformed"
+                )
             group_id = _non_negative_int(raw_group["group_id"], field="group_id")
             if group_id in seen_groups:
-                raise ClusterDiscoveryRejected("ClusterMembers contains duplicate groups")
+                raise ClusterDiscoveryRejected(
+                    "ClusterMembers contains duplicate groups"
+                )
             seen_groups.add(group_id)
             leader_id = raw_group["leader_id"]
             if leader_id is not None:
@@ -430,24 +525,38 @@ class ClusterTopologyAuthority:
                     "health",
                     "certificate",
                 }:
-                    raise ClusterDiscoveryRejected("ClusterMembers member entry is malformed")
+                    raise ClusterDiscoveryRejected(
+                        "ClusterMembers member entry is malformed"
+                    )
                 node_id = _non_negative_int(raw_member["node_id"], field="node_id")
                 if node_id in seen_members:
-                    raise ClusterDiscoveryRejected("ClusterMembers contains duplicate members")
+                    raise ClusterDiscoveryRejected(
+                        "ClusterMembers contains duplicate members"
+                    )
                 seen_members.add(node_id)
                 member_identity = raw_member["member_identity"]
                 if not _is_digest(member_identity):
-                    raise ClusterDiscoveryRejected("ClusterMembers member identity is malformed")
+                    raise ClusterDiscoveryRejected(
+                        "ClusterMembers member identity is malformed"
+                    )
                 role = raw_member["role"]
                 if role not in {"leader", "follower", "learner"}:
-                    raise ClusterDiscoveryRejected("ClusterMembers member role is invalid")
+                    raise ClusterDiscoveryRejected(
+                        "ClusterMembers member role is invalid"
+                    )
                 endpoint = _endpoint_is_bounded(raw_member["client_endpoint"])
-                tls_name = _bounded_text(raw_member["tls_name"], field="tls_name", required=False)
+                tls_name = _bounded_text(
+                    raw_member["tls_name"], field="tls_name", required=False
+                )
                 if endpoint.startswith("tls://") and tls_name is None:
-                    raise ClusterDiscoveryRejected("TLS ClusterMembers endpoint has no server name")
+                    raise ClusterDiscoveryRejected(
+                        "TLS ClusterMembers endpoint has no server name"
+                    )
                 health = raw_member["health"]
                 if health not in {"healthy", "degraded", "unknown"}:
-                    raise ClusterDiscoveryRejected("ClusterMembers member health is invalid")
+                    raise ClusterDiscoveryRejected(
+                        "ClusterMembers member health is invalid"
+                    )
                 certificate = raw_member["certificate"]
                 if not isinstance(certificate, Mapping) or set(certificate) != {
                     "id",
@@ -455,17 +564,26 @@ class ClusterTopologyAuthority:
                     "not_before_ms",
                     "not_after_ms",
                 }:
-                    raise ClusterDiscoveryRejected("ClusterMembers certificate metadata is malformed")
+                    raise ClusterDiscoveryRejected(
+                        "ClusterMembers certificate metadata is malformed"
+                    )
                 certificate_id = _bounded_text(
                     certificate["id"], field="certificate.id", required=False
                 )
-                if certificate_id is not None and len(certificate_id.encode("utf-8")) > _MAX_CERTIFICATE_ID_BYTES:
-                    raise ClusterDiscoveryRejected("ClusterMembers certificate id is too large")
+                if (
+                    certificate_id is not None
+                    and len(certificate_id.encode("utf-8")) > _MAX_CERTIFICATE_ID_BYTES
+                ):
+                    raise ClusterDiscoveryRejected(
+                        "ClusterMembers certificate id is too large"
+                    )
                 certificate_rotation_epoch = _non_negative_int(
                     certificate["rotation_epoch"], field="certificate.rotation_epoch"
                 )
                 if certificate_rotation_epoch > 0 and certificate_id is None:
-                    raise ClusterDiscoveryRejected("certificate rotation requires an id")
+                    raise ClusterDiscoveryRejected(
+                        "certificate rotation requires an id"
+                    )
                 certificate_not_before_ms = certificate["not_before_ms"]
                 certificate_not_after_ms = certificate["not_after_ms"]
                 for value, name in (
@@ -500,11 +618,17 @@ class ClusterTopologyAuthority:
                 members.append(member)
                 total_members += 1
                 if total_members > _MAX_MEMBERS:
-                    raise ClusterDiscoveryRejected("ClusterMembers members exceed bounds")
+                    raise ClusterDiscoveryRejected(
+                        "ClusterMembers members exceed bounds"
+                    )
             if leader_id is not None:
-                leader = next((member for member in members if member.node_id == leader_id), None)
+                leader = next(
+                    (member for member in members if member.node_id == leader_id), None
+                )
                 if leader is None or leader.role != "leader":
-                    raise ClusterDiscoveryRejected("ClusterMembers leader is inconsistent")
+                    raise ClusterDiscoveryRejected(
+                        "ClusterMembers leader is inconsistent"
+                    )
             parsed_groups.append((group_id, tuple(members), leader_id))
 
         leaders = answer["leaders"]
@@ -531,8 +655,13 @@ class ClusterTopologyAuthority:
             raise ClusterDiscoveryRejected("ClusterMembers signature is malformed")
         if prior is not None:
             if cluster_id != prior.cluster_id:
-                raise ClusterDiscoveryRejected("ClusterMembers cluster identity changed")
-            if membership_epoch < prior.membership_epoch or placement_epoch < prior.placement_epoch:
+                raise ClusterDiscoveryRejected(
+                    "ClusterMembers cluster identity changed"
+                )
+            if (
+                membership_epoch < prior.membership_epoch
+                or placement_epoch < prior.placement_epoch
+            ):
                 raise ClusterDiscoveryRejected("ClusterMembers epoch moved backwards")
             prior_members = {
                 (member.group_id, member.node_id): member
@@ -542,8 +671,14 @@ class ClusterTopologyAuthority:
             for _, members, _ in parsed_groups:
                 for member in members:
                     old = prior_members.get((member.group_id, member.node_id))
-                    if old is not None and member.certificate_rotation_epoch < old.certificate_rotation_epoch:
-                        raise ClusterDiscoveryRejected("ClusterMembers certificate epoch moved backwards")
+                    if (
+                        old is not None
+                        and member.certificate_rotation_epoch
+                        < old.certificate_rotation_epoch
+                    ):
+                        raise ClusterDiscoveryRejected(
+                            "ClusterMembers certificate epoch moved backwards"
+                        )
                     if (
                         old is not None
                         and member.certificate_rotation_epoch
@@ -616,8 +751,13 @@ class ClusterTopologyAuthority:
                     min_membership_epoch=min_membership_epoch,
                     min_placement_epoch=min_placement_epoch,
                 )
-                if expected_cluster_id is not None and prior.cluster_id != expected_cluster_id:
-                    raise ClusterDiscoveryRejected("cached ClusterMembers belongs to a different cluster")
+                if (
+                    expected_cluster_id is not None
+                    and prior.cluster_id != expected_cluster_id
+                ):
+                    raise ClusterDiscoveryRejected(
+                        "cached ClusterMembers belongs to a different cluster"
+                    )
                 return prior
             except ClusterDiscoveryError as exc:
                 # Best-effort: a stale or foreign cached snapshot simply falls
@@ -647,7 +787,10 @@ class ClusterTopologyAuthority:
                         min_membership_epoch=min_membership_epoch,
                         min_placement_epoch=min_placement_epoch,
                     )
-                    if expected_cluster_id is None or prior.cluster_id == expected_cluster_id:
+                    if (
+                        expected_cluster_id is None
+                        or prior.cluster_id == expected_cluster_id
+                    ):
                         logger.warning(
                             "ClusterMembers transport unavailable; using bounded last-good snapshot"
                         )
@@ -663,7 +806,9 @@ class ClusterTopologyAuthority:
                         "snapshot is not usable: %s",
                         stale_exc,
                     )
-            raise ClusterDiscoveryError("ClusterMembers discovery is unavailable") from exc
+            raise ClusterDiscoveryError(
+                "ClusterMembers discovery is unavailable"
+            ) from exc
         except (TypeError, ValueError) as exc:
             raise ClusterDiscoveryRejected(
                 "engine rejected the ClusterMembers discovery response"

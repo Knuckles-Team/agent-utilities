@@ -8,7 +8,7 @@ orchestration path consume a small, deterministic plan.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
 from pydantic import Field
@@ -56,11 +56,7 @@ class AgentPromotionResult(ProtocolModel):
 def _parse_timestamp(value: str) -> datetime:
     normalized = value[:-1] + "+00:00" if value[-1:] in {"Z", "z"} else value
     parsed = datetime.fromisoformat(normalized)
-    return (
-        parsed
-        if parsed.tzinfo is not None
-        else parsed.replace(tzinfo=timezone.utc)
-    )
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _approval_state(
@@ -119,9 +115,13 @@ class AgentControlPlane:
         if pointer is None:
             raise AgentResolutionError("release_pointer_unavailable")
         if pointer.agent_id != request.agent_id:
-            raise RepositoryContractError("repository returned a cross-agent release pointer")
+            raise RepositoryContractError(
+                "repository returned a cross-agent release pointer"
+            )
         if request.channel is not None and pointer.channel != request.channel:
-            raise RepositoryContractError("repository returned a cross-channel release pointer")
+            raise RepositoryContractError(
+                "repository returned a cross-channel release pointer"
+            )
         if request.version_id is not None and pointer.version_id != request.version_id:
             raise AgentResolutionError("version_not_active_on_selected_pointer")
         version = self._repository.get_version(request.scope, pointer.version_id)
@@ -177,7 +177,10 @@ class AgentControlPlane:
         allowed = set(version.policies.team.allowed_binding_ids)
         if allowed and any(binding_id not in allowed for binding_id in selected):
             raise AgentResolutionError("team_capability_mismatch")
-        if request.team_ref is not None and request.team_ref != version.policies.team.team_ref:
+        if (
+            request.team_ref is not None
+            and request.team_ref != version.policies.team.team_ref
+        ):
             raise AgentResolutionError("team_policy_mismatch")
         if request.team_member_count > version.policies.team.max_members:
             raise AgentResolutionError("team_budget_escalation")
@@ -185,7 +188,10 @@ class AgentControlPlane:
             raise AgentResolutionError("delegation_depth_escalation")
         if request.delegation_children > version.policies.delegation.max_children:
             raise AgentResolutionError("delegation_fanout_escalation")
-        if request.requested_cost_micros > version.policies.delegation.max_budget_micros:
+        if (
+            request.requested_cost_micros
+            > version.policies.delegation.max_budget_micros
+        ):
             raise AgentResolutionError("delegation_budget_escalation")
         budget = version.policies.budget
         if request.requested_tokens > budget.max_tokens:
@@ -263,13 +269,18 @@ class AgentControlPlane:
         if current is not None and mutation.next_version_id == current.version_id:
             raise AgentResolutionError("release_pointer_noop")
         if mutation.operation == "rollback":
-            if current is None or current.previous_version_id != mutation.next_version_id:
+            if (
+                current is None
+                or current.previous_version_id != mutation.next_version_id
+            ):
                 raise AgentResolutionError("rollback_target_not_previous_release")
         version = self._repository.get_version(scope, mutation.next_version_id)
         if version is None:
             raise AgentResolutionError("agent_version_unavailable")
         if version.agent_id != mutation.agent_id:
-            raise RepositoryContractError("repository returned a cross-agent target release")
+            raise RepositoryContractError(
+                "repository returned a cross-agent target release"
+            )
         approval = self._repository.get_approval(
             scope, mutation.agent_id, version.version_id, approval_id
         )
@@ -300,7 +311,9 @@ class AgentControlPlane:
         self._validate_approval(synthetic_request, pointer, version, approval)
         applied = self._repository.compare_and_swap_release(scope, mutation, pointer)
         if applied != pointer:
-            raise RepositoryContractError("repository returned a different release pointer")
+            raise RepositoryContractError(
+                "repository returned a different release pointer"
+            )
         return AgentPromotionResult(
             result_version="agent-promotion-result.v1",
             pointer=applied,
@@ -323,7 +336,9 @@ class AgentControlPlane:
         if pointer is None:
             raise AgentResolutionError("release_pointer_unavailable")
         if pointer.agent_id != agent_id or pointer.channel != channel:
-            raise RepositoryContractError("repository returned an invalid agent pointer")
+            raise RepositoryContractError(
+                "repository returned an invalid agent pointer"
+            )
         version = self._repository.get_version(scope, pointer.version_id)
         if version is None:
             raise AgentResolutionError("agent_version_unavailable")
@@ -374,11 +389,18 @@ class AgentControlPlane:
         if len(page.items) > request.limit:
             raise RepositoryContractError("repository returned an oversized agent page")
         if any(item.tenant_id != request.scope.tenant_id for item in page.items):
-            raise RepositoryContractError("repository returned a cross-tenant agent page")
+            raise RepositoryContractError(
+                "repository returned a cross-tenant agent page"
+            )
         pointer_keys = {(item.agent_id, item.channel) for item in page.items}
         if len(pointer_keys) != len(page.items):
-            raise RepositoryContractError("repository returned duplicate agent pointers")
-        if page.next_cursor is not None and page.next_cursor.scope_digest != request.scope.scope_digest:
+            raise RepositoryContractError(
+                "repository returned duplicate agent pointers"
+            )
+        if (
+            page.next_cursor is not None
+            and page.next_cursor.scope_digest != request.scope.scope_digest
+        ):
             raise RepositoryContractError("repository returned an unbound agent cursor")
         return page
 

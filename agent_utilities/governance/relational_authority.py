@@ -309,9 +309,7 @@ def _is_sensitive_field(value: str) -> bool:
     return _normalise_field_name(value) in _SENSITIVE_FIELD_NAMES
 
 
-def _validate_placement_contract(
-    data: Mapping[str, Any], errors: list[str]
-) -> None:
+def _validate_placement_contract(data: Mapping[str, Any], errors: list[str]) -> None:
     """Validate the cross-system authority/placement section of the map.
 
     This is intentionally independent from the concrete SQL schema parser:
@@ -392,7 +390,9 @@ def _validate_placement_contract(
                 seen_store_classes[class_name] = store_id
 
     missing_stores = set(_PLACEMENT_STORE_CONTRACT) - set(stores)
-    errors.extend(f"missing placement store: {store_id}" for store_id in sorted(missing_stores))
+    errors.extend(
+        f"missing placement store: {store_id}" for store_id in sorted(missing_stores)
+    )
 
     raw_records = raw_contract.get("records")
     if not isinstance(raw_records, list):
@@ -501,8 +501,7 @@ def _validate_placement_contract(
             previous = event_field_owners.get(field)
             if previous is not None and previous != str(store_id):
                 errors.append(
-                    f"duplicate event authority: {field} "
-                    f"({previous}, {store_id})"
+                    f"duplicate event authority: {field} ({previous}, {store_id})"
                 )
             else:
                 event_field_owners[field] = str(store_id)
@@ -515,9 +514,7 @@ def _validate_placement_contract(
             errors.append(f"duplicate event payload fields: {event_id!r}")
         for field in payload_fields:
             if _is_sensitive_field(field):
-                errors.append(
-                    f"secret-bearing event field: {event_id}.{field}"
-                )
+                errors.append(f"secret-bearing event field: {event_id}.{field}")
     missing_event_fields = set(_PLACEMENT_FIELD_OWNERS) - set(event_field_owners)
     errors.extend(
         f"missing event authority field: {field}"
@@ -639,14 +636,18 @@ def validation_errors(
                 )
             for field in authoritative:
                 if _is_sensitive_field(field):
-                    errors.append(f"secret-bearing declared column: {name}.{table}.{field}")
+                    errors.append(
+                        f"secret-bearing declared column: {name}.{table}.{field}"
+                    )
                 key = (name, table, field)
                 if key in authority_fields:
                     errors.append(f"duplicate field authority: {'.'.join(key)}")
                 authority_fields[key] = "authoritative"
             for field in derived:
                 if _is_sensitive_field(field):
-                    errors.append(f"secret-bearing declared column: {name}.{table}.{field}")
+                    errors.append(
+                        f"secret-bearing declared column: {name}.{table}.{field}"
+                    )
                 key = (name, table, field)
                 if key in authority_fields:
                     errors.append(f"duplicate field authority: {'.'.join(key)}")
@@ -682,7 +683,9 @@ def validation_errors(
         for table, columns in declared.items():
             for column in columns:
                 if _is_sensitive_field(column):
-                    errors.append(f"secret-bearing schema column: {domain}.{table}.{column}")
+                    errors.append(
+                        f"secret-bearing schema column: {domain}.{table}.{column}"
+                    )
             entry = mapped_by_name.get(table)
             if entry is None:
                 continue

@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import model_validator
 
 from agent_utilities.protocols.epistemic_operations import ProtocolModel
 
@@ -15,7 +15,6 @@ from .models import (
     AccessScope,
     AuthorizationDecision,
     AuthorizationEvaluation,
-    AuthorizationSet,
     ConnectorGraphProjection,
     ConnectorIdentity,
     ConnectorLifecycle,
@@ -74,7 +73,9 @@ class ConnectorReconciliation(ProtocolModel):
     observation: Observation | None = None
 
 
-def _quarantine_ref(server_id: str, observation_ref: str | None, codes: tuple[DriftCode, ...]) -> str:
+def _quarantine_ref(
+    server_id: str, observation_ref: str | None, codes: tuple[DriftCode, ...]
+) -> str:
     payload = json.dumps(
         {"server_id": server_id, "observation_ref": observation_ref, "codes": codes},
         sort_keys=True,
@@ -114,14 +115,19 @@ def _codes_for(
     else:
         if observation.manifest_digest != version.manifest_digest:
             codes.append("manifest_mismatch")
-        if capability_set_digest(observation.capabilities) != version.capability_set_digest:
+        if (
+            capability_set_digest(observation.capabilities)
+            != version.capability_set_digest
+        ):
             codes.append("capability_mismatch")
         if observation.compatibility != version.compatibility:
             codes.append("compatibility_mismatch")
     return tuple(dict.fromkeys(codes)) or ("no_drift",)
 
 
-def _drift_status(observation: Observation | None, codes: tuple[DriftCode, ...]) -> DriftStatus:
+def _drift_status(
+    observation: Observation | None, codes: tuple[DriftCode, ...]
+) -> DriftStatus:
     if observation is not None and observation.status == "quarantined":
         return "quarantined"
     if codes == ("no_drift",):
@@ -136,7 +142,9 @@ def _drift_status(observation: Observation | None, codes: tuple[DriftCode, ...])
     return "drifted"
 
 
-def _observation_status(observation: Observation | None) -> ObservationStatus | Literal["unknown"]:
+def _observation_status(
+    observation: Observation | None,
+) -> ObservationStatus | Literal["unknown"]:
     return observation.status if observation is not None else "unknown"
 
 
@@ -147,11 +155,7 @@ def _now_or_expired(expires_at: str | None, at: str) -> bool:
     def parse(value: str) -> datetime:
         normalized = value[:-1] + "+00:00" if value[-1:] in {"Z", "z"} else value
         parsed = datetime.fromisoformat(normalized)
-        return (
-            parsed
-            if parsed.tzinfo is not None
-            else parsed.replace(tzinfo=timezone.utc)
-        )
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
     try:
         return parse(expires_at) > parse(at)
@@ -194,7 +198,9 @@ class ConnectorControlPlane:
         if version is None:
             raise RepositoryContractError("desired connector version is unavailable")
         if version.connector_id != desired.server.connector.connector_id:
-            raise RepositoryContractError("desired version belongs to another connector")
+            raise RepositoryContractError(
+                "desired version belongs to another connector"
+            )
         if version.manifest_ref != desired.inventory_ref:
             raise RepositoryContractError("desired state is not bound to its inventory")
         self._repository.put_desired(desired)
@@ -234,18 +240,27 @@ class ConnectorControlPlane:
             if observation is not None
             else self._repository.get_latest_observation(scope, server_id)
         )
-        if current_observation is not None and current_observation.server_id != server_id:
-            raise RepositoryContractError("repository returned a cross-server observation")
+        if (
+            current_observation is not None
+            and current_observation.server_id != server_id
+        ):
+            raise RepositoryContractError(
+                "repository returned a cross-server observation"
+            )
         version = self._repository.get_version(scope, desired.version_id)
         if version is None:
             raise RepositoryContractError("desired connector version is unavailable")
         if version.connector_id != server.connector.connector_id:
-            raise RepositoryContractError("desired version belongs to another connector")
+            raise RepositoryContractError(
+                "desired version belongs to another connector"
+            )
 
         codes = _codes_for(desired, version, current_observation)
         status = _drift_status(current_observation, codes)
         quarantine_ref = (
-            _quarantine_ref(server_id, getattr(current_observation, "observation_ref", None), codes)
+            _quarantine_ref(
+                server_id, getattr(current_observation, "observation_ref", None), codes
+            )
             if status == "quarantined"
             else None
         )
@@ -314,20 +329,36 @@ class ConnectorControlPlane:
 
         decisions = self._repository.get_authorizations(scope, server_id, version_id)
         required = ("approval", "install", "credential_access", "enable")
-        missing: list[Literal["approval", "install", "credential_access", "enable"]] = []
+        missing: list[
+            Literal["approval", "install", "credential_access", "enable"]
+        ] = []
         if decisions is None:
             missing.extend(required)
         else:
-            present: set[Literal["approval", "install", "credential_access", "enable"]] = set()
+            present: set[
+                Literal["approval", "install", "credential_access", "enable"]
+            ] = set()
             for decision in decisions.decisions:
-                if decision.tenant_id != scope.tenant_id or decision.principal_id != scope.principal_id:
-                    raise RepositoryContractError("repository returned cross-scope authorization")
+                if (
+                    decision.tenant_id != scope.tenant_id
+                    or decision.principal_id != scope.principal_id
+                ):
+                    raise RepositoryContractError(
+                        "repository returned cross-scope authorization"
+                    )
                 if decision.server_id != server_id or decision.version_id != version_id:
-                    raise RepositoryContractError("repository returned authorization for another connector")
+                    raise RepositoryContractError(
+                        "repository returned authorization for another connector"
+                    )
                 present.add(decision.kind)
-                if decision.kind == "credential_access" and decision.grant_digest not in scope.grant_digests:
+                if (
+                    decision.kind == "credential_access"
+                    and decision.grant_digest not in scope.grant_digests
+                ):
                     missing.append(decision.kind)
-                elif decision.outcome != "approved" or not _now_or_expired(decision.expires_at, at):
+                elif decision.outcome != "approved" or not _now_or_expired(
+                    decision.expires_at, at
+                ):
                     missing.append(decision.kind)
             missing.extend(kind for kind in required if kind not in present)
         return AuthorizationEvaluation(
@@ -343,11 +374,20 @@ class ConnectorControlPlane:
 
         page = self._repository.list_connectors(request)
         if len(page.items) > request.limit:
-            raise RepositoryContractError("repository returned an oversized connector page")
+            raise RepositoryContractError(
+                "repository returned an oversized connector page"
+            )
         if any(item.tenant_id != request.scope.tenant_id for item in page.items):
-            raise RepositoryContractError("repository returned a cross-tenant connector page")
-        if page.next_cursor is not None and page.next_cursor.scope_digest != request.scope.scope_digest:
-            raise RepositoryContractError("repository returned an unbound connector cursor")
+            raise RepositoryContractError(
+                "repository returned a cross-tenant connector page"
+            )
+        if (
+            page.next_cursor is not None
+            and page.next_cursor.scope_digest != request.scope.scope_digest
+        ):
+            raise RepositoryContractError(
+                "repository returned an unbound connector cursor"
+            )
         return page
 
     def project(
@@ -370,7 +410,9 @@ class ConnectorControlPlane:
         projection = reconciliation.projection
         version = self._repository.get_version(scope, projection.version_id)
         if version is None:
-            raise RepositoryContractError("connector version disappeared during projection")
+            raise RepositoryContractError(
+                "connector version disappeared during projection"
+            )
         return ConnectorPageItem(
             tenant_id=projection.tenant_id,
             server_id=projection.server_id,

@@ -390,8 +390,7 @@ class ColumnProfile(ProtocolModel):
     def numeric_values_are_finite(self) -> ColumnProfile:
         numbers = (self.min_value, self.max_value, self.mean, self.null_rate)
         if any(
-            isinstance(value, float) and not math.isfinite(value)
-            for value in numbers
+            isinstance(value, float) and not math.isfinite(value) for value in numbers
         ):
             raise ValueError("profile numeric values must be finite")
         return self
@@ -434,18 +433,14 @@ class ProfileResult(ProtocolModel):
         for column in self.column_profiles:
             if column.null_count > self.rows:
                 raise ValueError("profile null count exceeds row count")
-            expected_null_rate = (
-                column.null_count / self.rows if self.rows else 0.0
-            )
+            expected_null_rate = column.null_count / self.rows if self.rows else 0.0
             if abs(column.null_rate - expected_null_rate) > 1e-6:
                 raise ValueError("profile null rate does not match null count")
             if column.distinct_count is not None and column.distinct_count > (
                 self.rows - column.null_count
             ):
                 raise ValueError("profile cardinality exceeds non-null rows")
-            if any(
-                entry.count < self.disclosure_threshold for entry in column.top_k
-            ):
+            if any(entry.count < self.disclosure_threshold for entry in column.top_k):
                 raise ValueError("profile top-k contains a below-threshold value")
             if self.rows - column.null_count < self.disclosure_threshold and (
                 column.min_value is not None

@@ -176,7 +176,12 @@ def register_media_sidecar_tools(mcp) -> None:
                 }
             )
 
-        result: PdfSidecarResult | ImageSidecarResult | AudioSidecarResult | VideoSidecarResult
+        result: (
+            PdfSidecarResult
+            | ImageSidecarResult
+            | AudioSidecarResult
+            | VideoSidecarResult
+        )
         try:
             if action == "ingest_pdf":
                 result = ingest_pdf_via_sidecar(

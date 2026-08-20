@@ -476,9 +476,7 @@ class _SessionRoutedAsyncClient:
             namespace = getattr(base, name)
             routed_namespace = type(namespace)(self)
             if name == "lifecycle":
-                routed_namespace = _CanonicalLifecycleClient(
-                    self, routed_namespace
-                )
+                routed_namespace = _CanonicalLifecycleClient(self, routed_namespace)
             setattr(self, name, routed_namespace)
 
     @staticmethod
@@ -716,9 +714,7 @@ class _SessionRoutedAsyncClient:
                     certificate_rotation_epoch=getattr(
                         fresh, "certificate_rotation_epoch", None
                     ),
-                    continuity_expires_at=getattr(
-                        fresh, "discovery_expires_at", None
-                    ),
+                    continuity_expires_at=getattr(fresh, "discovery_expires_at", None),
                 )
                 return await self._invoke_at(
                     fresh.endpoint,
@@ -772,9 +768,7 @@ class _SessionRoutedAsyncClient:
                     certificate_rotation_epoch=getattr(
                         route, "certificate_rotation_epoch", None
                     ),
-                    continuity_expires_at=getattr(
-                        route, "discovery_expires_at", None
-                    ),
+                    continuity_expires_at=getattr(route, "discovery_expires_at", None),
                 )
                 routed_params = self._route_bound_params(method, params, route)
 

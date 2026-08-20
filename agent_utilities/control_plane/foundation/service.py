@@ -24,10 +24,10 @@ from .models import (
     ReleasePointer,
     RetentionPolicy,
     Role,
+    TargetKind,
     TenantIdentity,
     TenantScope,
     TombstoneRecord,
-    TargetKind,
     _digest_payload,
     activation_id_for,
     release_pointer_id,
@@ -56,7 +56,10 @@ RetainT = TypeVar("RetainT")
 def _scope_record(scope: TenantScope, record: ScopedT | None) -> ScopedT | None:
     if record is None:
         return None
-    if record.organization_id != scope.organization_id or record.tenant_id != scope.tenant_id:
+    if (
+        record.organization_id != scope.organization_id
+        or record.tenant_id != scope.tenant_id
+    ):
         return None
     return record
 
@@ -88,12 +91,16 @@ class InMemoryFoundationRepository:
     memberships: dict[str, Membership] = field(default_factory=dict)
     entitlements: dict[str, Entitlement] = field(default_factory=dict)
     quotas: dict[str, QuotaContract] = field(default_factory=dict)
-    upstreams: dict[tuple[str, int], GatewayUpstreamVersion] = field(default_factory=dict)
+    upstreams: dict[tuple[str, int], GatewayUpstreamVersion] = field(
+        default_factory=dict
+    )
     routes: dict[tuple[str, int], GatewayRouteVersion] = field(default_factory=dict)
     configs: dict[tuple[str, int], GatewayConfigVersion] = field(default_factory=dict)
     features: dict[tuple[str, int], GatewayFeatureVersion] = field(default_factory=dict)
     circuit_histories: dict[str, CircuitHistory] = field(default_factory=dict)
-    tombstones: dict[tuple[str, str, int], TombstoneRecord] = field(default_factory=dict)
+    tombstones: dict[tuple[str, str, int], TombstoneRecord] = field(
+        default_factory=dict
+    )
     release_pointers: dict[str, ReleasePointer] = field(default_factory=dict)
     activation_history: dict[str, list[ActivationRecord]] = field(default_factory=dict)
 
@@ -112,13 +119,17 @@ class InMemoryFoundationRepository:
     def put_principal(self, record: PrincipalIdentity) -> None:
         _retain(self.principals, record.principal_id, record)
 
-    def get_principal(self, scope: TenantScope, principal_id: str) -> PrincipalIdentity | None:
+    def get_principal(
+        self, scope: TenantScope, principal_id: str
+    ) -> PrincipalIdentity | None:
         return _scope_record(scope, self.principals.get(principal_id))
 
     def put_client(self, record: ApiClientIdentity) -> None:
         _retain(self.clients, record.client_id, record)
 
-    def get_client(self, scope: TenantScope, client_id: str) -> ApiClientIdentity | None:
+    def get_client(
+        self, scope: TenantScope, client_id: str
+    ) -> ApiClientIdentity | None:
         return _scope_record(scope, self.clients.get(client_id))
 
     def put_retention_policy(self, record: RetentionPolicy) -> None:
@@ -132,7 +143,9 @@ class InMemoryFoundationRepository:
     def put_permission(self, record: Permission) -> None:
         _retain(self.permissions, record.permission_id, record)
 
-    def get_permission(self, scope: TenantScope, permission_id: str) -> Permission | None:
+    def get_permission(
+        self, scope: TenantScope, permission_id: str
+    ) -> Permission | None:
         return _scope_record(scope, self.permissions.get(permission_id))
 
     def put_role(self, record: Role) -> None:
@@ -144,13 +157,17 @@ class InMemoryFoundationRepository:
     def put_membership(self, record: Membership) -> None:
         _retain(self.memberships, record.membership_id, record)
 
-    def get_membership(self, scope: TenantScope, membership_id: str) -> Membership | None:
+    def get_membership(
+        self, scope: TenantScope, membership_id: str
+    ) -> Membership | None:
         return _scope_record(scope, self.memberships.get(membership_id))
 
     def put_entitlement(self, record: Entitlement) -> None:
         _retain(self.entitlements, record.entitlement_id, record)
 
-    def get_entitlement(self, scope: TenantScope, entitlement_id: str) -> Entitlement | None:
+    def get_entitlement(
+        self, scope: TenantScope, entitlement_id: str
+    ) -> Entitlement | None:
         return _scope_record(scope, self.entitlements.get(entitlement_id))
 
     def put_quota(self, record: QuotaContract) -> None:
@@ -236,7 +253,10 @@ class InMemoryFoundationRepository:
         pointer: ReleasePointer,
         activation: ActivationRecord,
     ) -> ReleasePointer:
-        if pointer.pointer_id != mutation.pointer_id or activation.pointer_id != pointer.pointer_id:
+        if (
+            pointer.pointer_id != mutation.pointer_id
+            or activation.pointer_id != pointer.pointer_id
+        ):
             raise FoundationRepositoryError("release CAS record identity mismatch")
         if (
             pointer.organization_id != scope.organization_id
@@ -266,15 +286,20 @@ class InMemoryFoundationRepository:
         if pointer.revision != current_revision + 1:
             raise FoundationRepositoryError("release pointer revision is not monotonic")
         prior_event = next(
-            (event for event in self.activation_history.get(pointer.pointer_id, ())
-             if event.activation_id == activation.activation_id),
+            (
+                event
+                for event in self.activation_history.get(pointer.pointer_id, ())
+                if event.activation_id == activation.activation_id
+            ),
             None,
         )
         if prior_event is not None and prior_event != activation:
             raise FoundationRepositoryError("activation evidence mutation")
         self.release_pointers[pointer.pointer_id] = pointer
         if prior_event is None:
-            self.activation_history.setdefault(pointer.pointer_id, []).append(activation)
+            self.activation_history.setdefault(pointer.pointer_id, []).append(
+                activation
+            )
         return pointer
 
 
@@ -312,7 +337,9 @@ class FoundationControlPlane:
             raise FoundationLifecycleError("client_principal_not_active")
         self._repository.put_client(record)
 
-    def register_retention_policy(self, scope: TenantScope, record: RetentionPolicy) -> None:
+    def register_retention_policy(
+        self, scope: TenantScope, record: RetentionPolicy
+    ) -> None:
         self._require_tenant_scope(scope, record.organization_id, record.tenant_id)
         self._repository.put_retention_policy(record)
 
@@ -347,13 +374,17 @@ class FoundationControlPlane:
         self._require_subject(scope, record.subject_kind, record.subject_id)
         self._repository.put_quota(record)
 
-    def register_upstream(self, scope: TenantScope, record: GatewayUpstreamVersion) -> None:
+    def register_upstream(
+        self, scope: TenantScope, record: GatewayUpstreamVersion
+    ) -> None:
         self._require_tenant_scope(scope, record.organization_id, record.tenant_id)
         self._repository.put_upstream(record)
 
     def register_route(self, scope: TenantScope, record: GatewayRouteVersion) -> None:
         self._require_tenant_scope(scope, record.organization_id, record.tenant_id)
-        upstream = self._repository.get_upstream(scope, record.upstream_id, record.upstream_version)
+        upstream = self._repository.get_upstream(
+            scope, record.upstream_id, record.upstream_version
+        )
         if upstream is None or upstream.lifecycle.status != "active":
             raise FoundationLifecycleError("route_upstream_scope_or_version_missing")
         self._repository.put_route(record)
@@ -364,32 +395,48 @@ class FoundationControlPlane:
             if component.target_kind not in {"route", "upstream"}:
                 raise FoundationLifecycleError("config_component_kind_not_allowed")
             component_record = self._get_version(scope, component)
-            if component_record is None or component_record.lifecycle.status != "active":
-                raise FoundationLifecycleError("config_component_scope_or_version_missing")
+            if (
+                component_record is None
+                or component_record.lifecycle.status != "active"
+            ):
+                raise FoundationLifecycleError(
+                    "config_component_scope_or_version_missing"
+                )
         self._repository.put_config(record)
 
-    def register_feature(self, scope: TenantScope, record: GatewayFeatureVersion) -> None:
+    def register_feature(
+        self, scope: TenantScope, record: GatewayFeatureVersion
+    ) -> None:
         self._require_tenant_scope(scope, record.organization_id, record.tenant_id)
         if record.config_ref is not None:
             config = self._get_version(scope, record.config_ref)
             if config is None or config.lifecycle.status != "active":
-                raise FoundationLifecycleError("feature_config_scope_or_version_missing")
+                raise FoundationLifecycleError(
+                    "feature_config_scope_or_version_missing"
+                )
         self._repository.put_feature(record)
 
-    def register_circuit_history(self, scope: TenantScope, record: CircuitHistory) -> None:
+    def register_circuit_history(
+        self, scope: TenantScope, record: CircuitHistory
+    ) -> None:
         self._require_tenant_scope(scope, record.organization_id, record.tenant_id)
         self._repository.put_circuit_history(record)
 
     def register_tombstone(self, scope: TenantScope, record: TombstoneRecord) -> None:
         self._require_tenant_scope(scope, record.organization_id, record.tenant_id)
-        if self._repository.get_retention_policy(scope, record.retention_policy_ref) is None:
+        if (
+            self._repository.get_retention_policy(scope, record.retention_policy_ref)
+            is None
+        ):
             raise FoundationLifecycleError("tombstone_retention_policy_missing")
         target = self._lookup_version(
             scope, record.resource_kind, record.resource_id, record.resource_version
         )
         if target is None:
             raise FoundationLifecycleError("tombstone_target_scope_or_version_missing")
-        pointer_id = release_pointer_id(scope.tenant_id, record.resource_kind, record.resource_id)
+        pointer_id = release_pointer_id(
+            scope.tenant_id, record.resource_kind, record.resource_id
+        )
         pointer = self._repository.get_release_pointer(scope, pointer_id)
         if pointer is not None and pointer.target_version == record.resource_version:
             raise FoundationLifecycleError("active_release_cannot_be_tombstoned")
@@ -421,20 +468,30 @@ class FoundationControlPlane:
             raise FoundationLifecycleError("release_target_scope_or_version_missing")
         if target.lifecycle.status != "active":
             raise FoundationLifecycleError("release_target_not_active")
-        if self._repository.get_tombstone(scope, target_kind, target_id, target_version) is not None:
+        if (
+            self._repository.get_tombstone(
+                scope, target_kind, target_id, target_version
+            )
+            is not None
+        ):
             raise FoundationLifecycleError("release_target_tombstoned")
         pointer_id = release_pointer_id(scope.tenant_id, target_kind, target_id)
         current = self._repository.get_release_pointer(scope, pointer_id)
         current_revision = current.revision if current is not None else 0
         current_digest = current.pointer_digest if current is not None else None
-        if expected_revision != current_revision or expected_pointer_digest != current_digest:
+        if (
+            expected_revision != current_revision
+            or expected_pointer_digest != current_digest
+        ):
             raise FoundationLifecycleError("release_pointer_stale_cas")
         if current is not None and current.target_version == target_version:
             raise FoundationLifecycleError("release_target_already_active")
         if operation == "rollback":
             if current is None:
                 raise FoundationLifecycleError("rollback_requires_existing_release")
-            if not self._repository.has_activation_target(scope, pointer_id, target_version):
+            if not self._repository.has_activation_target(
+                scope, pointer_id, target_version
+            ):
                 raise FoundationLifecycleError("rollback_target_not_in_history")
         next_revision = current_revision + 1
         pointer_payload = {
@@ -472,7 +529,9 @@ class FoundationControlPlane:
         activation_digest = _digest_payload(activation_payload)
         activation = ActivationRecord(
             **activation_payload,
-            activation_id=activation_id_for(pointer_id, next_revision, activation_digest),
+            activation_id=activation_id_for(
+                pointer_id, next_revision, activation_digest
+            ),
             activation_digest=activation_digest,
         )
         mutation = ReleaseMutation(
@@ -497,7 +556,9 @@ class FoundationControlPlane:
         except ReleaseConflict as exc:
             raise FoundationLifecycleError("release_pointer_stale_cas") from exc
         if applied != pointer:
-            raise FoundationRepositoryError("repository returned a different release pointer")
+            raise FoundationRepositoryError(
+                "repository returned a different release pointer"
+            )
         return pointer, activation
 
     def _require_tenant_scope(
@@ -527,7 +588,9 @@ class FoundationControlPlane:
                     raise FoundationLifecycleError("scope_client_mismatch")
         return tenant
 
-    def _require_subject(self, scope: TenantScope, subject_kind: str, subject_id: str) -> None:
+    def _require_subject(
+        self, scope: TenantScope, subject_kind: str, subject_id: str
+    ) -> None:
         if subject_kind == "tenant":
             if subject_id != scope.tenant_id:
                 raise FoundationLifecycleError("cross_tenant_subject")
@@ -562,8 +625,18 @@ class FoundationControlPlane:
         return GatewayVersionRef(**payload, ref_digest=_digest_payload(payload))
 
     def _lookup_version(
-        self, scope: TenantScope, target_kind: TargetKind, target_id: str, target_version: int
-    ) -> GatewayUpstreamVersion | GatewayRouteVersion | GatewayConfigVersion | GatewayFeatureVersion | None:
+        self,
+        scope: TenantScope,
+        target_kind: TargetKind,
+        target_id: str,
+        target_version: int,
+    ) -> (
+        GatewayUpstreamVersion
+        | GatewayRouteVersion
+        | GatewayConfigVersion
+        | GatewayFeatureVersion
+        | None
+    ):
         if target_kind == "upstream":
             return self._repository.get_upstream(scope, target_id, target_version)
         if target_kind == "route":
@@ -574,8 +647,17 @@ class FoundationControlPlane:
 
     def _get_version(
         self, scope: TenantScope, reference: GatewayVersionRef
-    ) -> GatewayUpstreamVersion | GatewayRouteVersion | GatewayConfigVersion | GatewayFeatureVersion | None:
-        if reference.organization_id != scope.organization_id or reference.tenant_id != scope.tenant_id:
+    ) -> (
+        GatewayUpstreamVersion
+        | GatewayRouteVersion
+        | GatewayConfigVersion
+        | GatewayFeatureVersion
+        | None
+    ):
+        if (
+            reference.organization_id != scope.organization_id
+            or reference.tenant_id != scope.tenant_id
+        ):
             return None
         target = self._lookup_version(
             scope, reference.target_kind, reference.target_id, reference.target_version

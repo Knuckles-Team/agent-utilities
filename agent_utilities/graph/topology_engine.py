@@ -159,12 +159,16 @@ class ElasticTopologyAdmission:
                 "tenant and delegation_id are required for topology admission"
             )
         if any(ord(c) < 32 or ord(c) == 127 for c in tenant + delegation_id):
-            raise TopologyAdmissionError("tenant and delegation_id contain control characters")
+            raise TopologyAdmissionError(
+                "tenant and delegation_id contain control characters"
+            )
         if any(not isinstance(value, str) for value in self.capabilities):
             raise TopologyAdmissionError("capability identifiers must be strings")
         capabilities = tuple(sorted({value.strip() for value in self.capabilities}))
         if any(not value or any(ord(c) < 32 for c in value) for value in capabilities):
-            raise TopologyAdmissionError("capability identifiers must be non-empty and printable")
+            raise TopologyAdmissionError(
+                "capability identifiers must be non-empty and printable"
+            )
 
         integer_limits = {
             "max_nodes": (self.max_nodes, 1, 1_024),
@@ -175,11 +179,17 @@ class ElasticTopologyAdmission:
             "max_payload_bytes": (self.max_payload_bytes, 1, 64 * 1024 * 1024),
         }
         for name, (raw, lower, upper) in integer_limits.items():
-            if isinstance(raw, bool) or not isinstance(raw, int) or not lower <= raw <= upper:
+            if (
+                isinstance(raw, bool)
+                or not isinstance(raw, int)
+                or not lower <= raw <= upper
+            ):
                 raise TopologyAdmissionError(f"{name} is out of range")
 
         if not isinstance(self.resource_limits, SandboxResourceLimits):
-            raise TopologyAdmissionError("resource_limits must be SandboxResourceLimits")
+            raise TopologyAdmissionError(
+                "resource_limits must be SandboxResourceLimits"
+            )
         try:
             issued_at = float(self.issued_at)
         except (TypeError, ValueError, OverflowError) as exc:
@@ -205,7 +215,9 @@ class ElasticTopologyAdmission:
             or not self.schema_version.strip()
             or any(ord(c) < 32 or ord(c) == 127 for c in self.schema_version)
         ):
-            raise TopologyAdmissionError("schema_version must be printable and non-empty")
+            raise TopologyAdmissionError(
+                "schema_version must be printable and non-empty"
+            )
 
         object.__setattr__(self, "tenant", tenant)
         object.__setattr__(self, "delegation_id", delegation_id)
@@ -214,7 +226,7 @@ class ElasticTopologyAdmission:
         object.__setattr__(self, "deadline_unix", deadline)
 
     @classmethod
-    def local(cls, *, issued_at: float | None = None) -> "ElasticTopologyAdmission":
+    def local(cls, *, issued_at: float | None = None) -> ElasticTopologyAdmission:
         """Create the bounded, non-engine admission used by isolated tests."""
         kwargs: dict[str, Any] = {}
         if issued_at is not None:
@@ -282,7 +294,9 @@ class ElasticTopologyAdmission:
                 default=None,
             ).encode("utf-8")
         except (TypeError, ValueError, OverflowError) as exc:
-            raise TopologyAdmissionError("payload is not deterministically serializable") from exc
+            raise TopologyAdmissionError(
+                "payload is not deterministically serializable"
+            ) from exc
         return len(encoded)
 
     def require_payload(self, payload: Any, *, label: str = "payload") -> int:
@@ -319,12 +333,18 @@ class ElasticTopologyAdmission:
         if not isinstance(item, Mapping):
             raise TopologyAdmissionError("native WorkItem is missing")
         if str(item.get("tenant") or "") != self.tenant:
-            raise TopologyAdmissionError("WorkItem tenant does not match topology admission")
+            raise TopologyAdmissionError(
+                "WorkItem tenant does not match topology admission"
+            )
         if item.get("deadline_unix") != self.deadline_unix:
-            raise TopologyAdmissionError("WorkItem deadline does not match topology admission")
+            raise TopologyAdmissionError(
+                "WorkItem deadline does not match topology admission"
+            )
         metadata = item.get("metadata")
         if not isinstance(metadata, Mapping):
-            raise TopologyAdmissionError("native WorkItem admission metadata is missing")
+            raise TopologyAdmissionError(
+                "native WorkItem admission metadata is missing"
+            )
         expected = self.work_item_metadata()
         for key in ("tenant", "deadline_unix", "budget", "resource_limits"):
             if metadata.get(key) != expected[key]:
@@ -372,14 +392,19 @@ class ElasticTopologyAdmission:
             if not isinstance(step, Mapping):
                 raise TopologyAdmissionError("topology steps must be mappings")
             step_roles = step.get("roles", ())
-            if not isinstance(step_roles, Sequence) or isinstance(step_roles, (str, bytes)):
+            if not isinstance(step_roles, Sequence) or isinstance(
+                step_roles, (str, bytes)
+            ):
                 raise TopologyAdmissionError("topology step roles must be a sequence")
             fan_out = len(step_roles)
             if fan_out > self.max_fan_out:
                 raise TopologyAdmissionError(
                     f"topology fan-out exceeds admission ({fan_out} > {self.max_fan_out})"
                 )
-            if str(step.get("mode", "")) == "parallel" and fan_out > self.max_parallelism:
+            if (
+                str(step.get("mode", "")) == "parallel"
+                and fan_out > self.max_parallelism
+            ):
                 raise TopologyAdmissionError(
                     f"topology parallelism exceeds admission ({fan_out} > {self.max_parallelism})"
                 )
@@ -396,9 +421,13 @@ class ElasticTopologyAdmission:
                     f"parallel group exceeds admission ({len(group)} > {self.max_parallelism})"
                 )
             if any(str(role) not in role_set for role in group):
-                raise TopologyAdmissionError("parallel group references an unknown role")
+                raise TopologyAdmissionError(
+                    "parallel group references an unknown role"
+                )
             if len(set(group)) != len(group) or grouped_roles.intersection(group):
-                raise TopologyAdmissionError("parallel groups must be disjoint and unique")
+                raise TopologyAdmissionError(
+                    "parallel groups must be disjoint and unique"
+                )
             grouped_roles.update(group)
         self.require_payload(specialists, label="topology specialists")
 

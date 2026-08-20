@@ -9,7 +9,7 @@ the event eligible for retry. Keyset cursors are per aggregate and bounded.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from pydantic import Field, StrictBool
@@ -60,7 +60,9 @@ class ProjectionBatchResult(ProtocolModel):
     )
     scope: ProjectionScope
     status: Literal["complete", "applied", "replayed", "blocked", "failed", "drift"]
-    outcomes: tuple[ProjectionOutcome, ...] = Field(default=(), max_length=MAX_BATCH_SIZE)
+    outcomes: tuple[ProjectionOutcome, ...] = Field(
+        default=(), max_length=MAX_BATCH_SIZE
+    )
     checkpoint: ProjectionCheckpoint | None = None
     has_more: StrictBool = False
 
@@ -72,7 +74,9 @@ class ProjectionCleanupResult(ProtocolModel):
         "control-plane-projection-cleanup.v1"
     )
     scope: ProjectionScope
-    outcomes: tuple[ProjectionOutcome, ...] = Field(default=(), max_length=MAX_BATCH_SIZE)
+    outcomes: tuple[ProjectionOutcome, ...] = Field(
+        default=(), max_length=MAX_BATCH_SIZE
+    )
     checkpoint: ProjectionCheckpoint | None = None
     has_more: StrictBool = False
 
@@ -156,8 +160,7 @@ class ProjectionService:
         if not outcomes:
             return "complete"
         if any(
-            item.status in {"gap", "conflict", "rejected", "drift"}
-            for item in outcomes
+            item.status in {"gap", "conflict", "rejected", "drift"} for item in outcomes
         ):
             return "drift"
         if any(item.status == "failed" for item in outcomes):
@@ -187,7 +190,7 @@ class ProjectionService:
                 expected_digest=expected_digest,
                 observed_digest=observed_digest,
                 repairable=True,
-                recorded_at=datetime.now(timezone.utc),
+                recorded_at=datetime.now(UTC),
             )
         )
 
@@ -232,7 +235,9 @@ class ProjectionService:
         )
         return ProjectionBatchResult(
             scope=scope,
-            status="failed" if reason_code in {"graph_apply_failed", "rebuild_failed"} else "drift",
+            status="failed"
+            if reason_code in {"graph_apply_failed", "rebuild_failed"}
+            else "drift",
             checkpoint=checkpoint,
         )
 
@@ -311,7 +316,9 @@ class ProjectionService:
                 ):
                     outcomes.append(self._outcome("replayed", event))
                 else:
-                    outcomes.append(self._outcome("conflict", event, "out_of_order_event"))
+                    outcomes.append(
+                        self._outcome("conflict", event, "out_of_order_event")
+                    )
                     self._record_drift(
                         reason_code="identity_conflict",
                         scope=scope,
@@ -378,7 +385,8 @@ class ProjectionService:
             status=status,
             outcomes=typed_outcomes,
             checkpoint=current,
-            has_more=len(events) == limit and status in {"complete", "applied", "replayed"},
+            has_more=len(events) == limit
+            and status in {"complete", "applied", "replayed"},
         )
 
     def project(
@@ -468,8 +476,13 @@ class ProjectionService:
                     sequence=0,
                 )
                 continue
-            if event.operation != "tombstone" or event.sequence > checkpoint.last_sequence:
-                outcomes.append(self._outcome("rejected", event, "tombstone_not_durable"))
+            if (
+                event.operation != "tombstone"
+                or event.sequence > checkpoint.last_sequence
+            ):
+                outcomes.append(
+                    self._outcome("rejected", event, "tombstone_not_durable")
+                )
                 self._record_drift(
                     reason_code="tombstone_cleanup_failed",
                     scope=scope,
@@ -480,7 +493,9 @@ class ProjectionService:
             try:
                 self._graph.cleanup_tombstone(event, fence_token)
             except Exception:
-                outcomes.append(self._outcome("failed", event, "tombstone_cleanup_failed"))
+                outcomes.append(
+                    self._outcome("failed", event, "tombstone_cleanup_failed")
+                )
                 self._record_drift(
                     reason_code="tombstone_cleanup_failed",
                     scope=scope,
@@ -515,12 +530,10 @@ def promote_graph_observation(
         raise ProjectionContractError("observation_type_not_allowed")
     if policy.require_evidence_ref and observation.evidence_ref is None:
         raise ProjectionContractError("observation_evidence_reference_required")
-    current_time = now or datetime.now(timezone.utc)
+    current_time = now or datetime.now(UTC)
     if current_time.tzinfo is None or current_time.utcoffset() is None:
         raise ProjectionContractError("promotion_time_requires_timezone")
-    age = current_time.astimezone(timezone.utc) - observation.observed_at.astimezone(
-        timezone.utc
-    )
+    age = current_time.astimezone(UTC) - observation.observed_at.astimezone(UTC)
     if age < timedelta(0) or age.total_seconds() > policy.max_age_seconds:
         raise ProjectionContractError("observation_is_stale")
 

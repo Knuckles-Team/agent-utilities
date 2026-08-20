@@ -26,15 +26,15 @@ actuator again.  A dry-run uses the explicit ``simulated`` state and can
 never claim that replicas changed.
 """
 
-from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
-from enum import Enum
 import hashlib
 import json
 import math
 import re
 import threading
 import uuid
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+from enum import StrEnum
 from typing import Literal, Protocol, runtime_checkable
 
 from pydantic import (
@@ -92,7 +92,7 @@ def _derived_id(prefix: str, value: str) -> str:
 def _aware(value: datetime, field_name: str) -> datetime:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError(f"{field_name} must be timezone-aware")
-    return value.astimezone(timezone.utc)
+    return value.astimezone(UTC)
 
 
 def _finite(value: float, field_name: str) -> float:
@@ -107,7 +107,7 @@ def _finite(value: float, field_name: str) -> float:
     return value
 
 
-def _result_digest(result: "ScaleActuationResult") -> str:
+def _result_digest(result: ScaleActuationResult) -> str:
     """Canonical digest for the exact typed result being observed."""
 
     material = json.dumps(
@@ -118,12 +118,12 @@ def _result_digest(result: "ScaleActuationResult") -> str:
     return hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
-class ScaleControllerMode(str, Enum):
+class ScaleControllerMode(StrEnum):
     NATIVE = "native"
     DELEGATED = "delegated"
 
 
-class ScaleIntentState(str, Enum):
+class ScaleIntentState(StrEnum):
     PERSISTED = "persisted"
     STARTED = "started"
     SIMULATED = "simulated"
@@ -134,7 +134,7 @@ class ScaleIntentState(str, Enum):
     DENIED = "denied"
 
 
-class ScaleObservationStatus(str, Enum):
+class ScaleObservationStatus(StrEnum):
     CONVERGED = "converged"
     FAILED = "failed"
     SIMULATED = "simulated"
@@ -316,14 +316,12 @@ class ScaleActuationResult(_ScaleModel):
         lambda value: _identifier(value, "execution_key")
     )
     _validate_error = field_validator("error_code")(
-        lambda value: None
-        if value is None
-        else _identifier(value, "error_code")
+        lambda value: None if value is None else _identifier(value, "error_code")
     )
     _validate_operation = field_validator("actuator_operation_id")(
-        lambda value: None
-        if value is None
-        else _identifier(value, "actuator_operation_id")
+        lambda value: (
+            None if value is None else _identifier(value, "actuator_operation_id")
+        )
     )
 
     @model_validator(mode="after")
@@ -587,7 +585,7 @@ class DenyScalePolicy:
 class ScaleIntentLedger(Protocol):
     """Durable store required by the reconcile ordering contract."""
 
-    def persist_intent(self, intent: ScaleIntentRecord) -> "PersistedIntent":
+    def persist_intent(self, intent: ScaleIntentRecord) -> PersistedIntent:
         """Atomically insert/deduplicate the intent before any actuator call."""
         ...  # ABSTRACT-OK
 
@@ -678,15 +676,21 @@ class MemoryScaleIntentLedger:
             intent_key = (intent.intent_id, intent.intent_revision)
             prior = self._intents.get(intent_key)
             if prior is not None and prior != (intent.execution_key, identity):
-                raise ScaleIntentConflict("intent revision replayed with different identity")
+                raise ScaleIntentConflict(
+                    "intent revision replayed with different identity"
+                )
             existing = self._executions.get(intent.execution_key)
             if existing is not None:
                 if existing.identity_digest != identity:
-                    raise ScaleIntentConflict("execution key replayed with different identity")
+                    raise ScaleIntentConflict(
+                        "execution key replayed with different identity"
+                    )
                 self.events.append("persist_intent:replayed")
                 return PersistedIntent(execution=existing, replayed=True)
             if prior is not None and prior[0] != intent.execution_key:
-                raise ScaleIntentConflict("intent revision is bound to another execution key")
+                raise ScaleIntentConflict(
+                    "intent revision is bound to another execution key"
+                )
             now = intent.created_at
             execution = ScaleExecutionRecord(
                 execution_id=_derived_id("execution", intent.execution_key),
@@ -721,17 +725,19 @@ class MemoryScaleIntentLedger:
             if now >= intent.fence.expires_at:
                 raise ScaleLeaseUnavailable("scale intent fence is expired")
             current_execution = self._executions.get(intent.execution_key)
-            if current_execution is None or current_execution.identity_digest != intent.identity_digest():
-                raise ScaleIntentConflict("controller lease requires the persisted intent identity")
+            if (
+                current_execution is None
+                or current_execution.identity_digest != intent.identity_digest()
+            ):
+                raise ScaleIntentConflict(
+                    "controller lease requires the persisted intent identity"
+                )
             current = self._leases.get(intent.execution_key)
             if current is not None and current.expires_at > now:
-                if (
-                    current.controller_id == controller_id
-                    and not (
-                        current_execution.state == ScaleIntentState.FAILED.value
-                        and current_execution.result is not None
-                        and current_execution.result.retryable
-                    )
+                if current.controller_id == controller_id and not (
+                    current_execution.state == ScaleIntentState.FAILED.value
+                    and current_execution.result is not None
+                    and current_execution.result.retryable
                 ):
                     self.events.append("lease:replayed")
                     return current
@@ -801,8 +807,13 @@ class MemoryScaleIntentLedger:
     ) -> ScaleExecutionRecord:
         with self._lock:
             self._check_lease(intent, execution, lease, now)
-            if result.execution_key != intent.execution_key or result.target != intent.target:
-                raise ScaleIntentConflict("actuator result identity does not match intent")
+            if (
+                result.execution_key != intent.execution_key
+                or result.target != intent.target
+            ):
+                raise ScaleIntentConflict(
+                    "actuator result identity does not match intent"
+                )
             current = self._executions[intent.execution_key]
             if current.result is not None:
                 same_result = current.result == result
@@ -814,7 +825,9 @@ class MemoryScaleIntentLedger:
                     and current.state == ScaleIntentState.STARTED.value
                 )
                 if not same_result and not retry_attempt:
-                    raise ScaleIntentConflict("execution key returned a different result")
+                    raise ScaleIntentConflict(
+                        "execution key returned a different result"
+                    )
                 if same_result and same_attempt:
                     return current
             state = result.state
@@ -843,7 +856,10 @@ class MemoryScaleIntentLedger:
         now: datetime,
     ) -> ScaleObservation:
         with self._lock:
-            if observation.execution_key != intent.execution_key or observation.target != intent.target:
+            if (
+                observation.execution_key != intent.execution_key
+                or observation.target != intent.target
+            ):
                 raise ScaleIntentConflict("observation identity does not match intent")
             if (
                 observation.intent_id != intent.intent_id
@@ -864,7 +880,9 @@ class MemoryScaleIntentLedger:
                     raise ScaleObservationConflict("observation replay changed outcome")
                 return current
             if current_execution.result is None:
-                raise ScaleIntentConflict("observation requires a durable actuator result")
+                raise ScaleIntentConflict(
+                    "observation requires a durable actuator result"
+                )
             result = current_execution.result
             expected_status = (
                 ScaleObservationStatus.CONVERGED.value
@@ -907,8 +925,13 @@ class MemoryScaleIntentLedger:
             if authorization.target != intent.target:
                 raise ScaleIntentConflict("break-glass target does not match intent")
             persisted = self._executions.get(intent.execution_key)
-            if persisted is None or persisted.identity_digest != intent.identity_digest():
-                raise ScaleIntentConflict("break-glass requires the persisted intent identity")
+            if (
+                persisted is None
+                or persisted.identity_digest != intent.identity_digest()
+            ):
+                raise ScaleIntentConflict(
+                    "break-glass requires the persisted intent identity"
+                )
             key = (intent.execution_key, authorization.authorization_id)
             material = json.dumps(
                 {
@@ -1001,7 +1024,7 @@ class ScaleIntentReconciler:
         self.policy = policy if policy is not None else DenyScalePolicy()
         if not isinstance(self.policy, ScalePolicy):
             raise TypeError("scale policy must implement the policy contract")
-        self.clock = clock or (lambda: datetime.now(timezone.utc))
+        self.clock = clock or (lambda: datetime.now(UTC))
 
     def reconcile(
         self,
@@ -1020,7 +1043,10 @@ class ScaleIntentReconciler:
         execution = persisted.execution
         if dry_run and execution.state == ScaleIntentState.VERIFIED.value:
             existing = self._existing_observation(intent.execution_key)
-            if existing is None or existing.status != ScaleObservationStatus.SIMULATED.value:
+            if (
+                existing is None
+                or existing.status != ScaleObservationStatus.SIMULATED.value
+            ):
                 raise ScaleIntentConflict(
                     "dry-run cannot reuse an execution that may have scaled"
                 )
@@ -1049,10 +1075,14 @@ class ScaleIntentReconciler:
                 observation=observation,
                 detail="terminal execution replayed",
             )
-        if execution.state in {
-            ScaleIntentState.SIMULATED.value,
-            ScaleIntentState.SUCCEEDED.value,
-        } and execution.result is not None:
+        if (
+            execution.state
+            in {
+                ScaleIntentState.SIMULATED.value,
+                ScaleIntentState.SUCCEEDED.value,
+            }
+            and execution.result is not None
+        ):
             observation = self._observe_result(intent, execution, execution.result, now)
             return ScaleReconcileResult(
                 state=ScaleIntentState.VERIFIED,
@@ -1112,9 +1142,7 @@ class ScaleIntentReconciler:
             self._validate_break_glass(intent, break_glass, now)
             audit = self.ledger.record_break_glass(intent, break_glass, now=now)
 
-        lease = self.ledger.acquire_controller_lease(
-            intent, controller_id, now=now
-        )
+        lease = self.ledger.acquire_controller_lease(intent, controller_id, now=now)
         if lease is None:
             raise ScaleLeaseUnavailable("another controller owns the scale lease")
 

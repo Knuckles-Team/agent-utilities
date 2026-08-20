@@ -351,9 +351,7 @@ async def map_concurrent(
                         raise ValueError(
                             "model fan-out leases must use model_concurrency"
                         )
-                    lease = await asyncio.to_thread(
-                        authority.acquire, request
-                    )
+                    lease = await asyncio.to_thread(authority.acquire, request)
                 start = time.monotonic()
                 try:
                     if is_coro:
@@ -432,7 +430,9 @@ def map_concurrent_sync(
         lease: ResourceLease | None = None
         if authority is not None:
             if lease_request_factory is None:
-                raise ValueError("lease_request_factory is required with lease_authority")
+                raise ValueError(
+                    "lease_request_factory is required with lease_authority"
+                )
             request = lease_request_factory(item)
             if request.resource_kind != "model_concurrency":
                 raise ValueError("model fan-out leases must use model_concurrency")

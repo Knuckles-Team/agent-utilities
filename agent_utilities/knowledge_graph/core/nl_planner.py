@@ -162,11 +162,7 @@ def canonicalize_uql_query(
             # A dotted identifier is the exact cross-seam defect this contract
             # owns.  Lower only the known model wrapper; reject every other
             # qualifier instead of inventing alias semantics for UQL v1.
-            if (
-                i + 1 < n
-                and query[i] == "."
-                and _is_uql_ident_start(query[i + 1])
-            ):
+            if i + 1 < n and query[i] == "." and _is_uql_ident_start(query[i + 1]):
                 dot_at = i
                 property_start = i + 1
                 i = property_start + 1
@@ -203,9 +199,7 @@ def canonicalize_uql_query(
                 i += 2
                 continue
             if (i + 1 < n and query[i + 1].isdigit()) or (
-                i > 0
-                and query[i - 1].isdigit()
-                and (i + 1 == n or query[i + 1] != ".")
+                i > 0 and query[i - 1].isdigit() and (i + 1 == n or query[i + 1] != ".")
             ):
                 out.append(char)
                 i += 1
@@ -237,6 +231,7 @@ def _normalize_plan(parsed: dict[str, Any]) -> dict[str, Any]:
     normalized["grammar_version"] = UQL_GRAMMAR_VERSION
     normalized["corrections"] = list(normalized.get("corrections") or []) + corrections
     return normalized
+
 
 _SYSTEM_PROMPT = (
     "You are the query planner for a Knowledge Graph engine. Translate a "

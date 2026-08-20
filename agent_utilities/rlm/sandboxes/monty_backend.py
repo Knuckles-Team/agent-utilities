@@ -26,6 +26,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from ..telemetry import SandboxFatalError
 from .base import (
     Sandbox,
     SandboxCapabilities,
@@ -35,7 +36,6 @@ from .base import (
     enforce_sandbox_admission,
     sandbox_resource_limits,
 )
-from ..telemetry import SandboxFatalError
 
 logger = logging.getLogger(__name__)
 

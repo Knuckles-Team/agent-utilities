@@ -47,8 +47,9 @@ import re
 import shutil
 import subprocess  # nosec B404 — argv-only docker CLI calls, no shell
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from agent_utilities.orchestration.action_policy import ActionRequest
 
@@ -88,9 +89,7 @@ _K8S_WORKLOAD_KINDS = {
     "statefulset": "StatefulSet",
     "statefulsets": "StatefulSet",
 }
-_K8S_CONTROLLER_MODES = frozenset(
-    {"native", "external_hpa", "external_keda"}
-)
+_K8S_CONTROLLER_MODES = frozenset({"native", "external_hpa", "external_keda"})
 _K8S_CONTROLLER_ALIASES = {
     "native": "native",
     "hpa": "external_hpa",
@@ -124,7 +123,7 @@ class KubernetesResourceIdentity:
     @classmethod
     def from_request(
         cls, request: ActionRequest
-    ) -> tuple["KubernetesResourceIdentity | None", str]:
+    ) -> tuple[KubernetesResourceIdentity | None, str]:
         params = dict(request.params or {})
         nested = params.get("kubernetes") or params.get("k8s_resource")
         if isinstance(nested, dict):
@@ -163,7 +162,9 @@ class KubernetesResourceIdentity:
         }
         missing = [field for field, candidate in required.items() if not candidate]
         if missing:
-            return None, "kubernetes resource identity is incomplete: " + ", ".join(missing)
+            return None, "kubernetes resource identity is incomplete: " + ", ".join(
+                missing
+            )
         canonical_kind = _K8S_WORKLOAD_KINDS.get(kind.lower())
         if canonical_kind is None:
             return None, f"unsupported Kubernetes workload kind {kind!r}"
@@ -447,7 +448,8 @@ class KubernetesActuator:
         *,
         resource_reader: Callable[[KubernetesResourceIdentity], dict[str, Any]]
         | None = None,
-        scale_down_guard: KubernetesScaleDownGuard | Callable[..., dict[str, Any]]
+        scale_down_guard: KubernetesScaleDownGuard
+        | Callable[..., dict[str, Any]]
         | None = None,
     ):
         self.kubectl_bin = kubectl_bin or shutil.which("kubectl")
@@ -524,14 +526,18 @@ class KubernetesActuator:
         return result
 
     def _result(self, ok: bool, detail: str, *, mutation_started: bool = False):
-        return self._failure(
-            detail,
-            outcome_unknown=mutation_started and self._last_error == "timeout",
-        ) if not ok else {
-            "ok": True,
-            "dry_run": False,
-            "detail": str(detail)[:500],
-        }
+        return (
+            self._failure(
+                detail,
+                outcome_unknown=mutation_started and self._last_error == "timeout",
+            )
+            if not ok
+            else {
+                "ok": True,
+                "dry_run": False,
+                "detail": str(detail)[:500],
+            }
+        )
 
     def _identity(
         self, request: ActionRequest
@@ -628,7 +634,10 @@ class KubernetesActuator:
         # An injected registry reader may provide these explicit bindings; a
         # kubectl JSON response cannot, so the default reader already checked
         # the context→cluster relation above.
-        for field, expected in (("cluster", identity.cluster), ("context", identity.context)):
+        for field, expected in (
+            ("cluster", identity.cluster),
+            ("context", identity.context),
+        ):
             actual = raw.get(field)
             if actual is not None and str(actual) != expected:
                 return False, f"Kubernetes {field} binding mismatch", None
@@ -685,7 +694,10 @@ class KubernetesActuator:
             return False, "scale-down evidence lacks bounded replica counts"
         # Every StatefulSet reduction requires explicit quorum safety.  This
         # also covers raft/engine members without relying on name heuristics.
-        if identity.workload_kind == "StatefulSet" and evidence.get("quorum_safe") is not True:
+        if (
+            identity.workload_kind == "StatefulSet"
+            and evidence.get("quorum_safe") is not True
+        ):
             return False, "StatefulSet scale-down lacks quorum safety evidence"
         if identity.quorum_required and evidence.get("quorum_safe") is not True:
             return False, "quorum scale-down is not safe"
@@ -712,7 +724,10 @@ class KubernetesActuator:
             "stop_service",
         }:
             return self._failure(f"unsupported action kind {kind!r}")
-        if kind in {"scale_service", "stop_service"} and identity.controller_mode != "native":
+        if (
+            kind in {"scale_service", "stop_service"}
+            and identity.controller_mode != "native"
+        ):
             return self._failure(
                 f"replica ownership delegated to {identity.controller_mode}"
             )
@@ -762,7 +777,9 @@ class KubernetesActuator:
             container = str(request.params.get("container") or identity.name)
             if not _SAFE_TARGET.fullmatch(container):
                 return self._failure(f"unsafe Kubernetes container name {container!r}")
-            if len(image) > 500 or any(char.isspace() or ord(char) < 32 for char in image):
+            if len(image) > 500 or any(
+                char.isspace() or ord(char) < 32 for char in image
+            ):
                 return self._failure("unsafe Kubernetes image reference")
             if image:
                 ok, out = self._run(
@@ -820,9 +837,7 @@ def get_fleet_actuator() -> FleetActuator:
     return DryRunActuator()
 
 
-def _action_idempotency_key(
-    request: ActionRequest, supplied: str | None = None
-) -> str:
+def _action_idempotency_key(request: ActionRequest, supplied: str | None = None) -> str:
     """Return a stable, opaque key for one action declaration.
 
     Native scale intents and granted approvals pass their own stronger keys.
@@ -880,9 +895,10 @@ def _action_request_digest(request: ActionRequest) -> str:
 
 
 def _execution_id(idempotency_key: str) -> str:
-    return "action_execution:" + hashlib.sha256(
-        idempotency_key.encode("utf-8")
-    ).hexdigest()[:32]
+    return (
+        "action_execution:"
+        + hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()[:32]
+    )
 
 
 def _dry_run_actuator(actuator: FleetActuator) -> bool:
@@ -906,7 +922,8 @@ def _outbox_accepted(result: Any) -> bool:
     # below would otherwise misread the replayed action's own outcome as a
     # rejection of this prepare attempt.
     if result.get("replayed") and str(result.get("status") or "") in (
-        _OUTBOX_TERMINAL | {_OUTBOX_PREPARED, _OUTBOX_EXECUTING, _OUTBOX_RECOVERY_PENDING}
+        _OUTBOX_TERMINAL
+        | {_OUTBOX_PREPARED, _OUTBOX_EXECUTING, _OUTBOX_RECOVERY_PENDING}
     ):
         return True
     if result.get("ok") is False:
@@ -1061,7 +1078,9 @@ def execute_action(
                         }
                     )
                 except Exception as exc:  # noqa: BLE001 — replay completion remains pending
-                    logger.warning("fleet action outbox replay completion failed: %s", exc)
+                    logger.warning(
+                        "fleet action outbox replay completion failed: %s", exc
+                    )
                     completion = {"accepted": False}
                 if not isinstance(completion, dict):
                     completion = {"accepted": False}

@@ -195,7 +195,9 @@ class DocumentationCorpus(BaseModel):
         ):
             raise ValueError("corpus versions must be exact bounded identifiers")
         if len(self.questions) < 4:
-            raise ValueError("the documentation corpus must cover at least four questions")
+            raise ValueError(
+                "the documentation corpus must cover at least four questions"
+            )
         ids = [question.question_id for question in self.questions]
         if len(set(ids)) != len(ids):
             raise ValueError("documentation question ids must be unique")
@@ -273,7 +275,9 @@ class RequestRecorder:
         """Record one opaque source request, failing before the bound is crossed."""
 
         if not _is_safe_opaque_id(source_id):
-            raise DocumentationBenchmarkError("source request id is not a safe opaque id")
+            raise DocumentationBenchmarkError(
+                "source request id is not a safe opaque id"
+            )
         if len(self._source_ids) >= self._limit:
             raise BenchmarkBoundExceeded(
                 f"documentation adapter exceeded {self._limit} requests for one answer"
@@ -401,7 +405,9 @@ class DocumentationBenchmarkEvidence(BaseModel):
 
         target = Path(path)
         if not target.parent.is_dir():
-            raise FileNotFoundError(f"evidence directory does not exist: {target.parent}")
+            raise FileNotFoundError(
+                f"evidence directory does not exist: {target.parent}"
+            )
         fd, temporary_name = tempfile.mkstemp(
             prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
         )
@@ -539,10 +545,7 @@ def _repeat_identity(
     *,
     repetitions: int,
 ) -> RepeatIdentity:
-    by_key = {
-        (item.repetition, item.question_id): item
-        for item in observations
-    }
+    by_key = {(item.repetition, item.question_id): item for item in observations}
     mismatches: list[str] = []
     comparisons = 0
     identical = 0
@@ -578,7 +581,9 @@ def _default_run_id(
             "corpus": corpus.model_dump(mode="json"),
             "revisions": {
                 path.value: value.model_dump(mode="json")
-                for path, value in sorted(revisions.items(), key=lambda pair: pair[0].value)
+                for path, value in sorted(
+                    revisions.items(), key=lambda pair: pair[0].value
+                )
             },
             "repetitions": repetitions,
         },
@@ -660,7 +665,10 @@ class DocumentationBenchmarkRunner:
             checked_revisions[path] = revision
 
         observations: list[PathObservation] = []
-        for path in (DocumentationPath.HTML_BASELINE, DocumentationPath.AGENT_GENERATED):
+        for path in (
+            DocumentationPath.HTML_BASELINE,
+            DocumentationPath.AGENT_GENERATED,
+        ):
             adapter = normalized_adapters[path]
             try:
                 reset_cache(path)
@@ -740,10 +748,19 @@ class DocumentationBenchmarkRunner:
 
         summaries: list[PathSummary] = []
         uncertainty: list[str] = []
-        for path in (DocumentationPath.HTML_BASELINE, DocumentationPath.AGENT_GENERATED):
+        for path in (
+            DocumentationPath.HTML_BASELINE,
+            DocumentationPath.AGENT_GENERATED,
+        ):
             path_observations = [item for item in observations if item.path == path]
-            clean = [item for item in path_observations if item.cache_mode == CacheMode.CLEAN]
-            repeat = [item for item in path_observations if item.cache_mode == CacheMode.REPEAT]
+            clean = [
+                item for item in path_observations if item.cache_mode == CacheMode.CLEAN
+            ]
+            repeat = [
+                item
+                for item in path_observations
+                if item.cache_mode == CacheMode.REPEAT
+            ]
             identity = _repeat_identity(
                 path, path_observations, repetitions=repetitions
             )
@@ -757,7 +774,9 @@ class DocumentationBenchmarkRunner:
                 )
             )
             if identity.identity_rate < 1.0:
-                uncertainty.append(f"{path.value}: repeated semantic output is not identical")
+                uncertainty.append(
+                    f"{path.value}: repeated semantic output is not identical"
+                )
             for metric_name in (
                 "input_tokens",
                 "output_tokens",
@@ -827,7 +846,9 @@ def compare_documentation_paths(
         candidate_metrics.output_tokens,
         candidate_metrics.reasoning_tokens,
     )
-    if all(stat.mean is not None for stat in (*base_token_stats, *candidate_token_stats)):
+    if all(
+        stat.mean is not None for stat in (*base_token_stats, *candidate_token_stats)
+    ):
         base_tokens = sum(stat.mean or 0.0 for stat in base_token_stats)
         candidate_tokens = sum(stat.mean or 0.0 for stat in candidate_token_stats)
         deltas["token_count"] = round(candidate_tokens - base_tokens, 6)
@@ -847,19 +868,24 @@ def compare_documentation_paths(
         violations.append("stale-answer metric unavailable")
     elif deltas["stale_answer"] > thresholds.max_stale_answer_increase:
         violations.append("stale-answer regression")
-    if deltas["request_count"] is not None and deltas["request_count"] > thresholds.max_request_count_increase:
+    if (
+        deltas["request_count"] is not None
+        and deltas["request_count"] > thresholds.max_request_count_increase
+    ):
         violations.append("request-count regression")
-    if deltas["elapsed_ms"] is not None and deltas["elapsed_ms"] > thresholds.max_elapsed_ms_increase:
+    if (
+        deltas["elapsed_ms"] is not None
+        and deltas["elapsed_ms"] > thresholds.max_elapsed_ms_increase
+    ):
         violations.append("elapsed-time regression")
-    if deltas["token_count"] is not None and deltas["token_count"] > thresholds.max_token_count_increase:
+    if (
+        deltas["token_count"] is not None
+        and deltas["token_count"] > thresholds.max_token_count_increase
+    ):
         violations.append("token-count regression")
 
-    latency_improved = (
-        deltas["elapsed_ms"] is not None and deltas["elapsed_ms"] < 0
-    )
-    tokens_improved = (
-        deltas["token_count"] is not None and deltas["token_count"] < 0
-    )
+    latency_improved = deltas["elapsed_ms"] is not None and deltas["elapsed_ms"] < 0
+    tokens_improved = deltas["token_count"] is not None and deltas["token_count"] < 0
     efficiency_improved = latency_improved or tokens_improved
     if not efficiency_improved:
         violations.append("no measured latency or token improvement")
@@ -868,7 +894,9 @@ def compare_documentation_paths(
 
     uncertainty = list(evidence.uncertainty)
     if deltas["token_count"] is None:
-        uncertainty.append("combined token count unavailable; latency is the only efficiency axis")
+        uncertainty.append(
+            "combined token count unavailable; latency is the only efficiency axis"
+        )
     promotion_ready = not violations and reviewed
     if not reviewed:
         uncertainty.append("efficiency improvement has not been explicitly reviewed")
