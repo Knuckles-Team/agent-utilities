@@ -21,6 +21,7 @@ from .models import (
     PrincipalIdentity,
     QuotaContract,
     ReleaseMutation,
+    ReleaseOperation,
     ReleasePointer,
     RetentionPolicy,
     Role,
@@ -456,7 +457,11 @@ class FoundationControlPlane:
         activated_at: str,
         operation: str = "activate",
     ) -> tuple[ReleasePointer, ActivationRecord]:
-        if operation not in {"activate", "rollback"}:
+        if operation == "activate":
+            release_operation: ReleaseOperation = "activate"
+        elif operation == "rollback":
+            release_operation = "rollback"
+        else:
             raise FoundationLifecycleError("unknown_release_operation")
         if actor_principal_id != scope.principal_id:
             raise FoundationLifecycleError("release_actor_scope_mismatch")
@@ -507,7 +512,16 @@ class FoundationControlPlane:
             "updated_by_principal_id": actor_principal_id,
         }
         pointer = ReleasePointer(
-            **pointer_payload,
+            pointer_version="release-pointer.v1",
+            pointer_id=pointer_id,
+            organization_id=scope.organization_id,
+            tenant_id=scope.tenant_id,
+            target_kind=target_kind,
+            target_id=target_id,
+            target_version=target_version,
+            target_digest=target.record_digest,
+            revision=next_revision,
+            updated_by_principal_id=actor_principal_id,
             pointer_digest=_digest_payload(pointer_payload),
         )
         activation_payload = {
@@ -528,7 +542,20 @@ class FoundationControlPlane:
         }
         activation_digest = _digest_payload(activation_payload)
         activation = ActivationRecord(
-            **activation_payload,
+            activation_version="activation-record.v1",
+            pointer_id=pointer_id,
+            organization_id=scope.organization_id,
+            tenant_id=scope.tenant_id,
+            operation=release_operation,
+            target_kind=target_kind,
+            target_id=target_id,
+            target_version=target_version,
+            target_digest=target.record_digest,
+            previous_target_version=current.target_version if current else None,
+            release_revision=next_revision,
+            actor_principal_id=actor_principal_id,
+            change_ref=change_ref,
+            activated_at=activated_at,
             activation_id=activation_id_for(
                 pointer_id, next_revision, activation_digest
             ),
@@ -541,7 +568,7 @@ class FoundationControlPlane:
             tenant_id=scope.tenant_id,
             expected_revision=expected_revision,
             expected_pointer_digest=expected_pointer_digest,
-            operation=operation,
+            operation=release_operation,
             target_kind=target_kind,
             target_id=target_id,
             target_version=target_version,
@@ -622,7 +649,16 @@ class FoundationControlPlane:
             "target_version": target_version,
             "target_digest": target_digest,
         }
-        return GatewayVersionRef(**payload, ref_digest=_digest_payload(payload))
+        return GatewayVersionRef(
+            ref_version="gateway-version-ref.v1",
+            organization_id=scope.organization_id,
+            tenant_id=scope.tenant_id,
+            target_kind=target_kind,
+            target_id=target_id,
+            target_version=target_version,
+            target_digest=target_digest,
+            ref_digest=_digest_payload(payload),
+        )
 
     def _lookup_version(
         self,

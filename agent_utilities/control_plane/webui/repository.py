@@ -37,6 +37,7 @@ from .models import (
     SessionIdentity,
     SupportIdentity,
     TenantIdentity,
+    UiPermission,
     UserIdentity,
     WebUiEntity,
     WidgetIdentity,
@@ -150,7 +151,7 @@ class InMemoryWebUiRepository:
         self._lock = RLock()
 
     @staticmethod
-    def _require_context(context: AccessContext, permission: str) -> None:
+    def _require_context(context: AccessContext, permission: UiPermission) -> None:
         if not isinstance(context, AccessContext) or not context.allows(permission):
             raise WebUiAuthorizationError()
 
@@ -161,7 +162,7 @@ class InMemoryWebUiRepository:
         tenant_ref: str,
         workspace_ref: str,
         *,
-        permission: str,
+        permission: UiPermission,
     ) -> None:
         cls._require_context(context, permission)
         if context.tenant_ref != tenant_ref or context.workspace_ref != workspace_ref:
@@ -401,7 +402,7 @@ class InMemoryWebUiRepository:
             raise WebUiRetentionError()
         if legal_hold_ref is not None:
             _validate_ref(legal_hold_ref)
-        permission = (
+        permission: UiPermission = (
             "admin"
             if target in {"deletion_pending", "deleted", "legal_hold"}
             else "write"
@@ -436,6 +437,8 @@ class InMemoryWebUiRepository:
                     raise WebUiRetentionError("legal_hold_after_delete")
                 if legal_hold_ref is None:
                     raise WebUiRetentionError("legal_hold_reference_required")
+                if current.state not in ("active", "retained", "deletion_pending"):
+                    raise WebUiRetentionError("legal_hold_source_state_invalid")
                 next_state: LifecycleState = "legal_hold"
                 next_hold = legal_hold_ref
                 next_resume = current.state

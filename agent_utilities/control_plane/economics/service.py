@@ -11,10 +11,12 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
 from .models import (
     EconomicsContractError,
     LateEventDecision,
+    MetricKind,
     MetricTotal,
     PriceCard,
     ReconciliationReport,
@@ -29,7 +31,9 @@ from .models import (
 )
 
 
-def window_for(occurred_at: datetime, granularity: str) -> UsageWindow:
+def window_for(
+    occurred_at: datetime, granularity: Literal["hour", "day"]
+) -> UsageWindow:
     """Return an aligned UTC window; only hourly and daily aggregation is valid."""
 
     if occurred_at.tzinfo is None or occurred_at.utcoffset() is None:
@@ -125,13 +129,15 @@ def aggregate_usage(
     allocation = materialized[0].allocation
     if allocation.tenant_id != tenant_id:
         raise ValueError("usage allocation crosses tenant scope")
+    if window.window_end is None:
+        raise EconomicsContractError("aggregate window is missing its end boundary")
+    window_end = window.window_end
     seen: set[str] = set()
-    totals: dict[str, int] = defaultdict(int)
-    costs: dict[str, int] = defaultdict(int)
+    totals: dict[MetricKind, int] = defaultdict(int)
+    costs: dict[MetricKind, int] = defaultdict(int)
     rates = {rate.metric: rate.micros_per_unit for rate in price_card.rates}
     if price_card.effective_from > window.window_start or (
-        price_card.effective_to is not None
-        and price_card.effective_to < window.window_end
+        price_card.effective_to is not None and price_card.effective_to < window_end
     ):
         raise ValueError("price card does not cover the full aggregate window")
 
@@ -145,7 +151,7 @@ def aggregate_usage(
             raise EconomicsContractError("aggregate cannot mix tenants or allocations")
         if fact.service_ref != price_card.service_ref:
             raise EconomicsContractError("price card service does not match usage fact")
-        if not (window.window_start <= fact.occurred_at < window.window_end):
+        if not (window.window_start <= fact.occurred_at < window_end):
             raise EconomicsContractError(
                 "aggregate input contains an out-of-window fact"
             )
@@ -202,8 +208,8 @@ def aggregate_daily_from_hours(
     fact_ids = [fact_id for item in hours for fact_id in item.fact_ids]
     if len(fact_ids) != len(set(fact_ids)):
         raise EconomicsContractError("hourly inputs overlap and would double count")
-    quantity_by_metric: dict[str, int] = defaultdict(int)
-    cost_by_metric: dict[str, int] = defaultdict(int)
+    quantity_by_metric: dict[MetricKind, int] = defaultdict(int)
+    cost_by_metric: dict[MetricKind, int] = defaultdict(int)
     for item in hours:
         for total in item.totals:
             quantity_by_metric[total.metric] += total.quantity
@@ -252,6 +258,7 @@ def build_slo_rollup(
         and good_events + bad_events != total_events
     ):
         raise ValueError("availability/error-rate rollup must account for every event")
+    status: Literal["met", "breached", "insufficient_data"]
     if total_events == 0:
         if measured_micros is not None:
             raise ValueError("missing SLO measurements cannot be represented as zero")
@@ -358,7 +365,7 @@ def reconcile_samples(
         for fact_id, count in Counter(fact.fact_id for fact in observed_items).items()
         if count > 1
     )
-    status = (
+    status: Literal["complete", "gap", "drift"] = (
         "gap"
         if missing
         else "drift"

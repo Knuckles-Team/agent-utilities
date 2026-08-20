@@ -35,7 +35,7 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Literal, Protocol, runtime_checkable
+from typing import Final, Literal, Protocol, runtime_checkable
 
 from pydantic import (
     BaseModel,
@@ -47,7 +47,7 @@ from pydantic import (
     model_validator,
 )
 
-CONTRACT_VERSION = "1"
+CONTRACT_VERSION: Final[Literal["1"]] = "1"
 MAX_REASON_LENGTH = 512
 MAX_DETAIL_LENGTH = 512
 MAX_RETRY_ATTEMPTS = 8
@@ -197,7 +197,7 @@ class ScaleRetryPolicy(_ScaleModel):
 class ScaleIntentRecord(_ScaleModel):
     """Immutable desired change with all identity required for replay safety."""
 
-    schema_version: Literal[CONTRACT_VERSION] = CONTRACT_VERSION
+    schema_version: Literal["1"] = CONTRACT_VERSION
     intent_id: str
     intent_revision: StrictInt = Field(ge=1)
     expected_unit_revision: StrictInt = Field(ge=1)
@@ -275,7 +275,7 @@ class ControllerLease(_ScaleModel):
 class ScaleActuationRequest(_ScaleModel):
     """Typed, idempotent actuator input; no runtime-specific dicts."""
 
-    schema_version: Literal[CONTRACT_VERSION] = CONTRACT_VERSION
+    schema_version: Literal["1"] = CONTRACT_VERSION
     intent_id: str
     intent_revision: StrictInt = Field(ge=1)
     expected_unit_revision: StrictInt = Field(ge=1)
@@ -301,7 +301,7 @@ class ScaleActuationRequest(_ScaleModel):
 class ScaleActuationResult(_ScaleModel):
     """Typed actuator result; ``simulated`` is never represented as scaled."""
 
-    schema_version: Literal[CONTRACT_VERSION] = CONTRACT_VERSION
+    schema_version: Literal["1"] = CONTRACT_VERSION
     execution_key: str
     target: ScaleTargetBinding
     state: ScaleIntentState
@@ -343,7 +343,7 @@ class ScaleActuationResult(_ScaleModel):
 class ScaleExecutionRecord(_ScaleModel):
     """Durable execution row, including the last typed result for crash repair."""
 
-    schema_version: Literal[CONTRACT_VERSION] = CONTRACT_VERSION
+    schema_version: Literal["1"] = CONTRACT_VERSION
     execution_id: str
     intent_id: str
     intent_revision: StrictInt = Field(ge=1)
@@ -388,7 +388,7 @@ class ScaleExecutionRecord(_ScaleModel):
 class ScaleObservation(_ScaleModel):
     """Exactly-once durable convergence or failure observation."""
 
-    schema_version: Literal[CONTRACT_VERSION] = CONTRACT_VERSION
+    schema_version: Literal["1"] = CONTRACT_VERSION
     observation_id: str
     execution_key: str
     intent_id: str
@@ -1271,11 +1271,11 @@ class ScaleIntentReconciler:
         now: datetime,
     ) -> ScaleObservation:
         status = (
-            ScaleObservationStatus.CONVERGED.value
+            ScaleObservationStatus.CONVERGED
             if result.state == ScaleIntentState.SUCCEEDED.value
-            else ScaleObservationStatus.SIMULATED.value
+            else ScaleObservationStatus.SIMULATED
             if result.state == ScaleIntentState.SIMULATED.value
-            else ScaleObservationStatus.FAILED.value
+            else ScaleObservationStatus.FAILED
         )
         outcome_digest = _result_digest(result)
         observation = ScaleObservation(

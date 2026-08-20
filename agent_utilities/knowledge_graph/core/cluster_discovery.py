@@ -668,8 +668,8 @@ class ClusterTopologyAuthority:
                 for _, members, _ in prior.groups
                 for member in members
             }
-            for _, members, _ in parsed_groups:
-                for member in members:
+            for _, group_members, _ in parsed_groups:
+                for member in group_members:
                     old = prior_members.get((member.group_id, member.node_id))
                     if (
                         old is not None

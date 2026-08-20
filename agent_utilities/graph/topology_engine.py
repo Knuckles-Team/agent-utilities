@@ -274,7 +274,9 @@ class ElasticTopologyAdmission:
             raise TopologyAdmissionError("admission clock value is invalid") from exc
         if not math.isfinite(current):
             raise TopologyAdmissionError("admission clock value is not finite")
-        remaining = float(self.deadline_unix) - current
+        if self.deadline_unix is None:
+            raise TopologyAdmissionError("admission has no resolved deadline")
+        remaining = self.deadline_unix - current
         if remaining <= 0:
             raise TopologyAdmissionError("topology admission deadline expired")
         return remaining

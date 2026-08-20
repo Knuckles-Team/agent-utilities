@@ -9,7 +9,7 @@ Kubernetes dependencies.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Literal, Protocol, runtime_checkable
+from typing import Literal, Protocol, TypeVar, runtime_checkable
 
 from pydantic import Field
 
@@ -81,12 +81,15 @@ class EconomicsRepository(Protocol):
     def get_watermark(self, *, tenant_id: str, source_ref: str) -> Watermark | None: ...
 
 
+_T = TypeVar("_T")
+
+
 def _append(
-    store: dict[str, tuple[str, object]],
+    store: dict[str, tuple[str, _T]],
     *,
     identity: str,
     digest: str,
-    value: object,
+    value: _T,
 ) -> AppendReceipt:
     previous = store.get(identity)
     if previous is not None:

@@ -25,7 +25,7 @@ from collections import OrderedDict
 from collections.abc import Callable, Iterable, Sequence
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Final, Literal, Protocol, runtime_checkable
 
 from pydantic import (
     BaseModel,
@@ -37,7 +37,7 @@ from pydantic import (
     model_validator,
 )
 
-CONTRACT_VERSION = "1"
+CONTRACT_VERSION: Final[Literal["1"]] = "1"
 
 # Global hard bounds.  Deployments may choose stricter policy values, never
 # looser ones.  These limits keep the provider safe for million-resource
@@ -674,14 +674,14 @@ class ReplayGuard:
                 pending_highest[source_key] = sample.sequence
                 pending_ids.add(sample_key)
                 pending_digests.add(digest_key)
-            for key, sequence in pending_highest.items():
-                self._highest_sequence[key] = sequence
-            for key in pending_ids:
-                self._sample_ids[key] = None
-                self._sample_ids.move_to_end(key)
-            for key in pending_digests:
-                self._digests[key] = None
-                self._digests.move_to_end(key)
+            for source_key, sequence in pending_highest.items():
+                self._highest_sequence[source_key] = sequence
+            for sample_key in pending_ids:
+                self._sample_ids[sample_key] = None
+                self._sample_ids.move_to_end(sample_key)
+            for digest_key in pending_digests:
+                self._digests[digest_key] = None
+                self._digests.move_to_end(digest_key)
             while len(self._sample_ids) > self._max_entries:
                 self._sample_ids.popitem(last=False)
             while len(self._digests) > self._max_entries:
