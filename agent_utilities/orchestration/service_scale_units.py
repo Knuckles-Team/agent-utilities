@@ -1044,8 +1044,8 @@ def evaluate_scale(
     provider_quota_exhausted = False
     local_quota_exhausted = False
     for binding in contract.quotas:
-        observation = quota_map.get(binding.quota_ref)
-        if observation is None:
+        quota_observation = quota_map.get(binding.quota_ref)
+        if quota_observation is None:
             if binding.scope == "provider_global":
                 missing_provider_quota = True
             else:
@@ -1063,18 +1063,20 @@ def evaluate_scale(
                     else "quota_missing",
                 )
             )
-        elif observation.scope != binding.scope:
+        elif quota_observation.scope != binding.scope:
             quota_scope_mismatch = True
             evidence.append(
                 _profile_evidence(
                     "quota",
-                    observation.source_ref,
-                    observation.source_digest,
+                    quota_observation.source_ref,
+                    quota_observation.source_digest,
                     "blocked",
                     "quota_scope_mismatch",
                 )
             )
-        elif not _fresh(observation.observed_at, observation.expires_at, current):
+        elif not _fresh(
+            quota_observation.observed_at, quota_observation.expires_at, current
+        ):
             if binding.scope == "provider_global":
                 stale_provider_quota = True
             else:
@@ -1082,8 +1084,8 @@ def evaluate_scale(
             evidence.append(
                 _profile_evidence(
                     "quota",
-                    observation.source_ref,
-                    observation.source_digest,
+                    quota_observation.source_ref,
+                    quota_observation.source_digest,
                     "stale",
                     "provider_quota_stale"
                     if binding.scope == "provider_global"
@@ -1094,13 +1096,13 @@ def evaluate_scale(
             evidence.append(
                 _profile_evidence(
                     "quota",
-                    observation.source_ref,
-                    observation.source_digest,
+                    quota_observation.source_ref,
+                    quota_observation.source_digest,
                     "accepted",
                     binding.scope,
                 )
             )
-            if observation.used >= observation.limit:
+            if quota_observation.used >= quota_observation.limit:
                 if binding.scope == "provider_global":
                     provider_quota_exhausted = True
                 else:
@@ -1322,17 +1324,18 @@ def evaluate_scale(
         if local_quota_exhausted:
             reasons.append("capacity_exhausted")
         for binding in contract.quotas:
-            observation = quota_map[binding.quota_ref]
+            quota_observation = quota_map[binding.quota_ref]
             if binding.scope == "provider_global":
                 if binding.multiplicative:
                     reasons.append("provider_quota_not_multiplicative")
                 if (
-                    observation.used + additional * binding.per_replica
-                    > observation.limit
+                    quota_observation.used + additional * binding.per_replica
+                    > quota_observation.limit
                 ):
                     reasons.append("provider_quota_exhausted")
             elif (
-                observation.used + additional * binding.per_replica > observation.limit
+                quota_observation.used + additional * binding.per_replica
+                > quota_observation.limit
             ):
                 reasons.append("capacity_exhausted")
         for axis in contract.engine_authority_axes:

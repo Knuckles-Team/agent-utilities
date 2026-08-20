@@ -364,21 +364,28 @@ class GpuSlotScheduler:
                     self._store.save(job)
             finally:
                 if lease is not None:
-                    try:
-                        await asyncio.to_thread(
-                            self._lease_authority.release,
-                            lease.lease_id,
-                            tenant_ref=lease.request.tenant_ref,
-                            principal_ref=lease.request.principal_ref,
-                            fence_token=lease.fence_token,
-                            lease_epoch=lease.lease_epoch,
-                        )
-                    except Exception as exc:  # noqa: BLE001 - preserve worker loop; authority remains fail-closed
+                    if self._lease_authority is None:
                         logger.error(
-                            "GPU lease release failed for job %s; authority will reclaim on expiry: %s",
+                            "GPU lease held for job %s but lease authority is now "
+                            "unavailable; authority will reclaim on expiry",
                             job_id,
-                            exc,
                         )
+                    else:
+                        try:
+                            await asyncio.to_thread(
+                                self._lease_authority.release,
+                                lease.lease_id,
+                                tenant_ref=lease.request.tenant_ref,
+                                principal_ref=lease.request.principal_ref,
+                                fence_token=lease.fence_token,
+                                lease_epoch=lease.lease_epoch,
+                            )
+                        except Exception as exc:  # noqa: BLE001 - preserve worker loop; authority remains fail-closed
+                            logger.error(
+                                "GPU lease release failed for job %s; authority will reclaim on expiry: %s",
+                                job_id,
+                                exc,
+                            )
 
             async with self._cond:
                 self._current = None

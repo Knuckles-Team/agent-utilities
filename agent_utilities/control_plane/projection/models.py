@@ -21,7 +21,7 @@ import math
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
-from typing import Annotated, Literal, TypeAlias
+from typing import Annotated, Final, Literal, TypeAlias
 
 from pydantic import (
     Field,
@@ -68,8 +68,12 @@ __all__ = [
 ]
 
 
-OUTBOX_SCHEMA_VERSION = "control-plane-outbox.v1"
-PROJECTION_SCHEMA_VERSION = "control-plane-projection.v1"
+OUTBOX_SCHEMA_VERSION: Final[Literal["control-plane-outbox.v1"]] = (
+    "control-plane-outbox.v1"
+)
+PROJECTION_SCHEMA_VERSION: Final[Literal["control-plane-projection.v1"]] = (
+    "control-plane-projection.v1"
+)
 MAX_BATCH_SIZE = 256
 MAX_SUMMARY_FIELDS = 32
 MAX_SUMMARY_KEY_LENGTH = 64
@@ -348,7 +352,7 @@ class Tombstone(_ProjectionModel):
 class OutboxEnvelope(_ProjectionModel):
     """One immutable authority event safe to publish to GraphOS."""
 
-    schema_version: Literal[OUTBOX_SCHEMA_VERSION] = OUTBOX_SCHEMA_VERSION
+    schema_version: Literal["control-plane-outbox.v1"] = OUTBOX_SCHEMA_VERSION
     event_id: Identifier
     aggregate_type: AggregateType
     aggregate_id: Identifier
@@ -422,6 +426,7 @@ class OutboxEnvelope(_ProjectionModel):
         occurred_at: Timestamp,
         tombstone: Tombstone | None = None,
     ) -> OutboxEnvelope:
+        normalized_summary = _normalize_summary(summary or {})
         material = {
             "aggregate_digest": aggregate_digest,
             "aggregate_id": aggregate_id,
@@ -433,7 +438,7 @@ class OutboxEnvelope(_ProjectionModel):
             "payload_digest": payload_digest,
             "schema_version": OUTBOX_SCHEMA_VERSION,
             "sequence": sequence,
-            "summary": _normalize_summary(summary or {}),
+            "summary": normalized_summary,
             "tombstone": tombstone,
         }
         return cls(
@@ -447,9 +452,17 @@ class OutboxEnvelope(_ProjectionModel):
                 aggregate_digest,
             ),
             event_digest=event_digest_for(material),
-            **{
-                key: value for key, value in material.items() if key != "schema_version"
-            },
+            aggregate_digest=aggregate_digest,
+            aggregate_id=aggregate_id,
+            aggregate_type=aggregate_type,
+            authoritative_revision=authoritative_revision,
+            event_type=event_type,
+            occurred_at=occurred_at,
+            operation=operation,
+            payload_digest=payload_digest,
+            sequence=sequence,
+            summary=normalized_summary,
+            tombstone=tombstone,
         )
 
 
@@ -679,11 +692,12 @@ class ProjectionCheckpoint(_ProjectionModel):
                 )
             ).hexdigest(),
             checkpoint_digest=checkpoint_digest_for(material),
-            **{
-                key: value
-                for key, value in material.items()
-                if key != "checkpoint_version"
-            },
+            fence_token=fence_token,
+            last_event_digest=None,
+            last_event_id=None,
+            last_sequence=0,
+            projector_id=projector_id,
+            scope=scope,
         )
 
     @classmethod
@@ -713,11 +727,12 @@ class ProjectionCheckpoint(_ProjectionModel):
         return cls(
             checkpoint_id=prior.checkpoint_id,
             checkpoint_digest=checkpoint_digest_for(material),
-            **{
-                key: value
-                for key, value in material.items()
-                if key != "checkpoint_version"
-            },
+            fence_token=fence_token,
+            last_event_digest=event.event_digest,
+            last_event_id=event.event_id,
+            last_sequence=event.sequence,
+            projector_id=prior.projector_id,
+            scope=prior.scope,
         )
 
 

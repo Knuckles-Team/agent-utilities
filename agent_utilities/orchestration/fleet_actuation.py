@@ -669,11 +669,14 @@ class KubernetesActuator:
             return False, "scale-down requires NE-167 drain/stabilization evidence"
         try:
             assessor = getattr(guard, "assess", None)
-            evidence = (
-                assessor(identity, current_replicas, desired_replicas, request)
-                if callable(assessor)
-                else guard(identity, current_replicas, desired_replicas, request)
-            )
+            if callable(assessor):
+                evidence = assessor(
+                    identity, current_replicas, desired_replicas, request
+                )
+            elif callable(guard):
+                evidence = guard(identity, current_replicas, desired_replicas, request)
+            else:
+                return False, "scale-down guard is not callable"
         except Exception as exc:  # noqa: BLE001 — guard errors fail closed
             return False, f"scale-down guard failed: {exc}"
         if not isinstance(evidence, dict):
@@ -686,9 +689,13 @@ class KubernetesActuator:
         if str(evidence_rv or "") != identity.resource_version:
             return False, "scale-down evidence is stale for resourceVersion"
         try:
-            if int(evidence.get("observed_replicas")) != current_replicas:
+            observed_replicas = evidence.get("observed_replicas")
+            remaining_replicas = evidence.get("remaining_replicas")
+            if observed_replicas is None or remaining_replicas is None:
+                raise TypeError("scale-down evidence replica counts are missing")
+            if int(observed_replicas) != current_replicas:
                 return False, "scale-down evidence observed replica count changed"
-            if int(evidence.get("remaining_replicas")) != desired_replicas:
+            if int(remaining_replicas) != desired_replicas:
                 return False, "scale-down evidence targets a different replica count"
         except (TypeError, ValueError):
             return False, "scale-down evidence lacks bounded replica counts"
@@ -742,7 +749,10 @@ class KubernetesActuator:
         replicas: int | None = None
         if kind == "scale_service":
             try:
-                replicas = int(request.params.get("replicas"))
+                replicas_param = request.params.get("replicas")
+                if replicas_param is None:
+                    raise TypeError("replicas param is missing")
+                replicas = int(replicas_param)
             except (TypeError, ValueError):
                 return self._failure("scale_service requires an integer replica count")
             if replicas < 0 or replicas > 1_000_000:
@@ -1063,7 +1073,7 @@ def execute_action(
                     approval_id or prepared.get("approval_id") or ""
                 )
                 try:
-                    completion = store.complete(
+                    replay_completion = store.complete(
                         {
                             "operation": "complete",
                             "idempotency_key": key,
@@ -1081,12 +1091,12 @@ def execute_action(
                     logger.warning(
                         "fleet action outbox replay completion failed: %s", exc
                     )
-                    completion = {"accepted": False}
-                if not isinstance(completion, dict):
-                    completion = {"accepted": False}
-                approval_committed = bool(completion.get("approval_committed"))
+                    replay_completion = {"accepted": False}
+                if not isinstance(replay_completion, dict):
+                    replay_completion = {"accepted": False}
+                approval_committed = bool(replay_completion.get("approval_committed"))
                 completion_accepted = _outbox_completion_matches(
-                    completion, prior_state
+                    replay_completion, prior_state
                 )
                 if replay_approval_id and (
                     not completion_accepted or not approval_committed

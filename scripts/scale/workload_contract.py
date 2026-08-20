@@ -574,7 +574,7 @@ def _validate(c: WorkloadContract) -> None:
     if c.media_bytes_p99 < c.media_bytes_avg:
         raise WorkloadContractError("per_agent.media_bytes_p99 must be >= average")
 
-    for field_name, value in (
+    for field_name, fraction_value in (
         ("mix.interactive_fraction", c.interactive_fraction),
         ("mix.background_fraction", c.background_fraction),
         (
@@ -587,7 +587,7 @@ def _validate(c: WorkloadContract) -> None:
             c.tenants.elephant.messages_fraction,
         ),
     ):
-        if not math.isfinite(value) or not 0.0 <= value <= 1.0:
+        if not math.isfinite(fraction_value) or not 0.0 <= fraction_value <= 1.0:
             raise WorkloadContractError(
                 f"{field_name} must be finite and in the range [0, 1]"
             )

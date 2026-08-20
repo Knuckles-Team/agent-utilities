@@ -369,7 +369,7 @@ async def map_concurrent(
                     breaker.record(ok=False, status=status)
                     raise
                 finally:
-                    if lease is not None:
+                    if lease is not None and authority is not None:
                         await asyncio.to_thread(
                             authority.release,
                             lease.lease_id,
@@ -453,7 +453,7 @@ def map_concurrent_sync(
             breaker.record(ok=False, status=status)
             raise
         finally:
-            if lease is not None:
+            if lease is not None and authority is not None:
                 authority.release(
                     lease.lease_id,
                     tenant_ref=lease.request.tenant_ref,

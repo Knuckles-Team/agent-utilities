@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from threading import RLock
-from typing import cast
+from typing import Literal, cast
 
 from .errors import (
     MigrationCasConflictError,
@@ -37,7 +38,7 @@ __all__ = ["InMemoryMigrationAuthority"]
 _MAX_VERSION = 2_147_483_647
 
 
-def _digest_for(data: dict[str, object]) -> str:
+def _digest_for(data: Mapping[str, object]) -> str:
     return canonical_digest(
         {key: value for key, value in data.items() if key != "digest"}
     )
@@ -326,7 +327,7 @@ class InMemoryMigrationAuthority:
     def _delta(
         canonical_ref: str,
         *,
-        kind: str,
+        kind: Literal["add", "update", "delete"],
         source_digest: str | None,
         target_digest: str | None,
     ) -> ShadowDelta:
@@ -431,7 +432,7 @@ class InMemoryMigrationAuthority:
                             target_digest=target.record_digest,
                         )
                     )
-            state = (
+            state: Literal["clean", "needs_review", "blocked"] = (
                 "blocked"
                 if has_rejected or has_inventory_reject
                 else "clean"

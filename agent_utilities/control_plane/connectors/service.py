@@ -328,7 +328,9 @@ class ConnectorControlPlane:
         """Require approval, package install, credential access and enablement."""
 
         decisions = self._repository.get_authorizations(scope, server_id, version_id)
-        required = ("approval", "install", "credential_access", "enable")
+        required: tuple[
+            Literal["approval", "install", "credential_access", "enable"], ...
+        ] = ("approval", "install", "credential_access", "enable")
         missing: list[
             Literal["approval", "install", "credential_access", "enable"]
         ] = []

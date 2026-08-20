@@ -28,7 +28,7 @@ import re
 from collections.abc import Iterable
 from datetime import datetime
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Any, Final, Literal
 
 from pydantic import (
     BaseModel,
@@ -40,7 +40,7 @@ from pydantic import (
     model_validator,
 )
 
-CONTRACT_VERSION = "1"
+CONTRACT_VERSION: Final[Literal["1"]] = "1"
 
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$")
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -151,7 +151,7 @@ class FailureDomain(_ContractModel):
 
     domain_id: str
     kind: Literal["host", "zone", "rack", "cluster", "device"]
-    status: FailureDomainStatus = FailureDomainStatus.HEALTHY.value
+    status: FailureDomainStatus = FailureDomainStatus.HEALTHY
     last_observed_at: datetime
     authority_ref: str
 
@@ -737,18 +737,18 @@ class ScaleAuthority(_ContractModel):
                 raise ValueError("scale unit quota exceeds workload quota")
             if unit.tenant_quota.burst_units > workload.quota.burst_units:
                 raise ValueError("scale unit burst exceeds workload burst")
-            pool = pool_map.get(unit.resource_pool_id)
-            if pool is None:
+            unit_pool = pool_map.get(unit.resource_pool_id)
+            if unit_pool is None:
                 raise ValueError("scale unit references an unknown resource pool")
             if unit.reserved_headroom_replicas + unit.max_replicas > (
-                pool.capacity_units - pool.reserved_headroom_units
+                unit_pool.capacity_units - unit_pool.reserved_headroom_units
             ):
                 raise ValueError("scale unit max replicas breach pool headroom")
             if unit.tenant_quota.max_units < unit.min_replicas:
                 raise ValueError("scale unit quota is below its replica floor")
             if unit.failure_domain_id not in domain_map:
                 raise ValueError("scale unit references an unknown failure domain")
-            if unit.failure_domain_id != pool.failure_domain_id:
+            if unit.failure_domain_id != unit_pool.failure_domain_id:
                 raise ValueError("scale unit failure domain differs from resource pool")
             for dependency in unit.depends_on:
                 if dependency == unit.unit_id:

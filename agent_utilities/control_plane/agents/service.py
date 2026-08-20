@@ -27,6 +27,7 @@ from .models import (
     AgentVersion,
     ApprovalRecord,
     ReleaseMutation,
+    ReleaseTrack,
     ResolvedAgentPlan,
     binding_set_digest,
     pointer_digest_for,
@@ -332,7 +333,15 @@ class AgentControlPlane:
     ) -> AgentGraphProjection:
         """Return a bounded graph projection without resolving or dispatching."""
 
-        pointer = self._repository.get_release_pointer(scope, agent_id, channel)
+        if channel == "stable":
+            release_channel: ReleaseTrack = "stable"
+        elif channel == "beta":
+            release_channel = "beta"
+        elif channel == "edge":
+            release_channel = "edge"
+        else:
+            raise AgentResolutionError("release_channel_unknown")
+        pointer = self._repository.get_release_pointer(scope, agent_id, release_channel)
         if pointer is None:
             raise AgentResolutionError("release_pointer_unavailable")
         if pointer.agent_id != agent_id or pointer.channel != channel:

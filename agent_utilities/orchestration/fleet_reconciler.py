@@ -267,10 +267,9 @@ def _intent_metadata_valid(intent: dict[str, Any] | None) -> bool:
 
 
 def _intent_is_valid(intent: dict[str, Any] | None) -> bool:
-    return (
-        _intent_metadata_valid(intent)
-        and str(intent.get("status") or "") in _SCALE_INTENT_VISIBLE
-    )
+    if intent is None or not _intent_metadata_valid(intent):
+        return False
+    return str(intent.get("status") or "") in _SCALE_INTENT_VISIBLE
 
 
 def _cas_succeeded(result: Any) -> bool:
@@ -1114,15 +1113,20 @@ class FleetReconciler:
         complete, intent = self.intent_store.latest(request.target)
         expected_revision = request.params.get("scale_intent_revision")
         try:
+            if expected_revision is None:
+                raise ValueError("scale_intent_revision is required")
+            replicas_param = request.params.get("replicas")
+            if replicas_param is None:
+                raise ValueError("replicas is required")
             matches = (
                 complete
+                and intent is not None
                 and _intent_is_valid(intent)
                 and str(intent.get("service")) == request.target
                 and str(intent["status"]) == _SCALE_INTENT_ACCEPTED
                 and str(intent["intent_id"]) == intent_id
                 and int(intent["revision"]) == int(expected_revision)
-                and int(intent["desired_replicas"])
-                == int(request.params.get("replicas"))
+                and int(intent["desired_replicas"]) == int(replicas_param)
             )
         except (KeyError, TypeError, ValueError):
             matches = False
@@ -1248,7 +1252,7 @@ class FleetReconciler:
                 )
             return entry
         decision = self.policy.decide(request)
-        entry: dict[str, Any] = {
+        entry = {
             "kind": request.kind,
             "target": request.target,
             "reason": request.reason,
@@ -1318,7 +1322,7 @@ class FleetReconciler:
         except (KeyError, TypeError, ValueError):
             identity_matches = False
             revision = -1
-        if not identity_matches:
+        if not identity_matches or not isinstance(intent, dict):
             return {"ok": False, "detail": "scale intent is stale or concurrent"}
         if str(intent.get("status")) == _SCALE_INTENT_ACCEPTED:
             # The intent CAS may have committed before the approval status
@@ -1370,10 +1374,13 @@ class FleetReconciler:
             return execution
         if request.kind == "scale_service":
             try:
+                replicas_param = request.params.get("replicas")
+                if replicas_param is None:
+                    raise ValueError("replicas is required")
                 confirmed = (
                     observed.status == STATUS_UP
                     and observed.replicas is not None
-                    and int(observed.replicas) == int(request.params.get("replicas"))
+                    and int(observed.replicas) == int(replicas_param)
                 )
             except (TypeError, ValueError):
                 confirmed = False

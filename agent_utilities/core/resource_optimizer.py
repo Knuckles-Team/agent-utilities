@@ -15,7 +15,7 @@ See docs/pillars/architecture_c4.md §CONCEPT:AU-OS.state.cognitive-scheduler-pr
 
 import logging
 import time
-from typing import Any
+from typing import Any, TypedDict
 
 from pydantic import BaseModel, Field
 
@@ -87,6 +87,17 @@ class ResourceUsageRecord(BaseModel):
     timestamp: float = Field(default_factory=time.time)
 
 
+class _LeaseScope(TypedDict):
+    """Typed identity scope used to build a :class:`ResourceLeaseRequest`."""
+
+    tenant_ref: str
+    principal_ref: str
+    node_id: str
+    device_id: str
+    lease_epoch: int
+    policy_digest: str
+
+
 class ResourceOptimizer:
     """Cost-aware model selection and resource allocation.
 
@@ -122,7 +133,7 @@ class ResourceOptimizer:
         # supplied.  No process-local counter is promoted to distributed
         # admission by this optional seam.
         self._lease_authority = lease_authority
-        self._lease_scope = {
+        self._lease_scope: _LeaseScope = {
             "tenant_ref": tenant_ref,
             "principal_ref": principal_ref,
             "node_id": node_id,

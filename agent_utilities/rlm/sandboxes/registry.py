@@ -62,7 +62,10 @@ def _container_options(admission: Any | None = None) -> _ContainerOptions:
         memory = f"{max(1, int(limits.memory_bytes / (1024 * 1024)))}m"
         cpus = f"{float(limits.cpu_cores):g}"
         pids_limit = int(limits.max_pids)
-        timeout_secs = float(_admission_deadline(admission))
+        deadline = _admission_deadline(admission)
+        if deadline is None:
+            raise ValueError("admission with resource_limits must resolve a deadline")
+        timeout_secs = deadline
     else:
         memory = str(setting("RLM_CONTAINER_MEMORY", "512m"))
         cpus = str(setting("RLM_CONTAINER_CPUS", "1.0"))
