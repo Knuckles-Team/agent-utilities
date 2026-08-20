@@ -100,6 +100,13 @@ def test_readiness_wiring_reports_ready_when_query_genuinely_resolves(monkeypatc
         "agent_utilities.knowledge_graph.ingestion.connector_coverage.enumerate_expected_connectors",
         lambda: [],
     )
+    # Ontology activation is a separate concern from this test's target (the
+    # synthetic-query wiring) — stub it ready, like the connector-coverage
+    # stub above isolates its own unrelated check.
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ontology.activation.get_activation_status",
+        lambda graph_name: {"state": "ready", "reason": None, "detail": {}},
+    )
     monkeypatch.setattr(
         "agent_utilities.observability.runtime_health.collect_health",
         lambda: {

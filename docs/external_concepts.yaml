@@ -30,6 +30,13 @@ concepts:
       - epistemic-graph/src/main.rs
       - epistemic-graph/src/server/mod.rs
       - epistemic-graph/src/server/redis_wire/mod.rs
+  - id: EG-KG.ontology.rdf-update-guard
+    doc: "Mandatory graph-scoped SHACL/ICV write guard: AddTriples/RemoveTriples/ApplyMutation reject every write against a graph with no registered integrity policy (IcvConfigure) -- no pass-through"
+    source_repo: epistemic-graph
+    code_paths:
+      - epistemic-graph/src/server/icv_guard.rs
+      - epistemic-graph/src/server/mod.rs
+      - epistemic-graph/epistemic_graph/client.py
   - id: EG-KG.txn.pubsub-transactions
     doc: "Redis pub/sub (SUBSCRIBE/PUBLISH) + MULTI/EXEC and S3 multipart-upload transactions"
     source_repo: epistemic-graph

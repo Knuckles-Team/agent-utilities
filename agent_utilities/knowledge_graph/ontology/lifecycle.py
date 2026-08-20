@@ -593,13 +593,35 @@ class OntologyLifecycle:
 
     # ── internals ────────────────────────────────────────────────────────────
     def _load_axioms(self, turtle: str) -> dict[str, Any]:
-        """Push an ontology's axioms into the engine's native RDF dataset."""
+        """Push an ontology's axioms into the engine's native RDF dataset.
+
+        CONCEPT:AU-KG.ontology.integrity-bootstrap — the chokepoint: the graph's
+        SHACL/ICV integrity policy MUST be registered and verified active
+        (:func:`activation.ensure_ontology_graph_activated`) before
+        ``add_triples`` is ever called, or the engine's RDF write guard
+        (CONCEPT:EG-KG.ontology.rdf-update-guard) rejects the load outright.
+        """
         gc = self._gc
         if gc is None or not hasattr(gc, "add_triples"):
             return {
                 "loaded_to_engine": False,
                 "reason": "no engine RDF surface",
                 "engine_attached": False,
+            }
+        from .activation import OntologyActivationError, ensure_ontology_graph_activated
+
+        try:
+            ensure_ontology_graph_activated(
+                gc,
+                tenant=self._tenant,
+                graph_name=self._ontology_graph,
+                ontology_turtle=turtle,
+            )
+        except OntologyActivationError as exc:
+            return {
+                "loaded_to_engine": False,
+                "reason": f"integrity policy activation failed: {exc}",
+                "engine_attached": True,
             }
         try:
             report = gc.add_triples(turtle=turtle)
@@ -623,6 +645,42 @@ class OntologyLifecycle:
     def _public(record: dict[str, Any]) -> dict[str, Any]:
         """A record minus its bulky stored turtle (for list/summary views)."""
         return {k: v for k, v in record.items() if k != "turtle"}
+
+    # ── activation ────────────────────────────────────────────────────────────
+    @_with_ontology_graph_scope
+    def activate_graph(self) -> dict[str, Any]:
+        """Register + verify this graph's SHACL/ICV integrity policy NOW,
+        independent of loading any specific ontology content
+        (CONCEPT:AU-KG.ontology.integrity-bootstrap).
+
+        Called unconditionally at boot (``kg_server._sync_ontologies_at_boot``)
+        so the dedicated ontology graph is activation-ready before the first
+        ``load()``/``update()`` call — even on a boot with zero federated
+        ontology content to load, which would otherwise never call
+        :func:`activation.ensure_ontology_graph_activated` at all. A no-op,
+        engine-free success when no engine is attached (nothing to activate).
+        Idempotent — safe to call on every boot.
+        """
+        gc = self._gc
+        if gc is None or not hasattr(gc, "add_triples"):
+            return {"activated": False, "reason": "no engine RDF surface"}
+        from .activation import OntologyActivationError, ensure_ontology_graph_activated
+
+        try:
+            record = ensure_ontology_graph_activated(
+                gc,
+                tenant=self._tenant,
+                graph_name=self._ontology_graph,
+                ontology_turtle="",
+            )
+        except OntologyActivationError as exc:
+            logger.error(
+                "Ontology graph activation failed for %s: %s",
+                self._ontology_graph,
+                exc,
+            )
+            return {"activated": False, "reason": str(exc)}
+        return {"activated": True, **record.as_dict()}
 
     # ── load / register ──────────────────────────────────────────────────────
     @_with_ontology_graph_scope
@@ -1031,6 +1089,15 @@ def reset_registry() -> None:
     :class:`_EngineRegistryStore` is backed by the live engine and cleaning it
     is the caller's/fixture's responsibility (e.g. dropping the test graph),
     exactly like every other engine-backed KG fixture in this test suite.
+
+    Also clears :mod:`activation`'s process-local activation-binding/readiness
+    state (the SAME non-durable-fallback scope) so every existing test
+    fixture's ``reset_registry()`` call keeps ontology-activation state
+    isolated between tests for free, without each test file needing its own
+    reset.
     """
     _MEMORY_STORE.clear()
     _KNOWN_ONTOLOGY_GRAPHS.clear()
+    from .activation import reset_activation_state_for_tests
+
+    reset_activation_state_for_tests()

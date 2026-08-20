@@ -102,7 +102,7 @@ class _FixedGraphView:
 
     def add_node(self, node_id: str, node_type: str | None = None, **props) -> None:
         self._check()
-        self._state.nodes[node_id] = dict(props)
+        self._state.nodes[node_id] = {"node_type": node_type, **props}
 
     def remove_node(self, node_id: str) -> None:
         self._check()
@@ -110,7 +110,11 @@ class _FixedGraphView:
 
     def get_nodes_by_label(self, label: str):
         self._check()
-        return list(self._state.nodes.items())
+        return [
+            (node_id, props)
+            for node_id, props in self._state.nodes.items()
+            if props.get("node_type") == label
+        ]
 
     @property
     def client(self):
@@ -137,6 +141,10 @@ class _FixedGraphView:
         return type("Client", (), {"nodes": _Nodes(), "tenants": _Tenants()})()
 
     # ── RDF axiom surface (_load_axioms/_retract_axioms) ────────────────
+    def icv_configure(self, shapes, *, graph=None, mode="enforce"):
+        self._check()
+        return True
+
     def add_triples(self, turtle=None, ntriples=None):
         self._check()
         return {"triples": 1}
