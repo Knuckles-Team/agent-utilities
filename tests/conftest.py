@@ -255,6 +255,18 @@ except ImportError:
         return None
 
     class IntelligenceGraphEngine:  # type: ignore[no-redef]
+        """Kernel-free stand-in for the optional native engine.
+
+        This fallback must satisfy EVERY member the shared fixtures call, not
+        just the one that existed when it was written: the autouse cleanup
+        fixture below calls ``get_active()``, and a stub missing it turned a
+        missing OPTIONAL dependency into a setup error on every unrelated test.
+        """
+
+        @staticmethod
+        def get_active():
+            return None
+
         @staticmethod
         def set_active(_engine):
             return None
