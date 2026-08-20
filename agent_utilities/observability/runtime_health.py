@@ -59,6 +59,7 @@ the same convention already used by ``deployment/doctor.py``'s ``_check_engine``
 
 import asyncio
 import logging
+import threading
 import time
 from collections.abc import Callable, Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -314,18 +315,59 @@ def _check_state_store(cfg: Any) -> dict[str, Any]:
     return _ok("state_store", detail={"backend": "postgres"})
 
 
+_READINESS_AUTHORITY: Any = None
+_READINESS_AUTHORITY_LOCK = threading.Lock()
+
+
+def set_readiness_authority(session: Any) -> None:
+    """Register the process's own session for readiness probes only.
+
+    Readiness is a PROCESS control decision, so its probes must run under the
+    process's own verified authority.  On a network transport the server
+    deliberately publishes no ambient process session -- that fallback exists
+    for stdio and must never become a way for a request path to acquire
+    identity it did not authenticate.  This is a separate, narrowly named seam
+    with exactly one consumer (:func:`_check_fleet_supervision`), so readiness
+    can probe the live authority without widening that bypass surface.
+    """
+
+    global _READINESS_AUTHORITY
+    with _READINESS_AUTHORITY_LOCK:
+        _READINESS_AUTHORITY = session
+
+
 def _check_fleet_supervision(cfg: Any) -> dict[str, Any]:  # noqa: ARG001 - uniform check signature
     """Require truthful fleet evidence before the process is ready to serve.
 
     This check consumes the same live collector as the fleet REST/MCP
-    endpoints.  It deliberately has no user scope: readiness is a process
-    control decision, while authenticated fleet payloads still use the
-    verified actor/tenant resolver at the gateway boundary.
+    endpoints.  It carries no USER scope -- readiness is a process control
+    decision, and authenticated fleet payloads still resolve the verified
+    actor/tenant at the gateway boundary -- but it is not scopeless: the
+    collector's goal-authority probe performs a real graph read, which
+    structurally requires a bound session.
+
+    Running it with no session at all made that read raise
+    ``SessionRequiredError`` on every collection, which the collector recorded
+    as an ``unavailable`` goal authority.  Because this check is essential to
+    :func:`is_overall_healthy`, readiness then returned 503 forever on any
+    network transport and the pod never joined its Service -- reporting a
+    dependency outage when the real condition was that the PROBE had no
+    identity.  Binding the process's own authority makes the probe measure the
+    authority instead of measuring its own caller.
     """
 
     from agent_utilities.orchestration.fleet_health import collect_fleet_health
 
-    snapshot = collect_fleet_health()
+    with _READINESS_AUTHORITY_LOCK:
+        session = _READINESS_AUTHORITY
+    if session is None:
+        snapshot = collect_fleet_health()
+    else:
+        from agent_utilities.knowledge_graph.core.session import use_session
+        from agent_utilities.security.brain_context import use_actor
+
+        with use_actor(session.actor), use_session(session):
+            snapshot = collect_fleet_health()
     detail = snapshot.evidence.model_dump(mode="json")
     if snapshot.evidence.ready:
         return _ok("fleet_supervision", detail=detail)

@@ -3600,6 +3600,14 @@ def _sync_ontologies_at_boot(engine: Any) -> None:
         )
 
 
+def _set_readiness_authority(session: Any) -> None:
+    """Hand the readiness probe the process's own verified authority."""
+
+    from agent_utilities.observability.runtime_health import set_readiness_authority
+
+    set_readiness_authority(session)
+
+
 def _mint_process_session(transport: str) -> Any:
     """Mint the process's verified graph authority.
 
@@ -4993,6 +5001,15 @@ def mcp_server() -> None:
     bootstrap_session = _mint_process_session(transport)
     _PROCESS_SESSION = bootstrap_session if transport == "stdio" else None
     _start_process_authority_supervisor(bootstrap_session)
+    # Readiness probes the live fleet/goal authority, which is a real graph read
+    # and therefore needs a bound session. `_PROCESS_SESSION` is deliberately
+    # None on network transports (it is a stdio fallback, and must not become a
+    # way for a request path to pick up identity it never authenticated), so
+    # readiness gets its own narrowly-scoped handle on the process authority.
+    # Without this the probe measured its own missing identity instead of the
+    # authority, reported the goal store `unavailable`, and held /health/ready
+    # at 503 forever on every served deployment.
+    _set_readiness_authority(bootstrap_session)
 
     co_service_supervisor = None
     try:
