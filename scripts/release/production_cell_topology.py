@@ -699,7 +699,27 @@ def apply_to_documents(documents: list[dict[str, Any]], topology: dict[str, Any]
             "scaleUp": {"stabilizationWindowSeconds": item["up_window"], "selectPolicy": "Max", "policies": [{"type": "Pods", "value": item["scale_up"], "periodSeconds": 60}]},
             "scaleDown": {"stabilizationWindowSeconds": item["down_window"], "selectPolicy": "Max", "policies": [{"type": "Pods", "value": item["scale_down"], "periodSeconds": 60}]},
         }
-        hpa_spec["metrics"] = [{"type": "External", "external": {"metric": {"name": item["metric"]["name"], "selector": {"matchLabels": {"graphos_workload": workload_key}}, "target": {"type": "AverageValue", "averageValue": item["metric"]["target"]}}}]
+        # autoscaling/v2 ExternalMetricSource: `metric` and `target` are SIBLINGS
+        # under `external` (see deploy/k8s/production-cell/autoscaling.yaml). The
+        # previous one-liner both nested `target` inside `metric` and left the
+        # metric item dict unclosed, so this module did not even parse.
+        hpa_spec["metrics"] = [
+            {
+                "type": "External",
+                "external": {
+                    "metric": {
+                        "name": item["metric"]["name"],
+                        "selector": {
+                            "matchLabels": {"graphos_workload": workload_key}
+                        },
+                    },
+                    "target": {
+                        "type": "AverageValue",
+                        "averageValue": item["metric"]["target"],
+                    },
+                },
+            }
+        ]
     config_values = {
         "GRAPH_SERVICE_ENDPOINTS": topology["engine_endpoint"],
         "ENGINE_IDENTITY_CONTRACT_REF": topology["engine_identity_ref"],

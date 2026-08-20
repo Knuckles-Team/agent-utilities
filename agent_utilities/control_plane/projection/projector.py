@@ -256,6 +256,14 @@ class ProjectionService:
         except Exception:
             return self._failure_result(scope, reason_code="checkpoint_conflict")
 
+        # ``current`` may be a synthetic, never-persisted starting point
+        # (``ProjectionCheckpoint.initial``) when the store has nothing for
+        # this scope yet. The CAS ``expected`` argument to ``save_checkpoint``
+        # must reflect what is actually stored -- ``None`` before the first
+        # event -- never that synthetic value, or the very first save always
+        # loses the compare-and-swap against an empty store.
+        persisted = current if current.last_sequence > 0 else None
+
         try:
             events = tuple(self._outbox.read_after(scope, current.last_sequence, limit))
         except Exception:
@@ -339,7 +347,7 @@ class ProjectionService:
                     event=event,
                     fence_token=fence_token,
                 )
-                self._checkpoints.save_checkpoint(scope, current, next_checkpoint)
+                self._checkpoints.save_checkpoint(scope, persisted, next_checkpoint)
             except CheckpointConflict:
                 outcomes.append(self._outcome("drift", event, "checkpoint_conflict"))
                 self._record_drift(
@@ -360,6 +368,7 @@ class ProjectionService:
                 break
 
             current = next_checkpoint
+            persisted = next_checkpoint
             outcomes.append(self._outcome("applied", event))
 
         typed_outcomes = tuple(outcomes)

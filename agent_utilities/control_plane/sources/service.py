@@ -163,7 +163,6 @@ class SourceControlPlane:
             manifest.authority_id,
             manifest.tenant_id,
             manifest.manifest_id,
-            manifest.manifest_revision,
             manifest.manifest_digest,
             selected_entry_ids,
             outcomes,

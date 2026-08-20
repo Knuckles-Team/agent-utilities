@@ -58,6 +58,7 @@ __all__ = [
     "DELEGATION_IN_FLIGHT",
     "DELEGATION_RUNS",
     "DISPATCH_QUEUE_DEPTH",
+    "DISPATCH_SESSION_LOCK_REGISTRY_SIZE",
     "DISPATCH_TURNS",
     "DISPATCH_WORKERS",
     "ENGINE_BREAKER_STATE",
@@ -753,6 +754,12 @@ DISPATCH_TURNS = _counter(
 DISPATCH_WORKERS = _gauge(
     "agent_utilities_dispatch_workers",
     "Live agent-dispatch workers (fresh heartbeats in the fleet registry).",
+)
+DISPATCH_SESSION_LOCK_REGISTRY_SIZE = _gauge(
+    "agent_utilities_dispatch_session_lock_registry_size",
+    "Process-local agent-dispatch session-lock entries currently held "
+    "(agent_dispatch.session_lock_registry_size); a sustained rise signals "
+    "the bounded lock registry is leaking entries instead of draining them.",
 )
 
 # In-process delegation visibility (CONCEPT:AU-OS.observability.delegation-run-metrics).

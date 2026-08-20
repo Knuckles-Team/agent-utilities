@@ -1679,6 +1679,7 @@ def _heartbeat(queue: Any, worker_id: str, active_sessions: list[str]) -> None:
         dispatch_queue_depth,
         list_dispatch_workers,
         record_dispatch_worker_heartbeat,
+        session_lock_registry_size,
     )
 
     backend = type(queue).__name__
@@ -1695,6 +1696,7 @@ def _heartbeat(queue: Any, worker_id: str, active_sessions: list[str]) -> None:
     try:
         from agent_utilities.observability.gateway_metrics import (
             DISPATCH_QUEUE_DEPTH,
+            DISPATCH_SESSION_LOCK_REGISTRY_SIZE,
             DISPATCH_WORKERS,
         )
 
@@ -1702,7 +1704,8 @@ def _heartbeat(queue: Any, worker_id: str, active_sessions: list[str]) -> None:
             float(dispatch_queue_depth(queue))
         )
         DISPATCH_WORKERS.set(float(len(list_dispatch_workers())))
-    except Exception as e:  # noqa: BLE001 — same heartbeat contract as above; only refreshes DISPATCH_QUEUE_DEPTH/DISPATCH_WORKERS Prometheus gauges, no dispatch-correctness dependency
+        DISPATCH_SESSION_LOCK_REGISTRY_SIZE.set(float(session_lock_registry_size()))
+    except Exception as e:  # noqa: BLE001 — same heartbeat contract as above; only refreshes DISPATCH_QUEUE_DEPTH/DISPATCH_WORKERS/DISPATCH_SESSION_LOCK_REGISTRY_SIZE Prometheus gauges, no dispatch-correctness dependency
         logger.debug("dispatch metrics refresh failed: %s", e)
 
 
@@ -1865,6 +1868,36 @@ def authenticate_dispatch_delivery(
         raise
 
 
+def _await_reconnect(
+    lifecycle: DispatchWorkerLifecycle,
+    stop_event: threading.Event,
+    idle_sleep_s: float,
+) -> bool:
+    """Wait out a non-shutdown drain and rejoin; return False only to stop.
+
+    ``request_drain`` is shared by both the real shutdown path (``main``'s
+    signal handler, which also sets ``stop_event``) and local, recoverable
+    admission pressure (``SessionLockCapacityError``). Only ``stop_event``
+    means "exit for good": a capacity-triggered drain must wait for the
+    pool's active sessions to clear and then call ``reconnect`` once they
+    have, or the shared ``DispatchWorkerLifecycle`` instance permanently
+    wedges every worker thread in the pool after a single local capacity
+    event, exactly the failure the class's own docstring describes as
+    recoverable ("a replacement worker can then claim the same unacked
+    WorkItem/carrier").
+    """
+    while not stop_event.is_set():
+        if lifecycle.wait_drained(timeout=idle_sleep_s):
+            try:
+                lifecycle.reconnect()
+            except RuntimeError:
+                # Another thread admitted a session between wait_drained()
+                # returning and this reconnect() call; retry the wait.
+                continue
+            return True
+    return False
+
+
 def run_dispatch_consumer_loop(
     queue: Any,
     stop_event: threading.Event,
@@ -1903,6 +1936,8 @@ def run_dispatch_consumer_loop(
     next_heartbeat = 0.0
     while not stop_event.is_set():
         if not lifecycle.should_claim():
+            if _await_reconnect(lifecycle, stop_event, idle_sleep_s):
+                continue
             break
         if time.monotonic() >= next_heartbeat:
             _heartbeat(queue, token, active)
@@ -1941,9 +1976,13 @@ def run_dispatch_consumer_loop(
         try:
             authenticate_dispatch_delivery(envelope)
         except DispatchCarrierError as e:
-            logger.error(
-                "agent-dispatch unauthenticated carrier (%s)", type(e).__name__
-            )
+            # Log the typed reason, not just the class name: every
+            # DispatchCarrierError message is a fixed, developer-authored string
+            # (expiry, tenant binding, signature, version) with no attacker-
+            # controlled wire data interpolated into it, so it is safe to emit
+            # and it is the only way an operator can tell an expired carrier
+            # from an identity-binding mismatch.
+            logger.error("agent-dispatch unauthenticated carrier: %s", e)
             poison_id = _dead_letter_poison_envelope(engine, payload, error=e)
             _record_turn_outcome(
                 "carrier_rejected" if poison_id else "carrier_rejected_unrecorded"
@@ -1962,7 +2001,7 @@ def run_dispatch_consumer_loop(
                 token,
                 lifecycle.generation,
             )
-            break
+            continue
 
         # CONCEPT: GOC-18 defense in depth — reject a wire tenant that
         # disagrees with the tenant this WorkItem was durably admitted under,
@@ -2030,7 +2069,10 @@ def run_dispatch_consumer_loop(
         if outcome == "capacity":
             # No claim/commit occurred; the broker must redeliver after a
             # replacement generation reconnects with available session slots.
-            break
+            # ``continue`` (not ``break``): the top-of-loop check now waits
+            # for the drain to clear and calls ``reconnect`` itself, via
+            # ``_await_reconnect``.
+            continue
         if outcome == "skipped":
             # No new durable state was produced by THIS delivery attempt (a
             # duplicate of an already-terminal item, or a live claim held

@@ -59,7 +59,7 @@ def _authority(tenant: str = "tenant:alpha") -> SourceAuthority:
     source_ref = "source:gitlab:issues"
     root_ref = "root:gitlab:project"
     authority_revision = 1
-    schema_digest = _digest("s")
+    schema_digest = _digest("5")
     return SourceAuthority(
         authority_version="source-authority.v1",
         authority_id=authority_id_for(tenant, publisher, package_name, source_name),

@@ -29,6 +29,7 @@ from agent_utilities.control_plane.connectors import (
     capability_id_for,
     capability_set_digest,
     connector_id_for,
+    normalize_capabilities,
     scope_digest_for,
     server_id_for,
     version_id_for,
@@ -172,9 +173,11 @@ def _fixture() -> tuple[_MemoryRepository, ConnectorControlPlane, AccessScope, C
         platforms=("linux",),
         features=("schema-pinning",),
     )
-    capabilities = (
-        _capability("tool", "issues.list"),
-        _capability("resource", "issues://project"),
+    capabilities = normalize_capabilities(
+        (
+            _capability("tool", "issues.list"),
+            _capability("resource", "issues://project"),
+        )
     )
     version = ConnectorVersion(
         version_record_version="connector-version.v1",

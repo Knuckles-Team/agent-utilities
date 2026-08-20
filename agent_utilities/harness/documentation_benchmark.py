@@ -31,12 +31,12 @@ import os
 import re
 import tempfile
 import time
-from collections.abc import Callable, Mapping, Protocol, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from statistics import fmean, stdev
-from typing import Any
+from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 

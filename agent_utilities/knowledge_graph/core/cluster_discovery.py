@@ -619,8 +619,12 @@ class ClusterTopologyAuthority:
                 if expected_cluster_id is not None and prior.cluster_id != expected_cluster_id:
                     raise ClusterDiscoveryRejected("cached ClusterMembers belongs to a different cluster")
                 return prior
-            except ClusterDiscoveryError:
-                pass
+            except ClusterDiscoveryError as exc:
+                # Best-effort: a stale or foreign cached snapshot simply falls
+                # through to the live authority below. The cause is still worth
+                # surfacing -- silently discarding it left operators unable to
+                # tell a routine expiry from a persistent cluster-id mismatch.
+                logger.info("cached ClusterMembers snapshot rejected: %s", exc)
 
         topology = getattr(client, "cluster_topology", None)
         members = getattr(topology, "members", None)
@@ -648,8 +652,17 @@ class ClusterTopologyAuthority:
                             "ClusterMembers transport unavailable; using bounded last-good snapshot"
                         )
                         return prior
-                except ClusterDiscoveryError:
-                    pass
+                except ClusterDiscoveryError as stale_exc:
+                    # The transport is already down AND the last-good snapshot is
+                    # unusable, so this is the path to a hard failure. Warn with
+                    # the real reason before raising, or the operator only ever
+                    # sees "discovery is unavailable" with no way to tell a stale
+                    # snapshot from a cluster-identity mismatch.
+                    logger.warning(
+                        "ClusterMembers transport unavailable and the last-good "
+                        "snapshot is not usable: %s",
+                        stale_exc,
+                    )
             raise ClusterDiscoveryError("ClusterMembers discovery is unavailable") from exc
         except (TypeError, ValueError) as exc:
             raise ClusterDiscoveryRejected(

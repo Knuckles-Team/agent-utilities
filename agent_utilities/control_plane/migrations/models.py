@@ -29,6 +29,7 @@ __all__ = [
     "GateCheck",
     "InventoryState",
     "InventoryItem",
+    "LegacyRetirement",
     "MigrationInventory",
     "MigrationPlan",
     "MigrationRollback",

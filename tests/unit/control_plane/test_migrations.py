@@ -384,15 +384,29 @@ def test_cutover_fails_closed_on_gate_or_cas_and_rollback_is_explicit() -> None:
             gate=blocked_gate,
             expected_plan_version=plan.version,
         )
+    valid_gate = _gate(
+        snapshot,
+        gate_ref="gate:checkpoint",
+        stage="stage_5_projection_checkpoint",
+    )
+    bound_checkpoint = ProjectionCheckpoint(
+        checkpoint_ref="checkpoint:one",
+        migration_ref=plan.migration_ref,
+        source_snapshot_digest=snapshot.snapshot_digest,
+        projection_digest=_digest("projection-one"),
+        rebuild_plan_ref="rebuild:one",
+        record_count=1,
+        sequence=1,
+        gate_ref=valid_gate.gate_ref,
+        state="complete",
+        version=1,
+        digest=_digest("checkpoint-one"),
+    )
     with pytest.raises(MigrationCasConflictError):
         authority.checkpoint_projection(
             plan.plan_ref,
-            checkpoint,
-            gate=_gate(
-                snapshot,
-                gate_ref="gate:checkpoint",
-                stage="stage_5_projection_checkpoint",
-            ),
+            bound_checkpoint,
+            gate=valid_gate,
             expected_plan_version=plan.version - 1,
         )
 
