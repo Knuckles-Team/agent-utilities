@@ -16,10 +16,27 @@
 #   export SOURCE_DIR=<agent-utilities checkout to build (the Dockerfile + au source)>
 #   export EG_WHEEL_DIR=<dir holding exactly one staged epistemic_graph-*.whl>
 #   export LANGFUSE_AGENT_DIR=<agent-packages/agents/langfuse-agent checkout>
+#   export IMAGE_REPO=<registry/repository to push to — default the LAN registry>
+#   export CACHE_REPO=<repository for kaniko's layer cache, alongside IMAGE_REPO>
 #   export IMAGE_TAG=<destination tag, e.g. a short git rev — never `latest`>
 #   export SOURCE_REVISION=$(git -C "$SOURCE_DIR" rev-parse HEAD)
 #   envsubst < docker/graphos-unified-kaniko-job.yaml | kubectl apply -f -
 #   kubectl -n image-build logs -f job/graphos-unified-image-build
+#
+# ── Local development is the DEFAULT target; publishing is a later, separate act ──
+# `IMAGE_REPO` exists so this Job builds to the internal LAN registry
+# (`registry.arpa/graph-os-unified`) and the cluster deploys THAT. Nothing is pushed to a
+# public registry to redeploy locally: an unvalidated build has no business on a public
+# repo, and the digest a public push mints would then be the thing production pins. Build
+# locally, roll it out, validate it against the live system, and only promote the
+# already-proven image outward afterwards. Point `IMAGE_REPO` at the public repository
+# only for that deliberate promotion step.
+#
+# The LAN registry serves a Caddy-local-CA certificate that kaniko's stock trust store
+# does not carry, so the `homelab-ca-bundle` ConfigMap is mounted into kaniko's cert
+# directory below. That is why this Job trusts the registry WITHOUT `--skip-tls-verify`:
+# disabling verification would also disable it for whatever `IMAGE_REPO` is pointed at
+# next, which is exactly the wrong default to leave lying in a manifest.
 #
 # ── Why a Job on the cluster and not a local `docker build` ──
 # The hosts run containerd under RKE2; there is no dockerd anywhere to build with.
@@ -76,10 +93,10 @@ spec:
           args:
             - --context=dir:///workspace
             - --dockerfile=/workspace/docker/graphos-unified.Dockerfile
-            - --destination=knucklessg1/graph-os-unified:${IMAGE_TAG}
+            - --destination=${IMAGE_REPO}:${IMAGE_TAG}
             - --build-arg=SOURCE_REVISION=${SOURCE_REVISION}
             - --cache=true
-            - --cache-repo=knucklessg1/graph-os-unified-cache
+            - --cache-repo=${CACHE_REPO}
             - --verbosity=info
           resources:
             requests:
@@ -100,6 +117,11 @@ spec:
             - name: docker-config
               mountPath: /kaniko/.docker/config.json
               subPath: config.json
+            # Trust the internal registry's Caddy-local-CA chain. Mounted at the path
+            # kaniko's Go TLS stack already reads, so no --skip-tls-verify is needed.
+            - name: homelab-ca
+              mountPath: /kaniko/ssl/certs/ca-certificates.crt
+              subPath: ca-bundle.pem
       volumes:
         - name: workspace
           hostPath:
@@ -122,3 +144,9 @@ spec:
             items:
               - key: config.json
                 path: config.json
+        - name: homelab-ca
+          configMap:
+            name: homelab-ca-bundle
+            items:
+              - key: ca-bundle.pem
+                path: ca-bundle.pem
