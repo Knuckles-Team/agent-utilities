@@ -141,7 +141,16 @@ email = "maintainers@example.invalid"
 # that need array math. Bare `import agent_utilities.<subpackage>` for all ten stays
 # eg-free — see the acceptance-test venv in the GOC-73 report.
 graphos = [
-    "epistemic-graph[full]>=2.23.2,<3.0.0",
+    # Floor is 2.26.2, NOT the older 2.23.2, and the reason is a runtime
+    # contract rather than a feature: agent_utilities/numeric is deliberately
+    # numpy-free and its boundary accepts only scalars, builtin list/tuple
+    # trees, and Arrow `to_pylist` producers. Kernels below 2.26.2 hand back a
+    # numpy ndarray, which that boundary rejects with a TypeError the moment
+    # anything constructs a PositionalInteractionEncoder -- i.e. on every engine
+    # init, in production, at import depth. eg `b7d5825`
+    # ("fix(numeric): remove numpy from native boundary") is the commit that
+    # made the kernel return builtins, and it first shipped in 2.26.2.
+    "epistemic-graph[full]>=2.26.2,<3.0.0",
 ]
 # CONCEPT:ORCH-1.38 — RLM sandbox tiers. `monty` is the default fast/isolated tier
 # (small pure-Rust wheel, no transitive deps; backend import guarded so absence degrades
