@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 from pydantic import ValidationError
 
@@ -22,7 +24,15 @@ from agent_utilities.control_plane.workflows import (
 
 
 def _digest(letter: str) -> str:
-    return f"sha256:{letter * 64}"
+    """A distinct, deterministic, CONTRACT-VALID digest per label.
+
+    ``Digest`` requires ``^sha256:[0-9a-f]{64}$``. The previous ``letter * 64``
+    form produced a non-hex string for any non-hex label -- i, j, o, p, q, r, s
+    and t are all used here -- which the model correctly rejected. Deriving the
+    body from the label keeps every call site and its distinctness while
+    actually satisfying the contract.
+    """
+    return "sha256:" + hashlib.sha256(letter.encode("utf-8")).hexdigest()
 
 
 def _budget(**overrides: int) -> WorkflowBudget:

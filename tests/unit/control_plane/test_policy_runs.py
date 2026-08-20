@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -40,7 +42,15 @@ from agent_utilities.control_plane.runs import (
 
 
 def _digest(letter: str) -> str:
-    return f"sha256:{letter * 64}"
+    """A distinct, deterministic, CONTRACT-VALID digest per label.
+
+    ``Digest`` requires ``^sha256:[0-9a-f]{64}$``. The previous ``letter * 64``
+    form produced a non-hex string for any non-hex label -- i, j, o, p, q, r, s
+    and t are all used here -- which the model correctly rejected. Deriving the
+    body from the label keeps every call site and its distinctness while
+    actually satisfying the contract.
+    """
+    return "sha256:" + hashlib.sha256(letter.encode("utf-8")).hexdigest()
 
 
 def _budget(**overrides: int) -> ExecutionBudget:
@@ -268,9 +278,30 @@ def test_admission_is_one_run_one_work_item_and_duplicate_delivery_is_idempotent
     assert second.created is False
     assert admission.read(resolution.run_id).resolution == resolution
 
-    altered = resolution.model_copy(update={"request_digest": _digest("d")})
+    # Drift the request digest COHERENTLY: RunResolution's own validator
+    # requires authorization.request_digest == request_digest, so updating only
+    # the outer field builds an internally-invalid object that is rejected
+    # before the replay-drift check is ever reached. Update both so the object
+    # is valid but genuinely differs from the stored one.
+    drifted_digest = _digest("d")
+    altered = resolution.model_copy(
+        update={
+            "request_digest": drifted_digest,
+            "authorization": resolution.authorization.model_copy(
+                update={"request_digest": drifted_digest}
+            ),
+        }
+    )
+    # resolution_digest is a computed property over the WHOLE resolution, so
+    # drifting the request digest necessarily changes it too. NativeAdmission
+    # Request requires the work item to carry BOTH matching values, so the item
+    # has to track both or the request is rejected as incoherent before the
+    # replay-drift path runs.
     altered_item = request.work_item.model_copy(
-        update={"request_digest": altered.request_digest}
+        update={
+            "request_digest": altered.request_digest,
+            "resolution_digest": altered.resolution_digest,
+        }
     )
     with pytest.raises(ReplayDriftError, match="replay_or_body_drift"):
         admission.admit_once(
@@ -318,8 +349,17 @@ def test_audit_chain_and_observations_fail_on_discontinuity_or_regression() -> N
     )
     assert ledger.append(row) is True
     assert ledger.append(row) is False
+    # A regressed sequence must arrive as a DISTINCT observation. Reusing
+    # observation:one with different content trips the identity-drift check
+    # first (it is evaluated before the sequence check, and is the stronger
+    # violation), so the sequence path would never be exercised -- the
+    # run-identity case immediately below already follows this convention.
     with pytest.raises(ObservationDiscontinuityError, match="sequence_regressed"):
-        ledger.append(row.model_copy(update={"sequence": 1}))
+        ledger.append(
+            row.model_copy(
+                update={"observation_id": "observation:regressed", "sequence": 1}
+            )
+        )
     with pytest.raises(ObservationDiscontinuityError, match="run_identity_drift"):
         ledger.append(
             row.model_copy(
