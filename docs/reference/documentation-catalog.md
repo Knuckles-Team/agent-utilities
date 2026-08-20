@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-387 publishable pages · 195 direct nav targets · 129 public capabilities · 873 action rows · 568 typed configuration fields · 365 runtime-only call-site inputs.
+389 publishable pages · 197 direct nav targets · 129 public capabilities · 873 action rows · 568 typed configuration fields · 365 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -167,7 +167,9 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Configuration Reference & Flag Audit](../architecture/configuration.md) — direct nav
 - [Containerized deployment](../architecture/containerized-deployment.md) — direct nav
 - [Content-Aware Ingestion (ArchiveBox · crawl4ai · scholarx)](../architecture/content-aware-ingestion.md) — direct nav
+- [NE-115 real data-preparation acceptance](../architecture/data-prep-acceptance.md) — direct nav
 - [Arrow data-preparation kernel](../architecture/data-prep-arrow-kernel.md) — direct nav
+- [Optional operator data-quality certification](../architecture/data-quality-certification.md) — direct nav
 - [The delegation-first operating model — local LLM + graph-os do the work; the harness orchestrates + resolves exceptions](../architecture/delegation-first-operating-model.md) — direct nav
 - [Distributed multi-GPU concurrency & optimal planning](../architecture/distributed_gpu_concurrency.md) — direct nav
 - [Document → Knowledge-Graph Fact Extraction](../architecture/document_fact_extraction.md) — direct nav

@@ -772,8 +772,12 @@ def _runtime_sources(engine: Any) -> tuple[Any, ...]:
         sources.append(process_config)
     except (
         Exception
-    ):  # pragma: no cover - configuration may be unavailable at import time
-        pass
+    ) as exc:  # pragma: no cover - config may be unavailable at import time
+        # Best-effort: without a process configuration authority, resolution
+        # simply falls back to the other runtime sources above. Logged so a
+        # genuine config-module regression is still visible instead of
+        # silently narrowing the runtime-source search.
+        logger.warning("process configuration authority unavailable: %s", exc)
     result: list[Any] = []
     seen: set[int] = set()
     for source in sources:
@@ -1251,11 +1255,14 @@ class _GraphNativeDataPrepProvider:
         owner_id = owner_raw or ""
         classification_raw = props.get("classification")
         try:
-            classification = (
-                classification_raw
-                if isinstance(classification_raw, DataClassification)
-                else DataClassification(classification_raw)
-            )
+            if isinstance(classification_raw, DataClassification):
+                classification = classification_raw
+            elif isinstance(classification_raw, str):
+                classification = DataClassification(classification_raw)
+            else:
+                raise TypeError(
+                    "native artifact classification must be str or DataClassification"
+                )
         except (TypeError, ValueError) as exc:
             raise DataPrepToolError(
                 "native artifact classification authority is unavailable"
@@ -2483,8 +2490,14 @@ class DataPrepService:
         except Exception as exc:  # noqa: BLE001 - compensate any partial ref
             try:
                 self._authority.unref_blob(stored_digest, session=session)
-            except Exception:
-                pass
+            except Exception as unref_exc:
+                logger.warning(
+                    "blob unref compensation failed after incref "
+                    "(leaked ref, stored_digest=%s), original cause=%s: %s",
+                    stored_digest,
+                    exc,
+                    unref_exc,
+                )
             if isinstance(exc, NativeCommitUnavailable):
                 raise
             raise NativeCommitUnavailable(
@@ -2536,9 +2549,7 @@ class DataPrepService:
                 "acl_group_ids": list(output_governance.acl.group_ids),
                 "acl_read_roles": list(output_governance.acl.roles),
                 "acl_markings": list(output_governance.acl.markings),
-                "prepared_receipt_digest": _sha256_bytes(
-                    request.prepared_ref.encode("utf-8")
-                ),
+                "prepared_receipt_digest": _sha256_bytes(prepared_ref.encode("utf-8")),
                 "prep_evidence": evidence_payload,
                 "prep_evidence_digest": evidence_digest,
             },
@@ -2573,8 +2584,14 @@ class DataPrepService:
             if ref_acquired:
                 try:
                     self._authority.unref_blob(stored_digest, session=session)
-                except Exception:
-                    pass
+                except Exception as unref_exc:
+                    logger.warning(
+                        "blob unref compensation failed after commit failure "
+                        "(leaked ref, stored_digest=%s), original cause=%s: %s",
+                        stored_digest,
+                        exc,
+                        unref_exc,
+                    )
             if isinstance(exc, NativeCommitUnavailable):
                 raise
             raise NativeCommitUnavailable(
@@ -2679,7 +2696,10 @@ def register_data_prep_tools(mcp: Any) -> None:
             ),
         ),
     ) -> str:
-        action = _as_str(action, "profile_dataset").strip().lower()
+        # `action` stays `Literal[...]`-typed per its parameter annotation;
+        # normalization to lowercase/stripped freeform text belongs in its
+        # own plain-`str` local rather than being reassigned back onto it.
+        normalized_action: str = _as_str(action, "profile_dataset").strip().lower()
         try:
             payload = _json_payload(params_json)
             from agent_utilities.knowledge_graph.core.session import current_session
@@ -2689,36 +2709,40 @@ def register_data_prep_tools(mcp: Any) -> None:
                 raise PermissionError("verified GraphSession is required")
             authority = _AUTHORITY_FACTORY(session)
             service = DataPrepService(authority)
-            result = service.execute(action, payload, session=session)
+            result = service.execute(normalized_action, payload, session=session)
             return json.dumps(result, sort_keys=True, separators=(",", ":"))
         except PermissionError as exc:
             from agent_utilities.security.error_surface import public_error_json
 
             return public_error_json(
-                exc, code="permission_denied", context={"action": action}
+                exc, code="permission_denied", context={"action": normalized_action}
             )
         except ArtifactAuthorityUnavailable as exc:
             from agent_utilities.security.error_surface import public_error_json
 
             return public_error_json(
-                exc, code="dependency_unavailable", context={"action": action}
+                exc,
+                code="dependency_unavailable",
+                context={"action": normalized_action},
             )
         except NativeCommitUnavailable as exc:
             from agent_utilities.security.error_surface import public_error_json
 
             return public_error_json(
-                exc, code="dependency_unavailable", context={"action": action}
+                exc,
+                code="dependency_unavailable",
+                context={"action": normalized_action},
             )
         except (DataPrepToolError, ValidationError, ValueError, TypeError) as exc:
             from agent_utilities.security.error_surface import public_error_json
 
             return public_error_json(
-                exc, code="invalid_request", context={"action": action}
+                exc, code="invalid_request", context={"action": normalized_action}
             )
         except Exception as exc:  # noqa: BLE001 - public boundary is privacy-safe
             from agent_utilities.security.error_surface import public_error_json
 
-            return public_error_json(exc, context={"action": action})
+            return public_error_json(exc, context={"action": normalized_action})
 
     kg_server.REGISTERED_TOOLS["graph_data_prep"] = graph_data_prep
     kg_server.ACTION_TOOL_ROUTES["graph_data_prep"] = "/data/prep"
