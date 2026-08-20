@@ -29,6 +29,8 @@ from .fleet_autonomy_fakes import (
     obs,
     write_policy,
 )
+from .test_fleet_action_outbox import DurableActionOutbox
+from .test_fleet_scale_authority import RecordingActuator
 
 pytestmark = pytest.mark.concept("AU-OS.config.desired-state-fleet-reconciler")
 
@@ -62,14 +64,21 @@ def engine():
     return FakeEngine()
 
 
-def _reconciler(engine, observations, tmp_path, policy_body=None, max_actions=5):
+def _reconciler(
+    engine, observations, tmp_path, policy_body=None, max_actions=5, actuator=None
+):
     registry = tmp_path / "registry.yml"
     registry.write_text(REGISTRY, encoding="utf-8")
     policy_path = write_policy(tmp_path, policy_body) if policy_body else None
+    # The durable action outbox is the pre-side-effect fence a non-dry-run
+    # actuator now requires (CONCEPT:AU-OS.config.desired-state-fleet-reconciler);
+    # DryRunActuator alone bypasses it, so wiring it here keeps every
+    # actuator choice usable without per-test boilerplate.
+    engine.action_outbox_store = DurableActionOutbox(engine)
     rec = FleetReconciler(
         engine,
         observer=FakeObserver(observations),
-        actuator=DryRunActuator(),
+        actuator=actuator or DryRunActuator(),
         policy=ActionPolicy(engine=engine, policy_path=policy_path),
         max_actions=max_actions,
         health_provider=healthy_fleet_evidence,
@@ -208,19 +217,28 @@ def test_default_policy_queues_convergence_actions(engine, tmp_path, patch_desir
 def test_permissive_policy_actuates_and_schedules_watch(
     engine, tmp_path, patch_desired
 ):
+    # A DryRunActuator can no longer prove this: NE-226's redesign added an
+    # explicit ``state != simulated`` gate before a health watch is
+    # scheduled (fleet_reconciler.py's watch-scheduling checks), and a
+    # dry-run always lands in ``simulated`` regardless of ``ok``. Proving
+    # "actuates and schedules watch" now requires a genuinely non-dry-run
+    # actuator double.
+    reconciler_actuator = RecordingActuator()
     rec = patch_desired(
         _reconciler(
             engine,
             {"caddy-mcp": obs("caddy-mcp", "down")},
             tmp_path,
             policy_body=PERMISSIVE,
+            actuator=reconciler_actuator,
         )
     )
     report = rec.reconcile()
     action = report["actions"][0]
     assert action["decision"] == "allow"
     assert action["execution"]["ok"] is True
-    assert [r.target for r in rec.actuator.applied] == ["caddy-mcp"]
+    assert action["state"] == "executed"
+    assert [r.target for r in reconciler_actuator.applied] == ["caddy-mcp"]
     # Restart success scheduled an OS-5.27 health watch on the durable queue.
     assert [t["task_type"] for t in engine.submitted] == ["deploy_watch"]
     # And the execution is durably recorded.
@@ -252,7 +270,14 @@ def test_storm_guard_defers_beyond_budget(engine, tmp_path, patch_desired):
 
 
 def test_granted_approval_is_executed_and_stamped(engine, tmp_path, patch_desired):
-    rec = patch_desired(_reconciler(engine, {}, tmp_path))
+    # Same DryRunActuator→genuine-actuator swap as
+    # test_permissive_policy_actuates_and_schedules_watch above: a dry-run
+    # execution now stamps ``simulated``, not ``executed``, and never
+    # schedules a watch.
+    reconciler_actuator = RecordingActuator()
+    rec = patch_desired(
+        _reconciler(engine, {}, tmp_path, actuator=reconciler_actuator)
+    )
     engine.add_node(
         "action_approval:xyz",
         "ActionApproval",
@@ -269,7 +294,7 @@ def test_granted_approval_is_executed_and_stamped(engine, tmp_path, patch_desire
     assert len(drained) == 1
     assert drained[0]["status"] == "executed"
     assert engine.nodes["action_approval:xyz"]["status"] == "executed"
-    assert [r.target for r in rec.actuator.applied] == ["caddy-mcp"]
+    assert [r.target for r in reconciler_actuator.applied] == ["caddy-mcp"]
     # Watched kind ⇒ health watch scheduled after the approved execution too.
     assert [t["task_type"] for t in engine.submitted] == ["deploy_watch"]
 

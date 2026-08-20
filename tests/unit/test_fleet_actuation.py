@@ -34,6 +34,10 @@ from agent_utilities.orchestration.fleet_actuation import (
     set_fleet_actuator,
 )
 from agent_utilities.orchestration.fleet_autoscaler import FleetAutoscaler
+from agent_utilities.orchestration.fleet_reconciler import (
+    FleetReconciler,
+    load_desired_state,
+)
 
 from .fleet_autonomy_fakes import (
     FakeObserver,
@@ -42,8 +46,70 @@ from .fleet_autonomy_fakes import (
     obs,
     write_policy,
 )
+from .test_fleet_action_outbox import DurableActionOutbox
+from .test_fleet_scale_authority import DurableIntentCAS
 
 pytestmark = pytest.mark.concept("AU-OS.config.desired-state-fleet-reconciler")
+
+# NE-179 identity-bound Kubernetes actuation (checkpoint au-scale-authority-
+# conflict, bundled with the NE-226 ScaleIntent redesign in the same commit):
+# every KubernetesActuator.apply() call now requires a full registry
+# identity (cluster/context/namespace/workload_kind/uid/resource_version/
+# controller_mode) bound into the ActionRequest params, and reads the object
+# immediately pre-mutation (real kubectl, or an injected ``resource_reader``
+# for tests — see test_fleet_k8s_actuation_contract.py, which this mirrors).
+_K8S_IDENTITY = {
+    "cluster": "production",
+    "context": "production-admin",
+    "namespace": "platform",
+    "workload_kind": "Deployment",
+    "uid": "uid-fixture-1",
+    "resource_version": "1",
+    "controller_mode": "native",
+}
+
+
+def _identity_params(**overrides: object) -> dict[str, object]:
+    params = dict(_K8S_IDENTITY)
+    params.update(overrides)
+    return params
+
+
+def _matching_reader(current_replicas: int = 1):
+    """A ``resource_reader`` that always answers with a record matching
+    whatever identity was resolved from the request — keeps these unit tests
+    focused on the exact mutating ``kubectl`` argv instead of also having to
+    fake the pre-mutation ``kubectl get`` / ``config view`` reads."""
+
+    def _read(identity):
+        return {
+            "kind": identity.workload_kind,
+            "metadata": {
+                "name": identity.name,
+                "namespace": identity.namespace,
+                "uid": identity.uid,
+                "resourceVersion": identity.resource_version,
+            },
+            "spec": {"replicas": current_replicas},
+        }
+
+    return _read
+
+
+class _AlwaysDrainedGuard:
+    """Deterministic NE-167 drain/stabilization evidence for scale-DOWN unit
+    tests here — proving the exact kubectl argv, not the guard mechanics
+    themselves (covered separately in test_fleet_k8s_actuation_contract.py)."""
+
+    def assess(self, identity, current_replicas, desired_replicas, request):
+        return {
+            "drained": True,
+            "stabilized": True,
+            "resource_version": identity.resource_version,
+            "observed_replicas": current_replicas,
+            "remaining_replicas": desired_replicas,
+            "quorum_safe": True,
+        }
 
 
 class _FakeProc:
@@ -79,7 +145,8 @@ def _reset_injected_actuator():
 # ---------------------------------------------------------------------------
 
 
-def _actuator(monkeypatch, **kw):
+def _actuator(monkeypatch, *, current_replicas=1, **kw):
+    kw.setdefault("resource_reader", _matching_reader(current_replicas))
     act = KubernetesActuator(kubectl_bin="/usr/bin/kubectl", namespace="platform", **kw)
     recorder = _RecordingRun()
     monkeypatch.setattr(subprocess, "run", recorder)
@@ -137,12 +204,12 @@ def test_apply_rejects_unsafe_target(monkeypatch):
 
 def test_scale_service_issues_real_kubectl_scale_call(monkeypatch):
     """ANTI-CHEATING: the actuator must issue a real (mocked) scale call."""
-    act, recorder = _actuator(monkeypatch)
+    act, recorder = _actuator(monkeypatch, current_replicas=1)
     result = act.apply(
         ActionRequest(
             kind="scale_service",
             target="graph-os-dispatch",
-            params={"replicas": 4},
+            params=_identity_params(replicas=4),
             source="autoscaler",
         )
     )
@@ -150,36 +217,62 @@ def test_scale_service_issues_real_kubectl_scale_call(monkeypatch):
     assert recorder.calls == [
         [
             "/usr/bin/kubectl",
+            "--context",
+            "production-admin",
             "-n",
             "platform",
             "scale",
             "deployment/graph-os-dispatch",
             "--replicas=4",
+            "--resource-version=1",
         ]
     ]
 
 
 def test_stop_service_scales_to_zero(monkeypatch):
-    act, recorder = _actuator(monkeypatch)
-    act.apply(ActionRequest(kind="stop_service", target="graph-os-mining"))
+    # stop_service scales DOWN to zero, so (unlike the other unit-level
+    # kinds here) it needs NE-167 drain/stabilization evidence too.
+    act, recorder = _actuator(
+        monkeypatch,
+        current_replicas=3,
+        scale_down_guard=_AlwaysDrainedGuard(),
+    )
+    act.apply(
+        ActionRequest(
+            kind="stop_service",
+            target="graph-os-mining",
+            params=_identity_params(),
+        )
+    )
     assert recorder.calls == [
         [
             "/usr/bin/kubectl",
+            "--context",
+            "production-admin",
             "-n",
             "platform",
             "scale",
             "deployment/graph-os-mining",
             "--replicas=0",
+            "--resource-version=1",
         ]
     ]
 
 
 def test_restart_service_issues_rollout_restart(monkeypatch):
     act, recorder = _actuator(monkeypatch)
-    act.apply(ActionRequest(kind="restart_service", target="graph-os-ingest"))
+    act.apply(
+        ActionRequest(
+            kind="restart_service",
+            target="graph-os-ingest",
+            params=_identity_params(),
+        )
+    )
     assert recorder.calls == [
         [
             "/usr/bin/kubectl",
+            "--context",
+            "production-admin",
             "-n",
             "platform",
             "rollout",
@@ -191,10 +284,18 @@ def test_restart_service_issues_rollout_restart(monkeypatch):
 
 def test_rollback_service_issues_rollout_undo(monkeypatch):
     act, recorder = _actuator(monkeypatch)
-    act.apply(ActionRequest(kind="rollback_service", target="graph-os-ingest"))
+    act.apply(
+        ActionRequest(
+            kind="rollback_service",
+            target="graph-os-ingest",
+            params=_identity_params(),
+        )
+    )
     assert recorder.calls == [
         [
             "/usr/bin/kubectl",
+            "--context",
+            "production-admin",
             "-n",
             "platform",
             "rollout",
@@ -210,15 +311,17 @@ def test_deploy_service_with_image_sets_image(monkeypatch):
         ActionRequest(
             kind="deploy_service",
             target="graph-os-dispatch",
-            params={
-                "image": "registry.local/graph-os:1.2.3",
-                "container": "graph-os-dispatch",
-            },
+            params=_identity_params(
+                image="registry.local/graph-os:1.2.3",
+                container="graph-os-dispatch",
+            ),
         )
     )
     assert recorder.calls == [
         [
             "/usr/bin/kubectl",
+            "--context",
+            "production-admin",
             "-n",
             "platform",
             "set",
@@ -231,10 +334,18 @@ def test_deploy_service_with_image_sets_image(monkeypatch):
 
 def test_deploy_service_without_image_falls_back_to_restart(monkeypatch):
     act, recorder = _actuator(monkeypatch)
-    act.apply(ActionRequest(kind="deploy_service", target="graph-os-dispatch"))
+    act.apply(
+        ActionRequest(
+            kind="deploy_service",
+            target="graph-os-dispatch",
+            params=_identity_params(),
+        )
+    )
     assert recorder.calls == [
         [
             "/usr/bin/kubectl",
+            "--context",
+            "production-admin",
             "-n",
             "platform",
             "rollout",
@@ -246,20 +357,28 @@ def test_deploy_service_without_image_falls_back_to_restart(monkeypatch):
 
 def test_unsupported_kind_is_reported_not_raised(monkeypatch):
     act, recorder = _actuator(monkeypatch)
-    result = act.apply(ActionRequest(kind="nonsense_kind", target="graph-os-dispatch"))
+    result = act.apply(
+        ActionRequest(
+            kind="nonsense_kind",
+            target="graph-os-dispatch",
+            params=_identity_params(),
+        )
+    )
     assert result["ok"] is False
     assert "unsupported action kind" in result["detail"]
     assert recorder.calls == []
 
 
 def test_nonzero_returncode_is_reported_as_failure(monkeypatch):
-    act, recorder = _actuator(monkeypatch)
+    act, recorder = _actuator(monkeypatch, current_replicas=1)
     recorder.returncode = 1
     recorder.stdout = ""
     recorder.stderr = 'deployments.apps "graph-os-dispatch" not found'
     result = act.apply(
         ActionRequest(
-            kind="scale_service", target="graph-os-dispatch", params={"replicas": 2}
+            kind="scale_service",
+            target="graph-os-dispatch",
+            params=_identity_params(replicas=2),
         )
     )
     assert result["ok"] is False
@@ -272,14 +391,19 @@ def test_namespace_defaults_to_platform_from_config(monkeypatch):
 
 
 def test_execute_action_stamps_actuator_name(monkeypatch):
-    act, _recorder = _actuator(monkeypatch)
+    act, _recorder = _actuator(monkeypatch, current_replicas=1)
     from .fleet_autonomy_fakes import FakeEngine
 
     engine = FakeEngine()
+    # A non-dry-run actuator now requires the durable action-outbox
+    # pre-side-effect fence before execute_action will call it at all.
+    engine.action_outbox_store = DurableActionOutbox(engine)
     result = execute_action(
         engine,
         ActionRequest(
-            kind="scale_service", target="graph-os-dispatch", params={"replicas": 2}
+            kind="scale_service",
+            target="graph-os-dispatch",
+            params=_identity_params(replicas=2),
         ),
         act,
     )
@@ -361,6 +485,15 @@ services:
       scale_up_step: 2
       scale_down_step: 1
       cooldown_s: 300
+    kubernetes:
+      cluster: production
+      context: production-admin
+      namespace: platform
+      workload_kind: Deployment
+      name: graph-os-dispatch
+      uid: uid-dispatch-1
+      resource_version: "1"
+      controller_mode: native
 """
 
 PERMISSIVE = (
@@ -370,41 +503,79 @@ PERMISSIVE = (
 )
 
 
-def _k8s_autoscaler(
+def _k8s_autoscaler_and_reconciler(
     engine, observations, tmp_path, monkeypatch, recorder, policy_body=None
 ):
+    """NE-226: the autoscaler alone can no longer prove a real kubectl call —
+    it only proposes/accepts a durable ScaleIntent. The fleet reconciler is
+    now the sole native replica actuator, so an end-to-end "real call" proof
+    needs BOTH, sharing one engine/observer/policy/intent-store/registry —
+    mirroring test_fleet_scale_authority.py's shared-store pattern, plus the
+    NE-179 identity-bound KubernetesActuator wiring from
+    test_fleet_k8s_actuation_contract.py.
+    """
     from agent_utilities.orchestration import fleet_autoscaler as fa
+    from agent_utilities.orchestration import fleet_reconciler as fr
 
     registry = tmp_path / "registry.yml"
     registry.write_text(REGISTRY, encoding="utf-8")
     policy_path = write_policy(tmp_path, policy_body) if policy_body else None
+    policy = ActionPolicy(engine=engine, policy_path=policy_path)
+    observer = FakeObserver(observations)
+    store = DurableIntentCAS()
+    # A non-dry-run actuator requires the durable action-outbox
+    # pre-side-effect fence before execute_action will call it at all.
+    engine.action_outbox_store = DurableActionOutbox(engine)
 
     monkeypatch.setattr(subprocess, "run", recorder)
-    actuator = KubernetesActuator(kubectl_bin="/usr/bin/kubectl", namespace="platform")
+    actuator = KubernetesActuator(
+        kubectl_bin="/usr/bin/kubectl",
+        namespace="platform",
+        # Bypass the pre-mutation kubectl "get"/"config view" reads (not
+        # what these tests are about) so `recorder.calls` captures only the
+        # actual mutating command, matching the pre-NE-179 shape of these
+        # assertions.
+        resource_reader=_matching_reader(current_replicas=1),
+    )
 
     scaler = FleetAutoscaler(
         engine,
-        observer=FakeObserver(observations),
+        observer=observer,
         actuator=actuator,
-        policy=ActionPolicy(engine=engine, policy_path=policy_path),
+        policy=policy,
         signal_provider=FakeSignalProvider(default=450.0),
         health_provider=healthy_fleet_evidence,
+        intent_store=store,
     )
-    original = fa.load_desired_state
-    monkeypatch.setattr(
-        fa, "load_desired_state", lambda *a, **k: original(registry_path=str(registry))
+    reconciler = FleetReconciler(
+        engine,
+        observer=observer,
+        actuator=actuator,
+        policy=policy,
+        health_provider=healthy_fleet_evidence,
+        intent_store=store,
     )
-    return scaler
+
+    def _loader(*a, **k):
+        return load_desired_state(registry_path=str(registry))
+
+    monkeypatch.setattr(fa, "load_desired_state", _loader)
+    monkeypatch.setattr(fr, "load_desired_state", _loader)
+    return scaler, reconciler
 
 
 def test_default_policy_gates_k8s_actuator_no_kubectl_call(tmp_path, monkeypatch):
     """ANTI-CHEATING (gating): under the shipped conservative default policy
-    the scale is only QUEUED — the k8s actuator must never be invoked."""
+    the scale is only PROPOSED (queued for approval) — no accepted intent is
+    ever created, so the reconciler has nothing to actuate. The k8s actuator
+    must never be invoked, at EITHER layer — this is the security guarantee
+    that survives the NE-226 redesign (autoscaler never actuates directly;
+    the reconciler only actuates an accepted intent)."""
     from .fleet_autonomy_fakes import FakeEngine
 
     engine = FakeEngine()
     recorder = _RecordingRun()
-    scaler = _k8s_autoscaler(
+    scaler, reconciler = _k8s_autoscaler_and_reconciler(
         engine,
         {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)},
         tmp_path,
@@ -412,23 +583,28 @@ def test_default_policy_gates_k8s_actuator_no_kubectl_call(tmp_path, monkeypatch
         recorder,
     )
     report = scaler.evaluate()
-    assert report["evaluations"][0]["outcome"] == "proposed"
+    assert report["evaluations"][0]["outcome"] == "intent_proposed"
     assert "queue_approval" in report["evaluations"][0]["reason"]
     assert recorder.calls == []  # gated: no kubectl call issued
     assert len(engine.by_type("ActionApproval")) == 1
+
+    converged = reconciler.reconcile()
+    assert converged["actions"] == []  # no accepted intent ⇒ nothing to converge
+    assert recorder.calls == []  # still gated: the reconciler never reaches kubectl
 
 
 def test_permissive_policy_lets_k8s_actuator_issue_real_scale_call(
     tmp_path, monkeypatch
 ):
-    """ANTI-CHEATING (real call): under a permissive policy the loop must
-    actually reach ``kubectl scale`` with the right Deployment + replica
-    count — not a no-op / dry-run."""
+    """ANTI-CHEATING (real call): under a permissive policy the autoscaler's
+    accepted intent must be actuated by the RECONCILER — the sole native
+    replica writer under NE-226 — reaching a real (mocked) ``kubectl scale``
+    with the right Deployment + replica count, not a no-op / dry-run."""
     from .fleet_autonomy_fakes import FakeEngine
 
     engine = FakeEngine()
     recorder = _RecordingRun()
-    scaler = _k8s_autoscaler(
+    scaler, reconciler = _k8s_autoscaler_and_reconciler(
         engine,
         {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)},
         tmp_path,
@@ -437,16 +613,25 @@ def test_permissive_policy_lets_k8s_actuator_issue_real_scale_call(
         policy_body=PERMISSIVE,
     )
     report = scaler.evaluate()
-    assert report["scaled"] == 1
+    assert report["intents_accepted"] == 1
     assert report["actuator"] == "k8s"
+    assert recorder.calls == []  # the autoscaler itself never touches kubectl
+
+    converged = reconciler.reconcile()
+    action = converged["actions"][0]
+    assert action["decision"] == "accepted_intent"
+    assert action["state"] == "executed"
     assert recorder.calls == [
         [
             "/usr/bin/kubectl",
+            "--context",
+            "production-admin",
             "-n",
             "platform",
             "scale",
             "deployment/graph-os-dispatch",
             "--replicas=3",  # up-step capped from raw 5
+            "--resource-version=1",
         ]
     ]
     executions = engine.by_type("ActionExecution")
@@ -455,13 +640,15 @@ def test_permissive_policy_lets_k8s_actuator_issue_real_scale_call(
 
 
 def test_cooldown_blocks_repeat_k8s_scale_call(tmp_path, monkeypatch):
-    """ANTI-CHEATING (cooldown): a second tick inside the cooldown window must
-    NOT issue a second kubectl call."""
+    """ANTI-CHEATING (cooldown): once the reconciler has actuated a real
+    scale, a second tick inside the cooldown window must NOT issue a second
+    kubectl call — through either the autoscaler (re-proposing) or a repeat
+    reconciler pass."""
     from .fleet_autonomy_fakes import FakeEngine
 
     engine = FakeEngine()
     recorder = _RecordingRun()
-    scaler = _k8s_autoscaler(
+    scaler, reconciler = _k8s_autoscaler_and_reconciler(
         engine,
         {"graph-os-dispatch": obs("graph-os-dispatch", "up", replicas=1)},
         tmp_path,
@@ -470,10 +657,24 @@ def test_cooldown_blocks_repeat_k8s_scale_call(tmp_path, monkeypatch):
         policy_body=PERMISSIVE,
     )
     first = scaler.evaluate()
-    assert first["scaled"] == 1
+    assert first["intents_accepted"] == 1
+    reconciler.reconcile()
     assert len(recorder.calls) == 1
+
+    # Advance the intent to its second stable observation (verified) exactly
+    # as a real reconcile loop would once the actuation becomes visible to
+    # the observer — only then does the autoscaler's own cooldown/flap-guard
+    # apply again (an executed/observed intent still "belongs" to the
+    # reconciler, per fleet_autoscaler._evaluate_service's intent gate).
+    scaler.observer.observations["graph-os-dispatch"] = obs(
+        "graph-os-dispatch", "up", replicas=3
+    )
+    reconciler.reconcile()  # executed -> observed
+    reconciler.reconcile()  # observed -> verified
+    assert len(recorder.calls) == 1  # still just the one real scale call
 
     second = scaler.evaluate()
     assert second["actions"] == 0
     assert "cooldown" in second["evaluations"][0]["reason"]
-    assert len(recorder.calls) == 1  # no second kubectl call inside cooldown
+    reconciler.reconcile()
+    assert len(recorder.calls) == 1  # cooldown blocked a second kubectl call too
