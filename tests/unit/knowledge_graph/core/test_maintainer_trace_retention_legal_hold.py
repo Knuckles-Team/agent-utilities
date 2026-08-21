@@ -5,11 +5,20 @@ Known-bad proof: a ``RunTrace`` older than the retention window with
 ``is_permanent`` unset/False is deleted by ``prune_expired_traces``; a
 BYTE-COMPARABLE ``RunTrace`` (same age, same everything else) marked
 ``is_permanent=True`` survives the exact same sweep. This is exercised against a
-minimal Cypher-shaped fake backend that actually evaluates the
-``MATCH (n:<label>) WHERE n.timestamp < $cutoff AND (n.is_permanent IS NULL OR
-n.is_permanent = False) DETACH DELETE n`` pattern over synthetic rows — not merely
-asserting the query string contains the right substrings — so the proof is about
-real delete/survive behavior, not query shape.
+minimal Cypher-shaped fake backend that actually evaluates the sweep's
+``WHERE n.timestamp < $cutoff AND (n.is_permanent IS NULL OR n.is_permanent =
+False)`` predicate over synthetic rows — not merely asserting the query string
+contains the right substrings — so the proof is about real delete/survive
+behavior, not query shape.
+
+The sweep issues TWO statements per batch, and the fake models both: a READ
+that selects one bounded batch of ids, then a WRITE that deletes exactly those
+ids. It used to be one statement (``... WITH n LIMIT $batch_size DETACH DELETE
+n``), which is outside the engine's native Cypher write subset — ``WITH``
+between a MATCH and a write clause is rejected at the wire boundary, so
+retention never ran at all against a native backend. The fake enforces the
+split by REFUSING any query that is not one of the two expected shapes, so a
+regression to the unsupported form fails here rather than only in production.
 """
 
 from __future__ import annotations
@@ -27,14 +36,24 @@ from agent_utilities.observability.trace_ontology import (
     TRACE_NODE_LABEL,
 )
 
-_DELETE_RE = re.compile(
+_SELECT_RE = re.compile(
     r"MATCH \(n:(?P<label>\w+)\)\s*"
     r"WHERE n\.timestamp < \$cutoff\s*"
     r"AND \(n\.is_permanent IS NULL OR n\.is_permanent = False\)\s*"
-    r"WITH n LIMIT \$batch_size\s*"
+    r"RETURN n\.id AS id\s*"
+    r"LIMIT \$batch_size",
+)
+
+_DELETE_RE = re.compile(
+    r"MATCH \(n:(?P<label>\w+)\)\s*"
+    r"WHERE n\.id IN \$ids\s*"
     r"DETACH DELETE n\s*"
     r"RETURN count\(n\) AS deleted_count",
 )
+
+#: The shape this sweep must never regress to: `WITH` between a MATCH and a
+#: write clause is outside the engine's native Cypher write subset.
+_UNSUPPORTED_WITH_RE = re.compile(r"WITH\s+n\s+LIMIT")
 
 
 class _FakeRetentionBackend:
@@ -52,18 +71,35 @@ class _FakeRetentionBackend:
     def execute(self, query: str, params: dict[str, Any] | None = None) -> Any:
         params = params or {}
         self.queries.append((query, params))
-        match = _DELETE_RE.search(query)
-        if not match:
+        if _UNSUPPORTED_WITH_RE.search(query):
+            raise AssertionError(
+                "query uses `WITH` between MATCH and a write clause, which the "
+                f"engine's native Cypher write subset rejects: {query!r}"
+            )
+        selecting = _SELECT_RE.search(query)
+        if selecting is not None:
+            label = selecting.group("label")
+            cutoff = params["cutoff"]
+            return [
+                {"id": node_id}
+                for node_id, props in self.nodes.items()
+                if props.get("node_type_label") == label
+                and props.get("timestamp", "") < cutoff
+                and not props.get("is_permanent", False)
+            ][: params["batch_size"]]
+        deleting = _DELETE_RE.search(query)
+        if deleting is None:
             raise AssertionError(f"unexpected query shape: {query!r}")
-        label = match.group("label")
-        cutoff = params["cutoff"]
+        label = deleting.group("label")
+        # Deletes ONLY the ids it was handed, and only if they still match the
+        # label -- so a sweep that selected under one label and deleted under
+        # another could not pass unnoticed.
         victims = [
             node_id
-            for node_id, props in self.nodes.items()
-            if props.get("node_type_label") == label
-            and props.get("timestamp", "") < cutoff
-            and not props.get("is_permanent", False)
-        ][:_TRACE_RETENTION_BATCH_SIZE]
+            for node_id in params["ids"]
+            if node_id in self.nodes
+            and self.nodes[node_id].get("node_type_label") == label
+        ]
         for node_id in victims:
             del self.nodes[node_id]
         return [{"deleted_count": len(victims)}]
@@ -144,8 +180,10 @@ def test_sweep_covers_all_three_trace_ontology_labels():
 
     assert backend.nodes == {}
     labels_queried = {
-        _DELETE_RE.search(q).group("label")  # type: ignore[union-attr]
+        match.group("label")
         for q, _ in backend.queries
+        for match in (_SELECT_RE.search(q) or _DELETE_RE.search(q),)
+        if match is not None
     }
     assert labels_queried == {
         TRACE_NODE_LABEL,
@@ -182,12 +220,17 @@ def test_trace_retention_deletes_in_bounded_batches_with_exact_count():
         "deleted_rows": _TRACE_RETENTION_BATCH_SIZE + 5,
         "truncated": False,
     }
+    # Two batches, each a select + a delete: the first select returns a full
+    # batch (so the loop continues), the second returns the remaining 5 (short,
+    # so it stops).
     trace_queries = [
         query
         for query, _params in backend.queries
         if f"(n:{TRACE_NODE_LABEL})" in query
     ]
-    assert len(trace_queries) == 2
+    assert len(trace_queries) == 4
+    assert sum(1 for q in trace_queries if _SELECT_RE.search(q)) == 2
+    assert sum(1 for q in trace_queries if _DELETE_RE.search(q)) == 2
 
 
 def test_trace_retention_rejects_dangerous_or_unbounded_windows():

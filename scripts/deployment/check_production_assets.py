@@ -24,6 +24,30 @@ class ProductionAssetError(ValueError):
     """A production deployment invariant is absent or unsafe."""
 
 
+#: `${NAME:?required}` -- the render-time substitution convention this
+#: template uses for values that come from measured topology
+#: (`production_cell_topology.py`) rather than being committed. Deliberately
+#: strict: it accepts ONLY the `:?required` form, so an optional
+#: `${NAME:-fallback}` (which could silently render an unintended endpoint)
+#: is not treated as a resolved coordinator.
+_RENDER_PLACEHOLDER = re.compile(r"\$\{[A-Z][A-Z0-9_]*:\?required\}")
+
+
+def _resolves_to(value: object, expected: object) -> bool:
+    """Does *value* carry *expected*, either literally or by deferring to it?
+
+    The template may hold either an already-resolved topology value or the
+    `${NAME:?required}` placeholder that will be substituted with one at render
+    time. Both are acceptable; a literal that is simply DIFFERENT is not, so a
+    workload pinned to some other endpoint or server name still fails.
+    """
+
+    text = str(value or "")
+    if _RENDER_PLACEHOLDER.fullmatch(text):
+        return True
+    return text == str(expected or "")
+
+
 _WORKLOAD_KINDS = {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}
 _SERVING_WORKLOADS = {"Deployment", "StatefulSet", "DaemonSet"}
 _REQUIRED_OBJECTS = {
@@ -365,7 +389,22 @@ def _validate_config(
             "tls://epistemic-graph-coordinator.graphos-cell.svc.cluster.local:9101",
         )
     )
-    if cell.get("GRAPH_SERVICE_ENDPOINTS") != coordinator:
+    # `1fa58c8b6` replaced this template's hard-coded `*.svc.cluster.local`
+    # endpoints with the `${GRAPHOS_ENGINE_ENDPOINT:?required}` convention the
+    # template already used elsewhere, because the tracked-privacy gate refuses
+    # machine-specific cluster hostnames in a committed file. That is correct,
+    # and it left this check comparing a render-time placeholder against a
+    # resolved URL -- so the two gates contradicted each other and this one
+    # failed unconditionally on the un-rendered template.
+    #
+    # The invariant worth enforcing was never "the literal string equals this
+    # URL". It is "every client resolves to the SAME replicated TLS
+    # coordinator, and that value comes from measured topology rather than
+    # being hand-set per workload". An un-rendered template satisfies that by
+    # deferring to one required variable; a rendered one satisfies it by
+    # carrying the resolved coordinator. Both are checked below, and a
+    # workload that hard-codes a DIFFERENT endpoint still fails either way.
+    if not _resolves_to(cell.get("GRAPH_SERVICE_ENDPOINTS"), coordinator):
         raise ProductionAssetError(
             "all clients must use the replicated TLS graph service"
         )
@@ -380,9 +419,18 @@ def _validate_config(
         raise ProductionAssetError(
             "production must not retain plaintext native-engine fallback settings"
         )
-    if control.get("GRAPH_SERVICE_ENDPOINTS") != coordinator:
+    if not _resolves_to(control.get("GRAPH_SERVICE_ENDPOINTS"), coordinator):
         raise ProductionAssetError(
             "control plane must use the TLS coordinator authority"
+        )
+    # Both planes must defer to the SAME thing. Accepting the placeholder per
+    # workload above would otherwise let one plane be pinned to a literal and
+    # the other to a variable -- two endpoints wearing one check.
+    if str(cell.get("GRAPH_SERVICE_ENDPOINTS") or "") != str(
+        control.get("GRAPH_SERVICE_ENDPOINTS") or ""
+    ):
+        raise ProductionAssetError(
+            "cell and control planes declare different graph service endpoints"
         )
     if identity is not None:
         if cell.get("ENGINE_IDENTITY_CONTRACT_REF") != _ENGINE_IDENTITY_REF or cell.get(
@@ -486,8 +534,8 @@ def _validate_engine(
         raise ProductionAssetError(
             "native engine server identity is not runtime-mounted"
         )
-    if str(env.get("GRAPH_SERVICE_TLS_SERVER_NAME") or "") != identity.get(
-        "tls_server_name"
+    if not _resolves_to(
+        env.get("GRAPH_SERVICE_TLS_SERVER_NAME"), identity.get("tls_server_name")
     ):
         raise ProductionAssetError("native engine TLS server name is absent")
     command_text = " ".join(str(value) for value in container.get("args") or ())

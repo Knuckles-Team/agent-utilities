@@ -4378,24 +4378,31 @@ def _probe_http(url: str, timeout: float = 2.0) -> tuple[bool, int | None]:
     Any HTTP response (even a 4xx from an unauthenticated probe) proves the
     service itself is up and answering, so any status code counts as reachable.
     """
-    import urllib.error
     import urllib.parse
-    import urllib.request
 
-    # Bandit B310 / ruff S310: the URL comes from operator config, so restrict the
-    # scheme explicitly rather than suppressing the warning. A `file://` or custom
-    # scheme in a config value would otherwise be opened by urlopen.
+    from agent_utilities.core.http_client import create_http_client
+
+    # The URL comes from operator config, so restrict the scheme explicitly. A
+    # `file://` or custom scheme in a config value must never be fetched.
     scheme = urllib.parse.urlsplit(url).scheme.lower()
     if scheme not in ("http", "https"):
         return False, None
 
+    # Goes through `core.http_client` rather than `urllib.request.urlopen`
+    # (D-CIM-4 / the HTTP egress boundary): a raw `urlopen` here bypassed the
+    # airgap guard, the private-address rules, and the standard headers that
+    # every other outbound call in this package is subject to -- and a doctor
+    # probe reaches operator-supplied hosts, which is exactly the traffic that
+    # boundary exists to govern. `allow_loopback` is set because the common
+    # case is probing a service on this host.
+    #
+    # Any HTTP response, including a 4xx from an unauthenticated probe, proves
+    # the service is up and answering, so `raise_for_status` is deliberately
+    # NOT used -- the status is the return value, not an error.
     try:
-        with urllib.request.urlopen(  # nosec B310 - scheme allow-listed to http/https immediately above  # noqa: S310
-            url, timeout=timeout
-        ) as resp:
-            return True, resp.status
-    except urllib.error.HTTPError as exc:
-        return True, exc.code
+        with create_http_client(timeout=timeout, allow_loopback=True) as client:
+            response = client.get(url)
+        return True, response.status_code
     except Exception:  # noqa: BLE001 - doctor is a defensive boundary
         return False, None
 

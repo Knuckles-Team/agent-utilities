@@ -870,22 +870,51 @@ class GraphMaintainer:
             # so the interpolation below is guarded the same way every other
             # label-scoped query in this codebase is (agent_utilities.security.identifiers).
             label = validate_identifier(raw_label, kind="label")
-            query = f"""
+            # Split into a READ that selects one batch and a WRITE that deletes
+            # exactly those ids. The single-statement form this replaced --
+            # `MATCH ... WITH n LIMIT $batch_size DETACH DELETE n` -- is outside
+            # the engine's native Cypher WRITE subset: a write statement has no
+            # read-pipeline stage, so `WITH` between a MATCH and a write clause
+            # is rejected at the wire boundary (`CypherEngineError`), not
+            # silently degraded. Retention therefore did not run at all against
+            # a native backend.
+            #
+            # `LIMIT` is unrestricted in a plain READ, so batching moves there,
+            # where it belongs: the read is also what actually knows whether
+            # more rows remain, which makes the loop's termination condition a
+            # fact rather than an inference from a delete count.
+            select_query = f"""
             MATCH (n:{label})
             WHERE n.timestamp < $cutoff
             AND (n.is_permanent IS NULL OR n.is_permanent = False)
-            WITH n LIMIT $batch_size
+            RETURN n.id AS id
+            LIMIT $batch_size
+            """
+            delete_query = f"""
+            MATCH (n:{label})
+            WHERE n.id IN $ids
             DETACH DELETE n
             RETURN count(n) AS deleted_count
             """
             for _batch in range(_TRACE_RETENTION_MAX_BATCHES_PER_LABEL):
-                result = self.engine.backend.execute(
-                    query,
+                selected = self.engine.backend.execute(
+                    select_query,
                     {
                         "cutoff": cutoff,
                         "batch_size": _TRACE_RETENTION_BATCH_SIZE,
                     },
                 )
+                selected_rows = (
+                    selected if isinstance(selected, list) else [selected]
+                )
+                ids = [
+                    row["id"]
+                    for row in selected_rows
+                    if isinstance(row, dict) and row.get("id") is not None
+                ]
+                if not ids:
+                    break
+                result = self.engine.backend.execute(delete_query, {"ids": ids})
                 count: int | None = None
                 rows = result if isinstance(result, list) else [result]
                 for row in rows:
@@ -911,9 +940,14 @@ class GraphMaintainer:
                         break
                 if count is None:
                     deleted_rows_known = False
-                    break
-                deleted_rows += count
-                if count < _TRACE_RETENTION_BATCH_SIZE:
+                else:
+                    deleted_rows += count
+                # Termination is decided by what the READ found, not by the
+                # delete's reported count: a short read is direct evidence that
+                # nothing older than the cutoff remains for this label, and it
+                # stays correct on a backend whose delete returns no count at
+                # all (the case that previously abandoned the whole label).
+                if len(ids) < _TRACE_RETENTION_BATCH_SIZE:
                     break
             else:
                 truncated = True
