@@ -1052,8 +1052,24 @@ def _eg_repackage_non_editable(source_wheel: Path, destination: Path) -> None:
 
     with zipfile.ZipFile(source_wheel) as source:
         pth_entries = [name for name in source.namelist() if name.endswith(".pth")]
+        if not pth_entries:
+            # A wheelhouse may hold an ORDINARY wheel (`uv build --wheel` /
+            # `maturin build`) rather than a PEP-660 editable one. There is
+            # nothing to de-editable-ise: it already carries the pure-Python
+            # package as real members and redirects nowhere, which is exactly
+            # what this function exists to produce. Copy it through.
+            #
+            # Requiring an editable input was an accident of how the wheelhouse
+            # had happened to be populated, and it made the SAFE way to stage a
+            # wheel -- building a self-contained one -- the one way that failed
+            # (`expected exactly one .pth entry`).
+            shutil.copy2(source_wheel, destination)
+            return
         if len(pth_entries) != 1:
-            raise RuntimeError(f"expected exactly one .pth entry in {source_wheel}")
+            raise RuntimeError(
+                f"expected at most one .pth entry in {source_wheel}, found "
+                f"{len(pth_entries)}"
+            )
         pth_name = pth_entries[0]
         record_entries = [
             name for name in source.namelist() if name.endswith(".dist-info/RECORD")
