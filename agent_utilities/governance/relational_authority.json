@@ -274,8 +274,8 @@
       "authority": "epistemic_graph_engine_sql",
       "schema_source": "fleet_catalog",
       "sqlite_limitations": [
-        "The engine SQL tier supports only a single-column primary key; tenant_id is an explicit row guard until composite keys are native.",
-        "The engine SQL tier has no conditional EXCLUDED-aware upsert; CAS fencing remains in the writer until native support exists."
+        "The engine SQL tier has no conditional EXCLUDED-aware upsert; CAS fencing remains in the writer until native support exists. (Re-verified 2026-08-21: `ON CONFLICT ... DO UPDATE` is decoded by crates/eg-query/src/sql/classify.rs, but no `EXCLUDED` reference exists anywhere in eg-query, so this limitation still holds.)",
+        "NOT a limitation any more, kept as a correction of the record: composite primary keys ARE native. crates/eg-query/src/tables/schema.rs defines `TableConstraint::PrimaryKey { columns: Vec<String> }` (`PRIMARY KEY (a, b, ...)`) alongside `Unique` and `ForeignKey`, validated by `TableSchema::validate`. This document previously declared the opposite, and the fleet catalog still carries `tenant_id` as a hand-rolled row guard rather than an engine-enforced `(tenant_id, id)` key -- see NE-218. That migration is deliberately NOT bundled with this correction: adopting the native key changes the DDL of an existing store and needs NE-052's migration ledger to move an already-populated deployment rather than silently keeping the row-guard shape."
       ],
       "postgres_rls": "The engine native authority applies tenant/principal/grant isolation; discovery-derived rows require the verified subject plus current authorization-grant digest, and a relational mirror must never become a second writer.",
       "tables": [
