@@ -1,21 +1,39 @@
-# Agent Utilities Ecosystem
+# Agent Utilities
 
-> [!NOTE]
-> Welcome to the official documentation for the `agent-utilities` ecosystem — the infrastructural substrate for multi-agent organizational intelligence.
+agent-utilities is a Python harness for building, orchestrating, and running AI
+agents against a shared knowledge graph. Install it, point it at a task, and it
+plans, executes, and remembers — backed by epistemic-graph or an in-process
+store, your choice. This page gets you running in 5 minutes; the architecture,
+concept registry, and full pillar reference are one click away.
 
-This repository provides the core primitives, memory engines, orchestration layers, and execution sandboxes required to build, deploy, and scale autonomous AI agents within an enterprise context.
+## Stand it up
 
----
+```bash
+pip install agent-utilities          # zero external *service* deps to start
+```
 
-## 🌟 Start Here: The Narrative Journey
+```bash
+setup-config generate --profile tiny     # complete config.json (every option)
+graph-os &                                # KG MCP server — no database needed
+agent-utilities-doctor                    # one health sweep across every subsystem
+```
 
-> [!TIP]
-> **Experience the Platform in Action**
-> Read our comprehensive **[Technical Novel: The Narrative Journey](journey.md)** to see all 5 pillars and the unified concept architecture trace the high-stakes execution of a quantitative portfolio rebalancing mandate — and how the same brain now runs a **full enterprise** (ITSM, ERP, BPM, EA) across whichever vendor tools a client deploys, made **trusted and self-correcting** by source-authority survivorship, data permissions, and a human-correction → rule loop. It's the best way to understand how the pieces fit together.
+Or let the installer do all three plus skill wiring in one shot:
 
----
+```bash
+curl -fsSL https://knuckles-team.github.io/agent-utilities/install.sh | sh
+```
 
-## 🏛️ The 5-Pillar Architecture
+## Choose your path
+
+| Path | Where to go |
+|:-----|:-------------|
+| 🚀 **Try it in 5 minutes** | [Start Here](start-here.md) / [Quick Start](guides/quick-start.md) |
+| 📦 **Deploy it** | [Supported Deployment Configurations (the ladder)](guides/deployment-configurations.md) |
+| 🤖 **I'm an AI agent integrating with this repo** | [For AI Agents](for-ai-agents.md) → `AGENTS.md` |
+| 🏛️ **Understand the architecture** | [Pillar Reference](pillars/index.md) |
+
+## The 5-Pillar Architecture
 
 The entire ecosystem is organized into five foundational pillars, each handling a distinct layer of organizational intelligence.
 
@@ -27,61 +45,12 @@ The entire ecosystem is organized into five foundational pillars, each handling 
 | **4** | **[Ecosystem & Peripherals](pillars/4_ecosystem_peripherals.md)** | Dynamic capability discovery, MCP servers, the hardened multiplexer, connectors, and governance policy. | Connects to external systems securely |
 | **5** | **[Agent OS Infrastructure](pillars/5_agent_os_infrastructure.md)** | Kernel, server-minted identity, externalized state, engine sharding, fleet autonomy, Prometheus observability, and safety sandboxes. | Wraps everything in policy and compliance |
 
----
+→ Full curated reference (grouped by subsystem, not a flat list): **[Architecture Reference](architecture/index.md)** · **[Pillar Reference](pillars/index.md)**.
 
-## 🧠 The Single Company Brain (Pillar 2 Deep-Dive)
+## Go deeper
 
-The **Single Company Brain** (`CONCEPT:AU-KG.query.vendor-agnostic-traversal`) is the operational state layer that transforms the Epistemic Knowledge Graph into a multi-writer, multi-reader, multi-tenant organizational memory. It is strictly governed by Ontology Alignment Bridges and Entailment-Aware Permission Scopers.
-
-| Document | Description |
-|:---------|:------------|
-| **[Company Brain Index](pillars/2_epistemic_knowledge_graph/company_brain/00_index.md)** | Master overview, quick start, and architectural registration |
-| **[Architecture](pillars/2_epistemic_knowledge_graph/company_brain/architecture.md)** | 5-layer architecture, data flow, design principles |
-| **[Ontology & Permissions](pillars/2_epistemic_knowledge_graph/company_brain/ontology.md)** | OWL reasoning cycles, BFO/PROV-O alignment, and SHACL validation |
-
----
-
-## 📚 Key Reference Guides
-
-> [!IMPORTANT]
-> Dive deep into the specific subsystems that power the `agent-utilities` ecosystem.
-
-- **[Concept Galaxy](overview.md)**: High-level map of all unified canonical concepts across the 5 pillars.
-- **[Canonical Concept Map](concept_map.md)**: The 1:1 traceability matrix mapping concepts to code modules.
-- **[Architecture Deep-Dive](guides/architecture.md)**: Pillar 1 detailed structural overview.
-- **[Agent OS Architecture](guides/agent-os-architecture.md)**: Pillar 5 kernel and execution boundaries.
-- **[Gateway Service Dashboard](pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md)**: The real-time observability cockpit.
-- **[Deployment Configurations](guides/deployment-configurations.md)**: Every deployment shape — zero-infra laptop, shared Postgres state, sharded engines, Kafka ingest workers, queue-driven dispatch fleet.
-- **[Ecosystem Capability and Skill Fleet](ecosystem-capability-fleet.md)**: Generated 65-package coverage for canonical skills, governed source connectors, ontology bundles, live tool-schema pins, and MkDocs.
-
-### Scale-out & autonomy architecture (deep dives)
-
-| Document | Description |
-|:---------|:------------|
-| **[State Externalization](architecture/state_externalization.md)** | `STATE_DB_URI` shared Postgres state store, SKIP LOCKED queue claims, advisory-lock daemon leadership, paginated fleet queries (AU-OS.state.unified-durable-state-externalization–5.18, AU-KG.ingest.cross-host-safe-kg, AU-ORCH.session.durable-goal-registry-goals) |
-| **[Engine Placement & Sharding](architecture/engine_sharding.md)** | Engine-authoritative placement epochs, three-member MultiRaft groups, and governed online movement |
-| **[Event Backbone](architecture/event_backbone_architecture.md)** | Kafka ingest scale-out: fail-loud queue selection, keyed partitions, `kg-ingest` consumer group + lag metrics (KG-2.55–2.57) |
-| **[Agent Dispatch](architecture/agent_dispatch.md)** | Queue-driven agent dispatch: session-keyed `agent_turns` queue + stateless `agent-dispatch-worker` fleet (ORCH-1.45) |
-| **[Fleet Autonomy](architecture/fleet_autonomy.md)** | ActionPolicy decision point, desired-state reconciler, remediation playbooks, health-gated deploy watch, reactive autoscaler (OS-5.24–5.27, OS-5.29) |
-| **[Gateway Scaling](architecture/gateway_scaling.md)** | `GATEWAY_WORKERS` pre-fork, per-tenant rate limiting, engine circuit breaker, Prometheus `/metrics` (AU-OS.observability.no-op-without-metrics) |
-| **[MCP Multiplexer](architecture/mcp_multiplexer.md)** | Dynamic tool gateway: progressive disclosure (`find_tools`/`list_catalog`/`load_tools`), self-cataloging probe, collision-free prefixes, hybrid stdio+http children, lazy mounting (ECO-4.36) |
-| **[Autonomous Evolution](guides/autonomous-evolution.md)** | The governed self-evolution chain: propose-only loops → governance validation → regression gate → policy-gated branch publication (AU-AHE.harness.failure-evolution–3.21) |
-| **[Trace and Outcome Ontology](architecture/trace_outcome_ontology.md)** | Canonical privacy-safe `RunTrace → ToolCall/OutcomeEvaluation` schema, numeric consumer cursor, runtime writers, miners, evaluation, and analytics |
-| **[Mandatory ContextCompiler Boundary](architecture/mandatory-context-compiler.md)** | Session-before-retrieval enforcement, complete privacy-safe cache identity, and one governed evidence path for every model transport |
-| **[Metrics Reference](reference/metrics.md)** | Catalog of every `agent_utilities_*` Prometheus series |
-| **[Production Cell Runbook](operations/production-cell-runbook.md)** | Signed global-control/cell-data topology, workload identity, strict mTLS, queue-driven workers, SLO response, hot swap and rollback |
-| **[Backup & Cross-Cell Recovery](operations/disaster-recovery.md)** | Format-v3 coordinator-aware bundles, continuous restore validation, RPO/RTO and regional cutover invariants |
-| **[Compatibility & Certification](release/compatibility-and-certification.md)** | Exact seven-component release train and executable 24–72 hour scale=1 soak/chaos evidence contract |
-
----
-
-## 🛠️ Documentation Standards
-
-We employ a strict **Concept ID Registry** to ensure 1:1:1 traceability between **Code** (Docstrings), **Tests**, and **Documentation**.
-
-If you are contributing documentation, please adhere to the standard file naming conventions:
-- Pillar summary: `{N}_{pillar_name}.md`
-- Concept reference: `{ID}-{Name}.md` (e.g. `KG-2.5-Topological_Analysis.md`)
-
-> [!NOTE]
-> All new concept proposals must go through the DSTDD design phase. See `.specify/design/_template.md` for the required KG analysis.
+- **[Company Brain Architecture](pillars/2_epistemic_knowledge_graph/company_brain/architecture.md)** — the operational state layer deep-dive: how the Epistemic Knowledge Graph becomes a multi-writer, multi-reader, multi-tenant organizational memory.
+- **[Read the story](journey.md)** — *The Narrative Journey*, an optional technical novel tracing all 5 pillars through a real end-to-end scenario. Not required reading — a way in if you learn better from a worked example than a reference table.
+- **[Status — the Codex](status.md)** — the generated, honesty-first concept/capability registry. Every concept/capability count on this site is computed from here, never hand-typed; if a claim elsewhere disagrees, this page is the one to trust.
+- **[Documentation Catalog](reference/documentation-catalog.md)** — every publishable page in this site, generated, including the ones not promoted into the left nav.
+- **[The wider ecosystem](ecosystem.md)** — agent-utilities is the entrypoint/harness for the wider `agent-packages` ecosystem: 65 connector packages, three frontends (geniusbot, agent-webui, agent-terminal-ui), a skill library, and ontologies.

@@ -65,56 +65,97 @@ markdown_extensions:
       permalink: true
 nav:
   - Home: index.md
-  - Start Here: start-here.md
-  - Quick Start: guides/quick-start.md
-  - Installation: guides/installation.md
-  - Capabilities:
-      - Overview: capabilities.md
-      - Capability & Action Catalog (generated): capabilities-power.md
-  - Consumption Models: guides/consumption-models.md
-  - Ecosystem: ecosystem.md
-  - The Narrative Journey: journey.md
-  - Ontology School:
-      - Overview: learn/index.md
-      - Intro to the Ontology Model: learn/lessons/ontology-model-101/01-interfaces-object-types-and-links.md
-      - Querying with UQL: learn/lessons/querying-with-uql/01-your-first-uql-pipeline.md
-  - Deployment:
+  - Status: status.md
+  - Get Started:
+      - Start Here: start-here.md
+      - Quick Start: guides/quick-start.md
+      - Installation: guides/installation.md
+  - Deploy:
       - One-link self-deploy: deploy.md
-      - Self-Setup (config-complete): guides/self-setup.md
       - Supported Configurations (the ladder): guides/deployment-configurations.md
+      - Self-Setup (config-complete): guides/self-setup.md
       - Day-0 Deployment: guides/day0.md
       - Standard Private Repos + CI (per profile): guides/genesis-private-repos.md
+      - Sovereign / Self-Hosted (+ air-gap path): guides/sovereign-self-hosted.md
+      - Genesis k8s Deployment Inputs + Named Environment Profiles: architecture/genesis-environment-profiles.md
       - Recipe — Tiny (all-local): recipes/tiny.md
       - Recipe — Unified self-contained (both MCP transports): recipes/unified-self-contained.md
-      - Sovereign / Self-Hosted (+ air-gap path): guides/sovereign-self-hosted.md
       - Recipe — Single-node prod: recipes/single-node-prod.md
       - Recipe — Enterprise: recipes/enterprise.md
-      - Genesis k8s Deployment Inputs + Named Environment Profiles: architecture/genesis-environment-profiles.md
       - Recipe — Stardog + pg-age databases: recipes/databases.md
       - Recipe — Delta-based ingestion via backends: recipes/delta-ingestion.md
       - Recipe — Unified scheduling + RSS research feed: recipes/unified-scheduling.md
       - Recipe — Unified RSS ingestion (native + FreshRSS + ScholarX): recipes/unified-feeds.md
       - Recipe — Enable the shared KV-cache (recommended): recipes/kv-caching.md
-      - LeanIX EA Integration (mirror/delta/backfeed): guides/leanix-integration.md
-      - CMDB/ERP Bidirectional (ServiceNow + ERPNext): guides/cmdb-bidirectional-integration.md
+      - Recipe — Split-storage engine: recipes/split-storage-engine.md
       - Deploying agent-utilities: guides/deployment.md
-      - Configuration: guides/configuration.md
-      - Configuration Reference & Flag Audit: architecture/configuration.md
-      - Drift-Proof Release & Versioning: architecture/drift_proof_release.md
-      - Lane Concurrency (four arbitration classes): architecture/lane-concurrency.md
-      - Merge Queue (continuous merge, tiered gate): architecture/merge-queue.md
-      - Repository-development WorkItem authority: architecture/repository-workitem-authority.md
-      - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
-      - Optional Operator Data-Quality Certification: architecture/data-quality-certification.md
-      - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
-      - FrontendContribution.v1 (package-authored WebUI descriptors): architecture/frontend-contributions.md
-      - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md
-      - Enterprise Trust — Epistemic Audit & Compliance: guides/epistemic-audit-compliance.md
-      - Workspace Manifest (workspace.yml): guides/workspace-config.md
-      - MCP Fleet Auth & Monitoring Runbook: guides/mcp-fleet-auth-and-monitoring-runbook.md
       - Safe Redeploy Runbook: guides/redeploy_kg_server.md
       - Production Cell Runbook: operations/production-cell-runbook.md
       - Backup, Restore & Cross-Cell DR: operations/disaster-recovery.md
+      - Phase 10 Cutover Runbook: operations/phase10-cutover-runbook.md
+      - MCP Fleet Auth & Monitoring Runbook: guides/mcp-fleet-auth-and-monitoring-runbook.md
+      - Workspace Manifest (workspace.yml): guides/workspace-config.md
+  - Guides & Recipes:
+      - Overview: guides/index.md
+      - Capabilities Overview: capabilities.md
+      - Capability & Action Catalog (generated): capabilities-power.md
+      - Consumption Models: guides/consumption-models.md
+      - Pre-bundled Workflow Skill Suite: guides/kg-skill-suite.md
+      - Ecosystem Capability and Skill Fleet: ecosystem-capability-fleet.md
+      - Ecosystem: ecosystem.md
+      - LeanIX EA Integration (mirror/delta/backfeed): guides/leanix-integration.md
+      - CMDB/ERP Bidirectional (ServiceNow + ERPNext): guides/cmdb-bidirectional-integration.md
+      - Langfuse, Usage & Tracing: guides/observability-usage-tracking.md
+      - Enterprise Trust — Epistemic Audit & Compliance: guides/epistemic-audit-compliance.md
+      - Enabling Autonomous Evolution: guides/autonomous-evolution.md
+      - AGI→ASI Implementation Guide: guides/agi-to-asi-implementation.md
+      - Graph Engine (Authority + Mirrors): guides/graph_engine.md
+      - KV-Cache Layering (vLLM → LMCache → engine): guides/kvcache-vllm-lmcache.md
+      - KG-Native Orchestration: guides/kg_native_orchestration.md
+      - Recursive Language Models (RLM): guides/rlm.md
+      - Building Fleet API Clients: guides/building-fleet-api-clients.md
+      - MCP Tool Modes (condensed/verbose/both): guides/mcp-tool-modes.md
+      - Native Numeric Kernel: guides/numeric-kernel.md
+      - The Narrative Journey (optional deep read): journey.md
+      - Worked Examples:
+          - Ontology → Workflow End-to-End: examples/ontology-to-workflow.md
+          - Queue-Driven Dispatch Walkthrough: examples/queue-dispatch-walkthrough.md
+          - Engine Sharding Walkthrough: examples/sharding-walkthrough.md
+          - Fleet Events Wiring: examples/fleet-events-wiring.md
+          - ActionPolicy Postures: examples/action-policy-postures.md
+          - Autoscaling Signals & Math: examples/autoscaling-signals.md
+          - Evolution Publication: examples/evolution-publication.md
+          - Observability Setup: examples/observability.md
+          - Identity & JWT Auth: examples/identity-jwt.md
+          - MCP Consumption & Multiplexer Tuning: examples/mcp-consumption.md
+          - MCP Orchestration Examples: examples/mcp-orchestration-examples.md
+          - Graph-OS MCP Tool Examples: examples/graph-os-mcp-examples.md
+  - Concepts & Ontology School:
+      - Overview: learn/index.md
+      - Intro to the Ontology Model: learn/lessons/ontology-model-101/01-interfaces-object-types-and-links.md
+      - Querying with UQL: learn/lessons/querying-with-uql/01-your-first-uql-pipeline.md
+  - Architecture Reference:
+      - Overview: architecture/index.md
+      - Pillar Reference: pillars/index.md
+      - Graph Authority Convergence (session, client, work state): architecture/graph-authority-convergence.md
+      - Mandatory ContextCompiler Model Boundary: architecture/mandatory-context-compiler.md
+      - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
+      - Privacy-safe External Graph Ingestion: architecture/privacy-safe-external-ingestion.md
+      - Self-Evolution Flywheel (transparent + steerable): architecture/self-evolution-flywheel.md
+      - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
+      - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
+      - Documentation Catalog (generated): reference/documentation-catalog.md
+      - Metrics Reference: reference/metrics.md
+      - Historical Hardening Audit (non-authoritative): architecture/epistemic-os-hardening.md
+      - Capacity Model: scaling/capacity_model.md
+      - Live Loadgen Certification: scaling/live-loadgen-certification.md
+      - AU Scale Claim Register: scaling/scale_claims.md
+  - Concept Registry:
+      - Canonical Concept Map: concept_map.md
+      - Concept Overview: overview.md
+      - Multi-Session Coordination: concept_coordination.md
+  - For AI Agents: for-ai-agents.md
+  - Release Notes:
       - Compatibility & Production Certification: release/compatibility-and-certification.md
       - Connector Live Certification: release/connector-live-certification.md
       - Exact Installed Local Certification: release/exact-local-gates.md
@@ -126,153 +167,3 @@ nav:
       - Exact Local GraphOS Releases: release/exact-local-release.md
       - Source-Freeze Release Gate: release/source-freeze-gates.md
       - Connector-Manifest Signing Custody: release/connector-manifest-signing-custody.md
-      - Enabling Autonomous Evolution: guides/autonomous-evolution.md
-      - AGI→ASI Implementation Guide: guides/agi-to-asi-implementation.md
-      - Graph Engine (Authority + Mirrors): guides/graph_engine.md
-      - KV-Cache Layering (vLLM → LMCache → engine): guides/kvcache-vllm-lmcache.md
-  - Worked Examples:
-      - Ontology → Workflow End-to-End: examples/ontology-to-workflow.md
-      - Queue-Driven Dispatch Walkthrough: examples/queue-dispatch-walkthrough.md
-      - Engine Sharding Walkthrough: examples/sharding-walkthrough.md
-      - Fleet Events Wiring: examples/fleet-events-wiring.md
-      - ActionPolicy Postures: examples/action-policy-postures.md
-      - Autoscaling Signals & Math: examples/autoscaling-signals.md
-      - Evolution Publication: examples/evolution-publication.md
-      - Observability Setup: examples/observability.md
-      - Identity & JWT Auth: examples/identity-jwt.md
-      - MCP Consumption & Multiplexer Tuning: examples/mcp-consumption.md
-      - MCP Orchestration Examples: examples/mcp-orchestration-examples.md
-  - Technical Documentation:
-      - Graph Orchestration Engine: pillars/1_graph_orchestration.md
-      - KG-Native Orchestration: guides/kg_native_orchestration.md
-      - Graph-OS MCP Tool Examples: examples/graph-os-mcp-examples.md
-      - Recursive Language Models (RLM): guides/rlm.md
-      - Building Fleet API Clients: guides/building-fleet-api-clients.md
-      - MCP Tool Modes (condensed/verbose/both): guides/mcp-tool-modes.md
-      - Pre-bundled Workflow Skill Suite: guides/kg-skill-suite.md
-      - Native Numeric Kernel: guides/numeric-kernel.md
-      - Ecosystem Capability and Skill Fleet: ecosystem-capability-fleet.md
-      - Epistemic Knowledge Graph: pillars/2_epistemic_knowledge_graph.md
-      - Memory Architecture: pillars/memory_architecture.md
-      - Mementified Context Management: pillars/2_epistemic_knowledge_graph/KG-2.20-Mementified_Context_Management.md
-      - Agentic Harness Engineering: pillars/3_agentic_harness_engineering.md
-      - Ecosystem & Peripherals: pillars/4_ecosystem_peripherals.md
-      - Agent OS Infrastructure: pillars/5_agent_os_infrastructure.md
-      - GeniusBot Cockpit: pillars/6_geniusbot_cockpit.md
-  - Architecture:
-      - Source Authority and Evidence-Gated Checkpoints: architecture/source-control-plane.md
-      - North-Star Architecture (the whole program): architecture/north-star-architecture.md
-      - Arrow data-preparation kernel: architecture/data-prep-arrow-kernel.md
-      - Epistemic OS Hardening (Phase 0-2 + Exceed X-series): architecture/epistemic-os-hardening.md
-      - Epistemic Operations Protocol: architecture/epistemic-operations-protocol.md
-      - AIF Argumentation (I-nodes/S-nodes → Dung acceptability): architecture/aif-argumentation.md
-      - Mandatory ContextCompiler Model Boundary: architecture/mandatory-context-compiler.md
-      - Graph Authority Convergence (session, client, work state): architecture/graph-authority-convergence.md
-      - Per-Agent On-Behalf-Of Identity (delegation chain, ceiling, revocation): architecture/per-agent-delegation.md
-      - Agent Control-Plane Release Admission: architecture/agent-control-plane.md
-      - Agents-as-Data Activation (dormant rows, worker pool, scale proof): architecture/agents-as-data-activation.md
-      - C4 Architecture: pillars/architecture_c4.md
-      - Delegation-First Operating Model (orchestrate + resolve): architecture/delegation-first-operating-model.md
-      - agent-utilities-expert (KG-bound delegate): architecture/agent-utilities-expert.md
-      - Troubleshooting (cross-layer diagnose): architecture/troubleshooting.md
-      - "RCA: graph-os fleet-mount state desync (D-OB-3)": architecture/rca-mcp-tool-state-desync.md
-      - Self-Evolution Flywheel (transparent + steerable): architecture/self-evolution-flywheel.md
-      - Reasoning Algorithms as Versioned Graph Topologies (CoT/ToT/GoT/ReAct/RAP): architecture/reasoning-graph-topologies.md
-      - Runtime-Reliability Loop (detect→signal→gap→heal): architecture/runtime-reliability-loop.md
-      - Chunked Async Drain (full re-ingest, non-blocking): architecture/chunked-async-drain.md
-      - KV-Cache-Layering Policy (per-execution cache-worthiness): architecture/kv-cache-layering-policy.md
-      - KV-Checkpoint Intelligence (when to freeze a context, RAM vs disk): architecture/kv-checkpoint-intelligence.md
-      - Intelligent Ingestion (classify/commit-history/tail): architecture/intelligent-ingestion.md
-      - Real Data-Preparation Acceptance (NE-115): architecture/data-prep-acceptance.md
-      - Evidence Spine (Artifact → addressable Fragment): architecture/evidence-spine.md
-      - Pydantic AI v2 Migration: architecture/pydantic-ai-v2-migration.md
-      - Containerized Deployment (microservices): architecture/containerized-deployment.md
-      - Orchestrator Migration & Cutover (Swarm→k8s hardening): architecture/orchestrator-migration-cutover.md
-      - Entrypoint Unification (one orchestrator): architecture/entrypoint-unification.md
-      - Intent Surface (Seam 8 — condensed tool-surface collapse): architecture/intent-surface.md
-      - Unified Agent Entrypoint (verified routing map): architecture/unified-agent-entrypoint.md
-      - Codebase Context via the KG (query, don't grep): architecture/codebase-context.md
-      - Governed Warm-Fork Sandboxes: architecture/warm-fork-sandboxes.md
-      - Ingestion Throughput (lanes, tick collapse, bulk): architecture/ingestion_throughput.md
-      - Resource-Priority Edict (interactive over ingestion, end-to-end): architecture/resource-priority-edict.md
-      - LLM/Embedding Server-Capacity Guard (never OOM the model host): architecture/llm-server-capacity-guard.md
-      - Ontology-Guided Ingestion & Entity Resolution (exceeds sift-kg): architecture/ontology-guided-ingestion.md
-      - Modular Prompt & Skill Contribution (fleet entry-points): architecture/modular-prompt-skill-contribution.md
-      - Ontology Federation & Package Migration (domain ttls in owning repos): architecture/ontology-federation.md
-      - Agent-Operator Program (closing the loops): architecture/agent-operator-program.md
-      - Orchestration Execution Seam (ingested capability → executed): architecture/orchestration-execution-seam.md
-      - Canonical Trace and Outcome Ontology: architecture/trace_outcome_ontology.md
-      - Runtime Org Dynamics (recruiter, work-item DAG, self-grown staff): architecture/org-runtime.md
-      - Agentic Resource Discovery (ARD) interop (publish + consume + federate): architecture/ard-interop.md
-      - Optimization Campaign Checkpoint: architecture/optimization-campaign-checkpoint.md
-      - Reactions / Emotes (system-wide, renderer contract): architecture/reactions.md
-      - Agent Communication Bus (cross-session/host/provider): architecture/agent_bus.md
-      - Self-Improving Reasoning Substrate: architecture/self_improving_reasoning_substrate.md
-      - Perspectival Inquiry (STORM, native): architecture/perspectival_inquiry.md
-      - Vendor-Neutral Enterprise Ontology: architecture/vendor_neutral_enterprise_ontology.md
-      - Ontology Library (catalog + anti-drift): architecture/ontology_library.md
-      - Governed JSON-OCEL exchange: architecture/governed_ocel.md
-      - Incremental Object-Centric Derivation + Conformance: architecture/object_centric_derivation_and_conformance.md
-      - Camunda + ARIS ↔ Knowledge Graph: architecture/camunda_aris_kg_integration.md
-      - CISO Assistant ↔ Knowledge Graph: architecture/ciso_assistant_kg_integration.md
-      - Company Brain Runtime: architecture/company_brain_runtime.md
-      - ACL Registration Convergence (write-time + read-time defence in depth): architecture/acl_registration_convergence.md
-      - Global Workspace Attention: architecture/global_workspace_attention.md
-      - Multi-Agent Social System: architecture/multi_agent_social_system.md
-      - In-House Training Substrate: architecture/in_house_training_substrate.md
-      - Latent-Native Memory: architecture/latent_native_memory.md
-      - Content-Aware Ingestion (ArchiveBox/crawl4ai/scholarx): architecture/content-aware-ingestion.md
-      - Document → KG Fact Extraction: architecture/document_fact_extraction.md
-      - Code Intelligence (type/scope-resolved calls): architecture/code_intelligence.md
-      - Harness Foundry (surpass HarnessX): architecture/harness_foundry.md
-      - Graph-Native Assimilation Engine: architecture/assimilation_engine.md
-      - Multi-Source Assimilation Program: architecture/multi_source_assimilation.md
-      - Knowledge Distillation → Skill-Graphs: architecture/knowledge_distillation_skill_graphs.md
-      - Failure-Driven Evolution: architecture/failure_driven_evolution.md
-      - The Evolvable Surface (native programs): architecture/evolvable_surface.md
-      - Task-Aware Sampling Profiles: architecture/sampling_profiles.md
-      - Model Registry as Graph Resources + Routing Provenance: architecture/model_registry_graph_resources.md
-      - Edit-Application Engine: architecture/edit_application_engine.md
-      - Durable-State Externalization: architecture/state_externalization.md
-      - Relational Authority & Registry Read Model: architecture/relational-authority.md
-      - Durable Execution (unified plane, supersedes restate): architecture/durable-execution.md
-      - Adaptive Model Concurrency (vLLM auto-scale): architecture/adaptive_model_concurrency.md
-      - Distributed Multi-GPU Concurrency: architecture/distributed_gpu_concurrency.md
-      - Scaling the Gateway: architecture/gateway_scaling.md
-      - Authoritative Engine Placement & Sharding: architecture/engine_sharding.md
-      - graph-os Horizontal Scaling (the HPA blocker, precisely): architecture/graphos-horizontal-scaling.md
-      - graph-os Self-Hosting Cutover (design): architecture/graphos-self-hosting-cutover.md
-      - Queue-Driven Agent Dispatch: architecture/agent_dispatch.md
-      - Non-Blocking Hierarchical Execution: architecture/non-blocking-execution.md
-      - Fleet Autonomy Control Plane: architecture/fleet_autonomy.md
-      - Scaling Authority Contract (NE-164): architecture/scaling-authority.md
-      - Unattended Claude Code Harness: architecture/unattended_claude_harness.md
-      - Messaging Reach (Telegram + agents): architecture/messaging_reach.md
-      - Gateway Daemon (all runtime components): architecture/gateway_daemon.md
-      - Secure Messaging Ingress (zero open ports): architecture/messaging_security.md
-      - Event Backbone (Kafka): architecture/event_backbone_architecture.md
-      - Ontology System: architecture/ontology_system.md
-      - Graph Backend Architecture: architecture/graph_backends_architecture.md
-      - KG Connectors, Ingestors & Enrichers: architecture/kg_connectors_and_ingestion.md
-      - Privacy-safe External Graph Ingestion: architecture/privacy-safe-external-ingestion.md
-      - KG as Bidirectional ETL Hub: architecture/kg_etl_hub.md
-      - OWL/RDF Layer (local, always-on): architecture/owl_rdf_layer.md
-      - MCP Fleet Authentication (JWT + Eunomia): architecture/mcp_auth.md
-      - MCP 2026-07-28 Native Protocol Surface: architecture/mcp-2026-protocol-surface.md
-      - Skills-over-MCP (unified capability space): architecture/skills_over_mcp.md
-      - fastmcp 4 as the Default (MCP SDK v2 protocol bridge): architecture/fastmcp4-default.md
-      - Staged httpx to httpx2 Migration (transport-factory strangler): architecture/httpx_httpx2_migration.md
-      - IdP-Agnostic Role Inheritance & Identity-Scoped Auto-Load: architecture/identity-inheritance.md
-      - Verified Identity Carrier Contract (GOC-15): architecture/verified-identity-carrier-contract.md
-      - Observability (Metrics/Logs/Traces/Alerts): architecture/observability.md
-      - Capacity Model: scaling/capacity_model.md
-      - Arrow Data Preparation & Profiling: architecture/data-prep-arrow-kernel.md
-      - Live Loadgen Certification: scaling/live-loadgen-certification.md
-  - Reference:
-      - Documentation Catalog (generated): reference/documentation-catalog.md
-      - Metrics Reference: reference/metrics.md
-      - Historical Hardening Audit (non-authoritative): architecture/epistemic-os-hardening.md
-  - Concept Registry:
-      - Canonical Concept Map: concept_map.md
-      - Concept Overview: overview.md
-      - Multi-Session Coordination: concept_coordination.md

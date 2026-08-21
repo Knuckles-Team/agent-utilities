@@ -54,7 +54,7 @@ you loop over). The whole thing is built to need only this repo URL.
    `deploy/mcp-fleet.registry.yml`). Loop the `servers` and `components` in `genesis.yaml`;
    resolve secrets through AgentConfig runtime references, OpenBao, or the configured
    secret provider.
-5. **Verify.** `agent-utilities-doctor` must come back green (engine reachable, config
+5. **Verify.** `agent-utilities-doctor` **MUST** come back green (engine reachable, config
    healthy, fleet valid). Report what's wired and what the operator still needs to
    supply (e.g. provider keys, host inventory).
 
@@ -79,17 +79,17 @@ sections below (*Configuration discipline*, *Wire-First*, *No Legacy*, *Naming*,
 For trivial tasks, use judgment; the bias here is correctness over speed.
 
 - **Think before coding.** State your assumptions explicitly. If a request has more than
-  one reasonable reading, surface the options instead of silently picking one. If a
+  one reasonable reading, you **SHOULD** surface the options instead of silently picking one. If a
   simpler approach exists, say so and push back when warranted. When something is
-  genuinely unclear, stop and name what's confusing — ask, don't guess. (Cf. *When Stuck*.)
-- **Simplicity first.** Write the minimum code that solves the *stated* problem — no
+  genuinely unclear, you **MUST** stop and name what's confusing — ask, don't guess. (Cf. *When Stuck*.)
+- **Simplicity first.** You **MUST** write the minimum code that solves the *stated* problem — no
   speculative features, no abstraction for single-use code, no configurability that
   wasn't requested, no error handling for impossible states. If you wrote 200 lines and
   it could be 50, rewrite it. Ask: "would a senior engineer call this overcomplicated?"
   This is the general form of two rules we already enforce: **Configuration discipline**
   (an env flag is a last resort — YAGNI) and **Wire-First** (no code ships without a live
   caller).
-- **Stay surgical.** Every changed line should trace directly to the task. Don't refactor,
+- **Stay surgical.** Every changed line **MUST** trace directly to the task. You **MUST NOT** refactor,
   reformat, or "improve" working code adjacent to your change; match the existing style
   even where you'd do it differently. Remove only the imports/symbols your *own* change
   orphaned; if you spot unrelated dead code, mention it rather than deleting it inline.
@@ -102,21 +102,21 @@ For trivial tasks, use judgment; the bias here is correctness over speed.
   "fix the bug" → "write a failing test that reproduces it, then make it pass"; "add
   validation" → "tests for the invalid inputs pass"; "refactor X" → "the suite is green
   before and after". For multi-step work, state the short plan and the check for each
-  step, then loop until the checks pass. **"Done" means a live path actually invokes it**
+  step, then loop until the checks pass. **"Done" MUST mean a live path actually invokes it**
   (see *Wire-First*) **and the unit suite is green** — not merely that the code compiles.
 - **Stand your evidence up before you act on it.** Four ways this failed for real, all in
   one day: **(a) premises rot.** A deferred item records the world as it was *when
   written*; ~8 items were worked whose stated blocker had since become false ("the engine
   has no endpoint" — it had been in `main` all along; "36 repos drifted" — 33; "the
   generator deletes 2,367 lines" — it reformats; "pinned to fastmcp 3.3.1" — already
-  4.0.0b1). **Re-verify the premise of any item you did not just write**; if it is false,
+  4.0.0b1). **You MUST re-verify the premise of any item you did not just write**; if it is false,
   closing it with that finding *is* the work. **(b) Measure with the instrument you are
   making a claim about** — a verdict is only ever about the interpreter, checkout and
   branch you actually ran. The ambient `python3` instead of the repo `.venv` produced **47
   false "environment-blocked" verdicts**; the wrong checkout read a green release gate as
   red. **(c) A refuted hypothesis is a successful investigation** — report "I looked, it is
   not happening" and stop; do not keep digging until something finding-shaped appears.
-  **(d) Never manufacture a closure** — *done* (point at it), *`ACCEPTED-RISK`* (with the
+  **(d) You MUST NOT manufacture a closure** — *done* (point at it), *`ACCEPTED-RISK`* (with the
   reasoning), or *open with a named blocker* are all fine; a fabricated "done" is not, and
   costs more than ten honest "open"s because it makes every other entry unverifiable. Full
   incidents: [`docs/architecture/empirical-development-standards.md`](docs/architecture/empirical-development-standards.md).
@@ -126,7 +126,7 @@ For trivial tasks, use judgment; the bias here is correctness over speed.
 The ecosystem's 80+ repos are continuously ingested into the KG as a typed,
 resolved code graph (call graph, similar-code, routes, change-coupling, CONCEPT:
 markers, docs). So **to learn how an area works, where a symbol is used, or what a
-change impacts, query the KG FIRST — don't open with grep/read/Explore.** It is a
+change impacts, you MUST query the KG FIRST — don't open with grep/read/Explore.** It is a
 near-free, grounded, cross-session-consistent answer with `file:line` citations;
 grep re-derives by hand what the KG already holds.
 
@@ -146,8 +146,8 @@ CONCEPT:AU-KG.retrieval.synthesized-cited-answer:
 - It returns a synthesized `answer`, `citations` (`file:line`), and a
   `capability_id`.
 
-**Then read only the few `file:line`s you need to *edit*, not to *understand*.**
-After the task, close the loop: `graph_feedback correction_type=reads_avoided
+**Then you SHOULD read only the few `file:line`s you need to *edit*, not to *understand*.**
+After the task, you **SHOULD** close the loop: `graph_feedback correction_type=reads_avoided
 target_id=<capability_id> corrected_value={"reads_avoided":true,"files_read":N,
 "correct":true,"query":"…"}` so the retriever learns which answers replace a read
 (CONCEPT:AU-AHE.evaluation.reads-avoided-feedback). If `code_context` returns no anchor, the area may be uningested
@@ -164,7 +164,7 @@ LLM. The platform is built so the **local model + graph-os do the work and you
 do yet.** The trajectory is to move more onto graph-os over time and orchestrate
 **off the harness** wherever possible.
 
-Before doing a task yourself, delegate it:
+Before doing a task yourself, you **SHOULD** delegate it:
 
 - **Understanding code** → the KG, never grep first (the section above):
   `graph_code action=code_context` (`how`/`usage`/`impact`, CONCEPT:AU-KG.retrieval.synthesized-cited-answer) +
@@ -179,7 +179,7 @@ Before doing a task yourself, delegate it:
   multiplexer meta-tools (`find_tools` / `load_tools`).
 - **Evolving / managing the ecosystem** → drive the loop engine (`graph_loops` /
   `LoopController`), the evolution flywheel, and the AU-AHE.optimization.telemetry-optimization hardening loop;
-  **REVIEW** their proposals through the spec / prompt review-veto gates
+  you **MUST REVIEW** their proposals through the spec / prompt review-veto gates
   (propose-and-hold is the default) rather than hand-doing what the flywheel
   produces.
 
@@ -190,7 +190,7 @@ Your role becomes two things:
    provenance (CONCEPT:AU-KG.temporal.message-history-read), reprioritize, approve/veto.
 2. **Resolve exceptions.** When a delegated run fails, returns a wrong or
    ungrounded answer, or the system couldn't self-troubleshoot — **that** is your
-   job. Query the `RunTrace` / `:ToolCall` to see exactly what the local LLM did
+   job. You **MUST** query the `RunTrace` / `:ToolCall` to see exactly what the local LLM did
    (which tools, what args, what result), find **why** it failed, fix the gap (a
    missing/weak skill, an unbound tool, a prompt, missing data/ingestion), and
    **re-delegate**. You are the backstop the autonomous system escalates to.
@@ -328,8 +328,8 @@ case itself next time. The goal is orchestrating completely off the harness.
 ## Dependency discipline — NO heavy ML/native deps in core (READ before adding a dependency)
 
 agent-utilities core is the **serving plane**: the KG, retrieval, MCP server (`kg_server`),
-the gateway/host daemon, and messaging. **It must install and run with zero heavy ML/native
-dependencies** — specifically **never** add `torch`, `transformers`, `sentence-transformers`,
+the gateway/host daemon, and messaging. **It MUST install and run with zero heavy ML/native
+dependencies** — specifically you **MUST NOT** add `torch`, `transformers`, `sentence-transformers`,
 or any CUDA/AVX-compiled ML wheel to the core `dependencies`. They are GPU/CPU-baseline-pinned
 (they SIGILL on older CPUs — e.g. an SSE4-only host — and bloat the serving image by ~GB), and
 the heavy compute already lives elsewhere:
@@ -344,14 +344,14 @@ the heavy compute already lives elsewhere:
   imported into core.
 
 Rules:
-1. **Heavy ML deps live ONLY in optional extras** (`[finance]`, `[finance-kronos]`, a training
+1. **Heavy ML deps MUST live ONLY in optional extras** (`[finance]`, `[finance-kronos]`, a training
    extra), never the base `dependencies`. The serving image builds the **`serving`** extra
    (core + mcp + graph + backends + embeddings), NOT `[all]`.
 2. **Every `import torch`/`transformers`/`sentence_transformers`/`hnswlib` MUST be
    `try/except ImportError`-guarded and lazy** (inside the function that uses it) so the
-   package imports clean without them. **No eager re-export** of a torch module from an
+   package imports clean without them. **You MUST NOT eagerly re-export** a torch module from an
    `__init__.py` that a live tool path touches — that silently puts torch on the serving path.
-3. **New ML capability goes to data-science-mcp** (or a domain extra) and is called remotely,
+3. **New ML capability MUST go to data-science-mcp** (or a domain extra) and be called remotely,
    not added to core. If you think core needs torch, you're adding it to the wrong package.
 
 The check: `import agent_utilities` and a `kg_server` boot must succeed with torch uninstalled
@@ -365,32 +365,32 @@ Before adding a dependency, an ontology file, or a daemon/service, route it:
 **Heavy dependencies → out of core, into the service that owns that weight.** (Extends *Dependency
 discipline*.) Core (`agent-utilities`) is the lean serving plane; heavy work is reached over MCP:
 - **Heavy AI / ML** (torch, transformers, sentence-transformers, training/inference, GPU) →
-  **`agents/data-science-mcp`** (the `[training]` home). Never add these to core — call data-science-mcp.
+  **`agents/data-science-mcp`** (the `[training]` home). You **MUST NOT** add these to core — call data-science-mcp.
 - **Finance / trading / exchange / market** logic + deps → **`emerald-exchange`** (the finance/quant
   service), reached over MCP. The core `domains/finance` stays light (no torch/sklearn — already
   re-homed); new finance compute goes to emerald-exchange, not into core.
 - **Heavy compute · vector similarity · ANN · graph algorithms · any KG compute** → the Rust
-  **`epistemic-graph`** engine (the one database authority). **Always ask "can the engine do this?" before
+  **`epistemic-graph`** engine (the one database authority). **You MUST always ask "can the engine do this?" before
   writing an O(N) cosine/graph loop in Python.** Python orchestrates; the engine computes.
 
 **Ontology — extend the canonical, never sprawl a new `.ttl`.** The ontology is ONE consolidated
 library (`core/ontology.ttl` + the domain `ontology_*.ttl`), validated by the valid/connected/SHACL
-gate (CONCEPT:AU-KG.maintenance.canonical-ontology-library). New classes/links/value-types go **into the existing ontology file for that
+gate (CONCEPT:AU-KG.maintenance.canonical-ontology-library). New classes/links/value-types **MUST** go **into the existing ontology file for that
 domain** via `interfaces.to_owl`/`owl_bridge`. A new top-level ontology file is a **build break**
-unless it's a genuinely new domain registered into the ontology library + gate. Don't create a
-per-feature `.ttl`; don't redefine a class that already exists — extend it.
+unless it's a genuinely new domain registered into the ontology library + gate. You **MUST NOT** create a
+per-feature `.ttl`; you **MUST NOT** redefine a class that already exists — extend it.
 
 **Daemons / microservices — extend before you add.** The platform already has the KG host daemon,
 the GraphOS MCP surface with its embedded fleet gateway, the ingest/dispatch workers, and ~62
 `*-mcp` services. A
 new capability is almost always **a new action/tool on an existing service**, or a **connector
 preset** (CONCEPT:AU-KG.ingest.mcp-tool-connector `mcp_tool` — external sources are declarative presets, NEVER new connector
-modules or services). Add a new daemon/service **ONLY** for a genuinely new long-running
+modules or services). You **MUST** add a new daemon/service **ONLY** for a genuinely new long-running
 responsibility that fits no existing process — and even then it is a thin transport over the core
 orchestrator (see *Universal capability*). "I'll spin up a service for this" is the wrong default.
 
 Smell test for all three: if you're about to add a heavy dep to core, a new `.ttl`, or a new daemon,
-first name the existing place it belongs (data-science-mcp / emerald-exchange / epistemic-graph / the
+you **SHOULD** first name the existing place it belongs (data-science-mcp / emerald-exchange / epistemic-graph / the
 canonical ontology / an existing service action) and prove it can't go there.
 
 ## Configuration discipline — an env var is a LAST RESORT (READ before adding any flag)
@@ -401,14 +401,14 @@ overwhelming to operate and a frequent source of footguns (a hang that only
 and self-configures over one that exposes a knob.** The full inventory + per-flag
 verdict lives in `docs/architecture/configuration.md`.
 
-**Add a new environment variable ONLY if ALL THREE hold:**
+**You MUST add a new environment variable ONLY if ALL THREE hold:**
 1. **Deployment-varying** — a path / DSN / secret / port / socket whose value genuinely
    differs per host and cannot be known at code time.
 2. **Not auto-detectable** from the runtime — it cannot be derived from `cpu_count`,
    available memory, queue depth, or the presence of a file/service.
 3. **No correct universal default** — there is no single value that works everywhere.
 
-**Otherwise, do NOT add a flag:**
+**Otherwise, you MUST NOT add a flag:**
 - One correct value → a named module constant.
 - A hardware/load tunable (concurrency, batch size, pool size) → **auto-size** it
   (reuse `compute_ingest_worker_count()` in `knowledge_graph/core/engine_tasks.py`).
@@ -418,8 +418,8 @@ verdict lives in `docs/architecture/configuration.md`.
   `KG_<EXPERIMENT>_*` family.
 - "Someone might want to tune this" → YAGNI. Add it when a real second value exists.
 
-**Never read `os.environ` in a module.** `core/config.py` (and `core/paths.py`) are
-the ONLY files allowed to touch `os.environ`. Everywhere else, reads go through one of
+**You MUST NOT read `os.environ` in a module.** `core/config.py` (and `core/paths.py`) are
+the ONLY files allowed to touch `os.environ`. Everywhere else, reads **MUST** go through one of
 two centralized, config.json-driven paths:
 
 1. **A typed `AgentConfig` field** — for static, schema-worthy settings parsed once at
@@ -433,7 +433,7 @@ two centralized, config.json-driven paths:
    both fields and `setting()` are config.json-driven — set any var in
    `~/.config/agent-utilities/config.json` (or `AGENT_UTILITIES_CONFIG_DIR`).
 
-So the decision is: **field for static, `setting()` for dynamic — never bare
+So the decision is: **field for static, `setting()` for dynamic — you MUST NOT use bare
 `os.environ.get`/`os.getenv`/`os.environ[...]`.** (Env *writes* for cross-process
 signaling are still allowed.) This applies to **every** variable, not just
 `KG_*`/`GRAPH_*` — `AGENT_*`, `VAULT_*`, `OTEL_*`, connector creds, all of it.
@@ -450,17 +450,17 @@ field or `config.setting(...)`. (`setting()` lives in the dependency-free
 
 ## Secrets & credential retrieval — where they live, how to get them (READ before any auth/secret task)
 
-Secrets are **never stored in the repo or durable AgentConfig**. XDG
+Secrets **MUST NOT** be stored in the repo or durable AgentConfig. XDG
 `config.json` stores only `env://`, `secret://`, or `vault://` references. The
 configured `SecretsClient` backend owns provider-specific addresses, mounts,
-namespaces, authentication, and secret paths; feature code must not call a secret
-provider's HTTP API or assume a deployment layout. Runtime orchestration may inject
-the referenced value into the process boundary, but code and reports never persist,
+namespaces, authentication, and secret paths; feature code **MUST NOT** call a secret
+provider's HTTP API or assume a deployment layout. Runtime orchestration **MAY** inject
+the referenced value into the process boundary, but code and reports **MUST NOT** persist,
 echo, or infer it. Repository `.env` files are not a deployment configuration path.
 
 **MCP service-account auth (spawned-agent / GraphOS fleet gateway → jwt-protected fleet).**
 A server that calls a private fleet MCP (or a `graph_orchestrate` delegation
-spawn that binds one) must present an OIDC provider client-credentials bearer. The
+spawn that binds one) **MUST** present an OIDC provider client-credentials bearer. The
 typed settings are `MCP_CLIENT_AUTH=oidc-client-credentials`, `OIDC_CLIENT_ID`,
 `OIDC_CLIENT_SECRET_REF`, `OIDC_AUDIENCE`, and exactly configured
 `OIDC_TOKEN_URL` or `OIDC_ISSUER`. Durable configuration stores only the secret
@@ -472,9 +472,9 @@ agents inherit delegated authority through the same boundary.
 server): configure `OIDC_CLIENT_SECRET_REF` for the selected secret provider in
 XDG AgentConfig and set the explicit client ID, audience, and issuer or token URL.
 Run the `outbound_auth` doctor check before launching the fleet. Network transports
-never accept an unauthenticated debug profile. The only credential-free graph
+**MUST NOT** accept an unauthenticated debug profile. The only credential-free graph
 process session is tiny, packaged-local GraphOS over stdio; all other boundaries
-require their configured external identity. Never echo a secret value into logs,
+require their configured external identity. You **MUST NOT** echo a secret value into logs,
 command output, graph properties, traces, or a committed file. Use
 `scripts/validate_prebundled_skills_runtime.py` for the synthetic, read-only
 GraphOS delegation and trace proof; it retains only opaque evidence references.
@@ -487,7 +487,7 @@ When adding reward, advantage, preference, or RL-method code (the AHE-3.1 spine 
 AU-AHE.reward.this-is-read-back/3.16/3.17 adaptations), follow these rules — they encode the 2026 reasoning-RL
 work (`.specify/specs/reasoning-rl-2026/`):
 
-- **Opt-in, default-unchanged.** A new parameter on an existing reward primitive MUST default
+- **Opt-in, default-unchanged.** A new parameter on an existing reward primitive **MUST** default
   to the prior behaviour (e.g. `batch_normalized_advantage(length_unbiased=False, mode="group")`
   reproduces GRPO exactly). New behaviour is opted into, never imposed.
 - **Ship primitives WITH a live consumer — never speculatively.** A reward primitive with no
@@ -506,8 +506,8 @@ work (`.specify/specs/reasoning-rl-2026/`):
 
 ## Wire-First — reachable ≠ invoked (READ BEFORE shipping a complex feature)
 
-A feature is **not done when its code exists and unit-tests pass** — it is done when a **live call
-path invokes it and a test proves that edge**. We have shipped, repeatedly, importable, fully
+A feature is **not done when its code exists and unit-tests pass** — a live call
+path **MUST** invoke it and a test **MUST** prove that edge before it is done. We have shipped, repeatedly, importable, fully
 unit-tested, never-called code: `PolicyEngine` (zero live callers, in the *safety* layer); KV forking
 (plumbed end-to-end, no caller passed `kv_page_keys`); `AdmissionPolicy.decide`. All green. All dead.
 **Unit coverage is not evidence of reachability** — the most expensive confusion in this repo.
@@ -525,10 +525,10 @@ All four are required; none substitutes for another. Name them `*_wiring`/`*_con
 
 ### The rules
 
-1. **A capability is not "done" until a wiring test proves it is reached from a live entrypoint.**
+1. **A capability MUST NOT be considered "done" until a wiring test proves it is reached from a live entrypoint.**
    Trace the path first (MCP tool, REST route, CLI, daemon tick, registry discovery), then drive
    *that entrypoint* in the test — not the component.
-2. **Never mock the seam you are validating.** `tests.wiring.observe(...)` wraps the real attribute
+2. **You MUST NOT mock the seam you are validating.** `tests.wiring.observe(...)` wraps the real attribute
    **pass-through** — production code still runs and you assert it *ran*; `patch()` on the seam
    proves only that your own mock was called. (`observe` refuses an already-mocked target.)
 3. **Observe the deepest seam carrying the behaviour, not the wrapper that delegates.**
@@ -540,7 +540,7 @@ All four are required; none substitutes for another. Name them `*_wiring`/`*_con
    mode/profile** — `tests.wiring.assert_surface(...)`. A superset check is not a contract: the
    regression exposing 118 MCP tools instead of ~11 would have passed one. Members surviving every
    parameterisation (the five fleet meta-tools) go in `invariant=`.
-6. **A test that cannot run in CI is worse than no test — it manufactures false confidence.** Four
+6. **A test MUST be able to run in CI — a test that cannot is worse than no test, since it manufactures false confidence.** Four
    ways we have done it: **outside `pytest.ini` `testpaths`** (hid the fleet's default transport
    being broken) → `assert_collected_by_pytest`; **`MagicMock(spec=[])` for a maybe-missing module**
    → `assert_not_faked`; **skipped behind an extra CI never installs** → `require_module` *fails*
@@ -548,7 +548,7 @@ All four are required; none substitutes for another. Name them `*_wiring`/`*_con
    test flag deleting the production branch** — `AGENT_UTILITIES_TESTING=true` makes `create_agent`
    skip its MCP-toolset governance block entirely, so restore production conditions first.
 7. **No silent storage.** A value set in `__init__`/a setter and read nowhere is a bug.
-8. **Measure with the instrument you are claiming about.** The same confusion one level
+8. **You MUST measure with the instrument you are claiming about.** The same confusion one level
    up: a green/red verdict is a statement about the interpreter, checkout and profile you
    actually ran. Use the repo `.venv`, in *your* worktree, before attributing a failure to
    the environment — "environment-blocked" needs the same evidence as any other conclusion
@@ -581,28 +581,28 @@ usually well written and defensively coded — that *is* the problem, because to
 the boundary of a safety decision is permission. Incidents + code shapes:
 [`docs/architecture/empirical-development-standards.md`](docs/architecture/empirical-development-standards.md).
 
-1. **Return `None` on failure, never an empty success.** A reader that swallows its
+1. **You MUST return `None` on failure, never an empty success.** A reader that swallows its
    exception and returns `[]`/`0`/`False` is **indistinguishable at the call site** from a
    healthy "nothing found". Five safety gates were found doing this against the same KG —
    rate limiter (no recent calls → allow), blast-radius (affects nothing → allow),
    autoscaler cooldown (`0` → scale), CI retry cap (`0` prior attempts → retry),
    prompt-scanner preflight (no policies → pass) — so **all five stand down together at
    exactly the moment the KG is degraded**, the moment they exist for. Make failure a
-   distinct value (`None`, or raise) and make every caller **deny, defer, or escalate** on
+   distinct value (`None`, or raise) and every caller **MUST deny, defer, or escalate** on
    it; `[]` must be free to mean "empty". Test: for each `except: return []`, ask "if this
    dependency were down, what would each caller do?" — any "proceed" means the *reader* is
    the bug. CONCEPT:AU-OS.governance.fail-closed-degraded-read
-2. **Never advance state on an unverified write** ("write-then-mark-seen"). A
+2. **You MUST NOT advance state on an unverified write** ("write-then-mark-seen"). A
    `consumed`/`processed`/cursor/status flag set *regardless of whether the operation it
    guards succeeded* forecloses the retry **permanently** — the record is now invisible to
    every future run, which is strictly worse than crashing, since a crash retries. Several
-   live instances (queue drains, ingestion cursors, reconciliation). The advance must be
+   live instances (queue drains, ingestion cursors, reconciliation). The advance **MUST** be
    **derived from the write's confirmed result** and ordered after it: `record.consumed =
    result.ok`, never unconditional. Cannot confirm → do not advance.
    CONCEPT:AU-OS.governance.verified-write-state-advance
 3. **One rule, one message.** The same violation reported by three checks in three
    wordings reads as three problems, gets three half-fixes, and still fires twice after one
-   is fixed. Emit it from the single check that owns it; the others defer.
+   is fixed. You **SHOULD** emit it from the single check that owns it; the others defer.
 4. **A tool whose cost makes people avoid it is broken.** Avoidance and breakage are
    indistinguishable in the outcome, so "it works, people just don't run it" is a bug
    report, not a defence. Two live examples: a manifest generator whose *faithful* output
@@ -624,7 +624,7 @@ what we want.
 
 The flag decision, in strict order of preference:
 
-1. **No flag — default ON, wired into the flow (the default choice).** Make the
+1. **No flag — default ON, wired into the flow (the default choice).** You **SHOULD** make the
    enhancement part of the path it improves so it runs every time. A new
    extraction layer runs as part of *ingestion*, not as a `do_extra_extraction`
    action; a new routing improvement runs inside the router, not behind
@@ -632,9 +632,9 @@ The flag decision, in strict order of preference:
    client, the embedder, the batch write, the delta-skip) so "on" is also "fast".
 2. **Opt-OUT flag — only if a real run legitimately needs it off.** Default stays
    ON; the flag exists for a concrete disable case (e.g. a fast structural-only
-   bulk backfill skips LLM enrichment). Reuse the *one* enrichment toggle that
+   bulk backfill skips LLM enrichment). You **MUST** reuse the *one* enrichment toggle that
    already gates that case — do not add a second.
-3. **Opt-IN flag — ONLY when always-on would genuinely harm a normal run** because
+3. **Opt-IN flag — you MUST use it ONLY when always-on would genuinely harm a normal run** because
    the behavior is *expensive or high-overhead*: heavy GPU/LLM cost on every item,
    a slow external call, a large memory footprint, or a dependency that may be
    absent. Even then, prefer **auto-detection / auto-sizing** (run it when the
@@ -665,25 +665,25 @@ medium. Nothing else.
 
 Rules:
 1. **Before adding a feature to ONE surface, ask: is this a core capability every entrypoint should
-   have?** If yes, build it in the core orchestrator and let the entrypoint render it — do NOT
+   have?** If yes, you **MUST** build it in the core orchestrator and let the entrypoint render it — you **MUST NOT**
    implement it inside the messaging/webui/terminal/geniusbot layer. (Slash commands ✅, conversation
    history, reactions/emotes, voice/image are all capabilities that belong in core, not per-surface.)
-2. **Never re-implement a capability per surface.** A messaging-only recall, a webui-only history, a
+2. **You MUST NOT re-implement a capability per surface.** A messaging-only recall, a webui-only history, a
    terminal-only command parser are all sprawl — collapse them onto the one core path (No-Legacy).
 3. **Smell test:** if adding or changing a feature means editing N entrypoints, it's in the wrong
-   layer — move it to the core so the entrypoints inherit it with zero per-surface code.
-4. **Definition of done for an entrypoint:** it is input-adaptation + output-rendering only, and a
-   new core capability shows up in it with **no entrypoint code change**.
+   layer — you **SHOULD** move it to the core so the entrypoints inherit it with zero per-surface code.
+4. **Definition of done for an entrypoint:** it **MUST** be input-adaptation + output-rendering only, and a
+   new core capability **MUST** show up in it with **no entrypoint code change**.
 
 This generalizes *Two surfaces by default* (REST + MCP) from the gateway to ALL entrypoints. Plan +
 the running opportunity list: `docs/architecture/entrypoint-unification.md`.
 
 ## Two surfaces by default — every feature reachable via the gateway AND MCP (READ BEFORE shipping a capability)
 
-**Every feature we build must be usable and configurable from two places: the
+**Every feature we build MUST be usable and configurable from two places: the
 API gateway (REST) and the MCP server.** A capability that only a Python import
 can reach is half-shipped. There is no third option and no "internal-only"
-exemption — if it is a feature, both surfaces expose it.
+exemption — if it is a feature, both surfaces **MUST** expose it.
 
 The MCP server is a **thin wrapper**, never a second implementation. Both surfaces
 dispatch into the **same single source of truth** — the existing
@@ -694,15 +694,15 @@ each side, not two parallel handlers that can drift.
 
 When you add a capability:
 
-1. **Add the behavior once** to the action core / service layer (not inside a
+1. **You MUST add the behavior once** to the action core / service layer (not inside a
    route handler or an MCP tool body).
-2. **Register the MCP action** — a new `action=`/`mode=` value on the relevant
+2. **You MUST register the MCP action** — a new `action=`/`mode=` value on the relevant
    `graph_*`/`ontology_*`/`object_*` tool (or a new thin tool), dispatching into
    the core. The tool function carries only argument-marshalling, never logic.
-3. **Register the REST twin** — the matching `/api/...` route (action-routed POST
+3. **You MUST register the REST twin** — the matching `/api/...` route (action-routed POST
    on `graph_api.py`, or a granular typed route where the surface is typed, e.g.
    `/api/ontology/*`, `/api/objects/*`), dispatching into the *same* core.
-4. **Keep them in lockstep.** The parity is enforced by a drift-guard gate (see
+4. **You MUST keep them in lockstep.** The parity is enforced by a drift-guard gate (see
    *Surface-parity scanning* in the regression-gates list); a feature present on
    one surface and missing on the other is a **build break**, not a follow-up.
 
@@ -741,14 +741,14 @@ REST **and** MCP surface over one `_execute_tool` core. The hub explicitly **WAI
 get_client`, per-domain `api_client_*` mixins, `a2a.json`, `validate_api_integration`, the
 `{SERVICE}_URL/TOKEN/SSL_VERIFY` env trio, per-connector compose) — the golden reference there is a
 *connector* (gitlab-api); agent-utilities is the framework hub with its own gateway/daemon/identity/
-engine stack. Do **not** run `scripts/retrofit_fleet_contribution.py` against this repo (its
+engine stack. You **MUST NOT** run `scripts/retrofit_fleet_contribution.py` against this repo (its
 connector display-name / `extends agent-utilities:base` / namespaced-prompt / starter-skill
 assumptions are wrong for the hub).
 
 ## Document & diagram by default — every change updates the architecture + docs (READ BEFORE finishing a feature)
 
-Code is only half the deliverable: **a change is not done until its architecture
-diagram and documentation are created or updated in the same change.** We have
+Code is only half the deliverable: **its architecture diagram and documentation
+MUST be created or updated in the same change before the change is done.** We have
 repeatedly shipped substantial capability (whole concept clusters) whose only
 written trace was a commit message — leaving the C4 diagrams, pillar docs, and
 `docs/` guides stale and the references pointing at a system that no longer
@@ -759,56 +759,56 @@ The standing rule, applied to **every** non-trivial change (new feature, new
 concept, refactor that moves a seam, new MCP action / REST route / loop stage):
 
 1. **Diagram new work, refresh touched diagrams.** If you add a component or a
-   flow, add a **Mermaid** diagram (C4 container/component or a flowchart) — or
-   extend the existing one for that subsystem so it still reflects reality. Never
+   flow, you **MUST** add a **Mermaid** diagram (C4 container/component or a flowchart) — or
+   extend the existing one for that subsystem so it still reflects reality. You **MUST NOT**
    leave a diagram describing a path you just changed. New cross-cutting programs
    get their own `docs/architecture/<name>.md`; single-component changes update
    the owning pillar/architecture doc.
-2. **Document touched + new work.** Update the relevant `docs/` page (pillar,
+2. **Document touched + new work.** You **MUST** update the relevant `docs/` page (pillar,
    guide, architecture, or recipe) and the module docstring in the same change.
    A new capability gets prose + the diagram + a `CONCEPT:ID`; a changed one gets
    its existing docs corrected. If a doc references the thing you changed, update
    the reference so it never drifts.
-3. **Wire it into the docs nav.** A new page is added to `mkdocs.yml` so it is
+3. **Wire it into the docs nav.** A new page **MUST** be added to `mkdocs.yml` so it is
    discoverable — an unlinked page is the documentation equivalent of dead code.
 4. **Keep the single sources of truth in sync.** `CONCEPT:ID` → `docs/concepts.yaml`
-   (regenerate), the concept map, and the architecture diagram must agree. The
+   (regenerate), the concept map, and the architecture diagram **MUST** agree. The
    diagram and the code are one contract; if they disagree, the change is not done.
 
-In short: **if you touched the architecture, update the architecture diagram; if
-you touched behavior, update the docs.** Treat diagrams and docs as part of the
+In short: **if you touched the architecture, you MUST update the architecture diagram; if
+you touched behavior, you MUST update the docs.** Treat diagrams and docs as part of the
 definition of done, exactly like tests and Wire-First — not as a follow-up.
 
 ## No Legacy — no back-compat, update every consumer, delete the old path (READ BEFORE adding a shim)
 
 **We own every consumer.** The whole world that calls our code lives under
 `agent-packages/*` — there is no external caller pinned to an old version to
-protect. So we **do not carry backward compatibility**: no deprecated aliases, no
+protect. So we **MUST NOT carry backward compatibility**: no deprecated aliases, no
 compat shims, no `try_new_then_fall_back_to_old`, no "v2 beside v1", no
 `*_legacy`/`*_deprecated`/`*_compat` symbols, no "kept for existing deployments"
 branches, no parameter that exists only to reproduce the prior behavior.
 
 When you change a shared contract — an engine wire method, the `epistemic_graph`
 client API, a config key/env name, an MCP tool name, a function signature, a
-return shape — the change is **atomic across the whole ecosystem**:
+return shape — the change **MUST** be **atomic across the whole ecosystem**:
 
-1. **Grep every consumer across `agent-packages/`** (engine, agent-utilities,
+1. **You MUST grep every consumer across `agent-packages/`** (engine, agent-utilities,
    data-science-mcp, the `agents/*` connectors, geniusbot, webui, terminal-ui,
    skills) and update them all in the *same* change.
-2. **Delete the old path entirely** — the old method/alias/flag/branch is removed,
+2. **You MUST delete the old path entirely** — the old method/alias/flag/branch is removed,
    not deprecated. A left-behind legacy reference is a **bug**, not compatibility.
 3. **No deprecation window.** This is the aggressive form of *strangler-then-delete*
    (see *Stay surgical*): because no external consumer exists, you skip the
    strangle and go straight to migrate-and-delete in one commit.
-4. **When you touch legacy, remove it.** If a change lands next to a dead
+4. **When you touch legacy, you MUST remove it.** If a change lands next to a dead
    back-compat path, delete that path as part of the work — legacy is explicitly
    *in scope* for deletion (it is not the "unrelated dead code" the surgical rule
    says to leave; that exception does not cover back-compat we've decided to drop).
 
 **The one exception is on-disk / persisted state**, not code: a snapshot, WAL,
-DB schema, or serialized format that survives a restart may need a **one-time data
+DB schema, or serialized format that survives a restart **MAY** need a **one-time data
 migration** (read-old → write-new). That is data migration, not API back-compat —
-do the migration, then remove the old-format reader once converted. Don't keep a
+do the migration, then remove the old-format reader once converted. You **MUST NOT** keep a
 permanent dual-format reader "just in case."
 
 ## Branching & isolation — DEFAULT WORKFLOW (never edit `main`'s working tree directly)
@@ -816,14 +816,14 @@ permanent dual-format reader "just in case."
 This repo is a **shared working checkout**: multiple agent sessions operate on the same on-disk
 clone, and another session switching branches (`git checkout`/`switch`) or resetting the tree
 **reverts every uncommitted change in all sessions** — silently. Editing `main` in place loses work.
-So the default for any non-trivial change is:
+So for any non-trivial change you **MUST**:
 
 1. **Work in a dedicated git worktree**, not the main checkout. The worktree is a *physically
    separate directory* on its own branch, immune to branch switches in the main clone:
    ```
    git worktree add ${XDG_STATE_HOME}/repository-worktrees/<repo>-<topic> -b feat/<topic> main
    ```
-   Do all edits, builds, and tests under that path. (`${XDG_STATE_HOME}/repository-worktrees/` is the convention.)
+   You **MUST** do all edits, builds, and tests under that path. (`${XDG_STATE_HOME}/repository-worktrees/` is the convention.)
    Because this location is intentionally outside the ecosystem's uv workspace,
    run dependency-aware commands through `python3 scripts/uv_workspace.py`
    (for example, `python3 scripts/uv_workspace.py run --all-extras pytest -q`). The launcher
@@ -833,16 +833,16 @@ So the default for any non-trivial change is:
    `--locked` execution plus post-run digest verification. Run
    `python3 scripts/uv_workspace.py doctor` to verify the source and lock provenance.
 2. **Commit early and often.** A working-tree reset can only wipe *uncommitted* changes — committing
-   is what protects the work. Commit each coherent step; don't leave a large diff uncommitted.
+   is what protects the work. You **SHOULD** commit each coherent step; don't leave a large diff uncommitted.
 3. **Land each chunk as it finishes, through the merge queue** —
-   `agent-utilities merge-queue enqueue`. Do not merge to `main` by hand and do not
+   `agent-utilities merge-queue enqueue`. You **MUST NOT** merge to `main` by hand and **MUST NOT**
    save work up for a bulk merge at the end. The queue syncs, gates the candidate
    **as merged**, fast-forwards `main`, and prunes your worktree and branch for you;
    if it reports a conflict, resolve it **on your branch** (`git merge origin/main`
    down into it) and re-enqueue — never against the shared `main` tree. Push only
    when the user asks. Full sequence: *Concurrent development* below.
 4. A plain feature branch in the main checkout is **not** sufficient isolation — a sibling session's
-   `git checkout` still mutates the shared tree. Use a worktree for real isolation.
+   `git checkout` still mutates the shared tree. You **MUST** use a worktree for real isolation.
 
 The harness emits "file modified externally — intentional, don't revert" notes when a sibling
 session touches a file; in a worktree those notes should stop for your files. If your edits keep
@@ -927,7 +927,7 @@ cargo run -p epistemic-graph
 
 ### Naming — derive from purpose, never from process
 
-Names (modules, classes, functions, MCP tools, vars) MUST describe **what the
+Names (modules, classes, functions, MCP tools, vars) **MUST** describe **what the
 thing is and does in its used context** — never the planning/process vocabulary
 that happened to spawn it. Strip out roadmap/phase scaffolding: no `wave0`,
 `phase2`, `step3`, `v2`, `new`, `milestone_*`, ticket IDs, sprint names, or a
@@ -943,7 +943,7 @@ plan/paper it came from) belongs in the docstring/CHANGELOG, not the identifier.
 
 ### External data sources — one reuse path (AU-KG.ingest.mcp-tool-connector)
 
-New external data sources are `mcp_tool` source presets (AU-KG.ingest.mcp-tool-connector:
+New external data sources **MUST** be `mcp_tool` source presets (AU-KG.ingest.mcp-tool-connector:
 `protocols/source_connectors/connectors/mcp_tool.py`, `MCP_TOOL_PRESETS`) —
 **never** new `UniversalConnector` dialects or bespoke connector modules. The
 fleet's ~58 MCP servers already wrap the external systems; a new source is a
@@ -966,19 +966,19 @@ async def my_tool(param: str) -> str:
 ```
 
 ## Dos and Don'ts
-**Do:**
+**You SHOULD:**
 - Run `pre-commit` before pushing changes.
 - Use existing patterns from `agent-utilities`.
 - Keep tools focused and idempotent where possible.
 
-**Don't:**
+**You MUST NOT:**
 - Use `cd` commands in scripts; use absolute paths or relative to project root.
 - Add new dependencies to `dependencies` in `pyproject.toml` without checking `optional-dependencies` first.
 - Hardcode secrets or write repository `.env` files; use AgentConfig runtime
   secret references.
 
 ## Safety & Boundaries
-**Always do:**
+**You MUST always:**
 - Run lint/test via `pre-commit`.
 - Use `agent-utilities` base classes.
 
@@ -986,21 +986,21 @@ async def my_tool(param: str) -> str:
 - Major refactors of `kg_server.py` or `agent.py`.
 - Deleting or renaming public tool functions.
 
-**Never do:**
+**You MUST NOT:**
 - Commit `.env` files or secrets.
 - Modify `agent-utilities` or `universal-skills` files from within this package.
 
 ## When Stuck
-- Propose a plan first before making large changes.
+- You **SHOULD** propose a plan first before making large changes.
 - Check `agent-utilities` documentation for existing helpers.
 
 ## ⛔ Keep the Repository Root Pristine — No Scratch / Temp / Debug Files
 
-**The repository ROOT must contain only canonical project files** (packaging,
+**The repository ROOT MUST contain only canonical project files** (packaging,
 config, docs, lockfiles). The only hidden directories allowed at root are
 `.git/`, `.github/`, and `.specify/` (plus a local, git-ignored `.venv/`).
 
-**NEVER write any of the following — anywhere in the repo, and ESPECIALLY at the root:**
+**You MUST NOT write any of the following — anywhere in the repo, and ESPECIALLY at the root:**
 - One-off / debug / migration scripts: `fix_*.py`, `migrate_*.py`, `refactor_*.py`,
   `replace_*.py`, `update_*.py`, `debug_*.py`, or `test_*.py` **at the root**
   (real tests live in `tests/` only).
@@ -1017,12 +1017,12 @@ breaks the anti-sprawl gate, and erodes a pristine codebase.
 
 **Where scratch goes instead:** the configured XDG state scratch directory
 (experiments) and report directory (command output); tests go in `tests/` (pytest).
-The `.gitignore` already blocks the scratch dirs above — do not force-add them.
-Before finishing a task, run `git status` and confirm no stray root files were added.
+The `.gitignore` already blocks the scratch dirs above — you **MUST NOT** force-add them.
+Before finishing a task, you **MUST** run `git status` and confirm no stray root files were added.
 
 ## Quality Bar — Leave the Codebase Clean (REQUIRED)
 
-After completing any code change, run the project's pre-commit suite and drive it
+After completing any code change, you **MUST** run the project's pre-commit suite and drive it
 **fully green** before committing:
 
 ```bash
@@ -1046,12 +1046,12 @@ pre-commit run --all-files
 > targeted-run carve-out:
 > [`docs/architecture/lane-concurrency.md`](docs/architecture/lane-concurrency.md).
 
-Resolve **every** issue it reports — failures, lint errors, type errors, and
+You **MUST** resolve **every** issue it reports — failures, lint errors, type errors, and
 warnings — **including problems that pre-date your change and were not caused by
 your edits**. The standing goal is a clean, working codebase with **no errors and
-no warnings**. Do not silence checks (`# noqa`, `# type: ignore`, `SKIP=`,
+no warnings**. You **MUST NOT** silence checks (`# noqa`, `# type: ignore`, `SKIP=`,
 `--no-verify`) to force green unless the exception is already documented in this
-file as a known, unavoidable limitation. Only commit once `pre-commit run
+file as a known, unavoidable limitation. You **MUST** only commit once `pre-commit run
 --all-files` (via the safe wrapper above) passes cleanly; if a check legitimately
 cannot pass, stop and explain why rather than bypassing it.
 
@@ -1081,9 +1081,9 @@ non-differential commit hook — is the arbiter for what actually lands: it gate
 on regressions against a base-ref baseline, not on absolute green, precisely
 because a whole-repo hook will always carry debt older than any one diff.
 
-**And never silence a *failure*.** Silencing a check and silencing a red test are
+**And you MUST NOT silence a *failure*.** Silencing a check and silencing a red test are
 different moves with the same effect, and only the first was written down here before.
-Do not `xfail`, `skip`/`skipif`, delete, or loosen an assertion (`== 4` → `>= 0`) to turn
+You **MUST NOT** `xfail`, `skip`/`skipif`, delete, or loosen an assertion (`== 4` → `>= 0`) to turn
 a failing test green. The reasoning that produces all four is "this failure isn't mine
 and it's in my way" — wrong at the second clause: **a newly-visible failure is
 information the project did not have five minutes ago**, most often a suite that has
@@ -1092,8 +1092,8 @@ Attribute it to its cause and fix it, or stop and report it with the attribution
 have. Both are acceptable; a suite that went green by narrowing what it checks is not.
 
 **ALL gates, always green — pre-commit AND CI.** "Green" means more than the
-pre-commit hooks: **every CI gate must pass and stay passing — never knowingly merge
-a regression.** Before merging to `main`, the full gate suite must be green:
+pre-commit hooks: **every CI gate MUST pass and stay passing — you MUST NOT knowingly merge
+a regression.** Before merging to `main`, the full gate suite MUST be green:
 - **Every guardrail gate** (`guardrails.yml`): `check_no_stub`, `check_concepts`,
   `check_prompt_schema --strict`, `check_genesis_manifest`, `check_ontology`,
   `check_retrieval_quality`, `check_eval_corpus`, `check_reliability_corpus`,
@@ -1105,12 +1105,12 @@ a regression.** Before merging to `main`, the full gate suite must be green:
 - **The CI parity tests** — the unit backend-cypher conformance AND the live
   cross-backend matrix (`backend-parity-nightly`: pggraph/neo4j/falkordb/fuseki
   conformance against the engine authority). A change that touches the backends,
-  transpiler, ontology, config, or env vars **must keep the parity matrix green**;
+  transpiler, ontology, config, or env vars **MUST keep the parity matrix green**;
   validate `-m live` locally (testcontainers + an engine) when you touch that surface.
 - **`pipeline.yml` (build/test/release) and `pages.yml`** stay green too.
-After pushing, **verify the workflows actually went green** (GitHub MCP `gith__actions`
+After pushing, you **MUST verify the workflows actually went green** (GitHub MCP `gith__actions`
 `list_runs status=failure` on `main`, or the run URL) — a push is not "done" until CI
-is confirmed green. If a gate cannot pass, stop and explain; never disable or
+is confirmed green. If a gate cannot pass, stop and explain; you **MUST NOT** disable or
 `continue-on-error` a blocking gate to get a merge through.
 
 ## Concurrent development — lanes, arbitration classes, what refuses you (READ FIRST when many sessions share a repo)
@@ -1152,11 +1152,11 @@ round trip by requesting the extras up front. `python -m <tool>` is always safe:
 resolve inside the environment.
 
 **The rules, and what enforces them:**
-1. **Never edit the canonical checkout** (`agent-packages/<repo>`). The `lane-guard`
+1. **You MUST NOT edit the canonical checkout** (`agent-packages/<repo>`). The `lane-guard`
    pre-commit hook **refuses** a non-merge commit authored there. Carve-outs are
    structural, never flags: a merge in progress (git's `MERGE_HEAD`) and a pure
    version bump (staged set ⊆ `.bumpversion.cfg`).
-2. **Never `git stash`** — `refs/stash` is ONE ref shared by every worktree (six
+2. **You MUST NOT `git stash`** — `refs/stash` is ONE ref shared by every worktree (six
    collisions, plus four reflexive violations today by actors with this rule in
    front of them). A prohibition only works when it names its replacement, and
    there are two different needs behind the reflex:
@@ -1169,28 +1169,28 @@ resolve inside the environment.
      commit via `git stash create` (writes no ref), points *your* ref at it, then
      cleans the tree.
    Commit often either way — commits are what a reset cannot take.
-3. **Never relock, swap the venv, run `pre-commit --all-files`, or merge into a
+3. **You MUST NOT relock, swap the venv, run `pre-commit --all-files`, or merge into a
    shared base bare.** Run it *through* the lease so a contender defers:
    `agent-utilities lane lease --resource dependency-lock --operation relock -- uv lock`.
    **Exit 75 = another lane holds it: defer, do not proceed.** ⚠ A lease binds only
    actors that take it; an unwrapped process still races. Not solved — always wrap.
-4. **Never hand-edit a generated view** (`docs/concept_reservations.yaml`,
+4. **You MUST NOT hand-edit a generated view** (`docs/concept_reservations.yaml`,
    `reports/PROGRAM.md`). `lane-guard` refuses a ledger view that is not the fold of
    its fragments. Write your fragment, regenerate.
-5. **Reserve a concept id before writing its `CONCEPT:` marker** —
+5. **You MUST reserve a concept id before writing its `CONCEPT:` marker** —
    `agent-utilities concept reserve --id <ID>` appends to *your* fragment, arbitrated
    in the repo's shared git dir so siblings see the claim immediately.
-6. **If you are a global actor** (background sync, fleet cleanup, venv swapper) route
+6. **If you are a global actor** (background sync, fleet cleanup, venv swapper) you **MUST** route
    every tree-mutating verb — `checkout`, `restore`, `clean`, `reset`, branch switch —
    through `lanes.guarded_tree_mutation(path, operation=…, owner=…)`, or
    `agent-utilities lane guard --reset <path> --owner <you>`. It refuses any tree
    holding uncommitted work you do not own. **Skip that tree. Never force.**
 7. **Assume you will be interrupted — commit early and often.** At this concurrency
    interruption is the norm, not the exception: **six lanes died mid-run in one day.**
-   Commit after each meaningful **batch**, not when the task is finished — a commit is the
+   You **SHOULD** commit after each meaningful **batch**, not when the task is finished — a commit is the
    only artifact a reset, a sibling's global tree mutation, or a dead harness cannot take
-   (cf. rule 2) — and **report your branch head SHA** so your work is recoverable by
-   someone who is not you. Two corollaries: **start a multi-minute gate once** — never
+   (cf. rule 2) — and you **SHOULD report your branch head SHA** so your work is recoverable by
+   someone who is not you. Two corollaries: **start a multi-minute gate once** — you **MUST NOT**
    re-launch `pre-commit` in a retry loop (one lane restarted it three times, discarding
    three near-complete runs, and ended with less information than one uninterrupted run);
    if it stalls, commit and report which hooks completed. And **`ps -p <pid>` is ground
@@ -1198,7 +1198,7 @@ resolve inside the environment.
    bookkeeping, not the OS, and goes **stale while the process is still working**; trusting
    it wrongly declared four lanes' work dead.
 8. **One document for readers, one fragment per writer.** Read `reports/PROGRAM.md`
-   (generated charter + register). Write only your own
+   (generated charter + register). You **MUST** write only your own
    `reports/deferred/<lane>.md` (`scripts/deferred_registry.py open`) or your own
    charter fragment.
 
@@ -1216,7 +1216,7 @@ everything, including pre-existing, no `--no-verify`):
    rule. Never call bare `pre-commit run --all-files` here.
 
 2. **Commit** in the worktree.
-3. **Enqueue — do not merge by hand, and do not save work up for the end.**
+3. **Enqueue — you MUST NOT merge by hand, and MUST NOT save work up for the end.**
    ```
    agent-utilities merge-queue enqueue        # returns immediately; verifies nothing yet
    ```
@@ -1257,7 +1257,7 @@ everything, including pre-existing, no `--no-verify`):
 **Merging is not deploying** (CONCEPT:AU-OS.governance.merge-deploy-decoupling). The
 fleet NFS-mounts the canonical checkout at `/au` with `PYTHONPATH=/au`, so a merge
 **arms** a deploy that fires on the next unplanned restart. Merge freely to `main`;
-ship only by an explicit fast-forward of `refs/heads/deployed` to a SHA the full
+you **MUST** ship only by an explicit fast-forward of `refs/heads/deployed` to a SHA the full
 suite has since passed. Check with `merge-queue promotion`.
 
 **Worked example — deferring is the correct outcome.** A lane finished a fix for this

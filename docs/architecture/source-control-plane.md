@@ -24,7 +24,7 @@ flowchart LR
     M --> E[Bounded catalog entries]
     E --> R[EntryReconciliation evidence]
     R --> C{Every selected entry terminal?}
-    C -- no --> H[Persist evidence; hold checkpoint]
+    C -- no --> H["Persist evidence; hold checkpoint"]
     C -- yes --> V[Verified tombstones or present-entry digests]
     V --> X[Revision-fenced checkpoint CAS]
     X --> P[Redacted graph projection]
