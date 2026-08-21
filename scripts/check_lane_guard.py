@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import configparser
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -66,18 +67,47 @@ def _staged_files(tree: Path) -> list[str]:
     return [line for line in proc.stdout.splitlines() if line.strip()]
 
 
+#: `[bumpversion:file:PATH]` and the KEYED form `[bumpversion:file(NAME):PATH]`.
+#: bump2version allows the same file to appear under several distinct keys
+#: (agent-utilities declares `compatibility-matrix.yml` twice -- once for its own
+#: version line, once for the `agent-utilities:` dependency entry), and the key
+#: is the only thing making those section names unique.
+_BUMPVERSION_SECTION = re.compile(r"^bumpversion:file(?:\([^)]*\))?:(?P<path>.+)$")
+
+
 def _bumpversion_files(tree: Path) -> set[str]:
-    """Files a version bump is allowed to rewrite, per ``.bumpversion.cfg``."""
+    """Files a version bump is allowed to rewrite, per ``.bumpversion.cfg``.
+
+    Two things this MUST include beyond the obvious, both learned by the
+    carve-out silently failing to fire during a fleet release:
+
+    1. ``.bumpversion.cfg`` itself. bump2version rewrites its own
+       ``current_version`` and stages it, but the file is never declared as a
+       ``[bumpversion:file:...]`` section -- so a set-containment check against
+       the declared sections alone can never match a real bump.
+    2. The KEYED section form. Matching only the literal ``bumpversion:file:``
+       prefix missed every ``[bumpversion:file(NAME):PATH]`` stanza; in
+       agent-utilities that was 8 of the 12 files a bump touches.
+
+    Together these made the "a pure version bump is allowed" carve-out
+    unreachable in BOTH repos that have one, so `bump2version` -- which commits
+    in the canonical checkout by design, and does not retry -- wrote and staged
+    every file and then had its commit refused, leaving a half-applied bump in
+    the index with no commit and no tag. The gate was right to exist and simply
+    never matched the thing it was written to permit.
+    """
     cfg_path = tree / ".bumpversion.cfg"
     if not cfg_path.is_file():
         return set()
     parser = configparser.ConfigParser()
     parser.read(cfg_path, encoding="utf-8")
-    return {
-        section.split("bumpversion:file:", 1)[1]
+    declared = {
+        match.group("path")
         for section in parser.sections()
-        if section.startswith("bumpversion:file:")
+        if (match := _BUMPVERSION_SECTION.match(section))
     }
+    # bump2version rewrites its own config as part of every bump.
+    return declared | {".bumpversion.cfg"}
 
 
 def _check_canonical(scope: lanes.LaneScope, staged: list[str]) -> str | None:
