@@ -10,7 +10,7 @@ agents against a shared knowledge graph — zero-infra by default.
 [![Docs](https://img.shields.io/badge/docs-published-blue)](https://knuckles-team.github.io/agent-utilities/)
 [![Engine: epistemic-graph](https://img.shields.io/badge/engine-epistemic--graph-6f42c1)](https://github.com/Knuckles-Team/epistemic-graph)
 
-*Version: 2.4.0*
+*Version: 2.5.0*
 
 > **New here?** Read **[docs/start-here.md](docs/start-here.md)** — one page,
 > the real onboarding entry point. For AIs, **[llms.txt](llms.txt)** is the

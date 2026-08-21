@@ -27,9 +27,9 @@ from scripts.release import check_epistemic_graph_client_preflight as preflight
 def _wheel(
     root: Path,
     *,
-    filename: str = "epistemic_graph-2.26.2-py3-none-any.whl",
+    filename: str = "epistemic_graph-2.27.0-py3-none-any.whl",
     metadata_name: str = "epistemic-graph",
-    metadata_version: str = "2.26.2",
+    metadata_version: str = "2.27.0",
 ) -> Path:
     path = root / filename
     dist_info = f"epistemic_graph-{metadata_version}.dist-info"
@@ -47,8 +47,8 @@ def _record_hash(payload: bytes) -> str:
 
 
 def _recorded_wheel(root: Path, *, include_script: bool = False) -> Path:
-    path = root / "epistemic_graph-2.26.2-py3-none-any.whl"
-    dist_info = "epistemic_graph-2.26.2.dist-info"
+    path = root / "epistemic_graph-2.27.0-py3-none-any.whl"
+    dist_info = "epistemic_graph-2.27.0.dist-info"
     members = {
         "epistemic_graph/__init__.py": b"\n",
         "epistemic_graph/client_capabilities.py": (
@@ -59,17 +59,17 @@ def _recorded_wheel(root: Path, *, include_script: bool = False) -> Path:
             b'        raise RuntimeError("unexpected capability request")\n'
             b"    return {\n"
             b'        "package": "epistemic-graph",\n'
-            b'        "package_version": "2.26.2",\n'
+            b'        "package_version": "2.27.0",\n'
             b'        "capabilities": {WORK_ITEM_METADATA_CAS_CAPABILITY: True},\n'
             b"    }\n"
         ),
         f"{dist_info}/METADATA": (
-            b"Metadata-Version: 2.1\nName: epistemic-graph\nVersion: 2.26.2\n\n"
+            b"Metadata-Version: 2.1\nName: epistemic-graph\nVersion: 2.27.0\n\n"
         ),
         f"{dist_info}/WHEEL": b"Wheel-Version: 1.0\n\n",
     }
     if include_script:
-        members["epistemic_graph-2.26.2.data/scripts/epistemic-graph-server"] = (
+        members["epistemic_graph-2.27.0.data/scripts/epistemic-graph-server"] = (
             b"#!/bin/sh\n"
         )
     with zipfile.ZipFile(path, "w") as archive:
@@ -332,11 +332,11 @@ def test_select_wheel_proves_exact_filename_and_metadata(tmp_path: Path) -> None
     (
         (
             "epistemic_graph-2.26.1-py3-none-any.whl",
-            "2.26.2",
+            "2.27.0",
             "wheel-filename-version-mismatch",
         ),
         (
-            "epistemic_graph-2.26.2-py3-none-any.whl",
+            "epistemic_graph-2.27.0-py3-none-any.whl",
             "2.26.1",
             "wheel-metadata-version-mismatch",
         ),
@@ -396,7 +396,7 @@ def test_unified_image_wires_both_preflight_phases() -> None:
 
 
 class _Distribution:
-    def __init__(self, root: Path, *, version: str = "2.26.2") -> None:
+    def __init__(self, root: Path, *, version: str = "2.27.0") -> None:
         self.root = root
         self.version = version
         self.direct_url: str | None = None
@@ -446,7 +446,7 @@ def _manifest(capability_value: Any = True) -> dict[str, Any]:
     return {
         "package": preflight.PACKAGE_NAME,
         "package_version": preflight.EXPECTED_VERSION,
-        "client_build_identity": "synthetic-client/2.26.2",
+        "client_build_identity": "synthetic-client/2.27.0",
         "capabilities": {preflight.REQUIRED_CAPABILITY: capability_value},
     }
 
@@ -846,10 +846,10 @@ def test_wheel_traversal_or_duplicate_members_fail_closed(
 ) -> None:
     wheel_dir = tmp_path / "wheels"
     wheel_dir.mkdir()
-    path = wheel_dir / "epistemic_graph-2.26.2-py3-none-any.whl"
-    metadata = b"Metadata-Version: 2.1\nName: epistemic-graph\nVersion: 2.26.2\n\n"
+    path = wheel_dir / "epistemic_graph-2.27.0-py3-none-any.whl"
+    metadata = b"Metadata-Version: 2.1\nName: epistemic-graph\nVersion: 2.27.0\n\n"
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("epistemic_graph-2.26.2.dist-info/METADATA", metadata)
+        archive.writestr("epistemic_graph-2.27.0.dist-info/METADATA", metadata)
         archive.writestr(malformed_member, b"one")
         if malformed_member == "epistemic_graph/client.py":
             archive.writestr(malformed_member, b"two")
@@ -871,12 +871,12 @@ def test_wheel_traversal_or_duplicate_members_fail_closed(
 def test_wheel_symlink_member_fails_closed(tmp_path: Path) -> None:
     wheel_dir = tmp_path / "wheels"
     wheel_dir.mkdir()
-    path = wheel_dir / "epistemic_graph-2.26.2-py3-none-any.whl"
-    metadata = b"Metadata-Version: 2.1\nName: epistemic-graph\nVersion: 2.26.2\n\n"
+    path = wheel_dir / "epistemic_graph-2.27.0-py3-none-any.whl"
+    metadata = b"Metadata-Version: 2.1\nName: epistemic-graph\nVersion: 2.27.0\n\n"
     symlink = zipfile.ZipInfo("epistemic_graph/client.py")
     symlink.external_attr = (stat.S_IFLNK | 0o777) << 16
     with zipfile.ZipFile(path, "w") as archive:
-        archive.writestr("epistemic_graph-2.26.2.dist-info/METADATA", metadata)
+        archive.writestr("epistemic_graph-2.27.0.dist-info/METADATA", metadata)
         archive.writestr(symlink, b"target")
     evidence = preflight.select_wheel(wheel_dir)
     distribution, module = _client_surface(tmp_path / "installed")
