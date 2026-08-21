@@ -46,7 +46,7 @@ def _minimal_valid_body() -> dict:
             "env_allowlist": ["PATH", "HOME"],
             "env_rejected_vars": ["UV_PROJECT_ENVIRONMENT"],
             "temp_root": "/var/tmp/l9/hermetic-harness",
-            "host": "r710",
+            "host": "build-host-a",
             "os": "Linux",
         },
         "command": {

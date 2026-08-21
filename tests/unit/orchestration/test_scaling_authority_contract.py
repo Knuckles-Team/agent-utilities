@@ -56,7 +56,7 @@ def _failure_domain(
     status: FailureDomainStatus = FailureDomainStatus.HEALTHY,
 ) -> FailureDomain:
     return FailureDomain(
-        domain_id="host:gr1080",
+        domain_id="host:small-gpu-a",
         kind="host",
         status=status,
         last_observed_at=NOW,
@@ -72,7 +72,7 @@ def _pool() -> ResourcePool:
         capacity_units=16,
         allocated_units=2,
         reserved_headroom_units=2,
-        failure_domain_id="host:gr1080",
+        failure_domain_id="host:small-gpu-a",
         quota=QuotaPolicy(scope="tenant:acme", max_units=12),
         lease_fence=_fence(),
         offline_recovery=OfflineRecoveryPolicy(max_staleness_s=120),
@@ -106,7 +106,7 @@ def _unit() -> ScaleUnit:
         max_replicas=8,
         reserved_headroom_replicas=2,
         tenant_quota=QuotaPolicy(scope="tenant:acme", max_units=8),
-        failure_domain_id="host:gr1080",
+        failure_domain_id="host:small-gpu-a",
         offline_recovery=OfflineRecoveryPolicy(max_staleness_s=120),
         maintenance_window=MaintenanceWindow(window="02:00-04:00"),
         rollback_policy=RollbackPolicy(on_failure="automatic", max_attempts=2),
@@ -217,7 +217,7 @@ def test_native_authority_and_revisioned_lifecycle_are_bounded() -> None:
         observed_replicas=4,
         status="converged",
         observed_by="observer:gateway",
-        failure_domain_id="host:gr1080",
+        failure_domain_id="host:small-gpu-a",
         lease_fence=_fence(),
         observed_at=LATER,
     )
@@ -417,7 +417,7 @@ def test_lease_fence_cannot_change_between_lifecycle_records() -> None:
         observed_replicas=4,
         status="converged",
         observed_by="observer:gateway",
-        failure_domain_id="host:gr1080",
+        failure_domain_id="host:small-gpu-a",
         lease_fence=_fence(epoch=5),
         observed_at=LATER,
     )

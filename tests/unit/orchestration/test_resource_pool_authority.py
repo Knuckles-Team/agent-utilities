@@ -28,7 +28,7 @@ NOW = datetime(2026, 8, 19, 12, tzinfo=UTC)
 
 def snapshot(
     *,
-    pool_ref: str = "pool:gr1080",
+    pool_ref: str = "pool:small-gpu-a",
     memory_mib: int = 22 * 1024,
     memory_state: str = "known",
     attestation_status: str = "verified",
@@ -92,7 +92,7 @@ def snapshot(
             status=attestation_status,
             algorithm="ed25519",
             signer_ref="signer:inventory",
-            signature_ref="signature:gr1080:1",
+            signature_ref="signature:small-gpu-a:1",
             subject_digest=capability_payload_digest(capabilities),
             observed_at=observed_at,
             expires_at=expires_at,
@@ -115,7 +115,7 @@ def large_build_requirement() -> PlacementRequirement:
     )
 
 
-def test_gr1080_does_not_qualify_for_large_build_or_nvme() -> None:
+def test_small_gpu_pool_does_not_qualify_for_large_build_or_nvme() -> None:
     decision = place(
         large_build_requirement(),
         (snapshot(),),
@@ -135,7 +135,7 @@ def test_known_capability_placement_is_order_independent_and_replayable() -> Non
         cpu_milli=1_000,
         memory_mib=4 * 1024,
     )
-    first = snapshot(pool_ref="pool:gr1080")
+    first = snapshot(pool_ref="pool:small-gpu-a")
     second = snapshot(pool_ref="pool:edge-a", memory_mib=24 * 1024)
 
     left = place(requirement, (first, second), now=NOW)
