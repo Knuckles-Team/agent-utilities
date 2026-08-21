@@ -340,9 +340,8 @@ sync:
     doc_type: transaction
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - firefly_iii_mcp/connectors/mcp_source_presets.json
   - firefly_iii_mcp/connectors/tool_schema_fingerprints.json
   - firefly_iii_mcp/ontology/firefly.ttl
@@ -350,10 +349,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 4544fe4525eb6d7b23914e433de1326c8de7d492a7a4dc82c37cd63c2498abe9
     triple_count: 100
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: JJuMUw-1J4D2zibA8mbOVOCvUPxUi66wrirIJhxeVZndah49S-XCmuZkj42hqI8ffymOU0wYTOVlnnZiB9pdCw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

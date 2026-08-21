@@ -111,9 +111,8 @@ sync:
     doc_type: torrent
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - qbittorrent_agent/connectors/mcp_source_presets.json
   - qbittorrent_agent/connectors/tool_schema_fingerprints.json
   - qbittorrent_agent/ontology/qbittorrent.ttl
@@ -121,10 +120,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 276e0e582a3d0e8f5c5d8551a0954984ccb8cef1eece2ae33aa188596a466fb9
     triple_count: 49
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 6_ROQlHMbp7gju0g3FyrzXkzyA-QuUHpV_7Ca9Z52kuv_lQ9T8Gil5_lNH1e5MHs3W4Wgbz7QFrsPpLE4OyJDg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

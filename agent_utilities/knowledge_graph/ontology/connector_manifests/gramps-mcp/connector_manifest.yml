@@ -241,9 +241,8 @@ sync:
     doc_type: person
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - gramps_mcp/connectors/mcp_source_presets.json
   - gramps_mcp/connectors/tool_schema_fingerprints.json
   - gramps_mcp/ontology/gramps.ttl
@@ -251,10 +250,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 7897b6a649b5f9100cb32ffbde864e155c153d1e51a884fe714ddcd3a70f926d
     triple_count: 67
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: _-8izO7fxzM_YbBXc8EkcYBgi25SNgaQILRykFQKWO6-fc0dmkrIpvIt1scPzI_3cxzxx_Z0wxh1OFwK2a8xDw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

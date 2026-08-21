@@ -186,9 +186,8 @@ sync:
     doc_type: hdhomerun_recording_rule
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - hdhomerun_mcp/connectors/mcp_source_presets.json
   - hdhomerun_mcp/connectors/tool_schema_fingerprints.json
   - hdhomerun_mcp/ontology/hdhomerun.ttl
@@ -196,10 +195,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 07ff38985435eeb186b8e850b9874d6852f5e3db18aba2ff15f7dcdd16a48737
     triple_count: 65
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: mlPwafsu6CLVRAn5h9ZkcCk3MDaJ5VY_MZ0u3SIYuoQ0KEQwQBTgFENPiRL3X-4GvDdOicR-zElbjgpDxCeIDg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

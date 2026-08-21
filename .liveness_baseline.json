@@ -6,8 +6,8 @@
     "untyped_seams": 1763,
     "orphan_read_keys": 78,
     "facade_handlers": 98,
-    "placeholder_markers": 493
+    "placeholder_markers": 495
   },
-  "taken_at": "2026-08-21T02:18:06+00:00",
-  "taken_against": "e98e0785bec7fc10465edd186f5974138bb1fa86"
+  "taken_at": "2026-08-21T06:49:19+00:00",
+  "taken_against": "d380ef5f1fd7ace096a6a33bd796f8ddb3132827"
 }

@@ -156,9 +156,8 @@ sync:
     doc_type: social
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - pulselink_mcp/connectors/mcp_source_presets.json
   - pulselink_mcp/connectors/tool_schema_fingerprints.json
   - pulselink_mcp/ontology/pulselink.ttl
@@ -166,10 +165,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: fd2f3c38c4a0340e5e208029d253b399fb77d895d6acabe0ae06de65e30604a5
     triple_count: 26
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: -WcScZvmUMVCX2grrOhF_uQda8sbsMNiSBJPnwCczwDsSoFujQ4iBU8A6xJoO5HsLE3hrfG7ER76SRaAiA3UAw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -348,40 +348,6 @@ def _canonical_a2a_bytes(card: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
-def write_a2a_card(
-    connector_root: Path,
-    *,
-    dry_run: bool = False,
-    check: bool = False,
-) -> tuple[dict[str, Any], bool]:
-    """Regenerate ``a2a.json`` in place from the connector's own package
-    metadata. Returns ``(card, changed)``.
-
-    ``check=True`` is the fail-closed drift gate: it never writes, and raises
-    if the on-disk file would change — the same mechanism
-    ``scripts/check_connector_manifests.py`` uses for ``connector_manifest.yml``.
-    """
-
-    card = build_a2a_card(connector_root)
-    payload = _canonical_a2a_bytes(card)
-    target = connector_root / "a2a.json"
-    existing = target.read_bytes() if target.is_file() else None
-    changed = existing != payload
-    if check:
-        if changed:
-            raise RuntimeError(
-                f"a2a.json drift detected for connector {connector_root.name!r}: "
-                "regenerate with generate_connector_manifests.py (no hand edits)."
-            )
-        return card, False
-    if dry_run:
-        print(f"# --- {connector_root.name}/a2a.json ---")
-        print(payload.decode("utf-8"), end="")
-    else:
-        target.write_bytes(payload)
-    return card, changed
-
-
 def _local(uri: str) -> str:
     if "#" in uri:
         return uri.rsplit("#", 1)[1]
@@ -690,10 +656,21 @@ def _read_sync(
 
 
 def _read_actions(connector_root: Path) -> list[ActionSpec]:
-    a2a_path = connector_root / "a2a.json"
-    if not a2a_path.exists():
+    """Derive the manifest's actions from the connector's own package metadata.
+
+    This used to read a checked-in ``a2a.json`` back off disk. That file was
+    itself GENERATED from `pyproject.toml` by `build_a2a_card` moments earlier,
+    so the round trip added nothing but a redundant artifact -- one that was
+    committed, hashed into the signed certification ledger, and then rewritten
+    by `bumpversion` on every release, which invalidated the signature that
+    recorded its old hash. 20 of 21 connectors failing the release-catalog gate
+    were exactly that. Deriving the same values in memory removes the file, the
+    drift surface, and the signature breakage together.
+    """
+
+    if not (connector_root / "pyproject.toml").is_file():
         return []
-    data = json.loads(a2a_path.read_text(encoding="utf-8"))
+    data = build_a2a_card(connector_root)
     caps = data.get("capabilities") or []
     return [
         ActionSpec(
@@ -773,8 +750,6 @@ def build_manifest(
         )
 
     actions = _read_actions(connector_root)
-    if (connector_root / "a2a.json").exists():
-        source_artifacts.append("a2a.json")
 
     policy = PolicySpec(pii_fields=_pii_policy(schema_mappings))
     if policy.pii_fields:
@@ -816,11 +791,14 @@ def build_manifest(
     # See generate_native_connector_manifest.py: an UNSIGNED preview must not
     # require key custody. release_signer_for_publication stays the ONLY path to
     # a real signature.
-    signer = release_signer or (
-        ontology_integrity.unsigned_release_placeholder()
-        if unsigned
-        else ontology_integrity.release_signer_for_publication(lock_path=ONTOLOGY_LOCK)
-    )
+    # In-repo manifests are NOT signed: git supplies integrity and authorship for
+    # everything committed here, so a signature only re-proved the commit history
+    # while forcing the fleet to hold custody of a release key. It also made every
+    # `bumpversion` a signature-invalidating event once a generated file sat inside
+    # the hashed artifact set. `release_signer_for_publication` stays the path for
+    # artifacts that actually leave this repo; an explicit `release_signer=` still
+    # overrides, so a publication pipeline can pass a real one.
+    signer = release_signer or ontology_integrity.unsigned_release_placeholder()
     unsigned_provenance = ProvenanceSpec(
         generated_at=stamp,
         source_artifacts=sorted(source_artifacts),
@@ -839,6 +817,10 @@ def build_manifest(
     draft = placeholder.model_copy(update={"provenance": unsigned_provenance})
     if unsigned:
         # Preview: exactly the content that WOULD be signed, with no signature.
+        return draft
+    if signer.signer_id == ontology_integrity.UNSIGNED_SIGNER_ID:
+        # The placeholder deliberately raises from `sign()`; an unsigned manifest is
+        # the intended in-repo shape, not a failure to sign.
         return draft
     manifest_hash = ontology_integrity.canonical_manifest_hash(draft)
     provenance = unsigned_provenance.model_copy(
@@ -860,17 +842,12 @@ def write_manifest(
     *,
     now: datetime | None = None,
     dry_run: bool = False,
-    generate_a2a: bool = True,
     registry_path: Path | None = None,
     unsigned: bool = False,
 ) -> ConnectorManifest:
-    # a2a.json is generated FIRST (CONCEPT:AU-KG.ontology.a2a-card-generation): the
-    # manifest's ``actions`` are read back from a2a.json's ``capabilities``
-    # (``_read_actions``), so the connector-owned card must already be fresh,
-    # deterministic, generated content before the manifest is built from it —
-    # never a parallel/manual step.
-    if generate_a2a and (connector_root / "pyproject.toml").is_file():
-        write_a2a_card(connector_root, dry_run=dry_run)
+    # No a2a.json step: `_read_actions` derives the same capabilities directly
+    # from `pyproject.toml` in memory, so there is no generated file to write,
+    # commit, hash, or keep from drifting.
     manifest = build_manifest(
         connector_root, now=now, registry_path=registry_path, unsigned=unsigned
     )
@@ -920,20 +897,6 @@ def main() -> int:
         ),
     )
     ap.add_argument(
-        "--skip-a2a",
-        action="store_true",
-        help="do not (re)generate a2a.json — connector_manifest.yml only",
-    )
-    ap.add_argument(
-        "--a2a-check",
-        action="store_true",
-        help=(
-            "fail-closed drift gate: regenerate a2a.json in memory and error if it "
-            "would differ from the committed file, without writing anything "
-            "(connector_manifest.yml is not touched in this mode)"
-        ),
-    )
-    ap.add_argument(
         "--registry",
         type=Path,
         default=None,
@@ -973,19 +936,6 @@ def main() -> int:
         ap.error("one of --connector-root, --connector, or --all is required")
         return 2
 
-    if args.a2a_check:
-        failures = 0
-        for root in roots:
-            if not root.is_dir() or not (root / "pyproject.toml").is_file():
-                continue
-            try:
-                write_a2a_card(root, check=True)
-                print(f"OK    {root.name}/a2a.json")
-            except RuntimeError as exc:
-                failures += 1
-                print(f"DRIFT {root.name}/a2a.json: {exc}", file=sys.stderr)
-        return 1 if failures else 0
-
     for root in roots:
         if not root.is_dir():
             print(f"skip: connector {root.name!r} is not a directory", file=sys.stderr)
@@ -1004,7 +954,6 @@ def main() -> int:
             out,
             now=now,
             dry_run=args.dry_run,
-            generate_a2a=not args.skip_a2a,
             registry_path=args.registry,
             unsigned=args.unsigned,
         )

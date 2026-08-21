@@ -265,9 +265,8 @@ sync:
     doc_type: User
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - okta_agent/connectors/mcp_source_presets.json
   - okta_agent/connectors/tool_schema_fingerprints.json
   - okta_agent/ontology/okta.ttl
@@ -275,10 +274,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: b6a7b3594c4788de68bc6f1b32793f0d59089a2cee9ed88f54908ee5387360d4
     triple_count: 87
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: KrEhLB3pMIZmyaR1Y7lnVUsG16b3K0UFNXSOP9sk4uHT8NuY1p6B4p5mqjdMRkYEJeTYBjxi6dGkPDkQxIW-BA
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields:
     Application:

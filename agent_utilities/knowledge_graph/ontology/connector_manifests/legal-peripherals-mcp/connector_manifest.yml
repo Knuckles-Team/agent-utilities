@@ -3754,9 +3754,8 @@ sync:
     doc_type: business_entity
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - legal_peripherals_mcp/connectors/mcp_source_presets.json
   - legal_peripherals_mcp/connectors/tool_schema_fingerprints.json
   - legal_peripherals_mcp/ontology/compliance.ttl
@@ -3779,10 +3778,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: d1afd011d90abd629e62eec1ff07da68a2aa40c57fdb183f1f1cabd33f4664e6
     triple_count: 613
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: yAfQBCLeJhoi2ysgf1JNsut9N4x-xH1iBRGWynKjB7naFGx6-J_Qce-Fq4gJeG_PXlDbJu1tZnToB_Dnw8O2CA
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

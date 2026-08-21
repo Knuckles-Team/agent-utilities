@@ -324,9 +324,8 @@ sync:
     doc_type: series
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - arr_mcp/connectors/mcp_source_presets.json
   - arr_mcp/connectors/tool_schema_fingerprints.json
   - arr_mcp/ontology/arr.ttl
@@ -334,10 +333,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 8b921c452bb35f134b2d8dad809afcb49ec7abd16d78f5ee79e704ae5acb7c75
     triple_count: 89
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: tpKsHqK3cqa47BJBnwhCrr6Oo2JCh5_wxZO_bgyvSCL_IiwN3sJgDptKGCl3HW6pWIISJk_pyrhEL69R3zBRBw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -738,9 +738,15 @@ async def certify_connector(
         "signing_public_key": signer.public_key,
         "signature": None,
     }
-    record["signature"] = signer.sign(
-        ontology_integrity.canonical_signed_document_hash(record)
-    )
+    # An UNSIGNED in-repo certification is the intended shape, not a failure to
+    # sign: git already supplies integrity and authorship for everything committed
+    # here, so the record carries no signature and the placeholder's `sign()`
+    # (which deliberately raises) must not be called. A publication pipeline that
+    # passes a real signer still gets a real signature.
+    if signer.signer_id != ontology_integrity.UNSIGNED_SIGNER_ID:
+        record["signature"] = signer.sign(
+            ontology_integrity.canonical_signed_document_hash(record)
+        )
     return record
 
 

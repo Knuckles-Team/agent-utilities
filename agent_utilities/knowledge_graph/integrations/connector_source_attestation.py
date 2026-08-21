@@ -252,9 +252,15 @@ def build_source_attestation(
     violations = source_attestation_violations(attestation, manifest)
     if violations:
         raise ValueError("source attestation inputs are invalid")
-    attestation["signature"] = release_signer.sign(
-        ontology_integrity.canonical_signed_document_hash(attestation)
-    )
+    # An UNSIGNED in-repo document is the intended shape, not a failure to sign:
+    # git already supplies integrity and authorship for everything committed here,
+    # so these documents carry no signature and the placeholder's `sign()` (which
+    # deliberately raises) must not be called. Real signing still applies whenever a
+    # publication pipeline passes a genuine signer.
+    if release_signer.signer_id != ontology_integrity.UNSIGNED_SIGNER_ID:
+        attestation["signature"] = release_signer.sign(
+            ontology_integrity.canonical_signed_document_hash(attestation)
+        )
     return attestation
 
 

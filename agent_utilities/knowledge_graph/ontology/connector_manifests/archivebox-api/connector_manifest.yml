@@ -102,9 +102,8 @@ sync:
     doc_type: web_snapshot
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - archivebox_api/connectors/mcp_source_presets.json
   - archivebox_api/connectors/tool_schema_fingerprints.json
   - archivebox_api/ontology/archivebox.ttl
@@ -112,10 +111,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 6dc284691a1498aad339af5e6c62306af996eb3a36d10fded74f8b6afdc7338e
     triple_count: 47
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: jidNbLY8DjSzsZCUGX7MwUYC4f2TCQaCq3igrKY644d4Uxu4Ot6Mczs8WgUoRhur0tVlgss_gHnyFa81I4gwBQ
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

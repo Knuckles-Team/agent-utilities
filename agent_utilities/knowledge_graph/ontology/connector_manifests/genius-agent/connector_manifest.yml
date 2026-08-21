@@ -146,9 +146,8 @@ sync:
     domain: genius
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - genius_agent/connectors/mcp_source_presets.json
   - genius_agent/connectors/tool_schema_fingerprints.json
   - genius_agent/ontology/genius.ttl
@@ -156,10 +155,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: b1f9430d15488478142d9bfe5b40fdac5ad368e1d1aa3ec9b240ed479c26154a
     triple_count: 55
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 8zAJF44RRSI5lhT0ISHah8HJoK9GYR_x7DfH59l7j9-UDBO6gIMqLS59PBVvUSNcQLNTjewku0qh7FJuzvpMBg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

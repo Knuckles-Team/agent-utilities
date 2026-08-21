@@ -116,9 +116,8 @@ sync:
     doc_type: objectstore_object
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - objectstore_mcp/connectors/mcp_source_presets.json
   - objectstore_mcp/connectors/tool_schema_fingerprints.json
   - objectstore_mcp/ontology/objectstore.ttl
@@ -126,10 +125,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 291cff7e1b5c3b2b0a08e66089821e2633c489fb72896cf1cdadb7f7baf8f25f
     triple_count: 52
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: qNJu1JD44rD4esCaaus-koYkoDM1MEc8CgEH7iojfV0rTDc2vUweJPnCBTHob3F9OCwYPEQsqH0n9RNuakrkBw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

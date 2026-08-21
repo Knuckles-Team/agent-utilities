@@ -262,9 +262,8 @@ sync:
     doc_type: media
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - jellyfin_mcp/connectors/mcp_source_presets.json
   - jellyfin_mcp/connectors/tool_schema_fingerprints.json
   - jellyfin_mcp/ontology/media.ttl
@@ -272,10 +271,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 8d0d9a4c6aac1d900718a74970c7739016fcf879a41c3f51330f8666a8efd0bc
     triple_count: 105
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 8ofFCQ3207zL7N3dGLnECoMq1EYCpK17plHqIcBJi-IPBkrK0LANgnWQeRPo4ZGkKNiKOXkvVIlii8l4SFuBAg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

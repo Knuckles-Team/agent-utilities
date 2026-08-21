@@ -1,622 +1,458 @@
 agents/ansible-tower-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: da4ee7dee65b146e0fee3e1a70947522ebdc20eb0b68db02c35eb50ad0945eaa
-  certification_hash: cc24066b4d2c36a10c95f3ad1f8734f46955edc05da41c57d82810a878b8c6b3
-  certification_signature: M1ivs7bMRn3a7BGC7NMBNEuYuY1Neodxo6QlPGJxURwfweUIfRQSMyB4QxLOf7c_lznK4QVyaBxIgPHCmR_-AA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: d9dd1c4e053dbaa056ee4fada3b7ce7174a6c4519b3b18410187a9ed302dd712
+  certification_hash: fdb1d4c85d4fa1548d0af08f7130e39220bc971fcd0c60911fb055a14121c63c
   hash: 993ad9429e6ba971145ddeb6a3e6cd4189196179f21ebd2824a8fe4fee4a0369
-  manifest_hash: 03ef705a366435f7248b0cff7fde314b685cff8e0258fb95ef100ee93c851842
-  signature: -3HNZqbnSg-4xSnIEIQ8BRBMaZyXq6UNfTPmjpViba0zbetUm9tms1Vs7N-LeoNG-eAqJugo_WhWzeZWlWpDCA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: e93a81c63cfc74eb95730166b49c76cd12f83f7f4edeb2c3cd7211b372a3c66d
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 100
 agents/archimate-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: a6aab8448c7c22423b5c6118bf081a5962d2bac6b7d00dab165e552838b3fdc7
-  certification_hash: 4096fe3cb70397beec200b66c3fb959392c877e40d07be608ac23d779500018b
-  certification_signature: M5RnXPesVbdRhltU8bBHBxw6GnnQw1hjz2upPp1-geI3hzqyOsc6EwLRomGWBq_ZCoQZIAKJCn0Hg1sGuf0sAA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 37d3059717082f86112501f351522c298156636c90c0f740bae7714df1a13465
+  certification_hash: 7acb53412c00222dbc5462f4283d253c9a6cc202700adcad1b1bb62558d885ff
   hash: 5c23ea227bbd105fc4dd0e3ddaf7442fa5bd424ade712502f07688a56cfa8a5c
-  manifest_hash: b62048b46e9cacfedc9e4e692cc3bb301fea6a5bb954168845a99a77bb14bb86
-  signature: S1Y_EzBVM2Jb3DFfpefB2VjkPxR1UnRcIMFsFs_82XVyqrosI4OZLdi4UsXhwBujdjeq09JN5h6Ej2J0rXW3Ag
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 49c06778e67b0c7eadf96e5979c6dc413c5f35eba15324a466f9e695c594651b
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 358
 agents/archivebox-api/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 03a66f3ddf9adbb2e1456bdffaca7924afbe23a253db4a701e8de5d7af5c85c1
-  certification_hash: 81117956fa4deec0ca52179c35afe3d5c87c2c4165b4ce2ee3ee36ddf6ede9ab
-  certification_signature: qgbU1eZnuqhNN2gYpNN0jxYc140q_vlxam1_z1tAplspnqBTK3jzYijywqwOsSMiapjfrL1iTuHUzM3_UbiYAw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 5f63b36c5cec96c68fb80b7c22b6ed08e1dfdc55391a77eecbeaf5ab9c69fd06
+  certification_hash: 5bbd797c52bd93b07328ab634f92aaf7d2e49a8f7acce5e040db5865b41a90c2
   hash: 6dc284691a1498aad339af5e6c62306af996eb3a36d10fded74f8b6afdc7338e
-  manifest_hash: 013d328dd308bc118c2a34ac53293060493294e5aacd723ba21dee9450b236aa
-  signature: jidNbLY8DjSzsZCUGX7MwUYC4f2TCQaCq3igrKY644d4Uxu4Ot6Mczs8WgUoRhur0tVlgss_gHnyFa81I4gwBQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 0b46ac3de0ccce308273ea301ad0174e50f51fcf951f23a361541d272c1ece28
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 47
 agents/aris-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: be647dc23949f8651275dd2386fe16122324ab03e097e2dfc9ec85221f75aef6
-  certification_hash: 19ac8a296df5698b5ea225b2eefb039683ec5b6383bf1e2cf384d06e3d60861b
-  certification_signature: zXJRydvN_BmSmvAUBX293LhjMG5fmD4Awk1TNFqxqUg-jnHnHFfFQFO0jQejs1RPU4WCFGs58YgG-7G_7RSIDQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 5291edb37cf772e1bc7feb441395b11e2405eb9bffa8ad10a6d8f6460fa82ee7
+  certification_hash: 4f8e60e8e0d9209d5690d13ecf62b83a28cda921a2647fa85f71f86131709fc9
   hash: 86b9ba7cc8d42e3495164680faabbb483440f96320cf9bf85a9064a0c51cad2d
-  manifest_hash: 8607aaa4695b7f81be8d0c191b5af7be893c4d7b74c1749ffcde8bd8b334f1aa
-  signature: vaoQhLllti67Iq36TUTx2v0OMl-O-5qWs0uW9lmvg66vDhsyaIk4lVCzEuSVGmfQALlr3--RMk03M6ZapfTVBw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: ca245da8cf5cc1bb9811381200e54c6706a6f3f59be5c2a1876b913fb6914497
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 74
 agents/arr-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 6efc26b1b41ee7e9ae75865ffb67a02eb54f3b150930a7ddfdfabad9df83c4c2
-  certification_hash: 29e0d4d8cc3e4d7fd594a3e29151930acd3dfbd77c6836278d7da59e0e4c8db7
-  certification_signature: v5yifIn93eXCGqy4SpcGoTSs3PBS-A0JxFM9W4qw08F6HCVG2bBchfl8V6wt78zammhtkOsGQoiSSQTiAxPYDA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 93f8e9160a434aec9e0d40eba559cccd31d55c91edd617a278a861462a703e68
+  certification_hash: 37b5d1363bd23c2753aac1953b1e7f967ff1a6f656a583b2bd66f22740ee98f1
   hash: 8b921c452bb35f134b2d8dad809afcb49ec7abd16d78f5ee79e704ae5acb7c75
-  manifest_hash: 94734ae54423e5e04c6d5ee943c69af5668c4adc76435a2571019065e5c42198
-  signature: tpKsHqK3cqa47BJBnwhCrr6Oo2JCh5_wxZO_bgyvSCL_IiwN3sJgDptKGCl3HW6pWIISJk_pyrhEL69R3zBRBw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: e06a966c17242db023e5e35b107a4647e0d313467579d18c7c6ebf74d6f4c0fc
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 89
 agents/atlassian-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 148afbd44f2293290bcba654dc8309ba34702f9289beb3a2e2520a6d5d822137
-  certification_hash: f83c3ac8ab28cd8b5766e9426dbb244aacb6e5ba949ba0c9dc50bca3290d4719
-  certification_signature: kyTnoQJmrrJFG-w5E_93Z6iza9Iq03wmfz1-5Ap1neNWuxn4r4CTNAeEQ-UjOjVwIxoJUZEDYCOT6i1sYTzHCw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 4a9d1ae27b32f88edf249681f0a7feb88b53192c61f42a99ac4569fc5a8f66f9
+  certification_hash: 1e0791b1af7a80de95140b8fbfade2dcdadcc509411b55300387a54ded9d2051
   hash: 4c34d353d8b83828904232ccae436a4bd874e4a9e95fbfddf05b60dac1cc0e23
-  manifest_hash: 75e4c5015f34360e3b601d081a461ab5e959e3488f3e9e780da5dfa189de402c
-  signature: 9Uw5zQEVJRYFDCdZ1Zi-zXRt8yduxUfNe2KVz4HWfyeO72KpWB5paXqqdOfR9mgmxtCKdZCbp6u3gF1U6324CQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 482ad634e37eca8655a83e85b022a40b3775c7b5f878460ea7d117890298956c
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 49
 agents/audio-transcriber/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 9f568c1d70e40f3e62e00a1b08a8fa3ad37f1fe1994f88ebb31666ca73abe92a
-  certification_hash: 219cfd2eb87c6cd8ee30d656b6b36b9694f3ddec258a5b6da6d5e6884a0a7838
-  certification_signature: Gvt6NXJf2jBHWvB3dbl0D17juLeQaUZh2nFUCVvlfTwlfTVoly1KwQEphVsGnk9zpt7LQl1NHNLo_fMBQVa6CQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 3fa22069bc3570d735ee4cd9001f531a4b4252139dd19675114ff5af16f2175a
+  certification_hash: 7ae848590bfd1bdbf14819546f2bba3c322fffb1b659c63de296624d53cd18df
   hash: d95ce2eab76d36a6f049b6908af6230b770efdae6bcc3c53db9ee77ac2ffc27f
-  manifest_hash: 3d1c75ab0022338929f44724486678ca434582867e8e3f5de8aaa797335ea75f
-  signature: aDPs_BAHjH3Li1fE3P37-XYndvlJeKtuVjBWapI0_iMTGCLxTZmcHzz9s1XClLMq2qoEAveJYTT61WF0_dMpDA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: e9000c8a3a07a07c3d2d5e02075fa6be0ae6a23cf709565a02d5394570b8e380
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 43
 agents/audiobookshelf-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 8ce0bf0060ab963f75971cc1131189f5d3ca460df10b9e7419a635e9d22c50ab
-  certification_hash: ad87371a027c52066cc2715e57d29f19e8d45a30ddbbf5afa0674a33b9fbda61
-  certification_signature: UmQrd-veNIaVPxuL8eZhUytW46a_jLlric_b2PzXxG1BtIZw2iRcOanvE6AJGZk15Jw9rVwz897eEOQ5VLdEBg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: b5a22bd3c301e18b649dcea025fc63b83e8e97544a9535d6b57587342bb44ab5
+  certification_hash: ae9aa368807f84b10b31278b64f680c353568f97f9270710fd027815b8e6b2f1
   hash: aeaa27e0d6d0bf3d693970a8ada3facb29ec85e97d5e5194600634679bc9a84a
-  manifest_hash: 9351316c0bc0b267b75115baec3e46ff838f38d5382c9b33b8aacf92f3aae1cc
-  signature: YSALYsR-gKeuKHCV0CjG0zXVqfb61dt05hEssztS3wdN8jLGDIDtTzMZxeM3kN15E3b_ef0usFLkIAgnjttKDg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 36147b8f628ac6f05c929860644b4b8eb0300276214e9867ee553932cb02fda5
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 78
 agents/caddy-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 1778099afd0afa73c8637ccc8e6b02a9768623e7017d002fbd93e31b6add075c
-  certification_hash: cf6306e11d0dbe58e822a461599bf230a3036a41d1fd41e0c919fcd4363805e8
-  certification_signature: W5PUdCBAzEnMWZoPWP0YvRiA4rUMzh10I4oAwaeFtbGuugJxXoomBPVk9FbPYm54j2CcHrJEKMkIV24lrrgoBw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 32e4a12576769d51ee1ae5b69b15c9ac0912d279380dbab82f18854b051e87db
+  certification_hash: 13351a8467424bee63bd4726b0f5857a7f2c8d842d48d09ae7aadb8b7d6b8e47
   hash: 2fede50b5b1a12c8210541c70e943b3324a5baa52c67cedc3fd92e7f0194408b
-  manifest_hash: 8ab2cd798c182fc6be56767ca43199697d35282d61a402c13da507021493a188
-  signature: wF--0RPuSEHVxi0kGO_FE-pHzcTn_xq2UrKjVJXboy0WNsxywvhziF5PFqekg-wMPwAqnToRe8mGIydDCvoJCw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 13d625611eccf3cd70b5f7869d1e37640d01ea3c83443e5be8a6998437000acd
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 59
 agents/camunda-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: c023309b4d6dfb0e989f2ff657288406e73166086a820c3c9dea9f7e5d870193
-  certification_hash: e027947ca79fdb5c7f4f35b5270826e88833b0fe9992b510758eebe1e513afa6
-  certification_signature: kYqkQR9JPVTz1VRyNiVYG-fh0BAJ5xVXNdUAzF8zYVwKZ3KM1ahW23LbWum8kwpc2HKrYe_eFQmm4LZnwK3ZAg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 8e2c0b7e3229e920fa8891f29c9cfca36865a5a5f59ef2a9a67b500c00300725
+  certification_hash: f5bd5b3fe5942fa6245bb434473cd6544bdd57a7eb716d4c66aa835392565ad3
   hash: c0c1ebacb6c9e2c3f881505b2d9c15f8ebf04f693da1076978bbab4311af5e84
-  manifest_hash: 23314f5a2a485723ac9d02030f69ac43b2773cc6b8b9a89ce094cb87e422b1d5
-  signature: SvfyMEJX1pgZEu3KJ6ceuL3gBANfisM-zMYokRku9wn0j7Gd4H1NhdSdj8BiXcOjMBqZYSMrNU5_jtIIpAQ5Ag
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 055b754894c47739da4da3082fe8706c23ceaea1f64277be6f1edeb524177bcb
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 83
 agents/ciso-assistant-api/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 64df5b1d8d2655e3c08aa6a48f6e5e548b5af5a85506b33b055f88155fce1817
-  certification_hash: 795967e7f023e22da7fd59ca089a941c61765548ba6b145c60746958b2aad813
-  certification_signature: quBz5hLMScrSKVV4v3-aluSj-pIal8BHMdHyLYqUoSIJDjzxawL2SkPVu2LL9JxaR0gDIdjVQE5x-2WwbyDUCA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 8e14297e0b5c269a94036e09067de34f2277e323c6e6321fe82675bd85001466
+  certification_hash: 5c93aed3344b64e745333614a587db46b2ccff54b7a04816b2e42d5258917268
   hash: 633538d55a5f8dadbcd49173465b5996e4bf0691d5bd2e83fa979e1d708c319b
-  manifest_hash: 43a12da255547dc892339b10f4aca9560e1b7e12a93b8ff157d0faa138fd5f62
-  signature: zjLl32mokO6FNkEbxs6HQDd_PvFdTiBSlt0LY9bYcnv3IMPL2ZqK6ktVhR8ldkY92Tia83onW0Qsd5htR6CIBA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 953d6812badaff0e89b5a437d9bf4fb3886bfa8a8f9fbdcda261dcd9a625f2c7
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 80
 agents/clarity-api/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 9b8e2613a36e15c7faac815157b054b7f69d069fcdea1002e502d1229c9ac274
-  certification_hash: b2bf69a37fe534bdb7afb83b16e103bc4f723b6fc49e80a5fbdea1f88238c3aa
-  certification_signature: f_zDi8U9SL1mosSJ_RsWKSaxRgT0f0vy1RKd1LPUajuwdTMrPAVx1Wu9ET4ImSgYSgMjoZzm5VORpdyBcz1ICA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 4331ed79e4b86ac330891280ad98cb485d3c35a744e188a6d3b28ed622a4dee7
+  certification_hash: 386dc82b7777a606086fd2a8056bd0cbc847d5c30cc23da761b0b81d665b8535
   hash: e2a2d2c5960061f54286e59762ecd99556c9914622e13bcfbc9781672bd3d59f
-  manifest_hash: 3245e6ea7d47a320f2d17439a716250ea6de50a28351ad2ebb0e3b1ada87f115
-  signature: odPo78a8RGlYWR_2C5qRl8T6L0EKJD7itucdHhtANzTouCmz8puiruLgWtYWFavbnQqdUePY8NoXEHgAssAhBA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: bce41b7135d7bf469703e25ac641166af7b33887d290cd8e21707074c7c87060
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 58
 agents/container-manager-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 68cee7ffd4a045c700ee8e07159f00e0887f5f411149c5cc5e6af93e937cb0be
-  certification_hash: 4899eb5efc7c8da412d501f386dfb156b407fc50c42cd2a9383dbbf162679227
-  certification_signature: 6NYswhH8bTZr7XF2YI0THZHGx-NYgeA-DoNAcVspM5LAZV46UvaVC8aPU6wJuLquZI2BKvA4MbIw22SUDxYRDA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 1d92743eaa403133e7daf9c074aac975ce5cb42080816b48e350a062d7223906
+  certification_hash: 39ebf34ecd438187c3e565231baaca2f15f418c66ec716debded4ad7995676dc
   hash: 97169902bf7ed616fa48999907841f6a9a38b68d8443513613fd700dcfec4da1
-  manifest_hash: 2ee9d41c609c9149185adb8724aa7b4ed3fdaf037a1659dd2cd99162a069ec69
-  signature: 0NTI94D92Um5ONt7pcRdnLI3rsy8_17bOK6XzzAMaci8J1VmAEEXmIAXLYy3ycZXAn5n6spkJDs51etfHJ6qCA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 1bb65539983d48be0882d43e901c325395f30bc8171a481c0dd7f59b7259320c
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 114
 agents/data-science-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 1ebd17b618d19851653de4dab7513778301178847ef85f9bb38aec796159eecd
-  certification_hash: d65f7049483bbdc309ecfe77ebaf81aa4a397e839c3a1570b6f92ee35e771457
-  certification_signature: E9rpsr591pKrsV0F0qxLoOzpUAHyOL0mf5f7nsTT536J1lZCfjetDUR1Uh5T35P2j8xsjZZhN6ypP5lJd1JhAw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 31b76f653a742d6653eea9f9f242c04b48bf46d7d8cf056032b7badc4ae7f365
+  certification_hash: a4ad444f46e54726406f80ec5fed1b9ec4c83bb2ed87c69b58901b80d344557f
   hash: e7a43f814beb0ddb3a9def0f6b4f8ac475b6c81616cea2771c83dc08c88581f6
-  manifest_hash: be1ad9b1b7394f42715f522f6ef1299ba0972596e8604b95f29dc2127096ad9f
-  signature: BLzm7RBX8qCV3wkttWE7l2BnYcVwgEHDCeZTNhd1ewGGSkgvTQ0mdLYwB6T4hcMPUiFC9anImc_l-P7mG98PAQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 983d3391116c8c9c90e89b820f2189562214f0357292a2b536e10e0c3eb3c3e9
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 173
 agents/dockerhub-api/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 125165e5c73395a058b1743cddfb4c46785d0814314971fc8e9fda9acd4f4672
-  certification_hash: 107464500254f5b245d3eb3a3dbe9d93de134a693c28c745038d0c5aab659f9c
-  certification_signature: ToANhxpc_VwIdEr5EYeNw8AfzEtwQK9QPcJ6MplFxgQuLyzm9yTcY6oPJ62-DirmbUYPrN-_Z1mdi2fE0b8MAQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: e1e17b6d6222377dbc1f0e5d28dc3b6d129a2daa15d79261c3d825f6d27a01e7
+  certification_hash: 9d4a412b0686c2cf74786c0687895fea1cd65e6bef6fea11573b56773312ed66
   hash: 5b0f7e7fdb31562825502f89cf0067f4f748ba52433c2e663e3cfa5a8c24d1ea
-  manifest_hash: ac5bfece50c1de89fab01c66b753e3fd9ed230b19a51ac05d03573d49758c55e
-  signature: FdWMYKb2elKRYksq09HMiegRTRwctomtPDlMlSuK_n0qMPba2Ut-5nbDeFUxi5y4jCx3o0ObIbl-1LJG9z85BQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: ae5c31a48d145f1dc02d232e96bd637eb112c7048db7f00f7fc10378725a473e
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 75
 agents/documentdb-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: f36ccc2d1ee18dabdf96853f00a357dadd75de1a98ec0cbfd77575a73e4aa81f
-  certification_hash: cf898a1080f61ac751143887b53fd4435b5946df3c582b9bfddf16cc4dea1ebb
-  certification_signature: iJMrFOVeP6qarId4rJwU83PMP5tKGZaynHoran10g-ifk4YQ9q61aLEDszNH81dg2AlBOR8I0Pawj5MBFp3-Ag
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 26d06b4e532ec4ba71852a50c469694c2d12e36a137befda2983a8f80b72ae5b
+  certification_hash: 4ac7ebe67e9ba1454406ec997ae60aa066d2db476f4bf346663c78fb18f1335a
   hash: a1bfde343fa2d6d3712ede2d1aea31bdded7424c3268dbee32f12023ba81b8c9
-  manifest_hash: 609b359e2a6aefa1dd328039239ad72695a4ce869dd61bd19422bdf49367eb72
-  signature: fIvs3PWq3oAfkiRloCY57ffQDN9kKynAhwcV1eczzGcwDvTC99yIoOA3vm1MvDGlotkwl6YLA1psLhYjjuAKBg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 910c933a51c148a53b9bc3e307d084668984e4dad446b2fdf81599efaa21e24f
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 41
 agents/egeria-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 4c1e11dfb45feee1dcb888ecdfcd5852b086b0be8bbeddfbe0f46a03fcd08c09
-  certification_hash: b41e893c40ead7150a9ad600460057090064ba76363aaab35ca581ad18287c20
-  certification_signature: WViCNfuRD10nsNCyBy3l69HJIC5I701z7zTiaiqHlZgz3F2Yo2JRNDUQ6wn3-EtDKs3kqRSl04P4vcsie2z2Cw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 2fe1297061d3d94551f14c6f7aa246cf57d27260668b54931d79376209739002
+  certification_hash: 6034ac774add1b7747931c411dd37bc044eeb58894d3dfbb09e14289e1e7baf2
   hash: 5d931c77b58f7ab65cc66234306e84bcb79b46a72c0d1a933577c462ca00fe61
-  manifest_hash: a35ec2a43b47d8f050b83046cbc5c3bf4d17c68b1db6bf060231a46e6226e507
-  signature: tDBZZANua-Z6Dri8LBsztstR9NIFszYM4qKblCvWjvs5JBhYszHPDdeT1x3eRFlcSn57--NwM54gzT5929NrCA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 864eea08240fabd74276d395619d2a0af411a8b7f729bafb65a204cd42729b95
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 33
 agents/emerald-exchange/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: a909801fef7ada22b586ddbf9c02f29c84c77e369969867ade3d56fbb230e5d2
-  certification_hash: 3332fdc2a0da4b41fb206105c1fcded18d5edb6132f8a25d2645b9adff5f9964
-  certification_signature: iH6ua9I34gauaHLT5MW42Tl0iyo6_6A595AmGUQ_cWEtzTAiD96qggn-8l2-zYK8Ma622UQ0VDzRGeg5FhsXAA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 42549ea0dbab8ea6c98ad2af8d5413655a61c3236100a474f699db3f88dfce0b
+  certification_hash: 8c5f89f621e379f1b41791f9e40cd485c36d3b14e5115963ba089643f0af1b33
   hash: 1bfa6604d510eb85ab3176d1d5bf7039562c29c841ac283c4b2375863f54a112
-  manifest_hash: 15aa6d25661e72d2b91744561fb5f4f0ac2a6b7736c7bf6bb6456ae64dc64227
-  signature: eMFtFLH_FeaKYjkDqd0MXDTdY-6O0K7SKtLOhHZQtk_6il97hRdM2e2fVT5OQ2QlXqf5cE3XSwdpGrZoIYEdAg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 88bcc09fe8045836b6413ac42bd4d34bb2bb74fa2177c6a3040918617d7692ab
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 1515
 agents/erpnext-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 7015c9b67b7c98cea13471bae4de175623fa71117dc6346efab80a7c52f2dc12
-  certification_hash: ec717aae04a3357135221821ed8289ecb91758e78b14795da7e79fafe2ed8320
-  certification_signature: fuoT-gRwQvchsB61VGJ1H-GA41ZToh-Ay4xaiN8pwGVuhENIHK4-7akjiVwa-XY39IbWjtSW4dagsXZ9DETWDg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 3fe5919f761a783e24945f005140a45c461d051b62f2eb79a28ba929d584bd12
+  certification_hash: 3e34cd32ff17fedfa91b05bd8724088e00bdf78861a38781ad1b8e81905c1da1
   hash: e1db5bd3e80f09ed556b5ed40ec468baa01c855cd9f0f9e211c90298751a7929
-  manifest_hash: aa054750ef9587fbf467b22250284a6e607f6b483ef332bfc0845c18fc6d86b6
-  signature: QINWxEOcz2XX0XZsXkbRDx8VQdsZUo9KNfBCe752PORMi-L5qoJi7JUe_WNjYax6CZKKFsx80lAc04CDR9_pDw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 934feddd8cdf48da55079dd6130906f1d422a4a7694fbca4c15074b7ff019a6c
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 66
 agents/fan-manager/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 542851d7513b0f8c750b242b14dd023b84eb2d96b26f6d03a70a114005ed7f69
-  certification_hash: 0381a1d5d5319f92d60e7dc6b9c7dee2a49b5bc73ec31334d670e21a5574658e
-  certification_signature: Jw6ov3B8TO9WbaroaO9144WXyJAxdD50M7jso9qQnjJI6RpKNEBFkKPe7ome3Sii_gwYWGSqtGkJKJZ6XmXWCw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: d274a9d11413d5314aeb9e3c92dab2edffe20ae6ba2ce84840aef66569643028
+  certification_hash: 22b938c657facefb377efce2a745c4cbff8ccc14679d1e4c661100503f393b6f
   hash: 7c0bb24ceb08d96ec34912b310ab213e03be01ec554d38d90343b8ae2c1d4863
-  manifest_hash: b8e66cd6ee433a2175c4a414a66c01910522a6b85c755da43b57cac0d0e1d2ef
-  signature: r2vAtYCDca2xsbpmtBwMiDxAbFm0zaanQzuUlMZntauDOxqLAx3iPEor3K9ZhpB3KrjkzRReSHX5jUcGV2OjAg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: d21a024241c25ce62991cb37bda8b33318fe7a654a40b367a9be1f5b5ecbc853
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 143
 agents/firefly-iii-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 77e9016c82d1d7d1ccf59c36d0016a2c2efa6655c919948281ba1afa8a628ac4
-  certification_hash: 9ce2abac8df8845f907fe556ab93d312273aa25ad3c83eddaea9eb27ac9397d4
-  certification_signature: L2bf93AcZEeK0pexTQ5Spe7XKF-nfNUi6fIU3PoSRVLkYmVi9X8dbC35bXI27kwc0nsl0bhBR85j9KD1uP73Cg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 3b1a977848d571398bc8a3d5af07d2f90225066cc2a554b37fa6c81588af2311
+  certification_hash: 2729f238f0438cb102ecba833c043dd8fa0df59704fb0f2df37afc9735607d02
   hash: 4544fe4525eb6d7b23914e433de1326c8de7d492a7a4dc82c37cd63c2498abe9
-  manifest_hash: 604925f934290e23807749fee5020432e8feab8c3c0448f56f0399d1edb8dbb7
-  signature: JJuMUw-1J4D2zibA8mbOVOCvUPxUi66wrirIJhxeVZndah49S-XCmuZkj42hqI8ffymOU0wYTOVlnnZiB9pdCw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 30abfba9814aedd8d2ac348895f145135608798495c5622f057a2dc821aee61a
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 100
 agents/freshrss-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 6290f58eaf1493745d08e436144068ad3a24b65546cf2a2601750598806ad3b4
-  certification_hash: 027193c8f3d36034aefb2513ea02e0cd1e7d76cd76a789d3f77b17061270bae1
-  certification_signature: J6sfazxhS477teMKRmsj5nEsycUmFo8wa0nlqPH5z3mtltftnr7nscYEuxpB5OGWm_3EHLBHUHGplzBY5wbdCw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: adcf90f27f748912dde3a8ebde0879077eaea47ea93490481440c8950705516e
+  certification_hash: 86586839d2ca5d02bb74f6aaf6d6655b3e7b5e5ae528260fd8a57ae2bbaf5660
   hash: f618e3d6ef0e8d5ccbe32c90f34ec66521363b2a70408b859dd8880eb6a94369
-  manifest_hash: 79af427c0e10e62dc8d7bc83f896905ff69e6a439eced271e33bc6e617bdee40
-  signature: u4qcyYniGASGQ3XPd-i5eqWefrOfxHkW-_FmYbKiiCti9EPLpRYI4JfBZW2sMcA0mN12aMFGcPCbr3lBAflpBg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: f44bab5605fc47835ac87cd101ad550d3d31b3317c4c9830bf7f5dbeb35b9cd2
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 39
 agents/genius-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 1377c76e49928c714c6cd20e4207a23b66a9c2fe98444f044868cb11511766bb
-  certification_hash: 6a29f63976d4149dbd4f9c32e9034d1473d69319fa7b627594aac634a8d57d22
-  certification_signature: m0wDlLdS8t8gDdZ8N1rUOK1gVc4ifk5UCU6el1L7G5qkj4p9TtvvTxqGSkFHu3Cgryz8SdXHvkwe0CQhlzDMCA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: e0897f6bad6ff4d6b866588e6d059b1d3b74765a0883f2705c31db573fe12283
+  certification_hash: 9265901c3d361de7313f9b5d1cdcbc6f060b8a71b649d9658e91e620ca097904
   hash: b1f9430d15488478142d9bfe5b40fdac5ad368e1d1aa3ec9b240ed479c26154a
-  manifest_hash: b88bce695d7cfaa35f26caf5ca4c2be5fc9110f567963e2d92bb1e5175904f4f
-  signature: 8zAJF44RRSI5lhT0ISHah8HJoK9GYR_x7DfH59l7j9-UDBO6gIMqLS59PBVvUSNcQLNTjewku0qh7FJuzvpMBg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 23a1e0647a3185a51248cb82b44f3289305eff4c6f02da65d5879b669caf465e
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 55
 agents/github-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: c776a10ec4150af1adbc4fc17eb0cf8c2dc64720d936b0c1cd0f8194f46b8dfa
-  certification_hash: b867de82962935c43d3f5bbba79fd718f7f157461cfc7a9bfed2c31f1dab6bc7
-  certification_signature: fLXbVPP7NYjCOokFuvzjtQZyyqNxBqINFJv2WX6Gn_5QMgqvhkAPLpqX28cMK33ZiLMsW2co8MYxSreZxo0JBA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 9bba63fe9d8eea18f188ccc0e85dfb94cea65c9d73f5a1667987403c04c04a8c
+  certification_hash: be38673e93876ee2e71e2905de5c59d0cbaa06689aa36288592d61701ce2baef
   hash: e8d81e4a4e12957326dd75e30c19a8844acc345d32f658af9189e27b49050afd
-  manifest_hash: 2fa6a5ef7899fb4c4b0eb6f61ffa7a516a572523f79d454c3837cc762935bbe7
-  signature: PSxF617fm5HAGQSf4Rc8Af-wyZTmGwCU33xZtwDEwj8UUdj6bfEVH03vJA4xi5OvCiJW5MrGvjUKp_ExjgnJCA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 9d8e5d3f34ec592102066f117da1e8ea1c1bc9fc2407de222315deb0794ecad8
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 130
 agents/gitlab-api/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 2de0056da4b6d688c89e5b99a7d6a5de3467012640ace267f43039abec10073b
-  certification_hash: 8222591e0f828e705d00d69992eabf9bb3c2cc123abadb1897ea55b175a713e9
-  certification_signature: WoJ1zh3sCOCepOJtZoKwAF7BXa4B9aiHouPNA26KFnnzNjTd0IEwaFN55ycpczPL8OFi4COrJHyabm8VtmhgBA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: bf2c1dc92c1c9beb2b9aa7b8487ee7736ed6677c9c66f273a3253b90d42b69b3
+  certification_hash: 12146d02f8e23a807538221ffbcd65a8f53d5f1c8efa72c7882c9c7a2b1ce845
   hash: 04166832216194b97043c9b0a2a4620483e5f498d0b304c96765ea1f0e3fb6e9
-  manifest_hash: 15ef61748d61d59af259e286ed2d836b455fac7d26fb661dd0f3933e8091cb69
-  signature: BTYLm4xWqKMjRQpCU__C6Bdve_9nRL0yefTC8kmm_H-zNQtipceMaAdzCwg9ob6G9GDIKfb5KjOMgKFVlyQtDA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: c36a8faa598d0133215e586ad42e6193c734c1134b7c5221aaaabb3678ab5891
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 113
 agents/gramps-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: cc764d2674ee40493af1b7d183fee06a74c569ea604fbd0768d30b75aa193970
-  certification_hash: 2196453e52c3096048f29475dba2ed48cac7e4bf83786f450de85ffeee6c8a0b
-  certification_signature: JP2Q8Yc5m-goV2roPhR0wD46vJOpdnan1CEk16PawnrGyQ-wIoVgvpSYLtLucDq7wjph-8RePJUh85hi7dILDA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: b074af42c19ee3dbaee02780a2e07faffb386ed0ce499f356c16da727be5620e
+  certification_hash: 48d62fee9df3b688f6db80e4c91f584de82dbdb19d9b40d854bc6b7e295828a3
   hash: 7897b6a649b5f9100cb32ffbde864e155c153d1e51a884fe714ddcd3a70f926d
-  manifest_hash: 2bf41a920c6b5be1283a35686ee511f9221ccc7682629a7b5ccdb6394f1ee122
-  signature: _-8izO7fxzM_YbBXc8EkcYBgi25SNgaQILRykFQKWO6-fc0dmkrIpvIt1scPzI_3cxzxx_Z0wxh1OFwK2a8xDw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 70de80ee771336f0f61c026df4e856fd6d362b23d4c2e7c791423b68e9fc450d
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 67
 agents/hdhomerun-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 55afce12e955f4c644a349466e116c9973ecba2d699cac4f8e1308c550c8e6f9
-  certification_hash: 1959a69427e51dc44f08be7917c25a3a8fda471efeb721c95d7c1b7a56d7db6b
-  certification_signature: uJs-RiWb1sNKOg4iPoddFyMNwukPotslU1hItezcgDuIRVsuxOYMSdo08TwZuGEADSu1nIwtxyFOjjPve-CGAw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 8f0ae2afd98fc0453fc27ff8be234f331a650b5acbfb0e2452bee657bd9abaf0
+  certification_hash: 193b2524a5793dadac71f44efb2cd47c24941702277f7a5ae6f1c0498f6fafb0
   hash: 07ff38985435eeb186b8e850b9874d6852f5e3db18aba2ff15f7dcdd16a48737
-  manifest_hash: ccecc9a4bc1ac4a69493051bc70e206b924e8c8a39ab9c654850934330426953
-  signature: mlPwafsu6CLVRAn5h9ZkcCk3MDaJ5VY_MZ0u3SIYuoQ0KEQwQBTgFENPiRL3X-4GvDdOicR-zElbjgpDxCeIDg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 9f54fd7f87381f835f714fde5e5b055c49bc02467a1adfa947e883d1b747fc82
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 65
 agents/home-assistant-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 9b098e28f160b5b8cc66fcf4c3102bc63b991198c56c22239c62562a381a89ed
-  certification_hash: e06eb358f6981e99e7130e4d2f201bc9823287760a73efea56e0c7fc79205ea9
-  certification_signature: 0Z46y9f9_wlwq8NYi0EcW62j4yPW7-2j4AxL8wgAqY-MlNpdoKbrxjRaD2XLZy1bENd8vwek72JNZmFQpaExDA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 55ec1b1483af0a874ef7828647cd6a0abf0a033d8decf64b27774fc73aa2f49b
+  certification_hash: de7ad7b2af3118c336cb50916e16b1f5e7be2bdbcf954445da175e2c9ecfd57b
   hash: 31676ad6dbe7675fbd4c567e1a6bef267cd2af5f59c0b5dfe8fd3ea3a3611fec
-  manifest_hash: 5c5a3aa17d988068204b27a44ebe96f93ab92f0f3f5148ea10d72758b18298c4
-  signature: 0OPG6XJENHXsRC5TeSDrXmbyLjFoFUsTjlK2xM0ied_2NZ-6uPuVNC_EkGbR7XG9Iy5gvAFzEp8ZYCbCa5dmBw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 92abe5d4564b96973052ab2839aded090f94ee4c9d8e30be469aadd0968d1914
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 69
 agents/jellyfin-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 703a5f7758dbd5fdc83cf3b2a494378fda97d7dc7444aace7db52213f0a50a5c
-  certification_hash: 137d62d08a291b6cb2c56b0520874db97938af309e5ccc40e936eed7a63856a8
-  certification_signature: WvBexIHR6s2JrIchPLXrK_NbRmtUs9mhI97g8NuZW58_bU9n34rquWoxqVF7wLv0D61TnKTKijzlE4Db7XoPCw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: f31ca8edf6b0b2b4ba6c8486c2f12a104a5d9bdf34d9590dae085ace2f2b86e5
+  certification_hash: dd6cc8e3073c8acb10cd0ed04c4e4bc4489974bc5f35e07ed5c0da3e9264043c
   hash: 8d0d9a4c6aac1d900718a74970c7739016fcf879a41c3f51330f8666a8efd0bc
-  manifest_hash: 5e8ba98a18d8eff9fb9ce9997bd1a163cd1b7d44e64f18e0597795c9c3010983
-  signature: 8ofFCQ3207zL7N3dGLnECoMq1EYCpK17plHqIcBJi-IPBkrK0LANgnWQeRPo4ZGkKNiKOXkvVIlii8l4SFuBAg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: f535a058e00295c39c8df7e79b9843ade596896493b935bcfc0aabd71b0a51f8
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 105
 agents/jena-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: f1567eb60db7de3dfe67f8d585be7b16da59454867f4120803f680a5403c313d
-  certification_hash: 9409eb9dd001d55bb03018b943915d6e192c36a04b6dc1528509d98bd30189e6
-  certification_signature: QJ-SvGkLnoIZoj4jQsgunm3_nWzt5Woqk8dehjl39CedKmrs6KZPOAYYRYk_uL9Ez1NWX0yueYMe-0XT3mMbDg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 042c9b7d6ef8054680625be3663c2299b0e6ef3070f39a2692bb8006c313f591
+  certification_hash: 43717bf5aa44c32084708d3a8964571d2a1d2b37015e4f206a6169e31eae192a
   hash: d031b6277e07536930ce3ebb4d5f8790afccd90aeabbe148ac2d8634e896adc2
-  manifest_hash: 74d7e240428ef211db587073cf8d1dc86ff90d90cde135981953dd6f64956d36
-  signature: ysOl_FJjZmy2eVJ8q1cL86xHTUSZBE8dsWz4GZcNtCIfXOdldWtJ4GLZe1PyzuG1JajTQ3FAQ5QU1ASQpt3eCw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 1602d0cbf2aacb2d02b43c83b8f18314f3867f06697a570a08fa6de50bfd0852
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 79
 agents/kafka-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 9630cde18d8b3c81cbbdf21a47e6e945d7ef289a2137c0c416d77f16f7721769
-  certification_hash: 83c6e8fcf2f738bc4288d1a687914bc7f9097401d45f06f27b05ba6e3bf09541
-  certification_signature: Ot_--4ZaiybONrZfxJjDEYzLf5xe7hVASvQUcCl4V12p-x5jENNKGx1sfBGXXn1i_d208ohR28sp3poUh77wCw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: dccd7207fe2cce2108ed82b7fecad2c33563a6add8d63ea605dc3219df9f488e
+  certification_hash: fdf6d4d4f1c309fde5edeef8875daede22f80bc70d033d3c97f7acf62056d359
   hash: d0225113a57c4907df4744e8c7a80bd6081fc2d664a63053c5379b8725c06911
-  manifest_hash: e39e0053113b37ed836fe81f2470a527cf1308b5045b33d3b6b520acccbc4e64
-  signature: 50I70d2uy8wF4qAmGeRuIweLA0ut3WPrfcXVVPsV0nDvOWWjSw8P0opz-GYVm3b4Y0YF6IgHVIqtOi_JRpMuCw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 45c4131113a65672c01739eb46ec46ff7a4e9d28253b77e4a53a66d1b3ae3f68
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 86
 agents/keycloak-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 1518af6e1685d090599df174448cae9706ee8c633e60bd9a0c638ae39dc46f4b
-  certification_hash: fbf2a1853ef479acf854925d9cad201df110a6204c6b16f2d7b13e19b376afe4
-  certification_signature: eeF_KUqLvB9yg_AbZtkq2f9TOm2xUiy6Pp2JtTkRYtnhKcp-lDnrM3p9q5KE4jKjwmnMfRT5hwkiGyw0qVrPBw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: df8e160825eec8c5d1ddf753319324476a000792d3c93b031f07ba4c9c68ab2d
+  certification_hash: a301c0571e228e5b225bc28b4f8770a642cebde2ec7965cad33f82eb6ebb818f
   hash: ff96e788037b12c513d7b84e451eddd5fcc520e6480d7872a8b4dea00efc4c2d
-  manifest_hash: afcfb95effbae3f8af3190f65e8135a0bc90f3453fc630e2b9bf9e18cbcd4b30
-  signature: 9O5xihCU_fXamH8kM5VAAaTjvcR7_yvWSENv3tDw7s5jNp-is3rFRN2xTwnaNa2LaFXW6Tq56mL1C2FhYgQJCQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: cbea840d3c98c8fd1dc6e2e1921356feb5518b541b8d34b49d76851bb374dc48
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 61
 agents/langfuse-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 802d3bbc22f9e2b55fef3ddfec1f9190fd89d97776350469a7c2b78e849c4471
-  certification_hash: 42d6d570a3ca7fc414ebbe225b349c3c9614499075ffa9d6f9cff649a619f4bb
-  certification_signature: speoeYqXks7jiO19cRT2wsNMug45YIwDa6OITBG9TT0hD8TAJdTJ7D7tG16ddnmcfBnTHQvnXj81sRQWwu54Dg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: e43952c122f2cd22b5126be67c8889df5ddd9a6135c044742d8300ddc8f54857
+  certification_hash: a17abd5982c1b10868b97535ecb15d841c2687dc4e526d88170c4178f3959c9c
   hash: 5184df2ae408cd2a0a91d4937bbb727631a6e880a6c22cc9b88002a9b88b86e1
-  manifest_hash: cf6b44feab45579df7acb1f91fdef0983145a3f37dac6357aa19c837ed533afc
-  signature: SiBH64ztapbmE4COzIePHuombODMowdVxQZD9SPGse6l5V7ecwj2F6H_Qf05rGAbhD2p_qnVnd5XtIIFC8WKCA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: a79a47f897490fe40ab38ac7c35e70c37a1aaf318b96723a57626e73f0663f5e
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 107
 agents/leanix-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: c1a286a84d1823ee924a8566552ad963a80f5049645facbd8264ae812e8b8fab
-  certification_hash: 0ab839b412ae7f78c0c96ac03d65e4f86f344b5942c784f121ee6413f3f8cdda
-  certification_signature: vHLqO2iZirZGD5lS2tG6E1ny3rtfvWteSBIWw9GXx7Mlf_4OTtYC4QW0a_tt0c6kWzpsF31nEYC4AAuLUG8pDw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 896e05af1fe65f9a753155157e361d5e271ec1ea7933f715f8c62227915fe093
+  certification_hash: 9a0ba999470fffd4f2bfa988b992d1116e6616260515339ee7aa9aca90b2b309
   hash: 4ece7b7daed1c977a2f4a3eefc00f825fcc74a477a3da9a2dd72d6c241167354
-  manifest_hash: 6c3bf6c52217d02ccc2faf01a97b46cf3694408fb7b56cb5068f7f29e792ada0
-  signature: Op0kaek39yRgtBLr3YyZNdWfITzwhQZwTPb4U1JiouKQZLRGQrW-pbC5JmDTN5E3smqO3149wKywV3TcZkYxDg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 88fd21ba077c6a364e5963210b91de2551ec9f84d3fc1f56c9a5eb7d4ec898a9
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 66
 agents/legal-peripherals-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: a332efa36a47009b6700683707519bac060143ff5d41dd600abc571ccc1127e5
-  certification_hash: 45c4e84a206847eb32490f704ea6d6514a6c99b9d77e232375080e5fd7629d79
-  certification_signature: AaGRQ3BxrlYtt6uPpy2pIBaiWB2xwSoU5CARWiuqJRi2kI72hSXDTaZ5w9tivyAMRICkdLILCMs66mQYeHTmDA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 3ccf8c369b2afdae0b908b8cfd94c57a2b58bb853bc87a52a7966e3e3ac6b6e4
+  certification_hash: 7649cd0ac9358eee49d1c26cdc30209dabedcb5388147695bdab121a2f9d6d3c
   hash: d1afd011d90abd629e62eec1ff07da68a2aa40c57fdb183f1f1cabd33f4664e6
-  manifest_hash: 202e778f7f68db75fc032bf38a377c1c59d377be9924f776912b57d6a64ee8c5
-  signature: yAfQBCLeJhoi2ysgf1JNsut9N4x-xH1iBRGWynKjB7naFGx6-J_Qce-Fq4gJeG_PXlDbJu1tZnToB_Dnw8O2CA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 6b814ab0c8bfd558a4291d1597724661e785f4a5a15c1179b6d44c9908dae3c0
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 613
 agents/lgtm-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 1fd7af987408915d8edd967b134b47f2c374444b3e970a6491d02e022418a5cc
-  certification_hash: 7839573225287942c7451a45e9808e0b41a91b284936d60417ca4a9cc2d16eb9
-  certification_signature: U10z_riEfL7-ylnw06UOIOVBZI6AkQ9E0BcbuEumIVVDWnqcEA0PwcOGzH0CgAGYHrpWKXK3LUaRc6QmzQOgDg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 667295a0cedaacafd2f4706f1c6ac4d5e715002bf6f4a4f79abe7dd4a6585e02
+  certification_hash: 6fd4e6efdbe858a9df612c50f9c4e80314fa4f453e6f40f9b08bf6b333d56437
   hash: 665de7f07f2c74ef87ac27e3d6f6bc285b3f82e1c50bfd2eb0fe0bee4b407787
-  manifest_hash: de8913256f4aadbc602480e93b74372dd13212c26477ac0aa39e36d7d8177d61
-  signature: JZ84UWDm-6jJReBdM_H_AuqG5zaU6hB-pfvDH8SvuRUZ6kmIlP8Ledrlzukd0H0BMlY6wKY9aE2Iy0hGr9j6Dw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: fcd073440e8219406de72316d674372e5be9fb326ee76cc3586a63ab5628011a
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 86
 agents/listmonk-api/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 5e8b7ce947d8df0a8032f5fc5af0eb3c5f523c6a86b9a067862856b837218207
-  certification_hash: 6c559502c25f24715835823e63b2752e8907797515678c3a0cb337c218955292
-  certification_signature: bvXiQ99Zj36YgueIg9BS3rZ8pTVnVFEFnWwuAhIFuqLSqB9w--jrA3xdoGEYeLuTmssgzBFX5g9iWhS3qWCYBQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: b88af392044bc54f715b7af0bca1e5a651d38e3ccea3bef23c13cc78c6f494be
+  certification_hash: c1385150647f46bd78a555f8f97ffc4f29548886b3b3e5d5282c1c154ed6bf92
   hash: fb2af6e860a9e9a46bcd7ff1c86186bc4a6872aecb6b4adba6542595fd029f02
-  manifest_hash: f1abd4c839b458b192247fd1f9532b7afc5967b26e90428525e6c8873d6b5ad4
-  signature: 0C4O3Ojf9uRf9ZoNsrr-4M7K4M5BC2TLG-gMT2b6M_ufeEgWQ8JHW3_3uG93LvGKX-mSn999k9EVVU5wLw2qBA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 997ba059b2ae7b883bd43d8d32db07339a820af48f0e6e7339b0ccdbaa9535c8
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 56
 agents/mattermost-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 798e278062ddd1208c08070ea9abc3199ec309c411d6b060ca375e2c741ac15d
-  certification_hash: d38be4d17ea16a347af4e2f2a9a48004cc86203101e5a3e22b973c0b8e975dd6
-  certification_signature: BKkp9tIrKaeBLmr9kKvK074nm-Vu7BQE6PJhOhmVZlVHX68wxTpxjig612lfb8EnE1fPVUORDJcykVfrmw3dCg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: ef70726df34434810f423fcbf409ed8f8d56ab2cd792909f4229ff3979773a65
+  certification_hash: 9db484b6725d3dd403ece127cee0da50d59a324aa36fce3651d6b7c645f44cc8
   hash: 523e80a3a8db0f56473f667276fcfc58ce5858bd3ebffb31284d3f11a22cf117
-  manifest_hash: fff0ec55c58ea945b0aabc085e26cca3072f654ab1ca3ac5605024f055e7fd11
-  signature: _-vGvVbxVHAAzCdJu3vIDD7PVUi7xTALw8B1s9SpBVOcA-fH0UfW9lI3wVtLpHIAFk0viDOjZFF3RsNUJUBmAQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 82ecfdd854c4fbb1abcd5cb5ecd8fbe48bec625e76c8bd145923c951079121ba
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 39
 agents/mealie-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: d66fdef5ce5bd69000382ea85e504644b9eeb1cb5a7434ee1e3ea2b2339cb88d
-  certification_hash: d8e6390970345c0d502151d160938427683ec5b35b0b0a2b553f009917fc0bd5
-  certification_signature: wdouT_Z30b4r-r51XGfUxvqEm4u4fBsJtZ4N8e8vox-A26fM8KoEEr0Siw3kMXhUYf_MBveb-iQqa-iWWW-6Dw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 8772e1ce64b2aadea0c87a6050d288a3c18fb13ba9230aa6e2d1e68472963ace
+  certification_hash: aec0dcc98d36b369391761b0f137a3c2fede4b9b61fd318151144e4bd767604e
   hash: 9695afa4dfd82c893af66b106002052e5214914f524532b605d822bf7bfec505
-  manifest_hash: df3040103ceb3f7d32ff8c69ead90c3e10a7addd45e057ef679ba58af1664a31
-  signature: yi9fMcA1fk_OkwgAMolXN-E8TyrV89XOhv_RB2XK2pfe2dfPNYwGYc0HlM9gafjDTRIzO05LcajLnM2yg6NmCQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: beed6c531e7d93fde8637c4b1a43bafa2ebf2db1e481bc1a6b42772ee7fccd84
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 102
 agents/media-downloader/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: f67807952980855cf5112c38acb822ae927d511b41c4583cc24787fef70df96b
-  certification_hash: b7a57d3561491ff88ab15274bc438f4f9bc729880acd66415dd3c1814a606f16
-  certification_signature: ZkizP56FnhIXGkMqVv-A8Fu9FsGDBw8UsJSxoik9yRqV2_StCm4SCYI97pUhV_65CDFi_TBROYxcbeNcAvLJDA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: ffb1d230eea9e61b794ba533e03ad8c40ae1313da695fea26123cf1607b44c49
+  certification_hash: 9d3ad2ee504f0e34870db6889daa62e699051a2020970aa39e6008a9c5aaedea
   hash: c31edbe139ecddda7259cff5dfe2c35bc53c3945b6d85c05e9d0c7b7f9ae0e0f
-  manifest_hash: 567eed884fbbe61cd124a7fe10a8ddbed38454838f12cc58d3939a9e4f143274
-  signature: Mw8A45-hmObhkHJ0usHZcl001WV7nB0gmTuPrykjk6oeVi-0DOcJIVE2V2rZP3aXt-TmoXmT2JHnqaK2RAPSCw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: fba2a82b857495401140d0c8f39f0f768cc0dfade8ab861fa2fb5a04f2b2b314
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 23
 agents/microsoft-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 239867232b956b3e8765e64d5ff44916771aee019894023812f3c837d0d89b9f
-  certification_hash: a394e45c8b7f435b4cb5e1437e6f52be81871dec0f8b0f3c2cdfe37b182d41d9
-  certification_signature: mkv0Eq_XlA1Sl2qzMPiZdBPrTiY3ZOeqsM8X384sIYxDyBgmssVRtl6ZgvXyJ7OJUAY74bhuhhGzSk17GjBOAg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: eadc28281e7aa45018ceb64233f458bd91b5ac0791317d0071e78dc2109b0e24
+  certification_hash: d30a6c072e09e4b3ca9ab598a6929ac0efea416780ad89e471d4776afff5b3dd
   hash: 4d5545b2fcef1af23af5da87943daaad04295833886a037217fd6cec9b357158
-  manifest_hash: f9866cdc31be258e0c8e8ffa49e677c85792ad63717861925f60fbf686de2d56
-  signature: BXEz3H8bjXwWPfI5bHK3gy4C3DeD6lXPZFFXcUnf0gLvO7dfIbkiW_-vOuCkiARJuQnE9N53i3auNPI2JFglCg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 4c51b12be198e5e56e71c5c090527115214c96c583a9d4e08b7aaff1e0da7205
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 35
 agents/native-source-connectors/connector_manifest.yml:
   algorithm: urdna2015-sha256
   hash: c97eb180307cb9e08b81df3439ade1552d91454485b83d085a9ba1b3503f4a8f
-  manifest_hash: 29b1a147fe0ed04c2fee6898f593b045cfeca501bce628596990eef5d0e82436
+  manifest_hash: 2defbf740ef27d79115fcfbf4aed8158c259f0da114399e2cc70b6bd8d4f057b
   signature: 5oQc4sQjcZwURJnUErSmPFWbjtZh0_jjWn2aXnNmp9XIMXqDrv7r-JmIIf4KCv2cZJfCSJIX6_M1a2AAdGjaCw
   signature_algorithm: ed25519
   signer: ontology-manifest-generator
@@ -624,406 +460,298 @@ agents/native-source-connectors/connector_manifest.yml:
   triple_count: 17
 agents/nextcloud-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 155fd5a03c5fcbc696248ede0da04155956a716bc2015e11bc70e93498032db7
-  certification_hash: b034e3643dc0b72fbee8c9f33c85ba51d61420fb095459862387947f15f766f0
-  certification_signature: KkrmRrgBKut5NW1euiIliGKXhF0gSM1WUR4tqkJxs22jheQa83k0_JoAd9HGSs3QhRkv0Gqvi1JUSWpPuM4FBQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: c792138aede51f6bcf7e374b4ad53f1ea1181ba32bae445626cfcc4bb377a423
+  certification_hash: d133a1899eef9395cd1daf7c67c3aeb8924847471f0bba736b67557e8bef9889
   hash: 30081b8f0455a3b2034e8242f40f194740a754ee0158da009da9dbc3a42fcc3a
-  manifest_hash: e794e6ab95558514b11c4ea2e85f9bd13129b4db3ccfdd18df3f11424408571f
-  signature: qCRr9LqG30t71J48vlsbOmHa4FMIbiJco2_tl1usoM9QCu1R1PSUuhI1Y7KuNpCYtZHv-ZUL9qJjgNZSJt-sCw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 137fc915165e4be2a7b4cb1b6399d54eb61dced299e7fa1712332ae2f2076677
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 46
 agents/objectstore-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: c66455f9bdd8160e5df8052782bbfe36cedfc4545b50a38c76d52320e45b2ce3
-  certification_hash: 5130edad0f851d435055d8507402a89fb3b9f7c404bc8fd2b30bbc6df9569e8e
-  certification_signature: TJoNRsEskmE7_uFSwyKB7WUDw1sj6cMzIOPtkEm6K0bKXaYK1kaws4p9_OC-pFb1i5CHEBNrPIHxEJIZgO-tCg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 67e96a0be9f9cd4dac7268a2a85b37a19161da7fb57f47b8620000b23fb87c3b
+  certification_hash: 96583022f228a3872e010dd3db3d3baf65c467831879f892743b154a27156f97
   hash: 291cff7e1b5c3b2b0a08e66089821e2633c489fb72896cf1cdadb7f7baf8f25f
-  manifest_hash: 0a9cb3f5338f884970ffe5766e10015ab82e8bbbf548c5bb24b30d6c1b1e8bf1
-  signature: qNJu1JD44rD4esCaaus-koYkoDM1MEc8CgEH7iojfV0rTDc2vUweJPnCBTHob3F9OCwYPEQsqH0n9RNuakrkBw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 697c308712577a75d1a1a526cb940903bc28e5810b1fb75b1db52051bc597780
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 52
 agents/okta-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 986bc6bc472e53111c65665136745ef1a26caaeb9e0b7d39e9b09c71da2618ca
-  certification_hash: 722eea62fce190c756d0e23de46baa43426afaf7ffb07d6e4885cee48c60b8e9
-  certification_signature: 9wjyKJkysJjamaqKGns4XgTemsNFLc73PjWTKqKVbvdwJI8G87Zjpp0NJ6iVnAxG2q2DcSegPbJsZFXQO9a7Cw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 0916e323360862f628b4d7a3d2094a902fd5fe107895fde8b1ccabf5eabd195c
+  certification_hash: 14400688aa372d254302283bb4455fcc8ed520a746c0398a44d47b6939cac4c8
   hash: b6a7b3594c4788de68bc6f1b32793f0d59089a2cee9ed88f54908ee5387360d4
-  manifest_hash: 32572d7c95aad9f0a9f1182273ca18c335ab988121634f47d97c9efc7a4f63f5
-  signature: KrEhLB3pMIZmyaR1Y7lnVUsG16b3K0UFNXSOP9sk4uHT8NuY1p6B4p5mqjdMRkYEJeTYBjxi6dGkPDkQxIW-BA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 07c7818a1e6fe3701fbae2353002af639e938bad92068e4c78f9ce51dd9f47bf
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 87
 agents/onetrust-api/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: aa1cdd1815e19b2907a6a84ae9d52fa9f6314ca7d018ced7d70ae3a968078c63
-  certification_hash: 3235bf59498200aa221fe54a2a9e2c10a960a9955c20ea40206e45f9836d9d5b
-  certification_signature: Tnp8iEFkl4ODPQi5sG9W-YnekK9U90t62l8CDQEN5MhXoHWGDN3kqQ9OyOwyQcR1tuAFDdS91L1oIOwAvfXOBw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: cc69baaf05ab9b3086feec1db46c27e16b8f969f7a7c9f1c229356dc8c029893
+  certification_hash: 46000840be519970d1f0f8549d0134acce998387926026a467cdf8f42cc8be1a
   hash: a462ef0407cbc22d9c73e5052db5c194a2b29b78478492379370cfb8228c72b0
-  manifest_hash: 6fcbc504c87bb3ef498b915e0af675e0223c1b4c7c48fff480c543472c0ea966
-  signature: g_TvV2M9Eivc7pcO2X8_CCVNkjodeMbKRjmikip19BSVU9-ArpzfCHo5F20CtCuGBZmiK4n6H4DCn4axoe7FBw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: eeadcd74ae0bffde10d4bf36b88e5dbec03ae1587d049805fd6a45d6b0fd4416
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 96
 agents/openbao-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 4e914629977adf5907113958466abc89afaf1b213ea19b577cde13a601a313eb
-  certification_hash: e70e61ea28b035019478d0e8c5c21bda28cfcc743236532740956a8aec3914fb
-  certification_signature: GuEJQAbBi5LEUtRRKUc8fcql7sEvfRl64MjQhTZtOCH51guzxXCqxfV-7TzBRzKpMeHj6vtllzksG7NCkE9mCw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: ff8bec303a423da72b194a400d1a22e008968c712ee9d14d982e9feb8e5fbc82
+  certification_hash: 2c66aa77ff27ae29c2cb0a087e17ad4bcded7605a6d6c22f61b33d0dc970aec5
   hash: 7fc083afb7920f12d29a561cd551a34f5204e425404676a0ddf534950bfae9dc
-  manifest_hash: bef87723e4a0bfae71f2461b3ed617f1649c5bee610cabfeee4641241fa85a28
-  signature: nQronJOThKM5M9pD_UiG8zok5Q68lZ2Zeyy4B-vmCxMv7oGTR3rQ1Dr9pWud6OYK6Hi8fb_ZrmvfmambaTjeBw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 82f510c47529f00a26387a729ea40bb730061f56b05f16b92f71049c679c77ca
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 49
 agents/owncast-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 0f68af167e990b7349bab7561cc908f3f5b9649c280b18efc84e544f1a6d5873
-  certification_hash: 5be590cf6a797405f0074bf819924de76286a9fbdeb2905bba039519841f53d3
-  certification_signature: uF5Zak3JoKWaHcd1YicQ7WKWboUNk9ipvz8Tg0tdmz_LVHCwqcdcPxUqUcATYbd_FM6-azpLMSeViocPAXYbDA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 23b65db00473aee1f642ce4ed9291b75683efcc7585c36ffde4e99b8e5098075
+  certification_hash: c872d6e674bff4db00c13303bd57db8fc34db74cc9e69c92bde8bfb6521fdb53
   hash: 834dc5aec4ec9586065bc2cf653848a4f27d4cc3fd26e318db401a440da88f47
-  manifest_hash: 740af889e83d438b6150ba3e20d218c63ec748c1e1da780da62158326352d54b
-  signature: z8kLdEBVkYqaLzxNNVfpHCG-OAZCyeLc_70U1C8gm7_9uxoc3EVqC-RWxB8JmYbAvciCOPwk1kTaQvFLrZpDCQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: de5021c1043edd17acdda745ed655ffa5d824d79dce2219f33458be1115174df
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 59
 agents/paperless-ngx-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 3cfdfa85afb126301b8c516d024d7b09c6da3f618a2ff843a985a96cdc4fac9c
-  certification_hash: 41aa3792279cba98adff5d2731844c2773f8172815e78833e138cb778c428530
-  certification_signature: WsO2JYoY9ZIl-Xl28Mp2PzkVvBEwtltRthI-SYqk3GWZUZHPNK9Dw5wgwp0FpOKABqHW-VPWbHgfZ0ceogr9Aw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 83c4a4760e4a1b7782834a6473a25c6db83d2ee05460e5e3e23cd2b5c58e7f74
+  certification_hash: 3532fb6af963dafd7febec62f3a54c70cb58fad4ccce6f5e19227d514c87992d
   hash: b23d9d6d30379acaafa964fb47a13097010dfd70f7decc48cef1ef004f50849f
-  manifest_hash: 86361ca8b75c8b3e7f00ea2f17ffc2155f98d34a7fe9f0a7887de71f81e9b6c3
-  signature: ZUpcMuecSUiXDM2as2GGa2QpdgbnurmHrk0YOE7rkXVZSnIq7zt99iLioPuF7bzRJJT7pQxzzqoCnrgSAeZ4Dw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: c3f7983054b3abbb87387a6a18fe12164df2efffcd5b5737586c0dd02e44c5a5
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 37
 agents/plane-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: c7cb7fc6d6302a9eb5ec73d157a41d2db70722a545ff9250d54a905c4caa6a08
-  certification_hash: 9c1061398f60783fc1715b4e31461f2d7c697cd5b9f0f0d1493d9901758fd4c5
-  certification_signature: nkk4DC_Fy9Ab4gaDqfy58fnuUURecEJUbR70Nvfs5lCzLYy0NQfy-pQZtG6wVyYltFpPVGdq13Ppkfb8haQsBg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: a31af3006e9160e57c1238a901fbb22acb173ca8bbab8555f123e1b3ba30491d
+  certification_hash: ad81cd2dc81e057d0bcc4b8b0729ccfa7080e994ea8ac8f1b29fe0ef34ff9479
   hash: 71d6341b5dac59b067677455503df358bc0ad6c692237c54e35110b2623cea61
-  manifest_hash: 81abe882018a0371a31d8966bb4e2e1bfccfac069d5d3b1e145ef991d74b501f
-  signature: VlRLGwq09VhwfaroYQlHU8QzYz63aAkPkW-NNeOFOY7v_n1vT8iQiXvMDcWYCy_agy50CNHCwyyaq9bC2TimDQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 19901365aa6a89add2b95c83bf3a29a0bab20951a3b3420621bb91f20d4f8606
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 68
 agents/portainer-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 92a954ae71170edd8d7df2c41fa5a0ae7f75f3cb047e95fb5c34efc432808781
-  certification_hash: a2ce0031f1433977c53eb4760ef609e289691de2f81307aee78a0eefcec7de70
-  certification_signature: 9MHCgvurFB5ep-FyYBBfMfWnFpHwl3Z26FJ5kKvtwEiW-BZQhJfn4E4f1f5sAhubiLTVLRs157w16HRAfOZ2CQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 11cede9f633d5e878de4b52f768bff7ae60901e5f5fa5fb095651dead546efbc
+  certification_hash: 5bc385196f9fa9ec20b9c1979f0d0ba5626cb4af25f49c24a570b7254cdab6d8
   hash: cae5fc566d6c1b45d1db3641f1d4e1f481a0f308a084db6acd77627aa123eca8
-  manifest_hash: 62922a95a2737788fdbf1fdf8d71df695debe4ecace1a2beeef018f2c742f0d8
-  signature: 8lvh-vQ4_aJ4XjuxPcmRxd4PSScrkGkTl0xkp78DMrrOEOGgxFYX5iKU7S6zsXoWokXKNy_iWxmeQv50pg-8Dw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 8f3186fedaedc517aeda225a00d88793352e39502d4d5ac9b81cff9623bcdf17
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 93
 agents/postiz-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: c8ff82d27f540b3b331e7c8cc9e4ca6b2d688a8f9ee94bcd44cd41b69de3b83e
-  certification_hash: 2818426095102c75b4fa1c20152c7e3311a2071e89adb515c5a5d7294037604f
-  certification_signature: sM6PeEgtvUdKFsTzqhex17WhWtfDv8la8W3i1CuFnWF-mt5wMWJmFnkqWXWCguBorELPjQK_a228LSw3cRJwBA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: f2f442be968ebfe23abb0717c4e39469814aacbf4a2f07108aa83777c02607f9
+  certification_hash: 9e4b9b66586c3322b2604cd73266eafe4d2e0490a7758a54bf0d08c7efdecdad
   hash: 320936b8724320ebc18cf0f5b71b7cd1b14ee7fa53b9c5e974008504ef43a9ea
-  manifest_hash: eb7edb76289a071198d73084c3c82d603fbe23f436789cb8f96f53d1302c8092
-  signature: HSG3Z80AtrWLwfwRvccQMFtgkehIlQ--mC0xbByluqbFzN-9uLuUCx_hjIgSUM7BN8oSmeEtNxGXqtxRjEqzDg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 298f4a5a47d6378462e4df878d0cfb367edabe8781037455f148f48ad2321992
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 136
 agents/pulselink-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 3dfe1b7dbe9c2c9c4f052427c7f9e1cc7e25f6192fa2e53860de4de166032aec
-  certification_hash: 6927bac434fec94f2ca55c756786a0b54dd14bfa2b76b7e9842e5cf9e7c1e897
-  certification_signature: C6weOy8ISCPIf9KvEox8pRSdI9TzKUBqPMfhvyaN4h-mgQNjbjoA1r8UpeyvydUGL2z2VW3V6_fb_XeTkMHDCQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: baa04ae361b4ea473ab39d18d74bcc176fa294e0ee3f26ca9fc7abc77259478a
+  certification_hash: 1f6553d22ff44d0a138c282f1d1edc13c03c147f58aa688cd262ef8be7775ec7
   hash: fd2f3c38c4a0340e5e208029d253b399fb77d895d6acabe0ae06de65e30604a5
-  manifest_hash: 560dce71c79bf46ca9451bb3be0dfeeed82fca36ebb17a069b29cc440997704b
-  signature: -WcScZvmUMVCX2grrOhF_uQda8sbsMNiSBJPnwCczwDsSoFujQ4iBU8A6xJoO5HsLE3hrfG7ER76SRaAiA3UAw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: fabb4e8f17c37323702592641034aa167bfbe1df88467244c44961d5ac76e8ff
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 26
 agents/qbittorrent-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 74539f4a393889a9bdd35cb66a5f983882210a09c467c39842eae98df00aff25
-  certification_hash: 28fc1d8e8c9ec8424a6c9aa445852b78ac77127a70fbe87dd190e7b7f1c495ae
-  certification_signature: cgUpU1VM4cNF8QVCNQO6F8DQtkQQmJqnfy-MOA7QjX4_5PMtFhfvhA9JWuY3uvJpIkabxf92BtZQ_JKDA8dyCQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 8c512738a4d9cd1c93aee54f31134789e23e0d9111a6c5ac3fdca3ff0d2ea4cc
+  certification_hash: f174ffc6968c90cbcd5e24cdc734b7c57e64655eeed8319b8fb6a15b0556bcfb
   hash: 276e0e582a3d0e8f5c5d8551a0954984ccb8cef1eece2ae33aa188596a466fb9
-  manifest_hash: 34b3991dda2cd328b44bc93e7f20f32a374c4c9bcaa6a03d4101a621589f13e9
-  signature: 6_ROQlHMbp7gju0g3FyrzXkzyA-QuUHpV_7Ca9Z52kuv_lQ9T8Gil5_lNH1e5MHs3W4Wgbz7QFrsPpLE4OyJDg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 0961fbe6c25dcd39dc58ee4a427c0774e31ed21591691a0c6c62f9a8eb1348d6
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 49
 agents/repository-manager/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 683b2b70d1ba439dd7716e2e85ecf5c1d514bba232d3fc8e0906612f461f24b6
-  certification_hash: 04c6bca7f2ba328d36265bf23f99674d6a895ab38f362e7bd48e199ec208c543
-  certification_signature: bxYxrq8r7AAfIxKOcEB7Yv0UMFweiDaDBsnpuNu8F2m9Vae5F6jpq3VYm64KrqFuVdSZk3uiWizRJ3-94xT9Bw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: a6dcf90a9679bc373be87347cacc7f0b4b1a2057014a3c82ae3b32f7bdbb1c09
+  certification_hash: 129c0d2b2de3c1f4c232e12a5a3c2c8745bc12f7206772d0d847c36aaf572d96
   hash: b133677226f0bc9b6587f591f74ca86f03143f51c716b557f988f51a10e58fa1
-  manifest_hash: 3c3321e733d0f8b0bdfd3effe597195972bd873ceb142541d579489eee82eee2
-  signature: 8zg0I6EYQAFvHpwOd7buKRBDKv75eCrTLuJIvoCCE5aaxy5TVKMJqKi7KyY0GSkyLfLXZ5N0_1sa3N_YeJpbAw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 47667220e61b9bd3b2c8b8005f123dddfc03734553ab6a1578039db60f11128d
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 71
 agents/rom-manager/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: a2a8c8f1082d0a0cbb72d89ec2c2f7a868df1f7c48a17c4c574ee7ef384fc721
-  certification_hash: ba9bdd09e402a2123afc0160b8878c72c04121c6fb48c3bc87be4ca0517b161e
-  certification_signature: ls6au1iw1Xdm4pN0c7EyVsV31gPm-M9Bu61CNEdUwnQZhOHw2xcplU-U0XcVl0J8Cw9paMdMRT-jO3vNo9MOBw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 90f0a3aa978eb06f3972c5ebea3b382687cc058bf811f05d3f4c3586c08cc6bc
+  certification_hash: 8a443654690f6d2b66a87584b96f0364ce296b77d732bf9203325fb5b3e3b039
   hash: 24d739aa36412aff38c84bb1f525487ff77a25ffb854f7b7809746ecf32aa3df
-  manifest_hash: 74e861a57d26a229ea2764ace1fc97818b51e2284731398ab4a4d911d2718359
-  signature: 25ja78MLjN7KS88qvfBFCbTVxnzdkF-wbf2UgtVkcPrNQQWfn4tVgO2Dc1ssxtmWxrWs4Mjuc8RJyHe6X6pZAg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: de9301a20dd3a998b9ed49666a6e49a6aecf405d910b0d6d5d031edcd51793f0
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 67
 agents/salesforce-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 1f56ce08237258d6e57ebf0dfbb4f53d3e4d3bfcecd789d4760d339958efd968
-  certification_hash: 8b3e497567345a77d325f6ae67dbb1c0f6c21647faac3c3655a90b7386d82f13
-  certification_signature: x9SMZ8DXM3J4uQBPB26aW5sAacDvtoFaOSECkL37SjkL1WbB9wPz44ye_7IZ4WuvYEtHbGihNDCaq6d4oC9LBA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 9a76a048212319e95f353bda6fc7e580a2409ffaf581d03e361d56e7ccbd5e4c
+  certification_hash: 9578a19d825ad6c418ce3f8bc7a69ee192769e7ca6d1d369fb403a59d831b263
   hash: 391c839a601d69d241efdce3ed5e6e1da188e304b4ae36e3892de465d57c5cc2
-  manifest_hash: 764f8f2c1bd32fa8a1e84ed0eb80608dc3255308bb172e7850e5bfd7383da07d
-  signature: NZbd6P4DsE7PIJKopN5Wosvq9AVMleEAqSzP0SG2_JSgTU9FW0zE0cd7zF28L8u5jkgYYfTlMl-wmjZloeBdCw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 428ca24fdb89316d1f290d8fc8fe10aba9a3012f36384173afda0190aabac60b
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 64
 agents/scholarx/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 24d7528cdffe6678337fb6e834975a3b2ffc413b909c75390974bf9c7bcda2af
-  certification_hash: 40c86f1d5b1058ac7363ad7d452b54e7efc2ceca29a97185ca021a3bfac5a613
-  certification_signature: FEgTKK1FAW01w1ZmjH51Y6P5sFLJSnJFrtC6dC06QR_Q5Jxpp2P-EGjpX-2NDAwophIGH3OBCnoo_zu4UI9DBA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: b9573bae5d16a4c30cde1ce877a22dd9759743214c414b5a4be88044eb6d2549
+  certification_hash: 78e55b358330f58b5dad408965a5bbb563108e4ac80153427025e3c3e123cdd5
   hash: e2c513874724b2d7399e6a4caab6285a46cc7424eaf9b7375a89c287ca79cbdf
-  manifest_hash: 7591ec16f5a89938690f4354afaa50244925f6b31637fd1e6477876f0f2a315b
-  signature: Sig33_vD66OWN1XymmSPJqXq7CbVAWL9gx10eS-yRTPIhj63BNhg7p35AZcy8b31X9NXEcSTcmJTSGXUrb2cCA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: ac1d6fcf089519309e86097d0cfbc55940c5997b782677c56d4eba30e2cc90a1
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 52
 agents/searxng-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 64c0805a6ecb4ae41ace850d23a8d837f0be0e1d65facac6c255bd7524751798
-  certification_hash: 284268f9afdc048d3148684f2f2767ec38c914bc20d85bddcdba06b73421c26d
-  certification_signature: UTclwz5_z4k0rtgrHBmWXwp04YC6UuOyn0fhKjuKuyd1G8a8JQvF5NZKA2LY_trN-pQjXfwSRqf7j5NDhHeCCQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: be1f92a201aed4fa9d7e4f61ab47a255cfd6a0dd46e0c5c7a62ff4d0c34d4f21
+  certification_hash: 771176d1107243ca7eb21920cd72d373684308992b56e8ab8702666af7149746
   hash: d63d239f764120d792b8219c831075e8b85f99f874a01fe46e8a7494d27cf01e
-  manifest_hash: 5736f7795e9a26d01d238a1909431708002d97b890419b20a05b879e802fc69c
-  signature: 21J36Dz6ejUCWlmvTHjlc8-6urq6O7-lOROldHp33WDYkU7lNit0JXtcHWrVCohD8UdG4-Fah7rWfy5N91b9CQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: e52eccfa73fea8811a990829d5b748916b2577706321c5c4da89e6c3ee2bdca1
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 49
 agents/servicenow-api/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 7315c0386455eb9cea4ea5e2f3d3b9800fe2ba51bcf72ec0f0784b01dfb9e66e
-  certification_hash: 0d8e13679fa7b94b6fa8b0b7f981b36b6a97317864d41a00ef9c987c9fdb9e1e
-  certification_signature: jErLbOk3v73wXGEknyk35CsjQzHrtnsTkq_QMdJrS_3HcOCB7oB_kmWKk_4qGfMKtf-P0VRd-BeRWFYfXB31BA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 3c3443ad3415149ee2963d494e21c899810826246c2870184f8943fa88c27139
+  certification_hash: b01b13517ec3e43a65375d2ec690baa12d6f5829599ea849b61cc86b4fdd5633
   hash: 93c094a3c346daa1097a91e18ee6235942b814ee5b8947cbf4167731a6cfb099
-  manifest_hash: 1c64d7a4562d3b380020a8fbb5d946d73189c6cb985bbd76c2163597cf1f204c
-  signature: TSAkqUrRa5PFzvmfHPBB39DWSRVM-U2r-4LHR-ArY2R3qnydUlulmKf7MCIZQ324wwg7Cx6VYYY-NcP-MzXWCA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 21de32418300f6866906bc5a5497e0090b9bebf05a344f2841f1f99fd2f00412
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 34
 agents/sql-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 737398202898d918203afa63c1bc9ecb87fed193df246086c44cfc601b8b6a8d
-  certification_hash: 3f169bd4bd52d87f95c3fef31189009bcb9082277ef3c32b675f6b4808d80278
-  certification_signature: cY2WiQbMT2q90j7oH3_CmnjI7GYFlZJRfich2RdPbUKhX03-l2pIZrYdH9FmyQsghIazHv85Q3JcxaDqF95nAw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 2e5a471423fea7eff0e751f5648da4f532c18dd50fcf6b4f1b2acbfd4d41461b
+  certification_hash: efb963b8ea415cd975c180a7a5725078ff241ff8cbabab12736945da594ba3ba
   hash: 1a27842b0a88bb5583eb7016d40e5d2e90a5ef0ac7083c92aff8e6ee24cfcaa0
-  manifest_hash: 6193b4b8b623e4684d15f7f72b71391d915a75a77bf05ffd1e29bf838f4e2b40
-  signature: Z6f3r8t6xjJyl_lPdAFFi94jyNV_5-EepQCzg6i18wyxZNpa-qpvKhEf24_vBt1XrCl0J_Xih6RdluFZYKI7Ag
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 87831dd80b81a738da4210efab692c72d316211de6491b3e319064e4006ec651
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 70
 agents/stirlingpdf-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 4c0505aafc0e707742ca28f3c9135e72fdb5b50b8c67845e243aef592f5fed05
-  certification_hash: 238d40e2f46685ae8fd4d7fa60feef83cef44e964a837c310eafda26c704c1f8
-  certification_signature: 2wHCVwvj_K7pGv8YLPzTi9PeknxnGr27VcD88kl_HjeA49rgeJHKpLLGcOSSz0Hu0bJlmm66MEGMsfAjGBuVDA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: ef85f69f34bbdf4434f4389ce4fe206bdaef1cc5b353bfd53c61f0971e726917
+  certification_hash: 9ac69e5a8dff19bbfb9b1d807aeddde95b71cd14ad9866413d277289df993da6
   hash: c1d760ce65f0b63f92c9f0ac12c78be258154c6e4bca9eda7daee806db9ca564
-  manifest_hash: cfd6604fda21796513c9c30add0b3d054c1b728d9654b6016243695e23cfe926
-  signature: hWzLXE68mqoVpMIP_Up4_Y3ZyhKKaft-tS37gT3M4oL72Ae55hXMr9EehgzmnCeOWdpCpuNEc3511xgEZzE3Ag
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 46117462d31d6fdfc692d16116a570132918e4e9690d9b2ac592746e6d1cd07b
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 71
 agents/systems-manager/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: d1d5ab03950f6dc049d3e7fb649a96e5c155881fac8ae292ef46e7f924e46d29
-  certification_hash: f2f96f083330a8b8a5739e4b49aa0f86ded0c2ab5582c852e529c4840b77ffa2
-  certification_signature: LnYeLKcRvEK2P3khckT5Egx0beEvTAqx7aTX8HuTOfEQ4wcfHqDniwsrqfchPTM3pfndmm05-6mXXm3jUQ4gDg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: cdda5b34c5d531b93deba0af77c9ed019e6aa0787550db06a83ddea35e440638
+  certification_hash: f73e9d93417d70fd8ff0e7f1a67c323079528c73dfefa076a5ebe42a0688cf28
   hash: 8f5d38237a5426f389cc0457f9057de6a4587374d2c01817fe0a59c7f96d11c0
-  manifest_hash: e196be4df3ab10798ebcea11bdcac3cadd9c0bf83c721e37f331375149b333d1
-  signature: 1zGENE8EvO_huSZ4I--X2B0V7flOjhplM1Ft1-tK8ZvbkmbJqSP55escn9OC9EK_MSysJnOe33-urMB-ch1rDg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: e9a1a19d6e1a54c20a5b533ca6416075b012f6444f0307e1cfaceea383568778
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 87
 agents/technitium-dns-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 784a06fc7c3555a0c17b78ff981044e52eaafddfedc4e9e1c34258140f7fe64f
-  certification_hash: e67780cba4c9371dcd106f3a431c8a24098e8e4f8804a90a458e5ff844019eaa
-  certification_signature: HXgzU7Fd4JUUJla45C5-kIgmzLEq-tWnZ6PhiFKx3AY47rExjLxFofOUZFRn2_Pen8n2CuXIycz3GDg-P-LuCw
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 8be77fc715a2ec4c6044d1170a3f6f8a37f12e087ae164a21e220b674d82151c
+  certification_hash: ae9cb7fe358bfbe3f6166e6c26522cece4b8a7f7978914bf26979967f2b938db
   hash: 3de400c3920ce54a01196d43bfc71be922c56be78bf1c0d26210a133519d7c18
-  manifest_hash: 33e60de358c6a086e8f67f6b4c00cf07195c5f1bde5475ce6ffd09386e2e3bf2
-  signature: npe5s42sLDuxIZDpUK7QRL-7ntWrCpCA2XBZooQ5P6i-agMSmZOXucycwXLnWIAhDOGBbfkuLFxMIK66lNtuDg
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: abc57d443b24f0e4db6ea22b687caed733f3e83404a43e86dabe3ae96e3420f5
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 63
 agents/tunnel-manager/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: a74d7c5ea1d6e85ddb2a806823829c8d4a2d8d919a5dfe10885861e0b3aa01e6
-  certification_hash: 0433d8d8a613ad098f6f2a0e28ca05c3b64cc9bb8cb7407ca0936b5a0d63e502
-  certification_signature: S2kME-_qdwZqdCZRNnluruBKQS2-aYgA2saVURT9I87Prj9aBlwC6cO74BwXrYnAY6Bvjw3D4uVoDaUhlom4AA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 7dc357591294ba7b1c74d91a3fac198f924af777505ca7845b833c0463e0e7cd
+  certification_hash: b747a6d36829849ffe1bd6dd7df82bca946af513cdbbe889ee6bfc0a43bf0dd2
   hash: 940e14de158b4cedef693e0e9672ac6c974441fbfa91ceb8e98d424e7340f4bc
-  manifest_hash: 6b46d5f779566458baaf07e22ef3dd4314a3a2204676904a76b6d087c3041669
-  signature: 1nuO4TSKsJ6p1ww47ZRpc5vAMgBRrXVTKqOCR033cHO6wHBDlfaJVz3gUmDfLCFJ0MGGw9Z6Iw3fL2ullbu9CQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 7931578f26c97f909390133293d7df421203fcf563d83d78cc04d9fa61569fee
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 71
 agents/twenty-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: fe3b0315305fc268178383229b808f7a0bd4c1aaaf327d8f7793afbf758f7f29
-  certification_hash: 3dfcc0be1dd4fc96308912a4112354c0c4f7147ace4564f18b04d32f2ca22fdd
-  certification_signature: -CMHjCMcGVpjDi5kxZrrbr9LoVwuNfn1Y4P-w2CtCdT3aiE-6f3IVHF7wx7Ht558tgmFEDnvd_mlfHywTo3PAA
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: 72005514d408534b4ff55151c8197151483223fd8074bf9330869ec7f3e06462
+  certification_hash: 267950b7f58f3164918d0ff276ab2b6f17da0807510c3a98eb4fff2bdd89ea60
   hash: f3c112283f5562c787dd1fdf36bad4bd6153550c385531013c9eeaebb56054f4
-  manifest_hash: 11889b5e49ae2f2460205fe3194e6bd3d07263a8b76b72ecdd3621d5814053ca
-  signature: PNApFNJ1eg1WqeI5yiWJhzVEXpmrqLCJTrJ8S2uuMGw6upoVfWvpO4Epb2GvY65jPg-HE9ZkOLV1ZmdnOW_dDA
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 88291d319300524a23626b524747ce309ee501f78383b8dd1d6a42155f4f6918
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 61
 agents/uptime-kuma-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: f067adfaf53b35f8cf52ea55b61f89a18c208c5f991460aa950755f88400f0a8
-  certification_hash: 8049791711a7b0c9ab8bcf3d301842a78a30fb89cc0249c547ccfad9d8ec50e0
-  certification_signature: oxlSgpkal73ELy--gOfffGQxOMKA3D4uhAXwizI0uV_NpMfJ2KiGTZ5qfTSDkhymharugi8S2TlDw56qMWLuCQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: ce0e942822bc990a55d90fc1d619412a73d6e062df26b53fb0ac505984a938b2
+  certification_hash: b719278dec1db17d096c858d8c9ff3e4351947eb4c45ebc8a39a462d62cc560e
   hash: 21db40e1afa26d5a16d77595825c4a03aa7ecd1d66a7cdab95b71a45581f0b0c
-  manifest_hash: 7b4d56992aeb70794599839186a0ed3b09f9ccaa4b918c93c9ea9a2649dec00a
-  signature: w3CXJ88FsXLXRb_7zK2UrNd4BXX4O6XHb27VSVORgWTURM3kO-J9_-poPt1a6cx16b10sZTeSCNhJ1J9KzX7Ag
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 16e283a2e10a1803bc74d30c41bf827c4ac607ffb7cc633b721b1e1d95cec326
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 63
 agents/vector-mcp/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 83991fac94f422dd7322ae9d327007a9ed89c94ce71d568cc8133340a5549705
-  certification_hash: 6d4c0272b326b74b63c453eee9e20bd3c2ecfc30bd9b4d70f20d0639668c53b6
-  certification_signature: qKT9l4871jjDL3qmgG0vSy4a1zqEreAJ6ZbX4HBRsTRd7hi96OgDH6d7igDsLI6ZHi5orlx0AoKXEKxzRRFKDg
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: d6b1383d89617e3a03cfd97a65b7a3d2d8d4271685db220d8f5cb0c74ca465db
+  certification_hash: 2b7c70d152278049d6e9a43bb92b21d199c731253e0208d46b8deea130fedcaf
   hash: bbf8e7a1f5ad06f76aa55e10589503d05c6b9412b7dabed0fa26a63c6a1bef2d
-  manifest_hash: 68164c5b71df428ece2443b4541d36781cd5466525d55bcad8382a2114876b53
-  signature: 7nbcLHz9vXHzE59DV1EzLTEU9h8EJ7pdcch2ta5XRc3DmIXcvLKENpHVO3ZFnfbK0aZ1K-Fe3URAaBF9wTajDQ
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 975ee85761b7bcfe5b5a131de759c24340b37fa483dbba912effd10fb73b6fe4
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 86
 agents/wger-agent/connector_manifest.yml:
   algorithm: urdna2015-sha256
-  certification_file_sha256: 5313a5036a6f67c9cc2d4de241a382a0ee67e7247f43eac420d23add11157727
-  certification_hash: 9c07d9419e3d3e7dde6c3199cfd6b5f077f4f91a1b8a514264485c59790e8d80
-  certification_signature: ZZMX1yFRBzxJLmr8V8uvcV4Y91ksEeYELP9nK00kh3wY99kk3cBW71uLAahp43fXsPuEBD0vOv0sMJ_rGfl5CQ
-  certification_signature_algorithm: ed25519
-  certification_signer: ontology-manifest-generator
-  certification_signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  certification_file_sha256: bb45dfd86ffa1ab6d9c78676be63e97ed48b978b177f48062fe2f298a5c9da8a
+  certification_hash: eecc9efe57ae479d7eb175e33e2a8c2c19b88fd3c93fa6776afb6e54f3e330f8
   hash: 0cefd2f7260450e7a338cb64409f6ee841f465c929b8232bdc65db574928fd46
-  manifest_hash: 833a7b81528df0a1508b8805bb9012ba457647a959c738969acae9b08001a4e0
-  signature: ao2WaX5uzL5BW9-R-jd2bObfluqgZB_HDi5YFFADqnJofF3nktS4JJfqa8EDquOaP7RwVL3t7d5A0XJOnGHuBw
-  signature_algorithm: ed25519
-  signer: ontology-manifest-generator
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
+  manifest_hash: 097f180f6e4edf6c663f583fb2277ac576049ec1b8e6f99af5a07e6f5d69eaa9
+  signature: null
+  signature_algorithm: none
+  signer: UNSIGNED-PREVIEW
+  signing_public_key: ''
   triple_count: 178

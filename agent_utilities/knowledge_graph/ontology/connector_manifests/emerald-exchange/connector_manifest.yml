@@ -25683,9 +25683,8 @@ sync:
     doc_type: position
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - emerald_exchange/connectors/mcp_source_presets.json
   - emerald_exchange/connectors/tool_schema_fingerprints.json
   - emerald_exchange/ontology/banking.ttl
@@ -25696,10 +25695,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 1bfa6604d510eb85ab3176d1d5bf7039562c29c841ac283c4b2375863f54a112
     triple_count: 1515
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: eMFtFLH_FeaKYjkDqd0MXDTdY-6O0K7SKtLOhHZQtk_6il97hRdM2e2fVT5OQ2QlXqf5cE3XSwdpGrZoIYEdAg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

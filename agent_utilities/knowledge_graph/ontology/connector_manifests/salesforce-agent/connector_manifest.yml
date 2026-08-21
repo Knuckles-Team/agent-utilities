@@ -181,9 +181,8 @@ sync:
     doc_type: salesforce_opportunity
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - salesforce_agent/connectors/mcp_source_presets.json
   - salesforce_agent/connectors/tool_schema_fingerprints.json
   - salesforce_agent/ontology/salesforce.ttl
@@ -191,10 +190,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 391c839a601d69d241efdce3ed5e6e1da188e304b4ae36e3892de465d57c5cc2
     triple_count: 64
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: NZbd6P4DsE7PIJKopN5Wosvq9AVMleEAqSzP0SG2_JSgTU9FW0zE0cd7zF28L8u5jkgYYfTlMl-wmjZloeBdCw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields:
     Account:

@@ -128,9 +128,8 @@ sync:
     doc_type: clarity-insight
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - clarity_api/connectors/mcp_source_presets.json
   - clarity_api/connectors/tool_schema_fingerprints.json
   - clarity_api/ontology/clarity.ttl
@@ -138,10 +137,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: e2a2d2c5960061f54286e59762ecd99556c9914622e13bcfbc9781672bd3d59f
     triple_count: 58
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: odPo78a8RGlYWR_2C5qRl8T6L0EKJD7itucdHhtANzTouCmz8puiruLgWtYWFavbnQqdUePY8NoXEHgAssAhBA
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

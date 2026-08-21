@@ -135,9 +135,8 @@ sync:
     doc_type: microsoft-person-reference
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - microsoft_agent/connectors/mcp_source_presets.json
   - microsoft_agent/connectors/tool_schema_fingerprints.json
   - microsoft_agent/ontology/microsoft.ttl
@@ -145,10 +144,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 4d5545b2fcef1af23af5da87943daaad04295833886a037217fd6cec9b357158
     triple_count: 35
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: BXEz3H8bjXwWPfI5bHK3gy4C3DeD6lXPZFFXcUnf0gLvO7dfIbkiW_-vOuCkiARJuQnE9N53i3auNPI2JFglCg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

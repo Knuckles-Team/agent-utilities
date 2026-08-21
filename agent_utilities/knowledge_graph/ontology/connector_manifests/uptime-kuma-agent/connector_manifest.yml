@@ -146,9 +146,8 @@ sync:
     doc_type: uptimekuma
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - uptime_kuma_agent/connectors/mcp_source_presets.json
   - uptime_kuma_agent/connectors/tool_schema_fingerprints.json
   - uptime_kuma_agent/ontology/uptimekuma.ttl
@@ -156,10 +155,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 21db40e1afa26d5a16d77595825c4a03aa7ecd1d66a7cdab95b71a45581f0b0c
     triple_count: 63
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: w3CXJ88FsXLXRb_7zK2UrNd4BXX4O6XHb27VSVORgWTURM3kO-J9_-poPt1a6cx16b10sZTeSCNhJ1J9KzX7Ag
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

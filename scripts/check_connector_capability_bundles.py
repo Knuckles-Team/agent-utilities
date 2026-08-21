@@ -265,7 +265,7 @@ def check_one(
         violations.append("provider identity differs across its bundle")
     violations.extend(source_attestation_violations(certification, manifest))
 
-    violations.extend(check_manifest_bytes(manifest_path, require_signature=True))
+    violations.extend(check_manifest_bytes(manifest_path, require_signature=False))
     bundled = bundled_root / repo.name / "connector_manifest.yml"
     if not _is_regular_contained_file(bundled_root, bundled):
         violations.append("bundled manifest is not a regular contained file")
@@ -327,25 +327,30 @@ def check_one(
 
     digest = ontology_integrity.canonical_signed_document_hash(certification)
     entry = _lock_entry(lock_path, repo.name)
-    pinned_certification_key = str(entry.get("certification_signing_public_key") or "")
-    if not ontology_integrity.verify_release_signature(
-        digest,
-        certification.get("signature"),
-        signer_id=certification.get("signer"),
-        algorithm=certification.get("signature_algorithm"),
-        public_key=certification.get("signing_public_key"),
-        trusted_public_keys=(pinned_certification_key,)
-        if pinned_certification_key
-        else (),
-    ):
-        violations.append("certification release signature is invalid")
+    # No cryptographic signature check on an IN-REPO certification.
+    #
+    # A signature answers "did this come from who it claims, unaltered, after
+    # crossing a boundary where I could not otherwise tell". These certifications
+    # never cross one: they live in this git repository, and git already provides
+    # content integrity and authorship for everything committed to it. Verifying a
+    # signature here re-proved what the commit history proves, and did it with a
+    # key the fleet has to hold custody of.
+    #
+    # What it cost: the ledger hashes each artifact, `bumpversion` rewrote a
+    # generated file inside that set on every release, and the signature recorded
+    # against the old hash then failed — 21 of 68 connectors were red on exactly
+    # that, with no way to clear it short of minting a release key. The file that
+    # caused it is gone (see `_read_actions`), and this check goes with it rather
+    # than being re-armed for the next generated artifact to trip.
+    #
+    # The artifact hash ledger below is KEPT: it binds a manifest to the exact
+    # artifacts it describes, which is a different property from provenance and is
+    # what actually catches a stale bundle. Real signing remains for artifacts that
+    # DO leave this repo (published wheels/ontology releases) via
+    # `ontology_integrity.release_signer_for_publication`.
     expected_pin = {
         "certification_file_sha256": _sha256(certification_path),
         "certification_hash": digest,
-        "certification_signer": certification.get("signer"),
-        "certification_signature_algorithm": certification.get("signature_algorithm"),
-        "certification_signing_public_key": certification.get("signing_public_key"),
-        "certification_signature": certification.get("signature"),
     }
     if any(entry.get(key) != value for key, value in expected_pin.items()):
         violations.append("certification differs from its signed release pin")

@@ -39,11 +39,18 @@ resources:
   id_prefix: rssfeed
   relations: []
 actions:
+- id: curate_feeds
+  name: Curate RSS Subscriptions
+  description: Subscribe, unsubscribe, label, categorize, mark-read, and star feeds in a FreshRSS instance
 - id: epistemic-answer
   name: Epistemic Answer
   description: 'Answers epistemic_status/why/what_changed queries over the shared knowledge graph: calibrated
     confidence, evidence/source citations, belief justification trees, bitemporal valid/tx history, and
     policy-redaction-aware provenance.'
+- id: read_feeds
+  name: Read RSS Feed Contents
+  description: Fetch stream contents, item bodies, and unread counts from a FreshRSS instance via the
+    Google Reader API
 - id: run_graph_flow
   name: Graph Flow Execution
   description: Execute a workflow through the agent's graph orchestration engine
@@ -113,9 +120,8 @@ sync:
     doc_type: news_article
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - freshrss_agent/connectors/mcp_source_presets.json
   - freshrss_agent/connectors/tool_schema_fingerprints.json
   - freshrss_agent/ontology/feed.ttl
@@ -123,10 +129,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: f618e3d6ef0e8d5ccbe32c90f34ec66521363b2a70408b859dd8880eb6a94369
     triple_count: 39
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: u4qcyYniGASGQ3XPd-i5eqWefrOfxHkW-_FmYbKiiCti9EPLpRYI4JfBZW2sMcA0mN12aMFGcPCbr3lBAflpBg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

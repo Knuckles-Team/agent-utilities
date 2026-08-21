@@ -122,9 +122,8 @@ sync:
     doc_type: search_result
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - searxng_mcp/connectors/mcp_source_presets.json
   - searxng_mcp/connectors/tool_schema_fingerprints.json
   - searxng_mcp/ontology/searxng.ttl
@@ -132,10 +131,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: d63d239f764120d792b8219c831075e8b85f99f874a01fe46e8a7494d27cf01e
     triple_count: 49
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 21J36Dz6ejUCWlmvTHjlc8-6urq6O7-lOROldHp33WDYkU7lNit0JXtcHWrVCohD8UdG4-Fah7rWfy5N91b9CQ
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

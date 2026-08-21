@@ -186,9 +186,8 @@ sync:
     doc_type: system-service
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - systems_manager/connectors/mcp_source_presets.json
   - systems_manager/connectors/tool_schema_fingerprints.json
   - systems_manager/ontology/systems.ttl
@@ -196,10 +195,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 8f5d38237a5426f389cc0457f9057de6a4587374d2c01817fe0a59c7f96d11c0
     triple_count: 87
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 1zGENE8EvO_huSZ4I--X2B0V7flOjhplM1Ft1-tK8ZvbkmbJqSP55escn9OC9EK_MSysJnOe33-urMB-ch1rDg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

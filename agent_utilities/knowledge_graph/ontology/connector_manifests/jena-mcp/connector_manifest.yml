@@ -188,9 +188,8 @@ sync:
     doc_type: rdf-resource
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - jena_mcp/connectors/mcp_source_presets.json
   - jena_mcp/connectors/tool_schema_fingerprints.json
   - jena_mcp/ontology/jena.ttl
@@ -198,10 +197,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: d031b6277e07536930ce3ebb4d5f8790afccd90aeabbe148ac2d8634e896adc2
     triple_count: 79
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: ysOl_FJjZmy2eVJ8q1cL86xHTUSZBE8dsWz4GZcNtCIfXOdldWtJ4GLZe1PyzuG1JajTQ3FAQ5QU1ASQpt3eCw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

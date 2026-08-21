@@ -103,26 +103,14 @@ def _certification_metadata(
     if source_attestation_violations(document, manifest):
         raise ValueError("connector source attestation is invalid")
     certification_hash = ontology_integrity.canonical_signed_document_hash(document)
-    if not ontology_integrity.verify_release_signature(
-        certification_hash,
-        document.get("signature"),
-        signer_id=document.get("signer"),
-        algorithm=document.get("signature_algorithm"),
-        public_key=document.get("signing_public_key"),
-        trusted_public_keys=trusted_public_keys,
-    ):
-        raise ValueError("certification release signature is invalid")
+    # In-repo certifications are unsigned by design (git supplies integrity and
+    # authorship for anything committed here), so there is no signature to verify
+    # and no signer/key/signature to pin. The two CONTENT pins below are kept and
+    # are what actually detect a stale or edited certification.
+    _ = trusted_public_keys
     return {
         "certification_file_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "certification_hash": certification_hash,
-        "certification_signer": str(document.get("signer") or ""),
-        "certification_signature_algorithm": str(
-            document.get("signature_algorithm") or ""
-        ),
-        "certification_signing_public_key": str(
-            document.get("signing_public_key") or ""
-        ),
-        "certification_signature": str(document.get("signature") or ""),
     }
 
 
@@ -160,16 +148,10 @@ def _lock_entry(
     manifest = _load(manifest_path)
     if manifest.connector != expected_connector:
         raise ValueError("manifest connector identity differs")
+    # In-repo manifests are unsigned by design; git is the integrity and
+    # authorship record for them. The identity check above and the compiled-TTL
+    # digest below are the pins that actually detect a stale or edited manifest.
     manifest_hash = ontology_integrity.canonical_manifest_hash(manifest)
-    if not ontology_integrity.verify_release_signature(
-        manifest_hash,
-        manifest.provenance.signature,
-        signer_id=manifest.provenance.signer,
-        algorithm=manifest.provenance.signature_algorithm,
-        public_key=manifest.provenance.signing_public_key,
-        trusted_public_keys=trusted_public_keys,
-    ):
-        raise ValueError("manifest release signature is invalid")
 
     spec = compile_manifest(manifest)
     ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)

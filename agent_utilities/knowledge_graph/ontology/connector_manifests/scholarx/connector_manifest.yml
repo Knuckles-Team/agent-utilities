@@ -113,9 +113,8 @@ sync:
     doc_type: research_paper
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - scholarx/connectors/mcp_source_presets.json
   - scholarx/connectors/tool_schema_fingerprints.json
   - scholarx/ontology/scholarx.ttl
@@ -123,10 +122,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: e2c513874724b2d7399e6a4caab6285a46cc7424eaf9b7375a89c287ca79cbdf
     triple_count: 52
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: Sig33_vD66OWN1XymmSPJqXq7CbVAWL9gx10eS-yRTPIhj63BNhg7p35AZcy8b31X9NXEcSTcmJTSGXUrb2cCA
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

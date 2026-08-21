@@ -133,9 +133,8 @@ sync:
     doc_type: governance_rule
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - egeria_mcp/connectors/mcp_source_presets.json
   - egeria_mcp/connectors/tool_schema_fingerprints.json
   - egeria_mcp/ontology/egeria.ttl
@@ -143,10 +142,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 5d931c77b58f7ab65cc66234306e84bcb79b46a72c0d1a933577c462ca00fe61
     triple_count: 33
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: tDBZZANua-Z6Dri8LBsztstR9NIFszYM4qKblCvWjvs5JBhYszHPDdeT1x3eRFlcSn57--NwM54gzT5929NrCA
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

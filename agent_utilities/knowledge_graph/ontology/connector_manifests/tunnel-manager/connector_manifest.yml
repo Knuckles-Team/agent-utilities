@@ -191,9 +191,8 @@ sync:
     doc_type: Host
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - tunnel_manager/connectors/mcp_source_presets.json
   - tunnel_manager/connectors/tool_schema_fingerprints.json
   - tunnel_manager/ontology/tunnel.ttl
@@ -201,10 +200,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 940e14de158b4cedef693e0e9672ac6c974441fbfa91ceb8e98d424e7340f4bc
     triple_count: 71
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 1nuO4TSKsJ6p1ww47ZRpc5vAMgBRrXVTKqOCR033cHO6wHBDlfaJVz3gUmDfLCFJ0MGGw9Z6Iw3fL2ullbu9CQ
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

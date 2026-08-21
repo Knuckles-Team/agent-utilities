@@ -141,9 +141,8 @@ sync:
     doc_type: technitium_zone
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - technitium_dns_mcp/connectors/mcp_source_presets.json
   - technitium_dns_mcp/connectors/tool_schema_fingerprints.json
   - technitium_dns_mcp/ontology/technitium.ttl
@@ -151,10 +150,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 3de400c3920ce54a01196d43bfc71be922c56be78bf1c0d26210a133519d7c18
     triple_count: 63
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: npe5s42sLDuxIZDpUK7QRL-7ntWrCpCA2XBZooQ5P6i-agMSmZOXucycwXLnWIAhDOGBbfkuLFxMIK66lNtuDg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

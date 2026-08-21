@@ -217,9 +217,8 @@ sync:
     doc_type: erpnext_sales_order
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - erpnext_agent/connectors/mcp_source_presets.json
   - erpnext_agent/connectors/tool_schema_fingerprints.json
   - erpnext_agent/ontology/erpnext.ttl
@@ -227,10 +226,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: e1db5bd3e80f09ed556b5ed40ec468baa01c855cd9f0f9e211c90298751a7929
     triple_count: 66
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: QINWxEOcz2XX0XZsXkbRDx8VQdsZUo9KNfBCe752PORMi-L5qoJi7JUe_WNjYax6CZKKFsx80lAc04CDR9_pDw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

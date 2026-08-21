@@ -486,9 +486,8 @@ sync:
     doc_type: datascience_model
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - data_science_mcp/connectors/mcp_source_presets.json
   - data_science_mcp/connectors/tool_schema_fingerprints.json
   - data_science_mcp/ontology/datascience.ttl
@@ -496,10 +495,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: e7a43f814beb0ddb3a9def0f6b4f8ac475b6c81616cea2771c83dc08c88581f6
     triple_count: 173
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: BLzm7RBX8qCV3wkttWE7l2BnYcVwgEHDCeZTNhd1ewGGSkgvTQ0mdLYwB6T4hcMPUiFC9anImc_l-P7mG98PAQ
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

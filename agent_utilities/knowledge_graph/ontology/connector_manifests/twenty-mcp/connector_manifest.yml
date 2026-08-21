@@ -204,9 +204,8 @@ sync:
     doc_type: crm-contact
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - twenty_mcp/connectors/mcp_source_presets.json
   - twenty_mcp/connectors/tool_schema_fingerprints.json
   - twenty_mcp/ontology/twenty.ttl
@@ -214,10 +213,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: f3c112283f5562c787dd1fdf36bad4bd6153550c385531013c9eeaebb56054f4
     triple_count: 61
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: PNApFNJ1eg1WqeI5yiWJhzVEXpmrqLCJTrJ8S2uuMGw6upoVfWvpO4Epb2GvY65jPg-HE9ZkOLV1ZmdnOW_dDA
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

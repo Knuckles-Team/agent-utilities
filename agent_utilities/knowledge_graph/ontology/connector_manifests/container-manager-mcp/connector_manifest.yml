@@ -543,9 +543,8 @@ sync:
     doc_type: k8s-service
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - container_manager_mcp/connectors/mcp_source_presets.json
   - container_manager_mcp/connectors/tool_schema_fingerprints.json
   - container_manager_mcp/ontology/container.ttl
@@ -553,10 +552,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 97169902bf7ed616fa48999907841f6a9a38b68d8443513613fd700dcfec4da1
     triple_count: 114
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 0NTI94D92Um5ONt7pcRdnLI3rsy8_17bOK6XzzAMaci8J1VmAEEXmIAXLYy3ycZXAn5n6spkJDs51etfHJ6qCA
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

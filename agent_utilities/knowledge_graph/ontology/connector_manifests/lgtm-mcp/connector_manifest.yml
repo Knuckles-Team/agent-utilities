@@ -235,9 +235,8 @@ sync:
     doc_type: dashboard
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - lgtm_mcp/connectors/mcp_source_presets.json
   - lgtm_mcp/connectors/tool_schema_fingerprints.json
   - lgtm_mcp/ontology/grafana.ttl
@@ -246,10 +245,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 665de7f07f2c74ef87ac27e3d6f6bc285b3f82e1c50bfd2eb0fe0bee4b407787
     triple_count: 86
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: JZ84UWDm-6jJReBdM_H_AuqG5zaU6hB-pfvDH8SvuRUZ6kmIlP8Ledrlzukd0H0BMlY6wKY9aE2Iy0hGr9j6Dw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -302,9 +302,8 @@ sync:
     doc_type: ansible_job
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - ansible_tower_mcp/connectors/mcp_source_presets.json
   - ansible_tower_mcp/connectors/tool_schema_fingerprints.json
   - ansible_tower_mcp/ontology/ansible.ttl
@@ -312,10 +311,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 993ad9429e6ba971145ddeb6a3e6cd4189196179f21ebd2824a8fe4fee4a0369
     triple_count: 100
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: -3HNZqbnSg-4xSnIEIQ8BRBMaZyXq6UNfTPmjpViba0zbetUm9tms1Vs7N-LeoNG-eAqJugo_WhWzeZWlWpDCA
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

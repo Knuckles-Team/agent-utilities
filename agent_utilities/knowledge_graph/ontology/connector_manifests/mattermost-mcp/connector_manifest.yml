@@ -137,9 +137,8 @@ sync:
     doc_type: team
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - mattermost_mcp/connectors/mcp_source_presets.json
   - mattermost_mcp/connectors/tool_schema_fingerprints.json
   - mattermost_mcp/ontology/mattermost.ttl
@@ -147,10 +146,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 523e80a3a8db0f56473f667276fcfc58ce5858bd3ebffb31284d3f11a22cf117
     triple_count: 39
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: _-vGvVbxVHAAzCdJu3vIDD7PVUi7xTALw8B1s9SpBVOcA-fH0UfW9lI3wVtLpHIAFk0viDOjZFF3RsNUJUBmAQ
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

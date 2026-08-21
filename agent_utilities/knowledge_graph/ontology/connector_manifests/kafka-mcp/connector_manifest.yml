@@ -207,9 +207,8 @@ sync:
     doc_type: kafka_topic
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - kafka_mcp/connectors/mcp_source_presets.json
   - kafka_mcp/connectors/tool_schema_fingerprints.json
   - kafka_mcp/ontology/kafka.ttl
@@ -217,10 +216,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: d0225113a57c4907df4744e8c7a80bd6081fc2d664a63053c5379b8725c06911
     triple_count: 86
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 50I70d2uy8wF4qAmGeRuIweLA0ut3WPrfcXVVPsV0nDvOWWjSw8P0opz-GYVm3b4Y0YF6IgHVIqtOi_JRpMuCw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

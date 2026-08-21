@@ -172,9 +172,8 @@ sync:
     doc_type: home_entity
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - home_assistant_agent/connectors/mcp_source_presets.json
   - home_assistant_agent/connectors/tool_schema_fingerprints.json
   - home_assistant_agent/ontology/homeassistant.ttl
@@ -182,10 +181,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 31676ad6dbe7675fbd4c567e1a6bef267cd2af5f59c0b5dfe8fd3ea3a3611fec
     triple_count: 69
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: 0OPG6XJENHXsRC5TeSDrXmbyLjFoFUsTjlK2xM0ied_2NZ-6uPuVNC_EkGbR7XG9Iy5gvAFzEp8ZYCbCa5dmBw
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

@@ -791,9 +791,8 @@ sync:
     doc_type: archimate-relationship
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - archimate_mcp/connectors/mcp_source_presets.json
   - archimate_mcp/connectors/tool_schema_fingerprints.json
   - archimate_mcp/ontology/archimate.ttl
@@ -801,10 +800,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 5c23ea227bbd105fc4dd0e3ddaf7442fa5bd424ade712502f07688a56cfa8a5c
     triple_count: 358
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: S1Y_EzBVM2Jb3DFfpefB2VjkPxR1UnRcIMFsFs_82XVyqrosI4OZLdi4UsXhwBujdjeq09JN5h6Ej2J0rXW3Ag
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

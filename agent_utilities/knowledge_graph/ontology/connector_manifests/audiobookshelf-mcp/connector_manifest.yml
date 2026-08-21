@@ -187,9 +187,8 @@ sync:
     doc_type: library
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - audiobookshelf_mcp/connectors/mcp_source_presets.json
   - audiobookshelf_mcp/connectors/tool_schema_fingerprints.json
   - audiobookshelf_mcp/ontology/audiobookshelf.ttl
@@ -197,10 +196,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: aeaa27e0d6d0bf3d693970a8ada3facb29ec85e97d5e5194600634679bc9a84a
     triple_count: 78
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: YSALYsR-gKeuKHCV0CjG0zXVqfb61dt05hEssztS3wdN8jLGDIDtTzMZxeM3kN15E3b_ef0usFLkIAgnjttKDg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

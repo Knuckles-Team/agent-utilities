@@ -340,9 +340,8 @@ sync:
     doc_type: trace
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - langfuse_agent/connectors/mcp_source_presets.json
   - langfuse_agent/connectors/tool_schema_fingerprints.json
   - langfuse_agent/ontology/langfuse.ttl
@@ -350,10 +349,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 5184df2ae408cd2a0a91d4937bbb727631a6e880a6c22cc9b88002a9b88b86e1
     triple_count: 107
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: SiBH64ztapbmE4COzIePHuombODMowdVxQZD9SPGse6l5V7ecwj2F6H_Qf05rGAbhD2p_qnVnd5XtIIFC8WKCA
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

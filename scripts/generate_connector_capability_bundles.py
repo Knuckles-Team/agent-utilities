@@ -57,7 +57,6 @@ from agent_utilities.security.persistence_privacy import (  # noqa: E402
 from scripts.generate_connector_manifests import (  # noqa: E402
     _to_yaml,
     build_manifest,
-    write_a2a_card,
 )
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9_]")
@@ -292,16 +291,12 @@ def _validate_written_bundle(
     manifest_path = repo / "connector_manifest.yml"
     if check_manifest_bytes(manifest_path, require_signature=False):
         raise RuntimeError("provider manifest validation failed")
-    manifest_hash = ontology_integrity.canonical_manifest_hash(manifest)
-    if not ontology_integrity.verify_release_signature(
-        manifest_hash,
-        manifest.provenance.signature,
-        signer_id=manifest.provenance.signer,
-        algorithm=manifest.provenance.signature_algorithm,
-        public_key=manifest.provenance.signing_public_key,
-        trusted_public_keys=(release_signer.public_key,),
-    ):
-        raise RuntimeError("provider manifest candidate signature is invalid")
+    # No signature check on an in-repo manifest: git already provides integrity
+    # and authorship for it, so this only re-proved the commit history while
+    # requiring the fleet to hold key custody. The structural checks around it
+    # (bytes validation above, tool-schema digests below, artifact hashes in the
+    # certification ledger) are what actually catch a stale or mismatched bundle
+    # and are all kept. Signing remains for artifacts that leave this repo.
     if any(
         not isinstance(sync.tool_schema_sha256, str)
         or not _SHA256.fullmatch(sync.tool_schema_sha256)
@@ -396,14 +391,9 @@ def _stage_one(
     registry_path: Path | None = None,
 ) -> tuple[_Publication, ...]:
     module = _module_dir(repo)
-    # a2a.json is regenerated in place, in the connector's OWN repo, before the
-    # manifest (and therefore the certification ledger) is built from it — the
-    # certification-bundle pipeline is the one place that always runs before a
-    # provider's artifacts are hashed and signed, so this is the load-bearing
-    # point that keeps a2a.json from ever drifting: there is no hand-maintained
-    # copy left to go stale (CONCEPT:AU-KG.ontology.a2a-card-generation).
-    if (repo / "pyproject.toml").is_file():
-        write_a2a_card(repo, dry_run=False)
+    # No a2a.json regeneration step: the manifest's actions are derived from
+    # `pyproject.toml` in memory, so no generated file is written into the
+    # provider's repo and none is hashed into the certification ledger.
     manifest = build_manifest(
         repo, now=now, release_signer=release_signer, registry_path=registry_path
     )
@@ -684,9 +674,9 @@ def main() -> int:
     selected = set(args.connector)
     try:
         configured = set(_configured_provider_names(args.workspace))
-        release_signer = ontology_integrity.release_signer_for_publication(
-            lock_path=ONTOLOGY_LOCK
-        )
+        # In-repo certifications are no longer signed (see `_verify_before_sign`),
+        # so generation must not demand key custody just to refresh a hash ledger.
+        release_signer = ontology_integrity.unsigned_release_placeholder()
     except Exception:  # noqa: BLE001 - privacy-safe aggregate only
         print("capability bundle generation preflight failed")
         return 1

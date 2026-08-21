@@ -429,9 +429,8 @@ sync:
     doc_type: sensor-telemetry
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - fan_manager/connectors/mcp_source_presets.json
   - fan_manager/connectors/tool_schema_fingerprints.json
   - fan_manager/ontology/fan.ttl
@@ -439,10 +438,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: 7c0bb24ceb08d96ec34912b310ab213e03be01ec554d38d90343b8ae2c1d4863
     triple_count: 143
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: r2vAtYCDca2xsbpmtBwMiDxAbFm0zaanQzuUlMZntauDOxqLAx3iPEor3K9ZhpB3KrjkzRReSHX5jUcGV2OjAg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null

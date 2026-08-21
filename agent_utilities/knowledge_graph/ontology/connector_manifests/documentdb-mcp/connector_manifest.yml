@@ -111,9 +111,8 @@ sync:
     doc_type: documentdb_document
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-07-31T04:00:00Z'
+  generated_at: '2026-08-21T04:30:39Z'
   source_artifacts:
-  - a2a.json
   - documentdb_mcp/connectors/mcp_source_presets.json
   - documentdb_mcp/connectors/tool_schema_fingerprints.json
   - documentdb_mcp/ontology/documentdb.ttl
@@ -121,10 +120,11 @@ provenance:
     algorithm: urdna2015-sha256
     hash: a1bfde343fa2d6d3712ede2d1aea31bdded7424c3268dbee32f12023ba81b8c9
     triple_count: 41
-  signer: ontology-manifest-generator
-  signature_algorithm: ed25519
-  signing_public_key: QkigdPNpcUU7x7NcSkwCsUXIQpaFncMQbYSoiSgI2SY
-  signature: fIvs3PWq3oAfkiRloCY57ffQDN9kKynAhwcV1eczzGcwDvTC99yIoOA3vm1MvDGlotkwl6YLA1psLhYjjuAKBg
+  signer: UNSIGNED-PREVIEW
+  signature_algorithm: none
+  signing_public_key: ''
+  signature: null
+  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
 policy:
   pii_fields: {}
   tenant_boundary: null
