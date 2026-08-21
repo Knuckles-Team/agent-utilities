@@ -139,7 +139,15 @@ def test_named_connector_has_bundled_manifest(package: str):
 @pytest.mark.parametrize("package", NAMED_CONNECTOR_PACKAGES)
 def test_named_connector_manifest_passes_gate(package: str):
     path = gate.bundled_manifests_root() / package / "connector_manifest.yml"
-    violations = gate.check_manifest_bytes(path, require_signature=True)
+    # Bundled in-repo manifests are `UNSIGNED-PREVIEW` by design -- in-repo
+    # signature verification was removed deliberately (git already supplies
+    # integrity and authorship for anything committed here). This still asserts
+    # the checks that removal did NOT touch: the recorded
+    # `provenance.integrity.hash` must match the ontology the manifest
+    # compiles to, and its `dependency_lock_digest` must be current. The
+    # signature MECHANISM is still proven, against a signed fixture, by
+    # `test_connector_manifest_gate.py`.
+    violations = gate.check_manifest_bytes(path, require_signature=False)
     assert violations == [], f"{package}: {violations}"
     manifest = ConnectorManifest.model_validate(
         yaml.safe_load(path.read_text(encoding="utf-8"))

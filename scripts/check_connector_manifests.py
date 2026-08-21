@@ -54,7 +54,21 @@ def _load(path: Path) -> ConnectorManifest:
 def check_one(path: Path, *, verbose: bool = False) -> list[str]:
     del verbose
     label = f"{path.parent.name}/connector_manifest.yml"
-    violations = check_manifest_bytes(path, require_signature=True)
+    # In-repo artifacts are no longer signature-verified (see the
+    # `refactor(release): drop a2a.json and the in-repo signature duplication`
+    # commit): a connector manifest never crosses a trust boundary here -- it
+    # lives in this git repository, which already supplies content integrity
+    # and authorship. What this gate still enforces is the part git does NOT:
+    # that the manifest's recorded `provenance.integrity.hash` matches the
+    # ontology it actually compiles to, and that its `dependency_lock_digest`
+    # is current. `require_signature` itself is retained (and still proven by
+    # `test_connector_manifest_gate.py`) for artifacts that DO leave this
+    # repository via `release_signer_for_publication`.
+    #
+    # Known, accepted gap: the signature covered the whole document, including
+    # the `sync` preset/tool-schema block, which the ontology hash does not.
+    # Tampering there is now caught by review of the commit, not by this gate.
+    violations = check_manifest_bytes(path, require_signature=False)
 
     try:
         manifest = _load(path)

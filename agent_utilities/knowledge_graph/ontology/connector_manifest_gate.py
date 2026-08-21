@@ -650,12 +650,15 @@ def bundled_provider_contract(
         raise ValueError("bundled provider manifest is invalid") from exc
     if manifest.connector.casefold() != normalized:
         raise ValueError("bundled provider identity differs from its directory")
-    signature_violations = _signature_violations(
+    # Same split as `precheck_source` above: the property this fallback needs is
+    # "this bundle is exactly what the release ledger recorded", which the pin
+    # answers without a key. In-repo manifests carry no signature any more.
+    pin_violations = _attestation_violations(
         manifest,
         label=_manifest_label(path),
         raw=raw if isinstance(raw, dict) else None,
     )
-    if signature_violations:
+    if pin_violations:
         raise ValueError("bundled provider manifest is not release-pinned")
 
     presets: dict[str, dict[str, Any]] = {}
@@ -707,6 +710,7 @@ def check_manifest_bytes(
     path: Path,
     *,
     require_signature: bool = False,
+    require_release_pin: bool = False,
     require_provider: bool = False,
 ) -> list[str]:
     """Compile + integrity-check one manifest file; returns violations (empty = OK).
@@ -714,10 +718,30 @@ def check_manifest_bytes(
     Shares the exact compile/hash path :mod:`scripts.check_connector_manifests` uses
     (kept in sync deliberately — this is the ``source_sync``-side twin of that CLI
     gate, CONCEPT:AU-KG.ontology.connector-manifest-gate).
+
+    ``require_signature`` and ``require_release_pin`` are two DIFFERENT questions
+    that used to be answered by one code path:
+
+    * ``require_signature`` — "did a release authority sign this, and does that
+      signature match the pin?" Meaningful only for an artifact that LEAVES this
+      repository (``release_signer_for_publication``). In-repo artifacts are no
+      longer signed: git already supplies integrity and authorship for anything
+      committed here.
+    * ``require_release_pin`` — "is this manifest byte-for-byte the one the
+      release ledger records?" Needs NO key, and is the check that actually
+      catches a stale or hand-edited bundle. Crucially it covers the WHOLE
+      document, including the ``sync`` preset/tool-schema block that
+      ``provenance.integrity.hash`` (an ontology-graph hash) does not reach.
+
+    Splitting them is what lets the runtime ingestion gate keep full-document
+    tamper detection after in-repo signing was removed. Requiring a signature
+    there instead would refuse every connector in the fleet, since every bundled
+    manifest is now ``UNSIGNED-PREVIEW``.
     """
     return _check_manifest_bytes(
         path,
         require_signature=require_signature,
+        require_release_pin=require_release_pin,
         require_provider=require_provider,
     )
 
@@ -734,6 +758,87 @@ def _manifest_lock_entry(manifest: Any) -> dict[str, Any]:
         Path(__file__).resolve().parent.parent / "ontology.lock"
     )
     return dict(lock.get(f"agents/{manifest.connector}/connector_manifest.yml") or {})
+
+
+def _release_pin_violations(
+    manifest: Any, *, label: str, raw: dict[str, Any] | None = None
+) -> list[str] | None:
+    """Is this manifest byte-for-byte the one ``ontology.lock`` records?
+
+    The keyless half of what :func:`_signature_violations` used to do in one
+    step. It hashes the SAME canonical pre-image the release signature covered
+    (:func:`ontology_integrity.canonical_manifest_hash` over the literal parsed
+    document — see that function's note on why ``raw`` is preferred over a
+    re-dumped model) and compares it with the ``manifest_hash`` the release
+    ledger pins.
+
+    This is the check that keeps the runtime ingestion gate honest now that
+    in-repo manifests are unsigned. ``provenance.integrity.hash`` covers only
+    the compiled ontology graph, so renaming a ``sync`` entry's ``tool`` — a
+    change that redirects live ingestion — moves no ontology triple and passes
+    that hash unchanged. It DOES move ``manifest_hash``. Losing this check is
+    what would have made the unsigning refactor a real reduction in coverage;
+    keeping it means only *provenance* was dropped, not *integrity*.
+
+    Returns ``None`` when the release ledger has no entry for this connector at
+    all — that is "this manifest is not one of ours", a different answer from
+    "it is ours and it does not match", and :func:`_attestation_violations` is
+    what decides whether the absence is acceptable.
+    """
+    from . import ontology_integrity
+
+    pin = _manifest_lock_entry(manifest)
+    pinned_hash = pin.get("manifest_hash")
+    if not pinned_hash:
+        return None
+    manifest_hash = ontology_integrity.canonical_manifest_hash(
+        raw if raw is not None else manifest
+    )
+    if pinned_hash != manifest_hash:
+        return [
+            f"[release-pin] {label}: complete manifest content differs from its "
+            "release pin — the manifest was edited after the ledger was written, "
+            "or the ledger is stale. Regenerate via "
+            "scripts/update_ontology_lock.py."
+        ]
+    return []
+
+
+def _attestation_violations(
+    manifest: Any, *, label: str, raw: dict[str, Any] | None = None
+) -> list[str]:
+    """A manifest must be attested by AT LEAST ONE mechanism before activation.
+
+    Two mechanisms exist and they cover different deployments:
+
+    * an Ed25519 release SIGNATURE, for a provider distribution that reaches
+      this deployment from outside the repository, and
+    * the ``ontology.lock`` release PIN, for the 68 connector manifests this
+      package bundles — which are unsigned by design since in-repo signing was
+      removed (git already supplies integrity and authorship in-tree).
+
+    Whichever the manifest actually carries is the one enforced, and carrying
+    NEITHER is refused. There is no downgrade path: stripping a signature falls
+    through to a pin the editor cannot forge (it lives in this package, not in
+    the manifest), and forging a signature fails the trusted-signer check.
+
+    Requiring a signature unconditionally here — which is what this path did
+    before the split — refused every connector in the fleet the moment in-repo
+    signing was removed, because every bundled manifest became
+    ``UNSIGNED-PREVIEW``.
+    """
+    provenance = manifest.provenance
+    if provenance.signer and provenance.signature:
+        return _signature_violations(manifest, label=label, raw=raw)
+    pin_violations = _release_pin_violations(manifest, label=label, raw=raw)
+    if pin_violations is None:
+        return [
+            f"[attestation] {label}: manifest carries no release signature and "
+            "ontology.lock records no manifest_hash for it, so nothing attests "
+            "its contents. Either sign it for publication or record it in the "
+            "release ledger (scripts/update_ontology_lock.py)."
+        ]
+    return pin_violations
 
 
 def _signature_violations(
@@ -1028,6 +1133,7 @@ def _check_manifest_bytes(
     path: Path,
     *,
     require_signature: bool = False,
+    require_release_pin: bool = False,
     require_provider: bool = False,
 ) -> list[str]:
     """Implementation shared by runtime and direct hash-only callers."""
@@ -1088,6 +1194,14 @@ def _check_manifest_bytes(
     if require_signature:
         violations.extend(
             _signature_violations(
+                manifest,
+                label=label,
+                raw=data if isinstance(data, dict) else None,
+            )
+        )
+    elif require_release_pin:
+        violations.extend(
+            _attestation_violations(
                 manifest,
                 label=label,
                 raw=data if isinstance(data, dict) else None,
@@ -1177,9 +1291,14 @@ def precheck_source(source: str, *, agents_root: Path | None = None) -> dict[str
             ],
         }
 
+    # Runtime ingestion gate. Requires the release PIN, not a signature: every
+    # bundled in-repo manifest is `UNSIGNED-PREVIEW` since in-repo signing was
+    # removed, so `require_signature=True` here refused every connector in the
+    # fleet. The pin still covers the complete document, including the `sync`
+    # presets and tool-schema digests this path is about to act on.
     violations = _check_manifest_bytes(
         path,
-        require_signature=True,
+        require_release_pin=True,
         require_provider=True,
     )
     return {

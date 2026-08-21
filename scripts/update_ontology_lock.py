@@ -84,6 +84,25 @@ def _load(path: Path) -> ConnectorManifest:
     )
 
 
+def _load_raw(path: Path) -> dict[str, Any]:
+    """The literal parsed document — the pre-image the VERIFIER hashes.
+
+    ``canonical_manifest_hash`` accepts either a validated model or the raw
+    parsed document, and the two are NOT equivalent: ``model_validate`` fills
+    in schema defaults a manifest's YAML may not carry, and the model form then
+    hashes those injected bytes (the same asymmetry ``connector_manifest_gate.
+    _signature_violations`` documents at length). Writing a pin from the model
+    while every reader recomputes it from the raw document produces a lock that
+    is wrong for exactly the manifests whose YAML predates a field — measured on
+    ``native-source-connectors``, whose correct pin was overwritten with a
+    model-derived one. The writer must hash what the reader hashes.
+    """
+    data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError("manifest document is not a mapping")
+    return data
+
+
 def _certification_metadata(
     repo: Path,
     manifest: ConnectorManifest,
@@ -151,7 +170,10 @@ def _lock_entry(
     # In-repo manifests are unsigned by design; git is the integrity and
     # authorship record for them. The identity check above and the compiled-TTL
     # digest below are the pins that actually detect a stale or edited manifest.
-    manifest_hash = ontology_integrity.canonical_manifest_hash(manifest)
+    # Hash the RAW document, not the validated model — see `_load_raw`.
+    manifest_hash = ontology_integrity.canonical_manifest_hash(
+        _load_raw(manifest_path)
+    )
 
     spec = compile_manifest(manifest)
     ttl = export_manifest_ttl(spec, source=manifest.resolved_ontology_source)

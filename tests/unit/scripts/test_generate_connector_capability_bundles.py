@@ -196,7 +196,7 @@ def test_capability_gate_rejects_old_live_pass_shape() -> None:
     assert "source attestation artifact ledger is invalid" in violations
 
 
-def test_generation_uses_workspace_membership_and_one_signer(
+def test_generation_uses_workspace_membership_and_needs_no_signer(
     tmp_path: Path,
     registry: Path,
     signer: ontology_integrity.ReleaseSigner,
@@ -210,11 +210,13 @@ def test_generation_uses_workspace_membership_and_one_signer(
     calls = 0
 
     def _publication_signer(**_: object) -> ontology_integrity.ReleaseSigner:
-        # CONCEPT:AU-KG.ontology.release-key-rotation — the real resolver now
-        # requires versioned secret custody (vault:///secret://) and agreement
-        # with the real shipped ontology.lock, neither of which this workspace/
-        # generation test is about; stub the ONE preflight resolution point
-        # directly so "exactly one signer" stays what's under test here.
+        # Counts resolutions rather than supplying one that is needed. In-repo
+        # capability bundles are unsigned by design, so generation must reach
+        # this resolver ZERO times -- a bundle that never leaves the repository
+        # must not put the fleet back in custody of a release key just to be
+        # regenerated. Left stubbed (rather than deleted) precisely so a signer
+        # resolution creeping back into this path fails the test loudly instead
+        # of silently reintroducing that dependency.
         nonlocal calls
         calls += 1
         return signer
@@ -243,7 +245,7 @@ def test_generation_uses_workspace_membership_and_one_signer(
     )
 
     assert generator.main() == 0
-    assert calls == 1
+    assert calls == 0
     assert "would generate 1 capability bundle(s)" in capsys.readouterr().out
     assert not (configured / "connector_manifest.yml").exists()
     assert not (extra / "connector_manifest.yml").exists()

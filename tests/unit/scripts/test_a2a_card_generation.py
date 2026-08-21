@@ -1,13 +1,21 @@
-"""Tests for the deterministic ZERO-LLM ``a2a.json`` generator
+"""Tests for the deterministic ZERO-LLM agent-card derivation
 (CONCEPT:AU-KG.ontology.a2a-card-generation).
 
 Closes D-OB-1: ``a2a.json`` was 47 hand-maintained files that had already
-drifted from what their certification ledger signed. These tests prove the
-generator (``build_a2a_card``/``write_a2a_card`` in
-``generate_connector_manifests.py``) derives every field from the connector's
-own package metadata, is byte-stable across repeated runs, supports the
-minimal ``[tool.a2a]`` residue for genuinely per-connector content, and that
-``write_a2a_card(check=True)`` is a fail-closed drift gate.
+drifted from what their certification ledger signed. These tests prove
+``build_a2a_card`` derives every field from the connector's own package
+metadata, is byte-stable across repeated runs, and supports the minimal
+``[tool.a2a]`` residue for genuinely per-connector content.
+
+The card is no longer WRITTEN anywhere. It was generated from
+``pyproject.toml`` and then read straight back by ``_read_actions``, so the
+committed file added nothing but a drift surface -- one that ``bumpversion``
+rewrote on every release, invalidating the signature recorded against its old
+hash. ``write_a2a_card``, its ``--a2a-check`` drift gate, and the three tests
+that covered them are gone with the file; the derivation those tests fed is
+still exercised end to end by
+``test_generate_connector_manifests.py::test_build_manifest_projects_all_artifacts``,
+which asserts the derived capability reaches the manifest's ``actions``.
 """
 
 from __future__ import annotations
@@ -15,8 +23,6 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
-
-import pytest
 
 _SPEC = importlib.util.spec_from_file_location(
     "generate_connector_manifests",
@@ -146,44 +152,3 @@ def test_canonical_bytes_have_no_trailing_whitespace_ambiguity(tmp_path: Path):
     assert not text.endswith("\n\n")
     # round-trips through json.loads with no surprises
     json.loads(text)
-
-
-def test_write_a2a_card_writes_the_canonical_bytes(tmp_path: Path):
-    root = _write_pyproject(
-        tmp_path / "acme-api",
-        '[project]\nname = "acme-api"\nversion = "1.0.0"\ndescription = "Acme"\n',
-    )
-    card, changed = gen.write_a2a_card(root)
-    assert changed is True
-    on_disk = (root / "a2a.json").read_bytes()
-    assert on_disk == gen._canonical_a2a_bytes(card)
-
-    # idempotent re-run: no diff
-    _, changed_again = gen.write_a2a_card(root)
-    assert changed_again is False
-
-
-def test_write_a2a_card_check_mode_never_writes_and_fails_closed_on_drift(
-    tmp_path: Path,
-):
-    root = _write_pyproject(
-        tmp_path / "acme-api",
-        '[project]\nname = "acme-api"\nversion = "1.0.0"\ndescription = "Acme"\n',
-    )
-    (root / "a2a.json").write_text('{"hand": "edited"}', encoding="utf-8")
-
-    with pytest.raises(RuntimeError, match="drift"):
-        gen.write_a2a_card(root, check=True)
-    # check=True never writes, even on drift
-    assert (root / "a2a.json").read_text(encoding="utf-8") == '{"hand": "edited"}'
-
-
-def test_write_a2a_card_check_mode_passes_once_regenerated(tmp_path: Path):
-    root = _write_pyproject(
-        tmp_path / "acme-api",
-        '[project]\nname = "acme-api"\nversion = "1.0.0"\ndescription = "Acme"\n',
-    )
-    gen.write_a2a_card(root)
-    card, changed = gen.write_a2a_card(root, check=True)
-    assert changed is False
-    assert card["name"] == "acme-api-agent"

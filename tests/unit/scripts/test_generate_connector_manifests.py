@@ -1,7 +1,7 @@
 """Tests for the deterministic ZERO-LLM connector-manifest generator (C5).
 
 Builds a throwaway connector layout on disk (ontology ttl + mcp_source_presets.json +
-a2a.json) and proves the generator:
+pyproject.toml) and proves the generator:
 
   * projects those artifacts into a valid :class:`ConnectorManifest`,
   * is **deterministic** — same input → byte-identical manifest incl. a stable
@@ -63,10 +63,23 @@ _PRESETS = """\
 }
 """
 
-_A2A = """\
-{"name": "acme-agent", "capabilities": [
-  {"id": "sync_orders", "name": "Sync Orders", "description": "Pull orders"}
-]}
+#: `a2a.json` is gone: it was DERIVED from this same `pyproject.toml` and then
+#: read straight back, so `_read_actions` now derives the actions in memory
+#: instead. The connector's package metadata is therefore the only input --
+#: `[project]` supplies identity and description, and the optional
+#: `[tool.a2a] capabilities` residue table supplies the per-connector capability
+#: that nothing else can derive. `DEFAULT_A2A_CAPABILITIES` is prepended to it,
+#: which is why `sync_orders` is asserted by MEMBERSHIP below, not by index.
+_PYPROJECT = """\
+[project]
+name = "acme-api"
+version = "1.0.0"
+description = "Acme connector"
+
+[[tool.a2a.capabilities]]
+id = "sync_orders"
+name = "Sync Orders"
+description = "Pull orders"
 """
 
 #: CONCEPT:AU-KG.ontology.registry-derived-server-alias — the generator now derives
@@ -98,7 +111,7 @@ def connector_root(tmp_path: Path) -> Path:
     (mod / "connectors").mkdir(parents=True)
     (mod / "ontology" / "acme.ttl").write_text(_ONTOLOGY)
     (mod / "connectors" / "mcp_source_presets.json").write_text(_PRESETS)
-    (root / "a2a.json").write_text(_A2A)
+    (root / "pyproject.toml").write_text(_PYPROJECT, encoding="utf-8")
     return root
 
 
@@ -143,8 +156,10 @@ def test_build_manifest_projects_all_artifacts(
     assert order.relations[0].target == "Person"
     # datatype fields flowed into schema_mappings
     assert m.schema_mappings["Order"].fields["total"] == "xsd:decimal"
-    # a2a capability → action
-    assert m.actions[0].id == "sync_orders"
+    # [tool.a2a] capability → action, alongside the built-in defaults every
+    # agent-utilities connector ships (DEFAULT_A2A_CAPABILITIES).
+    assert "sync_orders" in {action.id for action in m.actions}
+    assert {"run_graph_flow"} <= {action.id for action in m.actions}
     # preset → sync + identity + watermark event
     assert m.sync[0].preset == "acme-orders"
     assert m.identity.id_field["order"] == "id"
@@ -189,22 +204,44 @@ def test_build_manifest_is_deterministic(
     assert m1.provenance.signature == m2.provenance.signature
 
 
-def test_build_manifest_refuses_missing_release_key(
+def test_build_manifest_needs_no_release_key(
     connector_root: Path, registry: Path, monkeypatch
 ):
+    """Generation no longer requires custody of the release signing key.
+
+    In-repo manifests are unsigned by design (git supplies integrity and
+    authorship in-tree), so `build_manifest` must succeed with NO key reachable
+    at all -- the exact condition that previously made the fleet ungeneratable.
+    What still holds is that it produces no forged provenance: an unsigned
+    manifest says so, in the placeholder signer, rather than claiming an
+    authority it does not have.
+    """
     monkeypatch.delenv("ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF", raising=False)
 
-    with pytest.raises(gen.ontology_integrity.ReleaseSigningError):
-        gen.build_manifest(connector_root, now=_NOW, registry_path=registry)
+    manifest = gen.build_manifest(connector_root, now=_NOW, registry_path=registry)
+
+    assert manifest.connector == "acme-api"
+    assert not manifest.provenance.signature
+    assert manifest.provenance.signature_algorithm == "none"
+    assert len(manifest.provenance.integrity.hash) == 64
 
 
-def test_build_manifest_refuses_ambiguous_release_key_sources(
-    connector_root: Path, registry: Path, monkeypatch
+def test_build_manifest_still_signs_when_given_an_explicit_signer(
+    connector_root: Path, registry: Path, signer: object
 ):
-    monkeypatch.setenv("ONTOLOGY_RELEASE_SIGNING_PRIVATE_KEY_REF", "env://OTHER_KEY")
+    """The publication path is untouched: an explicit signer still signs.
 
-    with pytest.raises(gen.ontology_integrity.ReleaseSigningError):
-        gen.build_manifest(connector_root, now=_NOW, registry_path=registry)
+    This is the half of the unsigning refactor that must NOT have been lost --
+    an artifact that leaves this repository still gets a real Ed25519 signature.
+    """
+    manifest = gen.build_manifest(
+        connector_root, now=_NOW, registry_path=registry, release_signer=signer
+    )
+
+    assert manifest.provenance.signer == "ontology-manifest-generator"
+    assert manifest.provenance.signature_algorithm == "ed25519"
+    assert manifest.provenance.signature
+    assert manifest.provenance.signing_public_key
 
 
 def test_pii_and_crosswalk_left_as_review_todos(

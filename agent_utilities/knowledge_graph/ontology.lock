@@ -452,7 +452,7 @@ agents/microsoft-agent/connector_manifest.yml:
 agents/native-source-connectors/connector_manifest.yml:
   algorithm: urdna2015-sha256
   hash: c97eb180307cb9e08b81df3439ade1552d91454485b83d085a9ba1b3503f4a8f
-  manifest_hash: 2defbf740ef27d79115fcfbf4aed8158c259f0da114399e2cc70b6bd8d4f057b
+  manifest_hash: 29b1a147fe0ed04c2fee6898f593b045cfeca501bce628596990eef5d0e82436
   signature: 5oQc4sQjcZwURJnUErSmPFWbjtZh0_jjWn2aXnNmp9XIMXqDrv7r-JmIIf4KCv2cZJfCSJIX6_M1a2AAdGjaCw
   signature_algorithm: ed25519
   signer: ontology-manifest-generator
