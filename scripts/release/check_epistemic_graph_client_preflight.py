@@ -41,7 +41,7 @@ from typing import Any, Final
 from urllib.parse import unquote, urlparse
 
 PACKAGE_NAME: Final = "epistemic-graph"
-EXPECTED_VERSION: Final = "2.26.2"
+EXPECTED_VERSION: Final = "2.27.0"
 REQUIRED_CAPABILITY: Final = "work_items.cas_metadata"
 CAPABILITIES_MODULE: Final = "epistemic_graph.client_capabilities"
 CLIENT_MODULE_PATH: Final = "epistemic_graph/client_capabilities.py"

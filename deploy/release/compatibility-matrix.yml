@@ -27,7 +27,7 @@ protocol:
     operationResult: "1"
 components:
   epistemic-graph:
-    version: "==2.26.2"
+    version: "==2.27.0"
     artifactKind: oci
     requiredCapabilities:
       - verified-request-context
@@ -46,7 +46,7 @@ components:
     version: "==2.4.0"
     artifactKind: oci
     dependsOn:
-      epistemic-graph: "==2.26.2"
+      epistemic-graph: "==2.27.0"
     requiredCapabilities:
       - graph-session
       - context-compiler
@@ -76,7 +76,7 @@ components:
     artifactKind: catalog
     dependsOn:
       agent-utilities: "==2.4.0"
-      epistemic-graph: "==2.26.2"
+      epistemic-graph: "==2.27.0"
     exactEntries: 68
     requiredCapabilities:
       - connector-live-certification

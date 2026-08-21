@@ -336,8 +336,39 @@ _ROOT_OPERATIONS = frozenset(
         "integers",
         "choice_indices",
         "permutation_indices",
+        # NE-249: array construction and shape manipulation. These were absent
+        # from this allowlist because they were absent from the kernel: before
+        # `b7d5825` they existed on `epistemic_graph.numeric` only as NumPy
+        # re-exports (`m.add(name, numpy.getattr(name))`), and that commit
+        # removed the passthrough without reimplementing them. They are now
+        # native Rust over the same builtin-list boundary as everything above,
+        # so "no NumPy" and "can construct data" are both true at once -- they
+        # were never in tension.
+        "zeros",
+        "ones",
+        "empty",
+        "full",
+        "eye",
+        "arange",
+        "linspace",
+        "array",
+        "asarray",
+        "isclose",
+        "concatenate",
+        "reshape",
+        "stack",
+        "vstack",
+        "diag",
+        "fill_diagonal",
+        "diff",
+        "sort",
     }
 )
+
+#: Scalar module attributes the kernel exports as plain floats (NE-249). Held
+#: separately from `_ROOT_OPERATIONS` because those resolve to a callable via
+#: `partial(_call_native, ...)`; these are VALUES, and `xp.pi()` is not a thing.
+_ROOT_CONSTANTS = frozenset({"pi", "inf", "nan"})
 
 _ROOT_ALIASES = {
     "abs": "absolute",
@@ -617,7 +648,14 @@ class _RandomNamespace:
 class _NativeNamespace:
     """An allowlisted view over one native kernel namespace."""
 
-    __slots__ = ("_kernel", "_operations", "_aliases", "_namespace", "_error_type")
+    __slots__ = (
+        "_kernel",
+        "_operations",
+        "_aliases",
+        "_namespace",
+        "_error_type",
+        "_constants",
+    )
 
     def __init__(
         self,
@@ -626,16 +664,28 @@ class _NativeNamespace:
         aliases: Mapping[str, str] | None = None,
         namespace: str = "xp",
         error_type: type[BaseException] | None = None,
+        constants: frozenset[str] = frozenset(),
     ) -> None:
         self._kernel = kernel
         self._operations = operations
         self._aliases = dict(aliases or {})
         self._namespace = namespace
         self._error_type = error_type
+        self._constants = constants
 
     def __getattr__(self, name: str) -> Any:
         if name == "LinAlgError" and self._error_type is not None:
             return self._error_type
+        if name in self._constants:
+            # A VALUE, not a callable: read straight off the kernel module and
+            # type-checked, so a kernel that ever grew an array-shaped constant
+            # could not smuggle one through this boundary (NE-249).
+            value = getattr(self._kernel, name, None)
+            if not isinstance(value, float):
+                raise NumericKernelError(
+                    f"native kernel constant {name!r} is not a float"
+                )
+            return value
         native_name = self._aliases.get(name, name)
         if native_name not in self._operations:
             raise UnsupportedNumericOperationError(
@@ -644,7 +694,7 @@ class _NativeNamespace:
         return partial(_call_native, self._kernel, native_name)
 
     def __dir__(self) -> list[str]:
-        return sorted((*self._operations, *self._aliases))
+        return sorted((*self._operations, *self._aliases, *self._constants))
 
 
 class _XP(_NativeNamespace):
@@ -653,7 +703,9 @@ class _XP(_NativeNamespace):
     __slots__ = ("linalg", "random", "LinAlgError")
 
     def __init__(self, kernel: Any) -> None:
-        super().__init__(kernel, _ROOT_OPERATIONS, _ROOT_ALIASES)
+        super().__init__(
+            kernel, _ROOT_OPERATIONS, _ROOT_ALIASES, constants=_ROOT_CONSTANTS
+        )
         error_type = getattr(kernel, "LinAlgError", NumericKernelError)
         self.linalg = _NativeNamespace(
             kernel,

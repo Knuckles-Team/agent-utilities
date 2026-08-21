@@ -96,10 +96,15 @@ def test_native_result_is_not_wrapped_in_a_python_array_runtime() -> None:
 
 
 def test_unsupported_surface_fails_closed_even_if_kernel_has_attribute() -> None:
+    """The allowlist, not the kernel's `dir()`, decides what this facade exposes.
+
+    `_FakeKernel` is a `SimpleNamespace`, so `getattr` on it succeeds for
+    anything; a name absent from `_ROOT_OPERATIONS` must still fail closed
+    rather than silently adopting whatever the kernel happens to carry.
+    """
+
     xp = numeric._XP(_FakeKernel())
 
-    with pytest.raises(numeric.UnsupportedNumericOperationError, match=r"xp\.array"):
-        _lookup(xp, "array")
     with pytest.raises(
         numeric.UnsupportedNumericOperationError, match=r"xp\.linalg\.eig"
     ):
@@ -108,19 +113,99 @@ def test_unsupported_surface_fails_closed_even_if_kernel_has_attribute() -> None
         numeric.UnsupportedNumericOperationError, match=r"xp\.random\.seed"
     ):
         _lookup(xp.random, "seed")
+    with pytest.raises(numeric.UnsupportedNumericOperationError, match=r"xp\.matrix"):
+        _lookup(xp, "matrix")
 
 
-@pytest.mark.parametrize(
-    "operation",
-    ("array", "asarray", "zeros", "stack", "save", "load"),
-)
-def test_audited_production_gaps_fail_closed_at_boundary(operation: str) -> None:
-    """These are used by capability/finance/KG callers and require an EG contract."""
+@pytest.mark.parametrize("operation", ("save", "load", "loadtxt", "savetxt"))
+def test_numpy_io_is_not_part_of_the_contract(operation: str) -> None:
+    """NE-249 restored array CONSTRUCTION; it did not adopt NumPy's file IO.
+
+    `save`/`load` are a NumPy serialization format, not a numeric operation --
+    `agent_utilities.numeric`'s own versioned `eg-numeric-list-v1` artifact
+    helpers are the sanctioned path (see the artifact round-trip test below).
+    """
 
     xp = numeric._XP(_FakeKernel())
 
     with pytest.raises(numeric.UnsupportedNumericOperationError):
         _lookup(xp, operation)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    (
+        "array",
+        "asarray",
+        "zeros",
+        "ones",
+        "empty",
+        "full",
+        "eye",
+        "arange",
+        "linspace",
+        "isclose",
+        "concatenate",
+        "reshape",
+        "stack",
+        "vstack",
+        "diag",
+        "fill_diagonal",
+        "diff",
+        "sort",
+    ),
+)
+def test_array_construction_resolves_now_that_the_kernel_ships_it(
+    operation: str,
+) -> None:
+    """NE-249. These previously failed closed, and the reason was recorded here
+    as "require an EG contract" -- an acknowledged GAP, not a design choice.
+
+    The gap existed because eg `b7d5825` removed the NumPy passthrough that had
+    been forwarding these names (`m.add(name, numpy.getattr(name))`) without
+    reimplementing them, so there was genuinely nothing behind them. eg 2.27.0
+    implements them natively over the same builtin-list boundary, so the
+    allowlist now resolves them -- with no NumPy anywhere on the path.
+    """
+
+    xp = numeric._XP(_FakeKernel())
+
+    assert callable(_lookup(xp, operation))
+
+
+def test_kernel_constants_are_values_and_must_be_floats() -> None:
+    """`pi`/`inf`/`nan` are module ATTRIBUTES, not calls -- `xp.pi()` is not a
+    thing -- so they resolve through a separate path that also type-checks
+    them, and a kernel exporting an array-shaped constant cannot smuggle one
+    through this boundary."""
+
+    import math
+
+    class _ConstantKernel(_FakeKernel):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pi = math.pi
+            self.inf = math.inf
+            self.nan = math.nan
+
+    xp = numeric._XP(_ConstantKernel())
+
+    assert xp.pi == math.pi
+    assert xp.inf == math.inf
+    assert math.isnan(xp.nan)
+
+    class _ArrayConstantKernel(_FakeKernel):
+        def __init__(self) -> None:
+            super().__init__()
+            self.pi = [3.14]
+
+    with pytest.raises(numeric.NumericKernelError, match="not a float"):
+        _lookup(numeric._XP(_ArrayConstantKernel()), "pi")
+
+    # A kernel that simply does not export the constant is also refused,
+    # rather than resolving to None.
+    with pytest.raises(numeric.NumericKernelError, match="not a float"):
+        _lookup(numeric._XP(_FakeKernel()), "pi")
 
 
 def test_fact_deduper_uses_native_bounded_vectors() -> None:
