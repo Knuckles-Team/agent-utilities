@@ -76,12 +76,20 @@ name exact-artifact, external, or terminal work, so a source-freeze pass can
 never be interpreted as full acceptance-gate closure.
 
 When a packaged release schema, matrix, campaign, catalog, or workload contract
-changes, regenerate the fixed release-resource digest catalog with
-`python scripts/release/check_release_catalogs.py --write`, review that one
-canonical file, and rerun the command without `--write`. The writer has no output
-path option: it atomically replaces only
-`deploy/release/release-contract-resources.catalog.json`, and its JSON result
-contains digests and counts rather than a local filesystem location.
+changes, there is nothing to regenerate. `check_release_catalogs.py` only reads;
+`--write` and the release-resource digest catalog it maintained
+(`deploy/release/release-contract-resources.catalog.json`) are both gone.
+
+That catalog listed this repository's own files with their sha256, inside this
+repository -- re-proving what the commit already proves -- and pinned its own
+hash a third time in `check_release_wheel.py`. The copy that mattered is the one
+shipped inside the wheel, and `check_release_wheel.py` now compares each of
+those wheel members byte-for-byte against the repository's file directly.
+
+It also removed a deadlock. `compatibility-matrix.yml` was one of the catalogued
+files, so every version bump staled the catalog, while the default-stage
+pre-commit gate that refused the stale catalog blocked the very bump commit that
+would have refreshed it.
 
 ## Run
 

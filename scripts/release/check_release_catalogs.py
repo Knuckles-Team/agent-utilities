@@ -71,7 +71,6 @@ _ASSEMBLY_SCHEMAS = (
     _RELEASE_ROOT / "component-source-evidence.schema.json",
     _RELEASE_ROOT / "release-assembly.schema.json",
 )
-_RESOURCE_CATALOG = _RELEASE_ROOT / "release-contract-resources.catalog.json"
 _RESOURCE_PATHS = (
     "deploy/release/certification-campaign.schema.json",
     "deploy/release/certification-campaign.yml",
@@ -212,98 +211,35 @@ def _validate_certification_surface() -> None:
     Draft202012Validator(schema).validate(campaign)
 
 
-def _resource_catalog_bytes() -> bytes:
-    resources: list[dict[str, str]] = []
+def _validate_release_resources() -> None:
+    """Every declared release-contract resource exists and, if it is a schema,
+    is a valid JSON Schema.
+
+    This replaced a catalog of their sha256 digests, written to
+    `deploy/release/release-contract-resources.catalog.json` through ~100 lines
+    of O_NOFOLLOW/dir_fd/temp-and-rename machinery. Inside one git repository a
+    hash ledger over that repository's own files re-proves what the commit
+    already proves, and the copy that DID matter -- the one shipped in the wheel
+    -- is now compared directly against these files by
+    `scripts/release/check_release_wheel.py`.
+
+    The removal was not only about redundancy. `compatibility-matrix.yml` is one
+    of these resources, so every version bump rewrote it and staled the catalog,
+    while this very gate (a default-stage pre-commit hook) refused the stale
+    catalog and blocked the bump commit that would have refreshed it. A derived
+    artifact whose refresh is gated on itself is a deadlock, and agent-utilities
+    has not published since 1.26.4.
+
+    What survives is the part git cannot do: asserting the files are present and
+    that each `.schema.json` actually compiles as a schema.
+    """
+
     for relative in _RESOURCE_PATHS:
         payload = _retained_bytes(ROOT / relative)
         if payload is None:
             raise ValueError("release contract resource is unavailable")
-        resources.append(
-            {"path": relative, "sha256": hashlib.sha256(payload).hexdigest()}
-        )
         if relative.endswith(".schema.json"):
-            schema = json.loads(payload)
-            Draft202012Validator.check_schema(schema)
-    value = {"schema": "release-contract-resources/1", "resources": resources}
-    return (
-        json.dumps(value, sort_keys=True, indent=2, ensure_ascii=True) + "\n"
-    ).encode("ascii")
-
-
-def _write_resource_catalog(payload: bytes) -> None:
-    """Atomically replace only the canonical, repository-owned resource catalog."""
-
-    parent = _RESOURCE_CATALOG.parent
-    try:
-        parent_metadata = parent.lstat()
-    except OSError as exc:
-        raise ValueError("release resource catalog parent is unavailable") from exc
-    if stat.S_ISLNK(parent_metadata.st_mode) or not stat.S_ISDIR(
-        parent_metadata.st_mode
-    ):
-        raise ValueError("release resource catalog parent is invalid")
-    directory_flags = (
-        os.O_RDONLY
-        | getattr(os, "O_DIRECTORY", 0)
-        | getattr(os, "O_CLOEXEC", 0)
-        | getattr(os, "O_NOFOLLOW", 0)
-    )
-    try:
-        directory = os.open(parent, directory_flags)
-    except OSError as exc:
-        raise ValueError("release resource catalog parent is unavailable") from exc
-    temporary_name = f".release-contract-resources.{secrets.token_hex(16)}.tmp"
-    temporary_created = False
-    try:
-        try:
-            existing = os.stat(
-                _RESOURCE_CATALOG.name,
-                dir_fd=directory,
-                follow_symlinks=False,
-            )
-        except FileNotFoundError:
-            existing = None
-        if existing is not None and (
-            not stat.S_ISREG(existing.st_mode) or existing.st_nlink != 1
-        ):
-            raise ValueError(
-                "release resource catalog must be an unaliased regular file"
-            )
-        flags = (
-            os.O_WRONLY
-            | os.O_CREAT
-            | os.O_EXCL
-            | getattr(os, "O_CLOEXEC", 0)
-            | getattr(os, "O_NOFOLLOW", 0)
-        )
-        descriptor = os.open(temporary_name, flags, 0o600, dir_fd=directory)
-        temporary_created = True
-        try:
-            view = memoryview(payload)
-            while view:
-                written = os.write(descriptor, view)
-                if written <= 0:
-                    raise ValueError("release resource catalog write failed")
-                view = view[written:]
-            os.fchmod(descriptor, 0o644)
-            os.fsync(descriptor)
-        finally:
-            os.close(descriptor)
-        os.replace(
-            temporary_name,
-            _RESOURCE_CATALOG.name,
-            src_dir_fd=directory,
-            dst_dir_fd=directory,
-        )
-        temporary_created = False
-        os.fsync(directory)
-    finally:
-        if temporary_created:
-            try:
-                os.unlink(temporary_name, dir_fd=directory)
-            except FileNotFoundError:
-                pass
-        os.close(directory)
+            Draft202012Validator.check_schema(json.loads(payload))
 
 
 def _validate_matrix() -> str:
@@ -319,27 +255,9 @@ def _validate_matrix() -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--write",
-        action="store_true",
-        help="Regenerate only the canonical release resource digest catalog.",
-    )
-    arguments = parser.parse_args(argv)
-    if arguments.write:
-        # The resource catalog (`_RESOURCE_PATHS`) is a fixed set of static schema/doc
-        # files with no dependency on connector-fleet health, so refreshing it must not
-        # require the connector/skill catalogs to be valid first. Previously this branch
-        # sat behind the same try/except as `render_connector_catalog`, so any connector
-        # drift made `--write` unreachable (D-35-8) even though the two are unrelated.
-        try:
-            _write_resource_catalog(_resource_catalog_bytes())
-        except Exception as exc:  # noqa: BLE001 — STDOUT stays content-free on purpose (the JSON result is the attested gate contract and must not leak paths), but the cause is NOT discarded: it goes to stderr, which no consumer parses. An opaque "CatalogWriteFailed" with no reason anywhere cost two lanes real time.
-            print(
-                json.dumps({"error": "CatalogWriteFailed", "ok": False}, sort_keys=True)
-            )
-            print(f"CatalogWriteFailed: {exc!r}", file=sys.stderr)
-            traceback.print_exc(file=sys.stderr)
-            return 1
+    # `--write` is gone with the resource catalog it regenerated. Nothing here
+    # writes any more: this gate only reads.
+    parser.parse_args(argv)
     try:
         matrix_digest = _validate_matrix()
         connector = render_connector_catalog(
@@ -353,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
             skills_root=DEFAULT_SKILLS_ROOT,
             matrix_path=DEFAULT_MATRIX,
         )
-        resources = _resource_catalog_bytes()
+        _validate_release_resources()
         _validate_release_documents()
         _validate_acquisition_surface()
         _validate_certification_surface()
@@ -368,9 +286,6 @@ def main(argv: list[str] | None = None) -> int:
     ):
         print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
         return 1
-    if _retained_bytes(_RESOURCE_CATALOG) != resources:
-        print(json.dumps({"error": "CatalogDrift", "ok": False}, sort_keys=True))
-        return 1
 
     print(
         json.dumps(
@@ -380,14 +295,12 @@ def main(argv: list[str] | None = None) -> int:
                         matrix_digest,
                         content_digest(connector),
                         content_digest(skill),
-                        content_digest(resources),
                     ]
                 ),
                 "entries": sum(
                     json.loads(payload)["entryCount"] for payload in (connector, skill)
                 ),
                 "ok": True,
-                "written": arguments.write,
             },
             sort_keys=True,
         )

@@ -296,110 +296,19 @@ def test_catalog_schemas_reject_environment_fields(
         _validator(schema_name).validate(document)
 
 
-def _stub_resource_catalog_gate(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> tuple[Path, bytes]:
-    connector = b'{"entryCount":2}\n'
-    skill = b'{"entryCount":10}\n'
-    connector_path = tmp_path / "connector.json"
-    skill_path = tmp_path / "skill.json"
-    resource_path = tmp_path / "release" / "release-contract-resources.catalog.json"
-    resource_path.parent.mkdir()
-    connector_path.write_bytes(connector)
-    skill_path.write_bytes(skill)
-    payload = b'{"resources":[],"schema":"release-contract-resources/1"}\n'
-    monkeypatch.setattr(release_gate, "CONNECTOR_OUTPUT", connector_path)
-    monkeypatch.setattr(release_gate, "SKILL_OUTPUT", skill_path)
-    monkeypatch.setattr(release_gate, "_RESOURCE_CATALOG", resource_path)
-    monkeypatch.setattr(release_gate, "_validate_matrix", lambda: "sha256:" + "1" * 64)
-    monkeypatch.setattr(
-        release_gate, "render_connector_catalog", lambda **_kwargs: connector
-    )
-    monkeypatch.setattr(release_gate, "render_skill_catalog", lambda **_kwargs: skill)
-    monkeypatch.setattr(release_gate, "_resource_catalog_bytes", lambda: payload)
-    monkeypatch.setattr(release_gate, "_validate_release_documents", lambda: None)
-    monkeypatch.setattr(release_gate, "_validate_acquisition_surface", lambda: None)
-    monkeypatch.setattr(release_gate, "_validate_certification_surface", lambda: None)
-    return resource_path, payload
-
-
-def test_release_resource_catalog_write_is_fixed_deterministic_and_path_free(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    resource_path, payload = _stub_resource_catalog_gate(tmp_path, monkeypatch)
-
-    assert release_gate.main(["--write"]) == 0
-    first = resource_path.read_bytes()
-    first_output = json.loads(capsys.readouterr().out)
-    assert first == payload
-    assert first_output["ok"] is True
-    assert first_output["written"] is True
-    assert str(tmp_path) not in json.dumps(first_output)
-
-    assert release_gate.main(["--write"]) == 0
-    second_output = json.loads(capsys.readouterr().out)
-    assert resource_path.read_bytes() == first
-    assert second_output == first_output
-
-    assert release_gate.main([]) == 0
-    check_output = json.loads(capsys.readouterr().out)
-    assert check_output["ok"] is True
-    assert check_output["written"] is False
-    assert check_output["digest"] == first_output["digest"]
-    assert str(tmp_path) not in json.dumps(check_output)
-
-
-def test_release_resource_catalog_cli_has_no_arbitrary_output_target(
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    with pytest.raises(SystemExit) as exc:
-        release_gate.main(["--help"])
-
-    assert exc.value.code == 0
-    help_text = capsys.readouterr().out
-    assert "--write" in help_text
-    assert "--output" not in help_text
-
-
-def test_release_resource_catalog_write_rejects_alias(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    resource_path, _payload = _stub_resource_catalog_gate(tmp_path, monkeypatch)
-    target = tmp_path / "outside.json"
-    target.write_text("outside\n", encoding="utf-8")
-    resource_path.symlink_to(target)
-
-    assert release_gate.main(["--write"]) == 1
-    output = json.loads(capsys.readouterr().out)
-    assert output == {"error": "CatalogWriteFailed", "ok": False}
-    assert target.read_text(encoding="utf-8") == "outside\n"
-
-
-def test_release_resource_catalog_write_reaches_even_when_connector_catalog_is_invalid(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    """D-35-8: `--write` must refresh the resource catalog independent of connector-fleet
-    health. The resource catalog (`_RESOURCE_PATHS`) has no connector-fleet dependency, so
-    a drifted/invalid connector or skill catalog must not make `--write` unreachable."""
-
-    resource_path, payload = _stub_resource_catalog_gate(tmp_path, monkeypatch)
-
-    def _boom(**_kwargs: object) -> bytes:
-        raise ReleaseCatalogError("connector_catalog_bundle_validation_failed")
-
-    monkeypatch.setattr(release_gate, "render_connector_catalog", _boom)
-
-    assert release_gate.main(["--write"]) == 1
-    write_output = json.loads(capsys.readouterr().out)
-    assert write_output == {"error": "CatalogInputInvalid", "ok": False}
-    assert resource_path.read_bytes() == payload
-
-    assert release_gate.main([]) == 1
-    check_output = json.loads(capsys.readouterr().out)
-    assert check_output == {"error": "CatalogInputInvalid", "ok": False}
+# The four `test_release_resource_catalog_*` cases that lived here are gone with
+# the machinery they covered. They exercised `_write_resource_catalog` -- ~100
+# lines of O_NOFOLLOW/dir_fd/temp-and-rename atomic writing whose only job was
+# to maintain `deploy/release/release-contract-resources.catalog.json`, a list
+# of this repository's own files and their sha256.
+#
+# Inside one git repository that ledger re-proves what the commit already
+# proves, and the copy that DID matter -- the one shipped inside the wheel --
+# is now compared byte-for-byte against these files directly by
+# `scripts/release/check_release_wheel.py`. No derived artifact, no `--write`,
+# nothing to keep atomic.
+#
+# It also removed a deadlock: `compatibility-matrix.yml` is one of the
+# catalogued files, so every version bump staled the catalog, and the
+# default-stage pre-commit gate that refused the stale catalog blocked the very
+# bump commit that would have refreshed it.

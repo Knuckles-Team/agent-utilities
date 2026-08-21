@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import configparser
-import hashlib
 import json
 import stat
 import sys
@@ -46,27 +45,25 @@ _PREBUNDLED_SKILL_CATALOG = (
 _MAX_WHEEL_BYTES = 4 * 1024 * 1024 * 1024
 _MAX_CONTRACT_MEMBER_BYTES = 1024 * 1024
 _MAX_MEMBERS = 400_000
-_RELEASE_RESOURCE_CATALOG = "deploy/release/release-contract-resources.catalog.json"
-# Reviewed pin — bump only when deploy/release/release-contract-resources.catalog.json
-# legitimately changes (e.g. one of its cataloged resources, such as
-# prebundled-skills.catalog.json, is regenerated via check_release_catalogs.py
-# --write for a real source change). Verify with `sha256sum` before bumping;
-# never regenerate this blindly, it is the wheel contract's trusted anchor.
+# NOTE: deliberately NO catalog-of-hashes and no pinned digest here.
+# Both existed and both were removed: `deploy/release/release-contract-
+# resources.catalog.json` listed these same paths with their sha256, and
+# `_RELEASE_RESOURCE_CATALOG_SHA256` pinned that catalog's own hash in this
+# source file. That made three copies of one fact -- the repo file, its copy
+# inside the wheel, and a hash of it hand-maintained in Python -- and git
+# already binds the first and third: they land in the same commit.
 #
-# Bumped 2026-08-21 for a real source change: three bundled skills gained
-# domain-skill coverage for four previously-unclaimed Graph-OS verbs, which
-# moved their SKILL.md/agents/graph-os.yaml digests through
-# prebundled-skills.catalog.json into this catalog.
+# The only copy that earns its place is the one inside the wheel, because a
+# wheel crosses a boundary. So this compares the wheel's member bytes directly
+# against the repository's, which is the same comparison the catalog was
+# performing indirectly, minus a derived artifact nobody reads and a constant
+# somebody had to remember to bump. `_PREBUNDLED_SKILL_CATALOG` above already
+# reads its repo file directly; this now matches that idiom.
 #
-# NOTE the pin was ALREADY stale before that: the catalog at this program's
-# starting tip hashed to 12537d8a…, not the 13b9da12… recorded here, so a prior
-# regeneration had moved the file without bumping the anchor. That is why this
-# gate was red for the whole program -- `guardrail-gate-meta-tests` is pre-push
-# only, so nothing ran it. Verified with `sha256sum` against the working tree
-# before bumping, not copied from a failure message.
-_RELEASE_RESOURCE_CATALOG_SHA256 = (
-    "dd239af14dadbd06d226fda8b18b9cdeddbf08cb25de524fb5ca0d2c2e1453c1"
-)
+# Removing it also removed a genuine release deadlock: `compatibility-matrix.yml`
+# is one of these paths, every version bump rewrites it, so the catalog went
+# stale on every release -- and the pre-commit gate that refused the stale
+# catalog blocked the very bump commit that would have refreshed it.
 _RELEASE_RESOURCE_PATHS = (
     "deploy/release/certification-campaign.schema.json",
     "deploy/release/certification-campaign.yml",
@@ -203,7 +200,6 @@ _STATIC_REQUIRED_MEMBERS = {
     "deploy/release/prebundled-skill-validation-evidence.schema.json",
     "deploy/release/skill-validation-deployment-evidence.schema.json",
     "deploy/release/skill-validation-deployment.schema.json",
-    _RELEASE_RESOURCE_CATALOG,
     "scripts/__init__.py",
     "scripts/release/assemble_manifest.py",
     "scripts/release/__init__.py",
@@ -377,45 +373,23 @@ def check_wheel(path: Path) -> None:
                 or not _REQUIRED_MEMBERS <= set(names)
             ):
                 raise WheelContractError("release-surface-missing")
-            catalog_info = archive.getinfo(_RELEASE_RESOURCE_CATALOG)
-            if catalog_info.file_size > _MAX_CONTRACT_MEMBER_BYTES:
-                raise WheelContractError("release-resource-catalog-invalid")
-            catalog_payload = archive.read(_RELEASE_RESOURCE_CATALOG)
-            if (
-                hashlib.sha256(catalog_payload).hexdigest()
-                != _RELEASE_RESOURCE_CATALOG_SHA256
-            ):
-                raise WheelContractError("release-resource-catalog-invalid")
-            catalog = json.loads(catalog_payload)
-            resources = catalog.get("resources") if isinstance(catalog, dict) else None
-            if (
-                not isinstance(catalog, dict)
-                or set(catalog) != {"schema", "resources"}
-                or catalog.get("schema") != "release-contract-resources/1"
-                or not isinstance(resources, list)
-                or len(resources) != len(_RELEASE_RESOURCE_PATHS)
-            ):
-                raise WheelContractError("release-resource-catalog-invalid")
-            resource_digests: dict[str, str] = {}
-            for resource in resources:
-                if (
-                    not isinstance(resource, dict)
-                    or set(resource) != {"path", "sha256"}
-                    or not isinstance(resource.get("path"), str)
-                    or not isinstance(resource.get("sha256"), str)
-                    or resource["path"] in resource_digests
-                ):
-                    raise WheelContractError("release-resource-catalog-invalid")
-                resource_digests[resource["path"]] = resource["sha256"]
-            if tuple(resource_digests) != _RELEASE_RESOURCE_PATHS:
-                raise WheelContractError("release-resource-catalog-invalid")
-            for resource_name, expected_digest in resource_digests.items():
+            # The wheel's release-contract resources must be byte-identical to
+            # this repository's. Compared directly, file by file: the repo IS
+            # the reference, git is what makes it trustworthy, and a wheel built
+            # from a different or edited tree fails here exactly as it did
+            # before -- just without a derived catalog standing in the middle.
+            for resource_name in _RELEASE_RESOURCE_PATHS:
                 info = archive.getinfo(resource_name)
-                if (
-                    info.file_size > _MAX_CONTRACT_MEMBER_BYTES
-                    or hashlib.sha256(archive.read(resource_name)).hexdigest()
-                    != expected_digest
-                ):
+                if info.file_size > _MAX_CONTRACT_MEMBER_BYTES:
+                    raise WheelContractError("release-resource-digest-mismatch")
+                source = _ROOT / resource_name
+                try:
+                    expected = source.read_bytes()
+                except OSError as error:
+                    raise WheelContractError(
+                        "release-resource-source-unavailable"
+                    ) from error
+                if archive.read(resource_name) != expected:
                     raise WheelContractError("release-resource-digest-mismatch")
             packaged_skill_assets = {
                 name

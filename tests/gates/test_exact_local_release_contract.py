@@ -565,10 +565,7 @@ def _synthetic_release_wheel(
     with zipfile.ZipFile(path, "w") as archive:
         for name in sorted(members | set(extra_members)):
             payload = (member_payloads or {}).get(name)
-            if payload is None and (
-                name == wheel_contract._RELEASE_RESOURCE_CATALOG
-                or name in wheel_contract._RELEASE_RESOURCE_PATHS
-            ):
+            if payload is None and name in wheel_contract._RELEASE_RESOURCE_PATHS:
                 payload = (ROOT / name).read_bytes()
             if payload is None:
                 payload = b""
@@ -733,9 +730,23 @@ def test_release_wheel_contract_requires_installed_exact_closure_surface(
             wheel_contract.check_wheel(broken)
 
 
-def test_release_wheel_rejects_resource_or_catalog_schema_substitution(
-    tmp_path: Path,
-) -> None:
+def test_release_wheel_rejects_a_gutted_release_schema(tmp_path: Path) -> None:
+    """A wheel whose release-contract resource differs from the repository's is
+    refused.
+
+    This used to have a second half, and losing it is the point. The wheel once
+    carried `release-contract-resources.catalog.json` -- a list of these paths
+    with their sha256 -- so an attacker could gut a schema AND rewrite the
+    catalog to match, and the defence was a THIRD copy: the catalog's own hash
+    pinned in `check_release_wheel.py`, which a human had to remember to bump.
+
+    The catalog is gone. `check_wheel` compares each resource in the wheel
+    directly against this repository's file, so there is no intermediary to
+    forge -- the substitution attack is not defended against, it is structurally
+    impossible. What remains is the property that always mattered, proven the
+    same way: tamper with a shipped schema and the wheel is refused.
+    """
+
     schema_name = "deploy/release/release-configuration.schema.json"
     gutted_schema = json.dumps(
         {
@@ -753,26 +764,9 @@ def test_release_wheel_rejects_resource_or_catalog_schema_substitution(
     ):
         wheel_contract.check_wheel(wheel)
 
-    catalog = json.loads((ROOT / wheel_contract._RELEASE_RESOURCE_CATALOG).read_text())
-    for resource in catalog["resources"]:
-        if resource["path"] == schema_name:
-            resource["sha256"] = hashlib.sha256(gutted_schema).hexdigest()
-    substituted_catalog = (
-        json.dumps(catalog, sort_keys=True, separators=(",", ":")) + "\n"
-    ).encode()
-    wheel = _synthetic_release_wheel(
-        tmp_path / "substituted-catalog.whl",
-        member_payloads={
-            schema_name: gutted_schema,
-            wheel_contract._RELEASE_RESOURCE_CATALOG: substituted_catalog,
-        },
-    )
-    with pytest.raises(
-        wheel_contract.WheelContractError,
-        match="release-resource-catalog-invalid",
-    ):
-        wheel_contract.check_wheel(wheel)
-
+    # And the unmodified wheel built the same way still passes, so the case
+    # above is attributable to the gutted schema and nothing else.
+    wheel_contract.check_wheel(_synthetic_release_wheel(tmp_path / "clean.whl"))
 
 def test_signed_release_inputs_carry_no_hardlink_alias() -> None:
     """D-CDX-79 hydration regression: catch a re-introduced hardlink early.
