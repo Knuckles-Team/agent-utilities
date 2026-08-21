@@ -25,8 +25,8 @@
 #   kubectl -n image-build logs -f job/graphos-unified-image-build
 #
 # ── Local development is the DEFAULT target; publishing is a later, separate act ──
-# `IMAGE_REPO` exists so this Job builds to the internal LAN registry
-# (`registry.arpa/graph-os-unified`) and the cluster deploys THAT. Nothing is pushed to a
+# `IMAGE_REPO` exists so this Job builds to the deployment's own internal registry and the
+# cluster deploys THAT. Nothing is pushed to a
 # public registry to redeploy locally: an unvalidated build has no business on a public
 # repo, and the digest a public push mints would then be the thing production pins. Build
 # locally, roll it out, validate it against the live system, and only promote the
@@ -39,8 +39,8 @@
 # (`/etc/rancher/rke2/registries.yaml` -> `configs.<registry>.tls.ca_file`), so the build
 # and the kubelet that later pulls the image agree on one root:
 #
-#   sudo cat /etc/rancher/rke2/registry.arpa-ca.pem > /tmp/registry-ca.pem
-#   kubectl -n image-build create configmap registry-arpa-ca \
+#   sudo cat "$(<the ca_file that registries.yaml names for your registry>)" > /tmp/registry-ca.pem
+#   kubectl -n image-build create configmap "$REGISTRY_CA_CONFIGMAP" \
 #     --from-file=ca-bundle.pem=/tmp/registry-ca.pem
 #
 # Do NOT reach for the general `homelab-ca-bundle` here: it carries `CN=homelab-arpa-ca`,
