@@ -888,6 +888,23 @@ def _eg_wheelhouse_root() -> Path:
     return Path(configured).expanduser() if configured else _EG_DEFAULT_WHEELHOUSE
 
 
+def _eg_wheel_version_key(wheel: Path) -> tuple[int, ...]:
+    """Version encoded in a wheel filename's second ``-``-separated field.
+
+    Shared by wheel SELECTION and by the staleness check in
+    :func:`_eg_sibling_target`, so "which wheel is newest" and "is that wheel
+    behind the checkout" can never answer from two different parsers.
+    """
+
+    parts = wheel.name.split("-")
+    if len(parts) < 2:
+        return (0,)
+    try:
+        return tuple(int(segment) for segment in parts[1].split("."))
+    except ValueError:
+        return (0,)
+
+
 def _select_eg_wheel(wheelhouse: Path) -> Path | None:
     """Return the newest staged ``epistemic_graph-*.whl`` in *wheelhouse*, or
     ``None`` when the wheelhouse is absent or empty (fast path unavailable --
@@ -903,16 +920,7 @@ def _select_eg_wheel(wheelhouse: Path) -> Path | None:
     if not candidates:
         return None
 
-    def _version_key(wheel: Path) -> tuple[int, ...]:
-        parts = wheel.name.split("-")
-        if len(parts) < 2:
-            return (0,)
-        try:
-            return tuple(int(segment) for segment in parts[1].split("."))
-        except ValueError:
-            return (0,)
-
-    return max(candidates, key=_version_key)
+    return max(candidates, key=_eg_wheel_version_key)
 
 
 # A tiny, dependency-free PEP 517 backend: every hook hands back the SAME
@@ -1197,6 +1205,38 @@ def _eg_fastpath_vendor_dir(wheel: Path, *, state_root: Path | None = None) -> P
         os.close(handle)
 
 
+def _live_eg_version(real_checkout: Path) -> tuple[int, ...] | None:
+    """Version declared by the LIVE epistemic-graph checkout, or ``None``.
+
+    epistemic-graph's Python version is dynamic -- maturin sources it from
+    ``Cargo.toml``'s ``[package].version`` -- so that file, not ``pyproject.
+    toml``, is the authority. Parsed leniently: an unreadable or unexpected
+    manifest returns ``None``, which leaves the fast path exactly as permissive
+    as it was before this check existed.
+    """
+
+    manifest = real_checkout / "Cargo.toml"
+    try:
+        raw = manifest.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    in_package = False
+    for line in raw.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("["):
+            in_package = stripped == "[package]"
+            continue
+        if not in_package or not stripped.startswith("version"):
+            continue
+        _, _, value = stripped.partition("=")
+        value = value.strip().strip('"').strip("'")
+        try:
+            return tuple(int(segment) for segment in value.split("."))
+        except ValueError:
+            return None
+    return None
+
+
 def _eg_sibling_target(real_checkout: Path) -> Path:
     """Return where ``.uv-workspace-siblings/epistemic-graph`` should point.
 
@@ -1204,12 +1244,42 @@ def _eg_sibling_target(real_checkout: Path) -> Path:
     (BUG-063); falls back to *real_checkout* -- today's editable, build-from-
     source behaviour -- when the escape hatch is set or no staged wheel is
     available, so this is never a hard dependency on the wheelhouse existing.
+
+    NE-248: it also falls back when the newest staged wheel is OLDER than the
+    live checkout's own declared version. ``_select_eg_wheel`` ranks wheels by
+    the version in their filename and consults the engine source not at all, so
+    before this check a wheelhouse that had simply not been re-staged pinned
+    every agent-utilities test run to a stale engine, silently and with no
+    warning. Measured: the wheelhouse held 2.26.1 while the checkout was at
+    2.26.2, across two contract-changing commits -- `b7d5825` (NumPy removed
+    from the native numeric boundary; the stale wheel still returned
+    ``numpy.ndarray``) and NE-065's scoped signer registry (the stale binary
+    still rejected the scoped shape with "is not a string map"). Hundreds of
+    agent-utilities test failures were attributed to the source tree; they were
+    the wheelhouse. A gate testing a stale artifact while reporting on the live
+    one is worse than no gate.
+
+    Deliberately one-directional: a wheel NEWER than the checkout still serves
+    (that is an ordinary "I have not pulled yet"), and an unparseable manifest
+    is treated as no opinion. Only "the wheelhouse is demonstrably behind" pays
+    the source build.
     """
 
     if _truthy_env(_EG_SOURCE_BUILD_ENV):
         return real_checkout
     wheel = _select_eg_wheel(_eg_wheelhouse_root())
     if wheel is None:
+        return real_checkout
+    live = _live_eg_version(real_checkout)
+    if live is not None and _eg_wheel_version_key(wheel) < live:
+        print(
+            f"uv_workspace: staged epistemic-graph wheel {wheel.name} is older "
+            f"than the live checkout ({'.'.join(str(part) for part in live)}) "
+            "-- building from source instead of testing against a stale engine "
+            "(NE-248). Stage a current wheel in the wheelhouse to restore the "
+            "fast path.",
+            file=sys.stderr,
+        )
         return real_checkout
     return _eg_fastpath_vendor_dir(wheel)
 
@@ -1914,8 +1984,21 @@ def main(argv: list[str] | None = None) -> int:
     lock_requested = (
         bool(namespace.uv_arguments) and namespace.uv_arguments[0] == "lock"
     )
-    lock_check = lock_requested and "--check" in namespace.uv_arguments[1:]
-    if lock_requested and not lock_check:
+    # `uv lock --check` and `uv lock --locked` are the SAME read-only question --
+    # "is the committed lock already up to date?" -- and `uv_plan` below already
+    # treats them identically (`lock_verification = lock_check or
+    # requested_locked`, which leaves `allow_worktree_lock_update` False for
+    # both). This guard used to recognise only `--check`, so the pre-push
+    # `uv-lock` hook -- which passes `--locked` -- was refused in the canonical
+    # checkout as if it were a mutation, even though it can write nothing. That
+    # made the hook unrunnable at push time by construction: a push happens FROM
+    # the canonical checkout, and the workspace deliberately holds zero
+    # worktrees. Verification is always allowed; only a genuinely mutating
+    # resolve is still confined to a dedicated worktree.
+    lock_verification_requested = lock_requested and any(
+        argument in {"--check", "--locked"} for argument in namespace.uv_arguments[1:]
+    )
+    if lock_requested and not lock_verification_requested:
         if not own_lock:
             raise RuntimeError(
                 "refusing to resolve a lock without an own tracked uv.lock; "

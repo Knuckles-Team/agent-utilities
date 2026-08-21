@@ -660,9 +660,17 @@ def test_uv_plan_marks_bare_sync_and_lock_as_heavy(
     so it must be pool-gated directly or D-ORC-33's contention is unguarded."""
     monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
 
-    for arguments in (["sync"], ["lock"]):
+    # `own_lock=True` for the `lock` case: a bare `lock` against a project with
+    # NO tracked lock of its own is refused outright (see
+    # `test_lock_mutation_without_an_own_lock_fails_closed`), so the default
+    # would raise here before the classification under test is ever reached.
+    # This repo does ship its own `uv.lock`, so True is also the real shape.
+    for arguments, own_lock in ((["sync"], False), (["lock"], True)):
         plan = uv_workspace.uv_plan(
-            arguments, worktree=tmp_path / "worktree", shadow=tmp_path / "shadow"
+            arguments,
+            worktree=tmp_path / "worktree",
+            shadow=tmp_path / "shadow",
+            own_lock=own_lock,
         )
         assert plan.prepare == ()
         assert plan.execute_is_heavy_sync is True, arguments
@@ -1100,3 +1108,179 @@ def test_plan_identifies_the_command_it_must_guard(
             shadow=tmp_path / "shadow",
         )
         assert plan.command_name == expected, arguments
+
+
+# ── NE-248: the epistemic-graph fast path must never serve a stale engine ────
+#
+# `_select_eg_wheel` ranks staged wheels by the version in their FILENAME and
+# consults the engine checkout not at all. Before the staleness check, a
+# wheelhouse that had simply not been re-staged silently pinned every
+# agent-utilities test run to an old engine -- measured across two
+# contract-changing epistemic-graph commits, and mis-attributed to this repo's
+# own source. These prove the check fires, and prove it stays one-directional.
+
+
+def _stage_eg_wheel(wheelhouse: Path, version: str) -> Path:
+    """A minimal but STRUCTURALLY REAL wheel.
+
+    `_eg_fastpath_vendor_dir` repackages the staged wheel, so a placeholder byte
+    string fails in `zipfile` long before the staleness decision is reachable.
+    """
+
+    import zipfile
+
+    wheelhouse.mkdir(parents=True, exist_ok=True)
+    wheel = wheelhouse / f"epistemic_graph-{version}-py3-none-linux_x86_64.whl"
+    dist_info = f"epistemic_graph-{version}.dist-info"
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr(
+            f"{dist_info}/METADATA",
+            "Metadata-Version: 2.1\n"
+            "Name: epistemic-graph\n"
+            f"Version: {version}\n"
+            "Requires-Python: >=3.10\n",
+        )
+        archive.writestr(
+            f"{dist_info}/WHEEL",
+            "Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: false\n"
+            "Tag: py3-none-linux_x86_64\n",
+        )
+        archive.writestr(f"{dist_info}/RECORD", "")
+        archive.writestr("epistemic_graph/__init__.py", "")
+    return wheel
+
+
+def _checkout_at(root: Path, version: str) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "Cargo.toml").write_text(
+        f'[workspace]\nmembers = []\n\n[package]\nname = "epistemic-graph"\nversion = "{version}"\n',
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_live_eg_version_reads_cargo_not_pyproject(tmp_path: Path) -> None:
+    checkout = _checkout_at(tmp_path / "eg", "2.26.2")
+    # A pyproject that disagrees must NOT win: maturin sources the version from
+    # Cargo.toml, so that is the authority.
+    (checkout / "pyproject.toml").write_text(
+        '[project]\nname = "epistemic-graph"\nversion = "9.9.9"\n', encoding="utf-8"
+    )
+
+    assert uv_workspace._live_eg_version(checkout) == (2, 26, 2)
+
+
+def test_live_eg_version_is_none_without_a_manifest(tmp_path: Path) -> None:
+    assert uv_workspace._live_eg_version(tmp_path / "absent") is None
+
+
+def test_fastpath_refuses_a_wheel_older_than_the_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = _checkout_at(tmp_path / "eg", "2.26.2")
+    _stage_eg_wheel(tmp_path / "wheels", "2.26.1")
+    monkeypatch.setenv(uv_workspace._EG_WHEELHOUSE_ENV, str(tmp_path / "wheels"))
+    monkeypatch.delenv(uv_workspace._EG_SOURCE_BUILD_ENV, raising=False)
+
+    assert uv_workspace._eg_sibling_target(checkout) == checkout
+
+
+def _decision(
+    checkout: Path, monkeypatch: pytest.MonkeyPatch
+) -> tuple[Path, list[Path]]:
+    """Return `_eg_sibling_target`'s answer plus the wheels it chose to vendor.
+
+    `_eg_fastpath_vendor_dir` is stubbed: these tests are about the STALENESS
+    DECISION, and the real vendor path repackages the wheel (it requires a
+    genuine editable wheel with exactly one `.pth`), which is separate
+    machinery with its own coverage.
+    """
+
+    vendored: list[Path] = []
+
+    def _fake_vendor(wheel: Path, **_: object) -> Path:
+        vendored.append(wheel)
+        return Path("/vendored") / wheel.name
+
+    monkeypatch.setattr(uv_workspace, "_eg_fastpath_vendor_dir", _fake_vendor)
+    return uv_workspace._eg_sibling_target(checkout), vendored
+
+
+def test_fastpath_serves_a_wheel_matching_the_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = _checkout_at(tmp_path / "eg", "2.26.2")
+    _stage_eg_wheel(tmp_path / "wheels", "2.26.2")
+    monkeypatch.setenv(uv_workspace._EG_WHEELHOUSE_ENV, str(tmp_path / "wheels"))
+    monkeypatch.delenv(uv_workspace._EG_SOURCE_BUILD_ENV, raising=False)
+
+    target, vendored = _decision(checkout, monkeypatch)
+
+    assert target != checkout
+    assert [wheel.name for wheel in vendored] == [
+        "epistemic_graph-2.26.2-py3-none-linux_x86_64.whl"
+    ]
+
+
+def test_fastpath_still_serves_a_wheel_newer_than_the_checkout(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One-directional by design: a newer wheel means an un-pulled checkout,
+    not a stale wheelhouse, and must not force a 40-minute source build."""
+
+    checkout = _checkout_at(tmp_path / "eg", "2.26.2")
+    _stage_eg_wheel(tmp_path / "wheels", "2.27.0")
+    monkeypatch.setenv(uv_workspace._EG_WHEELHOUSE_ENV, str(tmp_path / "wheels"))
+    monkeypatch.delenv(uv_workspace._EG_SOURCE_BUILD_ENV, raising=False)
+
+    target, vendored = _decision(checkout, monkeypatch)
+
+    assert target != checkout
+    assert len(vendored) == 1
+
+
+def test_fastpath_has_no_opinion_when_the_manifest_is_unreadable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    checkout = tmp_path / "eg"
+    checkout.mkdir()
+    _stage_eg_wheel(tmp_path / "wheels", "2.26.1")
+    monkeypatch.setenv(uv_workspace._EG_WHEELHOUSE_ENV, str(tmp_path / "wheels"))
+    monkeypatch.delenv(uv_workspace._EG_SOURCE_BUILD_ENV, raising=False)
+
+    target, vendored = _decision(checkout, monkeypatch)
+
+    assert target != checkout
+    assert len(vendored) == 1
+
+
+# ── The pre-push `uv-lock` hook must be runnable from the canonical checkout ──
+
+
+def _main_in(directory: Path, monkeypatch: pytest.MonkeyPatch, argv: list[str]) -> int:
+    monkeypatch.chdir(directory)
+    return uv_workspace.main(argv)
+
+
+def test_lock_locked_is_verification_not_mutation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """`uv lock --locked` writes nothing, so the canonical-checkout guard must
+    not treat it as a mutating resolve.
+
+    The pre-push `uv-lock` hook passes exactly `--locked`, and a push happens
+    FROM the canonical checkout while the workspace deliberately holds zero
+    worktrees -- so recognising only `--check` here made that hook unrunnable
+    by construction. `uv_plan` already treated the two identically.
+    """
+    monkeypatch.setattr(uv_workspace.shutil, "which", lambda _name: "/usr/bin/uv")
+
+    for flag in ("--check", "--locked"):
+        plan = uv_workspace.uv_plan(
+            ["lock", flag],
+            worktree=tmp_path / "worktree",
+            shadow=tmp_path / "shadow",
+            own_lock=True,
+        )
+        assert "--locked" in plan.execute
+        assert plan.allow_worktree_lock_update is False

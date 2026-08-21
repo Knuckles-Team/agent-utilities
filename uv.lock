@@ -2019,7 +2019,6 @@ source = { editable = ".uv-workspace-siblings/epistemic-graph" }
 dependencies = [
     { name = "httpx" },
     { name = "msgpack" },
-    { name = "numpy" },
     { name = "pyoxigraph" },
 ]
 
@@ -2029,8 +2028,6 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'lmcache'", specifier = ">=0.24.0" },
     { name = "maturin", marker = "extra == 'test'", specifier = ">=1.0,<2.0" },
     { name = "msgpack", specifier = ">=1.2.1" },
-    { name = "numpy", specifier = ">=1.22.0" },
-    { name = "numpy", marker = "extra == 'quant'", specifier = ">=1.22.0" },
     { name = "pyoxigraph", specifier = ">=0.3.22" },
     { name = "pyoxigraph", marker = "extra == 'owl'", specifier = ">=0.3.22" },
     { name = "pytest", marker = "extra == 'test'", specifier = ">=7.0.0" },
