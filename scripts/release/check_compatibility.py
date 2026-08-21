@@ -90,7 +90,11 @@ _OCI_COMPONENTS = (
 )
 _CURRENT_COMPONENT_VERSIONS = {
     "epistemic-operations-protocol": "1",
-    "epistemic-graph": "2.23.2",
+    # Floored with pyproject's `graphos` extra and deploy/release/
+    # compatibility-matrix.yml: kernels below 2.26.2 return an ndarray that
+    # agent_utilities/numeric rejects, so every engine init raises TypeError.
+    # All three declarations of this one fact must move together.
+    "epistemic-graph": "2.26.2",
     "agent-utilities": "2.4.0",
     "langfuse-agent": "1.0.3",
     "connector-bundles": "1",
@@ -117,11 +121,11 @@ _CURRENT_RUNTIME_CONTRACT = {
 _CURRENT_COMPONENT_DEPENDENCIES = {
     "epistemic-operations-protocol": {},
     "epistemic-graph": {},
-    "agent-utilities": {"epistemic-graph": "==2.23.2"},
+    "agent-utilities": {"epistemic-graph": "==2.26.2"},
     "langfuse-agent": {"agent-utilities": "==2.4.0"},
     "connector-bundles": {
         "agent-utilities": "==2.4.0",
-        "epistemic-graph": "==2.23.2",
+        "epistemic-graph": "==2.26.2",
     },
     "prebundled-skills": {"agent-utilities": "==2.4.0"},
     "ontology-lock": {},

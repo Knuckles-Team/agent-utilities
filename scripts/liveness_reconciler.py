@@ -85,6 +85,10 @@ check_wiring = _load_check_wiring()
 
 SRC_DIR = check_wiring.SRC_DIR
 TESTS_DIR = check_wiring.TESTS_DIR
+# The repo's own tooling tree. It is first-party code that legitimately
+# consumes `agent_utilities` APIs, but the analyzer only scans the package
+# itself, so a symbol whose callers all live here looks dead forever.
+SCRIPTS_DIR = REPO / "scripts"
 PYPROJECT = check_wiring.PYPROJECT
 
 _GENERATED_MARKER_RE = re.compile(r"do not edit|regenerate with", re.IGNORECASE)
@@ -413,6 +417,48 @@ def _absolute_string_literal_refs() -> set[str]:
     return refs
 
 
+# --- mechanism 7: first-party repo tooling imports the symbol by exact path ----
+
+
+def _repo_tooling_imported_definitions() -> set[str]:
+    """Every ``<module>:<name>`` that ``scripts/`` imports from `agent_utilities`
+    by its EXACT dotted path.
+
+    The analyzer's scan target is the package directory, so a definition whose
+    only callers are the repo's own generators/gates is reported dead even
+    though removing it would break the build. `total_concept_count`
+    (`governance/concept_hierarchy.py`, imported by `gen_docs.py`,
+    `gen_agents_md.py` and `build_status_page.py`) is the first symbol to hit
+    this; it will not be the last, because deriving one number in one place and
+    rendering it from several generators is the pattern those gates exist to
+    enforce.
+
+    Deliberately matched on `ImportFrom` module + imported name, NOT on a bare
+    name appearing somewhere under `scripts/`. A loose name match would rescue
+    any dead symbol that happens to share an identifier with an unrelated local
+    -- turning a ratchet that catches real dead code into one that quietly
+    stops catching it.
+    """
+
+    found: set[str] = set()
+    for path in _iter_source_files(SCRIPTS_DIR):
+        tree = _parse(path)
+        if tree is None:
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or node.level:
+                continue
+            module = node.module or ""
+            if module != "agent_utilities" and not module.startswith("agent_utilities."):
+                continue
+            relative = module[len("agent_utilities.") :] if module != "agent_utilities" else ""
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                found.add(f"{relative}:{alias.name}" if relative else alias.name)
+    return found
+
+
 # --- composition -----------------------------------------------------------
 
 
@@ -424,6 +470,7 @@ def reconcile(details: dict[str, list[str]]) -> dict[str, Any]:
     report the correction transparently rather than silently."""
     orphan_raw = list(details.get("orphan_modules", []))
     dead_raw = list(details.get("dead_definitions", []))
+    tooling_definitions = _repo_tooling_imported_definitions()
 
     resolved_imports = _resolved_import_targets()
     ep_modules, ep_symbols = _entry_points()
@@ -471,6 +518,8 @@ def reconcile(details: dict[str, list[str]]) -> dict[str, Any]:
             mechanism = "pyproject-entry-point-suffix"
         elif name in getattr_symbols:
             mechanism = "getattr-registry"
+        elif entry in tooling_definitions:
+            mechanism = "repo-tooling-exact-import"
         if mechanism:
             dead_rescued.append({"definition": entry, "mechanism": mechanism})
         else:
