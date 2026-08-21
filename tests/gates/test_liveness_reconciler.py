@@ -37,12 +37,22 @@ def _load_reconciler():
 def _build_fixture_repo(tmp_path: Path, *, extra_files: dict[str, str]) -> Path:
     """A minimal ``agent_utilities``-shaped repo root the reconciler's module
     functions can walk, with the reconciler's own ``REPO``/``SRC_DIR``/
-    ``TESTS_DIR``/``PYPROJECT`` module attributes repointed at it (so the
-    real repo's own thousands of files are never scanned by these tests)."""
+    ``TESTS_DIR``/``SCRIPTS_DIR``/``PYPROJECT`` module attributes repointed at
+    it (so the real repo's own thousands of files are never scanned by these
+    tests).
+
+    ``SCRIPTS_DIR`` is part of that list because `_repo_tooling_imported_
+    definitions` walks it. Leaving it pointed at the REAL `scripts/` did not
+    merely widen the scan this fixture exists to bound -- it made every test
+    here raise, because `_rel` computes `relative_to(REPO)` and the real
+    `scripts/__init__.py` is not under the fixture root. Any new module-level
+    directory constant must be added here too."""
     src = tmp_path / "agent_utilities"
     tests_dir = tmp_path / "tests"
+    scripts_dir = tmp_path / "scripts"
     src.mkdir()
     tests_dir.mkdir()
+    scripts_dir.mkdir()
     (tmp_path / "pyproject.toml").write_text('[project]\nname = "fixture"\n')
     for rel, content in extra_files.items():
         p = tmp_path / rel
@@ -57,6 +67,7 @@ def _reconciler_for(tmp_path: Path, extra_files: dict[str, str]):
     lr.REPO = repo
     lr.SRC_DIR = repo / "agent_utilities"
     lr.TESTS_DIR = repo / "tests"
+    lr.SCRIPTS_DIR = repo / "scripts"
     lr.PYPROJECT = repo / "pyproject.toml"
     lr.check_wiring.ROOT = repo
     lr.check_wiring.SRC_DIR = lr.SRC_DIR

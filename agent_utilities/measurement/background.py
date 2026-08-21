@@ -75,7 +75,13 @@ def run_background(
             "silently substitute a different backgrounding mechanism"
         )
 
-    unit = unit_name or f"measurement-{uuid.uuid4().hex[:12]}"
+    # Full uuid4 hex, not a slice: this names a systemd unit AND derives
+    # `log_path` below, so two runs colliding on the suffix would have one
+    # overwrite the other's log -- silently, and precisely when the most runs
+    # are in flight. Truncation bought nothing (systemd unit names allow well
+    # over 200 characters) and `tests/gates/test_full_width_runtime_ids.py`
+    # refuses a truncated production identifier for exactly this reason.
+    unit = unit_name or f"measurement-{uuid.uuid4().hex}"
     log_dir = Path(log_dir) if log_dir is not None else Path("/var/tmp")  # nosec B108 — /var/tmp default, not tmpfs-backed /tmp (see tmp-is-tmpfs incident); overridable via log_dir
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"{unit}.log"

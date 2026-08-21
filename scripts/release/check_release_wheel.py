@@ -52,8 +52,20 @@ _RELEASE_RESOURCE_CATALOG = "deploy/release/release-contract-resources.catalog.j
 # prebundled-skills.catalog.json, is regenerated via check_release_catalogs.py
 # --write for a real source change). Verify with `sha256sum` before bumping;
 # never regenerate this blindly, it is the wheel contract's trusted anchor.
+#
+# Bumped 2026-08-21 for a real source change: three bundled skills gained
+# domain-skill coverage for four previously-unclaimed Graph-OS verbs, which
+# moved their SKILL.md/agents/graph-os.yaml digests through
+# prebundled-skills.catalog.json into this catalog.
+#
+# NOTE the pin was ALREADY stale before that: the catalog at this program's
+# starting tip hashed to 12537d8a…, not the 13b9da12… recorded here, so a prior
+# regeneration had moved the file without bumping the anchor. That is why this
+# gate was red for the whole program -- `guardrail-gate-meta-tests` is pre-push
+# only, so nothing ran it. Verified with `sha256sum` against the working tree
+# before bumping, not copied from a failure message.
 _RELEASE_RESOURCE_CATALOG_SHA256 = (
-    "13b9da1290bea0d40c345879d7290e90a31970061f5ab13b1a2651938cb10e10"
+    "dd239af14dadbd06d226fda8b18b9cdeddbf08cb25de524fb5ca0d2c2e1453c1"
 )
 _RELEASE_RESOURCE_PATHS = (
     "deploy/release/certification-campaign.schema.json",
