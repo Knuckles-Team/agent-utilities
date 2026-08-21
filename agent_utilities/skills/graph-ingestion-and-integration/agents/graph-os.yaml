@@ -3,6 +3,7 @@ tier: domain
 claims:
   core:
     - document_process
+    - graph_data_prep
     - graph_etl
     - graph_feeds
     - graph_ingest

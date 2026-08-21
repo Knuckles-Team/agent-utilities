@@ -31,6 +31,7 @@ claims:
     - engine_viz
     - graph_domain_ops
     - graph_pipeline
+    - graph_viz
   features:
     finance:
       - quant

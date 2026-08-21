@@ -10,6 +10,7 @@ claims:
     - object_index
     - object_permissioning
     - object_set
+    - ontology_classification_claims
     - ontology_derive
     - ontology_function
     - ontology_interface
@@ -17,6 +18,7 @@ claims:
     - ontology_link_materialize
     - ontology_model_profile
     - ontology_property_types
+    - ontology_repository_provenance
     - ontology_sampling_profile
     - ontology_value_types
     - write

@@ -23,6 +23,7 @@ and verification.
 | Synchronize changed content | `source_sync` |
 | Drain queued source work | `source_drain` |
 | Process document content | `document_process` |
+| Profile, clean and validate a dataset before it enters the graph | `graph_data_prep` |
 | Transform graph data | `graph_etl` |
 | Refresh registered sources | `source_sync` with `mode="full"` |
 | Manage recurring feeds | `graph_feeds` |
@@ -42,6 +43,7 @@ backfill, validation, and a scheduled delta flow.
 | `graph_media_sidecar` | `ingest_pdf`, `ingest_jpeg`, `ingest_audio`; delegates heavyweight decoding/OCR to the governed fleet sidecar and folds located evidence back into the KG | child MCP auth and tool schemas stay inside GraphOS; use `graph_ingest` for ordinary in-process artifact ingestion |
 | `source_sync` | `source=<connector>` + `mode=full\|delta\|reconcile`; `source="all"` fans out one laned `connector_sync` task per candidate across every registered connector — declarative, computed from the registries, never hand-enumerated | see "Full ingest" below for the one-call fleet-wide sweep |
 | `graph_etl` | `action="run"` (pull `source` into the KG and/or load `sink` from the KG — a write-back SoR, a graph store `stardog`/`neo4j`/`age`/`jena_fuseki`, or `sink="table"` for the native engine SQL table), `action="list"` (sources/sinks/backends), `action="lineage"` (recorded runs) | composes ingestion + write-back + graph-store machinery into one source → (ontological transform) → sink flow |
+| `graph_data_prep` | `profile_dataset`, `clean_dataset`, `validate_prepared`, `commit_prepared` | the pre-ingest bench: the first three are side-effect free and answer "is this dataset fit to land?"; only `commit_prepared` crosses the governed `ChangeEnvelope` mutation boundary |
 | `graph_ingest` (hydrate) | `graph_ingest(source=<connector>, mode="full")` re-mirrors one external source; `source="all"` fans to the fleet-wide sweep | a thin alias delegating to the same unified `source_sync` core — use `graph_etl`/`source_sync` directly for delta/reconcile modes |
 | `graph_feeds` | `list`, `add` (one `url=` or bulk `urls=`), `remove`, `sync` (run the feed sweep now, `mode=delta\|full`) | manages `:FeedSource` nodes (native RSS, FreshRSS, ScholarX arXiv) ingested through one world-model gate |
 | `graph_writeback` | `target=leanix\|servicenow\|erpnext\|process\|capability\|…`; ops: `inferences_json`, `enrichments_json`, `creations_json`, `retirements_json`; `action=write\|proposals\|approve` | fail-closed: `dry_run=true` is the default and previews the exact proposed writes; a live write needs the target's own enable flag (e.g. `LEANIX_ENABLE_WRITE`) |
