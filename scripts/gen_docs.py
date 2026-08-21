@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 """Regenerate the README.md concept block from docs/concepts.yaml.
 
-The authoritative concept count and per-pillar table live in
-``docs/concepts.yaml`` (produced by ``scripts/build_concepts_yaml.py``). This
-script renders that data into README.md between the markers::
+The authoritative concept count lives in ``docs/concepts.yaml`` (produced by
+``scripts/build_concepts_yaml.py``). This script renders that data into
+README.md between the markers::
 
     <!-- BEGIN GENERATED: concepts -->
-    ... generated count line + pillar table ...
+    ... generated count line + compact 5-pillar table ...
     <!-- END GENERATED: concepts -->
+
+The table is intentionally scoped to the **5 pillars agent-utilities itself
+owns** (AU-ORCH/AU-KG/AU-AHE/AU-ECO/AU-OS) — one row each, matching
+``docs/pillars/{1..5}_*.md``. The remaining 4 pillars (EG-AHE/EG-KG/EG-ORCH/
+EG-OS) belong to the epistemic-graph engine's own pillar set and are noted,
+not tabulated, here; the full per-concept breakdown across all 9 pillars
+stays in ``docs/concepts.yaml`` / ``docs/status.md``.
 
 Modes:
   --write   Rewrite the generated block in README.md in place.
   --check   Exit non-zero if README.md differs from a fresh generation.
 
-Output is deterministic (pillars and rows are sorted).
+Output is deterministic (rows are in fixed pillar order).
 """
 
 from __future__ import annotations
@@ -29,28 +36,55 @@ ROOT = Path(__file__).resolve().parent.parent
 CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
 README_PATH = ROOT / "README.md"
 
+# Single source of the concept-total computation — shared with
+# gen_agents_md.py so the README, AGENTS.md, and concepts.yaml's own header
+# can never independently drift from each other again.
+sys.path.insert(0, str(ROOT))
+from agent_utilities.governance.concept_hierarchy import total_concept_count  # noqa: E402
+
 BEGIN = "<!-- BEGIN GENERATED: concepts -->"
 END = "<!-- END GENERATED: concepts -->"
 
-# Human-readable focus blurbs per pillar prefix. Falls back to a derived
-# default for any pillar not listed here.
-PILLAR_LABELS = {
-    "ORCH-1": "Graph Orchestration",
-    "ORCH-2": "Orchestration Extensions",
-    "ORCH-5": "Orchestration Runtime",
-    "KG-1": "Knowledge Graph Core",
-    "KG-2": "Epistemic Knowledge Graph",
-    "AHE-3": "Agentic Harness Engineering",
-    "ECO-4": "Ecosystem & Peripherals",
-    "OS-5": "Agent OS Infrastructure",
-    "GBOT-6": "GeniusBot Cockpit",
-    "CTX-1": "Context Management",
-    "LGC-1": "Logic & Governance Core",
-    "SAFE-1": "Safety & Guardrails",
-    "UTIL-1": "Shared Utilities",
-}
-
-NUM_RE = re.compile(r"\d+")
+# The 5 pillars agent-utilities itself owns, in canonical pillar-number
+# order, with the doc each one links to and a one-line focus blurb.
+# (pillar_prefix, number, name, doc_path, focus)
+AU_PILLARS: list[tuple[str, int, str, str, str]] = [
+    (
+        "AU-ORCH",
+        1,
+        "Graph Orchestration",
+        "docs/pillars/1_graph_orchestration.md",
+        "Planning, SDD lifecycle, dynamic multi-layer execution",
+    ),
+    (
+        "AU-KG",
+        2,
+        "Epistemic Knowledge Graph",
+        "docs/pillars/2_epistemic_knowledge_graph.md",
+        "The one engine authority — ingestion, ontology, ETL, reasoning",
+    ),
+    (
+        "AU-AHE",
+        3,
+        "Agentic Harness Engineering",
+        "docs/pillars/3_agentic_harness_engineering.md",
+        "Self-models, evaluation, governed self-evolution",
+    ),
+    (
+        "AU-ECO",
+        4,
+        "Ecosystem & Peripherals",
+        "docs/pillars/4_ecosystem_peripherals.md",
+        "MCP fleet, messaging, connectors, UI surfaces",
+    ),
+    (
+        "AU-OS",
+        5,
+        "Agent OS Infrastructure",
+        "docs/pillars/5_agent_os_infrastructure.md",
+        "Auth, governance, deployment, scaling",
+    ),
+]
 
 
 def load_concepts() -> dict:
@@ -58,55 +92,44 @@ def load_concepts() -> dict:
         return yaml.safe_load(fh)
 
 
-def _id_sort_key(cid: str):
-    nums = [int(n) for n in NUM_RE.findall(cid)]
-    return (nums, cid)
-
-
 def render_block(data: dict) -> str:
     concepts = data["concepts"]
-    total = len(concepts)
+    total = total_concept_count(CONCEPTS_PATH)
 
-    # Group concepts by pillar.
+    # Group concepts by pillar (all 9 — AU's 5 + epistemic-graph's 4).
     by_pillar: dict[str, list[dict]] = {}
     for c in concepts:
         by_pillar.setdefault(c["pillar"], []).append(c)
-    pillars = sorted(by_pillar)
-    pillar_count = len(pillars)
+    pillar_count = len(by_pillar)
+
+    au_total = sum(len(by_pillar.get(prefix, [])) for prefix, *_ in AU_PILLARS)
+    other_pillars = pillar_count - len(AU_PILLARS)
+    other_total = total - au_total
 
     lines: list[str] = []
     lines.append(BEGIN)
     lines.append("")
+    # NOTE: the exact phrase "**N canonical concepts** across **M pillars**"
+    # is asserted verbatim by tests/docs/test_docs_consistency.py — keep this
+    # line's wording/markup unchanged even when editing the rest of the block.
     lines.append(
         f"Synthesized from concept markers in the codebase into "
         f"**{total} canonical concepts** across **{pillar_count} pillars**."
     )
     lines.append("")
     lines.append(
-        "> This count and the table below are generated from "
-        "`docs/concepts.yaml` by `scripts/gen_docs.py`. Do not edit by hand."
+        "> This count is generated from `docs/concepts.yaml` by "
+        "`scripts/gen_docs.py` — do not edit by hand. The table below covers "
+        f"the 5 pillars agent-utilities itself owns; the other {other_pillars} "
+        f"({other_total} concepts) belong to the epistemic-graph engine's own "
+        "pillar set. Live per-pillar status: [docs/status.md](docs/status.md)."
     )
     lines.append("")
-    lines.append("| Pillar | ID Range | Count | Focus |")
-    lines.append("|:------|:---------|:---:|:------|")
-    for pillar in pillars:
-        members = sorted(by_pillar[pillar], key=lambda c: _id_sort_key(c["id"]))
-        ids = [m["id"] for m in members]
-        if len(ids) == 1:
-            id_range = ids[0]
-        else:
-            id_range = f"{ids[0]} – {ids[-1]}"
-        label = PILLAR_LABELS.get(pillar, pillar)
-        # Build a focus blurb from the distinct concept names (deduped, trimmed).
-        seen: list[str] = []
-        for m in members:
-            name = (m.get("name") or m["id"]).strip()
-            if name and name not in seen and name != m["id"]:
-                seen.append(name)
-        focus = ", ".join(seen[:8]) if seen else label
-        lines.append(
-            f"| **{pillar}** {label} | {id_range} | {len(members)} | {focus} |"
-        )
+    lines.append("| # | Pillar | Focus | Concepts | Docs |")
+    lines.append("|:-:|:-------|:------|:--------:|:-----|")
+    for prefix, num, name, path, focus in AU_PILLARS:
+        count = len(by_pillar.get(prefix, []))
+        lines.append(f"| {num} | {name} | {focus} | {count} | [{path}]({path}) |")
     lines.append("")
     lines.append(END)
     return "\n".join(lines)

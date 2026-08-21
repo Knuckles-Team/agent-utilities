@@ -28,6 +28,8 @@ on. This page maps the pieces and how a request flows through them.
 | **agents/&ast;** (the `*-mcp` fleet) | 65 MCP connectors to enterprise systems (ServiceNow, ERPNext, GitLab/GitHub, LeanIX, ArchiMate, Twenty CRM, Camunda, Keycloak, OpenBao, Technitium DNS, Portainer, Kafka, …). Each runs as a streamable-http container; all template off `create_mcp_server()`. |
 | **universal-skills** | 40+ reusable agent skills (deployment, infra, security, workflows) — including the day-0 bootstrap workflow. |
 | **skill-graphs** | Generates skill-graph definitions and capability composition. |
+| **Ontologies** | OWL/RDF domain models, SHACL-validated and reasoned over by the epistemic-graph engine — a consolidated core (`core/ontology.ttl` + domain files: HR, medical, ArchiMate, enterprise, capability, …) inside agent-utilities, plus a per-connector ontology fragment shipped in each `agents/*` package's signed capability bundle (see [Ecosystem Capability and Skill Fleet](ecosystem-capability-fleet.md)). |
+| **Prompts** | Reusable prompt templates — packaged as the base layer inside agent-utilities (`agent_utilities/prompts/*.json`) plus each `agents/*` package's own `prompts/` directory, discovered via `prompt_providers` entry points and federated into one registry agents draw from at runtime. |
 
 ## Provider dependency contract
 

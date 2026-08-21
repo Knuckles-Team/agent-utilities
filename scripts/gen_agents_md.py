@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -25,6 +26,13 @@ ROOT = Path(__file__).resolve().parent.parent
 HEAD_PATH = ROOT / "AGENTS.head.md"
 OUT_PATH = ROOT / "AGENTS.md"
 CONCEPTS_PATH = ROOT / "docs" / "concepts.yaml"
+
+# Single source of the concept-total computation — shared with gen_docs.py so
+# the README, AGENTS.md, and concepts.yaml's own header can never
+# independently drift from each other again.
+sys.path.insert(0, str(ROOT))
+from agent_utilities.governance.concept_hierarchy import total_concept_count  # noqa: E402
+
 # D-WS-4: the full project tree (~12 KiB) is the single biggest generated
 # section — moved to its own doc so AGENTS.md's 80 KiB cap governs the
 # hand-written guidance every agent loads, not a generated inventory that
@@ -157,7 +165,7 @@ def _id_sort_key(cid: str):
 def concepts_section() -> str:
     data = yaml.safe_load(CONCEPTS_PATH.read_text(encoding="utf-8")) or {}
     concepts = data.get("concepts", [])
-    total = len(concepts)
+    total = total_concept_count(CONCEPTS_PATH)
 
     by_pillar: dict[str, list[dict]] = {}
     for c in concepts:
@@ -189,6 +197,11 @@ def concepts_section() -> str:
         lines.append(f"| **{pillar}** | {len(members)} | {summary} |")
     lines.append("")
     lines.append("_Full id list + code paths: `docs/concepts.yaml`._")
+    lines.append("")
+    lines.append(
+        "See [`docs/status.md`](docs/status.md) for the live, generated "
+        "breakdown by pillar and status."
+    )
     lines.append("")
     return "\n".join(lines)
 

@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Every publishable Markdown page must be reachable from MkDocs navigation or this catalog.
 
-409 publishable pages · 201 direct nav targets · 129 public capabilities · 873 action rows · 572 typed configuration fields · 368 runtime-only call-site inputs.
+414 publishable pages · 94 direct nav targets · 129 public capabilities · 873 action rows · 572 typed configuration fields · 368 runtime-only call-site inputs.
 
 The detailed public capability/action contract is the [generated Capability Power catalog](../capabilities-power.md). The complete configuration contract is the [generated Runtime Configuration catalog](runtime-configuration.md).
 
@@ -21,7 +21,8 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [One-link self-deploy](../deploy.md) — direct nav
 - [Ecosystem capability and skill fleet](../ecosystem-capability-fleet.md) — direct nav
 - [The Ecosystem — How agent-utilities Fits](../ecosystem.md) — direct nav
-- [Agent Utilities Ecosystem](../index.md) — direct nav
+- [For AI Agents](../for-ai-agents.md) — direct nav
+- [Agent Utilities](../index.md) — direct nav
 - [The Journey of Agent Utilities: From Spark to Living Organizational Intelligence](../journey.md) — direct nav
 - [Legal Automation Roadmap: Trust & LLC Creation](../legal_automation_roadmap.md) — catalog
 - [OKF-CIS concept IDs](../okf-cis.md) — catalog
@@ -30,6 +31,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Project Structure](../project_structure.md) — catalog
 - [Reliability / Chaos Matrix](../reliability_matrix.md) — catalog
 - [Start Here — What agent-utilities Is & How to Use It](../start-here.md) — direct nav
+- [Status — the Codex](../status.md) — direct nav
 - [Workflow × Knowledge Graph Synergy Map](../workflow-kg-synergy.md) — catalog
 
 ## Guides
@@ -51,7 +53,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [CONCEPT:AU-OS.state.cognitive-scheduler-preemption — Cognitive Scheduler](../guides/cognitive-scheduler.md) — catalog
 - [Company Bootstrap Deployment Guide](../guides/company-bootstrap.md) — catalog
 - [Conductor Orchestration (CONCEPT:AU-ORCH.planning.recursion-nesting-depth to CONCEPT:AU-ORCH.planning.recursion-nesting-depth)](../guides/conductor-orchestration.md) — catalog
-- [Configuration Reference](../guides/configuration.md) — direct nav
+- [Configuration Reference](../guides/configuration.md) — catalog
 - [Consumption Models — Library vs MCP vs REST](../guides/consumption-models.md) — direct nav
 - [Creating an Agent with Python](../guides/creating-an-agent.md) — catalog
 - [Day-0 deployment](../guides/day0.md) — direct nav
@@ -72,6 +74,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Graph Database Deployment & Multi-Backend Guide](../guides/graph-db-deployment.md) — catalog
 - [Graph Engine: One Authority + Mirrors](../guides/graph_engine.md) — direct nav
 - [Hierarchical State Machine (HSM) Infrastructure](../guides/hsm.md) — catalog
+- [Guides & Recipes](../guides/index.md) — direct nav
 - [Installation Guide](../guides/installation.md) — direct nav
 - [The pre-bundled workflow skill suite](../guides/kg-skill-suite.md) — direct nav
 - [KG-Native Orchestration Architecture](../guides/kg_native_orchestration.md) — direct nav
@@ -121,7 +124,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Recipe — Enterprise (Kubernetes/RKE2)](../recipes/enterprise.md) — direct nav
 - [Recipe — Enable the shared KV-cache (highly recommended)](../recipes/kv-caching.md) — direct nav
 - [Recipe — Single-node prod](../recipes/single-node-prod.md) — direct nav
-- [Recipe — Split-storage engine (fast-storage flavor)](../recipes/split-storage-engine.md) — catalog
+- [Recipe — Split-storage engine (fast-storage flavor)](../recipes/split-storage-engine.md) — direct nav
 - [Recipe — Tiny (all-local, zero-infra)](../recipes/tiny.md) — direct nav
 - [Recipe — Unified RSS ingestion (native RSS + FreshRSS + ScholarX arXiv)](../recipes/unified-feeds.md) — direct nav
 - [Recipe — Unified scheduling, the priority queue, and the ScholarX RSS research feed](../recipes/unified-scheduling.md) — direct nav
@@ -144,157 +147,158 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 ## Architecture
 
-- [ACL Registration Convergence — Write-Time Registration + Read-Time Fallback](../architecture/acl_registration_convergence.md) — direct nav
-- [Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity](../architecture/adaptive_model_concurrency.md) — direct nav
-- [Agent control-plane release admission](../architecture/agent-control-plane.md) — direct nav
-- [The Agent-Operator Program — closing the loops](../architecture/agent-operator-program.md) — direct nav
-- [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — direct nav
-- [Agent Communication Bus (AgentBus)](../architecture/agent_bus.md) — direct nav
-- [Queue-Driven Agent Dispatch](../architecture/agent_dispatch.md) — direct nav
-- [Agents-as-data activation layer (ADR-6 / W2.3)](../architecture/agents-as-data-activation.md) — direct nav
-- [AIF Argumentation (I-nodes/S-nodes → Dung acceptability)](../architecture/aif-argumentation.md) — direct nav
-- [Agentic Resource Discovery (ARD) interop](../architecture/ard-interop.md) — direct nav
-- [Graph-Native Assimilation Engine](../architecture/assimilation_engine.md) — direct nav
+- [ACL Registration Convergence — Write-Time Registration + Read-Time Fallback](../architecture/acl_registration_convergence.md) — catalog
+- [Adaptive Model Concurrency — auto-scaling LLM/embedding fan-out to real vLLM capacity](../architecture/adaptive_model_concurrency.md) — catalog
+- [Agent control-plane release admission](../architecture/agent-control-plane.md) — catalog
+- [The Agent-Operator Program — closing the loops](../architecture/agent-operator-program.md) — catalog
+- [agent-utilities-expert: the native KG-bound delegate](../architecture/agent-utilities-expert.md) — catalog
+- [Agent Communication Bus (AgentBus)](../architecture/agent_bus.md) — catalog
+- [Queue-Driven Agent Dispatch](../architecture/agent_dispatch.md) — catalog
+- [Agents-as-data activation layer (ADR-6 / W2.3)](../architecture/agents-as-data-activation.md) — catalog
+- [AIF Argumentation (I-nodes/S-nodes → Dung acceptability)](../architecture/aif-argumentation.md) — catalog
+- [Agentic Resource Discovery (ARD) interop](../architecture/ard-interop.md) — catalog
+- [Graph-Native Assimilation Engine](../architecture/assimilation_engine.md) — catalog
 - [Autonomous Governance & Zero-Trust Consensus](../architecture/autonomous_governance_and_zero_trust.md) — catalog
-- [Camunda + ARIS ↔ Knowledge Graph (bidirectional, OWL/RDF-native)](../architecture/camunda_aris_kg_integration.md) — direct nav
-- [Chunked async drain — one big sourcesync(full) → capacity-guarded waves](../architecture/chunked-async-drain.md) — direct nav
-- [CISO Assistant ↔ Knowledge Graph (bidirectional, OWL/RDF-native)](../architecture/ciso_assistant_kg_integration.md) — direct nav
+- [Camunda + ARIS ↔ Knowledge Graph (bidirectional, OWL/RDF-native)](../architecture/camunda_aris_kg_integration.md) — catalog
+- [Chunked async drain — one big sourcesync(full) → capacity-guarded waves](../architecture/chunked-async-drain.md) — catalog
+- [CISO Assistant ↔ Knowledge Graph (bidirectional, OWL/RDF-native)](../architecture/ciso_assistant_kg_integration.md) — catalog
 - [Engine-authoritative cluster discovery and session continuity](../architecture/cluster-discovery-session-continuity.md) — catalog
-- [Code Intelligence — type/scope-resolved call graph (CONCEPT:EG-KG.compute.type-scope-resolved-call)](../architecture/code_intelligence.md) — direct nav
-- [Codebase context via the KG — query, don't grep](../architecture/codebase-context.md) — direct nav
-- [Company Brain Runtime — Wiring the 6 Layers](../architecture/company_brain_runtime.md) — direct nav
+- [Code Intelligence — type/scope-resolved call graph (CONCEPT:EG-KG.compute.type-scope-resolved-call)](../architecture/code_intelligence.md) — catalog
+- [Codebase context via the KG — query, don't grep](../architecture/codebase-context.md) — catalog
+- [Company Brain Runtime — Wiring the 6 Layers](../architecture/company_brain_runtime.md) — catalog
 - [Concept hierarchy](../architecture/concept-hierarchy.md) — catalog
 - [Cross-host concept reservation authority](../architecture/concept-reservation-authority.md) — catalog
 - [Knowledge Graph Ingestion — Concept Extraction Standards](../architecture/concept_extraction_standards.md) — catalog
-- [Configuration Reference & Flag Audit](../architecture/configuration.md) — direct nav
+- [Configuration Reference & Flag Audit](../architecture/configuration.md) — catalog
 - [Connector control-plane contract](../architecture/connector-control-plane.md) — catalog
-- [Containerized deployment](../architecture/containerized-deployment.md) — direct nav
-- [Content-Aware Ingestion (ArchiveBox · crawl4ai · scholarx)](../architecture/content-aware-ingestion.md) — direct nav
+- [Containerized deployment](../architecture/containerized-deployment.md) — catalog
+- [Content-Aware Ingestion (ArchiveBox · crawl4ai · scholarx)](../architecture/content-aware-ingestion.md) — catalog
 - [Control-plane foundation contracts](../architecture/control-plane-foundation.md) — catalog
 - [Governed control-plane migrations](../architecture/control-plane-migrations.md) — catalog
 - [Control-plane Web UI authority](../architecture/control-plane-webui.md) — catalog
 - [Policy-bound resolved runs](../architecture/control_plane_policy_runs.md) — catalog
 - [Immutable workflow control plane](../architecture/control_plane_workflows.md) — catalog
-- [NE-115 real data-preparation acceptance](../architecture/data-prep-acceptance.md) — direct nav
-- [Arrow data-preparation kernel](../architecture/data-prep-arrow-kernel.md) — direct nav
-- [Optional operator data-quality certification](../architecture/data-quality-certification.md) — direct nav
-- [The delegation-first operating model — local LLM + graph-os do the work; the harness orchestrates + resolves exceptions](../architecture/delegation-first-operating-model.md) — direct nav
-- [Distributed multi-GPU concurrency & optimal planning](../architecture/distributed_gpu_concurrency.md) — direct nav
-- [Document → Knowledge-Graph Fact Extraction](../architecture/document_fact_extraction.md) — direct nav
-- [Drift-proof release & versioning](../architecture/drift_proof_release.md) — direct nav
-- [Durable Execution — the unified plane (supersedes restate natively)](../architecture/durable-execution.md) — direct nav
+- [NE-115 real data-preparation acceptance](../architecture/data-prep-acceptance.md) — catalog
+- [Arrow data-preparation kernel](../architecture/data-prep-arrow-kernel.md) — catalog
+- [Optional operator data-quality certification](../architecture/data-quality-certification.md) — catalog
+- [The delegation-first operating model — local LLM + graph-os do the work; the harness orchestrates + resolves exceptions](../architecture/delegation-first-operating-model.md) — catalog
+- [Distributed multi-GPU concurrency & optimal planning](../architecture/distributed_gpu_concurrency.md) — catalog
+- [Document → Knowledge-Graph Fact Extraction](../architecture/document_fact_extraction.md) — catalog
+- [Drift-proof release & versioning](../architecture/drift_proof_release.md) — catalog
+- [Durable Execution — the unified plane (supersedes restate natively)](../architecture/durable-execution.md) — catalog
 - [Dynamic graph construction](../architecture/dynamic-graph-construction.md) — catalog
 - [Economics and SLO control-plane contract](../architecture/economics-control-plane.md) — catalog
-- [Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)](../architecture/edit_application_engine.md) — direct nav
+- [Robust Edit-Application Engine (CONCEPT:AU-ORCH.execution.robust-multi-format-edit)](../architecture/edit_application_engine.md) — catalog
 - [Empirical Development Standards — the incidents behind the rules](../architecture/empirical-development-standards.md) — catalog
-- [Tenant-Partitioned Engine Sharding](../architecture/engine_sharding.md) — direct nav
+- [Tenant-Partitioned Engine Sharding](../architecture/engine_sharding.md) — catalog
 - [Enterprise Parity, Supervisory Plane & Durable Execution](../architecture/enterprise_supervisory_and_parity.md) — catalog
-- [Entrypoint Unification — one orchestrator, thin entrypoints](../architecture/entrypoint-unification.md) — direct nav
+- [Entrypoint Unification — one orchestrator, thin entrypoints](../architecture/entrypoint-unification.md) — catalog
 - [Epistemic-columns currency (Seam 1) — consuming epistemic-graph's KnowledgeBatch](../architecture/epistemic-columns-currency.md) — catalog
-- [Epistemic Operations Protocol](../architecture/epistemic-operations-protocol.md) — direct nav
+- [Epistemic Operations Protocol](../architecture/epistemic-operations-protocol.md) — catalog
 - [Epistemic OS Hardening (Phase 0–2 + Exceed X-series, AU 1.21.0)](../architecture/epistemic-os-hardening.md) — direct nav
-- [Event Backbone Architecture](../architecture/event_backbone_architecture.md) — direct nav
+- [Event Backbone Architecture](../architecture/event_backbone_architecture.md) — catalog
 - [Event Sourcing and Query Routing Architecture](../architecture/event_sourcing_and_routing.md) — catalog
-- [Evidence spine — Artifact → addressable Fragment](../architecture/evidence-spine.md) — direct nav
+- [Evidence spine — Artifact → addressable Fragment](../architecture/evidence-spine.md) — catalog
 - [Evidence-Spine Convergence (Seam 2)](../architecture/evidence_spine_convergence.md) — catalog
-- [The Evolvable Surface — Native Program Optimization](../architecture/evolvable_surface.md) — direct nav
-- [Failure-Driven Evolution (CONCEPT:AU-AHE.harness.failure-evolution)](../architecture/failure_driven_evolution.md) — direct nav
-- [fastmcp 4 as the default MCP stack (CONCEPT:AU-ECO.mcp.protocol-compat-bridge)](../architecture/fastmcp4-default.md) — direct nav
+- [The Evolvable Surface — Native Program Optimization](../architecture/evolvable_surface.md) — catalog
+- [Failure-Driven Evolution (CONCEPT:AU-AHE.harness.failure-evolution)](../architecture/failure_driven_evolution.md) — catalog
+- [fastmcp 4 as the default MCP stack (CONCEPT:AU-ECO.mcp.protocol-compat-bridge)](../architecture/fastmcp4-default.md) — catalog
 - [Fleet scale authority](../architecture/fleet-scale-authority.md) — catalog
-- [Fleet Autonomy Control Plane (OS-5.24 — AU-OS.config.health-gated-deploy-rollback, OS-5.29)](../architecture/fleet_autonomy.md) — direct nav
-- [FrontendContribution.v1 — package-authored WebUI descriptors (GOC-24)](../architecture/frontend-contributions.md) — direct nav
-- [Gateway daemon — the one host process and everything it runs](../architecture/gateway_daemon.md) — direct nav
-- [Scaling the Gateway](../architecture/gateway_scaling.md) — direct nav
+- [Fleet Autonomy Control Plane (OS-5.24 — AU-OS.config.health-gated-deploy-rollback, OS-5.29)](../architecture/fleet_autonomy.md) — catalog
+- [FrontendContribution.v1 — package-authored WebUI descriptors (GOC-24)](../architecture/frontend-contributions.md) — catalog
+- [Gateway daemon — the one host process and everything it runs](../architecture/gateway_daemon.md) — catalog
+- [Scaling the Gateway](../architecture/gateway_scaling.md) — catalog
 - [Genesis k8s deployment inputs + named environment profiles](../architecture/genesis-environment-profiles.md) — direct nav
-- [Global Workspace Attention (GWT)](../architecture/global_workspace_attention.md) — direct nav
+- [Global Workspace Attention (GWT)](../architecture/global_workspace_attention.md) — catalog
 - [GOC-44 dependency/runtime compatibility — baseline revalidation (2026-08-16)](../architecture/goc-44-dependency-runtime-compatibility-baseline.md) — catalog
-- [Governed JSON-OCEL exchange](../architecture/governed_ocel.md) — direct nav
+- [Governed JSON-OCEL exchange](../architecture/governed_ocel.md) — catalog
 - [Governed retrieval](../architecture/governed_retrieval.md) — catalog
 - [Graph Authority Convergence](../architecture/graph-authority-convergence.md) — direct nav
-- [Graph Backend Architecture](../architecture/graph_backends_architecture.md) — direct nav
+- [Graph Backend Architecture](../architecture/graph_backends_architecture.md) — catalog
 - [Epistemic Graph Service Layer Architecture](../architecture/graph_service_layer.md) — catalog
-- [graph-os Horizontal Scaling — the HPA Blocker, Precisely](../architecture/graphos-horizontal-scaling.md) — direct nav
-- [graph-os Self-Hosting Cutover — Design (EXECUTED 2026-07-26)](../architecture/graphos-self-hosting-cutover.md) — direct nav
-- [Harness Foundry — assimilate + surpass HarnessX (arXiv:2606.14249)](../architecture/harness_foundry.md) — direct nav
-- [Staged httpx → httpx2 migration (GOC-87)](../architecture/httpx_httpx2_migration.md) — direct nav
-- [IdP-Agnostic Role Inheritance & Identity-Scoped Resource Auto-Load](../architecture/identity-inheritance.md) — direct nav
-- [In-House Training Substrate](../architecture/in_house_training_substrate.md) — direct nav
-- [Ingestion Throughput — lanes that never starve, ticks that never pile up](../architecture/ingestion_throughput.md) — direct nav
-- [Intelligent ingestion — classify, evolve, embed fast, tame the tail](../architecture/intelligent-ingestion.md) — direct nav
-- [Intent Surface — Seam 8, Phases 2-5 (complete)](../architecture/intent-surface.md) — direct nav
-- [KG Connectors, Ingestors & Enrichers — the unified ingestion architecture](../architecture/kg_connectors_and_ingestion.md) — direct nav
-- [Knowledge Graph as a Bidirectional ETL Hub (Stardog data backend, connectors, write-back, lineage)](../architecture/kg_etl_hub.md) — direct nav
-- [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md) — direct nav
+- [graph-os Horizontal Scaling — the HPA Blocker, Precisely](../architecture/graphos-horizontal-scaling.md) — catalog
+- [graph-os Self-Hosting Cutover — Design (EXECUTED 2026-07-26)](../architecture/graphos-self-hosting-cutover.md) — catalog
+- [Harness Foundry — assimilate + surpass HarnessX (arXiv:2606.14249)](../architecture/harness_foundry.md) — catalog
+- [Staged httpx → httpx2 migration (GOC-87)](../architecture/httpx_httpx2_migration.md) — catalog
+- [IdP-Agnostic Role Inheritance & Identity-Scoped Resource Auto-Load](../architecture/identity-inheritance.md) — catalog
+- [In-House Training Substrate](../architecture/in_house_training_substrate.md) — catalog
+- [Architecture Reference](../architecture/index.md) — direct nav
+- [Ingestion Throughput — lanes that never starve, ticks that never pile up](../architecture/ingestion_throughput.md) — catalog
+- [Intelligent ingestion — classify, evolve, embed fast, tame the tail](../architecture/intelligent-ingestion.md) — catalog
+- [Intent Surface — Seam 8, Phases 2-5 (complete)](../architecture/intent-surface.md) — catalog
+- [KG Connectors, Ingestors & Enrichers — the unified ingestion architecture](../architecture/kg_connectors_and_ingestion.md) — catalog
+- [Knowledge Graph as a Bidirectional ETL Hub (Stardog data backend, connectors, write-back, lineage)](../architecture/kg_etl_hub.md) — catalog
+- [Knowledge Distillation → Skill-Graphs](../architecture/knowledge_distillation_skill_graphs.md) — catalog
 - [Knowledge Graph Ingestion Stability & Locking Architecture](../architecture/knowledge_graph_ingestion_stability.md) — catalog
-- [Dynamic KV-Cache-Layering Policy (per-execution cache-worthiness)](../architecture/kv-cache-layering-policy.md) — direct nav
-- [KV-Checkpoint Intelligence — checkpointing at good moments](../architecture/kv-checkpoint-intelligence.md) — direct nav
-- [Lane concurrency — four arbitration classes](../architecture/lane-concurrency.md) — direct nav
-- [Latent-Native Memory](../architecture/latent_native_memory.md) — direct nav
+- [Dynamic KV-Cache-Layering Policy (per-execution cache-worthiness)](../architecture/kv-cache-layering-policy.md) — catalog
+- [KV-Checkpoint Intelligence — checkpointing at good moments](../architecture/kv-checkpoint-intelligence.md) — catalog
+- [Lane concurrency — four arbitration classes](../architecture/lane-concurrency.md) — catalog
+- [Latent-Native Memory](../architecture/latent_native_memory.md) — catalog
 - [Layered Hybrid Architecture — KG Comparative Analysis Pipeline](../architecture/layered_analysis_architecture.md) — catalog
-- [LLM / Embedding Server-Capacity Guard](../architecture/llm-server-capacity-guard.md) — direct nav
+- [LLM / Embedding Server-Capacity Guard](../architecture/llm-server-capacity-guard.md) — catalog
 - [Mandatory ContextCompiler model boundary](../architecture/mandatory-context-compiler.md) — direct nav
-- [The MCP 2026-07-28 protocol on graph-os's own surface (BUG-069)](../architecture/mcp-2026-protocol-surface.md) — direct nav
-- [MCP authentication and network trust](../architecture/mcp_auth.md) — direct nav
+- [The MCP 2026-07-28 protocol on graph-os's own surface (BUG-069)](../architecture/mcp-2026-protocol-surface.md) — catalog
+- [MCP authentication and network trust](../architecture/mcp_auth.md) — catalog
 - [GraphOS Embedded Fleet Gateway](../architecture/mcp_multiplexer.md) — catalog
-- [The merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — direct nav
-- [Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — direct nav
-- [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — direct nav
-- [Model Registry as Graph Resources + Rejected-Alternative Routing Provenance](../architecture/model_registry_graph_resources.md) — direct nav
-- [Modular prompt & skill contribution](../architecture/modular-prompt-skill-contribution.md) — direct nav
-- [Multi-Agent Social System (MASS)](../architecture/multi_agent_social_system.md) — direct nav
-- [Multi-Source Assimilation Program](../architecture/multi_source_assimilation.md) — direct nav
+- [The merge queue — continuous merge, serialized, tiered](../architecture/merge-queue.md) — catalog
+- [Messaging reach — Claude & agents message the user (AU-ECO.messaging.messaging-reach-service-governed–4.54)](../architecture/messaging_reach.md) — catalog
+- [Secure messaging ingress — instant push with zero open ports (AU-ECO.messaging.telegram-webhook-receiver-started)](../architecture/messaging_security.md) — catalog
+- [Model Registry as Graph Resources + Rejected-Alternative Routing Provenance](../architecture/model_registry_graph_resources.md) — catalog
+- [Modular prompt & skill contribution](../architecture/modular-prompt-skill-contribution.md) — catalog
+- [Multi-Agent Social System (MASS)](../architecture/multi_agent_social_system.md) — catalog
+- [Multi-Source Assimilation Program](../architecture/multi_source_assimilation.md) — catalog
 - [Multi-Tenant graph-os over Streamable-HTTP](../architecture/multi_tenant_streamable_http.md) — catalog
 - [Native WorkItem resource-reservation boundary](../architecture/native-resource-reservation.md) — catalog
-- [Non-Blocking Hierarchical Execution](../architecture/non-blocking-execution.md) — direct nav
-- [North-Star Architecture — one saturating engine, a non-blocking pipeline, and 100% delegation](../architecture/north-star-architecture.md) — direct nav
-- [Incremental object-centric derivation + conformance checking](../architecture/object_centric_derivation_and_conformance.md) — direct nav
+- [Non-Blocking Hierarchical Execution](../architecture/non-blocking-execution.md) — catalog
+- [North-Star Architecture — one saturating engine, a non-blocking pipeline, and 100% delegation](../architecture/north-star-architecture.md) — catalog
+- [Incremental object-centric derivation + conformance checking](../architecture/object_centric_derivation_and_conformance.md) — catalog
 - [Observability — Metrics, Logs, Traces, Alerts](../architecture/observability.md) — direct nav
-- [Ontology Federation & Package Migration](../architecture/ontology-federation.md) — direct nav
-- [Ontology-Guided Ingestion & Entity Resolution](../architecture/ontology-guided-ingestion.md) — direct nav
+- [Ontology Federation & Package Migration](../architecture/ontology-federation.md) — catalog
+- [Ontology-Guided Ingestion & Entity Resolution](../architecture/ontology-guided-ingestion.md) — catalog
 - [Ontology integrity-policy activation (CONCEPT:AU-KG.ontology.integrity-bootstrap)](../architecture/ontology-integrity-activation.md) — catalog
 - [Ontology-native classification — full handoff (Phase A → checkpoint → Phase B)](../architecture/ontology-native-classification.md) — catalog
-- [Ontology Library](../architecture/ontology_library.md) — direct nav
-- [Architecture: The Unified Ontology System](../architecture/ontology_system.md) — direct nav
-- [Optimization Campaign — Session Checkpoint (2026-06-19)](../architecture/optimization-campaign-checkpoint.md) — direct nav
-- [Orchestration Execution Seam — ingested capability → executed by a local LLM](../architecture/orchestration-execution-seam.md) — direct nav
-- [Orchestrator Migration & Cutover — hard-won hardening (provider-neutral)](../architecture/orchestrator-migration-cutover.md) — direct nav
-- [Runtime Org Dynamics — Recruiter, Work-Item DAG, Self-Grown Staff](../architecture/org-runtime.md) — direct nav
-- [OWL/RDF Layer — always-on, local, fast (CONCEPT:AU-KG.query.vendor-agnostic-traversal)](../architecture/owl_rdf_layer.md) — direct nav
-- [Per-Agent On-Behalf-Of Identity](../architecture/per-agent-delegation.md) — direct nav
-- [Perspectival Inquiry — STORM made native](../architecture/perspectival_inquiry.md) — direct nav
+- [Ontology Library](../architecture/ontology_library.md) — catalog
+- [Architecture: The Unified Ontology System](../architecture/ontology_system.md) — catalog
+- [Optimization Campaign — Session Checkpoint (2026-06-19)](../architecture/optimization-campaign-checkpoint.md) — catalog
+- [Orchestration Execution Seam — ingested capability → executed by a local LLM](../architecture/orchestration-execution-seam.md) — catalog
+- [Orchestrator Migration & Cutover — hard-won hardening (provider-neutral)](../architecture/orchestrator-migration-cutover.md) — catalog
+- [Runtime Org Dynamics — Recruiter, Work-Item DAG, Self-Grown Staff](../architecture/org-runtime.md) — catalog
+- [OWL/RDF Layer — always-on, local, fast (CONCEPT:AU-KG.query.vendor-agnostic-traversal)](../architecture/owl_rdf_layer.md) — catalog
+- [Per-Agent On-Behalf-Of Identity](../architecture/per-agent-delegation.md) — catalog
+- [Perspectival Inquiry — STORM made native](../architecture/perspectival_inquiry.md) — catalog
 - [Phased Dependency Release Architecture](../architecture/phased_release_architecture.md) — catalog
 - [Privacy-safe external graph ingestion](../architecture/privacy-safe-external-ingestion.md) — direct nav
-- [Pydantic AI v2 migration](../architecture/pydantic-ai-v2-migration.md) — direct nav
-- [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — direct nav
-- [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — direct nav
-- [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — direct nav
-- [Relational authority and registry read model](../architecture/relational-authority.md) — direct nav
+- [Pydantic AI v2 migration](../architecture/pydantic-ai-v2-migration.md) — catalog
+- [RCA: graph-os fleet-mount bookkeeping disagreed with the callable tool surface (D-OB-3)](../architecture/rca-mcp-tool-state-desync.md) — catalog
+- [Reactions / Emotes — a system-wide orchestrator output](../architecture/reactions.md) — catalog
+- [Reasoning Algorithms as Versioned Graph Topologies](../architecture/reasoning-graph-topologies.md) — catalog
+- [Relational authority and registry read model](../architecture/relational-authority.md) — catalog
 - [Relational control-plane authority and placement](../architecture/relational-control-plane.md) — catalog
-- [Repository-development WorkItem authority](../architecture/repository-workitem-authority.md) — direct nav
+- [Repository-development WorkItem authority](../architecture/repository-workitem-authority.md) — catalog
 - [Resource-pool capability authority](../architecture/resource-pool-authority.md) — catalog
-- [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — direct nav
-- [Runtime-Reliability Loop — detect → signal → gap → heal](../architecture/runtime-reliability-loop.md) — direct nav
-- [Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)](../architecture/sampling_profiles.md) — direct nav
-- [Scaling Authority Contract (NE-164)](../architecture/scaling-authority.md) — direct nav
+- [Resource-Priority Edict — interactive over ingestion, end to end](../architecture/resource-priority-edict.md) — catalog
+- [Runtime-Reliability Loop — detect → signal → gap → heal](../architecture/runtime-reliability-loop.md) — catalog
+- [Task-Aware Sampling Profiles (CONCEPT:AU-ORCH.routing.sampling-profile-selection / AHE-3.38 / KG-2.94–2.96)](../architecture/sampling_profiles.md) — catalog
+- [Scaling Authority Contract (NE-164)](../architecture/scaling-authority.md) — catalog
 - [Durable ScaleIntent actuation](../architecture/scaling-intent-actuation.md) — catalog
 - [The Self-Evolution Flywheel — transparent, steerable, governed](../architecture/self-evolution-flywheel.md) — direct nav
-- [Self-Improving Reasoning Substrate](../architecture/self_improving_reasoning_substrate.md) — direct nav
+- [Self-Improving Reasoning Substrate](../architecture/self_improving_reasoning_substrate.md) — catalog
 - [Service-surface scale units](../architecture/service-scale-units.md) — catalog
 - [The shared workspace .venv — sync, flip-on-merge, drift, upgrade](../architecture/shared-venv-lifecycle.md) — catalog
 - [Shortcut-Resistant Search-Task Synthesis](../architecture/shortcut_resistant_search_synthesis.md) — catalog
 - [Skill-Workflow → Knowledge-Graph Ingestion](../architecture/skill_workflow_ingestion.md) — catalog
-- [Skills-over-MCP: One Ranked Capability Space (CONCEPT:AU-KG.retrieval.unified-capability-contract)](../architecture/skills_over_mcp.md) — direct nav
-- [Source authority and evidence-gated checkpoints](../architecture/source-control-plane.md) — direct nav
-- [Durable-State Externalization & Multi-Host Operation](../architecture/state_externalization.md) — direct nav
-- [Canonical execution trace and outcome ontology](../architecture/trace_outcome_ontology.md) — direct nav
-- [Cross-layer deployment troubleshooting — the troubleshoot context provider](../architecture/troubleshooting.md) — direct nav
-- [Unattended Claude Code Harness](../architecture/unattended_claude_harness.md) — direct nav
-- [Unified Agent Entrypoint — one seam into the graph agents (verified)](../architecture/unified-agent-entrypoint.md) — direct nav
+- [Skills-over-MCP: One Ranked Capability Space (CONCEPT:AU-KG.retrieval.unified-capability-contract)](../architecture/skills_over_mcp.md) — catalog
+- [Source authority and evidence-gated checkpoints](../architecture/source-control-plane.md) — catalog
+- [Durable-State Externalization & Multi-Host Operation](../architecture/state_externalization.md) — catalog
+- [Canonical execution trace and outcome ontology](../architecture/trace_outcome_ontology.md) — catalog
+- [Cross-layer deployment troubleshooting — the troubleshoot context provider](../architecture/troubleshooting.md) — catalog
+- [Unattended Claude Code Harness](../architecture/unattended_claude_harness.md) — catalog
+- [Unified Agent Entrypoint — one seam into the graph agents (verified)](../architecture/unified-agent-entrypoint.md) — catalog
 - [Universal external graph connectors](../architecture/universal-external-graph-connectors.md) — direct nav
 - [HNSW Vector Index Lifecycle](../architecture/vector_index_lifecycle.md) — catalog
-- [Vendor-Neutral Enterprise Ontology](../architecture/vendor_neutral_enterprise_ontology.md) — direct nav
-- [Verified Identity Carrier Contract (GOC-15)](../architecture/verified-identity-carrier-contract.md) — direct nav
-- [Governed Warm-Fork Sandboxes](../architecture/warm-fork-sandboxes.md) — direct nav
+- [Vendor-Neutral Enterprise Ontology](../architecture/vendor_neutral_enterprise_ontology.md) — catalog
+- [Verified Identity Carrier Contract (GOC-15)](../architecture/verified-identity-carrier-contract.md) — catalog
+- [Governed Warm-Fork Sandboxes](../architecture/warm-fork-sandboxes.md) — catalog
 
 ## Pillars
 
@@ -316,7 +320,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [CONCEPT:AU-ORCH.execution.parallel-engine-visualizer — Parallel Engine](../pillars/1_graph_orchestration/ORCH-1.8-Parallel_Engine.md) — catalog
 - [Workflow Distillation & Skill-as-Workflow (CONCEPT:AU-ORCH.execution.parallel-engine-visualizer)](../pillars/1_graph_orchestration/ORCH-1.8-Workflow_Distillation.md) — catalog
 - [ORCH-1.24: Workflow Lifecycle Management](../pillars/1_graph_orchestration/ORCH-1.9-Workflow_Lifecycle.md) — catalog
-- [Pillar 1: Graph Orchestration Engine](../pillars/1_graph_orchestration.md) — direct nav
+- [Pillar 1: Graph Orchestration Engine](../pillars/1_graph_orchestration.md) — catalog
 - [Token-Aware Context Compaction (CONCEPT:AU-KG.memory.tiered-memory-caching)](../pillars/2_epistemic_knowledge_graph/KG-2.1-Tiered_Memory_And_Context.md) — catalog
 - [Bi-Temporal Memory Layers (CONCEPT:AU-KG.temporal.bi-temporal-memory-layers)](../pillars/2_epistemic_knowledge_graph/KG-2.11-Bi_Temporal_Memory_Layers.md) — catalog
 - [Memory-First Retrieval (CONCEPT:AU-KG.retrieval.memory-first-retrieval)](../pillars/2_epistemic_knowledge_graph/KG-2.12-Memory_First_Retrieval.md) — catalog
@@ -327,7 +331,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Evidence-Weighted Memory (CONCEPT:AU-KG.retrieval.evidence-weighted-memory)](../pillars/2_epistemic_knowledge_graph/KG-2.18-Evidence_Weighted_Memory.md) — catalog
 - [Self-Curating Wiki (CONCEPT:EG-KG.query.wire-protocol)](../pillars/2_epistemic_knowledge_graph/KG-2.19-Self_Curating_Wiki.md) — catalog
 - [OWL-Driven Semantic Subsumption (CONCEPT:AU-KG.ingest.engineering-rules)](../pillars/2_epistemic_knowledge_graph/KG-2.2-Ontology_And_Epistemics.md) — catalog
-- [KG-2.20 — Mementified Context Management](../pillars/2_epistemic_knowledge_graph/KG-2.20-Mementified_Context_Management.md) — direct nav
+- [KG-2.20 — Mementified Context Management](../pillars/2_epistemic_knowledge_graph/KG-2.20-Mementified_Context_Management.md) — catalog
 - [KG-2.22 — Pack-Driven Retrieval Signals](../pillars/2_epistemic_knowledge_graph/KG-2.22-Pack_Driven_Retrieval_Signals.md) — catalog
 - [Retrieval Quality Gate (CONCEPT:AU-KG.research.research-pipeline-runner)](../pillars/2_epistemic_knowledge_graph/KG-2.3-Graph_Integrity_And_Retrieval.md) — catalog
 - [AU-KG.research.zero-llm-pack-link — Zero-LLM Pack-Driven Link Inference](../pillars/2_epistemic_knowledge_graph/KG-2.33-Zero_LLM_Link_Inference.md) — catalog
@@ -356,7 +360,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Data-Level Permissions](../pillars/2_epistemic_knowledge_graph/company_brain/permissions.md) — catalog
 - [Provenance Tracking](../pillars/2_epistemic_knowledge_graph/company_brain/provenance.md) — catalog
 - [Roadmap](../pillars/2_epistemic_knowledge_graph/company_brain/roadmap.md) — catalog
-- [Pillar 2: Epistemic Knowledge Graph](../pillars/2_epistemic_knowledge_graph.md) — direct nav
+- [Pillar 2: Epistemic Knowledge Graph](../pillars/2_epistemic_knowledge_graph.md) — catalog
 - [Decomposed Reward Signals (CONCEPT:AU-AHE.evaluation.adaptive-reasoning-effort)](../pillars/3_agentic_harness_engineering/AHE-3.1-Continuous_Evaluation_Engine.md) — catalog
 - [LongMemEval-S Validation Harness (CONCEPT:AU-AHE.evaluation.longmemeval-validation-harness)](../pillars/3_agentic_harness_engineering/AHE-3.12-LongMemEval_S_Validation_Harness.md) — catalog
 - [Agent Config Versioning (CONCEPT:AU-AHE.harness.evolutionary-aggregation)](../pillars/3_agentic_harness_engineering/AHE-3.2-Agentic_Evolution_Engine.md) — catalog
@@ -364,7 +368,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Heavy Thinking Orchestration (CONCEPT:AU-AHE.evaluation.backtest-harness)](../pillars/3_agentic_harness_engineering/AHE-3.5-Heavy_Thinking_And_Background_Intelligence.md) — catalog
 - [Backtest Evaluation Harness (CONCEPT:AU-AHE.evaluation.backtest-harness)](../pillars/3_agentic_harness_engineering/AHE-3.6-Backtest_And_Curriculum.md) — catalog
 - [Distributed Agent State Concurrency (CONCEPT:AU-AHE.harness.concept-2)](../pillars/3_agentic_harness_engineering/AHE-3.7-Distributed_State_Manager.md) — catalog
-- [Pillar 3: Agentic Harness Engineering](../pillars/3_agentic_harness_engineering.md) — direct nav
+- [Pillar 3: Agentic Harness Engineering](../pillars/3_agentic_harness_engineering.md) — catalog
 - [Provider Prompt Adaptation (CONCEPT:AU-ECO.messaging.native-backend-abstraction)](../pillars/4_ecosystem_peripherals/ECO-4.0-Tool_Interface_And_MCP_Factory.md) — catalog
 - [Community Telemetry (CONCEPT:AU-ECO.messaging.native-backend-abstraction)](../pillars/4_ecosystem_peripherals/ECO-4.2-Community_Telemetry_And_Ecosystem_Map.md) — catalog
 - [Document-Source Connector Framework (CONCEPT:AU-ECO.connector.document-source-framework)](../pillars/4_ecosystem_peripherals/ECO-4.25-Document_Source_Connector_Framework.md) — catalog
@@ -381,7 +385,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [AU-ECO.mcp.toolkit-live-discovery: Unified Agent Toolkit Ingestor](../pillars/4_ecosystem_peripherals/ECO-4.6-Agent_Toolkit_Ingestor.md) — catalog
 - [AU-ECO.mcp.toolkit-live-discovery: MCP Live Tool Discovery](../pillars/4_ecosystem_peripherals/ECO-4.6-MCP_Live_Discovery.md) — catalog
 - [Autonomous Trading Ecosystem (CONCEPT:AU-ECO.bus.pluggable-event-queue)](../pillars/4_ecosystem_peripherals/ECO-4.9-Autonomous_Trading_Ecosystem.md) — catalog
-- [Pillar 4: Ecosystem & Peripherals](../pillars/4_ecosystem_peripherals.md) — direct nav
+- [Pillar 4: Ecosystem & Peripherals](../pillars/4_ecosystem_peripherals.md) — catalog
 - [CONCEPT:AU-OS.governance.wasm-micro-agent-sandbox — Massive Scale Architecture & Sandbox](../pillars/5_agent_os_infrastructure/OS-5.5-Massive_Scale_Architecture.md) — catalog
 - [CONCEPT:AU-OS.governance.reactive-multi-axis-budget — Reactive Budget Guardrails](../pillars/5_agent_os_infrastructure/OS-5.5-Reactive_Budget_Guardrails.md) — catalog
 - [OS-5.6 — Distributed Replay, Sandboxing, & Epistemic Resource Scheduling](../pillars/5_agent_os_infrastructure/OS-5.6-Distributed_Replay_And_Coordination.md) — catalog
@@ -389,11 +393,12 @@ The detailed public capability/action contract is the [generated Capability Powe
 - [Epistemic Resource Scheduler (CONCEPT:AU-OS.scaling.epistemic-dynamic-priority-quota)](../pillars/5_agent_os_infrastructure/OS-5.8-Epistemic_Resource_Scheduler.md) — catalog
 - [Gateway Service Dashboard (CONCEPT:AU-OS.config.gateway-service-dashboard)](../pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md) — catalog
 - [Ontological Guardrail Engine (CONCEPT:AU-OS.safety.ontological-guardrail)](../pillars/5_agent_os_infrastructure/OS-5.9-Ontological_Guardrail_Engine.md) — catalog
-- [Pillar 5: Agent OS Infrastructure](../pillars/5_agent_os_infrastructure.md) — direct nav
-- [Pillar 6: GeniusBot Desktop Cockpit (GBOT)](../pillars/6_geniusbot_cockpit.md) — direct nav
-- [agent-utilities C4 Architecture](../pillars/architecture_c4.md) — direct nav
+- [Pillar 5: Agent OS Infrastructure](../pillars/5_agent_os_infrastructure.md) — catalog
+- [Pillar 6: GeniusBot Desktop Cockpit (GBOT)](../pillars/6_geniusbot_cockpit.md) — catalog
+- [agent-utilities C4 Architecture](../pillars/architecture_c4.md) — catalog
+- [Pillar Reference](../pillars/index.md) — direct nav
 - [Ecosystem Integration & Concept Wiring](../pillars/master_integration.md) — catalog
-- [Unified Memory Architecture](../pillars/memory_architecture.md) — direct nav
+- [Unified Memory Architecture](../pillars/memory_architecture.md) — catalog
 
 ## Reference
 
@@ -419,7 +424,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 
 - [Capacity Model (Plan 07: Path to Scale)](../scaling/capacity_model.md) — direct nav
 - [Live workload certification contract](../scaling/live-loadgen-certification.md) — direct nav
-- [Agent-utilities scale claim register](../scaling/scale_claims.md) — catalog
+- [Agent-utilities scale claim register](../scaling/scale_claims.md) — direct nav
 
 ## Learn
 
@@ -430,7 +435,7 @@ The detailed public capability/action contract is the [generated Capability Powe
 ## Operations
 
 - [Backup, restore and cross-cell recovery](../operations/disaster-recovery.md) — direct nav
-- [Phase-10 cutover runbook — au 638ea524 + eg 2595a24 → live RKE2](../operations/phase10-cutover-runbook.md) — catalog
+- [Phase-10 cutover runbook — au 638ea524 + eg 2595a24 → live RKE2](../operations/phase10-cutover-runbook.md) — direct nav
 - [Production cell runbook](../operations/production-cell-runbook.md) — direct nav
 
 ## Release

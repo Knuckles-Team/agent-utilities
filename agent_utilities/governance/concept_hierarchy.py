@@ -272,6 +272,39 @@ def slug_for_repo(repo_name: str, *, path: str | None = None) -> str | None:
     return load_slug_registry(path).get(repo_name)
 
 
+#: The canonical concept registry (docs/concepts.yaml), computed relative to
+#: this module's location (agent_utilities/governance/ -> repo root) rather
+#: than shipped alongside it, since the registry lives at the repo's docs/.
+DEFAULT_CONCEPTS_YAML_PATH = (
+    Path(__file__).resolve().parents[2] / "docs" / "concepts.yaml"
+)
+
+
+def total_concept_count(concepts_yaml_path: str | Path | None = None) -> int:
+    """The single authoritative total-concepts count from ``docs/concepts.yaml``.
+
+    Every entry in the registry's ``concepts:`` list counts once — there is no
+    status-based filtering (``reserved``/``retired`` concepts are removed from
+    the registry outright by the allocator, not carried with a status flag),
+    so this is exactly ``len(concepts)``. It exists so ``scripts/gen_docs.py``
+    (README "Concept Map") and ``scripts/gen_agents_md.py`` (AGENTS.md
+    "Concept Reference") both report the SAME number as `docs/concepts.yaml`'s
+    own generated ``total_concepts`` header, rather than each independently
+    recomputing it and silently drifting apart (they previously reported
+    1203 and 1196 respectively against a registry whose real count was 1216 —
+    not from different filtering logic, but from each generator's output
+    going stale independently; a single shared function removes the
+    duplicate implementation that made that drift possible).
+    """
+    import yaml
+
+    path = (
+        Path(concepts_yaml_path) if concepts_yaml_path else DEFAULT_CONCEPTS_YAML_PATH
+    )
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    return len(data.get("concepts", []))
+
+
 def okf_part_of_edges(parsed: list[OkfConceptId]) -> list[tuple[str, str]]:
     """OKF-CIS mereology as IRI pairs: concept->domain->pillar->scheme.
 

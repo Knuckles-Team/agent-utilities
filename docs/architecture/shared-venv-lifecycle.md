@@ -302,7 +302,7 @@ resolution, so a relock cannot race another lane.
 ```mermaid
 flowchart LR
     A[external worktree: lock] --> B{own tracked uv.lock?}
-    B -- no --> X[refuse; lock --check only]
+    B -- no --> X["refuse; lock --check only"]
     B -- yes --> C{canonical checkout?}
     C -- yes --> X
     C -- no --> D[materialize exact sibling links]

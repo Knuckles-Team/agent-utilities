@@ -34,7 +34,7 @@ flowchart LR
     RC --> AP
     AS --> AP
     DW[Deploy watch\nOS-5.27] --> AP
-    AP -->|allow / allow+notify| ACT[FleetActuator\ndry-run default / docker / kubectl(k8s) / injected]
+    AP -->|allow / allow+notify| ACT["FleetActuator\ndry-run default / docker / kubectl(k8s) / injected"]
     AP -->|queue_approval| APQ[ActionApproval nodes\n/api/fleet/approvals]
     AP -->|deny| AUD
     APQ -->|granted| RC

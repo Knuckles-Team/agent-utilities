@@ -185,6 +185,10 @@ jobs:
         continue-on-error: true
         run: python3 scripts/docs_contract.py --check
 
+      - name: Status page freshness gate (docs/status.md vs concepts.yaml/concept_reservations.yaml)
+        continue-on-error: true
+        run: python3 scripts/check_status_page.py
+
       - name: Epistemic Operations Protocol gate (catalog + Python projection)
         continue-on-error: true
         run: python3 scripts/check_epistemic_operations_protocol.py --self-only

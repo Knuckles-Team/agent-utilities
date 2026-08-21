@@ -12,7 +12,7 @@ flowchart LR
     R --> E[Versioned identity store]
     R --> T[Retention tombstones\nCAS + legal hold]
     S --> U[UI-state receipt\nGraphOS mutations = 0]
-    C -. anonymous pilot .-> P[Private session only\nno token, grant, or public share]
+    C -. anonymous pilot .-> P["Private session only\nno token, grant, or public share"]
 ```
 
 ## Authority and data boundaries
