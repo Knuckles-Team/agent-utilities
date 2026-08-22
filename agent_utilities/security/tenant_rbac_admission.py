@@ -1,6 +1,8 @@
 #!/usr/bin/python
 from __future__ import annotations
 
+import contextlib
+
 from .admission_authority import AdmissionAuthority
 
 """Engine-side tenant-graph Read/Write RBAC admission — the ordinary-access sibling
@@ -189,6 +191,36 @@ class EngineIdentityClient(Protocol):
     ) -> str: ...
 
 
+@contextlib.contextmanager
+def _verified_context_for_signing() -> Any:
+    """Bind the caller's verified session onto the native transport.
+
+    A detached-signature operation must be signed under the principal the engine
+    will verify it against. Only the native client owns
+    ``use_verified_context``; the routed view proxies to it via ``_base``.
+    """
+
+    from ..knowledge_graph.core.graph_compute import GraphComputeEngine
+    from ..knowledge_graph.core.session import current_session, resolve_session
+
+    session = current_session()
+    if session is None:
+        raise TenantAdmissionError(
+            "engine identity registration requires a bound verified GraphSession"
+        )
+    session = resolve_session(session)
+
+    view = GraphComputeEngine.get_or_create().client
+    native = getattr(getattr(view, "_client", view), "_base", None)
+    if native is None or not hasattr(native, "use_verified_context"):
+        # No seam to bind: let the call proceed and fail loudly rather than
+        # silently signing under the wrong context.
+        yield
+        return
+    with native.use_verified_context(session.engine_verified_context()):
+        yield
+
+
 class FixtureEngineIdentityClient:
     """In-memory :class:`EngineIdentityClient` double — every test in
     ``tests/unit/security/test_tenant_rbac_admission.py`` drives this, never a
@@ -252,17 +284,31 @@ class LiveEngineIdentityClient:
         signer_id: str,
         signer_key: str,
     ) -> str:
+        client = self._client()
         try:
-            return str(
-                self._client().consensus.register_identity(
-                    agent_id,
-                    role,
-                    teams,
-                    roles,
-                    signer_id=signer_id,
-                    signer_key=signer_key,
+            # RegisterIdentity carries a DETACHED signature that the generated
+            # client computes BEFORE it sends anything, and the signature is
+            # bound to whatever `_effective_verified_context()` returns at that
+            # moment. The routed transport only applies the caller's session
+            # context around the SEND (`graph_compute._invoke_at`), so at signing
+            # time the context is still the zero-authority one the socket was
+            # opened with -- and the client's own
+            # `signer_id != context["principal"]` check then fails with
+            # "identity signer must match the verified principal".
+            #
+            # Bind the session context around the WHOLE call so the signature is
+            # computed under the same principal it will be verified against.
+            with _verified_context_for_signing():
+                return str(
+                    client.consensus.register_identity(
+                        agent_id,
+                        role,
+                        teams,
+                        roles,
+                        signer_id=signer_id,
+                        signer_key=signer_key,
+                    )
                 )
-            )
         except Exception as exc:
             raise TenantAdmissionError(
                 f"engine register_identity({agent_id!r}, roles={roles!r}) failed"
