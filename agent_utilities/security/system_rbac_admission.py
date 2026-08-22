@@ -1,6 +1,8 @@
 #!/usr/bin/python
 from __future__ import annotations
 
+from .admission_authority import AdmissionAuthority
+
 """Engine-side admission for au's own SYSTEM principal(s) — the fix for
 BUG-295 (P0: the scheduler has never fired; ~175 consecutive
 ``CypherEngineError(PermissionError)`` failures, 0 successes since pod boot).
@@ -144,29 +146,29 @@ site), for three reasons specific to this defect:
 
 The operator-gated path stays reachable for the cases auto-admission does
 not cover: pre-provisioning before a rollout, an environment that
-deliberately wants a manual step, or re-running by hand after fixing
-NE-021 without waiting for the next boot — ship
+deliberately wants a manual step, or re-running by hand without waiting
+for the next boot — ship
 :mod:`agent_utilities.security.system_admission_cli`, mirroring
 ``tenant_admission_cli.py``/``tier2_admission_cli.py`` exactly (manifest
 JSON, dry-run unless ``--apply``). Both paths call the SAME
 :func:`provision_system_principal_access` composition, so they always
 produce identical provisioning for the same principal.
 
-NE-021 — the provisioner credential does not exist in either secrets
-backend on the target deployment (verified metadata-only; this
-deployment's ``SecretsClient`` backend is ``"engine"``, not OpenBao).
-:func:`ensure_system_principal_access` and
-:func:`resolve_provisioner_authority` therefore cannot be activated live
-until an operator supplies ``engine-admission/provisioner``. This is
-expected and handled, not a bug in this module: a missing credential
-raises :class:`SystemAdmissionError` naming exactly the missing secret key
-and the CLI command to seed it (never the secret value itself — this
-module never mints, prints, logs, or persists one, matching every sibling
-admission module's doctrine, AGENTS.md "Secrets & credential retrieval").
-The ``kg_server.py`` call site catches this, logs it once per backoff
-window, and continues serving degraded — exactly today's (broken)
-scheduler behavior, but now with an actionable diagnosis instead of a bare
-``CypherEngineError`` repeating forever with no explanation.
+Credential resolution is
+:func:`~agent_utilities.security.admission_authority.resolve_admission_authority`:
+the caller's own verified principal, signing as itself. There is no separate
+provisioner credential to seed, because the engine's
+``verify_register_identity_signature`` requires ``signer ==
+context.principal()`` and answers ``SIGNER_TRUST_DENIED`` to anything else —
+a delegated provisioner identity is not a thing the engine accepts. A process
+that holds no signer key for its own principal raises
+:class:`~agent_utilities.security.admission_authority.AdmissionAuthorityError`
+naming that principal and the registry to provision it into (never a key
+value — this module never mints, prints, logs, or persists one, matching
+every sibling admission module's doctrine, AGENTS.md "Secrets & credential
+retrieval"). The ``kg_server.py`` call site catches this, logs it once per
+backoff window, and continues serving degraded, with an actionable diagnosis
+instead of a bare ``CypherEngineError`` repeating forever.
 
 **Prod operations are PREPARE-ONLY here too**, same as
 ``tenant_rbac_admission.py``/``engine_rbac_admission.py``/
@@ -175,11 +177,10 @@ scheduler behavior, but now with an actionable diagnosis instead of a bare
 :class:`LiveSystemAdmissionClient` against a real engine.
 """
 
-import json
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from ..knowledge_graph.core.shard_topology import CONTROL_GRAPH_NAME
@@ -188,18 +189,16 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "CONTROL_ROLE_NAME",
-    "DEFAULT_PROVISIONER_SECRET_KEY",
     "FixtureSystemAdmissionClient",
     "LiveSystemAdmissionClient",
     "SystemAccessOutcome",
     "SystemAccessResult",
-    "SystemAdmissionAuthority",
+    "AdmissionAuthority",
     "SystemAdmissionClient",
     "SystemAdmissionError",
     "SystemPrincipal",
     "ensure_system_principal_access",
     "provision_system_principal_access",
-    "resolve_provisioner_authority",
     "resolve_system_admission_client",
 ]
 
@@ -216,48 +215,12 @@ __all__ = [
 CONTROL_ROLE_NAME = "control:system"
 
 
-#: Reuses the SAME provisioner credential ``tier2_admission_cli.py`` /
-#: ``tenant_admission_cli.py`` read — one already-admitted provisioner
-#: identity is the signer for every engine-admin RPC this repo's
-#: deployment tooling issues, never a separate credential per bridge.
-DEFAULT_PROVISIONER_SECRET_KEY = "engine-admission/provisioner"
-
 #: How long a NEGATIVE outcome (missing provisioner credential, or the
 #: engine/admission RPC unreachable) is remembered before the next call
 #: retries. Bounds the cost of a still-broken precondition without
 #: requiring a process restart once it is fixed — mirrors
 #: ``agent_webui.graph_admission._FAILURE_BACKOFF_SECONDS`` exactly.
 _FAILURE_BACKOFF_SECONDS = 30.0
-
-
-@dataclass(frozen=True, slots=True)
-class SystemAdmissionAuthority:
-    """An already-verified engine identity's signing credentials, resolved by
-    the CALLER (from the configured secrets backend) — mirrors
-    :class:`~agent_utilities.security.engine_rbac_admission.AdmissionAuthority`
-    /
-    :class:`~agent_utilities.security.tenant_rbac_admission.TenantAdmissionAuthority`
-    exactly; this module never resolves, mints, or persists a credential
-    itself.
-    """
-
-    agent_id: str
-    signer_id: str
-    signer_key: str = field(repr=False)
-
-    def __post_init__(self) -> None:
-        if not self.agent_id.strip():
-            raise ValueError("agent_id must be a non-empty opaque identifier")
-        if not self.signer_id.strip():
-            raise ValueError("signer_id must be a non-empty opaque identifier")
-        if not self.signer_key:
-            raise ValueError("signer_key must be non-empty")
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return (
-            f"SystemAdmissionAuthority(agent_id={self.agent_id!r}, "
-            f"signer_id={self.signer_id!r}, signer_key=<redacted>)"
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -513,7 +476,7 @@ def provision_system_principal_access(
     client: SystemAdmissionClient,
     principals: list[SystemPrincipal],
     *,
-    admin_authority: SystemAdmissionAuthority,
+    admin_authority: AdmissionAuthority,
     role: str = CONTROL_ROLE_NAME,
 ) -> SystemAccessResult:
     """Idempotently mint ``role`` (Read + Write ``Allow`` grants on
@@ -594,69 +557,6 @@ def provision_system_principal_access(
     return SystemAccessResult(role=role, outcomes=tuple(outcomes))
 
 
-def resolve_provisioner_authority(
-    *, secrets_client: Any = None, key: str = DEFAULT_PROVISIONER_SECRET_KEY
-) -> SystemAdmissionAuthority:
-    """Resolve the provisioner's signer credentials from the configured
-    secrets backend. Never returns a placeholder — a missing or malformed
-    secret is a :class:`SystemAdmissionError` naming exactly the missing key
-    (never the value — this module never mints, prints, logs, or persists a
-    secret), matching
-    :func:`~agent_utilities.security.tenant_admission_cli.resolve_provisioner_authority`
-    /
-    :func:`~agent_utilities.security.tier2_admission_cli.resolve_provisioner_authority`.
-
-    This is the exact NE-021 condition: on the target deployment this
-    raises every time, because the ``engine-admission/provisioner`` secret
-    exists in neither configured secrets backend yet."""
-
-    if secrets_client is None:
-        from .secrets_client import create_secrets_client
-
-        secrets_client = create_secrets_client()
-
-    raw = secrets_client.get(key)
-    if not raw:
-        raise SystemAdmissionError(
-            f"no provisioner credential at secret key {key!r} — an operator "
-            "must seed it once via `python -m agent_utilities.security.cli "
-            f"set {key} --value-ref <vault://...>` before system-principal "
-            "admission can be applied against a real engine (NE-021); until "
-            "then the scheduler's control-graph access remains unprovisioned "
-            "and every scheduler tick keeps failing with the same "
-            "CypherEngineError this admission pass exists to fix. For the full "
-            "provisioning procedure (dedicated signer, the matching engine-side "
-            "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON entry, and how to verify it "
-            "actually worked) see "
-            "agent_utilities/skills/workflows/agent-os-genesis/references/"
-            "engine-identity-admission.md"
-        )
-
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise SystemAdmissionError(
-            f"secret key {key!r} is not valid JSON — expected "
-            '{"agent_id": ..., "signer_id": ..., "signer_key": ...}'
-        ) from exc
-    if not isinstance(payload, dict):
-        raise SystemAdmissionError(
-            f"secret key {key!r} must decode to a JSON object with "
-            "agent_id/signer_id/signer_key"
-        )
-    try:
-        return SystemAdmissionAuthority(
-            agent_id=str(payload["agent_id"]),
-            signer_id=str(payload["signer_id"]),
-            signer_key=str(payload["signer_key"]),
-        )
-    except (KeyError, ValueError) as exc:
-        raise SystemAdmissionError(
-            f"secret key {key!r} is missing or has an invalid "
-            "agent_id/signer_id/signer_key"
-        ) from exc
-
-
 # ── Process-local cache + backoff (mirrors agent_webui.graph_admission) ─────
 _ADMITTED: dict[tuple[str, str], float] = {}
 _FAILURES: dict[tuple[str, str], tuple[float, SystemAdmissionError]] = {}
@@ -692,8 +592,6 @@ def ensure_system_principal_access(
     *,
     role: str = CONTROL_ROLE_NAME,
     client: SystemAdmissionClient | None = None,
-    secrets_client: Any = None,
-    secret_key: str = DEFAULT_PROVISIONER_SECRET_KEY,
 ) -> SystemAccessOutcome:
     """Ensure au's own process principal ``agent_id`` is admitted into the
     control-graph role, idempotently — the boot-time auto-admission
@@ -751,9 +649,9 @@ def ensure_system_principal_access(
                 raise cached_exc
 
         try:
-            authority = resolve_provisioner_authority(
-                secrets_client=secrets_client, key=secret_key
-            )
+            from .admission_authority import resolve_admission_authority
+
+            authority = resolve_admission_authority()
             live_client = (
                 client if client is not None else resolve_system_admission_client()
             )

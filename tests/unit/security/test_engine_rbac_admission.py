@@ -208,19 +208,27 @@ def test_bootstrap_requires_matching_signer_and_agent_id() -> None:
     """Mirrors isolation.rs's bootstrap gate: only an identity bootstrapping
     ITSELF (agent_id == signer_id, security:bootstrap-only authority) may
     consume first-run authority — never a third party bootstrapping on someone
-    else's behalf."""
+    else's behalf.
 
+    The invariant is enforced at BOTH layers, so both are asserted here:
+    :class:`AdmissionAuthority` refuses to hold a mismatched pair at all, and
+    the client still rejects one assembled from raw arguments that bypass it.
+    """
+
+    with pytest.raises(ValueError, match="signer_id must equal agent_id"):
+        era.AdmissionAuthority(
+            agent_id="provisioner:deploy",
+            signer_id="someone:else",
+            signer_key="k",  # nosec B105 - test only
+        )
+
+    # The engine-facing gate stands on its own, independent of the dataclass.
     client = era.FixtureEngineAdmissionClient()
-    mismatched = era.AdmissionAuthority(
-        agent_id="provisioner:deploy",
-        signer_id="someone:else",
-        signer_key="k",  # nosec B105 - test only
-    )
     with pytest.raises(era.EngineAdmissionError, match="matching explicit identities"):
         client.bootstrap_system_identity(
-            agent_id=mismatched.agent_id,
-            signer_id=mismatched.signer_id,
-            signer_key=mismatched.signer_key,
+            agent_id="provisioner:deploy",
+            signer_id="someone:else",
+            signer_key="k",  # nosec B105 - test only
         )
 
 

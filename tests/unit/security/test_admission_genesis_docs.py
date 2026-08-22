@@ -1,13 +1,13 @@
 """AU-ADMISSION-GENESIS (NE-064/NE-065) — documentation and error-message
 contract for au's own engine-identity admission credential
-(``engine-admission/provisioner`` / ``EPISTEMIC_GRAPH_SIGNER_KEYS_JSON``).
+(``EPISTEMIC_GRAPH_SIGNER_KEYS_JSON``).
 
 These tests do not exercise a live engine (see the module docstring of
 ``agent_utilities/security/system_rbac_admission.py``, "PREPARE-ONLY"). They
 prove three things instead:
 
-- the operator-facing failure text in ``resolve_provisioner_authority``
-  points at the new reference doc, not just the CLI command;
+- the operator-facing failure text in ``resolve_admission_authority``
+  points at the reference doc, not just a bare instruction;
 - the new reference doc (``references/engine-identity-admission.md``) exists,
   covers the required sections, names the real chain (exact secret key, env
   var, role, control graph name) so it is followable without reading source,
@@ -24,7 +24,7 @@ from pathlib import Path
 
 import pytest
 
-from agent_utilities.security import system_rbac_admission as sra
+from agent_utilities.security import admission_authority, brain_context
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 SKILL_DIR = REPO_ROOT / "agent_utilities" / "skills" / "workflows" / "agent-os-genesis"
@@ -33,31 +33,29 @@ SKILL_MD = SKILL_DIR / "SKILL.md"
 SECURITY_OPS = SKILL_DIR / "references" / "security-and-operations.md"
 
 
-class _FakeSecretsClient:
-    def __init__(self, value: str | None) -> None:
-        self._value = value
-
-    def get(self, key: str) -> str | None:
-        return self._value
-
-
 # ---------------------------------------------------------------------------
 # Deliverable 3: the failure text is legible and points at the new doc.
 # ---------------------------------------------------------------------------
 
 
-def test_missing_provisioner_error_points_at_the_new_reference_doc() -> None:
-    secrets = _FakeSecretsClient(None)
-    with pytest.raises(sra.SystemAdmissionError) as exc_info:
-        sra.resolve_provisioner_authority(secrets_client=secrets)
+def test_missing_signer_key_error_points_at_the_reference_doc(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(admission_authority.SIGNER_REGISTRY_ENV, raising=False)
+    actor = brain_context.ActorContext(actor_id="some:principal", authenticated=True)
+    token = brain_context.set_actor(actor)
+    try:
+        with pytest.raises(admission_authority.AdmissionAuthorityError) as exc_info:
+            admission_authority.resolve_admission_authority()
+    finally:
+        brain_context.reset_actor(token)
 
     message = str(exc_info.value)
-    # Still names the exact missing key and the seeding command (unchanged
-    # behavior — regression guard for the pre-existing contract).
-    assert sra.DEFAULT_PROVISIONER_SECRET_KEY in message
-    assert "python -m agent_utilities.security.cli" in message
-    # New: routes the operator to the full provisioning/verification
-    # procedure instead of leaving them with only a bare `set` command.
+    # Names the exact principal and the exact registry to provision it into,
+    # so the operator never has to read source to act on it.
+    assert "some:principal" in message
+    assert admission_authority.SIGNER_REGISTRY_ENV in message
+    # Routes to the full provisioning/verification procedure.
     assert "engine-identity-admission.md" in message
 
 
@@ -78,26 +76,27 @@ def test_reference_doc_exists_and_is_substantial() -> None:
     [
         # The chain, exact names — file/env/secret names named literally so
         # an operator never has to go read source to follow it.
-        "engine-admission/provisioner",
         "EPISTEMIC_GRAPH_SIGNER_KEYS_JSON",
         "control:system",
         "__control__",
         "CypherEngineError",
-        "resolve_provisioner_authority",
+        "resolve_admission_authority",
         "register_identity",
         "RegisterIdentity",
-        # The four design problems, unmistakably present and not softened
-        # into euphemism.
+        # The engine rule the whole design follows, stated literally.
+        "SIGNER_TRUST_DENIED",
+        "signer to be the calling principal",
+        # The design problems, unmistakably present and not softened into
+        # euphemism.
         "unconstrained authority over identity",
         "shared symmetric secret",
-        "Bootstrap circularity",
         "No rotation path",
         # Rotation/revocation is concrete, not hand-waved.
         "## Rotation and revocation",
         "openssl rand -hex 32",
         # Failure modes keyed to the real symptoms named in the brief.
         'Pattern("tenant__homelab__*")',
-        "SystemAdmissionError",
+        "AdmissionAuthorityError",
         # Honest current-state disclosure (hard rule: never claim it works
         # live on this deployment).
         "does not exist",
@@ -119,7 +118,7 @@ def test_reference_doc_never_contains_a_credential_shaped_value() -> None:
     assert re.search(r"\b[0-9a-fA-F]{32,}\b", text) is None
 
     # Placeholders are present and obviously placeholders.
-    assert "<signer-id>" in text
+    assert "<principal>" in text
     assert "<hex-key>" in text
 
 

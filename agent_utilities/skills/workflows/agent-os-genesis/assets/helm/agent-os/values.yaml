@@ -55,6 +55,18 @@ graphos:
     AUTH_TYPE: jwt
     MCP_TOOL_MODE: intent
     KG_DAEMON_ROLE: client
+    # graph-os serves the agent-webui dashboard itself, as a supervised
+    # co-service in the same process, over `webUiPort` below. The dashboard is
+    # the frontend facade over the gateway routers graph-os already serves, so
+    # it shares one identity, one lifecycle, and one ingress hostname with them
+    # -- and signs engine admission as graph-os, the principal the engine's
+    # signer registry trusts. Set false for a headless MCP-only deployment.
+    ENABLE_WEB_UI: "true"
+  # Port the in-process dashboard binds. Only meaningful with ENABLE_WEB_UI.
+  webUiPort: 8080
+  # Requires the `ag-ui` extra in the image (`agent-utilities[ag-ui]`), which
+  # supplies the dashboard package. A graph-os image built without it refuses
+  # loudly at startup rather than serving a blank dashboard.
   resources:
     requests: {cpu: 500m, memory: 1Gi}
     limits: {cpu: "4", memory: 4Gi}
@@ -143,9 +155,13 @@ connectors: []
 #   replicas: 1
 #   resources: {requests: {cpu: 100m, memory: 256Mi}, limits: {cpu: "1", memory: 1Gi}}
 
+# Extra first-party workloads to deploy alongside the core. The agent-webui
+# dashboard is NOT one of them -- graph-os serves it in-process (see
+# `graphos.config.ENABLE_WEB_UI`), so listing it here would run a second,
+# redundant copy with an identity that cannot sign engine admission.
 components: []
-# - name: agent-webui
-#   image: {repository: registry.invalid/agent-os/agent-webui, tag: replace-me, digest: ""}
+# - name: my-extra-service
+#   image: {repository: registry.invalid/agent-os/my-extra-service, tag: replace-me, digest: ""}
 #   port: 8080
 #   args: []
 #   env: {}

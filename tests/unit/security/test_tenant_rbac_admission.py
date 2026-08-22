@@ -29,8 +29,8 @@ import pytest
 from agent_utilities.security import tenant_rbac_admission as tra
 
 
-def _authority(agent_id: str) -> tra.TenantAdmissionAuthority:
-    return tra.TenantAdmissionAuthority(
+def _authority(agent_id: str) -> tra.AdmissionAuthority:
+    return tra.AdmissionAuthority(
         agent_id=agent_id,
         signer_id=agent_id,
         signer_key="test-signer-key-not-a-real-credential",  # nosec B105 - test only

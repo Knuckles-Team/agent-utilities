@@ -45,7 +45,6 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any
 
 from .engine_rbac_admission import (
     AdmissionAuthority,
@@ -61,30 +60,11 @@ from .engine_rbac_admission import (
 logger = logging.getLogger(__name__)
 
 __all__ = [
-    "DEFAULT_PROVISIONER_SECRET_KEY",
     "Tier2AdmissionError",
     "load_manifest",
     "main",
-    "resolve_provisioner_authority",
     "run_tier2_admission",
 ]
-
-
-#: The one secret this bridge ever reads: a JSON object
-#: ``{"agent_id": ..., "signer_id": ..., "signer_key": ...}`` for the
-#: provisioner identity used as BOTH the bootstrap attempt (a harmless,
-#: expected no-op once bootstrap is already consumed — see
-#: ``provision_tier2_admission``'s own docstring for why) and the
-#: steady-state admin authority on every subsequent run. Seeded exactly once,
-#: by hand, through the existing secret-manager CLI, e.g.::
-#:
-#:     python -m agent_utilities.security.cli set \\
-#:         engine-admission/provisioner \\
-#:         --value-ref vault://platform/engine-admission#provisioner
-#:
-#: This module never mints, prints, logs, or persists the value itself — it
-#: only ever reads it through the configured ``SecretsClient``.
-DEFAULT_PROVISIONER_SECRET_KEY = "engine-admission/provisioner"
 
 
 class Tier2AdmissionError(RuntimeError):
@@ -94,52 +74,6 @@ class Tier2AdmissionError(RuntimeError):
     Deliberately never swallowed by callers — a silent failure here recreates
     BUG-038 (something that looks provisioned but is not); the caller must
     fail the deploy step, not report success."""
-
-
-def resolve_provisioner_authority(
-    *, secrets_client: Any = None, key: str = DEFAULT_PROVISIONER_SECRET_KEY
-) -> AdmissionAuthority:
-    """Resolve the provisioner's signer credentials from the configured
-    secrets backend. Never returns a placeholder — a missing or malformed
-    secret is a :class:`Tier2AdmissionError`, not a silently-skipped
-    admission (fail loud, per this repo's fail-closed doctrine)."""
-
-    if secrets_client is None:
-        from .secrets_client import create_secrets_client
-
-        secrets_client = create_secrets_client()
-
-    raw = secrets_client.get(key)
-    if not raw:
-        raise Tier2AdmissionError(
-            f"no provisioner credential at secret key {key!r} — seed it once "
-            "via `python -m agent_utilities.security.cli set "
-            f"{key} --value-ref <vault://...>` before running Tier-2 "
-            "admission with apply=True against a real engine"
-        )
-    try:
-        payload = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise Tier2AdmissionError(
-            f"secret key {key!r} is not valid JSON — expected "
-            '{"agent_id": ..., "signer_id": ..., "signer_key": ...}'
-        ) from exc
-    if not isinstance(payload, dict):
-        raise Tier2AdmissionError(
-            f"secret key {key!r} must decode to a JSON object with "
-            "agent_id/signer_id/signer_key"
-        )
-    try:
-        return AdmissionAuthority(
-            agent_id=str(payload["agent_id"]),
-            signer_id=str(payload["signer_id"]),
-            signer_key=str(payload["signer_key"]),
-        )
-    except (KeyError, ValueError) as exc:
-        raise Tier2AdmissionError(
-            f"secret key {key!r} is missing or has an invalid "
-            "agent_id/signer_id/signer_key"
-        ) from exc
 
 
 def load_manifest(raw: str) -> list[ServiceAdmissionEntry]:
@@ -170,8 +104,6 @@ def run_tier2_admission(
     *,
     apply: bool = False,
     client: EngineAdmissionClient | None = None,
-    secrets_client: Any = None,
-    secret_key: str = DEFAULT_PROVISIONER_SECRET_KEY,
 ) -> AdmissionResult:
     """Run Tier-2 admission for ``manifest``.
 
@@ -188,7 +120,9 @@ def run_tier2_admission(
     just a printed plan.
 
     ``apply=True`` resolves the real provisioner authority via
-    :func:`resolve_provisioner_authority` and, when ``client`` is not given,
+    :func:`~agent_utilities.security.admission_authority.resolve_admission_authority`
+    — signing as the current verified principal, the only pairing the engine
+    accepts — and, when ``client`` is not given,
     a live engine via
     :func:`~agent_utilities.security.engine_rbac_admission.resolve_engine_admission_client`.
     Passing an explicit ``client`` (a
@@ -218,9 +152,9 @@ def run_tier2_admission(
             bootstrap_authority=placeholder,
         )
 
-    authority = resolve_provisioner_authority(
-        secrets_client=secrets_client, key=secret_key
-    )
+    from .admission_authority import resolve_admission_authority
+
+    authority = resolve_admission_authority()
     live_client = client if client is not None else resolve_engine_admission_client()
     try:
         return provision_tier2_admission(
@@ -260,7 +194,6 @@ def main(argv: list[str] | None = None) -> int:
         "dry-run preview against an in-memory fixture, never touches a "
         "live engine)",
     )
-    parser.add_argument("--secret-key", default=DEFAULT_PROVISIONER_SECRET_KEY)
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
 
@@ -273,9 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     manifest = load_manifest(raw_manifest)
     try:
-        result = run_tier2_admission(
-            manifest, apply=args.apply, secret_key=args.secret_key
-        )
+        result = run_tier2_admission(manifest, apply=args.apply)
     except Tier2AdmissionError as exc:
         print(f"TIER-2 ADMISSION FAILED: {exc}", file=sys.stderr)
         return 1

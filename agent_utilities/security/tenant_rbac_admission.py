@@ -1,6 +1,8 @@
 #!/usr/bin/python
 from __future__ import annotations
 
+from .admission_authority import AdmissionAuthority
+
 """Engine-side tenant-graph Read/Write RBAC admission — the ordinary-access sibling
 of :mod:`agent_utilities.security.engine_rbac_admission` (which covers only the 5
 Tier-2 ``admin:*``/``security:admin`` actions).
@@ -67,7 +69,7 @@ autonomous pass performs against a live cluster.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -78,7 +80,7 @@ __all__ = [
     "LiveEngineIdentityClient",
     "TenantAccessOutcome",
     "TenantAccessResult",
-    "TenantAdmissionAuthority",
+    "AdmissionAuthority",
     "TenantAdmissionError",
     "TenantPrincipal",
     "provision_tenant_access",
@@ -98,33 +100,6 @@ def tenant_role_name(tenant_slug: str) -> str:
     if not slug:
         raise ValueError("tenant_slug must be a non-empty opaque identifier")
     return f"tenant:{slug}"
-
-
-@dataclass(frozen=True, slots=True)
-class TenantAdmissionAuthority:
-    """An already-verified engine identity's signing credentials, resolved by the
-    CALLER (from OpenBao / the configured secret provider) — mirrors
-    :class:`~agent_utilities.security.engine_rbac_admission.AdmissionAuthority`
-    exactly; this module never resolves, mints, or persists a credential itself.
-    """
-
-    agent_id: str
-    signer_id: str
-    signer_key: str = field(repr=False)
-
-    def __post_init__(self) -> None:
-        if not self.agent_id.strip():
-            raise ValueError("agent_id must be a non-empty opaque identifier")
-        if not self.signer_id.strip():
-            raise ValueError("signer_id must be a non-empty opaque identifier")
-        if not self.signer_key:
-            raise ValueError("signer_key must be non-empty")
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return (
-            f"TenantAdmissionAuthority(agent_id={self.agent_id!r}, "
-            f"signer_id={self.signer_id!r}, signer_key=<redacted>)"
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,7 +283,7 @@ def provision_tenant_access(
     tenant_slug: str,
     principals: list[TenantPrincipal],
     *,
-    admin_authority: TenantAdmissionAuthority,
+    admin_authority: AdmissionAuthority,
 ) -> TenantAccessResult:
     """Idempotently enroll every principal in ``principals`` into
     ``tenant_slug``'s durable RBAC role (``tenant:<slug>``), so each one can

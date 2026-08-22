@@ -1,6 +1,8 @@
 #!/usr/bin/python
 from __future__ import annotations
 
+from .admission_authority import AdmissionAuthority
+
 """Engine-side Tier-2 RBAC admission (GOC-62 D3(a), closes the missing half of
 BUG-030/BUG-038).
 
@@ -56,7 +58,7 @@ boundary), consistent with this repo's "Secrets & credential retrieval" doctrine
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
@@ -95,32 +97,6 @@ def is_tier2_action(action: str) -> bool:
     module's notion of "Tier-2" never drifts from the engine's own gate."""
 
     return action == "security:admin" or action.startswith("admin:")
-
-
-@dataclass(frozen=True, slots=True)
-class AdmissionAuthority:
-    """An already-verified engine identity's signing credentials, resolved by the
-    CALLER (from OpenBao / the configured secret provider) — this module never
-    resolves, mints, or persists one itself.
-
-    ``signer_key`` is deliberately excluded from ``repr``/``str`` so it can never
-    end up in a log line, traceback, or report by accident.
-    """
-
-    agent_id: str
-    signer_id: str
-    signer_key: str = field(repr=False)
-
-    def __post_init__(self) -> None:
-        if not self.agent_id.strip():
-            raise ValueError("agent_id must be a non-empty opaque identifier")
-        if not self.signer_id.strip():
-            raise ValueError("signer_id must be a non-empty opaque identifier")
-        if not self.signer_key:
-            raise ValueError("signer_key must be non-empty")
-
-    def __repr__(self) -> str:  # pragma: no cover - trivial
-        return f"AdmissionAuthority(agent_id={self.agent_id!r}, signer_id={self.signer_id!r}, signer_key=<redacted>)"
 
 
 @dataclass(frozen=True, slots=True)

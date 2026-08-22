@@ -98,8 +98,8 @@ observability is a first-class production target.
 
 Genesis resolves *which* IdP is deployed or reused; it does not resolve the
 *application's* own role/scope contract on top of it. For agent-utilities
-(graph-os + agent-webui) that contract has a specific, easy-to-conflate
-shape — two distinct OIDC clients (a browser client and a separate backend
+(graph-os, which serves the agent-webui dashboard in-process) that contract
+has a specific, easy-to-conflate shape — two distinct OIDC clients (a browser client and a separate backend
 service-account client), a hierarchical graph-capability scope set, a
 cluster-placement capability role, and a UI-level admin role that is
 deliberately **not** equivalent to graph administration. Provisioning and

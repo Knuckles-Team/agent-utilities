@@ -21,14 +21,17 @@ Covers (Definition of Done):
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
+from agent_utilities.security import admission_authority, brain_context
 from agent_utilities.security import system_admission_cli as cli
 from agent_utilities.security import system_rbac_admission as sra
 
 
-def _authority(agent_id: str) -> sra.SystemAdmissionAuthority:
-    return sra.SystemAdmissionAuthority(
+def _authority(agent_id: str) -> sra.AdmissionAuthority:
+    return sra.AdmissionAuthority(
         agent_id=agent_id,
         signer_id=agent_id,
         signer_key="test-signer-key-not-a-real-credential",  # nosec B105 - test only; sanitizer:ignore synthetic fixture
@@ -192,40 +195,83 @@ def test_a_failed_registration_rpc_is_never_swallowed() -> None:
         )
 
 
+
+ADMITTING_PRINCIPAL = "graph-os:process"
+
+
+@pytest.fixture(autouse=True)
+def _bound_principal(monkeypatch: pytest.MonkeyPatch):
+    """Bind a verified principal and start from "no signer key".
+
+    Admission signs as the calling principal, so a bound actor is the baseline
+    every test needs; whether this process HOLDS that principal's key is the
+    variable, and each test sets it explicitly rather than inheriting ambient
+    environment.
+    """
+
+    monkeypatch.delenv(admission_authority.SIGNER_REGISTRY_ENV, raising=False)
+    actor = brain_context.ActorContext(
+        actor_id=ADMITTING_PRINCIPAL, authenticated=True
+    )
+    token = brain_context.set_actor(actor)
+    try:
+        yield
+    finally:
+        brain_context.reset_actor(token)
+
+
+def _count_resolutions(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Count calls to the single admission resolver.
+
+    Replaces counting secret reads: there is no secret to read, so the thing
+    that proves backoff is whether the resolver is re-entered at all.
+    """
+
+    calls = [0]
+    real = admission_authority.resolve_admission_authority
+
+    def _counting():
+        calls[0] += 1
+        return real()
+
+    monkeypatch.setattr(
+        admission_authority, "resolve_admission_authority", _counting
+    )
+    return calls
+
+
+def _hold_signer_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give this process the signer key for its own bound principal."""
+
+    monkeypatch.setenv(
+        admission_authority.SIGNER_REGISTRY_ENV,
+        json.dumps({ADMITTING_PRINCIPAL: "not-a-real-credential"}),  # nosec B105
+    )
+
+
 # ---------------------------------------------------------------------------
 # ensure_system_principal_access: idempotent cache + honest degrade + backoff
 # ---------------------------------------------------------------------------
 
 
-class _FakeSecretsClient:
-    def __init__(self, value: str | None) -> None:
-        self._value = value
-        self.calls = 0
 
-    def get(self, key: str) -> str | None:
-        self.calls += 1
-        return self._value
-
-
-def test_ensure_admission_is_idempotent_across_repeated_calls() -> None:
-    secrets = _FakeSecretsClient(
-        '{"agent_id": "p", "signer_id": "p", "signer_key": "k"}'
-    )
+def test_ensure_admission_is_idempotent_across_repeated_calls(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _hold_signer_key(monkeypatch)
     client = sra.FixtureSystemAdmissionClient()
 
     first = sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=client, secrets_client=secrets
+        "graph-os-scheduler", client=client
     )
     assert first.already_held is False
 
     second = sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=client, secrets_client=secrets
+        "graph-os-scheduler", client=client
     )
     assert second.already_held is True
 
-    # The second call must be a cache hit: no additional secret resolution
-    # and no additional register_identity call.
-    assert secrets.calls == 1
+    # The second call must be a cache hit: no additional register_identity.
     register_calls = [c for c, _a in client.calls if c == "register_identity"]
     assert len(register_calls) == 1
 
@@ -236,38 +282,38 @@ def test_ensure_admission_degrades_honestly_on_missing_credential() -> None:
     error — never crash with an unrelated exception, and never return a
     value that looks like success."""
 
-    secrets = _FakeSecretsClient(None)
 
     with pytest.raises(sra.SystemAdmissionError) as exc_info:
-        sra.ensure_system_principal_access("graph-os-scheduler", secrets_client=secrets)
+        sra.ensure_system_principal_access("graph-os-scheduler")
 
     message = str(exc_info.value)
-    assert "engine-admission/provisioner" in message
-    # Never leaks a secret VALUE - there is none to leak here (the fixture
-    # returned None), but assert the message stays a diagnosis, not a dump.
+    assert admission_authority.SIGNER_REGISTRY_ENV in message
+    # Never leaks key material — assert the message stays a diagnosis, not a dump.
     assert "signer_key" not in message.lower() or "key.." not in message
 
 
-def test_ensure_admission_backs_off_rather_than_hammering() -> None:
-    secrets = _FakeSecretsClient(None)
+def test_ensure_admission_backs_off_rather_than_hammering(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _count_resolutions(monkeypatch)
 
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler", secrets_client=secrets)
-    assert secrets.calls == 1
+        sra.ensure_system_principal_access("graph-os-scheduler")
+    assert calls[0] == 1
 
-    # Immediately retrying within the backoff window must NOT re-resolve
-    # the secret (would "hammer" a broken precondition on every call).
+    # Immediately retrying within the backoff window must NOT re-resolve the
+    # credential (would "hammer" a broken precondition on every call).
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler", secrets_client=secrets)
-    assert secrets.calls == 1
+        sra.ensure_system_principal_access("graph-os-scheduler")
+    assert calls[0] == 1
 
 
 def test_ensure_admission_retries_after_backoff_window_elapses(monkeypatch) -> None:
-    secrets = _FakeSecretsClient(None)
+    calls = _count_resolutions(monkeypatch)
 
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler", secrets_client=secrets)
-    assert secrets.calls == 1
+        sra.ensure_system_principal_access("graph-os-scheduler")
+    assert calls[0] == 1
 
     # Simulate the backoff window having elapsed.
     key = (sra.CONTROL_ROLE_NAME, "graph-os-scheduler")
@@ -275,8 +321,8 @@ def test_ensure_admission_retries_after_backoff_window_elapses(monkeypatch) -> N
     sra._FAILURES[key] = (attempted_at - sra._FAILURE_BACKOFF_SECONDS - 1, cached_exc)
 
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler", secrets_client=secrets)
-    assert secrets.calls == 2
+        sra.ensure_system_principal_access("graph-os-scheduler")
+    assert calls[0] == 2
 
 
 def test_ensure_admission_never_crashes_the_process_it_only_raises_a_typed_error() -> (
@@ -286,9 +332,8 @@ def test_ensure_admission_never_crashes_the_process_it_only_raises_a_typed_error
     function's contract is a typed, catchable error, never a bare/opaque
     exception a caller cannot reason about."""
 
-    secrets = _FakeSecretsClient("not valid json")
     with pytest.raises(sra.SystemAdmissionError):
-        sra.ensure_system_principal_access("graph-os-scheduler", secrets_client=secrets)
+        sra.ensure_system_principal_access("graph-os-scheduler")
 
 
 def test_ensure_admission_rejects_empty_agent_id() -> None:
@@ -297,30 +342,55 @@ def test_ensure_admission_rejects_empty_agent_id() -> None:
 
 
 # ---------------------------------------------------------------------------
-# resolve_provisioner_authority: NE-021 credential resolution.
+# Credential resolution: the caller's own verified principal, signing as itself.
 # ---------------------------------------------------------------------------
 
 
-def test_resolve_provisioner_authority_missing_key_raises_actionable_error() -> None:
-    secrets = _FakeSecretsClient(None)
-    with pytest.raises(sra.SystemAdmissionError) as exc_info:
-        sra.resolve_provisioner_authority(secrets_client=secrets)
-    assert sra.DEFAULT_PROVISIONER_SECRET_KEY in str(exc_info.value)
+def test_resolve_admission_authority_without_a_signer_key_raises_actionable_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv(admission_authority.SIGNER_REGISTRY_ENV, raising=False)
+    actor = brain_context.ActorContext(actor_id="graph-os:process", authenticated=True)
+    token = brain_context.set_actor(actor)
+    try:
+        with pytest.raises(admission_authority.AdmissionAuthorityError) as exc_info:
+            admission_authority.resolve_admission_authority()
+    finally:
+        brain_context.reset_actor(token)
+    message = str(exc_info.value)
+    assert "graph-os:process" in message
+    assert admission_authority.SIGNER_REGISTRY_ENV in message
 
 
-def test_resolve_provisioner_authority_malformed_json_raises() -> None:
-    secrets = _FakeSecretsClient("{not json")
-    with pytest.raises(sra.SystemAdmissionError):
-        sra.resolve_provisioner_authority(secrets_client=secrets)
+def test_resolve_admission_authority_with_a_malformed_registry_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(admission_authority.SIGNER_REGISTRY_ENV, "{not json")
+    actor = brain_context.ActorContext(actor_id="graph-os:process", authenticated=True)
+    token = brain_context.set_actor(actor)
+    try:
+        with pytest.raises(admission_authority.AdmissionAuthorityError):
+            admission_authority.resolve_admission_authority()
+    finally:
+        brain_context.reset_actor(token)
 
 
-def test_resolve_provisioner_authority_succeeds_on_well_formed_secret() -> None:
-    secrets = _FakeSecretsClient(
-        '{"agent_id": "provisioner", "signer_id": "provisioner", "signer_key": "k"}'
+def test_resolve_admission_authority_signs_as_the_verified_principal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        admission_authority.SIGNER_REGISTRY_ENV,
+        '{"graph-os:process": "not-a-real-credential"}',  # nosec B105 - test only
     )
-    authority = sra.resolve_provisioner_authority(secrets_client=secrets)
-    assert authority.agent_id == "provisioner"
-    assert authority.signer_id == "provisioner"
+    actor = brain_context.ActorContext(actor_id="graph-os:process", authenticated=True)
+    token = brain_context.set_actor(actor)
+    try:
+        authority = admission_authority.resolve_admission_authority()
+    finally:
+        brain_context.reset_actor(token)
+    # The engine accepts no other pairing (SIGNER_TRUST_DENIED otherwise).
+    assert authority.agent_id == "graph-os:process"
+    assert authority.signer_id == authority.agent_id
 
 
 # ---------------------------------------------------------------------------
@@ -328,36 +398,38 @@ def test_resolve_provisioner_authority_succeeds_on_well_formed_secret() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_cli_dry_run_never_touches_a_live_client_or_secrets() -> None:
-    class _ExplodingSecretsClient:
-        def get(self, key: str) -> str:  # pragma: no cover - must never run
-            raise AssertionError("dry-run must never resolve a real credential")
-
+def test_cli_dry_run_never_touches_a_live_client_or_credential(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _count_resolutions(monkeypatch)
     principals = [sra.SystemPrincipal(agent_id="graph-os-scheduler")]
     result = cli.run_system_admission(
-        principals, apply=False, secrets_client=_ExplodingSecretsClient()
+        principals, apply=False
     )
     assert result.all_admitted is True
     assert result.role == sra.CONTROL_ROLE_NAME
-
-
-def test_cli_apply_without_credential_raises_cli_error() -> None:
-    principals = [sra.SystemPrincipal(agent_id="graph-os-scheduler")]
-    secrets = _FakeSecretsClient(None)
-    with pytest.raises(cli.SystemAdmissionCliError):
-        cli.run_system_admission(principals, apply=True, secrets_client=secrets)
-
-
-def test_cli_apply_produces_the_same_provisioning_as_the_boot_path() -> None:
-    """DoD: 'the CLI produces the same provisioning as the boot path.'"""
-
-    secrets = _FakeSecretsClient(
-        '{"agent_id": "p", "signer_id": "p", "signer_key": "k"}'
+    assert calls[0] == 0, (
+        'dry-run must resolve no credential at all'
     )
 
+
+def test_cli_apply_without_a_signer_key_raises_the_one_credential_error() -> None:
+    # Deliberately AdmissionAuthorityError, not this CLI's own error type: one
+    # credential model surfaces one credential error across every bridge.
+    principals = [sra.SystemPrincipal(agent_id="graph-os-scheduler")]
+    with pytest.raises(admission_authority.AdmissionAuthorityError):
+        cli.run_system_admission(principals, apply=True)
+
+
+def test_cli_apply_produces_the_same_provisioning_as_the_boot_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """DoD: 'the CLI produces the same provisioning as the boot path.'"""
+
+    _hold_signer_key(monkeypatch)
     boot_client = sra.FixtureSystemAdmissionClient()
     sra.ensure_system_principal_access(
-        "graph-os-scheduler", client=boot_client, secrets_client=secrets
+        "graph-os-scheduler", client=boot_client
     )
 
     cli_client = sra.FixtureSystemAdmissionClient()
@@ -365,9 +437,6 @@ def test_cli_apply_produces_the_same_provisioning_as_the_boot_path() -> None:
         [sra.SystemPrincipal(agent_id="graph-os-scheduler")],
         apply=True,
         client=cli_client,
-        secrets_client=_FakeSecretsClient(
-            '{"agent_id": "p", "signer_id": "p", "signer_key": "k"}'
-        ),
     )
 
     assert boot_client.identities == cli_client.identities
