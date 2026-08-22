@@ -193,11 +193,17 @@ class CoServiceSupervisor:
             try:
                 run(stop_event)
             except Exception as exc:  # noqa: BLE001 — a co-service crash must never take the process down
+                # The exception TYPE alone is not actionable: it names the shape
+                # of the failure but never the cause, so an operator reading the
+                # log cannot tell a port collision from a missing dependency.
+                # Log the full chain once per crash.
                 logger.error(
-                    "co-service %s crashed (exception_type=%s) — will restart "
-                    "unless the bound is exceeded.",
+                    "co-service %s crashed (%s: %s) — will restart unless the "
+                    "bound is exceeded.",
                     name,
                     type(exc).__name__,
+                    exc,
+                    exc_info=exc,
                 )
             else:
                 if stop_event.is_set():

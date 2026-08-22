@@ -49,6 +49,13 @@ logger = logging.getLogger(__name__)
 #: that shutdown is prompt, long enough that an idle co-service costs nothing.
 _STOP_POLL_SECONDS = 0.5
 
+#: Port the dashboard binds inside the graph-os process. It MUST NOT be
+#: ``config.port``: that is graph-os's OWN listener (the MCP transport), so
+#: reusing it makes the two co-services fight for one socket and whichever
+#: loses crash-loops. A dedicated variable keeps them independent.
+WEB_UI_PORT_ENV = "GRAPH_OS_WEBUI_PORT"
+DEFAULT_WEB_UI_PORT = 8080
+
 
 def run_web_ui(
     stop_event: threading.Event,
@@ -70,14 +77,32 @@ def run_web_ui(
     """
 
     import asyncio
+    import os
 
     import uvicorn
 
     from agent_utilities.core.config import config
     from agent_utilities.server.app import build_agent_app
 
-    bind_host = host or str(getattr(config, "host", None) or "127.0.0.1")
-    bind_port = int(port or getattr(config, "port", None) or 8000)
+    bind_host = host or str(getattr(config, "host", None) or "0.0.0.0")  # noqa: S104
+    if port:
+        bind_port = int(port)
+    else:
+        raw = str(os.environ.get(WEB_UI_PORT_ENV, "") or "").strip()
+        try:
+            bind_port = int(raw) if raw else DEFAULT_WEB_UI_PORT
+        except ValueError:
+            raise RuntimeError(
+                f"{WEB_UI_PORT_ENV}={raw!r} is not an integer port"
+            ) from None
+
+    own_port = getattr(config, "port", None)
+    if own_port is not None and int(own_port) == bind_port:
+        # Fail loudly rather than crash-loop against graph-os's own socket.
+        raise RuntimeError(
+            f"the dashboard cannot bind port {bind_port}: that is graph-os's own "
+            f"listener. Set {WEB_UI_PORT_ENV} to a free port."
+        )
 
     # Import here, not at module import: graph-os must start normally when the
     # `ag-ui` extra is absent, and only a deployment that asked for the WebUI
