@@ -191,34 +191,58 @@ class EngineIdentityClient(Protocol):
     ) -> str: ...
 
 
-@contextlib.contextmanager
-def _verified_context_for_signing() -> Any:
-    """Bind the caller's verified session onto the native transport.
+#: The engine keeps its identity/RBAC store in this graph; ``register_identity``
+#: targets it explicitly, so an admission call must be scoped there too.
+IDENTITY_GRAPH = "__commons__"
 
-    A detached-signature operation must be signed under the principal the engine
-    will verify it against. Only the native client owns
-    ``use_verified_context``; the routed view proxies to it via ``_base``.
+
+@contextlib.contextmanager
+def _identity_store_scope() -> Any:
+    """Bind the caller's session to the identity store for one admission call.
+
+    Two separate contracts have to hold at once, and they pull in opposite
+    directions:
+
+    * The engine (and the client's own pre-send check) require the detached
+      RegisterIdentity signature to be produced under the SAME principal it will
+      be verified against. The routed transport only applies the session context
+      around the SEND (``graph_compute._invoke_at``), so at signing time it is
+      still the zero-authority context the socket was opened with.
+    * ``ConsensusClient.register_identity`` explicitly targets
+      ``graph="__commons__"`` -- the identity store -- while an ordinary session
+      is tenant-scoped (e.g. ``tenant__homelab____commons__``). ``_send_routed``
+      then refuses with "An explicit graph cannot retarget the verified
+      GraphSession".
+
+    So the session is re-scoped to ``__commons__`` (``GraphSession.with_graph``,
+    which preserves the verified actor and therefore the principal) and that
+    re-scoped context is bound onto the native transport for the whole call.
     """
 
     from ..knowledge_graph.core.graph_compute import GraphComputeEngine
-    from ..knowledge_graph.core.session import current_session, resolve_session
+    from ..knowledge_graph.core.session import (
+        current_session,
+        resolve_session,
+        use_session,
+    )
 
     session = current_session()
     if session is None:
         raise TenantAdmissionError(
             "engine identity registration requires a bound verified GraphSession"
         )
-    session = resolve_session(session)
+    scoped = resolve_session(session).with_graph(IDENTITY_GRAPH)
 
     view = GraphComputeEngine.get_or_create().client
     native = getattr(getattr(view, "_client", view), "_base", None)
-    if native is None or not hasattr(native, "use_verified_context"):
-        # No seam to bind: let the call proceed and fail loudly rather than
-        # silently signing under the wrong context.
-        yield
-        return
-    with native.use_verified_context(session.engine_verified_context()):
-        yield
+    with use_session(scoped):
+        if native is None or not hasattr(native, "use_verified_context"):
+            # No seam to bind: proceed and let the call fail loudly rather than
+            # silently signing under the wrong context.
+            yield
+            return
+        with native.use_verified_context(scoped.engine_verified_context()):
+            yield
 
 
 class FixtureEngineIdentityClient:
@@ -298,7 +322,7 @@ class LiveEngineIdentityClient:
             #
             # Bind the session context around the WHOLE call so the signature is
             # computed under the same principal it will be verified against.
-            with _verified_context_for_signing():
+            with _identity_store_scope():
                 return str(
                     client.consensus.register_identity(
                         agent_id,
