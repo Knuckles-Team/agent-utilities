@@ -56,6 +56,10 @@ _STOP_POLL_SECONDS = 0.5
 WEB_UI_PORT_ENV = "GRAPH_OS_WEBUI_PORT"
 DEFAULT_WEB_UI_PORT = 8080
 
+#: agent-webui refuses a non-loopback listener until the raw-query logging
+#: decision is explicit. Mirrors ``agent_webui.server._ACCESS_LOG_POLICY_ENV``.
+ACCESS_LOG_POLICY_ENV = "AGENT_WEBUI_ACCESS_LOG_POLICY"
+
 
 def run_web_ui(
     stop_event: threading.Event,
@@ -103,6 +107,15 @@ def run_web_ui(
             f"the dashboard cannot bind port {bind_port}: that is graph-os's own "
             f"listener. Set {WEB_UI_PORT_ENV} to a free port."
         )
+
+    # An embedder OWNS the ASGI server, so it must make the WebUI's raw-query
+    # logging decision explicitly: a non-loopback listener refuses to start
+    # without one (`_resolve_access_log_policy`). We pass `access_log=False` to
+    # uvicorn below, so `disabled` is the declaration that matches what this
+    # server actually does -- the same choice agent-webui's own entrypoint
+    # makes. `setdefault`, so an operator may select `redacted` instead and
+    # supply a redacting access logger.
+    os.environ.setdefault(ACCESS_LOG_POLICY_ENV, "disabled")
 
     # Import here, not at module import: graph-os must start normally when the
     # `ag-ui` extra is absent, and only a deployment that asked for the WebUI
