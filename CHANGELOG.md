@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [## [Unreleased]] - 2026-08-14 — Fleet-wide phased minor bump
+## [2.5.0] - 2026-08-14 — Fleet-wide phased minor bump
 
 ### Added
 - **KV-cache checkpoint intelligence — checkpoint at *good moments*, chosen by the

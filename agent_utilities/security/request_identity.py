@@ -613,11 +613,40 @@ def acquire_process_identity_token(config: Any = None) -> str:
 
 
 def mint_actor_from_token_sync(token: str) -> ActorContext:
-    """Synchronously validate a graph process JWT and mint an actor."""
+    """Synchronously validate a graph process JWT and mint an actor.
+
+    Callable from BOTH a plain synchronous context and one that already has a
+    running event loop. `asyncio.run` refuses the latter outright
+    (``RuntimeError: asyncio.run() cannot be called from a running event
+    loop``), and this function's original form called it unconditionally.
+
+    That was not a theoretical gap. `agent-webui`'s `ensure_tenant_admission`
+    is `async`, and it calls the synchronous `_service_authority()`, which
+    lands here — so every Keycloak sign-in raised, surfacing to the user as
+    `{"detail": "Internal request failed", "error_id": ...}` with the real
+    cause only visible in the pod log. The daemon callers
+    (`gateway/daemon.py`, `messaging/daemon.py`, `mcp/kg_server.py`) run with
+    no loop and never saw it.
+
+    When a loop is already running, the coroutine is driven to completion on
+    its own loop in a worker thread and this thread blocks on the result. That
+    keeps the function's contract — synchronous in, actor out — instead of
+    pushing `async` up through every caller, and it cannot deadlock: the
+    worker owns a fresh loop and shares no state with the caller's.
+    """
     import asyncio
+    import concurrent.futures
+
+    def _drive() -> ActorContext:
+        return asyncio.run(actor_from_bearer_token(token))
 
     try:
-        return asyncio.run(actor_from_bearer_token(token))
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return _drive()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(_drive).result()
     except Exception as exc:
         # Preserve the cause: this is the same JWT verification path as the
         # per-request boundary, and discarding it here would hide the exact
