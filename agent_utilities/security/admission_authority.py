@@ -116,9 +116,21 @@ def _signer_key_for(principal: str) -> str | None:
             raise AdmissionAuthorityError(
                 f"{SIGNER_REGISTRY_ENV} must decode to a JSON object"
             )
-        key = registry.get(principal)
-        if isinstance(key, str) and key:
-            return key
+        # The engine's registry accepts TWO shapes for a signer entry
+        # (`SignerKeySpec`, epistemic-graph/src/server/auth.rs):
+        #   legacy: {"<id>": "<key>"}
+        #   scoped: {"<id>": {"key": "...", "allowed_roles": [...], ...}}
+        # A scoped entry is what grants the signer any authority at all -- a
+        # legacy one maps to `allowed_roles: []` and can register nothing -- so
+        # reading only the legacy shape means the moment a deployment is
+        # correctly scoped, the key becomes invisible here.
+        entry = registry.get(principal)
+        if isinstance(entry, str) and entry:
+            return entry
+        if isinstance(entry, dict):
+            key = entry.get("key")
+            if isinstance(key, str) and key:
+                return key
 
     from agent_utilities.knowledge_graph.core.graph_compute import GraphComputeEngine
 
