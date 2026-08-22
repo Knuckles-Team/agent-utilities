@@ -50,7 +50,7 @@ def _model_source(**overrides: object) -> PinnedVoiceSource:
     fields: dict[str, object] = {
         "repo_id": "rhasspy/piper-voices",
         "revision": _REVISION,
-        "path": "en/en_US/lessac/medium/en_US-lessac-medium.onnx",
+        "repo_path": "en/en_US/lessac/medium/en_US-lessac-medium.onnx",
         "expected_sha256": _MODEL_SHA,
     }
     fields.update(overrides)
@@ -61,7 +61,7 @@ def _config_source(**overrides: object) -> PinnedVoiceSource:
     fields: dict[str, object] = {
         "repo_id": "rhasspy/piper-voices",
         "revision": _REVISION,
-        "path": "en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
+        "repo_path": "en/en_US/lessac/medium/en_US-lessac-medium.onnx.json",
         "expected_sha256": _CONFIG_SHA,
     }
     fields.update(overrides)
@@ -84,7 +84,7 @@ def test_mutable_revision_is_rejected() -> None:
 
 def test_non_piper_asset_is_unsupported_format() -> None:
     with pytest.raises(UnsupportedVoiceAssetFormat, match="unsupported_format"):
-        _model_source(path="pytorch_model.bin", expected_sha256=_MODEL_SHA).validate()
+        _model_source(repo_path="pytorch_model.bin", expected_sha256=_MODEL_SHA).validate()
 
 
 def test_immutable_url_uses_pinned_revision_not_a_branch() -> None:

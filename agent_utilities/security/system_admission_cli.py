@@ -62,17 +62,14 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Any
 
 from .system_rbac_admission import (
     CONTROL_ROLE_NAME,
-    DEFAULT_PROVISIONER_SECRET_KEY,
     SystemAccessResult,
     SystemAdmissionClient,
     SystemAdmissionError,
     SystemPrincipal,
     provision_system_principal_access,
-    resolve_provisioner_authority,
     resolve_system_admission_client,
 )
 
@@ -135,39 +132,39 @@ def run_system_admission(
     role: str = CONTROL_ROLE_NAME,
     apply: bool = False,
     client: SystemAdmissionClient | None = None,
-    secrets_client: Any = None,
-    secret_key: str = DEFAULT_PROVISIONER_SECRET_KEY,
 ) -> SystemAccessResult:
     """Run system-principal admission for ``principals`` into ``role``.
 
     ``apply=False`` (the default — mirrors ``run_tenant_admission``'s /
     ``run_tier2_admission``'s DEFAULT-IS-DRY-RUN convention): never resolves
     a real credential and never touches a live engine or the
-    ``client``/``secrets_client`` arguments. Runs the SAME
+    ``client`` argument. Runs the SAME
     :func:`~agent_utilities.security.system_rbac_admission.provision_system_principal_access`
     pass against a fresh
     :class:`~agent_utilities.security.system_rbac_admission.FixtureSystemAdmissionClient`
     seeded with a dry-run-only authority, so a caller gets a REAL preview
     rather than just a printed plan.
 
-    ``apply=True`` resolves the real provisioner authority via
-    :func:`~agent_utilities.security.system_rbac_admission.resolve_provisioner_authority`
-    and, when ``client`` is not given, a live engine via
+    ``apply=True`` signs as the current verified principal via
+    :func:`~agent_utilities.security.admission_authority.resolve_admission_authority`
+    and, when ``client`` is not given, resolves a live engine via
     :func:`~agent_utilities.security.system_rbac_admission.resolve_system_admission_client`.
-    This is the exact NE-021 condition on the target deployment: with no
-    credential seeded, this call raises
-    :class:`SystemAdmissionCliError` naming exactly the missing secret key
-    — it never silently no-ops and never pretends success.
+    A process that holds no signer key for its own principal raises
+    :class:`~agent_utilities.security.admission_authority.AdmissionAuthorityError`
+    naming that principal — deliberately NOT re-wrapped into this module's own
+    error type, because one credential model should surface one credential
+    error, not a different one per bridge. It never silently no-ops and never
+    pretends success.
     """
 
     if not apply:
         from .system_rbac_admission import (
+            AdmissionAuthority,
             FixtureSystemAdmissionClient,
-            SystemAdmissionAuthority,
         )
 
         preview_client = FixtureSystemAdmissionClient()
-        dry_run_authority = SystemAdmissionAuthority(
+        dry_run_authority = AdmissionAuthority(
             agent_id="dry-run:provisioner",
             signer_id="dry-run:provisioner",
             signer_key="dry-run-synthetic-not-a-real-credential",  # nosec B106 - dry-run only; sanitizer:ignore synthetic placeholder, never a real credential
@@ -177,9 +174,9 @@ def run_system_admission(
         )
 
     try:
-        authority = resolve_provisioner_authority(
-            secrets_client=secrets_client, key=secret_key
-        )
+        from .admission_authority import resolve_admission_authority
+
+        authority = resolve_admission_authority()
     except SystemAdmissionError as exc:
         raise SystemAdmissionCliError(str(exc)) from exc
 
@@ -216,7 +213,6 @@ def main(argv: list[str] | None = None) -> int:
         "dry-run preview against an in-memory fixture, never touches a "
         "live engine)",
     )
-    parser.add_argument("--secret-key", default=DEFAULT_PROVISIONER_SECRET_KEY)
     parser.add_argument("--quiet", action="store_true")
     args = parser.parse_args(argv)
 
@@ -229,9 +225,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     role, principals = load_manifest(raw_manifest)
     try:
-        result = run_system_admission(
-            principals, role=role, apply=args.apply, secret_key=args.secret_key
-        )
+        result = run_system_admission(principals, role=role, apply=args.apply)
     except SystemAdmissionCliError as exc:
         print(f"SYSTEM ADMISSION FAILED: {exc}", file=sys.stderr)
         return 1

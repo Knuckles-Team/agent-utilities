@@ -113,7 +113,9 @@ class PinnedVoiceSource:
 
     repo_id: str
     revision: str
-    path: str
+    # Path WITHIN the remote model repo (e.g. 'en/en_US/model.onnx'),
+    # never a host filesystem location.
+    repo_path: str
     expected_sha256: str
     expected_byte_length: int | None = None
 
@@ -132,20 +134,21 @@ class PinnedVoiceSource:
         ):
             raise ValueError("expected_sha256 must be 64 lowercase hex characters")
         if not (
-            self.path.endswith(_MODEL_SUFFIX) or self.path.endswith(_CONFIG_SUFFIXES)
+            self.repo_path.endswith(_MODEL_SUFFIX)
+            or self.repo_path.endswith(_CONFIG_SUFFIXES)
         ):
             raise UnsupportedVoiceAssetFormat(
-                f"unsupported_format: {self.path!r} is neither a Piper .onnx model nor "
+                f"unsupported_format: {self.repo_path!r} is neither a Piper .onnx model nor "
                 "its .onnx.json/.json config (DEF-017: no generic HF loader)"
             )
 
     @property
     def is_config(self) -> bool:
-        return self.path.endswith(_CONFIG_SUFFIXES)
+        return self.repo_path.endswith(_CONFIG_SUFFIXES)
 
     @property
     def immutable_url(self) -> str:
-        return f"https://{HUGGINGFACE_HOST}/{self.repo_id}/resolve/{self.revision}/{self.path}"
+        return f"https://{HUGGINGFACE_HOST}/{self.repo_id}/resolve/{self.revision}/{self.repo_path}"
 
 
 def quarantine_dir() -> Path:
@@ -189,7 +192,7 @@ def _existing_manifest_for_source(
         if (
             data.get("source_repository") == source.repo_id
             and data.get("source_revision") == source.revision.lower()
-            and data.get("source_path") == source.path
+            and data.get("source_path") == source.repo_path
         ):
             return VoiceModelManifest.model_validate(data)
     return None
@@ -216,7 +219,7 @@ async def acquire_voice_model(
     source.validate()
     if source.is_config:
         raise UnsupportedVoiceAssetFormat(
-            f"{source.path!r} is a config, not a model — use acquire_voice_config()"
+            f"{source.repo_path!r} is a config, not a model — use acquire_voice_config()"
         )
 
     existing = _existing_manifest_for_source(source)
@@ -226,12 +229,12 @@ async def acquire_voice_model(
                 "voice model already quarantined idempotently: %s@%s/%s (sha256=%s)",
                 source.repo_id,
                 source.revision[:12],
-                source.path,
+                source.repo_path,
                 existing.sha256[:12],
             )
             return existing
         raise VoiceSourcePinConflict(
-            f"{source.repo_id}@{source.revision}/{source.path} was already quarantined "
+            f"{source.repo_id}@{source.revision}/{source.repo_path} was already quarantined "
             f"under sha256={existing.sha256!r}, refusing to overwrite with a different "
             f"expected digest {source.expected_sha256!r} — a source pin is immutable"
         )
@@ -251,7 +254,7 @@ async def acquire_voice_model(
     digest = hashlib.sha256(content).hexdigest()
     if digest != source.expected_sha256.lower():
         raise VoiceAssetDigestMismatch(
-            f"{source.repo_id}@{source.revision}/{source.path}: expected sha256="
+            f"{source.repo_id}@{source.revision}/{source.repo_path}: expected sha256="
             f"{source.expected_sha256!r}, got {digest!r} — refusing to quarantine an "
             "unverified copy"
         )
@@ -260,7 +263,7 @@ async def acquire_voice_model(
         and len(content) != source.expected_byte_length
     ):
         raise VoiceAssetDigestMismatch(
-            f"{source.repo_id}@{source.revision}/{source.path}: expected "
+            f"{source.repo_id}@{source.revision}/{source.repo_path}: expected "
             f"{source.expected_byte_length} bytes, got {len(content)} — refusing to "
             "quarantine a mismatched-length transfer"
         )
@@ -278,7 +281,7 @@ async def acquire_voice_model(
         source_host=HUGGINGFACE_HOST,
         source_repository=source.repo_id,
         source_revision=source.revision.lower(),
-        source_path=source.path,
+        source_path=source.repo_path,
         source_url=source.immutable_url,
         byte_length=len(content),
         sha256=digest,
@@ -292,7 +295,7 @@ async def acquire_voice_model(
         "voice model quarantined: %s@%s/%s (sha256=%s, %d bytes)",
         source.repo_id,
         source.revision[:12],
-        source.path,
+        source.repo_path,
         digest[:12],
         len(content),
     )
@@ -318,7 +321,7 @@ async def acquire_voice_config(
     source.validate()
     if not source.is_config:
         raise UnsupportedVoiceAssetFormat(
-            f"{source.path!r} is not a .onnx.json/.json config"
+            f"{source.repo_path!r} is not a .onnx.json/.json config"
         )
 
     content, _encoding = await safe_get_bytes_async(
@@ -336,7 +339,7 @@ async def acquire_voice_config(
     digest = hashlib.sha256(content).hexdigest()
     if digest != source.expected_sha256.lower():
         raise VoiceAssetDigestMismatch(
-            f"{source.repo_id}@{source.revision}/{source.path}: expected sha256="
+            f"{source.repo_id}@{source.revision}/{source.repo_path}: expected sha256="
             f"{source.expected_sha256!r}, got {digest!r} — refusing to quarantine an "
             "unverified copy"
         )
@@ -345,7 +348,7 @@ async def acquire_voice_config(
         parsed = json.loads(content)
     except json.JSONDecodeError as exc:
         raise UnsupportedVoiceAssetFormat(
-            f"{source.path!r} is not valid JSON: {exc}"
+            f"{source.repo_path!r} is not valid JSON: {exc}"
         ) from exc
     audio = parsed.get("audio") if isinstance(parsed, dict) else None
     sample_rate = audio.get("sample_rate") if isinstance(audio, dict) else None
@@ -354,11 +357,11 @@ async def acquire_voice_config(
     )
     if not isinstance(sample_rate, int) or sample_rate <= 0:
         raise UnsupportedVoiceAssetFormat(
-            f"{source.path!r} has no valid audio.sample_rate — not a Piper voice config"
+            f"{source.repo_path!r} has no valid audio.sample_rate — not a Piper voice config"
         )
     if not phoneme_map_present:
         raise UnsupportedVoiceAssetFormat(
-            f"{source.path!r} has no phoneme_id_map — not a Piper voice config"
+            f"{source.repo_path!r} has no phoneme_id_map — not a Piper voice config"
         )
 
     quarantine_path = quarantine_dir() / f"{digest}.onnx.json"
@@ -382,7 +385,7 @@ async def acquire_voice_config(
         "voice config quarantined and pair-validated: %s@%s/%s (sha256=%s, model=%s)",
         source.repo_id,
         source.revision[:12],
-        source.path,
+        source.repo_path,
         digest[:12],
         model_manifest.manifest_id[:12],
     )

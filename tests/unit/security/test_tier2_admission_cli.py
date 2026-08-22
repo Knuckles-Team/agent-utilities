@@ -8,7 +8,7 @@ tooling (``agent-webui``'s ``provision_identity.py``) ONE function to call.
 
 These tests prove the REAL code path — credential resolution ->
 ``provision_tier2_admission`` -> engine client — end to end, using an injected
-:class:`FixtureEngineAdmissionClient` and a fake secrets source. They never
+:class:`FixtureEngineAdmissionClient`. They never
 construct a ``LiveEngineAdmissionClient`` and never touch a live engine or a
 real secrets backend; per BUG-068's explicit instruction, no test here (or
 anywhere in this change) exercises the admin RPC against a live cluster.
@@ -20,26 +20,9 @@ import json
 
 import pytest
 
+from agent_utilities.security import admission_authority, brain_context
 from agent_utilities.security import engine_rbac_admission as era
 from agent_utilities.security import tier2_admission_cli as cli
-
-
-class _FakeSecretsClient:
-    """A minimal stand-in for ``SecretsClient`` — a plain ``get(key)`` -> str
-    | None, exactly the surface :func:`resolve_provisioner_authority` uses."""
-
-    def __init__(self, secrets: dict[str, str]) -> None:
-        self._secrets = secrets
-
-    def get(self, key: str) -> str | None:
-        return self._secrets.get(key)
-
-
-class _ExplodingSecretsClient:
-    """Fails any call — used to prove the dry-run path never touches it."""
-
-    def get(self, key: str) -> str:
-        raise AssertionError("dry-run must never resolve a real secret")
 
 
 def _admin_grant_manifest() -> list[era.ServiceAdmissionEntry]:
@@ -56,7 +39,7 @@ def _admin_grant_manifest() -> list[era.ServiceAdmissionEntry]:
     ]
 
 
-def _provisioner_secret_json(agent_id: str = "provisioner:deploy") -> str:
+def _provisioner_secret_json(agent_id: str = "graph-os:process") -> str:
     return json.dumps(
         {
             "agent_id": agent_id,
@@ -71,9 +54,37 @@ def _provisioner_secret_json(agent_id: str = "provisioner:deploy") -> str:
 # ---------------------------------------------------------------------------
 
 
+
+ADMITTING_PRINCIPAL = "graph-os:process"
+
+
+@pytest.fixture(autouse=True)
+def _bound_principal(monkeypatch: pytest.MonkeyPatch):
+    """Bind a verified principal; start from "this process holds no key"."""
+
+    monkeypatch.delenv(admission_authority.SIGNER_REGISTRY_ENV, raising=False)
+    actor = brain_context.ActorContext(
+        actor_id=ADMITTING_PRINCIPAL, authenticated=True
+    )
+    token = brain_context.set_actor(actor)
+    try:
+        yield
+    finally:
+        brain_context.reset_actor(token)
+
+
+def _hold_signer_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Give this process the signer key for its own bound principal."""
+
+    monkeypatch.setenv(
+        admission_authority.SIGNER_REGISTRY_ENV,
+        json.dumps({ADMITTING_PRINCIPAL: "not-a-real-credential"}),  # nosec B105
+    )
+
+
 def test_dry_run_never_resolves_secrets_and_reports_a_real_preview() -> None:
     result = cli.run_tier2_admission(
-        _admin_grant_manifest(), apply=False, secrets_client=_ExplodingSecretsClient()
+        _admin_grant_manifest(), apply=False
     )
     assert result.all_admitted is True
     assert result.bootstrap_attempted is True
@@ -86,19 +97,19 @@ def test_dry_run_never_resolves_secrets_and_reports_a_real_preview() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_apply_resolves_credentials_and_admits_against_injected_client() -> None:
+def test_apply_resolves_credentials_and_admits_against_injected_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _hold_signer_key(monkeypatch)
     client = era.FixtureEngineAdmissionClient()
-    secrets = _FakeSecretsClient(
-        {cli.DEFAULT_PROVISIONER_SECRET_KEY: _provisioner_secret_json()}
-    )
 
     result = cli.run_tier2_admission(
-        _admin_grant_manifest(), apply=True, client=client, secrets_client=secrets
+        _admin_grant_manifest(), apply=True, client=client
     )
 
     assert result.all_admitted is True
     assert result.bootstrap_succeeded is True
-    assert client.has_admin_capability("provisioner:deploy") is True
+    assert client.has_admin_capability(ADMITTING_PRINCIPAL) is True
     # The fresh-store proof, mirroring test_engine_rbac_admission.py's own
     # admin_grant case: the grant lands on the ROLE; an agent holding that
     # role then satisfies has_admin_capability.
@@ -106,17 +117,17 @@ def test_apply_resolves_credentials_and_admits_against_injected_client() -> None
     assert client.has_admin_capability("service:webui") is True
 
 
-def test_apply_is_idempotent_across_two_runs_with_the_same_client() -> None:
+def test_apply_is_idempotent_across_two_runs_with_the_same_client(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _hold_signer_key(monkeypatch)
     client = era.FixtureEngineAdmissionClient()
-    secrets = _FakeSecretsClient(
-        {cli.DEFAULT_PROVISIONER_SECRET_KEY: _provisioner_secret_json()}
-    )
 
     first = cli.run_tier2_admission(
-        _admin_grant_manifest(), apply=True, client=client, secrets_client=secrets
+        _admin_grant_manifest(), apply=True, client=client
     )
     second = cli.run_tier2_admission(
-        _admin_grant_manifest(), apply=True, client=client, secrets_client=secrets
+        _admin_grant_manifest(), apply=True, client=client
     )
 
     assert first.bootstrap_succeeded is True
@@ -130,41 +141,35 @@ def test_apply_is_idempotent_across_two_runs_with_the_same_client() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_apply_without_a_configured_secret_fails_loud_not_silent() -> None:
-    with pytest.raises(cli.Tier2AdmissionError, match="no provisioner credential"):
+def test_apply_without_a_signer_key_for_this_principal_fails_loud() -> None:
+    with pytest.raises(
+        admission_authority.AdmissionAuthorityError, match="no signer key"
+    ):
         cli.run_tier2_admission(
             _admin_grant_manifest(),
             apply=True,
             client=era.FixtureEngineAdmissionClient(),
-            secrets_client=_FakeSecretsClient({}),
         )
 
 
-def test_apply_with_malformed_secret_json_fails_loud() -> None:
-    secrets = _FakeSecretsClient({cli.DEFAULT_PROVISIONER_SECRET_KEY: "not json"})
-    with pytest.raises(cli.Tier2AdmissionError, match="not valid JSON"):
+def test_apply_with_a_malformed_signer_registry_fails_loud(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(admission_authority.SIGNER_REGISTRY_ENV, "not json")
+    with pytest.raises(admission_authority.AdmissionAuthorityError, match="not valid JSON"):
         cli.run_tier2_admission(
             _admin_grant_manifest(),
             apply=True,
             client=era.FixtureEngineAdmissionClient(),
-            secrets_client=secrets,
         )
 
 
-def test_apply_with_incomplete_secret_payload_fails_loud() -> None:
-    secrets = _FakeSecretsClient(
-        {cli.DEFAULT_PROVISIONER_SECRET_KEY: json.dumps({"agent_id": "x"})}
-    )
-    with pytest.raises(cli.Tier2AdmissionError, match="missing or has an invalid"):
-        cli.run_tier2_admission(
-            _admin_grant_manifest(),
-            apply=True,
-            client=era.FixtureEngineAdmissionClient(),
-            secrets_client=secrets,
-        )
 
 
-def test_an_engine_admission_error_is_never_swallowed() -> None:
+def test_an_engine_admission_error_is_never_swallowed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _hold_signer_key(monkeypatch)
     """A genuinely non-admin provisioner authority must fail the pass, not be
     reported as success — restated for the deployment-tooling bridge, mirroring
     ``engine_rbac_admission``'s own equivalent proof. Uses the default
@@ -182,17 +187,10 @@ def test_an_engine_admission_error_is_never_swallowed() -> None:
             agent_id="service:webui", tier2_actions=("admin:cluster-read",)
         )
     ]
-    secrets = _FakeSecretsClient(
-        {
-            cli.DEFAULT_PROVISIONER_SECRET_KEY: _provisioner_secret_json(
-                "nobody:not-an-admin"
-            )
-        }
-    )
 
     with pytest.raises(cli.Tier2AdmissionError, match="Tier-2 admission failed"):
         cli.run_tier2_admission(
-            manifest, apply=True, client=client, secrets_client=secrets
+            manifest, apply=True, client=client
         )
 
     # The failed attempt must not have silently admitted the service.

@@ -25,11 +25,16 @@ Detection signals
   ``agent-utilities-messaging`` entrypoint uses the same boundary with its
   minted verified session.
 * **agent-webui** — configured iff ``config.enable_web_ui`` (the existing
-  ``ENABLE_WEB_UI`` field). It is a separate Node/Vite frontend, not a Python
-  asyncio task, so it can never be started IN-PROCESS here; it is still reported
-  as part of the composition (:func:`detect_composition`) so the multi-backend
-  deployment planners (container/kubernetes) can include it, but this in-process
-  supervisor only logs that it is configured and external.
+  ``ENABLE_WEB_UI`` field), and started IN-PROCESS via
+  :func:`agent_utilities.server.webui_co_service.run_web_ui`. It ships a FastAPI
+  application factory and serves its built Vite bundle as SPA static files, so
+  it is an ASGI app like any other; ``agent-utilities[ag-ui]`` already declares
+  the dependency and :func:`agent_utilities.server.app.build_agent_app` already
+  mounts it beside the gateway routers it is the frontend facade for. Running it
+  here also lets it sign engine admission as graph-os, the principal the
+  engine's signer registry trusts. Absent the ``ag-ui`` extra this logs an error
+  and the rest of the composition still starts; the multi-backend deployment
+  planners may still run it as its own service instead.
 
 STDIO safety
 ------------
@@ -292,15 +297,26 @@ def start_co_services(
         )
 
     if plan.web_ui_enabled:
-        # agent-webui is a separate Node/Vite frontend, not a Python asyncio task —
-        # it cannot be started in-process here. It is still part of the composition
-        # (ENABLE_WEB_UI is real config), so the multi-backend deployment planners
-        # (container/kubernetes) include it as its own service; this in-process
-        # backend can only report that it is configured and external.
-        logger.info(
-            "agent-webui is configured (ENABLE_WEB_UI) but is an external "
-            "frontend process — run it separately or via the container/"
-            "kubernetes deployment backend, not the in-process composition."
-        )
+        # agent-webui IS startable in-process: it ships a FastAPI application
+        # factory and serves its built Vite bundle as SPA static files, so it is
+        # an ASGI app like any other. (This branch used to decline on the premise
+        # that it was "a separate Node/Vite frontend, not a Python asyncio task".)
+        # `agent_utilities[ag-ui]` already declares the dependency and
+        # `server.app.build_agent_app` already mounts it, so this is the last wire.
+        #
+        # Running it here is also what makes engine admission work: a co-service
+        # inherits this process's verified session, and graph-os is the principal
+        # the engine's signer registry trusts. See `server.webui_co_service`.
+        try:
+            from agent_utilities.server.webui_co_service import run_web_ui
+
+            supervisor.start_service("agent-webui", run_web_ui, session)
+        except ImportError:
+            logger.error(
+                "agent-webui is configured (ENABLE_WEB_UI) but the `ag-ui` extra "
+                "is not installed, so it cannot be served in-process. Install "
+                "`agent-utilities[ag-ui]`, or run agent-webui as its own "
+                "deployment."
+            )
 
     return supervisor
