@@ -9,10 +9,9 @@ Every piece of this was already built and only the last wire was missing:
 * ``agent-utilities[ag-ui]`` already declares ``agent-webui`` as an optional
   dependency, so the package is installable alongside graph-os with no new
   distribution work.
-* :func:`agent_utilities.server.app.build_agent_app` already mounts
-  ``agent_webui.server.create_agent_web_app`` at ``/`` when ``enable_web_ui``
-  is set, alongside the gateway routers agent-webui would otherwise mount for
-  itself — agent-webui is the frontend facade over those same routers.
+* the gateway routers the dashboard fronts (``agent_utilities.gateway.*``) are
+  already served from this process — agent-webui is the frontend facade over
+  them, which is why serving it here duplicates nothing.
 * ``ENABLE_WEB_UI`` is already real config, and
   :func:`agent_utilities.mcp.co_service_supervisor.detect_composition` already
   reports it as part of the composition plan.
@@ -86,7 +85,6 @@ def run_web_ui(
     import uvicorn
 
     from agent_utilities.core.config import config
-    from agent_utilities.server.app import build_agent_app
 
     bind_host = host or str(getattr(config, "host", None) or "0.0.0.0")  # noqa: S104
     if port:
@@ -120,12 +118,37 @@ def run_web_ui(
     # Import here, not at module import: graph-os must start normally when the
     # `ag-ui` extra is absent, and only a deployment that asked for the WebUI
     # should ever pay this import.
-    from agent_webui.server import create_agent_web_app  # noqa: F401
+    from agent_webui.api_extensions import _get_engine_bounded
+    from agent_webui.orchestrator_model import build_orchestrator_model
+    from agent_webui.server import create_agent_web_app
+    from pydantic_ai import Agent
 
-    app = build_agent_app(
-        enable_web_ui=True,
-        host=bind_host,
-        port=bind_port,
+    from agent_utilities.server.webui_mcp_delegation import (
+        webui_mcp_delegation_helpers,
+    )
+    from agent_utilities.server.webui_voice_delegation import (
+        webui_voice_delegation_helpers,
+    )
+
+    # Assemble exactly what agent-webui's own entrypoint assembles.
+    #
+    # NOT `server.app.build_agent_app`: that constructs au's ENTIRE server
+    # application -- skills, ontology, A2A, embedding writes -- and mounts the
+    # dashboard as one part of it. Measured in the live pod, that path had not
+    # finished building after 32 minutes against a contended engine (16s
+    # commits), so the listener never bound and the co-service looked hung. The
+    # dashboard is a frontend facade over routers that are already served; it
+    # needs the orchestrator-model agent and the delegation helpers, nothing
+    # more. Same measurement, this path: 11 seconds to a built app.
+    agent = Agent(build_orchestrator_model(_get_engine_bounded))
+    helpers = {
+        **webui_mcp_delegation_helpers(),
+        **webui_voice_delegation_helpers(),
+    }
+    app = create_agent_web_app(
+        agent,
+        workspace_helpers=helpers,
+        listener_host=bind_host,
     )
 
     # Uvicorn access records include the raw query string, which can carry user
