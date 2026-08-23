@@ -96,14 +96,23 @@ def _ensure_messaging_log_visibility() -> None:
     pkg_logger.propagate = False
 
 
-async def _serve(engine: Any, platforms: list[str]) -> None:
-    """Connect configured backends and run the InboundRouter (blocks on listeners)."""
+async def _serve(engine: Any, platforms: list[str], router_box: dict[str, Any]) -> None:
+    """Connect configured backends and run the InboundRouter (blocks on listeners).
+
+    ``router_box`` is a caller-owned handoff cell: it is populated with the
+    live ``InboundRouter`` the moment it is constructed, BEFORE any backend
+    connects, so a concurrent per-platform lease-loss watcher
+    (:func:`_run_poll_loop`) can reach in and cancel exactly one platform's
+    listener task later — without this coroutine needing to know anything
+    about leases itself.
+    """
     from agent_utilities.messaging.commands import command_specs
     from agent_utilities.messaging.router import InboundRouter, create_planner_handler
     from agent_utilities.messaging.service import MessagingService
 
     svc = MessagingService.instance(engine)
     router = InboundRouter()
+    router_box["router"] = router
     for pid in platforms:
         backend = await svc.get_backend(pid)
         if backend is None:
@@ -182,7 +191,10 @@ def mint_process_identity() -> Any:
 
 
 def _run_poll_loop(
-    engine: Any, platforms: list[str], stop_event: threading.Event
+    engine: Any,
+    platforms: list[str],
+    stop_event: threading.Event,
+    platform_stop_events: dict[str, threading.Event] | None = None,
 ) -> None:
     """Low-level serving body, called only by :func:`run_forever` after fencing.
 
@@ -190,6 +202,17 @@ def _run_poll_loop(
     body deliberately has no ownership checks of its own: keeping it separate
     makes it impossible for ownership state to diverge from the shared native
     lease helper. It must not be called by an entrypoint directly.
+
+    ``platform_stop_events`` (one ``threading.Event`` per platform, set by the
+    lease renewal loop in :mod:`agent_utilities.messaging.intake_lease` the
+    moment that platform's lease is lost) lets exactly ONE platform's listener
+    be torn down without touching the others: a per-platform watcher thread
+    cancels only that platform's supervise task inside the single shared
+    ``InboundRouter`` — the healthy platforms' listener tasks, and the shared
+    inbox reaper, are never cancelled and never even observe the event. This
+    is the fix for the platform that loses its lease otherwise taking every
+    other platform down with it (they previously all lived under the ONE
+    ``_serve`` task this function cancels wholesale on ``stop_event``).
     """
     # Guarantee this co-service's lifecycle/error logs reach stderr (→ kubectl logs)
     # regardless of the graph-os root logger being pinned to WARNING at build time. Safe
@@ -213,7 +236,44 @@ def _run_poll_loop(
     )
     watcher.start()
 
-    tasks = [loop.create_task(_serve(engine, platforms))]
+    router_box: dict[str, Any] = {}
+
+    def _drop_platform(platform: str) -> None:
+        """Cancel ONLY ``platform``'s listener task inside the live router."""
+        router = router_box.get("router")
+        if router is None:
+            return
+        target_name = f"messaging-router-{platform}"
+        for task in list(getattr(router, "_tasks", ())):
+            if task.get_name() == target_name:
+                if not task.done():
+                    task.cancel()
+                    logger.error(
+                        "[CONCEPT:AU-ECO.messaging.inbound-messaging-router-runs] "
+                        "messaging dropped platform=%s from inbound routing "
+                        "(lease lost); other platforms continue serving",
+                        platform,
+                    )
+                return
+
+    def _watch_platform_stop(platform: str, platform_stop: threading.Event) -> None:
+        platform_stop.wait()
+        if not loop.is_closed():
+            loop.call_soon_threadsafe(_drop_platform, platform)
+
+    platform_watchers = [
+        threading.Thread(
+            target=_watch_platform_stop,
+            args=(platform, platform_stop),
+            daemon=True,
+            name=f"MessagingPlatformStopWatch-{platform}",
+        )
+        for platform, platform_stop in (platform_stop_events or {}).items()
+    ]
+    for platform_watcher in platform_watchers:
+        platform_watcher.start()
+
+    tasks = [loop.create_task(_serve(engine, platforms, router_box))]
     # Optional HTTP alert-intake (CONCEPT:AU-ECO.messaging.alert-intake): route external
     # webhooks (uptime-kuma, Alertmanager, …) THROUGH the messaging stack so alerts inherit
     # the one unified Telegram/Mattermost/… delivery instead of each tool wiring its own
@@ -268,8 +328,10 @@ def run_forever(
         platforms,
         session,
         stop_event,
-        lambda owned_platforms, owned_stop_event: _run_poll_loop(
-            engine, owned_platforms, owned_stop_event
+        lambda owned_platforms, owned_stop_event, owned_platform_stop_events: (
+            _run_poll_loop(
+                engine, owned_platforms, owned_stop_event, owned_platform_stop_events
+            )
         ),
     )
 

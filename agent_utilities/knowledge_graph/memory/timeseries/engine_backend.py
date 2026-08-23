@@ -35,6 +35,7 @@ field-vector model:
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import functools
 import hashlib
 import inspect
@@ -198,9 +199,20 @@ class EngineTimeSeriesBackend(TimeSeriesBackend):
         ``asyncio.create_task`` the way routing through
         ``run_blocking_ordered`` (which wraps ``asyncio.to_thread`` in its
         own task) did — one thread-pool handoff instead of two.
+
+        ``call`` runs under a copied :mod:`contextvars` snapshot of the
+        calling context (the same mechanism :func:`asyncio.to_thread` uses
+        internally), so the ambient ``GraphSession`` the caller entered via
+        ``use_session()`` is still current inside the worker thread. A bare
+        ``loop.run_in_executor(None, call)`` starts the executor's worker
+        thread with an EMPTY context — unlike ``asyncio.to_thread`` — so
+        ``current_session()`` inside ``call`` raised ``SessionRequiredError``
+        even though the caller was inside a live session, and every
+        time-series durability write was silently dropped.
         """
         loop = asyncio.get_running_loop()
-        future = loop.run_in_executor(None, call)
+        ctx = contextvars.copy_context()
+        future = loop.run_in_executor(None, functools.partial(ctx.run, call))
         cancelled = False
         while not future.done():
             try:
