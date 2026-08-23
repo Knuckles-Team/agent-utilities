@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import importlib
 import inspect
 import json
 import threading
@@ -383,7 +384,7 @@ def test_startup_capability_ingest_does_not_probe_fleet() -> None:
                 return_value=[],
             ),
             patch.object(kg_server, "_ingest_skill_capabilities", return_value=0),
-            patch.object(kg_server, "get_existing_disabled", return_value=False),
+            patch.object(kg_server, "get_existing_disabled_batch", return_value={}),
             patch(
                 "agent_utilities.knowledge_graph.core.source_sync.sync_source",
                 full_probe,
@@ -397,6 +398,157 @@ def test_startup_capability_ingest_does_not_probe_fleet() -> None:
         for node in engine.nodes.values()
         if node.get("type") == "MCPServer"
     } == {"target-mcp", "unrelated-a", "unrelated-b"}
+
+
+def test_capability_ingest_batches_mcp_and_native_tool_disabled_lookups() -> None:
+    """Both boot-ingestion loops issue ONE batched lookup, not one per element.
+
+    Regression for the production ~2,171/day "slow engine call" warnings
+    (~12/min): ``_ingest_capabilities``'s MCP-config loop and native-tool loop
+    each used to call the singular ``get_existing_disabled`` once per server /
+    once per tool inside their loop bodies -- N round trips against the
+    out-of-process engine for N elements, the exact per-element-loop shape the
+    engine's own design rule forbids ("batch, never per-element"; see the
+    identical regression already covered for skill ingestion by
+    ``test_boot_skill_ingest_batches_existing_disabled_lookup``). This test
+    does NOT monkeypatch ``get_existing_disabled_batch`` so it observes the
+    real, label-scoped ``query_cypher`` calls both loops now make.
+    """
+    from agent_utilities.mcp import kg_server
+
+    class RecordingEngine:
+        def __init__(self) -> None:
+            self.nodes: dict[str, dict] = {}
+
+        def add_node(
+            self,
+            node_id: str,
+            node_type: str,
+            properties: dict | None = None,
+            **kwargs: object,
+        ) -> None:
+            self.nodes[node_id] = {"type": node_type, **(properties or kwargs)}
+
+        def query_cypher(self, query: str, params: dict | None = None) -> list:
+            return []
+
+    def synthetic_native_tool(x: object) -> object:
+        """A synthetic native tool used only to exercise the ingest loop."""
+        return x
+
+    synthetic_native_tool.__agentic_version__ = "1.0"
+    fake_module = SimpleNamespace(synthetic_native_tool=synthetic_native_tool)
+    real_import_module = importlib.import_module
+
+    def _fake_import_module(name: str, *args: object, **kwargs: object) -> object:
+        # Only intercept the synthetic module under test -- every other
+        # import (including the ones `unittest.mock.patch` itself performs
+        # to resolve the *other* patch targets below) must still go through
+        # the real importer.
+        if name == "agent_utilities.tools.synthetic_mod":
+            return fake_module
+        return real_import_module(name, *args, **kwargs)
+
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _catalog_path(root)  # 3 MCP servers: target-mcp, unrelated-a, unrelated-b
+        engine = RecordingEngine()
+        query_cypher = MagicMock(wraps=engine.query_cypher)
+        engine.query_cypher = query_cypher
+
+        with (
+            patch("platformdirs.user_config_path", return_value=root),
+            patch(
+                "pkgutil.iter_modules",
+                return_value=[(None, "agent_utilities.tools.synthetic_mod", False)],
+            ),
+            patch("importlib.import_module", side_effect=_fake_import_module),
+            patch(
+                "agent_utilities.core.providers.resolve_skill_provider_dirs",
+                return_value=[],
+            ),
+            patch.object(kg_server, "_ingest_skill_capabilities", return_value=0),
+        ):
+            kg_server._ingest_capabilities(engine)
+
+    disabled_lookup_calls = [
+        call
+        for call in query_cypher.call_args_list
+        if "n.disabled AS disabled" in call.args[0]
+    ]
+    # One batched lookup per loop -- 3 MCP servers -> 1 call, 1 native tool ->
+    # 1 call -- not one call per element (would be 4 calls total).
+    assert len(disabled_lookup_calls) == 2
+
+    mcp_calls = [c for c in disabled_lookup_calls if "MCPServer" in c.args[0]]
+    native_calls = [c for c in disabled_lookup_calls if "NativeTool" in c.args[0]]
+    assert len(mcp_calls) == 1
+    assert len(native_calls) == 1
+
+    mcp_node_ids = {
+        node_id
+        for node_id, node in engine.nodes.items()
+        if node.get("type") == "MCPServer"
+    }
+    native_node_ids = {
+        node_id
+        for node_id, node in engine.nodes.items()
+        if node.get("type") == "NativeTool"
+    }
+    assert set(mcp_calls[0].args[1]["node_ids"]) == mcp_node_ids
+    assert len(mcp_node_ids) == 3
+    assert set(native_calls[0].args[1]["node_ids"]) == native_node_ids
+    assert len(native_node_ids) == 1
+
+
+def test_capability_ingest_fails_closed_when_disabled_lookup_errors() -> None:
+    """A broken batch lookup must mark every node disabled, never silently enabled.
+
+    ``disabled_by_id.get(node_id, False)`` at both ``_ingest_capabilities``
+    call sites reads a missing key as "not disabled" -- so
+    ``get_existing_disabled_batch`` failing closed depends on it actually
+    populating ``True`` for every id it could not resolve. If a lookup
+    failure were instead swallowed into an empty/omitted result, a
+    previously-disabled MCP server or native tool would silently come back
+    enabled on the next boot.
+    """
+    from agent_utilities.mcp import kg_server
+
+    class BrokenEngine:
+        def __init__(self) -> None:
+            self.nodes: dict[str, dict] = {}
+
+        def add_node(
+            self,
+            node_id: str,
+            node_type: str,
+            properties: dict | None = None,
+            **kwargs: object,
+        ) -> None:
+            self.nodes[node_id] = {"type": node_type, **(properties or kwargs)}
+
+        def query_cypher(self, query: str, params: dict | None = None) -> list:
+            raise RuntimeError("engine transport is down")
+
+    with TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        _catalog_path(root)
+        engine = BrokenEngine()
+
+        with (
+            patch("platformdirs.user_config_path", return_value=root),
+            patch("pkgutil.iter_modules", return_value=[]),
+            patch(
+                "agent_utilities.core.providers.resolve_skill_provider_dirs",
+                return_value=[],
+            ),
+            patch.object(kg_server, "_ingest_skill_capabilities", return_value=0),
+        ):
+            kg_server._ingest_capabilities(engine)
+
+    mcp_nodes = [n for n in engine.nodes.values() if n.get("type") == "MCPServer"]
+    assert len(mcp_nodes) == 3
+    assert all(node["disabled"] is True for node in mcp_nodes)
 
 
 def test_graphos_entrypoint_activates_configured_otel_live_path() -> None:

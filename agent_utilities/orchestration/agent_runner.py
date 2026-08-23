@@ -380,7 +380,7 @@ def _build_run_summary(
 # the actual run (only a genuine cancellation of the RUN itself propagates).
 
 ProgressStage = str  # one of: start route evidence_gate tool_call tool_result
-#                       synthesis checkpoint done failure
+#                       synthesis text_delta checkpoint done failure
 ProgressStatus = str  # one of: started ok degraded failed
 
 # Defensive wall-clock ceiling for ONE sink invocation. A well-behaved sink (the messaging
@@ -398,10 +398,13 @@ class ProgressEvent:
 
     * ``run_id``   — the run this event belongs to (the same handle used for ``trace_ref``).
     * ``stage``    — ``start`` | ``route`` | ``evidence_gate`` | ``tool_call`` |
-      ``tool_result`` | ``synthesis`` | ``checkpoint`` | ``done`` | ``failure``.
+      ``tool_result`` | ``synthesis`` | ``text_delta`` | ``checkpoint`` | ``done`` | ``failure``.
+      ``text_delta`` is one token-sized chunk of the model's OWN answer text (as opposed to
+      every other stage, which reports on the run's progress) — see :func:`_stream_agent_run`.
     * ``status``   — ``started`` | ``ok`` | ``degraded`` | ``failed``.
     * ``detail``   — short human string (a server name, the route ``why``, a translated
-      failure), safe to render straight into a chat surface.
+      failure), safe to render straight into a chat surface; for ``text_delta`` this IS the
+      literal delta text (already in emission order — concatenate to reconstruct the answer).
     * ``evidence`` — small structured extras (servers, trace_ref, failure category, …);
       the paper's "evidence gating / checkpoint traces" surfaced as data.
     * ``ts``       — wall-clock emit time (``time.time()``).
@@ -462,6 +465,79 @@ async def _emit(
             stage,
             type(exc).__name__,
         )
+
+
+async def _stream_agent_run(
+    agent: Any,
+    prompt: Any,
+    *,
+    run_kwargs: dict[str, Any],
+    progress_sink: ProgressSink | None,
+    run_id: str,
+) -> Any:
+    """Invoke a pydantic-ai agent, returning a result exposing the same
+    ``.output``/``.all_messages()`` contract as :meth:`Agent.run` — but, when a
+    ``progress_sink`` is attached, via :meth:`Agent.run_stream` so the answer's own
+    token deltas are surfaced through the SAME ``ProgressEvent`` channel every other
+    checkpoint already uses (``stage="text_delta"``), one ``_emit`` call per delta.
+
+    CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency — the token-streaming
+    half of the checkpoint stream: progress events already streamed the ROUTE, this
+    streams the ANSWER on the same wire. Ordering is guaranteed by construction, not by
+    coordinating two queues: every ``_emit`` call below — like every other progress
+    emission in ``run_agent`` — is ``await``-ed in place, one coroutine, one call at a
+    time, so a text delta emitted here can never reorder relative to the route/tool_call/
+    synthesis events the caller emits immediately before and after this call returns.
+
+    No sink (headless/MCP callers with nothing to drain the channel) -> byte-for-byte the
+    prior ``agent.run()`` call: this is Native-by-default (no opt-in flag) with a single
+    code path, not a streaming path bolted on beside the old one.
+    """
+    if progress_sink is None:
+        return await agent.run(prompt, **run_kwargs)
+    async with agent.run_stream(prompt, **run_kwargs) as stream:
+        async for delta in stream.stream_text(delta=True):
+            if delta:
+                await _emit(
+                    progress_sink,
+                    run_id=run_id,
+                    stage="text_delta",
+                    status="ok",
+                    detail=delta,
+                )
+        # ``StreamedRunResult`` has no ``.output`` field (only the async ``get_output()``
+        # used above to drive the stream to completion) and its ``all_messages()``/
+        # ``usage()`` are only valid once complete — capture all three now, inside the
+        # context manager, and hand callers the SAME attribute shape ``agent.run()``'s
+        # ``AgentRunResult`` gives them so every downstream reader (``_extract_tool_calls``,
+        # the ``.output``/``.data``/``.content`` fallback chain) needs no streaming-aware
+        # branch of its own.
+        output = await stream.get_output()
+        messages = stream.all_messages()
+        try:
+            run_usage = stream.usage()
+        except Exception:  # noqa: BLE001 — usage is a reporting nicety, never load-bearing
+            run_usage = None
+    return _StreamedAgentResult(output=output, messages=messages, run_usage=run_usage)
+
+
+@dataclass(frozen=True)
+class _StreamedAgentResult:
+    """Normalizes a completed :class:`~pydantic_ai.result.StreamedRunResult` to the
+    ``.output`` / ``.all_messages()`` / ``.usage()`` attribute contract that
+    :meth:`Agent.run`'s ``AgentRunResult`` exposes, so callers written against the
+    non-streaming return shape (``_extract_tool_calls``, the ``.output`` fallback chain
+    in ``_execute_single_server``) work unchanged against a streamed run."""
+
+    output: Any
+    messages: list[Any] = field(default_factory=list)
+    run_usage: Any = None
+
+    def all_messages(self, **_kwargs: Any) -> list[Any]:
+        return self.messages
+
+    def usage(self) -> Any:
+        return self.run_usage
 
 
 def _record_delegation_over_budget(
@@ -1184,6 +1260,7 @@ async def run_agent(
                 max_steps=max_steps,
                 agent_meta=agent_meta,
                 agent_name=agent_name,
+                progress_sink=progress_sink,
             )
         elif _is_bound_template_agent(agent_meta, config):
             # CONCEPT:AU-ORCH.adapter.transport-toolset-factory — a KG-bound persona (e.g. agent-utilities-expert)
@@ -1215,6 +1292,8 @@ async def run_agent(
                     max_steps=max_steps,
                     agent_meta=agent_meta,
                     agent_name=agent_name,
+                    progress_sink=progress_sink,
+                    run_id=run_id,
                 )
             except Exception as e:  # noqa: BLE001 — degrade to the graph, never drop the turn
                 logger.warning(
@@ -1232,6 +1311,7 @@ async def run_agent(
                     max_steps=max_steps,
                     agent_meta=agent_meta,
                     agent_name=agent_name,
+                    progress_sink=progress_sink,
                 )
         elif getattr(shape, "tool_servers", ()) and agent_meta.get("type") != "server":
             # CONCEPT:AU-ORCH.execution.focused-tools-altitude — FOCUSED-TOOLS altitude: the lexical gate named concrete fleet
@@ -1273,6 +1353,8 @@ async def run_agent(
                     config=config,
                     agent_name=agent_name,
                     max_steps=max_steps,
+                    progress_sink=progress_sink,
+                    run_id=run_id,
                 )
             except Exception as e:  # noqa: BLE001
                 # CONCEPT:AU-ORCH.execution.focused-tools-fail-closed — this branch is entered ONLY
@@ -1331,6 +1413,8 @@ async def run_agent(
                 max_steps=max_steps,
                 agent_meta=agent_meta,
                 agent_name=agent_name,
+                progress_sink=progress_sink,
+                run_id=run_id,
                 bound_tool_grounding=True,
             )
         else:
@@ -1356,6 +1440,7 @@ async def run_agent(
                 max_steps=max_steps,
                 agent_meta=agent_meta,
                 agent_name=agent_name,
+                progress_sink=progress_sink,
             )
     except BaseException as e:  # noqa: BLE001 — see _flatten_exception_group
         # A remote MCP child (streamable-http/sse) that fails to connect or errors
@@ -2996,9 +3081,24 @@ def _build_execution_config(
     # AgentTemplate persona like ``agent-utilities-expert``), drive the run with
     # that full persona instead of the bare generic "Specialized agent" placeholder.
     resolved_prompt = str(agent_meta.get("system_prompt") or "").strip()
-    tag_prompts = {
-        agent_name: resolved_prompt or f"Specialized agent: {agent_name}",
-    }
+    tag_prompts: dict[str, str] = {}
+    # CONCEPT:AU-ORCH.dispatch.fleet-specialist-reachability — a thin entrypoint persona
+    # (e.g. ``webui-assistant``) resolves with the SAME ``_unresolved_agent_meta()`` shape
+    # as a generic direct-completion turn: no real persona, no capabilities. Seeding
+    # ``tag_prompts`` with only a bare "Specialized agent: <name>" placeholder for that
+    # case produced ``tag_prompts == {agent_name}`` — a single-entry (therefore truthy)
+    # registry of ONE. The router (``graph/_router_impl.py: router_step``) treats an EMPTY
+    # ``deps.tag_prompts`` as "load the full fleet registry" (``get_discovery_registry()``,
+    # off the loop via ``asyncio.to_thread``) but a truthy one-entry dict skips that
+    # fallback, so the router's own free-text specialist proposals (e.g.
+    # "agent-utilities-expert") could never match anything and the plan came back empty.
+    # Fix: only claim a domain slot here when there is something REAL to offer — a
+    # resolved persona or actual capabilities — so a thin/unresolved caller leaves
+    # ``tag_prompts`` empty and the router's OWN, already-tested registry-widening
+    # fallback fires and supplies the genuine fleet roster. Do NOT duplicate that fetch
+    # here (no second registry).
+    if resolved_prompt or agent_meta.get("capabilities"):
+        tag_prompts[agent_name] = resolved_prompt or f"Specialized agent: {agent_name}"
     for cap in agent_meta.get("capabilities", []):
         if cap and cap != agent_name:
             tag_prompts[cap] = f"Capability: {cap}"
@@ -3309,6 +3409,8 @@ async def _execute_single_server(
     agent_name: str,
     *,
     bound_tool_grounding: bool = False,
+    progress_sink: ProgressSink | None = None,
+    run_id: str = "",
 ) -> dict[str, Any]:
     """Run a single-MCP-server agent directly against its bound toolset.
 
@@ -3459,7 +3561,13 @@ async def _execute_single_server(
         )
         with grounding_scope:
             result = await asyncio.wait_for(
-                agent.run(prompt, **run_kwargs),
+                _stream_agent_run(
+                    agent,
+                    prompt,
+                    run_kwargs=run_kwargs,
+                    progress_sink=progress_sink,
+                    run_id=run_id,
+                ),
                 timeout=_EXECUTE_AGENT_WALL_CLOCK_S,
             )
     except TimeoutError as exc:
@@ -3582,6 +3690,8 @@ async def _execute_focused_tools(
     config: dict[str, Any],
     agent_name: str,
     max_steps: int,
+    progress_sink: ProgressSink | None = None,
+    run_id: str = "",
 ) -> dict[str, Any]:
     """FOCUSED-TOOLS altitude (CONCEPT:AU-ORCH.execution.focused-tools-altitude): the ontology lexical gate named concrete
     fleet server(s), so bind ONLY those servers' toolsets (least privilege) and run ONE direct
@@ -3628,10 +3738,18 @@ async def _execute_focused_tools(
         agent_meta=agent_meta,
         agent_name=agent_name,
         bound_tool_grounding=True,
+        progress_sink=progress_sink,
+        run_id=run_id,
     )
 
 
-async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
+async def _run_direct_completion(
+    query: str,
+    shape: Any,
+    *,
+    progress_sink: ProgressSink | None = None,
+    run_id: str = "",
+) -> dict[str, Any]:
     """Answer a lean turn with ONE local-model round, OUTSIDE the multi-agent graph
     (CONCEPT:AU-ORCH.execution.direct-completion-shape). A ``direct_complete`` shape must NOT enter the graph: a functional
     router step cannot terminate the graph mid-flow without an extra edge that pydantic-graph
@@ -3699,7 +3817,13 @@ async def _run_direct_completion(query: str, shape: Any) -> dict[str, Any]:
         system_prompt=_direct_system_prompt,
         model_settings=_direct_model_settings,
     )
-    res = await agent.run(query)
+    res = await _stream_agent_run(
+        agent,
+        query,
+        run_kwargs={},
+        progress_sink=progress_sink,
+        run_id=run_id,
+    )
     return {
         "status": "completed",
         "results": {"output": str(res.output)},
@@ -3718,12 +3842,19 @@ async def _execute_graph(
     max_steps: int,
     agent_meta: dict[str, Any],
     agent_name: str,
+    progress_sink: ProgressSink | None = None,
 ) -> dict[str, Any]:
     """Materialize a pydantic-graph and execute it.
 
     Uses ``create_graph_agent()`` for graph construction and
     ``run_graph()`` for execution — the same pipeline used by
     the A2A agent and the main server.
+
+    ``progress_sink`` only reaches the ``_run_direct_completion`` lean fast path below
+    (CONCEPT:AU-ORCH.execution.messaging-orchestration-transparency, token-streaming half)
+    — the full multi-agent graph reached via ``AgentOrchestrationEngine().execute_graph``
+    does not yet accept it, so a run that falls through to the real graph still answers,
+    just without token-by-token streaming until that engine-side seam is wired too.
     """
     from agent_utilities.graph.builder import create_graph_agent
     from agent_utilities.orchestration.engine import AgentOrchestrationEngine
@@ -3749,7 +3880,9 @@ async def _execute_graph(
         _direct = False
     if _direct:
         try:
-            return await _run_direct_completion(query, _shape)
+            return await _run_direct_completion(
+                query, _shape, progress_sink=progress_sink, run_id=run_id
+            )
         except Exception as e:  # noqa: BLE001 — a failed lean answer falls through to the graph
             logger.warning(
                 "[ORCH-1.68] direct completion failed (%s); falling through to the graph.",

@@ -10,7 +10,10 @@
 
 The Gateway provides a **Homepage-style service dashboard** for Agent-OS.
 It is the unified data layer that all three frontends use to render
-service health, metrics, and quick-access links for 50+ integrated services.
+service health, metrics, and quick-access links for 70 integrated services —
+covering 64 of the 68 `agent-packages/agents/*` connectors (see
+[Connector Coverage](#connector-coverage) below for the 4 that cannot get a
+direct-import widget, and why).
 
 | Frontend | Integration | Data Flow |
 |----------|-------------|-----------|
@@ -26,12 +29,12 @@ C4Component
 
     Container_Boundary(gw, "Gateway (agent_utilities.gateway)") {
         Component(models, "Models", "Python + Pydantic", "WidgetData, ServiceConfig, DashboardLayout, WidgetField")
-        Component(registry, "Widget Registry", "Python", "Lazy-loading discovery of 50 widget types")
+        Component(registry, "Widget Registry", "Python", "Lazy-loading discovery of 70 widget types")
         Component(config, "Config Manager", "Python + YAML", "XDG services.yaml + MCP auto-discovery")
         Component(aggregator, "Aggregator", "Python + asyncio", "Parallel ThreadPoolExecutor data fetching")
         Component(api, "Dashboard Router", "FastAPI", "REST endpoints: /layout, /data, /widgets, /health")
         Component(ws, "WebSocket Manager", "FastAPI", "Real-time streaming: /ws/dashboard")
-        Component(widgets, "Widget Modules", "Python", "50 service-specific widget implementations")
+        Component(widgets, "Widget Modules", "Python", "70 service-specific widget implementations")
     }
 
     Rel(api, aggregator, "Delegates data fetching")
@@ -60,7 +63,7 @@ agent_utilities/gateway/
     ├── uptime_kuma.py    # Uptime Kuma widget
     ├── technitium.py     # Technitium DNS widget
     ├── gitlab.py         # GitLab widget
-    ├── ...               # 46 more service widgets
+    ├── ...               # 66 more service widgets
     └── zulip.py          # Zulip widget
 ```
 
@@ -73,25 +76,25 @@ This means frontends don't pay import cost for unused agent-packages.
 from agent_utilities.gateway.registry import get_registry
 
 reg = get_registry()
-print(reg.list_all_known())   # All 50 known widget types
+print(reg.list_all_known())   # All 70 known widget types
 print(reg.list_available())   # Only those whose deps are installed
 widget = reg.get_widget("portainer")  # Lazy-imports on first access
 ```
 
-### Built-in Widget Types (50)
+### Built-in Widget Types (70)
 
 | Category | Widgets |
 |----------|---------|
-| **Infrastructure** | portainer, uptime_kuma, technitium, caddy, container_manager, home_assistant, tunnel_manager, systems_manager |
-| **DevOps** | gitlab, github, ansible_tower, repository_manager |
-| **Media** | jellyfin, qbittorrent, owncast, media_downloader, arr |
-| **Productivity** | nextcloud, plane, stirlingpdf, archivebox |
-| **Lifestyle** | mealie, wger |
-| **Security** | keycloak, openbao, teleport |
+| **Infrastructure** | portainer, uptime_kuma, technitium, caddy, container_manager, home_assistant, tunnel_manager, systems_manager, fan_manager, kafka |
+| **DevOps** | gitlab, github, ansible_tower, repository_manager, dockerhub |
+| **Media** | jellyfin, qbittorrent, owncast, media_downloader, arr, audiobookshelf, hdhomerun, rom_manager |
+| **Productivity** | nextcloud, plane, stirlingpdf, archivebox, freshrss, paperless_ngx |
+| **Lifestyle** | mealie, wger, firefly_iii, gramps |
+| **Security** | keycloak, openbao, teleport, ciso_assistant, okta, onetrust |
 | **Communication** | mattermost, postiz, listmonk, zulip |
 | **Observability** | langfuse, sentry, lgtm |
-| **Business** | servicenow, erpnext, leanix, twenty, legal_peripherals, atlassian, google_workspace, microsoft |
-| **Data & Research** | data_science, vector_db, documentdb, scholarx, audio_transcriber, ollama |
+| **Business** | servicenow, erpnext, leanix, twenty, legal_peripherals, atlassian, google_workspace, microsoft, aris, camunda, egeria |
+| **Data & Research** | data_science, vector_db, documentdb, scholarx, audio_transcriber, ollama, clarity, jena, pulselink |
 | **Custom** | genius_agent, emerald_exchange, searxng |
 
 ## Connector Dependencies (`gateway-widgets` extra)
@@ -123,30 +126,48 @@ talk over plain HTTP (`self._http_client`) and have no in-process connector impo
 
 **Known gaps, not fixed by installing the extra:**
 
-- `ear.py`, `sentry.py`, and `zulip.py` import `ear_agent`, `sentry_mcp`, and
-  `zulip_agent` respectively — none of those three packages exist, locally or on
-  PyPI. `ear.py` already guards its import (`except ImportError: status="skipped"`);
-  `sentry.py` and `zulip.py` do not, and will keep flooding until those connectors
-  are published.
-- `container_manager.py`, `arr.py`, `vector_db.py`, `tunnel_manager.py`,
-  `atlassian.py`, `repository_manager.py`, and `media_downloader.py` import an
-  `<connector>.api_client` submodule that does not exist in
-  `container-manager-mcp` / `arr-mcp` / `vector-mcp` / `tunnel-manager` /
-  `atlassian-agent` / `repository-manager` / `media-downloader` at any published
-  or local version — those packages expose a different public API entirely.
-  Installing the extra changes their failure from "module not found" to
-  "submodule not found"; the widgets themselves need a real fix.
-- `portainer.py`'s `portainer-agent` dependency resolves from PyPI, but the newest
-  published release (1.1.0) still imports the since-renamed
-  `agent_utilities.http` (now `agent_utilities.httpsupport`); the fix already
-  exists in the unpublished sibling checkout (2.1.0+) but PyPI has nothing newer
-  to pick up.
+- `sentry.py` and `zulip.py` import `sentry_mcp` / `zulip_agent`, distributions that
+  exist neither locally nor on PyPI. Both now guard the import and degrade to
+  `status="skipped"` (matching `ear.py`'s long-standing pattern) rather than
+  flooding the log, but they cannot report real data until those connectors ship.
+- `media_downloader.py` resolves, but `MediaDownloader` is a one-shot yt-dlp wrapper
+  with no queue or status surface to report, so it degrades the same way.
+- `portainer.py`'s `portainer-agent` resolves from PyPI, but the newest published
+  release (1.1.0) still imports the since-renamed `agent_utilities.http` (now
+  `agent_utilities.httpsupport`); the fix exists in the unpublished sibling
+  checkout (2.1.0+) but PyPI has nothing newer to pick up.
 
-See `pyproject.toml`'s `gateway-widgets` extra comment for the full per-package
-rationale (including why its version floors track what is actually published on
-PyPI rather than each connector's newer local checkout version) and
-`tests/unit/gateway/test_widget_connector_imports.py` for the regression test
-covering both the missing-dependency and the wrong-imported-symbol failure modes.
+Previously listed here as broken-beyond-the-extra — `container_manager`, `arr`,
+`vector_db`, `tunnel_manager`, `atlassian`, `repository_manager` — were pointed at
+their real connector entry points and now reach live data; see
+`tests/unit/gateway/test_widget_connector_imports.py`.
+
+## Connector Coverage
+
+Every `agent-packages/agents/*` connector is either a live widget in the
+table above or listed below with the reason it is not. Widget keys don't
+always match the package name — e.g. `technitium` widget ↔
+`technitium-dns-mcp` package, `vector_db` widget ↔ `vector-mcp` package;
+the full name↔`widget_type` mapping lives in `registry.py`'s
+`_BUILTIN_WIDGETS` and `config.py`'s `_MCP_TO_WIDGET`.
+
+Of the 68 `agent-packages/agents/*` connectors, **64 have a widget** (45
+pre-existing + `leanix` — registered since the dashboard's inception but
+missing its module file until this pass — + 19 new ones added in the
+`widget-connector-expansion` lane). **4 do not**, each because it has no
+single reachable "service" a `url` + `token` widget can poll:
+
+| Package | Why it has no widget |
+|---------|----------------------|
+| `archimate-mcp` | Local ArchiMate model-authoring engine (no remote API — "Archi has no remote API" per the package's own `api_client.py` docstring); no running service to report status for. |
+| `sql-mcp` | Generic multi-connection SQL client keyed by named connections defined in its own connection registry, not a single `url`/`token` target — no single "service" to dashboard without a config-shape change. |
+| `objectstore-mcp` | Multi-backend abstraction (filesystem/S3/GCS/Azure) selected via backend-specific fields (`endpoint`/`profile`/`region`/`connection_string`/`project`) rather than a single `url`+`token`; the cloud backends also need their own optional SDKs (`boto3`, `google-cloud-storage`, `azure-storage-blob`) that are not `agent-utilities` dependencies. |
+| `salesforce-agent` | Multi-flow OAuth2 (`client_credentials`/`refresh_token`/`jwt_bearer`/`access_token`) resolved through the package's own `SalesforceConfig.from_env()`, not the gateway's `url`+`token` model — would need its own credential-resolution path in `BaseWidget` to do safely. |
+
+All four are legitimate future work, not oversights — each would need either
+a dashboard config-model change (named multi-connection/backend targets) or
+a bespoke credential-resolution path before a widget could report an honest
+status.
 
 ## Configuration
 

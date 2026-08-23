@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import re
 
 import pytest
 
@@ -437,6 +438,90 @@ def test_durable_access_rows_preserves_shared_scope(monkeypatch, brain):
     rows = sr._durable_access_rows(["artifact-1"])
     assert "n._shared_scope AS shared_scope" in backend.queries[0][0]
     assert rows["artifact-1"]["shared_scope"] == "org"
+
+
+class _LabelAwareBackendReader:
+    """Like ``_FakeBackendReader``, but actually enforces the query's label —
+    proving ``_durable_access_rows`` issues a label-scoped ``MATCH (n:Label)``
+    (CONCEPT: hot-lookup-labels) instead of always falling straight through to
+    an unlabeled ``MATCH (n)`` full-graph scan."""
+
+    _LABEL_RE = re.compile(r"MATCH \(n(?::(\w+))?\)")
+
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows  # each row also carries a "_label" key
+        self.queries: list[tuple[str, dict]] = []
+
+    def execute_read(self, query: str, params: dict, **_kw) -> list[dict]:
+        self.queries.append((query, params))
+        match = self._LABEL_RE.search(query)
+        label = match.group(1) if match else None
+        wanted = set(params.get("ids", []))
+        return [
+            {k: v for k, v in row.items() if k != "_label"}
+            for row in self.rows
+            if row.get("id") in wanted and (label is None or row.get("_label") == label)
+        ]
+
+
+def test_durable_access_rows_resolves_on_the_first_verified_label_query(
+    monkeypatch, brain
+):
+    """A node whose label is in the verified fleet set is found by the FIRST
+    label-scoped query — no unlabeled scan is ever issued for it."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    backend = _LabelAwareBackendReader(
+        rows=[
+            {
+                "id": "tool_demo_thing",
+                "_label": "Tool",
+                "tenant_id": "tenant-a",
+                "classification": "public",
+                "external_access": None,
+            }
+        ]
+    )
+    engine = _FakeEngine(backend)
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
+
+    rows = sr._durable_access_rows(["tool_demo_thing"])
+
+    assert rows["tool_demo_thing"]["tenant_id"] == "tenant-a"
+    assert len(backend.queries) == 1
+    assert "MATCH (n:Tool)" in backend.queries[0][0]
+
+
+def test_durable_access_rows_falls_back_to_unlabeled_for_a_non_fleet_label(
+    monkeypatch, brain
+):
+    """A node OUTSIDE the verified fleet label set (e.g. a Memory node reached
+    through the general ``permit()`` read path, not fleet registration) must
+    still resolve correctly — every verified-label candidate misses, then the
+    unlabeled fallback finds it. Correctness for every node type is preserved;
+    only the fleet hot path gets the speedup."""
+    from agent_utilities.knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    backend = _LabelAwareBackendReader(
+        rows=[
+            {
+                "id": "memory:some-id",
+                "_label": "Memory",
+                "tenant_id": "tenant-a",
+                "classification": "public",
+                "external_access": None,
+            }
+        ]
+    )
+    engine = _FakeEngine(backend)
+    monkeypatch.setattr(IntelligenceGraphEngine, "_ACTIVE_ENGINE", engine)
+
+    rows = sr._durable_access_rows(["memory:some-id"])
+
+    assert rows["memory:some-id"]["tenant_id"] == "tenant-a"
+    assert len(backend.queries) == len(sr._LABELED_HYDRATION_CANDIDATES) + 1
+    last_query = backend.queries[-1][0]
+    assert last_query.startswith("MATCH (n) WHERE")
 
 
 def test_org_shared_node_grants_any_same_tenant_reader(monkeypatch, brain):

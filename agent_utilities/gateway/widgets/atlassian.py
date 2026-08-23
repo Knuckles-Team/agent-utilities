@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from agent_utilities.gateway.models import (
     ServiceCategory,
     ServiceConfig,
@@ -9,6 +11,8 @@ from agent_utilities.gateway.models import (
     WidgetField,
 )
 from agent_utilities.gateway.widgets.base import BaseWidget
+
+logger = logging.getLogger(__name__)
 
 
 class Widget(BaseWidget):
@@ -29,22 +33,29 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from atlassian_agent.api_client import AtlassianApi
+        # No `atlassian_agent.api_client` module exists. The real clients live
+        # under `atlassian_agent/api/api_client_*.py` — one generated class per
+        # Atlassian product/deployment (JiraCloudAPI, ConfluenceCloudAPI,
+        # AdminCloudAPI, ...), each wrapping a shared `BaseAtlassianClient`
+        # (atlassian_agent/api/base.py). This widget reports Jira issue counts,
+        # so it drives `JiraCloudAPI`.
+        from atlassian_agent.api.api_client_jira_cloud import JiraCloudAPI
+        from atlassian_agent.api.base import BaseAtlassianClient
 
         url = self._resolve_url(config)
         username = self._resolve_env(config, "username")
         token = self._resolve_token(config)
-        client = AtlassianApi(base_url=url, username=username, api_token=token)
+        base_client = BaseAtlassianClient(base_url=url, username=username, token=token)
+        client = JiraCloudAPI(base_client)
         try:
-            issues = (
-                client.search_issues(
-                    jql="assignee = currentUser() AND status != Done", max_results=1
-                )
-                or {}
+            response = client.jira_cloud_search_for_issues_using_jql(
+                jql="assignee = currentUser() AND status != Done", max_results=1
             )
-            total = issues.get("total", 0) if isinstance(issues, dict) else 0
-        except Exception:
-            return WidgetData(status="error", error="Connection failed")
+            data = response.data if isinstance(response.data, dict) else {}
+            total = data.get("total", 0)
+        except Exception as e:
+            logger.warning("Atlassian fetch failed: %s", e)
+            return self._error_data(e)
 
         return WidgetData(
             fields={"open_issues": total, "in_progress": 0, "wiki_pages": 0},

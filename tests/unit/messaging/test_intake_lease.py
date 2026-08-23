@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import threading
 
-from agent_utilities.knowledge_graph.core.session import GraphSession
+from agent_utilities.knowledge_graph.core.session import (
+    GraphSession,
+    SessionRequiredError,
+    current_session,
+    use_session,
+)
 from agent_utilities.messaging import daemon as messaging_daemon
 from agent_utilities.messaging import intake_lease
 from agent_utilities.models.company_brain import ActorType
@@ -139,7 +144,7 @@ def test_two_entrypoints_cannot_both_start_the_same_poller(monkeypatch):
     first_stop = threading.Event()
     polling_entries: list[tuple[str, ...]] = []
 
-    def _poll(engine, platforms, stop_event):
+    def _poll(engine, platforms, stop_event, platform_stop_events):
         polling_entries.append(tuple(platforms))
         started.set()
         stop_event.wait(timeout=2.0)
@@ -202,13 +207,145 @@ def test_lost_renewal_stops_the_listener(monkeypatch):
     monkeypatch.setattr(intake_lease, "heartbeat", lambda *args, **kwargs: False)
     monkeypatch.setattr(intake_lease, "defer_work_item", lambda *args, **kwargs: True)
 
-    def _serve(platforms, stop_event):
+    def _serve(platforms, stop_event, platform_stop_events):
         assert platforms == ["telegram"]
+        assert set(platform_stop_events) == {"telegram"}
         served.set()
         assert stop_event.wait(timeout=2.0)
 
     intake_lease.run_with_intake_leases(object(), (lease,), threading.Event(), _serve)
     assert served.is_set()
+
+
+def test_renewal_worker_inherits_ambient_graph_session(monkeypatch):
+    """Bug 1: a bare ``threading.Thread`` does not inherit contextvars, so the
+    lease-renewal thread ran with an EMPTY context — losing the ambient
+    ``GraphSession`` the daemon entered via ``use_session()`` on the main
+    thread before starting the poll loop, even though lease *acquisition* on
+    the calling thread worked fine. The first ``heartbeat()`` call from the
+    renewal thread then raised ``SessionRequiredError`` ~28s later in
+    production. ``run_with_intake_leases`` must carry the ambient session
+    into the renewal thread via ``contextvars.copy_context()``.
+    """
+    lease = intake_lease.IntakeLease(
+        platform="telegram",
+        item_id="workitem:messaging-intake:test",
+        claim={
+            "_native": True,
+            "tenant": "test-tenant",
+            "lease_owner": "owner",
+            "lease_epoch": 1,
+            "fencing_token": 1,
+        },
+        lease_ttl_s=0.05,
+    )
+    session = _verified_session()
+    observed_sessions: list[GraphSession | None] = []
+    heartbeat_called = threading.Event()
+
+    def _heartbeat(engine, item_id, claim, *, lease_ttl_s):
+        # Reproduces the real seam: engine_query/graph_compute._send_routed
+        # raises SessionRequiredError when current_session() is None. The
+        # renewal thread must see the SAME session the test entered below.
+        ambient = current_session()
+        if ambient is None:
+            raise SessionRequiredError(
+                "no ambient GraphSession reached the renewal thread"
+            )
+        observed_sessions.append(ambient)
+        heartbeat_called.set()
+        return True  # keep the lease alive so the test controls the stop deterministically
+
+    monkeypatch.setattr(intake_lease, "heartbeat", _heartbeat)
+    monkeypatch.setattr(intake_lease, "defer_work_item", lambda *args, **kwargs: True)
+
+    stop_event = threading.Event()
+
+    def _serve(platforms, stop_event_arg, platform_stop_events):
+        assert platforms == ["telegram"]
+        assert set(platform_stop_events) == {"telegram"}
+        assert heartbeat_called.wait(timeout=2.0)
+        stop_event_arg.set()
+
+    with use_session(session):
+        intake_lease.run_with_intake_leases(object(), (lease,), stop_event, _serve)
+
+    assert observed_sessions
+    assert all(seen is session for seen in observed_sessions)
+
+
+def test_one_platform_lease_loss_leaves_other_platform_serving(monkeypatch):
+    """Bug 3: one platform's lease loss must drop ONLY that platform.
+
+    Previously ANY lease's renewal failure set the single shared
+    ``stop_event`` unconditionally, and daemon.py cancelled ONE asyncio task
+    that owned EVERY backend's listener off that one event — so mattermost
+    losing its lease silently killed telegram's inbound polling too.
+
+    ``run_with_intake_leases`` now calls ``serve`` exactly ONCE with a
+    per-platform ``threading.Event`` map: mattermost's lease loss must set
+    ONLY ``platform_stop_events["mattermost"]``, leaving
+    ``platform_stop_events["telegram"]`` (and the shared ``stop_event``)
+    untouched — daemon.py's ``_run_poll_loop`` relies on exactly this
+    contract to cancel just the one platform's listener task (see
+    ``tests/unit/messaging/test_daemon_platform_isolation.py`` for the
+    daemon-level proof that it actually does).
+    """
+    mattermost = intake_lease.IntakeLease(
+        platform="mattermost",
+        item_id="workitem:messaging-intake:mattermost",
+        claim={
+            "_native": True,
+            "tenant": "test-tenant",
+            "lease_owner": "owner-mm",
+            "lease_epoch": 1,
+            "fencing_token": 1,
+        },
+        lease_ttl_s=0.05,
+    )
+    telegram = intake_lease.IntakeLease(
+        platform="telegram",
+        item_id="workitem:messaging-intake:telegram",
+        claim={
+            "_native": True,
+            "tenant": "test-tenant",
+            "lease_owner": "owner-tg",
+            "lease_epoch": 1,
+            "fencing_token": 1,
+        },
+        lease_ttl_s=0.05,
+    )
+
+    def _heartbeat(engine, item_id, claim, *, lease_ttl_s):
+        # mattermost's lease is lost on every renewal attempt; telegram's
+        # always renews cleanly.
+        return item_id != mattermost.item_id
+
+    monkeypatch.setattr(intake_lease, "heartbeat", _heartbeat)
+    monkeypatch.setattr(intake_lease, "defer_work_item", lambda *args, **kwargs: True)
+
+    stop_event = threading.Event()
+    serve_call: dict[str, object] = {}
+
+    def _serve(platforms, stop_event_arg, platform_stop_events):
+        serve_call["platforms"] = list(platforms)
+
+        # mattermost's per-platform event must fire on its own...
+        assert platform_stop_events["mattermost"].wait(timeout=2.0)
+        # ...while telegram's must NOT, and the shared stop must NOT fire —
+        # losing one of two leases is not a full stop.
+        assert not platform_stop_events["telegram"].wait(timeout=0.3)
+        assert not stop_event_arg.is_set()
+
+        # End the test deterministically (this is what a real SIGTERM, or
+        # every remaining platform also losing its lease, would do).
+        stop_event_arg.set()
+
+    intake_lease.run_with_intake_leases(
+        object(), (mattermost, telegram), stop_event, _serve
+    )
+
+    assert serve_call["platforms"] == ["mattermost", "telegram"]
 
 
 def test_lost_renewal_stops_the_actual_public_poll_loop(monkeypatch):
@@ -235,7 +372,7 @@ def test_lost_renewal_stops_the_actual_public_poll_loop(monkeypatch):
     monkeypatch.setattr(intake_lease, "heartbeat", lambda *args, **kwargs: False)
     monkeypatch.setattr(intake_lease, "defer_work_item", lambda *args, **kwargs: True)
 
-    def _poll(engine, platforms, stop_event):
+    def _poll(engine, platforms, stop_event, platform_stop_events):
         started.set()
         assert stop_event.wait(timeout=2.0)
         stopped.set()

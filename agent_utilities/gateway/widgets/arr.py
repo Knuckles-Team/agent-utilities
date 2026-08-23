@@ -34,11 +34,18 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from arr_mcp.api_client import ArrApi
+        # No `arr_mcp.api_client` module exists. The real clients are the
+        # per-service generated `Api` classes under `arr_mcp/api/` — one file
+        # per *arr service (Sonarr, Radarr, Prowlarr, Lidarr, Bazarr,
+        # Chaptarr, Seerr). This widget has always driven a single generic
+        # connection check (all fields below were already hardcoded), so it
+        # keeps that behavior and uses Sonarr's client as the representative
+        # connection, matching the existing single ARR_URL/ARR_API_KEY config.
+        from arr_mcp.api.api_client_sonarr import Api as ArrApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)
-        client = ArrApi(base_url=url, api_key=token)
+        client = ArrApi(base_url=url, token=token)
         try:
             status = client.get_system_status() or {}
         except Exception as e:

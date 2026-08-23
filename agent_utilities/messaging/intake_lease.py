@@ -9,6 +9,7 @@ authority, so another process can take over after an expired owner lease.
 
 from __future__ import annotations
 
+import contextvars
 import dataclasses
 import hashlib
 import logging
@@ -245,13 +246,31 @@ def run_with_intake_leases(
     engine: Any,
     leases: tuple[IntakeLease, ...],
     stop_event: threading.Event,
-    serve: Callable[[list[str], threading.Event], None],
+    serve: Callable[[list[str], threading.Event, dict[str, threading.Event]], None],
 ) -> None:
-    """Renew ``leases`` while ``serve`` owns the corresponding pollers."""
+    """Renew ``leases`` while ``serve`` owns the corresponding pollers.
+
+    ``serve`` is called exactly once, up front, with every leased platform AND
+    a per-platform ``threading.Event`` map (``platform_stop_events``). When one
+    platform's lease is lost, this function sets ONLY that platform's event —
+    ``serve``'s implementation (:func:`agent_utilities.messaging.daemon._run_poll_loop`)
+    is responsible for tearing down just that one platform's listener without
+    touching the others. The shared ``stop_event`` is reserved for a genuine
+    full stop: an external shutdown request (already set by the caller, e.g.
+    SIGTERM) or every platform having lost its lease.
+
+    Previously any single platform's renewal failure set the one shared
+    ``stop_event`` unconditionally, so — since the daemon ran every backend's
+    listener under ONE task cancelled off that one event — one platform's
+    lease loss silently killed inbound polling for every OTHER healthy
+    platform too.
+    """
     if not leases:
         stop_event.set()
         return
 
+    state_lock = threading.Lock()
+    platform_stop_events = {lease.platform: threading.Event() for lease in leases}
     renew_stop = threading.Event()
 
     def _renew() -> None:
@@ -262,7 +281,14 @@ def run_with_intake_leases(
         while not renew_stop.wait(interval):
             if stop_event.is_set():
                 return
-            for lease in leases:
+            still_leased = [
+                lease
+                for lease in leases
+                if not platform_stop_events[lease.platform].is_set()
+            ]
+            if not still_leased:
+                return
+            for lease in still_leased:
                 try:
                     renewed = heartbeat(
                         engine,
@@ -270,29 +296,52 @@ def run_with_intake_leases(
                         lease.claim,
                         lease_ttl_s=lease.lease_ttl_s,
                     )
-                except Exception as exc:  # noqa: BLE001 — losing a lease must stop polling
+                except Exception as exc:  # noqa: BLE001 — losing a lease must stop that platform's polling
                     logger.error(
                         "messaging intake lease renewal failed: platform=%s error_type=%s",
                         lease.platform,
                         type(exc).__name__,
                     )
                     renewed = False
-                if not renewed:
+                if renewed:
+                    continue
+                with state_lock:
+                    platform_stop_events[lease.platform].set()
+                    remaining = [
+                        other
+                        for other in leases
+                        if not platform_stop_events[other.platform].is_set()
+                    ]
+                if remaining:
                     logger.error(
-                        "messaging intake lease lost: platform=%s; stopping inbound polling",
+                        "messaging intake lease lost: platform=%s; dropping it "
+                        "from inbound polling, other platforms continue",
+                        lease.platform,
+                    )
+                else:
+                    logger.error(
+                        "messaging intake lease lost: platform=%s; no platform "
+                        "holds a lease, stopping inbound polling",
                         lease.platform,
                     )
                     stop_event.set()
-                    return
 
+    # threading.Thread does NOT inherit contextvars (unlike asyncio.Task), so
+    # the renewal thread would otherwise run with an EMPTY context — losing
+    # the ambient GraphSession the caller entered via use_session() before
+    # starting this run, even though the initial lease *acquisition* on the
+    # calling thread worked fine. copy_context() carries that session into
+    # the worker thread so heartbeat()'s engine calls stay authorized instead
+    # of raising SessionRequiredError on the first renewal.
+    renew_ctx = contextvars.copy_context()
     renew_thread = threading.Thread(
-        target=_renew,
+        target=lambda: renew_ctx.run(_renew),
         daemon=True,
         name="MessagingIntakeLeaseRenewal",
     )
     renew_thread.start()
     try:
-        serve([lease.platform for lease in leases], stop_event)
+        serve([lease.platform for lease in leases], stop_event, platform_stop_events)
     finally:
         renew_stop.set()
         renew_thread.join(
@@ -310,7 +359,7 @@ def run_owned_intake(
     platforms: Iterable[str],
     session: Any,
     stop_event: threading.Event,
-    serve: Callable[[list[str], threading.Event], None],
+    serve: Callable[[list[str], threading.Event, dict[str, threading.Event]], None],
     *,
     lease_ttl_s: float = DEFAULT_LEASE_TTL_S,
 ) -> None:
@@ -321,6 +370,11 @@ def run_owned_intake(
     deployment's explicit, verified session; credentials/platform discovery
     alone never reaches ``serve``. A missing lease (including an unavailable
     native WorkItem backend) stops the caller without opening a poller.
+
+    ``serve`` receives ``(platforms, stop_event, platform_stop_events)`` — the
+    third argument is a per-platform ``threading.Event`` map so a single
+    platform's lease loss can be handled without stopping the others (see
+    :func:`run_with_intake_leases`).
     """
     leases = acquire_intake_leases(
         engine,

@@ -17,19 +17,11 @@ def test_timeseries_cypher_literal_cannot_close_string() -> None:
 
 
 def test_mcp_toggle_queries_parameterize_ids_and_values() -> None:
-    from agent_utilities.mcp.kg_server import (
-        get_existing_disabled,
-        get_toggle_state,
-        set_toggle_state,
-    )
+    from agent_utilities.mcp.kg_server import get_toggle_state, set_toggle_state
 
     engine = MagicMock()
     engine.query_cypher.return_value = []
     attack = "x' SET n.admin = true //"
-
-    get_existing_disabled(engine, attack)
-    query, params = engine.query_cypher.call_args.args
-    assert attack not in query and params == {"node_id": attack}
 
     get_toggle_state(engine, "skill", attack)
     query, params = engine.query_cypher.call_args.args
@@ -39,6 +31,98 @@ def test_mcp_toggle_queries_parameterize_ids_and_values() -> None:
     query, params = engine.query_cypher.call_args.args
     assert attack not in query
     assert params["disabled"] is True
+
+
+_UNLABELED_DISABLED_QUERY_BY_ID = (
+    "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.disabled AS disabled"
+)
+
+
+def test_get_existing_disabled_batch_issues_one_labeled_round_trip() -> None:
+    from agent_utilities.mcp.kg_server import get_existing_disabled_batch
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.return_value = []
+    ids = ["resource:skill:a", "resource:skill:b"]
+
+    result = get_existing_disabled_batch(engine, ids)
+
+    assert engine.query_cypher.call_count == 1
+    query, params = engine.query_cypher.call_args.args
+    assert "MATCH (n:CallableResource)" in query
+    assert params == {"node_ids": ids}
+    # Genuinely-new ids (query ran fine, found nothing) are absent, not a
+    # failure — the caller's own default (False, "not disabled") applies.
+    assert result == {}
+
+
+def test_get_existing_disabled_batch_custom_label_is_validated_and_scoped() -> None:
+    """The ``label`` kwarg (added for the ``_ingest_capabilities`` MCP-config/
+    native-tool loops, which pass ``"MCPServer"``/``"NativeTool"``) must be
+    validated through ``validate_identifier`` like every other interpolated
+    label, and must actually scope the query -- not silently fall back to
+    the ``CallableResource`` default or an unlabeled scan."""
+    from agent_utilities.mcp.kg_server import get_existing_disabled_batch
+    from agent_utilities.security.identifiers import InvalidIdentifierError
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.return_value = []
+
+    get_existing_disabled_batch(engine, ["native_tool_x"], label="NativeTool")
+
+    assert engine.query_cypher.call_count == 1
+    query = engine.query_cypher.call_args.args[0]
+    assert "MATCH (n:NativeTool)" in query
+
+    with pytest.raises(InvalidIdentifierError):
+        get_existing_disabled_batch(
+            engine, ["x"], label='NativeTool"; DROP TABLE kg_edges; --'
+        )
+
+
+def test_get_existing_disabled_batch_fails_closed_on_query_error() -> None:
+    """Every unresolved id must be marked disabled=True in the returned
+    mapping on failure — never merely omitted, since the caller
+    (``disabled_by_resource.get(resource_id, False)``) reads a missing key as
+    "not disabled"."""
+    from agent_utilities.mcp.kg_server import get_existing_disabled_batch
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.side_effect = RuntimeError("engine unavailable")
+    ids = ["resource:skill:a", "resource:skill:b"]
+
+    result = get_existing_disabled_batch(engine, ids)
+
+    assert result == {"resource:skill:a": True, "resource:skill:b": True}
+
+
+def test_source_sync_existing_disabled_tries_labeled_queries_before_unlabeled_scan() -> (
+    None
+):
+    from agent_utilities.knowledge_graph.core.source_sync import _existing_disabled
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.return_value = []
+
+    _existing_disabled(engine, "tool_demo_thing")
+
+    first_query = engine.query_cypher.call_args_list[0].args[0]
+    assert first_query != _UNLABELED_DISABLED_QUERY_BY_ID
+    assert "MATCH (n:MCPServer)" in first_query
+
+
+def test_source_sync_existing_disabled_fails_closed_on_query_error() -> None:
+    from agent_utilities.knowledge_graph.core.source_sync import _existing_disabled
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.side_effect = RuntimeError("engine unavailable")
+
+    assert _existing_disabled(engine, "tool_demo_thing") is True
 
 
 def test_sparql_iri_and_source_partition_reject_query_breakout() -> None:

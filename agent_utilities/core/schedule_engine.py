@@ -31,6 +31,7 @@ host code execution.
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import logging
 import time
@@ -164,6 +165,50 @@ def _control_backend(engine: Any) -> Any:
     if control is None:
         raise RuntimeError("The scheduler requires the configured control authority")
     return control
+
+
+@contextlib.contextmanager
+def _control_session_scope(backend: Any) -> Any:
+    """Retarget the ambient verified ``GraphSession`` onto ``backend``'s own
+    graph for the duration of one control-plane read/write.
+
+    ``_control_backend(engine)`` (above) is a *graph-scoped view* pinned to
+    ``__control__`` (``EpistemicGraphBackend.for_graph``,
+    CONCEPT:AU-KG.backend.schedule-on-control-graph). The ambient session
+    minted for a scheduler-tick daemon/request is bound to whatever tenant
+    graph it actually runs under (e.g. ``homelab``), not ``__control__``.
+    ``graph_compute._send_routed`` rejects any RPC where a fixed-graph view's
+    target graph disagrees with the ambient session's graph
+    (``PermissionError: "A graph-scoped view cannot retarget the verified
+    GraphSession"``) — so every :Schedule read/write raised, `_load_all`
+    always returned ``[]``, and the scheduler never fired a single one of
+    ``deploy/schedules.yml``'s entries.
+
+    This mirrors the sanctioned ``GraphSession.with_graph()`` +
+    ``use_session()`` narrowing every other control-plane call site already
+    uses for the identical shape of problem —
+    ``TaskManagerMixin._control_session_scope`` /
+    ``_ControlPlaneWorkItemEngine._control_session_scope``
+    (``knowledge_graph/core/engine_tasks.py``): read the target graph off the
+    backend itself (``graph_name``) rather than hardcoding the
+    ``__control__`` literal, and retarget only the ``graph`` field of the
+    ambient session (actor/tenant/scopes are untouched, so authorization is
+    unchanged) for the scope of the call. No ambient session (an
+    unauthenticated bootstrap context) or a session already scoped to the
+    resolved control graph is a no-op.
+    """
+    from ..knowledge_graph.core.session import current_session, use_session
+
+    ambient = current_session()
+    if ambient is None:
+        yield
+        return
+    target_graph = getattr(backend, "graph_name", None)
+    if not target_graph or ambient.graph == target_graph:
+        yield
+        return
+    with use_session(ambient.with_graph(target_graph)):
+        yield
 
 
 def _registry_path() -> Path:
@@ -314,7 +359,8 @@ def _upsert(engine: Any, spec: ScheduleSpec) -> None:
     backend = _control_backend(engine)
     if backend is None:
         return
-    backend.add_node(spec.name, node_type=_SCHEDULE_LABEL, **spec.to_props())
+    with _control_session_scope(backend):
+        backend.add_node(spec.name, node_type=_SCHEDULE_LABEL, **spec.to_props())
 
 
 def _load_all(engine: Any) -> list[ScheduleSpec]:
@@ -337,7 +383,8 @@ def _load_all(engine: Any) -> list[ScheduleSpec]:
         "payload",
     )
     proj = ", ".join(f"s.{k} as {k}" for k in keys)
-    rows = backend.execute(f"MATCH (s:Schedule) RETURN s.id as id, {proj}")
+    with _control_session_scope(backend):
+        rows = backend.execute(f"MATCH (s:Schedule) RETURN s.id as id, {proj}")
     return [ScheduleSpec.from_row(r) for r in (rows or [])]
 
 
@@ -361,9 +408,10 @@ def _load_one(engine: Any, name: str) -> ScheduleSpec | None:
         "payload",
     )
     proj = ", ".join(f"s.{k} as {k}" for k in keys)
-    rows = backend.execute(
-        f"MATCH (s:Schedule {{id: $id}}) RETURN s.id as id, {proj}", {"id": name}
-    )
+    with _control_session_scope(backend):
+        rows = backend.execute(
+            f"MATCH (s:Schedule {{id: $id}}) RETURN s.id as id, {proj}", {"id": name}
+        )
     return ScheduleSpec.from_row(rows[0]) if rows else None
 
 
@@ -556,11 +604,21 @@ def run_scheduler_tick(engine: Any, now: datetime | None = None) -> dict[str, An
     """
     logger.info("[OS-5.44] scheduler tick: begin")
     if not getattr(engine, "_schedules_seeded", False):
+        # Fail closed (AU-OS.governance.verified-write-state-advance): only a
+        # CONFIRMED seed may mark ``_schedules_seeded``. Seeding is attempted
+        # once per tick, but the flag previously advanced unconditionally
+        # even when ``seed_schedules`` raised — a single transient failure
+        # (e.g. the control-graph session not yet available at boot)
+        # permanently disabled seeding for the rest of the process's life,
+        # since this branch never runs again. Leaving the flag unset on
+        # failure lets the NEXT tick retry instead of silently losing every
+        # schedule in ``deploy/schedules.yml`` forever.
         try:
             seed_schedules(engine)
         except Exception as exc:  # noqa: BLE001 — schedule seeding is best-effort
-            logger.warning("schedule seed failed: %s", exc)
-        engine._schedules_seeded = True
+            logger.warning("schedule seed failed, will retry next tick: %s", exc)
+        else:
+            engine._schedules_seeded = True
 
     # Curb/recover any duplicate interval-tick backlog before evaluating due
     # schedules (CONCEPT:AU-OS.state.stale-tick-collapse). Cheap no-op once every schedule has ≤1 active

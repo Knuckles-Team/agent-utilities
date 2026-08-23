@@ -836,6 +836,7 @@ async def router_step(
         return "dispatcher"
     except Exception as e:
         logger.error(f"Router planning failed: {e}. Attempting unstructured fallback.")
+        fallback_failure_detail: str | None = None
         try:
             # R13 (multi-level fallback chain) — unstructured natural-language
             # extraction. The prompt + specialist name-matching are owned by the
@@ -849,7 +850,24 @@ async def router_step(
                 model=adaptive_model,
                 system_prompt=unstructured_fallback_prompt(system_prompt_str),
             )
-            fallback_res = await fallback_agent.run(ctx.state.query)
+            # D-RTR-1: the structured planning call above is bounded by
+            # ``ctx.deps.router_timeout`` (~12s for the ``chat`` profile), but this
+            # unstructured fallback previously had NO timeout — a bare ``await`` that
+            # hit the very same degraded backend that just stalled the structured
+            # call. Two sequential unbounded-then-bounded LLM calls against a
+            # degraded provider is how a single turn reached 264s with no answer.
+            # Reuse the same profile budget so the two calls together can never
+            # exceed roughly 2x the router timeout.
+            try:
+                fallback_res = await asyncio.wait_for(
+                    fallback_agent.run(ctx.state.query),
+                    timeout=ctx.deps.router_timeout,
+                )
+            except TimeoutError:
+                raise ValueError(
+                    "Unstructured fallback planning timed out after "
+                    f"{ctx.deps.router_timeout}s"
+                ) from None
 
             raw_text = str(
                 getattr(fallback_res, "data", getattr(fallback_res, "output", ""))
@@ -876,18 +894,44 @@ async def router_step(
                 ctx.state.step_cursor = 0
                 return "dispatcher"
             else:
+                # D-RTR-4: make the no-match case actionable instead of a silent
+                # fall-through — name what the model proposed and what the
+                # registry actually has, so the eventual failure message tells the
+                # operator why (e.g. the model named a specialist the registry
+                # doesn't know about) rather than just "no answer".
+                fallback_failure_detail = (
+                    f"the model proposed '{raw_text.strip()[:200]}' but no known "
+                    f"specialist matched. Available specialists: {available or 'none registered'}."
+                )
                 logger.warning(
                     f"Router Fallback: No known specialists found in text. Available: {available}. Raw text: {raw_text}"
                 )
         except Exception as fallback_e:
+            fallback_failure_detail = (
+                f"the fallback attempt itself failed: {fallback_e}"
+            )
             logger.error(f"Router fallback also failed: {fallback_e}")
 
         # Detailed logging for debugging
         if "res" in locals():
             logger.debug(f"Router raw response: {res}")
 
-        ctx.state.error = f"Planning failed: {e}"
-        return "__end__"
+        # D-RTR-2: this used to ``return "__end__"``, implying the router could
+        # terminate the graph run here. It cannot: ``graph/builder.py`` gives the
+        # router a SINGLE static outgoing edge to the dispatcher (a second edge to
+        # the end node would broadcast-fork pydantic-graph), so whatever this
+        # function returns, execution always proceeds to ``dispatcher_step`` next.
+        # "__end__" was therefore dead, misleading dead code. The real failure
+        # path is explicit instead: record the concrete reason on ``ctx.state.error``
+        # (the plan stays the default empty ``GraphPlan`` — never reassigned on this
+        # path) so ``dispatcher_step``'s empty-plan branch can surface *why* there is
+        # no answer, and return the node id execution actually reaches.
+        ctx.state.error = f"Planning failed: {e}" + (
+            f" Fallback also failed: {fallback_failure_detail}"
+            if fallback_failure_detail
+            else ""
+        )
+        return "dispatcher"
 
 
 async def dispatcher_step(
@@ -1122,6 +1166,31 @@ async def dispatcher_step(
         logger.warning(
             f"Dispatcher: Plan completed but NO execution results found in registry. State: routed_domain={ctx.state.routed_domain}"
         )
+        # D-RTR-3: this branch used to ``return None`` unconditionally, and
+        # ``dispatcher_route``'s ``type(None)`` branch (graph/builder.py) forwards that
+        # bare ``None`` straight to ``g.end_node`` with no payload — the exact "graph
+        # terminated with no output" case ``orchestration/engine.py`` has to guard
+        # against. Verified empirically (a minimal pydantic-graph reproduction) that
+        # this function CANNOT instead return ``End(...)`` here: ``dispatcher_step``'s
+        # return value is routed through the ``dispatcher_route`` Decision node
+        # (graph/builder.py), whose branches are an exhaustive Literal/type match with
+        # no ``End``-shaped branch — an unmatched value raises ``RuntimeError: No
+        # branch matched inputs End(...) for decision node dispatcher_route`` (a hard
+        # crash), so ``None`` via the ``type(None)`` branch is the only value this
+        # function can return that reaches ``g.end_node`` without a builder.py change
+        # (out of this file's scope — see handoff notes). What stays in scope: make
+        # sure the *reason* is not lost. Stamp a concrete, actionable message on
+        # ``ctx.state.error`` (preserving one already set by the router on a planning
+        # failure) so the failure is diagnosable from graph state, and so that once
+        # ``orchestration/engine.py``'s ``result is None`` guard (~line 925) is updated
+        # to surface ``state.error`` instead of its current hardcoded generic string,
+        # the user sees *why*, not just that the turn produced nothing.
+        if not ctx.state.error:
+            ctx.state.error = (
+                "The orchestration plan completed with no execution results and no "
+                "exploration notes to synthesize a response from "
+                f"(routed_domain={ctx.state.routed_domain or 'none'})."
+            )
         return None
 
     # Sequential execution case (default for first step or non-parallel)

@@ -151,6 +151,50 @@ class _StrictTimeSeriesState:
         return len(points)
 
 
+class _SessionCapturingTimeSeries(_SyncTimeSeries):
+    """Records the ambient ``GraphSession`` seen INSIDE each client call.
+
+    ``register_series``/``append`` run on the executor worker thread
+    ``_run_offloaded`` dispatches into (D-SESSION-2), not on the caller's
+    thread — this is what proves ``contextvars`` actually crossed the
+    thread-pool hop rather than merely being present on the caller.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.seen_sessions: list[object] = []
+
+    def register_series(
+        self,
+        series_id: str,
+        *,
+        entity_id: str,
+        field_names: list[str],
+        metadata: dict[str, str],
+    ) -> None:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        self.seen_sessions.append(current_session())
+        super().register_series(
+            series_id,
+            entity_id=entity_id,
+            field_names=field_names,
+            metadata=metadata,
+        )
+
+    def append(
+        self,
+        series_id: str,
+        points: list[tuple[int, list[float]]],
+        *,
+        field_names: list[str] | None,
+    ) -> int:
+        from agent_utilities.knowledge_graph.core.session import current_session
+
+        self.seen_sessions.append(current_session())
+        return super().append(series_id, points, field_names=field_names)
+
+
 class _StrictSyncTimeSeries(_StrictTimeSeriesState):
     """Engine-shaped client that rejects vectors outside the registered schema."""
 
@@ -401,6 +445,50 @@ async def test_close_cancels_all_queued_async_writes() -> None:
     assert timeseries.calls == ["register-start"]
     assert backend._background_writes == set()
     assert backend._pending_writes == {}
+
+
+@pytest.mark.filterwarnings("error::RuntimeWarning")
+async def test_sync_offload_worker_thread_inherits_ambient_graph_session() -> None:
+    """D-SESSION-2: ``loop.run_in_executor(None, call)`` does not copy the
+    caller's ``contextvars`` context (unlike ``asyncio.to_thread``), so the
+    executor worker thread that ``_run_offloaded`` dispatches a sync-facade
+    durability write onto used to run with an EMPTY context — losing the
+    ambient ``GraphSession`` the caller entered via ``use_session()`` even
+    though the calling coroutine was inside a live session. Every durability
+    write from a synchronous engine client (the default ``GraphComputeEngine``
+    facade) then failed closed with ``SessionRequiredError`` on the very
+    first call. ``_run_offloaded`` now runs ``call`` via a copied
+    ``contextvars.Context`` so the session survives the thread-pool hop.
+    """
+    from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
+    from agent_utilities.models.company_brain import ActorType
+    from agent_utilities.security.brain_context import ActorContext
+
+    actor = ActorContext(
+        actor_id="ts-offload-test",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("system",),
+        tenant_id="test-tenant",
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        scopes=frozenset({"kg:admin"}),
+        policy_version="current",
+        audience="graph-runtime",
+    )
+
+    timeseries = _SessionCapturingTimeSeries()
+    backend = EngineTimeSeriesBackend(client=_client(timeseries))
+
+    with use_session(session):
+        backend.insert([_point()])
+        tail = next(iter(backend._pending_writes.values()))
+        assert await asyncio.wait_for(tail, timeout=1.0) is True
+
+    assert timeseries.calls == ["register", "append"]
+    assert timeseries.seen_sessions == [session, session]
 
 
 @pytest.mark.filterwarnings("error::RuntimeWarning")

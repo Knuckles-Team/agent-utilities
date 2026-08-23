@@ -927,21 +927,47 @@ class AgentOrchestrationEngine:
                 "run_graph: graph terminated with no output — a decision branch routed "
                 "directly to the end node with no End[GraphResponse] payload, so no "
                 "specialist/verifier/synthesizer node (and no model) ever ran. "
-                "Registry keys: %s",
+                "Registry keys: %s state.error=%s",
                 list(state.results_registry.keys()),
+                getattr(state, "error", None),
             )
-            return GraphResponse(
-                status="failed",
-                error=(
+            # D-RTR-3 (engine side): ``dispatcher_step``'s empty-plan branch (and
+            # ``router_step``'s total-planning-failure path) now stamp a concrete,
+            # actionable reason onto ``ctx.state.error`` before this ``None`` termination
+            # — but that state is otherwise discarded here, so the caller always saw the
+            # same hardcoded generic apology no matter *why* the turn produced nothing.
+            # Surface the real reason instead. ``state.error`` is a typed ``str | None``
+            # (``graph/state.py``), but it is free text assembled from an exception's
+            # ``str(e)`` upstream, so it is sanitised — stripped, and length-capped so a
+            # stray raw traceback/repr can never reach the user as a wall of text — before
+            # use. Fail-closed is preserved exactly as before: a missing/blank/non-string
+            # ``state.error`` (the "stringified None" bug this guard exists to prevent)
+            # falls back to the same non-empty generic text that shipped before this
+            # change — never ``None``, never an empty string, never the literal "None".
+            raw_error = getattr(state, "error", None)
+            sanitized_error = raw_error.strip() if isinstance(raw_error, str) else ""
+            if sanitized_error:
+                _MAX_ERROR_LEN = 500
+                if len(sanitized_error) > _MAX_ERROR_LEN:
+                    sanitized_error = sanitized_error[:_MAX_ERROR_LEN].rstrip() + "…"
+                error_text = sanitized_error
+                output_text = (
+                    f"I couldn't produce a response for this turn: {sanitized_error} "
+                    "Please try again."
+                )
+            else:
+                error_text = (
                     "The orchestration graph completed without invoking any specialist "
                     "or model for this turn — no answer was generated."
-                ),
-                results={
-                    "output": (
-                        "I couldn't produce a response for this turn: the orchestration "
-                        "graph ended before any model ran. Please try again."
-                    )
-                },
+                )
+                output_text = (
+                    "I couldn't produce a response for this turn: the orchestration "
+                    "graph ended before any model ran. Please try again."
+                )
+            return GraphResponse(
+                status="failed",
+                error=error_text,
+                results={"output": output_text},
                 mermaid=mermaid_prefix if mermaid_prefix else None,
                 metadata={
                     "run_id": run_id,
