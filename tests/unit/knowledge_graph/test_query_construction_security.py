@@ -17,19 +17,11 @@ def test_timeseries_cypher_literal_cannot_close_string() -> None:
 
 
 def test_mcp_toggle_queries_parameterize_ids_and_values() -> None:
-    from agent_utilities.mcp.kg_server import (
-        get_existing_disabled,
-        get_toggle_state,
-        set_toggle_state,
-    )
+    from agent_utilities.mcp.kg_server import get_toggle_state, set_toggle_state
 
     engine = MagicMock()
     engine.query_cypher.return_value = []
     attack = "x' SET n.admin = true //"
-
-    get_existing_disabled(engine, attack)
-    query, params = engine.query_cypher.call_args.args
-    assert attack not in query and params == {"node_id": attack}
 
     get_toggle_state(engine, "skill", attack)
     query, params = engine.query_cypher.call_args.args
@@ -41,54 +33,9 @@ def test_mcp_toggle_queries_parameterize_ids_and_values() -> None:
     assert params["disabled"] is True
 
 
-_UNLABELED_DISABLED_QUERY = (
-    "MATCH (n) WHERE n.id = $node_id RETURN n.id AS id, n.disabled AS disabled"
-)
 _UNLABELED_DISABLED_QUERY_BY_ID = (
     "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.disabled AS disabled"
 )
-
-
-def test_get_existing_disabled_tries_a_labeled_query_before_any_unlabeled_scan() -> None:
-    """CONCEPT: hot-lookup-labels — an unlabeled `MATCH (n)` clones every node's
-    property blob in the whole graph; the first attempt for a bare node id
-    must be label-scoped (indexed), not the unlabeled full-graph scan."""
-    from agent_utilities.mcp.kg_server import get_existing_disabled
-
-    engine = MagicMock()
-    engine.graph_compute = None
-    engine.query_cypher.return_value = []
-
-    get_existing_disabled(engine, "mcp_server_demo")
-
-    first_query = engine.query_cypher.call_args_list[0].args[0]
-    assert first_query != _UNLABELED_DISABLED_QUERY
-    assert "MATCH (n:MCPServer)" in first_query
-
-
-def test_get_existing_disabled_explicit_label_issues_exactly_one_query() -> None:
-    from agent_utilities.mcp.kg_server import get_existing_disabled
-
-    engine = MagicMock()
-    engine.graph_compute = None
-    engine.query_cypher.return_value = []
-
-    assert get_existing_disabled(engine, "tool_demo_thing", label="Tool") is False
-    assert engine.query_cypher.call_count == 1
-    query = engine.query_cypher.call_args.args[0]
-    assert "MATCH (n:Tool)" in query
-
-
-def test_get_existing_disabled_fails_closed_on_query_error() -> None:
-    """A lookup that could not complete must never read as "not disabled" —
-    this flag feeds an enable/disable decision."""
-    from agent_utilities.mcp.kg_server import get_existing_disabled
-
-    engine = MagicMock()
-    engine.graph_compute = None
-    engine.query_cypher.side_effect = RuntimeError("engine unavailable")
-
-    assert get_existing_disabled(engine, "mcp_server_demo") is True
 
 
 def test_get_existing_disabled_batch_issues_one_labeled_round_trip() -> None:
@@ -108,6 +55,31 @@ def test_get_existing_disabled_batch_issues_one_labeled_round_trip() -> None:
     # Genuinely-new ids (query ran fine, found nothing) are absent, not a
     # failure — the caller's own default (False, "not disabled") applies.
     assert result == {}
+
+
+def test_get_existing_disabled_batch_custom_label_is_validated_and_scoped() -> None:
+    """The ``label`` kwarg (added for the ``_ingest_capabilities`` MCP-config/
+    native-tool loops, which pass ``"MCPServer"``/``"NativeTool"``) must be
+    validated through ``validate_identifier`` like every other interpolated
+    label, and must actually scope the query -- not silently fall back to
+    the ``CallableResource`` default or an unlabeled scan."""
+    from agent_utilities.mcp.kg_server import get_existing_disabled_batch
+    from agent_utilities.security.identifiers import InvalidIdentifierError
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.return_value = []
+
+    get_existing_disabled_batch(engine, ["native_tool_x"], label="NativeTool")
+
+    assert engine.query_cypher.call_count == 1
+    query = engine.query_cypher.call_args.args[0]
+    assert "MATCH (n:NativeTool)" in query
+
+    with pytest.raises(InvalidIdentifierError):
+        get_existing_disabled_batch(
+            engine, ["x"], label='NativeTool"; DROP TABLE kg_edges; --'
+        )
 
 
 def test_get_existing_disabled_batch_fails_closed_on_query_error() -> None:

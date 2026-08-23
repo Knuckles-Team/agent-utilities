@@ -58,6 +58,7 @@ Run::
     agent-dispatch-worker
 """
 
+import contextvars
 import hashlib
 import json
 import logging
@@ -479,8 +480,18 @@ class WorkItemLeaseGuard:
     def start(self) -> WorkItemLeaseGuard:
         """Validate once and start periodic renewal."""
         self.require_current()
+        # threading.Thread does NOT inherit contextvars (unlike asyncio.Task),
+        # so this thread would otherwise run with an EMPTY context -- losing
+        # the ambient GraphSession the caller entered via use_session()
+        # before starting the guard, even though the initial
+        # require_current() above (on the calling thread) worked fine.
+        # copy_context() carries that session into the worker thread so
+        # _work_item_fence_still_valid's engine calls stay authorized instead
+        # of raising SessionRequiredError on the first renewal -- the same
+        # fix already landed for the messaging intake lease renewal thread.
+        heartbeat_ctx = contextvars.copy_context()
         self._thread = threading.Thread(
-            target=self._heartbeat_loop,
+            target=lambda: heartbeat_ctx.run(self._heartbeat_loop),
             name="WorkItemLeaseHeartbeat",
             daemon=True,
         )
