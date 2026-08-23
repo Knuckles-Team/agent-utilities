@@ -164,7 +164,7 @@ def test_run_forever_propagates_actor_and_session_into_the_serve_task(monkeypatc
     seen_actor_id: list[str] = []
     stop_event = threading.Event()
 
-    async def _fake_serve(engine, platforms):
+    async def _fake_serve(engine, platforms, router_box):
         # Proves the actor set by the caller's `with use_actor(...)` block is
         # visible from INSIDE the scheduled asyncio task, then asks
         # ``run_forever`` to stop — deterministic (no reliance on thread
@@ -184,7 +184,7 @@ def test_run_forever_propagates_actor_and_session_into_the_serve_task(monkeypatc
 
     def _run_owned(engine, platforms, owner_session, owner_stop_event, serve):
         assert owner_session is session
-        serve(platforms, owner_stop_event)
+        serve(platforms, owner_stop_event, {p: threading.Event() for p in platforms})
 
     monkeypatch.setattr(intake_lease, "run_owned_intake", _run_owned)
 
