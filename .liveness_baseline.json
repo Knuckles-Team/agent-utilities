@@ -4,10 +4,10 @@
     "dead_definitions": 521,
     "never_executed": 0,
     "untyped_seams": 1763,
-    "orphan_read_keys": 78,
+    "orphan_read_keys": 76,
     "facade_handlers": 98,
-    "placeholder_markers": 495
+    "placeholder_markers": 496
   },
-  "taken_at": "2026-08-21T06:49:19+00:00",
-  "taken_against": "d380ef5f1fd7ace096a6a33bd796f8ddb3132827"
+  "taken_at": "2026-08-23T03:37:59+00:00",
+  "taken_against": "b9517cc96c6f6d5128f217b7a39d2461ca10570c"
 }
