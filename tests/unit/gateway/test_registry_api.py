@@ -19,68 +19,237 @@ from agent_utilities.mcp.remote_oauth_broker import OAuthGrantBinding
 from agent_utilities.models.company_brain import ActorType
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
+# --- A small, faithful SQL WHERE-clause interpreter for the fake engine ---
+#
+# The production code (`registry_api._build_where`/`_keyset_predicate`) now
+# pushes the tenant/authorization/query/keyset predicate into the SQL text
+# itself, so a test double that just string-searches for a few markers (the
+# pre-pushdown approach) would no longer prove anything: it wouldn't catch a
+# predicate that is present in the statement but wrong. This tokenizes and
+# evaluates the WHERE clause for real, against each candidate row, so the
+# pagination/authorization/filter tests below exercise the actual predicate
+# the route builds rather than trusting the route's own bookkeeping.
+
+_TOKEN_RE = re.compile(
+    r"\s+|\(|\)|,|'(?:[^']|'')*'|>=|<=|>|<|=|[A-Za-z_][A-Za-z0-9_]*|[0-9]+"
+)
+
+
+def _tokenize_where(where: str) -> list[tuple[str, str]]:
+    tokens: list[tuple[str, str]] = []
+    for match in _TOKEN_RE.finditer(where):
+        text = match.group(0)
+        if text.isspace():
+            continue
+        if text in ("(", ")", ","):
+            tokens.append((text, text))
+        elif text.startswith("'"):
+            tokens.append(("literal", text[1:-1].replace("''", "'")))
+        elif text in (">", "<", "=", ">=", "<="):
+            tokens.append(("op", text))
+        elif text[0].isdigit():
+            tokens.append(("num", text))
+        else:
+            tokens.append(("word", text))
+    return tokens
+
+
+class _WhereParser:
+    """Recursive-descent parser over the small predicate grammar the route
+    generates: AND/OR of `col = 'lit'`, `col IN ('a','b')`,
+    `strpos(LOWER(col), LOWER('lit')) > 0`, and `LOWER(col) {=,>} LOWER('lit')`,
+    with arbitrary parenthesized nesting."""
+
+    def __init__(self, tokens: list[tuple[str, str]]):
+        self.tokens = tokens
+        self.pos = 0
+
+    def peek(self) -> tuple[str | None, str | None]:
+        return self.tokens[self.pos] if self.pos < len(self.tokens) else (None, None)
+
+    def take(self) -> tuple[str, str]:
+        tok = self.tokens[self.pos]
+        self.pos += 1
+        return tok
+
+    def expect(self, kind: str, value: str | None = None) -> tuple[str, str]:
+        tok = self.take()
+        assert tok[0] == kind and (value is None or tok[1].upper() == value), tok
+        return tok
+
+    def parse_or(self):
+        node = self.parse_and()
+        while self.peek() == ("word", "OR"):
+            self.take()
+            node = ("or", node, self.parse_and())
+        return node
+
+    def parse_and(self):
+        node = self.parse_factor()
+        while self.peek() == ("word", "AND"):
+            self.take()
+            node = ("and", node, self.parse_factor())
+        return node
+
+    def parse_factor(self):
+        if self.peek()[0] == "(":
+            self.take()
+            node = self.parse_or()
+            self.expect(")")
+            return node
+        return self.parse_predicate()
+
+    def parse_predicate(self):
+        kind, value = self.take()
+        assert kind == "word", (kind, value)
+        upper = value.upper()
+        if upper == "STRPOS":
+            self.expect("(")
+            self.expect("word", "LOWER")
+            self.expect("(")
+            _, col = self.expect("word")
+            self.expect(")")
+            self.expect(",")
+            self.expect("word", "LOWER")
+            self.expect("(")
+            _, lit = self.expect("literal")
+            self.expect(")")
+            self.expect(")")
+            self.expect("op", ">")
+            self.expect("num", "0")
+            return ("strpos", col, lit)
+        if upper == "LOWER":
+            self.expect("(")
+            _, col = self.expect("word")
+            self.expect(")")
+            _, op = self.expect("op")
+            self.expect("word", "LOWER")
+            self.expect("(")
+            _, lit = self.expect("literal")
+            self.expect(")")
+            return ("lower_cmp", op, col, lit)
+        if upper == "FALSE":
+            return ("false",)
+        col = value
+        peek_kind, peek_val = self.peek()
+        if peek_kind == "op":
+            self.take()
+            op = peek_val
+        elif peek_kind == "word" and (peek_val or "").upper() == "IN":
+            self.take()
+            op = "IN"
+        else:  # pragma: no cover - defensive; every generated predicate matches
+            raise AssertionError((peek_kind, peek_val))
+        if op == "IN":
+            self.expect("(")
+            _, lit = self.expect("literal")
+            lits = [lit]
+            while self.peek() == (",", ","):
+                self.take()
+                _, lit = self.expect("literal")
+                lits.append(lit)
+            self.expect(")")
+            return ("in", col, lits)
+        _, lit = self.expect("literal")
+        return ("cmp", op, col, lit)
+
+
+def _eval_where_node(node: tuple, row: dict[str, Any]) -> bool:
+    kind = node[0]
+    if kind == "and":
+        return _eval_where_node(node[1], row) and _eval_where_node(node[2], row)
+    if kind == "or":
+        return _eval_where_node(node[1], row) or _eval_where_node(node[2], row)
+    if kind == "false":
+        return False
+    if kind == "cmp":
+        _, op, col, lit = node
+        val = str(row.get(col) if row.get(col) is not None else "")
+        return val == lit if op == "=" else val > lit
+    if kind == "in":
+        _, col, lits = node
+        val = str(row.get(col) if row.get(col) is not None else "")
+        return val in lits
+    if kind == "strpos":
+        _, col, lit = node
+        val = str(row.get(col) if row.get(col) is not None else "")
+        return lit.lower() in val.lower()
+    if kind == "lower_cmp":
+        _, op, col, lit = node
+        val = str(row.get(col) if row.get(col) is not None else "").lower()
+        target = lit.lower()
+        return val == target if op == "=" else val > target
+    raise AssertionError(node)  # pragma: no cover - defensive
+
+
+def _eval_where(where: str, row: dict[str, Any]) -> bool:
+    parser = _WhereParser(_tokenize_where(where))
+    node = parser.parse_or()
+    return _eval_where_node(node, row)
+
+
+_STATEMENT_RE = re.compile(
+    r"^SELECT (?P<cols>.+?) FROM (?P<table>[A-Za-z_][A-Za-z0-9_]*)"
+    r"(?: WHERE (?P<where>.+?))?"
+    r"(?: ORDER BY (?P<order>.+?))?"
+    r"(?: LIMIT (?P<limit>\d+))?$"
+)
+
 
 class _FakeGraphCompute:
+    """A real (if minimal) SQL engine for `mcp_*`-shaped tables: it actually
+    evaluates WHERE, ORDER BY, and LIMIT rather than trusting the caller —
+    so a test asserting on its output is exercising the production SQL text,
+    not restating the route's own logic."""
+
     def __init__(self, rows: dict[str, list[dict[str, Any]]] | None = None):
         self.rows = rows or {}
         self.statements: list[str] = []
         self.fail = False
         self.return_raw = False
+        # Simulates a broken engine that ignores the requested LIMIT — used
+        # to prove the route's own bound-exceeded guard fires.
+        self.ignore_limit = False
 
     def sql_exec(self, statement: str):
         self.statements.append(statement)
         if self.fail:
             raise OSError("catalog backend unavailable")
-        table = statement.split(" FROM ", 1)[1].split(" WHERE ", 1)[0]
-        rows = self.rows.get(table, [])
+        match = _STATEMENT_RE.match(statement)
+        assert match, statement
+        table = match.group("table")
+        cols = match.group("cols")
+        where = match.group("where")
+        order = match.group("order")
+        limit = match.group("limit")
+        rows_all = self.rows.get(table, [])
+        is_count = cols.strip().upper().startswith("COUNT(")
         if self.return_raw:
-            return rows
-        tenant_marker = "tenant_id = '"
-        requested_tenant = statement.split(tenant_marker, 1)[1].split("'", 1)[0]
-        principal = None
-        principal_marker = "discovery_principal = '"
-        if principal_marker in statement:
-            principals = [
-                value
-                for value in re.findall(r"discovery_principal = '([^']*)'", statement)
-                if value
-            ]
-            principal = principals[-1] if principals else ""
-        grants: tuple[str, ...] = ()
-        marker = "discovery_grant_digest IN ("
-        if marker in statement:
-            raw_grants = statement.split(marker, 1)[1].split(")", 1)[0]
-            grants = tuple(
-                part.strip().strip("'").replace("''", "'")
-                for part in raw_grants.split(",")
-                if part.strip()
+            # `return_raw` models a misbehaving/degraded engine projection
+            # that ignores the WHERE predicate entirely. A COUNT(*) query
+            # still returns a validly-shaped (if unfiltered) aggregate row,
+            # so the per-row scope-validation path (not the count-shape
+            # check) is what a malformed *page* actually exercises.
+            if is_count:
+                return [{"row_count": len(rows_all)}]
+            return list(rows_all)
+        matched = [row for row in rows_all if where is None or _eval_where(where, row)]
+        if is_count:
+            return [{"row_count": len(matched)}]
+        if order:
+            order_col = order.split(",")[0].strip()
+            if order_col.upper().startswith("LOWER("):
+                order_col = order_col[len("LOWER(") : -1]
+            matched = sorted(
+                matched,
+                key=lambda row: (
+                    str(row.get(order_col) or "").lower(),
+                    str(row.get("id") or ""),
+                ),
             )
-        local_scope = "discovery_authority_kind = 'tenant_local'" in statement
-        oauth_scope = "discovery_authority_kind = 'oauth_grant'" in statement
-        # The fake models the engine's row-level tenant/principal predicate so
-        # tests exercise the same boundary the real SQL authority enforces.
-        scoped = []
-        for row in rows:
-            if row.get("tenant_id") != requested_tenant:
-                continue
-            if principal is None:
-                scoped.append(row)
-                continue
-            if local_scope and row.get("discovery_authority_kind") == "tenant_local":
-                if (
-                    row.get("discovery_principal") == ""
-                    and row.get("discovery_grant_digest") == ""
-                ):
-                    scoped.append(row)
-                continue
-            if (
-                oauth_scope
-                and row.get("discovery_authority_kind") == "oauth_grant"
-                and row.get("discovery_principal") == principal
-                and row.get("discovery_grant_digest") in grants
-            ):
-                scoped.append(row)
-        return scoped
+        if limit is not None and not self.ignore_limit:
+            matched = matched[: int(limit)]
+        return matched
 
 
 class _FakeEngine:
@@ -301,9 +470,14 @@ def test_registry_reads_native_catalog_with_tenant_and_principal_predicate(monke
     assert (
         body["items"][0]["url"] == ""
     )  # userinfo/query credentials are never returned
-    statement = engine.graph_compute.statements[-1]
-    assert "tenant_id = 'tenant-a'" in statement
-    assert "alpha" not in statement  # caller filter is applied after ACL read
+    # Both the count and the page read push the tenant/authorization AND the
+    # `q` filter into the SQL text itself (filter pushdown) — the last two
+    # statements are the count then the page.
+    statements = engine.graph_compute.statements[-2:]
+    for statement in statements:
+        assert "tenant_id = 'tenant-a'" in statement
+        assert "strpos(LOWER(name), LOWER('alpha')) > 0" in statement
+    assert "LIMIT" in statements[-1]  # page read carries a LIMIT
     assert "tenant-b" not in response.text
 
 
@@ -485,6 +659,89 @@ def test_expired_cursor_is_rejected(monkeypatch):
     assert response.json()["detail"] == "invalid registry cursor"
 
 
+def test_cursor_round_trip_covers_every_row_exactly_once(monkeypatch):
+    source = _rows()["mcp_servers"][0]
+    rows = [
+        {**source, "id": f"mcp_server_{index:03d}", "name": f"server-{index:03d}"}
+        for index in range(37)
+    ]
+    engine = _FakeEngine({"mcp_servers": rows})
+    client = _authority_app(monkeypatch, engine=engine)
+
+    seen_ids: list[str] = []
+    cursor = None
+    for _ in range(100):
+        params: dict[str, Any] = {"limit": 5}
+        if cursor:
+            params["cursor"] = cursor
+        response = client.get("/api/registry/servers", params=params)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        seen_ids.extend(item["id"] for item in body["items"])
+        cursor = body["next_cursor"]
+        if not cursor:
+            break
+    else:  # pragma: no cover - failure path only
+        raise AssertionError("pagination did not terminate")
+
+    assert len(seen_ids) == len(set(seen_ids)) == 37  # no duplicates, no gaps
+
+
+def test_authorization_holds_across_paginated_boundaries(monkeypatch):
+    """Interleave actor-a's and actor-b's rows in sort order and paginate one
+    row at a time (forcing a page boundary between every pair) — actor-a's
+    reader must see exactly its own rows, never a neighbor's, at any boundary."""
+    rows = _rows()
+    grant_a = _grant_digest("actor-a")
+    grant_b = _grant_digest("actor-b")
+    rows["mcp_tools"] = [
+        {
+            **rows["mcp_tools"][0],
+            "id": "tool_aa",
+            "name": "aa-tool",
+            "discovery_grant_digest": grant_a,
+        },
+        {
+            **rows["mcp_tools"][1],
+            "id": "tool_ab",
+            "name": "ab-tool",
+            "discovery_grant_digest": grant_b,
+        },
+        {
+            **rows["mcp_tools"][0],
+            "id": "tool_ac",
+            "name": "ac-tool",
+            "discovery_grant_digest": grant_a,
+        },
+        {
+            **rows["mcp_tools"][1],
+            "id": "tool_ad",
+            "name": "ad-tool",
+            "discovery_grant_digest": grant_b,
+        },
+    ]
+    engine = _FakeEngine(rows)
+    client = _authority_app(monkeypatch, engine=engine, actor_id="actor-a")
+
+    seen: list[str] = []
+    cursor = None
+    for _ in range(10):
+        params: dict[str, Any] = {"limit": 1}
+        if cursor:
+            params["cursor"] = cursor
+        response = client.get("/api/registry/tools", params=params)
+        assert response.status_code == 200, response.text
+        body = response.json()
+        seen.extend(item["name"] for item in body["items"])
+        cursor = body["next_cursor"]
+        if not cursor:
+            break
+
+    assert seen == ["aa-tool", "ac-tool"]
+    assert "ab-tool" not in seen
+    assert "ad-tool" not in seen
+
+
 def test_filter_is_literal_and_bounds_are_enforced(monkeypatch):
     engine = _FakeEngine(_rows())
     client = _authority_app(monkeypatch, engine=engine)
@@ -608,13 +865,39 @@ def test_invalid_catalog_model_field_is_explicitly_unavailable(monkeypatch):
     }
 
 
-def test_catalog_row_bound_is_explicitly_unavailable(monkeypatch):
+def test_a_huge_table_is_paged_not_materialized(monkeypatch):
+    """The defect this branch fixes: a table far past `_MAX_CATALOG_ROWS`
+    (10_000) used to force-fetch `_MAX_CATALOG_ROWS + 1` rows on every
+    request and fail closed. With LIMIT/COUNT pushdown, the same table is
+    served as an ordinary small page — the row count no longer determines
+    whether the read is safe."""
     source = _rows()["mcp_servers"][0]
-    rows = [{**source, "id": f"mcp_server_{index}"} for index in range(10_001)]
+    rows = [{**source, "id": f"mcp_server_{index:05d}"} for index in range(10_001)]
     engine = _FakeEngine({"mcp_servers": rows})
     client = _authority_app(monkeypatch, engine=engine)
 
-    response = client.get("/api/registry/servers")
+    response = client.get("/api/registry/servers", params={"limit": 5})
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["count"] == 10_001
+    assert len(body["items"]) == 5
+    assert body["next_cursor"]
+    page_statement = engine.graph_compute.statements[-1]
+    assert "LIMIT 6" in page_statement  # limit + 1, never the table size
+
+
+def test_engine_ignoring_limit_is_explicitly_unavailable(monkeypatch):
+    """Equivalent guard for the new design: if the engine ever returns more
+    rows than the LIMIT it was given (a broken/misconfigured projection),
+    the route fails closed instead of silently serving an oversized page."""
+    source = _rows()["mcp_servers"][0]
+    rows = [{**source, "id": f"mcp_server_{index}"} for index in range(5)]
+    engine = _FakeEngine({"mcp_servers": rows})
+    engine.graph_compute.ignore_limit = True
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get("/api/registry/servers", params={"limit": 1})
 
     assert response.status_code == 503
     assert response.json() == {
