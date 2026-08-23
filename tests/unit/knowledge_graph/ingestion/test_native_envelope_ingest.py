@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import json
 import threading
 from types import SimpleNamespace
 
@@ -1923,3 +1924,164 @@ def test_ingest_envelopes_batch_auto_embeds_in_one_call(_fake_embed_fn) -> None:
         stored = compute.client.nodes.properties(f"object-{i}")
         assert len(stored["embedding"]) == TEST_EMBEDDING_DIMENSION
         assert compute.embedding_index[f"object-{i}"] == stored["embedding"]
+
+
+# ---------------------------------------------------------------------------
+# Retryable PARTIAL_MATERIALIZATION resume (production defect: the fleet
+# catalog writer's engine sync rejected 1,372/1,372 attempted rows because
+# this exact retryable signal was being treated as a permanent rejection and
+# the row dropped on the floor). Mirrors pipeline/runner.py's identical
+# resume loop at the single-envelope granularity: bounded attempts, a cursor
+# that must keep advancing, and a source_snapshot_version that must not
+# change mid-resume.
+# ---------------------------------------------------------------------------
+
+
+def _materialization_error(
+    *, node_offset: int, snapshot_version: int = 405825, retryable: bool = True
+) -> RuntimeError:
+    """The engine's exact PARTIAL_MATERIALIZATION wire payload (production shape)."""
+    return RuntimeError(
+        json.dumps(
+            {
+                "code": "PARTIAL_MATERIALIZATION",
+                "completeness_cursor": {"edge_offset": 0, "node_offset": node_offset},
+                "phase": "partial",
+                "retryable": retryable,
+                "source_snapshot_version": snapshot_version,
+            }
+        )
+    )
+
+
+def test_retryable_partial_materialization_retries_and_lands(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A retryable PARTIAL_MATERIALIZATION signal resumes and the row lands —
+    it must NOT be dropped as a permanent rejection."""
+    compute = _Compute("graph-materializing")
+    compute.client.changes.failures.append(_materialization_error(node_offset=53248))
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+
+    result = module.ingest_envelope(compute, _envelope())
+
+    assert result["status"] == "success"
+    assert len(compute.client.changes.applied) == 2  # 1 failed attempt + 1 landed
+    assert sleeps == [module._MATERIALIZATION_RETRY_DELAY_S]
+
+
+def test_non_retryable_materialization_payload_is_never_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``retryable: false`` must fall straight through to ordinary failure
+    handling — this is the test that stops the retry from being broadened to
+    every materialization-shaped error, which would silently paper over a
+    genuine engine rejection."""
+    compute = _Compute("graph-materializing-terminal")
+    compute.client.changes.failures.append(
+        _materialization_error(node_offset=53248, retryable=False)
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+
+    result = module.ingest_envelope(compute, _envelope())
+
+    assert result["status"] == "failed"
+    assert result["error"] == "RuntimeError"
+    assert result.get("retryable") is False
+    assert len(compute.client.changes.applied) == 1  # never retried
+    assert sleeps == []
+
+
+def test_malformed_materialization_lookalike_is_never_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Free text that merely mentions the code is not the wire payload; it
+    must not be parsed as retryable."""
+    compute = _Compute("graph-materializing-malformed")
+    compute.client.changes.failures.append(
+        RuntimeError("engine error: PARTIAL_MATERIALIZATION in progress")
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+
+    result = module.ingest_envelope(compute, _envelope())
+
+    assert result["status"] == "failed"
+    assert len(compute.client.changes.applied) == 1
+    assert sleeps == []
+
+
+def test_non_advancing_materialization_cursor_terminates_instead_of_looping(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The SAME completeness_cursor reported twice means the engine made no
+    progress; retrying forever would hang the sync indefinitely."""
+    compute = _Compute("graph-materializing-stuck")
+    compute.client.changes.failures.extend(
+        [
+            _materialization_error(node_offset=53248),
+            _materialization_error(node_offset=53248),
+        ]
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+
+    result = module.ingest_envelope(compute, _envelope())
+
+    assert result["status"] == "failed"
+    assert result["error"] == "_PartialMaterializationRetriesExhausted"
+    assert result["retryable"] is True
+    assert "stopped advancing" in result["reason"]
+    assert module.PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED_MARKER in result["reason"]
+    assert len(compute.client.changes.applied) == 2  # bounded, not spun forever
+    assert sleeps == [module._MATERIALIZATION_RETRY_DELAY_S]
+
+
+def test_changed_materialization_snapshot_terminates_instead_of_resuming(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A completeness_cursor is only a valid resume point against the
+    snapshot it was issued for; a changed source_snapshot_version mid-resume
+    must abort rather than resume against a now-meaningless cursor."""
+    compute = _Compute("graph-materializing-stale-snapshot")
+    compute.client.changes.failures.extend(
+        [
+            _materialization_error(node_offset=53248, snapshot_version=405825),
+            _materialization_error(node_offset=60000, snapshot_version=405826),
+        ]
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+
+    result = module.ingest_envelope(compute, _envelope())
+
+    assert result["status"] == "failed"
+    assert result["error"] == "_PartialMaterializationRetriesExhausted"
+    assert "source_snapshot_version changed" in result["reason"]
+    assert len(compute.client.changes.applied) == 2
+
+
+def test_materialization_retries_are_bounded_by_the_shared_max_attempts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cursor that keeps genuinely advancing but never finishes still gives
+    up after ``_MATERIALIZATION_MAX_ATTEMPTS`` — bounded, mirroring
+    ``pipeline/runner.py``'s identical resume loop and its identical
+    constant/value."""
+    compute = _Compute("graph-materializing-never-finishes")
+    compute.client.changes.failures.extend(
+        _materialization_error(node_offset=1000 * n)
+        for n in range(1, module._MATERIALIZATION_MAX_ATTEMPTS + 1)
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+
+    result = module.ingest_envelope(compute, _envelope())
+
+    assert result["status"] == "failed"
+    assert result["error"] == "_PartialMaterializationRetriesExhausted"
+    assert "did not finish materializing" in result["reason"]
+    assert len(compute.client.changes.applied) == module._MATERIALIZATION_MAX_ATTEMPTS
+    assert len(sleeps) == module._MATERIALIZATION_MAX_ATTEMPTS - 1

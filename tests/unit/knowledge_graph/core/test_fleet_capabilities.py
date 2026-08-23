@@ -439,16 +439,18 @@ def test_write_fleet_slice_caches_a_rejected_row_and_skips_bisection_next_time(
         counting_maybe_fail,
     )
     engine = FakeEngine()
-    rejected = _write_fleet_slice(engine, entities, [])
+    rejected, pending = _write_fleet_slice(engine, entities, [])
     assert rejected == ["row-bad"]
+    assert pending == []
     assert len(calls) >= 2  # the full slice failed, then bisection ran
 
     # --- Second sync, SAME content: row-bad is pre-excluded entirely -- the
     # remaining (clean) rows commit in ONE shot, no bisection re-discovery.
     calls.clear()
     engine2 = FakeEngine()
-    rejected2 = _write_fleet_slice(engine2, entities, [])
+    rejected2, pending2 = _write_fleet_slice(engine2, entities, [])
     assert rejected2 == ["row-bad"]
+    assert pending2 == []
     assert calls == [1]  # exactly one attempt: the single clean remaining row
     assert "row-good" in engine2.nodes  # the clean row still landed
 
@@ -459,7 +461,7 @@ def test_write_fleet_slice_re_attempts_a_known_bad_row_once_its_content_changes(
     entities = [{"id": "row-bad", "type": "Tool", "name": "bad", "v": 1}]
     _patch_ingest_graph_slice(monkeypatch, {"row-bad"})
     engine = FakeEngine()
-    assert _write_fleet_slice(engine, entities, []) == ["row-bad"]
+    assert _write_fleet_slice(engine, entities, []) == (["row-bad"], [])
 
     # Content changed (e.g. the offending description was edited) -- and this
     # edit happens to have fixed it. Re-attempted rather than blindly reusing
@@ -475,5 +477,131 @@ def test_write_fleet_slice_re_attempts_a_known_bad_row_once_its_content_changes(
         always_succeeds,
     )
     engine2 = FakeEngine()
-    assert _write_fleet_slice(engine2, fixed_entities, []) == []
+    assert _write_fleet_slice(engine2, fixed_entities, []) == ([], [])
     assert "row-bad" in engine2.nodes
+
+
+# ---------------------------------------------------------------------------
+# Retryable PARTIAL_MATERIALIZATION at the fleet-catalog-slice level (the
+# production defect this closes: the engine's own bounded resume in
+# ``ingest_envelope`` can still exhaust its budget on a slow rebuild — when it
+# does, ``_write_fleet_slice`` must NOT bisect further, since every half would
+# just hit the same shared, transient, still-materializing engine state again;
+# it must treat the whole still-pending batch as "gave up this sync only",
+# never cache it as a permanent rejection, and report it separately from a
+# genuine content rejection.
+# ---------------------------------------------------------------------------
+
+
+def _materialization_exhausted_error(row_ids: set[str]) -> RuntimeError:
+    """The RuntimeError ``ingest_graph_slice`` raises once ``ingest_envelope``
+    itself gave up on a retryable PARTIAL_MATERIALIZATION signal — carries the
+    marker ``_write_fleet_slice`` greps for, same as production."""
+    from agent_utilities.knowledge_graph.ingestion.envelope_ingest import (
+        PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED_MARKER,
+    )
+
+    return RuntimeError(
+        "native ChangeEnvelope graph slice failed: "
+        "_PartialMaterializationRetriesExhausted "
+        f"({PARTIAL_MATERIALIZATION_RETRIES_EXHAUSTED_MARKER}: rows "
+        f"{sorted(row_ids)} did not finish materializing within budget)"
+    )
+
+
+def test_write_fleet_slice_does_not_bisect_on_materialization_exhaustion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entities = [
+        {"id": "tool_a", "type": "Tool", "name": "a"},
+        {"id": "tool_b", "type": "Tool", "name": "b"},
+        {"id": "tool_c", "type": "Tool", "name": "c"},
+        {"id": "tool_d", "type": "Tool", "name": "d"},
+    ]
+    calls: list[int] = []
+
+    def always_still_materializing(
+        engine, connector, entities, relationships=None, **kw
+    ):
+        calls.append(len(entities))
+        raise _materialization_exhausted_error({e["id"] for e in entities})
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        always_still_materializing,
+    )
+    engine = FakeEngine()
+
+    rejected, pending = _write_fleet_slice(engine, entities, [])
+
+    assert rejected == []  # never treated as a genuine content rejection
+    assert sorted(pending) == ["tool_a", "tool_b", "tool_c", "tool_d"]
+    # ONE attempt for the whole slice — bisection would have produced
+    # len(entities)*2-1 = 7 calls; paying that here would turn one shared,
+    # transient condition into an O(n log n) hammering of a still-recovering
+    # engine.
+    assert calls == [4]
+
+
+def test_write_fleet_slice_materialization_pending_rows_are_not_cached(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    entities = [{"id": "tool_a", "type": "Tool", "name": "a"}]
+
+    def still_materializing(engine, connector, entities, relationships=None, **kw):
+        raise _materialization_exhausted_error({e["id"] for e in entities})
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        still_materializing,
+    )
+    engine = FakeEngine()
+    rejected, pending = _write_fleet_slice(engine, entities, [])
+    assert rejected == []
+    assert pending == ["tool_a"]
+
+    # Next sync: the engine finished materializing. Because a
+    # materialization-pending row is never written to the known-bad cache,
+    # it is re-attempted with a clean slate (unlike a genuinely rejected row,
+    # which would be pre-excluded — see the sibling cache tests above).
+    def now_succeeds(engine, connector, entities, relationships=None, **kw):
+        engine.ingest_external_batch(connector, entities, relationships)
+        return {"status": "success"}
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        now_succeeds,
+    )
+    engine2 = FakeEngine()
+    rejected2, pending2 = _write_fleet_slice(engine2, entities, [])
+    assert rejected2 == []
+    assert pending2 == []
+    assert "tool_a" in engine2.nodes
+
+
+def test_write_fleet_nodes_reports_materialization_pending_separately_from_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def always_still_materializing(
+        engine, connector, entities, relationships=None, **kw
+    ):
+        raise _materialization_exhausted_error({e["id"] for e in entities})
+
+    monkeypatch.setattr(
+        "agent_utilities.knowledge_graph.ingestion.envelope_ingest.ingest_graph_slice",
+        always_still_materializing,
+    )
+    engine = FakeEngine()
+
+    res = _write_fleet_nodes(engine, CATALOG)
+
+    assert res["catalog_rows_rejected"] == 0
+    assert res["catalog_rejected_ids"] == []
+    assert res["catalog_rows_materialization_pending"] == 5  # 2 servers + 3 tools
+    assert sorted(res["catalog_materialization_pending_ids"]) == [
+        "mcp_server_github-mcp",
+        "mcp_server_portainer-agent",
+        "tool_github-mcp_list_issues",
+        "tool_portainer-agent_deploy_stack",
+        "tool_portainer-agent_list_stacks",
+    ]
