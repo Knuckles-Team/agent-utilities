@@ -17,9 +17,17 @@ from typing import Any
 import pytest
 
 from agent_utilities.core.resource_priority import PriorityClass, current_priority
+from agent_utilities.knowledge_graph.core.session import (
+    GraphSession,
+    SessionRequiredError,
+    current_session,
+    use_session,
+)
+from agent_utilities.models.company_brain import ActorType
 from agent_utilities.orchestration import agent_activation as aa
 from agent_utilities.orchestration import work_item as wi
 from agent_utilities.security import delegation as _delegation
+from agent_utilities.security.brain_context import ActorContext
 
 # Reuse the canonical, faithful WorkItem + statechart doubles (native lease/fencing
 # semantics + a real eg-statechart reference interpreter).
@@ -400,6 +408,70 @@ def test_dead_worker_lease_expiry_requeues_activation(engine: ActivationEngine) 
     out = aa.process_one_activation(engine, live, token="live-worker", now=200.0)
     assert out == "committed"
     assert wi.get_work_item(engine, wid)["status"] == "succeeded"
+
+
+def _verified_session() -> GraphSession:
+    actor = ActorContext(
+        actor_id="activation-heartbeat-test",
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("system",),
+        tenant_id="test-tenant",
+        authenticated=True,
+    )
+    return GraphSession(
+        actor=actor,
+        tenant=actor.tenant_id,
+        scopes=frozenset({"kg:admin"}),
+        policy_version="current",
+        audience="graph-runtime",
+    )
+
+
+def test_start_heartbeat_worker_inherits_ambient_graph_session(monkeypatch) -> None:
+    """``_start_heartbeat`` spawns a bare ``threading.Thread``, which does NOT
+    inherit :mod:`contextvars` the way ``asyncio.Task`` does. The heartbeat
+    thread must see the SAME ambient ``GraphSession`` the caller entered via
+    ``use_session()`` before spawning it -- the same shape (and fix) already
+    landed for the messaging intake lease renewal thread
+    (``tests/unit/messaging/test_intake_lease.py::test_renewal_worker_inherits_ambient_graph_session``).
+    Without ``contextvars.copy_context()``, the first
+    ``_wi.heartbeat`` call from this thread raises ``SessionRequiredError``
+    even though the caller was inside a live session.
+    """
+    session = _verified_session()
+    observed: list[GraphSession] = []
+    heartbeat_called = threading.Event()
+
+    def _heartbeat(engine, work_item_id, claim, *, lease_ttl_s):
+        ambient = current_session()
+        if ambient is None:
+            raise SessionRequiredError(
+                "no ambient GraphSession reached the activation heartbeat thread"
+            )
+        observed.append(ambient)
+        heartbeat_called.set()
+        return True
+
+    monkeypatch.setattr(wi, "heartbeat", _heartbeat)
+
+    stop = threading.Event()
+    with use_session(session):
+        thread = aa._start_heartbeat(
+            object(),
+            "wi-activation-test",
+            {},
+            stop,
+            interval_s=0.01,
+            lease_ttl_s=30.0,
+        )
+    try:
+        assert heartbeat_called.wait(timeout=2.0)
+    finally:
+        stop.set()
+        thread.join(timeout=2.0)
+
+    assert observed
+    assert all(seen is session for seen in observed)
 
 
 def test_concurrent_activation_of_same_instance_defers_the_second(
