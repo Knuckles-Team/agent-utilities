@@ -61,6 +61,7 @@ from typing import Any
 
 from agent_utilities._version import __version__
 from agent_utilities.core.config import setting
+from agent_utilities.security.identifiers import validate_identifier
 
 logger = logging.getLogger(__name__)
 
@@ -384,23 +385,77 @@ def build_native_graphos_toolset(tool_names: list[str], *, toolset_id: str) -> A
     )
 
 
-def get_existing_disabled(engine, node_id: str) -> bool:
+# Verified fleet-ingestion labels for the two ``get_existing_disabled`` call
+# sites that pass a bare node id with no label (``_ingest_capabilities``'s
+# MCP-config loop writes ``MCPServer``, its native-tool loop writes
+# ``NativeTool`` — confirmed by reading their ``engine.add_node(node_id,
+# "MCPServer"/"NativeTool", ...)`` calls, not guessed). An unlabeled
+# ``MATCH (n)`` resolves via ``GraphCore::get_nodes()``, which clones every
+# node's property blob in the ENTIRE graph on every call — the Rust Cypher
+# executor has no id index at all, only a label index
+# (``get_nodes_by_label``). Trying these verified labels first turns the hot
+# path into an indexed O(1)-ish lookup instead of an O(total graph nodes)
+# clone; the final unlabeled query below is kept as a correctness-preserving
+# fallback for any node this helper is ever called with outside that verified
+# set, so no caller's node type silently stops resolving.
+_DISABLED_LOOKUP_LABELS: tuple[str, ...] = ("MCPServer", "NativeTool")
+
+
+def get_existing_disabled(engine, node_id: str, *, label: str | None = None) -> bool:
+    """Best-effort read of a node's prior ``disabled`` flag.
+
+    Fail-closed on infrastructure failure: this flag feeds an enable/disable
+    decision, so a lookup that could not complete (an exception from the
+    in-memory cache or ``query_cypher``) returns ``True`` (treat as disabled)
+    rather than silently defaulting to "not disabled" — the caller must never
+    be unable to distinguish "confirmed not disabled" from "couldn't check".
+    A genuinely absent node (every query executed successfully and found
+    nothing — i.e. a brand-new node with no prior state) still returns
+    ``False``; that is not a failure.
+
+    ``label`` lets a caller that knows the node's type skip the candidate/
+    fallback probing below and issue exactly one indexed query.
+    """
     try:
         # 1. Try in-memory graph cache first
         if hasattr(engine, "graph_compute") and hasattr(engine.graph_compute, "graph"):
             if node_id in engine.graph_compute.graph:
-                return engine.graph_compute.graph.nodes[node_id].get("disabled", False)
-        # 2. Try Cypher match as a fallback
+                return bool(
+                    engine.graph_compute.graph.nodes[node_id].get("disabled", False)
+                )
+        # 2. Try Cypher, label-scoped (indexed) first.
+        candidates = (label,) if label else _DISABLED_LOOKUP_LABELS
+        for candidate_label in candidates:
+            safe_label = validate_identifier(candidate_label, kind="label")
+            res = engine.query_cypher(
+                f"MATCH (n:{safe_label}) WHERE n.id = $node_id "
+                "RETURN n.id AS id, n.disabled AS disabled",
+                {"node_id": node_id},
+            )
+            if res and isinstance(res, list) and len(res) > 0:
+                return bool(res[0].get("disabled", False))
+        if label:
+            # Caller asserted the label; a miss under it is a genuine "not
+            # found", not grounds to fall back to an unlabeled scan.
+            return False
+        # 3. Correctness fallback: a node whose label isn't one of the
+        # verified candidates above (an unbounded scan, same cost this
+        # lookup always had — only reached for a node type outside the
+        # verified fleet set).
         res = engine.query_cypher(
             "MATCH (n) WHERE n.id = $node_id RETURN n.id AS id, n.disabled AS disabled",
             {"node_id": node_id},
         )
         if res and isinstance(res, list) and len(res) > 0:
             return bool(res[0].get("disabled", False))
-    except Exception as exc:  # noqa: BLE001 — disabled-state lookup is best-effort
-        logger.debug(
-            "get_existing_disabled(%s) lookup failed: %s", node_id, type(exc).__name__
+    except Exception as exc:  # noqa: BLE001 — surfaced as a fail-closed True below
+        logger.error(
+            "get_existing_disabled(%s) lookup failed — failing closed "
+            "(treating as disabled): %s",
+            node_id,
+            type(exc).__name__,
         )
+        return True
     return False
 
 
@@ -414,6 +469,26 @@ def get_existing_disabled_batch(engine, node_ids: list[str]) -> dict[str, bool]:
     resolves every id's prior ``disabled`` flag in a single ``query_cypher``
     call (falling back to the in-memory ``graph_compute`` cache per id first,
     exactly like the single-id helper, when that cache is available).
+
+    The query is scoped to ``:CallableResource`` — the verified label of
+    every id this function's sole caller passes (the skill runnable-resource
+    ids built in :func:`_ingest_skill_capabilities`; see
+    ``ingest_runnable_skill``'s ``engine._upsert_node("CallableResource",
+    resource_id, ...)``). An unlabeled ``MATCH (n)`` here would clone every
+    node's property blob in the whole graph on every boot; the label makes it
+    an indexed lookup instead. Kept to exactly one label (no unlabeled
+    fallback) so this stays the single round trip the batching contract above
+    — and ``test_boot_skill_ingest_batches_existing_disabled_lookup`` —
+    require; a future caller needing a different label should extend this
+    function rather than rely on an unlabeled scan.
+
+    Fail-closed: a lookup that could not complete (an exception from the
+    in-memory cache or ``query_cypher``) marks every id still unresolved at
+    that point ``True`` (disabled) in the returned mapping — never omitted,
+    since the caller (``disabled_by_resource.get(resource_id, False)``)
+    treats a missing key as "not disabled". A genuinely absent id (query
+    executed successfully, found nothing) is left absent, exactly as before —
+    that is a brand-new node with no prior state, not a failure.
     """
     result: dict[str, bool] = {}
     remaining = list(dict.fromkeys(node_ids))  # de-dupe, preserve order
@@ -429,21 +504,39 @@ def get_existing_disabled_batch(engine, node_ids: list[str]) -> dict[str, bool]:
                 else:
                     still_remaining.append(node_id)
             remaining = still_remaining
-        if remaining:
-            res = engine.query_cypher(
-                "MATCH (n) WHERE n.id IN $node_ids "
-                "RETURN n.id AS id, n.disabled AS disabled",
-                {"node_ids": remaining},
-            )
-            for row in res or []:
-                if isinstance(row, dict) and row.get("id"):
-                    result[str(row["id"])] = bool(row.get("disabled", False))
-    except Exception as exc:  # noqa: BLE001 — disabled-state lookup is best-effort
-        logger.debug(
-            "get_existing_disabled_batch(%d ids) lookup failed: %s",
+    except Exception as exc:  # noqa: BLE001 — surfaced as fail-closed below
+        logger.error(
+            "get_existing_disabled_batch: in-memory cache lookup failed — "
+            "failing closed for %d id(s): %s",
             len(remaining),
             type(exc).__name__,
         )
+        for node_id in remaining:
+            result[node_id] = True
+        return result
+    if not remaining:
+        return result
+    try:
+        res = engine.query_cypher(
+            "MATCH (n:CallableResource) WHERE n.id IN $node_ids "
+            "RETURN n.id AS id, n.disabled AS disabled",
+            {"node_ids": remaining},
+        )
+        if not isinstance(res, list):
+            raise TypeError(f"expected a list of rows, got {type(res).__name__}")
+    except Exception as exc:  # noqa: BLE001 — surfaced as fail-closed below
+        logger.error(
+            "get_existing_disabled_batch(%d ids) lookup failed — failing "
+            "closed (treating every unresolved id as disabled): %s",
+            len(remaining),
+            type(exc).__name__,
+        )
+        for node_id in remaining:
+            result[node_id] = True
+        return result
+    for row in res:
+        if isinstance(row, dict) and row.get("id"):
+            result[str(row["id"])] = bool(row.get("disabled", False))
     return result
 
 

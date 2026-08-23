@@ -41,6 +41,118 @@ def test_mcp_toggle_queries_parameterize_ids_and_values() -> None:
     assert params["disabled"] is True
 
 
+_UNLABELED_DISABLED_QUERY = (
+    "MATCH (n) WHERE n.id = $node_id RETURN n.id AS id, n.disabled AS disabled"
+)
+_UNLABELED_DISABLED_QUERY_BY_ID = (
+    "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.disabled AS disabled"
+)
+
+
+def test_get_existing_disabled_tries_a_labeled_query_before_any_unlabeled_scan() -> None:
+    """CONCEPT: hot-lookup-labels — an unlabeled `MATCH (n)` clones every node's
+    property blob in the whole graph; the first attempt for a bare node id
+    must be label-scoped (indexed), not the unlabeled full-graph scan."""
+    from agent_utilities.mcp.kg_server import get_existing_disabled
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.return_value = []
+
+    get_existing_disabled(engine, "mcp_server_demo")
+
+    first_query = engine.query_cypher.call_args_list[0].args[0]
+    assert first_query != _UNLABELED_DISABLED_QUERY
+    assert "MATCH (n:MCPServer)" in first_query
+
+
+def test_get_existing_disabled_explicit_label_issues_exactly_one_query() -> None:
+    from agent_utilities.mcp.kg_server import get_existing_disabled
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.return_value = []
+
+    assert get_existing_disabled(engine, "tool_demo_thing", label="Tool") is False
+    assert engine.query_cypher.call_count == 1
+    query = engine.query_cypher.call_args.args[0]
+    assert "MATCH (n:Tool)" in query
+
+
+def test_get_existing_disabled_fails_closed_on_query_error() -> None:
+    """A lookup that could not complete must never read as "not disabled" —
+    this flag feeds an enable/disable decision."""
+    from agent_utilities.mcp.kg_server import get_existing_disabled
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.side_effect = RuntimeError("engine unavailable")
+
+    assert get_existing_disabled(engine, "mcp_server_demo") is True
+
+
+def test_get_existing_disabled_batch_issues_one_labeled_round_trip() -> None:
+    from agent_utilities.mcp.kg_server import get_existing_disabled_batch
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.return_value = []
+    ids = ["resource:skill:a", "resource:skill:b"]
+
+    result = get_existing_disabled_batch(engine, ids)
+
+    assert engine.query_cypher.call_count == 1
+    query, params = engine.query_cypher.call_args.args
+    assert "MATCH (n:CallableResource)" in query
+    assert params == {"node_ids": ids}
+    # Genuinely-new ids (query ran fine, found nothing) are absent, not a
+    # failure — the caller's own default (False, "not disabled") applies.
+    assert result == {}
+
+
+def test_get_existing_disabled_batch_fails_closed_on_query_error() -> None:
+    """Every unresolved id must be marked disabled=True in the returned
+    mapping on failure — never merely omitted, since the caller
+    (``disabled_by_resource.get(resource_id, False)``) reads a missing key as
+    "not disabled"."""
+    from agent_utilities.mcp.kg_server import get_existing_disabled_batch
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.side_effect = RuntimeError("engine unavailable")
+    ids = ["resource:skill:a", "resource:skill:b"]
+
+    result = get_existing_disabled_batch(engine, ids)
+
+    assert result == {"resource:skill:a": True, "resource:skill:b": True}
+
+
+def test_source_sync_existing_disabled_tries_labeled_queries_before_unlabeled_scan() -> (
+    None
+):
+    from agent_utilities.knowledge_graph.core.source_sync import _existing_disabled
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.return_value = []
+
+    _existing_disabled(engine, "tool_demo_thing")
+
+    first_query = engine.query_cypher.call_args_list[0].args[0]
+    assert first_query != _UNLABELED_DISABLED_QUERY_BY_ID
+    assert "MATCH (n:MCPServer)" in first_query
+
+
+def test_source_sync_existing_disabled_fails_closed_on_query_error() -> None:
+    from agent_utilities.knowledge_graph.core.source_sync import _existing_disabled
+
+    engine = MagicMock()
+    engine.graph_compute = None
+    engine.query_cypher.side_effect = RuntimeError("engine unavailable")
+
+    assert _existing_disabled(engine, "tool_demo_thing") is True
+
+
 def test_sparql_iri_and_source_partition_reject_query_breakout() -> None:
     from agent_utilities.knowledge_graph.backends.sparql.source_partition import (
         graph_uri_for_source,
