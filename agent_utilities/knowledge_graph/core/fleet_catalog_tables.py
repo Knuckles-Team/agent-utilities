@@ -156,6 +156,21 @@ Schema (6 tables):
   lookup that falls back to "Unclassified" whenever a read fails or ingestion
   hasn't run yet (:func:`classify_skill_type` never leaves ``skill_type``
   blank).
+* ``skill_classification_overrides`` (not one of the 6 migrated tables --
+  see its own constant comment) — id (the skill's UNBOUND base id),
+  tenant_id, skill_type, set_by, revision, idempotency_key, updated_at.
+  CONCEPT:AU-KG.ingest.skill-classification-writeback: an operator's
+  classification choice, made durable through
+  :func:`write_skill_classification_override` and consulted by
+  :func:`write_skill_row` on every write so it survives the next
+  ``fleet-tool-schema-sync`` re-derive from the source SKILL.md's frontmatter.
+  It exists because every deployed profile mounts the ``universal-skills``
+  source tree **read-only** (NFS export, empirically confirmed unwritable
+  even where the k8s manifest's mount flag does not say so) -- an operator
+  classification therefore cannot always be written back to the SKILL.md
+  itself, but MUST still survive a re-sync. See
+  :func:`~..ingestion.skill_classification.reclassify_skill` for the
+  capability that writes both this table and, best-effort, the source file.
 
 Desired server rows reuse the exact KG node-id convention
 (``mcp_server_<name>``). Discovery-derived rows retain that logical prefix but
@@ -239,6 +254,16 @@ TABLE_MCP_TOOLS = "mcp_tools"
 TABLE_MCP_PROMPTS = "mcp_prompts"
 TABLE_MCP_RESOURCES = "mcp_resources"
 TABLE_SKILLS = "skills"
+# Operator-set classification override (CONCEPT:AU-KG.ingest.skill-classification-writeback).
+# Deliberately NOT one of the 6 NE-007/NE-052-migrated tables above -- it is a
+# brand-new table with no legacy shape to migrate FROM, so it is created via
+# its own trivial ``CREATE TABLE IF NOT EXISTS`` (see
+# ``_ensure_skill_classification_overrides_table``) rather than being folded
+# into ``_claim_and_migrate``'s ledger-tracked, column-diff-checked set --
+# adding it there would require extending ``_CURRENT_SCHEMA_COLUMNS``/
+# ``_detect_diverged_schema`` for a table that was never at risk of the
+# pre-NE-007 legacy shape those exist to detect.
+TABLE_SKILL_CLASSIFICATION_OVERRIDES = "skill_classification_overrides"
 
 DISCOVERY_AUTHORITY_OAUTH_GRANT: Literal["oauth_grant"] = "oauth_grant"
 DISCOVERY_AUTHORITY_TENANT_LOCAL: Literal["tenant_local"] = "tenant_local"
@@ -1232,6 +1257,124 @@ def _cas_batch_upsert(
     }
 
 
+_SKILL_CLASSIFICATION_OVERRIDES_DDL = """CREATE TABLE IF NOT EXISTS skill_classification_overrides (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    skill_type TEXT NOT NULL,
+    set_by TEXT NOT NULL,
+    revision BIGINT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)"""
+
+# One-time-per-store DDL cache, mirroring ``_ensured_stores`` but kept
+# separate: this table's readiness is independent of the 6-table NE-052
+# migration ledger (see the ``TABLE_SKILL_CLASSIFICATION_OVERRIDES`` comment).
+_ensured_override_stores: set[int] = set()
+
+
+def _ensure_skill_classification_overrides_table(engine: Any) -> bool:
+    """Idempotently create the override table. Best-effort, never raises.
+
+    No migration ledger, no legacy shape -- this table did not exist before
+    this feature, so there is nothing to migrate FROM. A fresh
+    ``CREATE TABLE IF NOT EXISTS`` is the whole contract.
+    """
+    gc = _graph_compute(engine)
+    if gc is None or not hasattr(gc, "sql_exec"):
+        return False
+    key = id(gc)
+    if key in _ensured_override_stores:
+        return True
+    try:
+        gc.sql_exec(_SKILL_CLASSIFICATION_OVERRIDES_DDL)
+    except Exception as exc:  # noqa: BLE001 -- best-effort, mirrors sibling ensure fns
+        logger.warning(
+            "skill_classification_overrides table creation failed (%s)",
+            type(exc).__name__,
+        )
+        return False
+    _ensured_override_stores.add(key)
+    return True
+
+
+def read_skill_classification_override(
+    engine: Any, *, skill_id: str, tenant_id: str
+) -> str | None:
+    """Return the operator-assigned ``skill_type`` override for ``skill_id``, if any.
+
+    ``skill_id`` is the UNBOUND base id (e.g. ``"skill:<slug>"``, never the
+    ``__<grant-digest>``-suffixed catalog row id) -- the same stable key
+    :func:`write_skill_classification_override` stores under, so an override
+    survives every re-ingest of that skill regardless of which discovery
+    binding wrote the surrounding row. Returns ``None`` (never raises) when
+    the table is unavailable, unreadable, or genuinely has no override --
+    callers treat "no override" the same as "read failed": fall back to the
+    ingester's own declared value.
+    """
+    if not _ensure_skill_classification_overrides_table(engine):
+        return None
+    existing = _select_existing(
+        engine, TABLE_SKILL_CLASSIFICATION_OVERRIDES, tenant_id, [skill_id]
+    )
+    row = existing.get(skill_id)
+    if row is None:
+        return None
+    value = str(row.get("skill_type") or "").strip().lower()
+    return value or None
+
+
+def write_skill_classification_override(
+    engine: Any,
+    *,
+    skill_id: str,
+    skill_type: str,
+    principal: str,
+    revision: int | None = None,
+) -> bool:
+    """Durably record an operator's classification choice for ``skill_id``.
+
+    This is the mechanism that lets a classification survive the next
+    ``fleet-tool-schema-sync`` re-derive: :func:`write_skill_row` consults
+    this override (via :func:`read_skill_classification_override`) BEFORE
+    calling :func:`classify_skill_type` on whatever the corpus/caller
+    declared, so every future re-ingest of this skill resolves to the
+    override until it is changed again here. Stored in the engine's own SQL
+    catalog store (always writable by this process, unlike the NFS-mounted,
+    read-only ``universal-skills`` source tree in every deployed profile) --
+    never the filesystem.
+
+    Returns ``True`` only when the write is provably durable: a fresh row
+    written, an existing row updated, or an identical replay of the same
+    value already on record (idempotent no-op). Returns ``False`` on any
+    failure or a stale-revision rejection -- callers MUST NOT report success
+    on ``False`` (fail-closed).
+    """
+    if not _ensure_skill_classification_overrides_table(engine):
+        return False
+    tenant_id = _resolve_tenant_id(engine)
+    if not tenant_id:
+        return False
+    content = {"skill_type": skill_type, "set_by": principal}
+    row = {
+        "id": skill_id,
+        "tenant_id": tenant_id,
+        "skill_type": skill_type,
+        "set_by": principal,
+        "revision": _default_revision() if revision is None else int(revision),
+        "idempotency_key": _content_signature(content),
+        "updated_at": _now_iso(),
+    }
+    try:
+        stats = _cas_batch_upsert(engine, TABLE_SKILL_CLASSIFICATION_OVERRIDES, [row])
+    except Exception as exc:  # noqa: BLE001 -- fail closed, never raise into the caller
+        logger.warning(
+            "skill classification override write failed (%s)", type(exc).__name__
+        )
+        return False
+    return stats["written"] > 0 or stats["noop_replay"] > 0
+
+
 def classify_skill_type(skill_type: str | None) -> tuple[str, str]:
     """Normalize a raw ``skill_type`` and derive its stored display label.
 
@@ -1310,15 +1453,28 @@ def write_skill_row(
     """Upsert one row of the ``skills`` relational table.
 
     Best-effort: returns ``False`` (never raises) when the engine has no SQL
-    surface, or when the write was CAS-rejected (stale) or was a no-op
-    (idempotent replay of an already-stored row) — the caller
-    (:func:`~..ingestion.skill_workflow_ingest.ingest_runnable_skill`) never
-    inspects this return value, so this is purely observational.
+    surface, when the write was CAS-rejected (stale), or when it was a no-op
+    (idempotent replay of an already-stored row, identical content) — the
+    caller (:func:`~..ingestion.skill_workflow_ingest.ingest_runnable_skill`)
+    never inspects this return value in the routine ingest path, so this is
+    purely observational there. :func:`~..ingestion.skill_classification.reclassify_skill`
+    DOES need to tell "genuinely refreshed" apart from "already correct" vs.
+    "failed" — it re-reads the row afterward rather than trusting this
+    boolean alone, since a no-op replay (content already matches) and a
+    failure both return ``False`` here.
     ``revision``/``idempotency_key`` are optional — omitted, they default to
     a wall-clock revision and a content digest of the row respectively (see
     :func:`_default_revision`/:func:`_content_signature`), so an unchanged
     re-ingest of the same skill (routine at every GraphOS boot) is a no-op
     rather than a redundant write.
+
+    **Override precedence** (CONCEPT:AU-KG.ingest.skill-classification-writeback):
+    before ``skill_type`` is normalized, :func:`read_skill_classification_override`
+    is consulted for this ``skill_id``. When an operator has classified this
+    skill through the write-back capability, that choice wins over whatever
+    the caller (frontmatter parse, MCP harvest, etc.) declared -- this is
+    what makes an operator classification survive the next
+    ``fleet-tool-schema-sync`` re-derive instead of being silently reverted.
     """
     if not ensure_fleet_catalog_tables(engine):
         return False
@@ -1334,6 +1490,9 @@ def write_skill_row(
         or discovery_authority_kind not in _DISCOVERY_AUTHORITY_KINDS
     ):
         return False
+    override = read_skill_classification_override(
+        engine, skill_id=skill_id, tenant_id=tenant_id
+    )
     row = _build_skill_row(
         skill_id=skill_id,
         name=name,
@@ -1341,7 +1500,7 @@ def write_skill_row(
         uri=uri,
         provider=provider,
         mcp_server=mcp_server,
-        skill_type=skill_type,
+        skill_type=override or skill_type,
         disabled=disabled,
         tenant_id=tenant_id,
         discovery_authority_kind=discovery_authority_kind,
@@ -1353,6 +1512,33 @@ def write_skill_row(
     )
     stats = _cas_batch_upsert(engine, TABLE_SKILLS, [row])
     return stats["written"] > 0
+
+
+def get_skill_row(engine: Any, *, skill_id: str) -> dict[str, Any] | None:
+    """Read one CURRENT ``skills`` row by its catalog (bound) id.
+
+    Tenant-scoped to this process's own verified authority, matching every
+    other read in this module. Returns ``None`` (never raises) when the
+    catalog is unavailable or the id does not exist for this tenant --
+    callers must treat that as "cannot reclassify, unknown skill", never as
+    an empty-but-valid row.
+
+    Public (unlike ``_select_existing``) because
+    :mod:`~..ingestion.skill_classification` needs to preserve a row's
+    existing description/uri/provider/mcp_server/enabled when only its
+    classification is changing, and reaching into this module's private CAS
+    internals from another module would break the module-boundary
+    convention every other cross-module caller here already follows (see
+    this module's own docstring on ``write_fleet_catalog`` being the
+    catalog's one writer).
+    """
+    if not ensure_fleet_catalog_tables(engine):
+        return None
+    tenant_id = _resolve_tenant_id(engine)
+    if not tenant_id:
+        return None
+    existing = _select_existing(engine, TABLE_SKILLS, tenant_id, [skill_id])
+    return existing.get(skill_id)
 
 
 def _derive_tool_mode(input_schema: dict[str, Any] | None) -> str:

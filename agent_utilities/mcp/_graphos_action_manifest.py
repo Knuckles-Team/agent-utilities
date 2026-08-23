@@ -2755,6 +2755,7 @@ GRAPHOS_ACTIONS: list[GraphosAction] = [
     {"tool": "quant", "action": "status", "name": "quant_status"},
     {"tool": "quant", "action": "submit_order", "name": "quant_submit_order"},
     {"tool": "research_artifact", "action": None, "name": "research_artifact"},
+    {"tool": "skill_classify", "action": None, "name": "skill_classify"},
     {"tool": "source_connector", "action": "list", "name": "source_connector_list"},
     {"tool": "source_connector", "action": "run", "name": "source_connector_run"},
     {"tool": "source_drain", "action": None, "name": "source_drain"},

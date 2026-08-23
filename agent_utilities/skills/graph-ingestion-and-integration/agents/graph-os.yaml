@@ -11,6 +11,7 @@ claims:
     - graph_share
     - graph_writeback
     - ingest_sessions
+    - skill_classify
     - source_connector
     - source_drain
     - source_sync

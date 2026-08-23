@@ -105,6 +105,10 @@ TOOL_VERBS: Mapping[str, tuple[str, ...]] = MappingProxyType(
         "graph_data_prep": ("ask", "write"),
         "graph_writeback": ("write",),
         "graph_etl": ("write",),
+        # Classifies one skill and persists the choice (source SKILL.md when
+        # writable, else a durable catalog override) -- a single targeted
+        # mutation, not a read.
+        "skill_classify": ("write",),
         "source_sync": ("write",),
         "source_connector": ("manage", "write"),
         "source_drain": ("write",),

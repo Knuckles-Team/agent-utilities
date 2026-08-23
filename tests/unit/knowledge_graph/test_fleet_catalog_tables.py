@@ -1182,3 +1182,103 @@ def test_old_schema_store_migrates_preserves_rows_and_write_then_succeeds():
         assert ok2 is True
     new_skill = _one_row("skills", "skill:new", eng)
     assert new_skill["tenant_id"] == "tenant-a"
+
+
+# ---------------------------------------------------------------------------
+# Skill classification override (CONCEPT:AU-KG.ingest.skill-classification-writeback)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _reset_override_ddl_cache():
+    fct._ensured_override_stores.clear()
+    yield
+    fct._ensured_override_stores.clear()
+
+
+def test_classification_override_round_trips():
+    eng = _FakeEngine()
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        ok = fct.write_skill_classification_override(
+            eng, skill_id="skill:foo", skill_type="workflow", principal="operator-1"
+        )
+        assert ok is True
+        value = fct.read_skill_classification_override(
+            eng, skill_id="skill:foo", tenant_id="tenant-a"
+        )
+    assert value == "workflow"
+
+
+def test_classification_override_absent_returns_none():
+    eng = _FakeEngine()
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        value = fct.read_skill_classification_override(
+            eng, skill_id="skill:never-set", tenant_id="tenant-a"
+        )
+    assert value is None
+
+
+def test_classification_override_is_tenant_scoped():
+    eng = _FakeEngine()
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        fct.write_skill_classification_override(
+            eng, skill_id="skill:foo", skill_type="workflow", principal="operator-1"
+        )
+    with use_actor(_session("tenant-b").actor), use_session(_session("tenant-b")):
+        value = fct.read_skill_classification_override(
+            eng, skill_id="skill:foo", tenant_id="tenant-b"
+        )
+    assert value is None  # tenant-b never set an override for this id
+
+
+def test_write_skill_row_honors_an_existing_override_over_the_caller_value():
+    """The mechanism that makes a classification survive a re-sync: once an
+    override is on record, EVERY future write_skill_row call for that skill
+    resolves to the override, no matter what skill_type the caller (a
+    simulated fleet-tool-schema-sync re-derive from frontmatter) passes.
+    """
+    eng = _FakeEngine()
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        _write_skill_row(
+            eng, skill_id="skill:foo", name="foo", description="d", skill_type="mystery"
+        )
+        row = _one_row("skills", "skill:foo", eng)
+        assert row["skill_type"] == "mystery"
+
+        fct.write_skill_classification_override(
+            eng, skill_id="skill:foo", skill_type="workflow", principal="operator-1"
+        )
+
+        # Simulates the hourly sync re-deriving from the (unchanged, still
+        # "mystery") on-disk frontmatter and writing it straight through --
+        # the override must win. No explicit revision: it must default to a
+        # fresh wall-clock value higher than the first write's, so this is a
+        # genuine "changed content" update, not a stale-revision rejection.
+        _write_skill_row(
+            eng,
+            skill_id="skill:foo",
+            name="foo",
+            description="d",
+            skill_type="mystery",
+            idempotency_key="resync-1",
+        )
+    row = _one_row("skills", "skill:foo", eng)
+    assert row["skill_type"] == "workflow"
+    assert row["classification"] == "Workflow"
+
+
+def test_get_skill_row_returns_none_for_unknown_id():
+    eng = _FakeEngine()
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        row = fct.get_skill_row(eng, skill_id="skill:does-not-exist")
+    assert row is None
+
+
+def test_get_skill_row_returns_the_current_row():
+    eng = _FakeEngine()
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        _write_skill_row(eng, skill_id="skill:foo", name="foo", description="d")
+        bound_id = _one_row("skills", "skill:foo", eng)["id"]
+        row = fct.get_skill_row(eng, skill_id=bound_id)
+    assert row is not None
+    assert row["name"] == "foo"

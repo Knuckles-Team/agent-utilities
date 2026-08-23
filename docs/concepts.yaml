@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1219
+total_concepts: 1220
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -4525,6 +4525,14 @@ concepts:
   - agent_utilities/knowledge_graph/ingestion/semantic_event_model.py
   - agent_utilities/knowledge_graph/research/loop_controller.py
   doc: OCEL is an interchange format
+- id: AU-KG.ingest.skill-classification-writeback
+  name: an operator
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/core/fleet_catalog_tables.py
+  - agent_utilities/knowledge_graph/ingestion/skill_classification.py
+  doc: an operator
 - id: AU-KG.ingest.skill-workflow-corpus
   name: ingest the universal-skills workflow corpus as
   pillar: AU-KG
@@ -9039,6 +9047,7 @@ concepts:
   - agent_utilities/gateway/config.py
   - agent_utilities/gateway/models.py
   - agent_utilities/gateway/registry.py
+  - agent_utilities/gateway/widgets/_optional_client.py
   - agent_utilities/gateway/widgets/base.py
   - agent_utilities/gateway/ws.py
   doc: Gateway Service Dashboard

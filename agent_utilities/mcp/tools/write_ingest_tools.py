@@ -908,6 +908,60 @@ def register_write_ingest_tools(mcp):
     kg_server.REGISTERED_TOOLS["graph_feedback"] = graph_feedback
 
     @mcp.tool(
+        name="skill_classify",
+        description=(
+            "Classify a skill (skill_id from /api/enhanced/tools' skills[]/"
+            "skill_workflows[]/skill_graphs[] .id, or the fleet catalog's "
+            "skills table) as skill_type='skill'|'workflow'|'graph', and "
+            "persist the choice so it survives the next fleet-tool-schema-sync "
+            "re-derive from the corpus. Tries to write the choice into the "
+            "skill's own SKILL.md frontmatter first (the real source of "
+            "truth); where the universal-skills source tree is mounted "
+            "read-only (every deployed profile today), records a durable "
+            "override in the fleet catalog store instead, which every future "
+            "re-ingest of that skill consults and honors. Returns "
+            "persisted=false (never a silent success) when neither write "
+            "could be made durable -- check the `reason` field."
+        ),
+        tags=["graph-os", "skills", "ingest"],
+    )
+    async def skill_classify(
+        skill_id: str = Field(
+            description="The skill's catalog id (skills[].id from /api/enhanced/tools)."
+        ),
+        skill_type: str = Field(description="skill | workflow | graph."),
+    ) -> str:
+        """Classify a skill and persist the choice (source file, else durable override)."""
+        engine = kg_server._get_engine()
+        if not engine:
+            return "Error: IntelligenceGraphEngine not active."
+
+        def _execute() -> str:
+            try:
+                from agent_utilities.knowledge_graph.ingestion.skill_classification import (
+                    reclassify_skill,
+                )
+                from agent_utilities.security.brain_context import current_actor
+
+                try:
+                    principal = current_actor().actor_id
+                except Exception:
+                    principal = "system"
+                result = reclassify_skill(
+                    engine,
+                    skill_id=skill_id,
+                    skill_type=skill_type,
+                    principal=principal,
+                )
+                return json.dumps(result)
+            except Exception as e:
+                return public_error_text(e)
+
+        return await run_blocking_ordered(_execute)
+
+    kg_server.REGISTERED_TOOLS["skill_classify"] = skill_classify
+
+    @mcp.tool(
         name="graph_ingest",
         description="Smart ingestion for codebases, documents, directories, and conversation logs. Also handles corpus management and job status.",
         tags=["graph-os", "ingest"],

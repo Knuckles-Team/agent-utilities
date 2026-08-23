@@ -858,6 +858,7 @@ ACTION_TOOL_ROUTES: dict[str, str] = {
     "graph_runvcs": "/graph/runvcs",
     "graph_claims": "/graph/claims",
     "graph_candidate_claims": "/graph/candidate-claims",
+    "skill_classify": "/skill/classify",
 }
 
 # Immutable seed used by deterministic catalog generators. Runtime registrars
