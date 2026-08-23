@@ -2996,9 +2996,24 @@ def _build_execution_config(
     # AgentTemplate persona like ``agent-utilities-expert``), drive the run with
     # that full persona instead of the bare generic "Specialized agent" placeholder.
     resolved_prompt = str(agent_meta.get("system_prompt") or "").strip()
-    tag_prompts = {
-        agent_name: resolved_prompt or f"Specialized agent: {agent_name}",
-    }
+    tag_prompts: dict[str, str] = {}
+    # CONCEPT:AU-ORCH.dispatch.fleet-specialist-reachability — a thin entrypoint persona
+    # (e.g. ``webui-assistant``) resolves with the SAME ``_unresolved_agent_meta()`` shape
+    # as a generic direct-completion turn: no real persona, no capabilities. Seeding
+    # ``tag_prompts`` with only a bare "Specialized agent: <name>" placeholder for that
+    # case produced ``tag_prompts == {agent_name}`` — a single-entry (therefore truthy)
+    # registry of ONE. The router (``graph/_router_impl.py: router_step``) treats an EMPTY
+    # ``deps.tag_prompts`` as "load the full fleet registry" (``get_discovery_registry()``,
+    # off the loop via ``asyncio.to_thread``) but a truthy one-entry dict skips that
+    # fallback, so the router's own free-text specialist proposals (e.g.
+    # "agent-utilities-expert") could never match anything and the plan came back empty.
+    # Fix: only claim a domain slot here when there is something REAL to offer — a
+    # resolved persona or actual capabilities — so a thin/unresolved caller leaves
+    # ``tag_prompts`` empty and the router's OWN, already-tested registry-widening
+    # fallback fires and supplies the genuine fleet roster. Do NOT duplicate that fetch
+    # here (no second registry).
+    if resolved_prompt or agent_meta.get("capabilities"):
+        tag_prompts[agent_name] = resolved_prompt or f"Specialized agent: {agent_name}"
     for cap in agent_meta.get("capabilities", []):
         if cap and cap != agent_name:
             tag_prompts[cap] = f"Capability: {cap}"

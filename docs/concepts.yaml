@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1218
+total_concepts: 1219
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -7218,6 +7218,13 @@ concepts:
   - agent_utilities/core/model_circuit_breaker.py
   - agent_utilities/knowledge_graph/enrichment/semantic.py
   doc: the ceiling decides the steady-state MAX in flight; the
+- id: AU-ORCH.dispatch.fleet-specialist-reachability
+  name: a thin entrypoint persona
+  pillar: AU-ORCH
+  status: live
+  code_paths:
+  - agent_utilities/orchestration/agent_runner.py
+  doc: a thin entrypoint persona
 - id: AU-ORCH.dispatch.hierarchical-coordination
   name: a hierarchical federated coordination protocol that runs consensus within agent neighborhoods
     and rolls up only cluster representatives, bounding interaction density so a collective coordinates
