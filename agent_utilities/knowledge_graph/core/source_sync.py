@@ -62,6 +62,7 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
+from ...security.identifiers import validate_identifier
 from ..backends.sparql.source_partition import make_source_id
 
 logger = logging.getLogger(__name__)
@@ -299,23 +300,64 @@ def _capability_product(server_name: str) -> str:
     return base
 
 
+# Verified labels of the three call sites that pass a bare node id here (the
+# fleet-catalog write loop below builds ``entities`` with ``"type":
+# "MCPServer"/"Tool"/"Skill"`` respectively, and ``_write_fleet_slice`` ->
+# ``_ingest_graph_slice_via_envelope`` writes each row's ``type`` straight
+# through as the node's Cypher label). An unlabeled ``MATCH (n)`` clones every
+# node's property blob in the whole graph on every call (no id index exists
+# in the Cypher engine, only a label index); trying these first turns the hot
+# "once per tool during fleet registration" path into an indexed lookup.
+_FLEET_DISABLED_LOOKUP_LABELS: tuple[str, ...] = ("MCPServer", "Tool", "Skill")
+
+
 def _existing_disabled(engine: Any, node_id: str) -> bool:
     """Best-effort read of a node's ``disabled`` flag so a re-sync preserves an
     operator's manual disable (mirrors ``kg_server.get_existing_disabled`` without
-    creating a knowledge_graph → mcp import inversion)."""
+    creating a knowledge_graph → mcp import inversion).
+
+    Fail-closed: this flag feeds an enable/disable decision written straight
+    back into the node on re-sync, so a lookup that could not complete (an
+    exception from the in-memory cache or ``query_cypher``) returns ``True``
+    (treat as disabled) instead of silently defaulting to "not disabled" —
+    the prior contract here conflated "confirmed not disabled" with "the
+    check itself failed", which would silently re-enable an operator's
+    manual disable on any transient engine hiccup during a re-sync. A
+    genuinely absent node (every query executed successfully and found
+    nothing — a brand-new node with no prior state) still returns ``False``;
+    that is not a failure.
+    """
     try:
         gc = getattr(engine, "graph_compute", None)
         graph = getattr(gc, "graph", None)
         if graph is not None and node_id in graph:
             return bool(graph.nodes[node_id].get("disabled", False))
+        for candidate_label in _FLEET_DISABLED_LOOKUP_LABELS:
+            safe_label = validate_identifier(candidate_label, kind="label")
+            rows = engine.query_cypher(
+                f"MATCH (n:{safe_label}) WHERE n.id = $id "
+                "RETURN n.id AS id, n.disabled AS disabled",
+                {"id": node_id},
+            )
+            if rows and isinstance(rows, list) and len(rows) > 0:
+                return bool(rows[0].get("disabled", False))
+        # Correctness fallback for a node outside the verified fleet label
+        # set above — the original (unoptimized) cost, only paid for ids
+        # this loop doesn't already know the label of.
         rows = engine.query_cypher(
             "MATCH (n) WHERE n.id = $id RETURN n.id AS id, n.disabled AS disabled",
             {"id": node_id},
         )
-        if rows and isinstance(rows, list):
+        if rows and isinstance(rows, list) and len(rows) > 0:
             return bool(rows[0].get("disabled", False))
-    except Exception:  # noqa: BLE001 — disabled is best-effort; default enabled
-        pass
+    except Exception as exc:  # noqa: BLE001 — surfaced as a fail-closed True below
+        logger.error(
+            "_existing_disabled(%s) lookup failed — failing closed "
+            "(treating as disabled): %s",
+            node_id,
+            type(exc).__name__,
+        )
+        return True
     return False
 
 

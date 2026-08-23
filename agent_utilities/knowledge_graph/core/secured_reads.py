@@ -16,12 +16,29 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from ...security.brain_context import ActorContext, current_actor
+from ...security.identifiers import validate_identifier
 from .company_brain_runtime import get_company_brain
 
 if TYPE_CHECKING:
     from ...models.company_brain import DataClassification
 
 logger = logging.getLogger(__name__)
+
+# Node labels VERIFIED (this session, by reading the write paths — not
+# guessed) to be written by the fleet-registration hot path that drove the
+# "1-4s per tool" production incident: `source_sync`'s catalog-write loop
+# builds entities with `"type": "MCPServer"/"Tool"/"Skill"` (spliced straight
+# through as the node's Cypher label by `_ingest_graph_slice_via_envelope`),
+# and `skill_workflow_ingest.ingest_runnable_skill` writes the runnable
+# resource as `engine._upsert_node("CallableResource", resource_id, ...)`.
+# See :func:`_durable_access_rows` for why this list is a first-try
+# optimization, not an exhaustive label enumeration.
+_LABELED_HYDRATION_CANDIDATES: tuple[str, ...] = (
+    "Tool",
+    "MCPServer",
+    "CallableResource",
+    "Skill",
+)
 
 
 def _verified_actor(actor: ActorContext | None) -> ActorContext:
@@ -140,18 +157,68 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     execute_read = getattr(backend, "execute_read", None)
     if not callable(execute_read):
         raise PermissionError("Durable ACL hydration authority is unavailable")
+
+    # Label-scoped first: an unlabeled `MATCH (n)` resolves via
+    # `GraphCore::get_nodes()`, which clones every node's property blob in
+    # the ENTIRE graph on every call (no id index exists in the Cypher
+    # engine, only a label index, `get_nodes_by_label`) — the dominant cost
+    # of the measured "1-4s per tool during fleet registration" production
+    # incident this fixes. `permit`/`_hydrate_missing_acls` hydrate ACLs for
+    # ANY node type in the graph (Memory, Episode, Concept, Document, ... —
+    # see `_hydrate_missing_acls`'s docstring), so this cannot be narrowed to
+    # a single label the way a fleet-only helper can. `_LABELED_HYDRATION_
+    # CANDIDATES` below are the labels VERIFIED this session to be written by
+    # the fleet-registration hot path itself (`source_sync`'s catalog write
+    # loop writes `MCPServer`/`Tool`/`Skill`; `ingest_runnable_skill` writes
+    # `CallableResource`) — trying them first turns THAT hot path into a
+    # handful of indexed lookups. Any id not resolved by one of those labels
+    # falls through to the unlabeled query exactly as before, so every other
+    # node type this function has ever supported keeps resolving correctly;
+    # it just doesn't get the speedup. `execute_read` (session-scoped, same
+    # authorization gate as every other read here) is used for every
+    # attempt — no lower-level, unscoped read path is substituted.
+    return_clause = (
+        "RETURN n.id AS id, n.tenant_id AS tenant_id, "
+        "n.classification AS classification, "
+        "n.external_access AS external_access, n._owner_id AS owner_id, "
+        "n._shared_scope AS shared_scope"
+    )
+    remaining = list(dict.fromkeys(node_ids))
+    rows: list[dict[str, Any]] = []
     try:
-        rows = execute_read(
-            "MATCH (n) WHERE n.id IN $ids RETURN n.id AS id, "
-            "n.tenant_id AS tenant_id, n.classification AS classification, "
-            "n.external_access AS external_access, n._owner_id AS owner_id, "
-            "n._shared_scope AS shared_scope",
-            {"ids": list(node_ids)},
-        )
+        for candidate_label in _LABELED_HYDRATION_CANDIDATES:
+            if not remaining:
+                break
+            safe_label = validate_identifier(candidate_label, kind="label")
+            found = execute_read(
+                f"MATCH (n:{safe_label}) WHERE n.id IN $ids {return_clause}",
+                {"ids": remaining},
+            )
+            if not isinstance(found, list):
+                raise PermissionError("Durable ACL hydration response is invalid")
+            resolved_ids: set[str] = set()
+            for row in found:
+                if not isinstance(row, dict):
+                    raise PermissionError("Durable ACL hydration response is invalid")
+                rows.append(row)
+                row_id = row.get("id")
+                if isinstance(row_id, str):
+                    resolved_ids.add(row_id)
+            remaining = [
+                node_id for node_id in remaining if node_id not in resolved_ids
+            ]
+        if remaining:
+            found = execute_read(
+                f"MATCH (n) WHERE n.id IN $ids {return_clause}",
+                {"ids": remaining},
+            )
+            if not isinstance(found, list):
+                raise PermissionError("Durable ACL hydration response is invalid")
+            rows.extend(found)
+    except PermissionError:
+        raise
     except Exception as exc:
         raise PermissionError("Durable ACL hydration query failed") from exc
-    if not isinstance(rows, list):
-        raise PermissionError("Durable ACL hydration response is invalid")
 
     result: dict[str, dict[str, Any]] = {}
     for row in rows:
