@@ -198,6 +198,93 @@ async def test_run_graph_none_result_surfaces_as_failed_not_literal_none(mock_gr
 
 
 @pytest.mark.asyncio
+async def test_run_graph_none_result_surfaces_the_real_state_error(mock_graph):
+    """The router lane (``fix/router-timeouts``) now stamps a concrete, actionable
+    reason onto ``ctx.state.error`` before ``dispatcher_step``/``router_step`` route to
+    this ``None`` termination (e.g. "Planning failed: ..." or "The orchestration plan
+    completed with no execution results..."). Before this fix the guard above discarded
+    that state entirely and always returned the same hardcoded generic apology, so the
+    real cause never reached the caller. This drives the guard through the real
+    ``GraphState`` object ``execute_graph`` constructs (mutated via ``graph.run``'s
+    ``state`` kwarg, exactly as the real router does it — no mock stands in for the
+    state seam), so it proves the actual reason is read and surfaced, not just that a
+    hand-built response contains it."""
+
+    async def terminate_with_reason(*, state, deps):
+        del deps
+        state.error = (
+            "Planning failed: LLM planning timed out. Fallback also failed: the model "
+            "proposed 'agent-utilities-expert' but no known specialist matched. "
+            "Available specialists: ['webui-assistant']."
+        )
+        return None
+
+    mock_graph.run.side_effect = terminate_with_reason
+
+    deps = MagicMock()
+    deps.mcp_toolsets = []
+    deps.tag_prompts = {}
+    deps.event_queue = None
+    config = {"deps": deps}
+
+    response = await runner().execute_graph(mock_graph, config, query="Test")
+
+    assert response["status"] == "failed"
+    assert "LLM planning timed out" in response["error"]
+    assert "LLM planning timed out" in response["results"]["output"]
+    assert response["results"]["output"] != "None"
+    assert "None" not in response["results"]["output"].split()
+    assert response["metadata"]["degraded"] is True
+    assert response["metadata"]["outcome"] == "empty_graph_termination"
+
+
+@pytest.mark.asyncio
+async def test_run_graph_none_result_sanitizes_state_error(mock_graph):
+    """``state.error`` is free text assembled upstream from an exception's ``str(e)``
+    — a whitespace-only value must still fail closed to the generic apology (never an
+    empty/blank string reaching the user), and an oversized value (e.g. a stray raw
+    traceback dumped into the field) must be length-capped rather than handed to the
+    user verbatim, so a degraded-turn reason can never become an internals dump."""
+
+    async def terminate_with_blank_error(*, state, deps):
+        del deps
+        state.error = "   "
+        return None
+
+    mock_graph.run.side_effect = terminate_with_blank_error
+
+    deps = MagicMock()
+    deps.mcp_toolsets = []
+    deps.tag_prompts = {}
+    deps.event_queue = None
+    config = {"deps": deps}
+
+    response = await runner().execute_graph(mock_graph, config, query="Test")
+
+    assert response["status"] == "failed"
+    assert response["error"]
+    assert response["error"].strip()
+    assert response["results"]["output"] != "None"
+    assert "orchestration graph ended before any model ran" in response["error"] or (
+        "orchestration graph completed without invoking" in response["error"]
+    )
+
+    async def terminate_with_oversized_error(*, state, deps):
+        del deps
+        state.error = "boom: " + ("x" * 2000)
+        return None
+
+    mock_graph.run.side_effect = terminate_with_oversized_error
+
+    response = await runner().execute_graph(mock_graph, config, query="Test")
+
+    assert response["status"] == "failed"
+    assert len(response["error"]) <= 501
+    assert response["error"].startswith("boom: ")
+    assert "x" * 2000 not in response["error"]
+
+
+@pytest.mark.asyncio
 async def test_execute_graph_constructs_permission_context_on_deps(mock_graph):
     kernel = object()
     identity = object()
