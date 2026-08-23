@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from agent_utilities.gateway.models import (
     ServiceCategory,
     ServiceConfig,
@@ -9,6 +11,8 @@ from agent_utilities.gateway.models import (
     WidgetField,
 )
 from agent_utilities.gateway.widgets.base import BaseWidget
+
+logger = logging.getLogger(__name__)
 
 
 class Widget(BaseWidget):
@@ -29,15 +33,26 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from sentry_mcp.api_client import SentryApi
+        # sentry_mcp does not exist as a distribution — not locally, not on
+        # PyPI. Degrade honestly (see ear.py) instead of an unguarded import
+        # that would flood the gateway log with dependency_unavailable errors.
+        try:
+            from sentry_mcp.api_client import SentryApi
+        except ImportError:
+            return WidgetData(status="skipped", error="sentry-mcp not installed")
 
-        url = self._resolve_url(config)
         token = self._resolve_token(config)
+        url = self._resolve_env(config, "url")
+
+        if not token or not url:
+            return WidgetData(status="skipped", error="Missing Sentry token or url")
+
         client = SentryApi(base_url=url, token=token)
         try:
             projects = client.list_projects() or []
-        except Exception:
-            return WidgetData(status="error", error="Connection failed")
+        except Exception as e:
+            logger.warning("Sentry fetch failed: %s", e)
+            return self._error_data(e)
 
         return WidgetData(
             fields={
