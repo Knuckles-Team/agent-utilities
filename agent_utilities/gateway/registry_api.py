@@ -563,24 +563,42 @@ def _rows_from_engine(raw: Any) -> list[dict[str, Any]]:
     return rows
 
 
-def _authorized_rows(
-    kind: str,
-    *,
-    tenant: str,
-    principal: str,
-    grant_digests: tuple[str, ...],
-    engine: Any,
-) -> list[dict[str, Any]]:
-    """Read only the authorized tenant/principal/grant projection, bounded."""
+def _require_sql_exec(engine: Any) -> Callable[[str], Any]:
+    """Resolve the engine's write-capable SQL surface or fail closed."""
 
-    spec = _KIND_SPECS[kind]
     graph_compute = getattr(engine, "graph_compute", None)
     sql_exec = getattr(graph_compute, "sql_exec", None)
     if not callable(sql_exec):
         raise CatalogUnavailable("authoritative catalog SQL is unavailable")
-    columns = ", ".join(spec.columns)
-    # These identifiers are module constants validated at construction. The
-    # only values are escaped SQL literals; caller filters never enter SQL.
+    return sql_exec
+
+
+def _search_columns(spec: _KindSpec) -> list[str]:
+    """Columns eligible for the ``q`` substring filter, in ``_matches`` order."""
+
+    candidates = (spec.name_column, "name", "server_name", "description")
+    found: list[str] = []
+    for column in candidates:
+        if column in spec.columns and column not in found:
+            found.append(column)
+    return found
+
+
+def _build_where(
+    spec: _KindSpec,
+    *,
+    tenant: str,
+    principal: str,
+    grant_digests: tuple[str, ...],
+    query: str,
+) -> str:
+    """Compose the tenant/authorization/filter predicate for one catalog read.
+
+    These identifiers are module constants validated at construction. The
+    only interpolated values are escaped SQL literals (:func:`_sql_literal`);
+    caller-supplied filter text never enters the statement unescaped.
+    """
+
     where = f"tenant_id = {_sql_literal(tenant)}"
     if spec.authority_column and spec.principal_column and spec.grant_column:
         local_scope = (
@@ -599,21 +617,57 @@ def _authorized_rows(
                 f"{spec.grant_column} IN ({grants_sql}))"
             )
         where += " AND (" + " OR ".join(scope_terms) + ")"
-    statement = (
-        f"SELECT {columns} FROM {spec.table} WHERE {where} "
-        f"LIMIT {_MAX_CATALOG_ROWS + 1}"
-    )
-    try:
-        rows = _rows_from_engine(sql_exec(statement))
-    except CatalogUnavailable:
-        raise
-    except Exception as exc:  # noqa: BLE001 - explicit unavailable response
-        logger.warning(
-            "authoritative registry catalog read failed (%s)", type(exc).__name__
+    if query:
+        search_columns = _search_columns(spec)
+        if not search_columns:
+            # No searchable column exists for this kind; an unmatchable
+            # predicate keeps the count and page pushdown honest instead of
+            # silently ignoring the caller's filter.
+            return where + " AND FALSE"
+        needle = _sql_literal(query)
+        # strpos(...) > 0 is a plain case-insensitive substring test (the
+        # exact `needle in haystack` semantics `_matches` used to apply in
+        # Python) with no LIKE wildcard-escaping pitfall for a `%`/`_` in
+        # the caller's filter text.
+        terms = " OR ".join(
+            f"strpos(LOWER({column}), LOWER({needle})) > 0" for column in search_columns
         )
-        raise CatalogUnavailable("authoritative catalog read failed") from exc
-    if len(rows) > _MAX_CATALOG_ROWS:
-        raise CatalogUnavailable("authoritative catalog exceeds the bounded read size")
+        where += f" AND ({terms})"
+    return where
+
+
+def _keyset_predicate(spec: _KindSpec, after: tuple[str, str]) -> str:
+    """The keyset-pagination predicate for rows strictly after ``after``.
+
+    Mirrors the ``(casefold(name), id)`` ordering :func:`_row_key` already
+    encodes into the cursor. ``LOWER()`` is SQL's nearest portable
+    equivalent to Python's ``str.casefold()`` — not byte-identical on every
+    Unicode edge case, but the two agree on the ASCII identifiers this
+    catalog's names/ids are drawn from.
+    """
+
+    after_name, after_id = after
+    name_literal = _sql_literal(after_name)
+    id_literal = _sql_literal(after_id)
+    return (
+        f"(LOWER({spec.name_column}) > LOWER({name_literal}) OR "
+        f"(LOWER({spec.name_column}) = LOWER({name_literal}) AND "
+        f"id > {id_literal}))"
+    )
+
+
+def _validate_scope(
+    spec: _KindSpec,
+    rows: list[dict[str, Any]],
+    *,
+    tenant: str,
+    principal: str,
+    grant_digests: tuple[str, ...],
+) -> None:
+    """Defence in depth: reject any row a misconfigured engine projection
+    returned outside the tenant/principal contract the WHERE clause already
+    encodes, before it reaches filtering, ordering, or response shaping."""
+
     required_columns = set(spec.columns)
     for row in rows:
         if not required_columns.issubset(row):
@@ -638,27 +692,148 @@ def _authorized_rows(
                     raise CatalogUnavailable("authoritative catalog scope is malformed")
             else:
                 raise CatalogUnavailable("authoritative catalog scope is malformed")
-    # Defence in depth for a misconfigured engine projection: never allow a
-    # row that fails the same tenant/principal contract to reach caller
-    # filtering, ordering, counting, or response shaping.
+
+
+def _authorized_count(
+    kind: str,
+    *,
+    tenant: str,
+    principal: str,
+    grant_digests: tuple[str, ...],
+    query: str,
+    engine: Any,
+) -> int:
+    """``SELECT COUNT(*)`` for the total matching the same predicate as the
+    page read, instead of counting a materialized Python list."""
+
+    spec = _KIND_SPECS[kind]
+    sql_exec = _require_sql_exec(engine)
+    where = _build_where(
+        spec,
+        tenant=tenant,
+        principal=principal,
+        grant_digests=grant_digests,
+        query=query,
+    )
+    statement = f"SELECT COUNT(*) AS row_count FROM {spec.table} WHERE {where}"
+    try:
+        rows = _rows_from_engine(sql_exec(statement))
+    except CatalogUnavailable:
+        raise
+    except Exception as exc:  # noqa: BLE001 - explicit unavailable response
+        logger.warning(
+            "authoritative registry catalog count failed (%s)", type(exc).__name__
+        )
+        raise CatalogUnavailable("authoritative catalog read failed") from exc
+    if len(rows) != 1:
+        raise CatalogUnavailable("authoritative catalog count is malformed")
+    value = rows[0].get("row_count")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise CatalogUnavailable("authoritative catalog count is malformed")
+    return value
+
+
+def _authorized_page(
+    kind: str,
+    *,
+    tenant: str,
+    principal: str,
+    grant_digests: tuple[str, ...],
+    query: str,
+    after: tuple[str, str] | None,
+    limit: int,
+    engine: Any,
+) -> list[dict[str, Any]]:
+    """Read one keyset-paginated page: LIMIT/keyset/filter/authz all pushed
+    into SQL, so a page of N rows transfers N rows over the wire, never the
+    whole table."""
+
+    spec = _KIND_SPECS[kind]
+    sql_exec = _require_sql_exec(engine)
+    where = _build_where(
+        spec,
+        tenant=tenant,
+        principal=principal,
+        grant_digests=grant_digests,
+        query=query,
+    )
+    if after is not None:
+        where += f" AND {_keyset_predicate(spec, after)}"
+    # Fetch one extra row to detect "there is a next page" without a second
+    # round trip. `_MAX_CATALOG_ROWS` remains a defence-in-depth ceiling on
+    # the fetch itself (unreachable in practice since `_parse_request` already
+    # bounds `limit` to `_MAX_LIMIT`) so a pathological request still cannot
+    # pull the whole table even if that bound were ever raised.
+    fetch = min(min(limit, _MAX_LIMIT) + 1, _MAX_CATALOG_ROWS + 1)
+    columns = ", ".join(spec.columns)
+    statement = (
+        f"SELECT {columns} FROM {spec.table} WHERE {where} "
+        f"ORDER BY LOWER({spec.name_column}), id LIMIT {fetch}"
+    )
+    try:
+        rows = _rows_from_engine(sql_exec(statement))
+    except CatalogUnavailable:
+        raise
+    except Exception as exc:  # noqa: BLE001 - explicit unavailable response
+        logger.warning(
+            "authoritative registry catalog read failed (%s)", type(exc).__name__
+        )
+        raise CatalogUnavailable("authoritative catalog read failed") from exc
+    if len(rows) > fetch:
+        raise CatalogUnavailable(
+            "authoritative catalog page exceeds the requested bound"
+        )
+    _validate_scope(
+        spec, rows, tenant=tenant, principal=principal, grant_digests=grant_digests
+    )
     return rows
+
+
+def _authorized_item(
+    kind: str,
+    *,
+    tenant: str,
+    principal: str,
+    grant_digests: tuple[str, ...],
+    item_id: str,
+    engine: Any,
+) -> dict[str, Any] | None:
+    """Read at most one row by id, with the id predicate pushed into SQL
+    rather than fetching the authorized set and filtering it in Python."""
+
+    spec = _KIND_SPECS[kind]
+    sql_exec = _require_sql_exec(engine)
+    where = _build_where(
+        spec, tenant=tenant, principal=principal, grant_digests=grant_digests, query=""
+    )
+    where += f" AND id = {_sql_literal(item_id)}"
+    columns = ", ".join(spec.columns)
+    statement = f"SELECT {columns} FROM {spec.table} WHERE {where} LIMIT 1"
+    try:
+        rows = _rows_from_engine(sql_exec(statement))
+    except CatalogUnavailable:
+        raise
+    except Exception as exc:  # noqa: BLE001 - explicit unavailable response
+        logger.warning(
+            "authoritative registry catalog read failed (%s)", type(exc).__name__
+        )
+        raise CatalogUnavailable("authoritative catalog read failed") from exc
+    if len(rows) > 1:
+        raise CatalogUnavailable("authoritative catalog item lookup is malformed")
+    if not rows:
+        # The same response is used for an absent row and another tenant's
+        # row (the tenant predicate is already embedded in `where`).
+        return None
+    _validate_scope(
+        spec, rows, tenant=tenant, principal=principal, grant_digests=grant_digests
+    )
+    return rows[0]
 
 
 def _row_key(spec: _KindSpec, row: Mapping[str, Any]) -> tuple[str, str]:
     return (
         str(row.get(spec.name_column) or "").casefold(),
         str(row.get("id") or ""),
-    )
-
-
-def _matches(spec: _KindSpec, row: Mapping[str, Any], query: str) -> bool:
-    if not query:
-        return True
-    needle = query.casefold()
-    return any(
-        needle in str(row.get(field) or "").casefold()
-        for field in (spec.name_column, "name", "server_name", "description")
-        if field in row
     )
 
 
@@ -675,13 +850,36 @@ async def _list_kind(
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="registry access denied") from exc
+    after: tuple[str, str] | None = None
+    if cursor:
+        after = _decode_cursor(
+            cursor,
+            kind=kind,
+            query=query,
+            tenant=tenant,
+            principal=principal,
+            grant_digests=grant_digests,
+        )
+    spec = _KIND_SPECS[kind]
+    engine = _get_catalog_engine()
     try:
-        rows = _authorized_rows(
+        total = _authorized_count(
             kind,
             tenant=tenant,
             principal=principal,
             grant_digests=grant_digests,
-            engine=_get_catalog_engine(),
+            query=query,
+            engine=engine,
+        )
+        rows = _authorized_page(
+            kind,
+            tenant=tenant,
+            principal=principal,
+            grant_digests=grant_digests,
+            query=query,
+            after=after,
+            limit=limit,
+            engine=engine,
         )
     except CatalogUnavailable as exc:
         logger.warning("registry %s unavailable: %s", kind, exc)
@@ -695,22 +893,10 @@ async def _list_kind(
             {"status": "unavailable", "reason": "catalog_unavailable"},
             status_code=503,
         )
-    spec = _KIND_SPECS[kind]
-    rows = [row for row in rows if _matches(spec, row, query)]
-    rows.sort(key=lambda row: _row_key(spec, row))
-    if cursor:
-        after = _decode_cursor(
-            cursor,
-            kind=kind,
-            query=query,
-            tenant=tenant,
-            principal=principal,
-            grant_digests=grant_digests,
-        )
-        rows = [row for row in rows if _row_key(spec, row) > after]
+    has_more = len(rows) > limit
     page_rows = rows[:limit]
     next_cursor = None
-    if len(rows) > limit and page_rows:
+    if has_more and page_rows:
         last = _row_key(spec, page_rows[-1])
         next_cursor = _cursor_token(
             kind=kind,
@@ -729,7 +915,7 @@ async def _list_kind(
             status_code=503,
         )
     return RegistryPage[Any](
-        kind=kind, items=items, count=len(rows), next_cursor=next_cursor
+        kind=kind, items=items, count=total, next_cursor=next_cursor
     )
 
 
@@ -747,11 +933,12 @@ async def _get_kind(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="registry access denied") from exc
     try:
-        rows = _authorized_rows(
+        row = _authorized_item(
             kind,
             tenant=tenant,
             principal=principal,
             grant_digests=grant_digests,
+            item_id=item_id,
             engine=_get_catalog_engine(),
         )
     except CatalogUnavailable as exc:
@@ -766,9 +953,6 @@ async def _get_kind(
             {"status": "unavailable", "reason": "catalog_unavailable"},
             status_code=503,
         )
-    row = next(
-        (candidate for candidate in rows if str(candidate.get("id")) == item_id), None
-    )
     if row is None:
         # The same response is used for an absent row and another tenant's row.
         raise HTTPException(status_code=404, detail="registry item not found")
