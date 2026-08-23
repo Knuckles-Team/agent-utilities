@@ -89,6 +89,34 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     backend is a configuration failure, not permission to fall back to N
     per-node reads.
 
+    **SQL-authoritative fast path first** (CONCEPT:AU-KG.ingest.fleet-catalog-acl-projection).
+    The production incident this closes measured two *unlabeled* Cypher full
+    scans per fleet tool (1-4s each, ~12/min) — the label-scoped candidates
+    below already fixed the "unlabeled" half; this fixes the "at all" half
+    for the common case. ``fleet_catalog_tables.catalog_acl_rows`` carries a
+    durable ACL stamp written from the SAME policy
+    (``tenant_sharing.stamp_ownership``/``stamp_classification``) the
+    matching KG node write uses, so for any id it can fully answer for, the
+    Cypher round trip below is skipped entirely. It answers ONLY for an id
+    whose catalog row was written with a real ACL stamp; every other id —
+    not a fleet node, a fleet node the (possibly still-empty, see
+    ``fleet_catalog_tables`` module docstring) catalog hasn't synced yet, or
+    a legacy/un-stamped catalog row — falls through to the Cypher path
+    below completely unchanged, so this can only ever make an id resolve
+    FASTER, never resolve to something the Cypher path would not have
+    granted.
+
+    The SQL query's tenant scope is resolved from the SAME ambient
+    :func:`~...security.brain_context.current_actor` every write-time stamp
+    (:func:`~.fleet_catalog_tables._stamped_acl_fields`) and every other
+    read helper in this module reads — never a caller-suppliable parameter
+    (this function keeps the exact ``(node_ids)`` signature it always had:
+    a graph, tenant, or actor is never accepted as a raw argument here, only
+    ever resolved from verified ambient/session state). No bound actor (an
+    unauthenticated context, or none at all) simply skips the fast path —
+    every id then falls through to the Cypher path exactly as before this
+    existed.
+
     Reads through ``active.backend`` — the SAME authority every node write
     (``IngestionMixin._upsert_node``, used by ``ingest_mcp_server`` and every
     other platform-node ingestion path) targets. Earlier this read
@@ -125,11 +153,35 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     """
 
     from .engine import IntelligenceGraphEngine
+    from .fleet_catalog_tables import catalog_acl_rows
     from .session import current_session
 
     active = IntelligenceGraphEngine.get_active()
     if active is None:
         return {}
+
+    result: dict[str, dict[str, Any]] = {}
+    remaining = list(dict.fromkeys(node_ids))
+
+    tenant_id = ""
+    try:
+        ambient_actor = current_actor()
+        if getattr(ambient_actor, "authenticated", False):
+            tenant_id = str(getattr(ambient_actor, "tenant_id", "") or "")
+    except Exception:  # noqa: BLE001 — no/invalid ambient actor just skips the fast path
+        tenant_id = ""
+
+    if tenant_id and remaining:
+        try:
+            sql_hits = catalog_acl_rows(active, remaining, tenant_id)
+        except Exception:  # noqa: BLE001 — SQL fast path is a pure optimization, never authoritative on failure
+            sql_hits = {}
+        if sql_hits:
+            result.update(sql_hits)
+            remaining = [node_id for node_id in remaining if node_id not in sql_hits]
+
+    if not remaining:
+        return result
 
     session = current_session()
     requested_graph = (
@@ -183,7 +235,6 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
         "n.external_access AS external_access, n._owner_id AS owner_id, "
         "n._shared_scope AS shared_scope"
     )
-    remaining = list(dict.fromkeys(node_ids))
     rows: list[dict[str, Any]] = []
     try:
         for candidate_label in _LABELED_HYDRATION_CANDIDATES:
@@ -220,7 +271,9 @@ def _durable_access_rows(node_ids: list[str]) -> dict[str, dict[str, Any]]:
     except Exception as exc:
         raise PermissionError("Durable ACL hydration query failed") from exc
 
-    result: dict[str, dict[str, Any]] = {}
+    # `result` was pre-seeded above with the SQL fast path's hits (for a
+    # disjoint id set — `remaining` never contained an id SQL already
+    # answered), so this only ever ADDS entries, never overwrites one.
     for row in rows:
         if not isinstance(row, dict):
             raise PermissionError("Durable ACL hydration response is invalid")
