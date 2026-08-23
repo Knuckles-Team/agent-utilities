@@ -35,7 +35,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from jellyfin_mcp.api_client import JellyfinApi
+        from jellyfin_mcp.api_client import Api as JellyfinApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)

@@ -32,7 +32,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from mealie_mcp.api_client import MealieApi
+        from mealie_mcp.api_client import Api as MealieApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)

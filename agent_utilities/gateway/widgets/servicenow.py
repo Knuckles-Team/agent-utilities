@@ -33,7 +33,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from servicenow_api.api_client import ServiceNowApi
+        from servicenow_api.api_client import Api as ServiceNowApi
 
         url = self._resolve_url(config)
         username = self._resolve_env(config, "username")

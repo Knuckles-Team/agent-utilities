@@ -32,7 +32,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from nextcloud_agent.api_client import NextcloudApi
+        from nextcloud_agent.api_client import NextcloudAPI as NextcloudApi
 
         url = self._resolve_url(config)
         username = self._resolve_env(config, "username")

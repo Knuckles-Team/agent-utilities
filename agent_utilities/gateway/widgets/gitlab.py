@@ -41,7 +41,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from gitlab_api.api_client import GitLabApi
+        from gitlab_api.api_client import Api as GitLabApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)

@@ -32,7 +32,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from erpnext_agent.api_client import ERPNextApi
+        from erpnext_agent.api_client import Api as ERPNextApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)

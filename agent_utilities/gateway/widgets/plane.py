@@ -35,7 +35,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from plane_agent.api_client import PlaneApi
+        from plane_agent.api_client import Api as PlaneApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)

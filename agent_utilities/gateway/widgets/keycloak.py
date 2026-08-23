@@ -34,7 +34,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from keycloak_agent.api_client import KeycloakApi
+        from keycloak_agent.api_client import Api as KeycloakApi
 
         url = self._resolve_url(config)
         username = self._resolve_env(config, "username", "admin")

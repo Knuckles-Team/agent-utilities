@@ -94,6 +94,60 @@ widget = reg.get_widget("portainer")  # Lazy-imports on first access
 | **Data & Research** | data_science, vector_db, documentdb, scholarx, audio_transcriber, ollama |
 | **Custom** | genius_agent, emerald_exchange, searxng |
 
+## Connector Dependencies (`gateway-widgets` extra)
+
+Most widgets talk to their service **in-process**, by importing that service's
+connector-package API client inside `fetch_data()` rather than calling out over
+plain HTTP — e.g. `caddy.py`: `from caddy_mcp.api_client import Api as CaddyApi`.
+None of those connector packages are base `agent-utilities` dependencies
+(Configuration discipline: a widget's connector is only needed if that specific
+service tile is configured), so they must be installed explicitly via the
+**`gateway-widgets`** optional-dependency group (`pyproject.toml`):
+
+```bash
+pip install "agent-utilities[gateway-widgets]"
+# or, as part of the serving plane (already included):
+pip install "agent-utilities[serving]"
+```
+
+Without it, every configured widget whose connector isn't installed logs
+`ModuleNotFoundError: No module named '<connector>_mcp'` (`code=dependency_unavailable`,
+`agent_utilities.gateway.widgets.base`) on **every** `WidgetAggregator` cache-refresh
+cycle (`_cache_ttl = 10.0` in `aggregator.py`, driven by the dashboard WebSocket's
+15s tick) — a continuous production log flood, not a one-time warning.
+
+**Not every widget needs a declared dependency**: `archivebox`, `data_science`,
+`emerald_exchange`, `genius_agent`, `google_workspace`, `legal_peripherals`, `lgtm`,
+`ollama`, `scholarx`, `searxng`, `stirlingpdf`, `systems_manager`, and `teleport`
+talk over plain HTTP (`self._http_client`) and have no in-process connector import.
+
+**Known gaps, not fixed by installing the extra:**
+
+- `ear.py`, `sentry.py`, and `zulip.py` import `ear_agent`, `sentry_mcp`, and
+  `zulip_agent` respectively — none of those three packages exist, locally or on
+  PyPI. `ear.py` already guards its import (`except ImportError: status="skipped"`);
+  `sentry.py` and `zulip.py` do not, and will keep flooding until those connectors
+  are published.
+- `container_manager.py`, `arr.py`, `vector_db.py`, `tunnel_manager.py`,
+  `atlassian.py`, `repository_manager.py`, and `media_downloader.py` import an
+  `<connector>.api_client` submodule that does not exist in
+  `container-manager-mcp` / `arr-mcp` / `vector-mcp` / `tunnel-manager` /
+  `atlassian-agent` / `repository-manager` / `media-downloader` at any published
+  or local version — those packages expose a different public API entirely.
+  Installing the extra changes their failure from "module not found" to
+  "submodule not found"; the widgets themselves need a real fix.
+- `portainer.py`'s `portainer-agent` dependency resolves from PyPI, but the newest
+  published release (1.1.0) still imports the since-renamed
+  `agent_utilities.http` (now `agent_utilities.httpsupport`); the fix already
+  exists in the unpublished sibling checkout (2.1.0+) but PyPI has nothing newer
+  to pick up.
+
+See `pyproject.toml`'s `gateway-widgets` extra comment for the full per-package
+rationale (including why its version floors track what is actually published on
+PyPI rather than each connector's newer local checkout version) and
+`tests/unit/gateway/test_widget_connector_imports.py` for the regression test
+covering both the missing-dependency and the wrong-imported-symbol failure modes.
+
 ## Configuration
 
 ### Auto-Discovery from `mcp_config.json`

@@ -33,7 +33,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from github_agent.api_client import GitHubApi
+        from github_agent.api_client import Api as GitHubApi
 
         token = self._resolve_token(config)
         client = GitHubApi(token=token)
