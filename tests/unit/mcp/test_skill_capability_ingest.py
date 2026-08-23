@@ -135,7 +135,6 @@ def test_boot_skill_ingest_persists_uri_not_local_path(tmp_path, monkeypatch):
         "---\n\n# Sample\n",
         encoding="utf-8",
     )
-    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
 
     assert kg_server._ingest_skill_capabilities(engine, "synthetic-provider", root) == 1
@@ -156,7 +155,6 @@ def test_boot_skill_failure_log_uses_neutral_reference(tmp_path, caplog, monkeyp
     skill = root / "broken-skill"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: [\n---\n", encoding="utf-8")
-    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
 
     assert (
         kg_server._ingest_skill_capabilities(
@@ -193,7 +191,6 @@ def test_boot_skill_ingest_sanitizes_instruction_body(tmp_path, monkeypatch):
         f"{synthetic_token}.",
         encoding="utf-8",
     )
-    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
 
     assert kg_server._ingest_skill_capabilities(engine, "synthetic", root) == 1
@@ -211,12 +208,14 @@ def test_boot_skill_ingest_batches_existing_disabled_lookup(tmp_path, monkeypatc
     """One engine round trip covers the whole batch, not one per skill.
 
     Regression for the 2026-08-16 GraphOS cold-start incident: the prior
-    implementation called ``get_existing_disabled`` (one ``query_cypher`` per
-    skill) inside the per-skill loop, so N skills cost N round trips against
-    the out-of-process engine — the "batch, never per-element" rule this
-    codebase's own AGENTS.md and the epistemic-graph engine's design both
-    state explicitly. This test does NOT monkeypatch ``get_existing_disabled``
-    (unlike the other tests in this file) so it observes the real lookup path.
+    implementation called a since-removed singular per-id helper (one
+    ``query_cypher`` per skill) inside the per-skill loop, so N skills cost N
+    round trips against the out-of-process engine — the "batch, never
+    per-element" rule this codebase's own AGENTS.md and the epistemic-graph
+    engine's design both state explicitly. This test wraps
+    ``RecordingEngine.query_cypher`` with a ``MagicMock`` (rather than
+    replacing it) so it observes the exact number and shape of the real
+    lookup calls the ingest path issues.
     """
     root = tmp_path / "skills"
     skill_count = 12
@@ -254,7 +253,6 @@ def test_all_bundled_skills_are_runnable_and_resolve_by_body_digest(monkeypatch)
     from agent_utilities.skills import BUNDLED_SKILLS
 
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
-    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
 
     # Scoped to exactly the packaged/boot-critical skills: `agent_utilities/skills/`
@@ -297,7 +295,6 @@ def test_bundled_skill_readiness_is_idempotent(monkeypatch):
     from agent_utilities.skills import BUNDLED_SKILLS
 
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
-    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
     assert kg_server._ingest_skill_capabilities(
         engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
@@ -321,7 +318,6 @@ def test_bundled_skill_readiness_uses_governed_query_boundary(monkeypatch):
     from agent_utilities.skills import BUNDLED_SKILLS
 
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
-    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
     assert kg_server._ingest_skill_capabilities(
         engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
@@ -346,7 +342,6 @@ def test_bundled_skill_readiness_repairs_only_missing_resource(monkeypatch):
     from agent_utilities.skills import BUNDLED_SKILLS
 
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
-    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
     assert kg_server._ingest_skill_capabilities(
         engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)
@@ -409,7 +404,6 @@ def test_ensure_bundled_skills_ready_reaches_full_readiness_on_first_boot(
     """
     from agent_utilities.skills import BUNDLED_SKILLS
 
-    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
 
     readiness = kg_server._ensure_bundled_skills_ready(engine)
@@ -439,7 +433,6 @@ def test_ready_bundled_skill_names_rejects_content_drifted_stored_node(
     from agent_utilities.skills import BUNDLED_SKILLS
 
     root = Path(kg_server.__file__).resolve().parents[1] / "skills"
-    monkeypatch.setattr(kg_server, "get_existing_disabled", lambda *_args: False)
     engine = RecordingEngine()
     assert kg_server._ingest_skill_capabilities(
         engine, "agent-utilities", root, include_names=frozenset(BUNDLED_SKILLS)

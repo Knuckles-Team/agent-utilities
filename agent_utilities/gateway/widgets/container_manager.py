@@ -35,16 +35,23 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from container_manager_mcp.api_client import ContainerManagerApi
+        # No `container_manager_mcp.api_client` module exists — the package's
+        # real public entry point is the `create_manager()` factory
+        # (container_manager_mcp/container_manager.py), which auto-detects and
+        # connects to the local Docker/Podman runtime and returns a
+        # DockerManager/PodmanManager (both ContainerManagerBase). It raises
+        # ImportError/ValueError/RuntimeError when no runtime is reachable —
+        # all handled by BaseWidget._safe_fetch.
+        from container_manager_mcp import create_manager
 
-        client = ContainerManagerApi()
+        client = create_manager()
         try:
-            containers = client.list_containers(all_containers=True) or []
+            containers = client.list_containers(all=True) or []
             images = client.list_images() or []
             volumes = client.list_volumes() or []
             networks = client.list_networks() or []
             running = sum(
-                1 for c in containers if c.get("State", "").lower() == "running"
+                1 for c in containers if c.get("status", "").lower() == "running"
             )
         except Exception as e:
             logger.debug("Container Manager fetch: %s", type(e).__name__)

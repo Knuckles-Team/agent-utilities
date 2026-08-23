@@ -45,6 +45,7 @@ the :class:`PriorityClass` the worker binds while running (the W2.4 engine QoS l
 
 import asyncio
 import contextlib
+import contextvars
 import json
 import logging
 import os
@@ -1392,8 +1393,19 @@ def _start_heartbeat(
                 )
                 return
 
+    # threading.Thread does NOT inherit contextvars (unlike asyncio.Task), so
+    # this thread would otherwise run with an EMPTY context -- losing the
+    # ambient GraphSession the caller entered via use_session() before
+    # spawning the heartbeat, even though the work item was claimed fine on
+    # the calling thread. copy_context() carries that session into the
+    # worker thread so _wi.heartbeat()'s engine calls stay authorized
+    # instead of raising SessionRequiredError on the first beat -- the same
+    # fix already landed for the messaging intake lease renewal thread.
+    beat_ctx = contextvars.copy_context()
     thread = threading.Thread(
-        target=_beat, name=f"activation-heartbeat-{work_item_id[-8:]}", daemon=True
+        target=lambda: beat_ctx.run(_beat),
+        name=f"activation-heartbeat-{work_item_id[-8:]}",
+        daemon=True,
     )
     thread.start()
     return thread

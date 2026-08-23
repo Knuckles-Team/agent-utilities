@@ -31,14 +31,19 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from vector_mcp.api_client import VectorApi
+        # No `vector_mcp.api_client` module exists. The package's real public
+        # client is `vector_mcp.vector_api.Api` — an in-process facade over the
+        # configured vector backend (epistemic-graph by default), not a remote
+        # REST client, so it takes no base_url/token.
+        from vector_mcp.vector_api import Api
 
-        url = self._resolve_url(config)
-        token = self._resolve_token(config)
-        client = VectorApi(base_url=url, api_key=token)
+        client = Api()
         try:
-            collections = client.list_collections() or []
-            count = len(collections) if isinstance(collections, list) else 0
+            result = client.list_collections() or {}
+            collections = (
+                result.get("collections", []) if isinstance(result, dict) else []
+            )
+            count = len(collections)
         except Exception as e:
             logger.debug("Vector DB fetch: %s", type(e).__name__)
             return self._error_data(e)
