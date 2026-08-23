@@ -72,6 +72,30 @@ _BUILTIN_WIDGETS: dict[str, str] = {
     "teleport": "agent_utilities.gateway.widgets.teleport",
     "sentry": "agent_utilities.gateway.widgets.sentry",
     "ollama": "agent_utilities.gateway.widgets.ollama",
+    # Connector-fleet expansion (widget-connector-expansion) — one entry per
+    # agent-packages/agents/* connector that exposes a usable programmatic
+    # client. See docs/pillars/5_agent_os_infrastructure/OS-5.9-Gateway_Service_Dashboard.md
+    # for the full connector<->widget inventory and the connectors excluded
+    # (no single-service status to poll, or no simple url+token client shape).
+    "aris": "agent_utilities.gateway.widgets.aris",
+    "audiobookshelf": "agent_utilities.gateway.widgets.audiobookshelf",
+    "camunda": "agent_utilities.gateway.widgets.camunda",
+    "ciso_assistant": "agent_utilities.gateway.widgets.ciso_assistant",
+    "clarity": "agent_utilities.gateway.widgets.clarity",
+    "dockerhub": "agent_utilities.gateway.widgets.dockerhub",
+    "egeria": "agent_utilities.gateway.widgets.egeria",
+    "fan_manager": "agent_utilities.gateway.widgets.fan_manager",
+    "firefly_iii": "agent_utilities.gateway.widgets.firefly_iii",
+    "freshrss": "agent_utilities.gateway.widgets.freshrss",
+    "gramps": "agent_utilities.gateway.widgets.gramps",
+    "hdhomerun": "agent_utilities.gateway.widgets.hdhomerun",
+    "jena": "agent_utilities.gateway.widgets.jena",
+    "kafka": "agent_utilities.gateway.widgets.kafka",
+    "okta": "agent_utilities.gateway.widgets.okta",
+    "onetrust": "agent_utilities.gateway.widgets.onetrust",
+    "paperless_ngx": "agent_utilities.gateway.widgets.paperless_ngx",
+    "pulselink": "agent_utilities.gateway.widgets.pulselink",
+    "rom_manager": "agent_utilities.gateway.widgets.rom_manager",
 }
 
 
