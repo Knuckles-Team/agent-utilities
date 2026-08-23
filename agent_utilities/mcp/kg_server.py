@@ -385,111 +385,40 @@ def build_native_graphos_toolset(tool_names: list[str], *, toolset_id: str) -> A
     )
 
 
-# Verified fleet-ingestion labels for the two ``get_existing_disabled`` call
-# sites that pass a bare node id with no label (``_ingest_capabilities``'s
-# MCP-config loop writes ``MCPServer``, its native-tool loop writes
-# ``NativeTool`` — confirmed by reading their ``engine.add_node(node_id,
-# "MCPServer"/"NativeTool", ...)`` calls, not guessed). An unlabeled
-# ``MATCH (n)`` resolves via ``GraphCore::get_nodes()``, which clones every
-# node's property blob in the ENTIRE graph on every call — the Rust Cypher
-# executor has no id index at all, only a label index
-# (``get_nodes_by_label``). Trying these verified labels first turns the hot
-# path into an indexed O(1)-ish lookup instead of an O(total graph nodes)
-# clone; the final unlabeled query below is kept as a correctness-preserving
-# fallback for any node this helper is ever called with outside that verified
-# set, so no caller's node type silently stops resolving.
-_DISABLED_LOOKUP_LABELS: tuple[str, ...] = ("MCPServer", "NativeTool")
-
-
-def get_existing_disabled(engine, node_id: str, *, label: str | None = None) -> bool:
-    """Best-effort read of a node's prior ``disabled`` flag.
-
-    Fail-closed on infrastructure failure: this flag feeds an enable/disable
-    decision, so a lookup that could not complete (an exception from the
-    in-memory cache or ``query_cypher``) returns ``True`` (treat as disabled)
-    rather than silently defaulting to "not disabled" — the caller must never
-    be unable to distinguish "confirmed not disabled" from "couldn't check".
-    A genuinely absent node (every query executed successfully and found
-    nothing — i.e. a brand-new node with no prior state) still returns
-    ``False``; that is not a failure.
-
-    ``label`` lets a caller that knows the node's type skip the candidate/
-    fallback probing below and issue exactly one indexed query.
-    """
-    try:
-        # 1. Try in-memory graph cache first
-        if hasattr(engine, "graph_compute") and hasattr(engine.graph_compute, "graph"):
-            if node_id in engine.graph_compute.graph:
-                return bool(
-                    engine.graph_compute.graph.nodes[node_id].get("disabled", False)
-                )
-        # 2. Try Cypher, label-scoped (indexed) first.
-        candidates = (label,) if label else _DISABLED_LOOKUP_LABELS
-        for candidate_label in candidates:
-            safe_label = validate_identifier(candidate_label, kind="label")
-            res = engine.query_cypher(
-                f"MATCH (n:{safe_label}) WHERE n.id = $node_id "
-                "RETURN n.id AS id, n.disabled AS disabled",
-                {"node_id": node_id},
-            )
-            if res and isinstance(res, list) and len(res) > 0:
-                return bool(res[0].get("disabled", False))
-        if label:
-            # Caller asserted the label; a miss under it is a genuine "not
-            # found", not grounds to fall back to an unlabeled scan.
-            return False
-        # 3. Correctness fallback: a node whose label isn't one of the
-        # verified candidates above (an unbounded scan, same cost this
-        # lookup always had — only reached for a node type outside the
-        # verified fleet set).
-        res = engine.query_cypher(
-            "MATCH (n) WHERE n.id = $node_id RETURN n.id AS id, n.disabled AS disabled",
-            {"node_id": node_id},
-        )
-        if res and isinstance(res, list) and len(res) > 0:
-            return bool(res[0].get("disabled", False))
-    except Exception as exc:  # noqa: BLE001 — surfaced as a fail-closed True below
-        logger.error(
-            "get_existing_disabled(%s) lookup failed — failing closed "
-            "(treating as disabled): %s",
-            node_id,
-            type(exc).__name__,
-        )
-        return True
-    return False
-
-
-def get_existing_disabled_batch(engine, node_ids: list[str]) -> dict[str, bool]:
-    """Batched form of :func:`get_existing_disabled` — ONE round trip for many ids.
+def get_existing_disabled_batch(
+    engine, node_ids: list[str], *, label: str = "CallableResource"
+) -> dict[str, bool]:
+    """Resolve many nodes' prior ``disabled`` flag in ONE engine round trip.
 
     The boot skill-ingestion loop (:func:`_ingest_skill_capabilities`) used to
-    call ``get_existing_disabled`` once per skill file — N engine round trips
-    for N skills against the out-of-process engine, the per-element-loop shape
-    the engine's own design rule forbids ("batch, never per-element"). This
-    resolves every id's prior ``disabled`` flag in a single ``query_cypher``
-    call (falling back to the in-memory ``graph_compute`` cache per id first,
-    exactly like the single-id helper, when that cache is available).
+    call a since-removed singular per-id helper once per skill file — N engine
+    round trips for N skills against the out-of-process engine, the
+    per-element-loop shape the engine's own design rule forbids ("batch,
+    never per-element"). This resolves every id's prior ``disabled`` flag in
+    a single ``query_cypher`` call (falling back to the in-memory
+    ``graph_compute`` cache per id first, when that cache is available).
 
-    The query is scoped to ``:CallableResource`` — the verified label of
-    every id this function's sole caller passes (the skill runnable-resource
-    ids built in :func:`_ingest_skill_capabilities`; see
-    ``ingest_runnable_skill``'s ``engine._upsert_node("CallableResource",
-    resource_id, ...)``). An unlabeled ``MATCH (n)`` here would clone every
-    node's property blob in the whole graph on every boot; the label makes it
-    an indexed lookup instead. Kept to exactly one label (no unlabeled
-    fallback) so this stays the single round trip the batching contract above
-    — and ``test_boot_skill_ingest_batches_existing_disabled_lookup`` —
-    require; a future caller needing a different label should extend this
-    function rather than rely on an unlabeled scan.
+    The query is scoped to ``label`` — the verified label of every id the
+    caller is passing. The default, ``:CallableResource``, is the original
+    (and still sole default) caller's label: the skill runnable-resource ids
+    built in :func:`_ingest_skill_capabilities` (see ``ingest_runnable_skill``'s
+    ``engine._upsert_node("CallableResource", resource_id, ...)``).
+    :func:`_ingest_capabilities`'s MCP-config and native-tool loops pass
+    ``label="MCPServer"``/``label="NativeTool"`` respectively. An unlabeled
+    ``MATCH (n)`` here would clone every node's property blob in the whole
+    graph on every boot; the label makes it an indexed lookup instead. Kept
+    to exactly one label per call (no unlabeled fallback) so this stays the
+    single round trip the batching contract above — and
+    ``test_boot_skill_ingest_batches_existing_disabled_lookup`` — require.
 
     Fail-closed: a lookup that could not complete (an exception from the
     in-memory cache or ``query_cypher``) marks every id still unresolved at
     that point ``True`` (disabled) in the returned mapping — never omitted,
-    since the caller (``disabled_by_resource.get(resource_id, False)``)
-    treats a missing key as "not disabled". A genuinely absent id (query
-    executed successfully, found nothing) is left absent, exactly as before —
-    that is a brand-new node with no prior state, not a failure.
+    since call sites read a missing key as "not disabled". A genuinely absent
+    id (query executed successfully, found nothing) is left absent, exactly
+    as before — that is a brand-new node with no prior state, not a failure.
     """
+    safe_label = validate_identifier(label, kind="label")
     result: dict[str, bool] = {}
     remaining = list(dict.fromkeys(node_ids))  # de-dupe, preserve order
     if not remaining:
@@ -518,7 +447,7 @@ def get_existing_disabled_batch(engine, node_ids: list[str]) -> dict[str, bool]:
         return result
     try:
         res = engine.query_cypher(
-            "MATCH (n:CallableResource) WHERE n.id IN $node_ids "
+            f"MATCH (n:{safe_label}) WHERE n.id IN $node_ids "
             "RETURN n.id AS id, n.disabled AS disabled",
             {"node_ids": remaining},
         )
@@ -3305,18 +3234,28 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
             mcp_servers = data.get("mcpServers", {})
             if not isinstance(mcp_servers, dict):
                 raise ValueError("MCP server registry must be an object")
-            ingested = 0
+            declarations = []
             for server_name, server_details in mcp_servers.items():
                 if not isinstance(server_details, dict):
                     continue
                 node_id, declaration = _mcp_capability_declaration(
                     server_name, server_details
                 )
-                disabled = get_existing_disabled(engine, node_id)
+                declarations.append((node_id, declaration))
+            # One batched round trip for every server's prior ``disabled``
+            # flag instead of one query per server (was the dominant source
+            # of the "slow engine call" warnings at boot).
+            disabled_by_id = get_existing_disabled_batch(
+                engine,
+                [node_id for node_id, _declaration in declarations],
+                label="MCPServer",
+            )
+            ingested = 0
+            for node_id, declaration in declarations:
                 engine.add_node(
                     node_id,
                     "MCPServer",
-                    {**declaration, "disabled": disabled},
+                    {**declaration, "disabled": disabled_by_id.get(node_id, False)},
                 )
                 ingested += 1
             logger.info("Ingested %d MCP capability declarations", ingested)
@@ -3328,6 +3267,7 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
         import agent_utilities.tools
 
         prefix = agent_utilities.tools.__name__ + "."
+        tool_entries: list[tuple[str, dict[str, Any]]] = []
         for importer, modname, ispkg in pkgutil.iter_modules(
             agent_utilities.tools.__path__, prefix
         ):
@@ -3337,25 +3277,37 @@ def _ingest_capabilities(engine, *, skip_skill_names: frozenset[str] = frozenset
                     for name, obj in inspect.getmembers(module, inspect.isfunction):
                         if hasattr(obj, "__agentic_version__"):
                             node_id = f"native_tool_{name}"
-                            disabled = get_existing_disabled(engine, node_id)
                             description, _privacy = sanitize_for_persistence(
                                 (obj.__doc__ or "")[:8192]
                             )
-                            engine.add_node(
-                                node_id,
-                                "NativeTool",
-                                {
-                                    "name": name,
-                                    "description": str(description),
-                                    "version": obj.__agentic_version__,
-                                    "module": modname,
-                                    "disabled": disabled,
-                                },
+                            tool_entries.append(
+                                (
+                                    node_id,
+                                    {
+                                        "name": name,
+                                        "description": str(description),
+                                        "version": obj.__agentic_version__,
+                                        "module": modname,
+                                    },
+                                )
                             )
                 except Exception as exc:  # noqa: BLE001 — per-module best-effort skip; the outer scan already logs failures
                     logger.debug(
                         "Failed to ingest a native-tool module: %s", type(exc).__name__
                     )
+        # One batched round trip for every native tool's prior ``disabled``
+        # flag instead of one query per tool.
+        disabled_by_id = get_existing_disabled_batch(
+            engine,
+            [node_id for node_id, _properties in tool_entries],
+            label="NativeTool",
+        )
+        for node_id, properties in tool_entries:
+            engine.add_node(
+                node_id,
+                "NativeTool",
+                {**properties, "disabled": disabled_by_id.get(node_id, False)},
+            )
         logger.info("Ingested Native Tools")
     except Exception as exc:
         logger.error("Failed to scan native tools: %s", exc)

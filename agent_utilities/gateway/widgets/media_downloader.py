@@ -31,7 +31,20 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from media_downloader.api_client import MediaDownloaderApi
+        # `media_downloader.api_client` does not exist at any version. The
+        # package's real client (`media_downloader.MediaDownloader`) exposes no
+        # usable programmatic status surface either: it is a synchronous,
+        # one-shot yt-dlp wrapper (construct with links, call
+        # download_video()/download_all()) with no queue/completed/failed
+        # tracking or status endpoint to poll. Rather than invent one, degrade
+        # honestly (see ear.py) with a guarded import — this activates cleanly
+        # if a future release adds a real status-query client.
+        try:
+            from media_downloader.api_client import MediaDownloaderApi
+        except ImportError:
+            return WidgetData(
+                status="skipped", error="media-downloader has no status API"
+            )
 
         client = MediaDownloaderApi()
         try:
