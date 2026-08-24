@@ -537,13 +537,28 @@ def _parse_skill_md(path: Any) -> dict[str, Any]:
 
 
 def get_toggle_state(engine, item_type: str, item_id: str) -> bool:
-    """Check if an item is enabled or disabled in the KG."""
+    """Check if an item is enabled or disabled in the KG.
+
+    DEFECT B fix: the row-governance layer
+    (``secured_reads.row_node_ids``/``_row_node_id``) REQUIRES every returned
+    row to carry an identity under one of ``id``/``node_id``/``n.id``/``_id``,
+    or it raises ``PermissionError: Graph result contains a row without a
+    governed node id``. The prior query projected only ``p.value`` — every
+    successful match was therefore rejected by governance and silently
+    swallowed by the broad ``except`` below into ``return True``, meaning a
+    user's explicit "disabled" was reported back as "enabled" (real data
+    loss). Project ``p.id AS id`` so a genuine match survives governance.
+
+    For N-item reads, prefer :func:`get_toggle_states_batch` — this
+    single-item form still issues one engine round trip per call.
+    """
     if not engine:
         return True
     pref_id = f"preference:toggle:{item_type}:{item_id}"
     try:
         res = engine.query_cypher(
-            "MATCH (p:Preference) WHERE p.id = $pref_id RETURN p.value as value",
+            "MATCH (p:Preference) WHERE p.id = $pref_id "
+            "RETURN p.id AS id, p.value AS value",
             {"pref_id": pref_id},
         )
         if res and len(res) > 0:
@@ -551,6 +566,73 @@ def get_toggle_state(engine, item_type: str, item_id: str) -> bool:
     except Exception as exc:
         logger.error("Failed to query toggle state: %s", exc)
     return True  # Enabled by default
+
+
+def get_toggle_states_batch(
+    engine, items: list[tuple[str, str]]
+) -> dict[tuple[str, str], bool]:
+    """Resolve many ``(item_type, item_id)`` toggle states in ONE round trip.
+
+    DEFECT B fix: ``get_tools_endpoint`` used to call :func:`get_toggle_state`
+    once per rendered item — one synchronous Cypher round trip each. Measured
+    inventory on the production pod: 254 skill files + 68 skill-graph files +
+    31 builtin tools + 66 MCP servers = 350+ sequential engine round trips in
+    a single request (it did not return within 90s, nor within 180s). This
+    batches every id the caller is about to render into ONE query.
+
+    Engine facts this function must respect (both confirmed live against the
+    deployed engine — getting either wrong makes the batch silently match
+    nothing):
+
+    1. ``STARTS WITH`` with a ``$param`` operand does not parse on the
+       deployed engine. This uses ``IN`` with an explicit id list instead —
+       index-servable via the engine's node-id fast path, O(items rendered)
+       rather than O(all preferences), and already the pattern used by the
+       sibling batching helper :func:`get_existing_disabled_batch`.
+    2. The row-governance layer (``secured_reads.row_node_ids``) requires
+       every returned row to carry an identity under ``id``/``node_id``/
+       ``n.id``/``_id`` — this projects ``p.id AS id`` so a real match is not
+       rejected by governance and silently reported as "enabled" (see
+       :func:`get_toggle_state`'s docstring for the data-loss this caused).
+
+    Fail-open on a query error (an id with no resolvable state defaults to
+    enabled=True), matching :func:`get_toggle_state`'s existing per-item
+    default — this function only changes the ROUND-TRIP COUNT and the
+    governance projection, not the toggle default semantics.
+    """
+    seen = list(dict.fromkeys(items))  # de-dupe, preserve order
+    if not engine or not seen:
+        return dict.fromkeys(seen, True)
+
+    pref_id_by_key = {key: f"preference:toggle:{key[0]}:{key[1]}" for key in seen}
+    pref_ids = list(pref_id_by_key.values())
+    try:
+        res = engine.query_cypher(
+            "MATCH (p:Preference) WHERE p.id IN $pref_ids "
+            "RETURN p.id AS id, p.value AS value",
+            {"pref_ids": pref_ids},
+        )
+        if not isinstance(res, list):
+            raise TypeError(f"expected a list of rows, got {type(res).__name__}")
+    except Exception as exc:
+        logger.error(
+            "get_toggle_states_batch(%d items) failed — defaulting every "
+            "item to enabled=True: %s",
+            len(seen),
+            exc,
+        )
+        return dict.fromkeys(seen, True)
+
+    value_by_pref_id: dict[str, Any] = {}
+    for row in res:
+        if isinstance(row, dict) and row.get("id"):
+            value_by_pref_id[str(row["id"])] = row.get("value")
+
+    result: dict[tuple[str, str], bool] = {}
+    for key in seen:
+        value = value_by_pref_id.get(pref_id_by_key[key])
+        result[key] = True if value is None else value == "enabled"
+    return result
 
 
 def set_toggle_state(engine, item_type: str, item_id: str, enabled: bool):
@@ -631,20 +713,36 @@ def _external_error_response(
     )
 
 
-async def get_tools_endpoint(request: Request) -> JSONResponse:
-    """Retrieve all MCP tools, built-in tools, skills, skill graphs, and workflows categorized."""
+def _build_tools_payload_sync(
+    engine: Any, workspace_root: Path | None
+) -> dict[str, Any]:
+    """Synchronous body of :func:`get_tools_endpoint` — file I/O + ONE batched engine round trip.
+
+    DEFECT A/B fix: this used to be inlined directly in the ``async def``
+    handler, calling :func:`get_toggle_state` once per rendered item (350+
+    sequential, BLOCKING ``query_cypher`` round trips on the production pod —
+    254 skill files + 68 skill-graph files + 31 builtin tools + 66 MCP
+    servers — enough that the request never returned within 180s). Every one
+    of those blocking calls ran directly on the single asyncio event loop,
+    starving every other request on the worker (reproduced live: concurrent
+    static-asset requests timed out at the 25s ceiling while this request was
+    in flight; idle baseline for those same assets is 44-112ms).
+
+    Fixed two ways:
+    1. This whole function is now synchronous, blocking, file-I/O-and-engine
+       heavy code, run via ``asyncio.to_thread`` from the async endpoint
+       below — matching the existing ``_execute_tool``/``asyncio.to_thread``
+       pattern already used elsewhere in this file — so it never blocks the
+       event loop.
+    2. It gathers every ``(item_type, item_id)`` pair it is about to render
+       FIRST, then resolves every toggle state in ONE
+       :func:`get_toggle_states_batch` call instead of N per-item calls.
+    """
     import json
-    from pathlib import Path
 
-    from ..knowledge_graph.core.session import resolve_session
-
-    resolve_session(required_scope="kg:read")
-
-    engine = _get_engine()
-
-    # 1. MCP Tools
-    mcp_tools = []
-    # Try different config paths
+    # 1. MCP Tools — gather raw config first, defer toggle-state resolution.
+    mcp_tools: list[dict[str, Any]] = []
+    mcp_entries: list[tuple[str, dict[str, Any]]] = []  # (name, cfg)
     config_paths = [
         Path.home() / ".config" / "agent-utilities" / "mcp_config.json",
         Path.home() / ".config" / "agent-utilities" / "config.json",
@@ -666,47 +764,22 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
                 and isinstance(mcp_data["mcp_config"], dict)
             ):
                 mcp_servers = mcp_data["mcp_config"].get("mcpServers", {})
-            for name, cfg in mcp_servers.items():
-                mcp_enabled = get_toggle_state(engine, "mcp_server", name)
-                if cfg.get("disabled", False):
-                    mcp_enabled = False
-                mcp_tools.append(
-                    {
-                        "name": name,
-                        "type": "MCP Server",
-                        "launch_mode": "subprocess" if cfg.get("command") else "remote",
-                        "command": "[configured]" if cfg.get("command") else "",
-                        "args": ["[configured]"] if cfg.get("args") else [],
-                        "status": "active" if mcp_enabled else "disabled",
-                        "enabled": mcp_enabled,
-                    }
-                )
+            mcp_entries = list(mcp_servers.items())
         except Exception as e:
             logger.error("Failed to parse MCP config: %s", e)
 
-    # 2. Built-in Agent Tools
-    builtin_tools = []
+    # 2. Built-in Agent Tools — gather raw file stems first.
     tools_dir = Path(__file__).resolve().parents[1] / "tools"
+    builtin_stems: list[str] = []
     if tools_dir.exists() and tools_dir.is_dir():
         for f in tools_dir.glob("*.py"):
             if f.name.startswith("_"):
                 continue
-            builtin_enabled = get_toggle_state(engine, "builtin_tool", f.stem)
-            builtin_tools.append(
-                {
-                    "name": f.stem,
-                    "type": "Built-in Tool",
-                    "file_path": f"tool://{f.stem}",
-                    "status": "enabled" if builtin_enabled else "disabled",
-                    "enabled": builtin_enabled,
-                }
-            )
+            builtin_stems.append(f.stem)
 
-    # 3. Skills & Workflows
-    skills = []
-    workflows = []
-    workspace_value = (setting("WORKSPACE_PATH", "") or "").strip()
-    workspace_root = Path(workspace_value) if workspace_value else None
+    # 3. Skills & Workflows — parse SKILL.md files first, defer toggle state.
+    skill_entries: list[dict[str, Any]] = []  # bucket="skill"
+    workflow_entries: list[dict[str, Any]] = []  # bucket="skill_workflow"
     univ_skills_dir = (
         workspace_root
         / "agent-packages"
@@ -721,19 +794,13 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
             skill_info = _parse_skill_md(p)
             if "workflows" in p.parts:
                 skill_info["type"] = "Skill Workflow"
-                skill_info["enabled"] = get_toggle_state(
-                    engine, "skill_workflow", skill_info["id"]
-                )
-                workflows.append(skill_info)
+                workflow_entries.append(skill_info)
             else:
                 skill_info["type"] = "Agent Skill"
-                skill_info["enabled"] = get_toggle_state(
-                    engine, "skill", skill_info["id"]
-                )
-                skills.append(skill_info)
+                skill_entries.append(skill_info)
 
-    # 4. Skill Graphs
-    graphs = []
+    # 4. Skill Graphs — parse SKILL.md files first, defer toggle state.
+    graph_entries: list[dict[str, Any]] = []
     graphs_dir = (
         workspace_root / "agent-packages" / "skills" / "skill-graphs" / "skill_graphs"
         if workspace_root is not None
@@ -743,22 +810,90 @@ async def get_tools_endpoint(request: Request) -> JSONResponse:
         for p in graphs_dir.glob("**/SKILL.md"):
             skill_info = _parse_skill_md(p)
             skill_info["type"] = "Skill Graph"
-            skill_info["enabled"] = get_toggle_state(
-                engine, "skill_graph", skill_info["id"]
-            )
-            graphs.append(skill_info)
+            graph_entries.append(skill_info)
 
-    return JSONResponse(
-        {
-            "mcp_tools": mcp_tools,
-            "builtin_tools": builtin_tools,
-            "skills": sorted(skills, key=lambda x: x.get("name", "").lower()),
-            "skill_graphs": sorted(graphs, key=lambda x: x.get("name", "").lower()),
-            "skill_workflows": sorted(
-                workflows, key=lambda x: x.get("name", "").lower()
-            ),
-        }
+    # ── ONE batched engine round trip for every toggle state ───────────────
+    toggle_keys: list[tuple[str, str]] = (
+        [("mcp_server", name) for name, _cfg in mcp_entries]
+        + [("builtin_tool", stem) for stem in builtin_stems]
+        + [("skill_workflow", info["id"]) for info in workflow_entries]
+        + [("skill", info["id"]) for info in skill_entries]
+        + [("skill_graph", info["id"]) for info in graph_entries]
     )
+    toggle_states = get_toggle_states_batch(engine, toggle_keys)
+
+    for name, cfg in mcp_entries:
+        mcp_enabled = toggle_states[("mcp_server", name)]
+        if cfg.get("disabled", False):
+            mcp_enabled = False
+        mcp_tools.append(
+            {
+                "name": name,
+                "type": "MCP Server",
+                "launch_mode": "subprocess" if cfg.get("command") else "remote",
+                "command": "[configured]" if cfg.get("command") else "",
+                "args": ["[configured]"] if cfg.get("args") else [],
+                "status": "active" if mcp_enabled else "disabled",
+                "enabled": mcp_enabled,
+            }
+        )
+
+    builtin_tools = [
+        {
+            "name": stem,
+            "type": "Built-in Tool",
+            "file_path": f"tool://{stem}",
+            "status": "enabled"
+            if toggle_states[("builtin_tool", stem)]
+            else "disabled",
+            "enabled": toggle_states[("builtin_tool", stem)],
+        }
+        for stem in builtin_stems
+    ]
+
+    workflows = []
+    for skill_info in workflow_entries:
+        skill_info["enabled"] = toggle_states[("skill_workflow", skill_info["id"])]
+        workflows.append(skill_info)
+
+    skills = []
+    for skill_info in skill_entries:
+        skill_info["enabled"] = toggle_states[("skill", skill_info["id"])]
+        skills.append(skill_info)
+
+    graphs = []
+    for skill_info in graph_entries:
+        skill_info["enabled"] = toggle_states[("skill_graph", skill_info["id"])]
+        graphs.append(skill_info)
+
+    return {
+        "mcp_tools": mcp_tools,
+        "builtin_tools": builtin_tools,
+        "skills": sorted(skills, key=lambda x: x.get("name", "").lower()),
+        "skill_graphs": sorted(graphs, key=lambda x: x.get("name", "").lower()),
+        "skill_workflows": sorted(workflows, key=lambda x: x.get("name", "").lower()),
+    }
+
+
+async def get_tools_endpoint(request: Request) -> JSONResponse:
+    """Retrieve all MCP tools, built-in tools, skills, skill graphs, and workflows categorized."""
+    from ..knowledge_graph.core.session import resolve_session
+
+    resolve_session(required_scope="kg:read")
+
+    engine = _get_engine()
+    workspace_value = (setting("WORKSPACE_PATH", "") or "").strip()
+    workspace_root = Path(workspace_value) if workspace_value else None
+
+    # DEFECT A fix: this endpoint used to call ``engine.query_cypher`` (a
+    # plain blocking ``def``) directly and synchronously from inside an
+    # ``async def`` handler, blocking the single-threaded asyncio event loop
+    # for the whole request — starving every other request on the worker,
+    # including static files (reproduced live). Move the blocking work off
+    # the loop via ``asyncio.to_thread``, matching ``_execute_tool``'s
+    # existing pattern in this file.
+    payload = await asyncio.to_thread(_build_tools_payload_sync, engine, workspace_root)
+    return JSONResponse(payload)
 
 
 async def toggle_tool_endpoint(request: Request) -> JSONResponse:
@@ -781,7 +916,12 @@ async def toggle_tool_endpoint(request: Request) -> JSONResponse:
         )
 
     engine = _get_engine()
-    set_toggle_state(engine, item_type, item_id, enabled)
+    # DEFECT A audit: same blocking-call anti-pattern as `get_tools_endpoint`
+    # — `set_toggle_state` calls `engine.add_node`/`engine.query_cypher`
+    # (plain blocking `def`s) directly from this `async def` handler. Move it
+    # off the loop via `asyncio.to_thread`, matching `_execute_tool`'s
+    # existing pattern in this file.
+    await asyncio.to_thread(set_toggle_state, engine, item_type, item_id, enabled)
     return JSONResponse(
         {"status": "success", "type": item_type, "id": item_id, "enabled": enabled}
     )
@@ -1471,14 +1611,23 @@ async def graph_write_node_endpoint(request: Request) -> JSONResponse:
     except Exception:
         body = {}
     try:
+        # BUG (kgserver-blocking DEFECT C): the ``graph_write`` tool declares
+        # this parameter as ``node_id`` (see ``write_ingest_tools.graph_write``'s
+        # signature), not ``id`` — the mismatch made every call fail closed with
+        # ``UnsupportedToolFieldError: Tool 'graph_write' does not accept
+        # field(s): id`` (confirmed live in the pod logs). Pass ``node_id=``.
         res = await _execute_tool(
             "graph_write",
             action="add_node",
-            id=body.get("node_id", ""),
+            node_id=body.get("node_id", ""),
             node_type=body.get("node_type", ""),
             properties=_to_json_str(body.get("properties", {})),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # U-74, same class of fix as `graph_query_endpoint` above: a
+        # caller-side/field-name mistake is a clean 4xx, not a 500.
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -1486,8 +1635,12 @@ async def graph_write_node_endpoint(request: Request) -> JSONResponse:
 async def graph_write_delete_node_endpoint(request: Request) -> JSONResponse:
     try:
         node_id = request.path_params.get("node_id", "")
-        res = await _execute_tool("graph_write", action="delete_node", id=node_id)
+        # Same DEFECT C field-name bug as `graph_write_node_endpoint` above:
+        # the tool parameter is ``node_id``, not ``id``.
+        res = await _execute_tool("graph_write", action="delete_node", node_id=node_id)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 

@@ -366,10 +366,14 @@ async def test_granular_write_endpoints(mock_execute_tool, client):
     )
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"status": "write_ok"}}
+    # DEFECT C regression: the `graph_write` tool declares this parameter as
+    # `node_id`, not `id` (see write_ingest_tools.graph_write's signature).
+    # The old `id=` kwarg made every real call fail closed with
+    # UnsupportedToolFieldError — confirmed live in the pod logs.
     mock_execute_tool.assert_called_with(
         "graph_write",
         action="add_node",
-        id="agent-1",
+        node_id="agent-1",
         node_type="Agent",
         properties='{"name": "Test Agent"}',
     )
@@ -379,7 +383,7 @@ async def test_granular_write_endpoints(mock_execute_tool, client):
     assert res.status_code == 200
     assert res.json() == {"status": "success", "result": {"status": "write_ok"}}
     mock_execute_tool.assert_called_with(
-        "graph_write", action="delete_node", id="agent-1"
+        "graph_write", action="delete_node", node_id="agent-1"
     )
 
     # 3. POST /graph/write/edge
