@@ -842,7 +842,13 @@ async def _list_kind(
     *,
     kind: str,
     model: type[BaseModel],
-) -> RegistryPage[Any]:
+) -> RegistryPage[Any] | JSONResponse:
+    """Return the typed page envelope, or a bare ``JSONResponse`` on the
+    catalog-unavailable path (FastAPI honors a returned ``Response`` over
+    the declared ``response_model``, so the 503 ``{"status":
+    "unavailable", ...}`` body below is served exactly as constructed;
+    this annotation only makes that documented, doubly-typed return honest
+    for static analysis — it changes no wire behavior)."""
     limit, query, cursor = _parse_request(request)
     try:
         tenant, principal, grant_digests = _require_catalog_authority(
@@ -925,7 +931,13 @@ async def _get_kind(
     kind: str,
     model: type[BaseModel],
     item_id: str,
-) -> RegistryItemEnvelope[Any]:
+) -> RegistryItemEnvelope[Any] | JSONResponse:
+    """Return the typed item envelope, or a bare ``JSONResponse`` on the
+    catalog-unavailable path (FastAPI honors a returned ``Response`` over
+    the declared ``response_model``, so the 503 ``{"status":
+    "unavailable", ...}`` body below is served exactly as constructed;
+    this annotation only makes that documented, doubly-typed return honest
+    for static analysis — it changes no wire behavior)."""
     try:
         tenant, principal, grant_digests = _require_catalog_authority(
             require_discovery_binding=_KIND_SPECS[kind].principal_column is not None
