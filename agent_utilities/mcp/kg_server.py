@@ -57,7 +57,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, TypedDict
 
 from agent_utilities._version import __version__
 from agent_utilities.core.config import setting
@@ -536,44 +536,12 @@ def _parse_skill_md(path: Any) -> dict[str, Any]:
         }
 
 
-def get_toggle_state(engine, item_type: str, item_id: str) -> bool:
-    """Check if an item is enabled or disabled in the KG.
-
-    DEFECT B fix: the row-governance layer
-    (``secured_reads.row_node_ids``/``_row_node_id``) REQUIRES every returned
-    row to carry an identity under one of ``id``/``node_id``/``n.id``/``_id``,
-    or it raises ``PermissionError: Graph result contains a row without a
-    governed node id``. The prior query projected only ``p.value`` — every
-    successful match was therefore rejected by governance and silently
-    swallowed by the broad ``except`` below into ``return True``, meaning a
-    user's explicit "disabled" was reported back as "enabled" (real data
-    loss). Project ``p.id AS id`` so a genuine match survives governance.
-
-    For N-item reads, prefer :func:`get_toggle_states_batch` — this
-    single-item form still issues one engine round trip per call.
-    """
-    if not engine:
-        return True
-    pref_id = f"preference:toggle:{item_type}:{item_id}"
-    try:
-        res = engine.query_cypher(
-            "MATCH (p:Preference) WHERE p.id = $pref_id "
-            "RETURN p.id AS id, p.value AS value",
-            {"pref_id": pref_id},
-        )
-        if res and len(res) > 0:
-            return res[0].get("value") == "enabled"
-    except Exception as exc:
-        logger.error("Failed to query toggle state: %s", exc)
-    return True  # Enabled by default
-
-
 def get_toggle_states_batch(
-    engine, items: list[tuple[str, str]]
+    engine: Any, items: list[tuple[str, str]]
 ) -> dict[tuple[str, str], bool]:
     """Resolve many ``(item_type, item_id)`` toggle states in ONE round trip.
 
-    DEFECT B fix: ``get_tools_endpoint`` used to call :func:`get_toggle_state`
+    DEFECT B fix: ``get_tools_endpoint`` used to call a single-item toggle read
     once per rendered item — one synchronous Cypher round trip each. Measured
     inventory on the production pod: 254 skill files + 68 skill-graph files +
     31 builtin tools + 66 MCP servers = 350+ sequential engine round trips in
@@ -593,10 +561,10 @@ def get_toggle_states_batch(
        every returned row to carry an identity under ``id``/``node_id``/
        ``n.id``/``_id`` — this projects ``p.id AS id`` so a real match is not
        rejected by governance and silently reported as "enabled" (see
-       :func:`get_toggle_state`'s docstring for the data-loss this caused).
+       the data-loss note above for what this caused).
 
     Fail-open on a query error (an id with no resolvable state defaults to
-    enabled=True), matching :func:`get_toggle_state`'s existing per-item
+    enabled=True), matching the previous per-item
     default — this function only changes the ROUND-TRIP COUNT and the
     governance projection, not the toggle default semantics.
     """
@@ -713,13 +681,28 @@ def _external_error_response(
     )
 
 
+class _ToolsPayload(TypedDict):
+    """The exact five-key catalog body :func:`get_tools_endpoint` serialises.
+
+    Named rather than ``dict[str, Any]`` so the producer/consumer seam is
+    typed: the handler, its tests, and the webui contract all agree on this
+    key set instead of rediscovering it from the return statement.
+    """
+
+    mcp_tools: list[dict[str, Any]]
+    builtin_tools: list[dict[str, Any]]
+    skills: list[dict[str, Any]]
+    skill_graphs: list[dict[str, Any]]
+    skill_workflows: list[dict[str, Any]]
+
+
 def _build_tools_payload_sync(
     engine: Any, workspace_root: Path | None
-) -> dict[str, Any]:
+) -> _ToolsPayload:
     """Synchronous body of :func:`get_tools_endpoint` — file I/O + ONE batched engine round trip.
 
     DEFECT A/B fix: this used to be inlined directly in the ``async def``
-    handler, calling :func:`get_toggle_state` once per rendered item (350+
+    handler, issuing a single-item toggle read per rendered item (350+
     sequential, BLOCKING ``query_cypher`` round trips on the production pod —
     254 skill files + 68 skill-graph files + 31 builtin tools + 66 MCP
     servers — enough that the request never returned within 180s). Every one
