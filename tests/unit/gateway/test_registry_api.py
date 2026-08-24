@@ -767,6 +767,29 @@ def test_catalog_failure_is_explicit_unavailable(monkeypatch):
     }
 
 
+def test_get_kind_catalog_failure_is_explicit_unavailable(monkeypatch):
+    """`_get_kind` (the single-item handler) fails closed identically to
+    `_list_kind`: bare `JSONResponse(..., status_code=503)` served over the
+    declared `RegistryItemEnvelope[Any]` response_model. This pins the exact
+    wire behavior (status code + JSON body) of `_get_kind`'s unavailable
+    path -- lines 946/952/963 -- as a regression guard for the return-type
+    annotation widening to `RegistryItemEnvelope[Any] | JSONResponse`
+    (type-hygiene only; FastAPI already honors a returned Response object
+    over response_model, so this body/status must be byte-identical to
+    before that annotation change)."""
+    engine = _FakeEngine(_rows())
+    engine.graph_compute.fail = True
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get("/api/registry/servers/mcp_server_alpha")
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "unavailable",
+        "reason": "catalog_unavailable",
+    }
+
+
 @pytest.mark.parametrize("malformation", ["missing_tenant", "wrong_tenant"])
 def test_malformed_catalog_scope_is_explicitly_unavailable(monkeypatch, malformation):
     engine = _FakeEngine(_rows())
