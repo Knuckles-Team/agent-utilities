@@ -25,6 +25,11 @@ as ``scripts/delegation_probe.py``:
 WHAT EACH STAGE PROVES — AND WHAT IT DOES NOT
 ------------------------------------------------
 1 mcp_handshake    Proves: the MCP transport is alive and serves >=1 tool.
+                   Attaches a best-effort bearer (acquired the same way stage
+                   3 acquires its own, via acquire_process_identity_token) to
+                   all three requests, since the live endpoint requires one
+                   and 401s without it — acquisition failure does not fail
+                   the stage, it just proceeds unauthenticated.
                    Does NOT prove: any individual tool executes correctly, or
                    that non-streamable-http transports (stdio) work.
 2 browser          Proves: agent-webui itself is serving traffic to an
@@ -289,9 +294,38 @@ def _delegation_probe_path(repo_root: Path, override: str) -> Path:
 # ---------------------------------------------------------------------------
 # Stage 1 — mcp_handshake (sync stage function, run via asyncio.to_thread)
 # ---------------------------------------------------------------------------
+def _acquire_mcp_auth_token() -> str | None:
+    """Best-effort bearer for stage 1 (DEFECT A: the live MCP endpoint 401s
+    without one). Acquired the SAME way stages 3 (api_gateway) and 4
+    (admission) already acquire theirs, via ``acquire_process_identity_token``
+    — see ``scripts/_harness_browser_api.py``'s ``stage_api_gateway``/
+    ``stage_admission``.
+
+    Deliberately OPTIONAL: acquisition failure (e.g. neither
+    ``KG_AUTH_TOKEN_REF`` nor ``KG_IDENTITY_OAUTH2`` configured in this
+    process) does not fail the stage outright — it falls back to ``None`` so
+    an endpoint that genuinely has no auth in front of it keeps working. If
+    the live endpoint DOES require a bearer, the handshake's own HTTP 401
+    surfaces that unambiguously; this function existing is not a license to
+    mask it. The token itself is never logged or printed.
+    """
+    try:
+        from agent_utilities.core.config import config
+        from agent_utilities.security.request_identity import (
+            acquire_process_identity_token,
+        )
+
+        return acquire_process_identity_token(config)
+    except Exception:
+        return None
+
+
 def _stage_mcp_handshake(a: argparse.Namespace) -> str:
     harness_mcp = _STATE["harness_mcp"]
-    result = harness_mcp.stage_mcp_handshake(a.mcp_url, timeout=a.timeout)
+    auth_token = _acquire_mcp_auth_token()
+    result = harness_mcp.stage_mcp_handshake(
+        a.mcp_url, timeout=a.timeout, auth_token=auth_token
+    )
     return (
         f"tools={result.tool_count} protocol={result.protocol_version} "
         f"server={result.server_name}/{result.server_version} "
