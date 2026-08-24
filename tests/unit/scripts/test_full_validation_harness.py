@@ -388,3 +388,99 @@ def test_stage_delegation_raises_when_probe_script_missing(tmp_path: Path) -> No
 
     with pytest.raises(RuntimeError, match="delegation_probe.py not found"):
         asyncio.run(module._stage_delegation(_args()))
+
+
+# ---------------------------------------------------------------------------
+# FIX LANE 11 — DEFECT A: stage 1 (mcp_handshake) bearer acquisition/threading
+# ---------------------------------------------------------------------------
+def test_acquire_mcp_auth_token_returns_token_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(
+        "agent_utilities.security.request_identity.acquire_process_identity_token",
+        lambda cfg: "fake-bearer-token",
+    )
+
+    assert module._acquire_mcp_auth_token() == "fake-bearer-token"
+
+
+def test_acquire_mcp_auth_token_is_optional_on_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Acquisition failing must NOT raise — the stage falls back to an
+    unauthenticated handshake so a deployment with no auth in front of /mcp
+    keeps working; the live endpoint's own response is the real signal."""
+    module = _module()
+
+    def _boom(cfg: object) -> str:
+        raise RuntimeError("neither KG_AUTH_TOKEN_REF nor KG_IDENTITY_OAUTH2 set")
+
+    monkeypatch.setattr(
+        "agent_utilities.security.request_identity.acquire_process_identity_token",
+        _boom,
+    )
+
+    assert module._acquire_mcp_auth_token() is None
+
+
+def test_stage_mcp_handshake_threads_the_acquired_token_through(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_stage_mcp_handshake` must pass whatever `_acquire_mcp_auth_token()`
+    returns straight into `harness_mcp.stage_mcp_handshake(..., auth_token=)`."""
+    module = _module()
+    monkeypatch.setattr(module, "_acquire_mcp_auth_token", lambda: "threaded-token")
+
+    captured: dict = {}
+
+    class _FakeHarnessMcp:
+        @staticmethod
+        def stage_mcp_handshake(mcp_url: str, *, timeout: float, auth_token=None):
+            captured["mcp_url"] = mcp_url
+            captured["timeout"] = timeout
+            captured["auth_token"] = auth_token
+            return SimpleNamespace(
+                tool_count=5,
+                protocol_version="2025-06-18",
+                server_name="fake",
+                server_version="1",
+                session_id="sess",
+                tool_names_sample=("ask",),
+            )
+
+    module._STATE["harness_mcp"] = _FakeHarnessMcp()
+
+    detail = module._stage_mcp_handshake(_args())
+
+    assert captured["auth_token"] == "threaded-token"
+    assert captured["mcp_url"] == "http://127.0.0.1:8004/mcp"
+    assert "tools=5" in detail
+
+
+def test_stage_mcp_handshake_passes_none_when_acquisition_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = _module()
+    monkeypatch.setattr(module, "_acquire_mcp_auth_token", lambda: None)
+
+    captured: dict = {}
+
+    class _FakeHarnessMcp:
+        @staticmethod
+        def stage_mcp_handshake(mcp_url: str, *, timeout: float, auth_token=None):
+            captured["auth_token"] = auth_token
+            return SimpleNamespace(
+                tool_count=1,
+                protocol_version="2025-06-18",
+                server_name="fake",
+                server_version="1",
+                session_id=None,
+                tool_names_sample=("ask",),
+            )
+
+    module._STATE["harness_mcp"] = _FakeHarnessMcp()
+
+    module._stage_mcp_handshake(_args())
+
+    assert captured["auth_token"] is None

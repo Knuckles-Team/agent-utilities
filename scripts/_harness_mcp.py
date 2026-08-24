@@ -71,6 +71,7 @@ from scripts.validate_mcp_config import (
 # object involved, so the exact casing used here doesn't matter).
 _SESSION_ID_HEADER = "Mcp-Session-Id"
 _PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
+_AUTHORIZATION_HEADER = "Authorization"
 
 DEFAULT_PROTOCOL_VERSION = "2025-06-18"
 DEFAULT_TIMEOUT = 15.0
@@ -117,21 +118,43 @@ def _iter_sse_data_blocks(resp: Any, max_bytes: int) -> Iterator[str]:
     ``data:`` lines within one event are newline-joined. Non-data lines
     (``event:``, ``id:``, ``retry:``, comments starting with ``:``) are
     ignored — JSON-RPC id-matching only needs the payload.
+
+    CRLF SAFETY (this is the fix for DEFECT B, confirmed live against a real
+    graph-os server): the SSE spec permits a line to end in ``\\n``, ``\\r\\n``,
+    OR a bare ``\\r``, and the real server emits ``\\r\\n``. The whole bounded
+    body is read up front and every line ending is normalised to ``\\n``
+    BEFORE framing on the blank-line boundary. Framing on a literal blank
+    line without normalising first is exactly the bug: matching only ``\\n``
+    against an unnormalised ``\\r\\n\\r\\n`` stream never finds the boundary,
+    so a server-initiated notification and the real reply concatenate into
+    one unparseable JSON blob — see the module docstring's "WHY THIS EXISTS"
+    and the confirmed live evidence in the lane's fix notes (frames ==
+    ``notifications/tools/list_changed`` + the real id-matched reply,
+    TOOL COUNT=85 once normalised; TOOL COUNT=0 when the concatenated blob's
+    decode failure was silently swallowed instead).
+
+    Only a single leading space after ``data:`` is stripped, per the SSE
+    spec's exact reconstruction rule (§9.2.6) — not arbitrary leading
+    whitespace — so a payload that legitimately spans many ``data:`` lines
+    (observed ~133KB against the real server) reassembles byte-for-byte via
+    the same ``"\\n".join`` the spec itself prescribes for multi-line data.
     """
+    raw = resp.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise McpHandshakeError("SSE stream exceeded the response size boundary")
+    text = raw.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
     data_lines: list[str] = []
-    total = 0
-    for raw_line in resp:
-        total += len(raw_line)
-        if total > max_bytes:
-            raise McpHandshakeError("SSE stream exceeded the response size boundary")
-        line = raw_line.decode("utf-8", errors="replace").rstrip("\r\n")
+    for line in text.split("\n"):
         if line == "":
             if data_lines:
                 yield "\n".join(data_lines)
                 data_lines = []
             continue
         if line.startswith("data:"):
-            data_lines.append(line[len("data:") :].lstrip(" "))
+            value = line[len("data:") :]
+            if value.startswith(" "):
+                value = value[1:]  # SSE spec: strip exactly ONE leading space
+            data_lines.append(value)
         # else: event:/id:/retry:/comment framing lines — irrelevant to us.
     if data_lines:
         yield "\n".join(data_lines)
@@ -146,16 +169,26 @@ def _read_matched_reply(resp: Any, expected_id: Any, max_bytes: int) -> dict:
     dead, uncommitted probe did — can grab a notification and misreport a
     healthy server as broken (or hide a genuinely empty tool surface).  We
     walk every frame, skip anything without a matching ``id``, and only
-    return once we find the real reply. Frames that fail to parse as JSON are
-    skipped rather than raising, since a stray SSE comment/keepalive frame is
-    valid per the spec.
+    return once we find the real reply.
+
+    A frame that fails to parse as JSON is NEVER silently skipped into a
+    false "0 tools" — that is precisely how DEFECT B produced a confident
+    wrong answer (a CRLF-blind framer concatenated a notification and the
+    real reply into one invalid blob; see ``_iter_sse_data_blocks``'s
+    docstring). Each parse failure is recorded with a truncated preview of
+    the offending block; if no frame ever matches ``expected_id``, every
+    recorded failure is folded into the raised :class:`McpHandshakeError` so
+    the root cause is loud, not invisible.
     """
     content_type = resp.headers.get("Content-Type", "") or ""
     if "text/event-stream" in content_type:
+        parse_failures: list[str] = []
         for block in _iter_sse_data_blocks(resp, max_bytes):
             try:
                 message = json.loads(block)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                preview = block if len(block) <= 200 else block[:200] + "...(truncated)"
+                parse_failures.append(f"{exc}: {preview!r}")
                 continue
             if not isinstance(message, dict):
                 continue
@@ -164,9 +197,13 @@ def _read_matched_reply(resp: Any, expected_id: Any, max_bytes: int) -> dict:
             # else: a notification (no "id") or a reply to a different
             # in-flight request on this connection — ignore/skip and keep
             # reading, exactly per the lane's core requirement.
-        raise McpHandshakeError(
-            f"SSE stream closed without a reply matching id={expected_id!r}"
-        )
+        detail = f"SSE stream closed without a reply matching id={expected_id!r}"
+        if parse_failures:
+            detail += (
+                f" — {len(parse_failures)} frame(s) failed to parse as JSON "
+                "(never silently ignored): " + " | ".join(parse_failures)
+            )
+        raise McpHandshakeError(detail)
 
     # A compliant streamable-http server may also answer with a single plain
     # JSON body (Content-Type: application/json) instead of opening an SSE
@@ -194,6 +231,7 @@ def _post(
     session_id: str | None,
     protocol_version: str | None,
     timeout: float,
+    auth_token: str | None = None,
 ):
     """POST one JSON-RPC message and return the still-open response object.
 
@@ -201,6 +239,12 @@ def _post(
     McpHandshakeError, chaining the original exception, on any transport
     failure so the driver's ``_chain()``-style reporting still sees the root
     cause.
+
+    ``auth_token``, when supplied, is sent as ``Authorization: Bearer
+    <token>`` — the live MCP endpoint requires this (DEFECT A: an
+    unauthenticated ``initialize`` 401s). It is entirely optional so an
+    endpoint with no auth in front of it still works unchanged, and it is
+    NEVER logged or included in any exception message here.
     """
     body = json.dumps(message).encode("utf-8")
     headers = {
@@ -211,6 +255,8 @@ def _post(
         headers[_SESSION_ID_HEADER] = session_id
     if protocol_version:
         headers[_PROTOCOL_VERSION_HEADER] = protocol_version
+    if auth_token:
+        headers[_AUTHORIZATION_HEADER] = f"Bearer {auth_token}"
     req = urllib.request.Request(endpoint, data=body, method="POST", headers=headers)
     method = message.get("method", "?")
     try:
@@ -229,6 +275,7 @@ def stage_mcp_handshake(
     client_name: str = "full_validation_harness",
     client_version: str = "1",
     max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
+    auth_token: str | None = None,
 ) -> McpHandshakeResult:
     """Run the real MCP handshake (``initialize`` -> ``notifications/initialized``
     -> ``tools/list``) against ``endpoint`` and return a structured result.
@@ -248,6 +295,14 @@ def stage_mcp_handshake(
         reply, falling back to what we offered if absent) is what is actually
         used — as the ``MCP-Protocol-Version`` header — on the two requests
         that follow, per the streamable-http transport's negotiation contract.
+    auth_token:
+        DEFECT A fix: optional bearer, sent as ``Authorization: Bearer
+        <auth_token>`` on ALL THREE requests (``initialize``,
+        ``notifications/initialized``, ``tools/list``) when supplied. The
+        live MCP endpoint requires this — an unauthenticated ``initialize``
+        401s. Left as ``None`` by default so an endpoint with no auth in
+        front of it keeps working unchanged. Never logged, never echoed into
+        any error message.
 
     Returns
     -------
@@ -293,6 +348,7 @@ def stage_mcp_handshake(
         session_id=None,
         protocol_version=None,
         timeout=timeout,
+        auth_token=auth_token,
     )
     try:
         if _validated_probe_host(resp.geturl()) != host:
@@ -326,6 +382,7 @@ def stage_mcp_handshake(
         session_id=session_id,
         protocol_version=negotiated_version,
         timeout=timeout,
+        auth_token=auth_token,
     )
     try:
         if not (200 <= resp.status < 300):
@@ -350,6 +407,7 @@ def stage_mcp_handshake(
         session_id=session_id,
         protocol_version=negotiated_version,
         timeout=timeout,
+        auth_token=auth_token,
     )
     try:
         tools_reply = _read_matched_reply(resp, tools_id, max_response_bytes)
@@ -402,6 +460,15 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--endpoint", required=True, help="graph-os streamable-http URL")
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     p.add_argument("--protocol-version", default=DEFAULT_PROTOCOL_VERSION)
+    p.add_argument(
+        "--auth-token",
+        default=None,
+        help=(
+            "optional bearer for the live MCP endpoint (DEFECT A: an "
+            "unauthenticated initialize 401s against the real server); "
+            "never echoed back in any output"
+        ),
+    )
     args = p.parse_args(argv)
 
     t0 = time.monotonic()
@@ -410,6 +477,7 @@ def main(argv: list[str] | None = None) -> int:
             args.endpoint,
             timeout=args.timeout,
             protocol_version=args.protocol_version,
+            auth_token=args.auth_token,
         )
     except McpHandshakeError as exc:
         _emit("mcp", False, str(exc), time.monotonic() - t0)
