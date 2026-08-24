@@ -1,6 +1,13 @@
 # Render-only defaults use the reserved .invalid domain. A deployment MUST override
 # every enabled image with an approved immutable reference.
-topology: out-of-process-shared
+# STANDARD: one container running graph-os with the engine in-process. graph-os
+# is a single MCP + API + webui server, and splitting it produced a second
+# workload that had to be kept env-identical with the first -- the split is what
+# let the engine-signer identity be provisioned on one side and not the other
+# (see references/engine-identity-admission.md). Choose `out-of-process-shared`
+# only when stateless graph-os replicas behind an HPA are genuinely required;
+# it costs a separate engine StatefulSet and a two-workload config contract.
+topology: unified-in-process
 
 nameOverride: ""
 fullnameOverride: ""
@@ -40,7 +47,9 @@ graphos:
     tag: replace-me
     digest: ""
     pullPolicy: IfNotPresent
-  replicas: 2
+  # `unified-in-process` owns the engine, so it is a single writer -- never
+  # scale it above 1. Only `out-of-process-shared` may raise this.
+  replicas: 1
   port: 8000
   args:
     - graph-os
