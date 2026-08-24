@@ -225,7 +225,7 @@ def test_a_signer_that_is_not_the_principal_cannot_be_constructed() -> None:
         admission_authority.AdmissionAuthority(
             agent_id="webui-user-1",
             signer_id="provisioner:deploy",
-            signer_key="not-a-real-credential",  # nosec B106 - test only
+            signer_key="not-a-real-credential",  # nosec B106 - test only  # sanitizer:ignore - synthetic fixture value, not a live credential
         )
 
 
