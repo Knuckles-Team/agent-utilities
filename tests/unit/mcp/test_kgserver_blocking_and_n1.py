@@ -21,8 +21,8 @@ not return within 180s). Fixed with `get_toggle_states_batch()`, which
 resolves every `(item_type, item_id)` pair the caller is about to render in
 ONE `MATCH (p:Preference) WHERE p.id IN $pref_ids ...` round trip.
 
-Two engine facts the batched query (and the fixed `get_toggle_state`) must
-respect, both confirmed live against the deployed engine:
+Two engine facts the batched query must respect, both confirmed live against
+the deployed engine:
 
 1. `STARTS WITH` with a `$param` operand does not parse on the deployed
    engine — the batch uses `IN` with an explicit id list instead.
@@ -32,8 +32,9 @@ respect, both confirmed live against the deployed engine:
    only `p.value` — every successful match was therefore rejected by
    governance and silently swallowed by a broad `except` into
    `return True`, meaning an explicit "disabled" toggle was reported back as
-   "enabled" (real data loss). Both `get_toggle_state` and
-   `get_toggle_states_batch` now project `p.id AS id`.
+   "enabled" (real data loss). `get_toggle_states_batch` projects
+   `p.id AS id`. The singular `get_toggle_state` helper was DELETED once the
+   N+1 loop was removed and it had no production caller left.
 """
 
 from __future__ import annotations
@@ -48,7 +49,6 @@ import pytest
 from agent_utilities.knowledge_graph.core.session import GraphSession, use_session
 from agent_utilities.mcp import kg_server
 from agent_utilities.mcp.kg_server import (
-    get_toggle_state,
     get_toggle_states_batch,
     get_tools_endpoint,
     set_toggle_state,
@@ -65,7 +65,9 @@ ACTOR = ActorContext(
 )
 
 
-def _session(graph: str, *, scopes: frozenset[str] = frozenset({"kg:read"})) -> GraphSession:
+def _session(
+    graph: str, *, scopes: frozenset[str] = frozenset({"kg:read"})
+) -> GraphSession:
     return GraphSession(
         actor=ACTOR,
         tenant=ACTOR.tenant_id,
@@ -150,14 +152,20 @@ class _FakePreferenceEngine:
         return []
 
 
-def test_toggle_written_disabled_reads_back_disabled_singular():
+def test_toggle_written_disabled_reads_back_disabled_single_item():
     """Regression for the silent-data-loss bug: before the `p.id AS id` fix,
     a real 'disabled' match was rejected by row governance and swallowed by
-    a broad `except`, defaulting to `True` (enabled)."""
+    a broad `except`, defaulting to `True` (enabled).
+
+    Exercises the ONE-item read specifically: the batched function is now the
+    only toggle-read path, so the single-item case must be covered here rather
+    than through a separate singular helper."""
     engine = _FakePreferenceEngine()
     set_toggle_state(engine, "skill", "my-skill", enabled=False)
 
-    assert get_toggle_state(engine, "skill", "my-skill") is False
+    result = get_toggle_states_batch(engine, [("skill", "my-skill")])
+
+    assert result[("skill", "my-skill")] is False
 
 
 def test_toggle_written_disabled_reads_back_disabled_batch():
@@ -262,7 +270,9 @@ async def test_graph_write_node_endpoint_uses_node_id_field(monkeypatch):
 
     monkeypatch.setattr(kg_server, "_execute_tool", _fake_execute_tool)
 
-    body = b'{"node_id": "agent-1", "node_type": "Agent", "properties": {"name": "Test"}}'
+    body = (
+        b'{"node_id": "agent-1", "node_type": "Agent", "properties": {"name": "Test"}}'
+    )
 
     async def _receive():
         return {"type": "http.request", "body": body, "more_body": False}
