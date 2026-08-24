@@ -351,7 +351,12 @@ def test_graph_never_accepted_as_a_raw_parameter_only_from_the_session(
     this module drives the graph selection purely through ``use_session``,
     never a function parameter, which is itself the proof: there is no
     payload-supplied graph channel to smuggle authority through at this
-    layer."""
+    layer. This still holds after the SQL-authoritative fast path
+    (CONCEPT:AU-KG.ingest.fleet-catalog-acl-projection) was added: its
+    tenant scope is resolved from the SAME ambient ``current_actor()`` this
+    function already reads everything else from, never a parameter --
+    ``_durable_access_rows`` keeps the exact single-argument signature it
+    always had."""
     import inspect
 
     sig = inspect.signature(sr._durable_access_rows)
