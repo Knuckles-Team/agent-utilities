@@ -6646,7 +6646,7 @@ def _fetch_prompt_agents(
     agents: list[MCPAgent] = []
     try:
         prompt_rows = engine.backend.execute(
-            "MATCH (p:Prompt) RETURN p.name AS name, p.description AS descriptionription, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
+            "MATCH (p:Prompt) RETURN p.name AS name, p.description AS description, p.capabilities AS capabilities, p.system_prompt AS system_prompt, p.json_blueprint AS json_blueprint"
         )
         for row in prompt_rows:
             blueprint = row.get("json_blueprint")

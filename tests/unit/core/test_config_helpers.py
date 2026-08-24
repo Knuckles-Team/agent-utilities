@@ -12,6 +12,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -534,6 +535,56 @@ def test_get_discovery_registry_with_prompts(
     assert any(a.name == "router" for a in result.agents)
     assert len(result.tools) == 1
     assert result.tools[0].name == "tool1"
+
+
+def test_get_discovery_registry_prompt_description_alias_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression test for the descriptionription alias typo.
+
+    ``_fetch_prompt_agents`` builds ``MCPAgent.description`` from
+    ``row.get("description", "")``. If the Cypher query aliases
+    ``p.description`` to anything other than ``"description"``, every
+    prompt agent silently gets an empty description forever. This fake
+    backend derives the row key from the *actual* prompt query text so
+    the test fails if the alias in the source drifts from the key the
+    consumer reads.
+    """
+    fake_engine = MagicMock()
+    fake_engine.backend = MagicMock()
+
+    def fake_execute(query, *args, **kwargs):
+        if "MATCH (p:Prompt)" in query:
+            alias_match = re.search(r"p\.description AS (\w+)", query)
+            assert alias_match, "prompt query must alias p.description"
+            alias = alias_match.group(1)
+            return [
+                {
+                    "name": "router",
+                    alias: "Routes queries to the right specialist",
+                    "capabilities": ["routing"],
+                    "system_prompt": "You are the router",
+                    "json_blueprint": _prompt_blueprint("router JSON"),
+                }
+            ]
+        return []
+
+    fake_engine.backend.execute.side_effect = fake_execute
+    fake_engine_cls = MagicMock(
+        get_active=MagicMock(return_value=fake_engine),
+    )
+    fake_kg = MagicMock(IntelligenceGraphEngine=fake_engine_cls)
+    monkeypatch.setitem(
+        __import__("sys").modules,
+        "agent_utilities.knowledge_graph.core.engine",
+        fake_kg,
+    )
+    result = ch.get_discovery_registry()
+
+    # Proves the description VALUE actually reached the MCPAgent, not
+    # just that the alias string in the query changed.
+    router_agent = next(a for a in result.agents if a.name == "router")
+    assert router_agent.description == "Routes queries to the right specialist"
 
 
 def test_get_discovery_registry_blueprint_json_string(

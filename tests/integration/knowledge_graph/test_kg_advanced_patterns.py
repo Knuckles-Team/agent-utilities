@@ -1,5 +1,6 @@
 """CONCEPT:AU-KG.query.object-graph-mapper"""
 
+import re
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -117,3 +118,53 @@ def test_consolidate_memory_llm(mock_run_sync, mock_create_model, memory_engine)
     ]
     assert len(create_calls) == 1
     assert create_calls[0][0][1]["text"] == "This is a synthesized summary."
+
+
+@patch("agent_utilities.core.contextual_model.create_context_agent")
+def test_consolidate_memory_uses_description_alias_value(
+    mock_create_context_agent, memory_engine
+):
+    """Regression test for the descriptionription alias typo.
+
+    ``consolidate_memory`` builds ``combined_text`` from
+    ``ep["description"]`` for every row where ``ep.get("description")``
+    is truthy. If the Cypher query aliases ``e.description`` to
+    anything other than ``"description"``, every row is filtered out
+    silently and the LLM synthesizes an empty string forever. This
+    fake backend derives the row key from the *actual* query text so
+    the test fails if the alias in the source drifts from the key the
+    consumer reads.
+
+    ``create_context_agent`` (not ``create_model``/``Agent.run_sync``)
+    is mocked directly because ``consolidate_memory`` swallows any
+    model-construction error into a generic fallback summary — mocking
+    at that lower layer would mask the very assertion this test makes.
+    """
+
+    mock_agent = MagicMock()
+    mock_agent.run_sync.return_value.output = "This is a synthesized summary."
+    mock_create_context_agent.return_value = mock_agent
+
+    def fake_execute(query, params=None):
+        if "MATCH (e:Episode)" not in query:
+            return []
+        alias_match = re.search(r"e\.description AS (\w+)", query)
+        assert alias_match, "query must alias e.description"
+        alias = alias_match.group(1)
+        return [
+            {"id": "mem1", alias: "Real episode description one"},
+            {"id": "mem2", alias: "Real episode description two"},
+        ]
+
+    mock_backend = MagicMock()
+    mock_backend.execute.side_effect = fake_execute
+    memory_engine.backend = mock_backend
+
+    maintainer = GraphMaintainer(memory_engine)
+    maintainer.consolidate_memory()
+
+    # Proves the description VALUES actually reached the LLM synthesis
+    # call, not just that the alias string in the query changed.
+    combined_text = mock_agent.run_sync.call_args[0][0]
+    assert "Real episode description one" in combined_text
+    assert "Real episode description two" in combined_text
