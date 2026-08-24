@@ -127,17 +127,17 @@ graph-native event sourcing among them; see
 
 <!-- BEGIN GENERATED: concepts -->
 
-Synthesized from concept markers in the codebase into **1216 canonical concepts** across **9 pillars**.
+Synthesized from concept markers in the codebase into **1220 canonical concepts** across **9 pillars**.
 
 > This count is generated from `docs/concepts.yaml` by `scripts/gen_docs.py` — do not edit by hand. The table below covers the 5 pillars agent-utilities itself owns; the other 4 (37 concepts) belong to the epistemic-graph engine's own pillar set. Live per-pillar status: [docs/status.md](docs/status.md).
 
 | # | Pillar | Focus | Concepts | Docs |
 |:-:|:-------|:------|:--------:|:-----|
-| 1 | Graph Orchestration | Planning, SDD lifecycle, dynamic multi-layer execution | 219 | [docs/pillars/1_graph_orchestration.md](docs/pillars/1_graph_orchestration.md) |
-| 2 | Epistemic Knowledge Graph | The one engine authority — ingestion, ontology, ETL, reasoning | 512 | [docs/pillars/2_epistemic_knowledge_graph.md](docs/pillars/2_epistemic_knowledge_graph.md) |
+| 1 | Graph Orchestration | Planning, SDD lifecycle, dynamic multi-layer execution | 220 | [docs/pillars/1_graph_orchestration.md](docs/pillars/1_graph_orchestration.md) |
+| 2 | Epistemic Knowledge Graph | The one engine authority — ingestion, ontology, ETL, reasoning | 513 | [docs/pillars/2_epistemic_knowledge_graph.md](docs/pillars/2_epistemic_knowledge_graph.md) |
 | 3 | Agentic Harness Engineering | Self-models, evaluation, governed self-evolution | 120 | [docs/pillars/3_agentic_harness_engineering.md](docs/pillars/3_agentic_harness_engineering.md) |
 | 4 | Ecosystem & Peripherals | MCP fleet, messaging, connectors, UI surfaces | 141 | [docs/pillars/4_ecosystem_peripherals.md](docs/pillars/4_ecosystem_peripherals.md) |
-| 5 | Agent OS Infrastructure | Auth, governance, deployment, scaling | 187 | [docs/pillars/5_agent_os_infrastructure.md](docs/pillars/5_agent_os_infrastructure.md) |
+| 5 | Agent OS Infrastructure | Auth, governance, deployment, scaling | 189 | [docs/pillars/5_agent_os_infrastructure.md](docs/pillars/5_agent_os_infrastructure.md) |
 
 <!-- END GENERATED: concepts -->
 
