@@ -682,11 +682,20 @@ def _external_error_response(
 
 
 class _ToolsPayload(TypedDict):
-    """The exact five-key catalog body :func:`get_tools_endpoint` serialises.
+    """The catalog body :func:`get_tools_endpoint` serialises.
 
     Named rather than ``dict[str, Any]`` so the producer/consumer seam is
     typed: the handler, its tests, and the webui contract all agree on this
     key set instead of rediscovering it from the return statement.
+
+    FIX LANE (collapse-tool-endpoints): the original five list keys are
+    UNCHANGED (same names, same per-item field names) — nothing that reads
+    this route's JSON body needs to change. ``section_status`` is new and
+    purely additive (CONCEPT:AU-KG.ingest.fleet-catalog-relational-tables):
+    each of the five sections below now degrades independently on its own
+    read failure (``"unavailable"``) instead of the whole request failing
+    closed, and this map is how a caller tells "genuinely zero items" apart
+    from "this section's source could not be read this time".
     """
 
     mcp_tools: list[dict[str, Any]]
@@ -694,6 +703,80 @@ class _ToolsPayload(TypedDict):
     skills: list[dict[str, Any]]
     skill_graphs: list[dict[str, Any]]
     skill_workflows: list[dict[str, Any]]
+    section_status: dict[str, str]
+
+
+# Bound on how many pages of one fleet-catalog ``kind`` this route will drain
+# via registry_api's own keyset-paginated ``_authorized_page`` (100 rows per
+# page, see ``registry_api._MAX_LIMIT``) before giving up on that section for
+# this request. Mirrors the same defensive drain-cap idea
+# ``agent_webui.api_extensions._read_fleet_catalog`` already applies to the
+# identical read path (its own comment there measured ~9 pages to drain 841
+# ``skills`` rows) — 25 pages is headroom above that observed size without
+# letting one pathological catalog hang this request forever.
+_TOOLS_CATALOG_DRAIN_MAX_PAGES = 25
+
+
+def _read_catalog_kind_sync(
+    kind: str, *, require_discovery_binding: bool
+) -> list[dict[str, Any]]:
+    """Drain one fleet-catalog ``kind`` through registry_api's OWN
+    tenant/principal-scoped, fail-closed authorized-read path — the exact
+    same private functions ``agent_webui.api_extensions._read_fleet_catalog``
+    already reuses in-process for ``/api/enhanced/tools`` (see that
+    function's docstring). This never re-derives tenant scoping, redaction,
+    or SQL construction; it is a thin synchronous drain loop on top of
+    ``_authorized_page``.
+
+    Synchronous and blocking (a unix-socket engine RPC per page) by design:
+    the caller, :func:`_build_tools_payload_sync`, already runs entirely
+    inside a worker thread via ``asyncio.to_thread`` from
+    :func:`get_tools_endpoint` — calling registry_api's own ASYNC wrapper
+    (``_offload_catalog_call``, which itself does ``asyncio.to_thread``)
+    from here would require a running event loop that this thread does not
+    have. Calling the sync ``_authorized_page``/``_authorized_count``
+    directly is therefore both correct and simpler here.
+
+    Raises whatever ``_require_catalog_authority``/``_authorized_page``
+    raise (``PermissionError``, ``registry_api.CatalogUnavailable``, or any
+    other exception the engine surfaces) — the caller is responsible for
+    catching this per-section and recording ``section_status``, matching
+    every other section's independent-degrade contract in this function.
+    """
+    from ..gateway.registry_api import (
+        _KIND_SPECS,
+        _MAX_LIMIT,
+        _authorized_page,
+        _get_catalog_engine,
+        _require_catalog_authority,
+        _row_key,
+    )
+
+    tenant, principal, grant_digests = _require_catalog_authority(
+        require_discovery_binding=require_discovery_binding
+    )
+    engine = _get_catalog_engine()
+    spec = _KIND_SPECS[kind]
+    rows: list[dict[str, Any]] = []
+    after: tuple[str, str] | None = None
+    for _page_num in range(_TOOLS_CATALOG_DRAIN_MAX_PAGES):
+        page = _authorized_page(
+            kind,
+            tenant=tenant,
+            principal=principal,
+            grant_digests=grant_digests,
+            query="",
+            after=after,
+            limit=_MAX_LIMIT,
+            engine=engine,
+        )
+        if not page:
+            break
+        rows.extend(page)
+        if len(page) < _MAX_LIMIT:
+            break
+        after = _row_key(spec, page[-1])
+    return rows
 
 
 def _build_tools_payload_sync(
@@ -720,84 +803,164 @@ def _build_tools_payload_sync(
     2. It gathers every ``(item_type, item_id)`` pair it is about to render
        FIRST, then resolves every toggle state in ONE
        :func:`get_toggle_states_batch` call instead of N per-item calls.
+
+    FIX LANE (collapse-tool-endpoints) — SQL fleet catalog as the single
+    source of truth: this used to build every section from a fresh
+    config/filesystem scan, a second inventory of the SAME MCP/skill fleet
+    that ``/api/registry/*`` and the webui BFF already read from the SQL
+    fleet-catalog tables (``agent_utilities.knowledge_graph.core.
+    fleet_catalog_tables``). Evidence-based per section:
+
+    - ``mcp_tools`` (despite the key name, this has always been a list of
+      *servers*, one per configured ``mcpServers`` entry — never individual
+      MCP tools) now reads the catalog's ``servers`` kind
+      (``mcp_servers`` table). That table is written from the SAME
+      multiplexer config map (``MCPMultiplexer.load_catalog()``) this used
+      to re-parse from ``mcp_config.json`` directly
+      (:func:`~..knowledge_graph.core.fleet_catalog_tables.
+      write_fleet_catalog`), so this is a genuine single-source collapse
+      with no fidelity loss: ``command``/``args`` were already opaque
+      presence markers (``"[configured]"``), never real values, and the
+      catalog derives the same ``launch_mode`` split from ``transport``
+      that this used to derive from ``cfg.get("command")``.
+    - ``skills``/``skill_workflows``/``skill_graphs``/``builtin_tools``
+      stay on their existing filesystem/KG-native sources — investigated
+      and deliberately NOT moved:
+        * ``builtin_tools`` has no catalog table at all. The fleet catalog
+          models MCP servers/tools/prompts/resources and skills-over-MCP;
+          these are native, in-process Python callables under
+          ``agent_utilities/tools/*.py``, never MCP-discovered and never
+          written to any catalog table.
+        * ``skills``/``skill_workflows`` (local ``universal-skills``
+          corpus) — the catalog's ``skills`` table CAN represent an
+          individual skill's id/name/description/enabled (written by
+          :func:`~..knowledge_graph.ingestion.skill_workflow_ingest.
+          ingest_atomic_skills`/``ingest_skill_workflows``), but it does
+          NOT store ``domain`` or ``tags`` — both real fields on this
+          route's existing per-item shape, sourced from each ``SKILL.md``'s
+          frontmatter. There is also no live-freshness guarantee: catalog
+          rows are only as current as the last ingestion pass (an
+          on-demand action or the package-install-triggered watermarked
+          leg), while this filesystem glob always reflects the corpus as
+          it exists on disk right now. Moving these two sections would
+          silently blank ``domain``/``tags`` and could show a stale/absent
+          item for anything added since the last ingest — exactly the
+          "fabricate or silently drop" failure mode this fix lane was
+          told to avoid, so they stay filesystem-sourced.
+        * ``skill_graphs`` — the catalog schema supports this
+          (``skill_type="graph"``), but unlike the atomic-skill/workflow
+          legs, nothing ingests the ``skill-graphs`` package on any
+          automatic/scheduled trigger (only a manual, explicit-``root``
+          on-demand action reaches it) — in a typical deployment those
+          catalog rows are simply absent. Serving this section from the
+          catalog today would silently show an empty list where the
+          on-disk corpus is real and current, so it also stays
+          filesystem-sourced.
     """
-    import json
+    section_status: dict[str, str] = {}
 
-    # 1. MCP Tools — gather raw config first, defer toggle-state resolution.
+    # 1. MCP Tools — now the SQL fleet catalog's ``servers`` kind (see
+    #    docstring above), not a fresh ``mcp_config.json`` parse.
     mcp_tools: list[dict[str, Any]] = []
-    mcp_entries: list[tuple[str, dict[str, Any]]] = []  # (name, cfg)
-    config_paths = [
-        Path.home() / ".config" / "agent-utilities" / "mcp_config.json",
-        Path.home() / ".config" / "agent-utilities" / "config.json",
-        Path("workspace/mcp_config.json"),
-    ]
-    config_path = None
-    for cp in config_paths:
-        if cp.exists():
-            config_path = cp
-            break
+    mcp_entries: list[tuple[str, dict[str, Any]]] = []  # (name, catalog_row)
+    try:
+        server_rows = _read_catalog_kind_sync(
+            "servers", require_discovery_binding=False
+        )
+        mcp_entries = [
+            (str(row.get("name") or ""), row) for row in server_rows if row.get("name")
+        ]
+        section_status["mcp_tools"] = "ok"
+    except Exception as e:
+        logger.error("Failed to read the fleet-catalog 'servers' kind: %s", e)
+        section_status["mcp_tools"] = "unavailable"
 
-    if config_path:
-        try:
-            mcp_data = json.loads(config_path.read_text(encoding="utf-8"))
-            mcp_servers = mcp_data.get("mcpServers", {})
-            if (
-                not mcp_servers
-                and "mcp_config" in mcp_data
-                and isinstance(mcp_data["mcp_config"], dict)
-            ):
-                mcp_servers = mcp_data["mcp_config"].get("mcpServers", {})
-            mcp_entries = list(mcp_servers.items())
-        except Exception as e:
-            logger.error("Failed to parse MCP config: %s", e)
-
-    # 2. Built-in Agent Tools — gather raw file stems first.
-    tools_dir = Path(__file__).resolve().parents[1] / "tools"
+    # 2. Built-in Agent Tools — gather raw file stems first. No catalog
+    #    equivalent exists (see docstring) — filesystem-sourced as before.
     builtin_stems: list[str] = []
-    if tools_dir.exists() and tools_dir.is_dir():
-        for f in tools_dir.glob("*.py"):
-            if f.name.startswith("_"):
-                continue
-            builtin_stems.append(f.stem)
+    try:
+        tools_dir = Path(__file__).resolve().parents[1] / "tools"
+        if tools_dir.exists() and tools_dir.is_dir():
+            for f in tools_dir.glob("*.py"):
+                if f.name.startswith("_"):
+                    continue
+                builtin_stems.append(f.stem)
+        section_status["builtin_tools"] = "ok"
+    except Exception as e:
+        logger.error("Failed to scan built-in tools directory: %s", e)
+        section_status["builtin_tools"] = "unavailable"
 
     # 3. Skills & Workflows — parse SKILL.md files first, defer toggle state.
+    #    No catalog migration (see docstring: domain/tags + freshness gap).
     skill_entries: list[dict[str, Any]] = []  # bucket="skill"
     workflow_entries: list[dict[str, Any]] = []  # bucket="skill_workflow"
-    univ_skills_dir = (
-        workspace_root
-        / "agent-packages"
-        / "skills"
-        / "universal-skills"
-        / "universal_skills"
-        if workspace_root is not None
-        else None
-    )
-    if univ_skills_dir is not None and univ_skills_dir.exists():
-        for p in univ_skills_dir.glob("**/SKILL.md"):
-            skill_info = _parse_skill_md(p)
-            if "workflows" in p.parts:
-                skill_info["type"] = "Skill Workflow"
-                workflow_entries.append(skill_info)
-            else:
-                skill_info["type"] = "Agent Skill"
-                skill_entries.append(skill_info)
+    try:
+        univ_skills_dir = (
+            workspace_root
+            / "agent-packages"
+            / "skills"
+            / "universal-skills"
+            / "universal_skills"
+            if workspace_root is not None
+            else None
+        )
+        if univ_skills_dir is not None and univ_skills_dir.exists():
+            for p in univ_skills_dir.glob("**/SKILL.md"):
+                skill_info = _parse_skill_md(p)
+                if "workflows" in p.parts:
+                    skill_info["type"] = "Skill Workflow"
+                    workflow_entries.append(skill_info)
+                else:
+                    skill_info["type"] = "Agent Skill"
+                    skill_entries.append(skill_info)
+        section_status["skills"] = "ok"
+        section_status["skill_workflows"] = "ok"
+    except Exception as e:
+        logger.error("Failed to scan the universal-skills corpus: %s", e)
+        section_status["skills"] = "unavailable"
+        section_status["skill_workflows"] = "unavailable"
+        skill_entries = []
+        workflow_entries = []
 
     # 4. Skill Graphs — parse SKILL.md files first, defer toggle state.
+    #    No catalog migration (see docstring: no reliable ingestion sync).
     graph_entries: list[dict[str, Any]] = []
-    graphs_dir = (
-        workspace_root / "agent-packages" / "skills" / "skill-graphs" / "skill_graphs"
-        if workspace_root is not None
-        else None
-    )
-    if graphs_dir is not None and graphs_dir.exists():
-        for p in graphs_dir.glob("**/SKILL.md"):
-            skill_info = _parse_skill_md(p)
-            skill_info["type"] = "Skill Graph"
-            graph_entries.append(skill_info)
+    try:
+        graphs_dir = (
+            workspace_root
+            / "agent-packages"
+            / "skills"
+            / "skill-graphs"
+            / "skill_graphs"
+            if workspace_root is not None
+            else None
+        )
+        if graphs_dir is not None and graphs_dir.exists():
+            for p in graphs_dir.glob("**/SKILL.md"):
+                skill_info = _parse_skill_md(p)
+                skill_info["type"] = "Skill Graph"
+                graph_entries.append(skill_info)
+        section_status["skill_graphs"] = "ok"
+    except Exception as e:
+        logger.error("Failed to scan the skill-graphs corpus: %s", e)
+        section_status["skill_graphs"] = "unavailable"
+        graph_entries = []
 
     # ── ONE batched engine round trip for every toggle state ───────────────
+    # Still the Preference-node toggle store, for EVERY section including the
+    # now-catalog-sourced ``mcp_tools`` — this is deliberate, not an
+    # oversight: ``POST /api/tools/toggle`` (``toggle_tool_endpoint`` below)
+    # writes user enable/disable preference to this SAME store, keyed by
+    # ``(item_type, item_id)``. The fleet-catalog row's own ``enabled``
+    # column reflects the SERVER's configured ``disabled`` flag, not this
+    # per-user toggle preference — reading catalog ``enabled`` here instead
+    # would make toggling a server in the UI silently stop being reflected
+    # on the next GET. The catalog row's own ``enabled`` is still honored as
+    # an additional AND term below (a server force-disabled in config stays
+    # disabled even if the toggle preference says otherwise), preserving the
+    # original ``cfg.get("disabled")`` override semantics.
     toggle_keys: list[tuple[str, str]] = (
-        [("mcp_server", name) for name, _cfg in mcp_entries]
+        [("mcp_server", name) for name, _row in mcp_entries]
         + [("builtin_tool", stem) for stem in builtin_stems]
         + [("skill_workflow", info["id"]) for info in workflow_entries]
         + [("skill", info["id"]) for info in skill_entries]
@@ -805,17 +968,22 @@ def _build_tools_payload_sync(
     )
     toggle_states = get_toggle_states_batch(engine, toggle_keys)
 
-    for name, cfg in mcp_entries:
+    for name, row in mcp_entries:
         mcp_enabled = toggle_states[("mcp_server", name)]
-        if cfg.get("disabled", False):
+        if not row.get("enabled", True):
             mcp_enabled = False
+        transport = str(row.get("transport") or "")
+        is_stdio = transport == "stdio"
         mcp_tools.append(
             {
                 "name": name,
                 "type": "MCP Server",
-                "launch_mode": "subprocess" if cfg.get("command") else "remote",
-                "command": "[configured]" if cfg.get("command") else "",
-                "args": ["[configured]"] if cfg.get("args") else [],
+                "launch_mode": "subprocess" if is_stdio else "remote",
+                # The catalog never stores the raw command/args (privacy —
+                # see fleet_catalog_tables' module docstring); these stayed
+                # opaque presence markers even before this migration.
+                "command": "[configured]" if is_stdio else "",
+                "args": ["[configured]"] if is_stdio else [],
                 "status": "active" if mcp_enabled else "disabled",
                 "enabled": mcp_enabled,
             }
@@ -855,6 +1023,7 @@ def _build_tools_payload_sync(
         "skills": sorted(skills, key=lambda x: x.get("name", "").lower()),
         "skill_graphs": sorted(graphs, key=lambda x: x.get("name", "").lower()),
         "skill_workflows": sorted(workflows, key=lambda x: x.get("name", "").lower()),
+        "section_status": section_status,
     }
 
 

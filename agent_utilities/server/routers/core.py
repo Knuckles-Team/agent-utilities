@@ -91,11 +91,20 @@ async def list_tools():
         return []
 
     # Query for Tools
-    tool_query = "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS descriptionription, t.mcp_server AS source_name, 'tool' AS type"
+    #
+    # CONSUMER EVIDENCE for the `description` alias (fixed from a mangled
+    # `descriptionription` produced by a botched find/replace): the flat
+    # list this endpoint returns is consumed directly by
+    # agent-terminal-ui's `ToolsSidebar._populate_tree` (widgets/
+    # tools_sidebar.py), which reads `item.get("description", "")` for both
+    # search filtering and the rendered tree label. The mangled alias meant
+    # every row's real description landed under a key nothing reads, so the
+    # sidebar always rendered/filtered on an empty description.
+    tool_query = "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS description, t.mcp_server AS source_name, 'tool' AS type"
     tools = kg.query_cypher(tool_query) or []
 
-    # Query for Skills
-    skill_query = "MATCH (s:Skill) RETURN s.id AS id, s.name AS name, s.description AS descriptionription, s.category AS source_name, 'skill' AS type"
+    # Query for Skills — same consumer/evidence as the tool query above.
+    skill_query = "MATCH (s:Skill) RETURN s.id AS id, s.name AS name, s.description AS description, s.category AS source_name, 'skill' AS type"
     skills = kg.query_cypher(skill_query) or []
 
     return tools + skills

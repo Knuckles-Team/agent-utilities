@@ -141,6 +141,66 @@ def _http_boundary_settings(host: str | None) -> tuple[list[str], list[str]]:
     return origins, hosts
 
 
+def _graph_native_list_skills() -> list[dict[str, Any]]:
+    """List KG-native prompts/tools as webui ``list_skills`` chat-command data.
+
+    Extracted from a nested closure inside ``build_agent_app``'s
+    ``enable_web_ui`` branch to a module-level function so it is directly
+    unit-testable — the ``description``/``description_text`` alias fix here
+    (FIX LANE collapse-tool-endpoints) had no test coverage before this
+    because the closure form was unreachable without constructing the whole
+    agent app. Behavior is unchanged; only the definition site moved.
+
+    CONSUMER EVIDENCE for the ``description_text`` alias (fixed from a
+    mangled ``descriptionription_text`` produced by a botched find/replace):
+    both ``p.get(...)`` and ``t.get(...)`` calls immediately below each
+    query read the row back under ``"description_text"``. The mangled alias
+    meant the real description was returned under a key nothing read, so
+    ``desc_text``/``description`` always fell back to the ``""`` default —
+    which is exactly what agent-webui's ``/skills`` chat command
+    (``api_extensions.py``'s ``cmd_name == 'skills'`` branch) renders
+    verbatim into its response markdown.
+    """
+    from ..knowledge_graph.core.engine import IntelligenceGraphEngine
+
+    backend = IntelligenceGraphEngine.get_or_create().backend
+    if backend is None:
+        return []
+
+    skills: list[dict[str, Any]] = []
+    with suppress(Exception):
+        prompts = backend.execute(
+            "MATCH (p:Prompt) RETURN p.id AS id, p.name AS name, p.description AS description_text"
+        )
+        for p in prompts:
+            skills.append(
+                {
+                    "id": p.get("id"),
+                    "name": p.get("name"),
+                    "description": p.get("description_text", ""),
+                    "enabled": True,
+                    "type": "prompt",
+                }
+            )
+    with suppress(Exception):
+        tools = backend.execute(
+            "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS description_text, t.mcp_server AS server"
+        )
+        for t in tools:
+            server_label = t.get("server", "mcp")
+            desc_text = t.get("description_text", "")
+            skills.append(
+                {
+                    "id": t.get("id"),
+                    "name": t.get("name"),
+                    "description": f"[{server_label}] {desc_text}",
+                    "enabled": True,
+                    "type": "tool",
+                }
+            )
+    return sorted(skills, key=lambda x: x.get("name", "").lower())
+
+
 def build_agent_app(
     provider: str | None = DEFAULT_LLM_PROVIDER,
     model_id: str | None = DEFAULT_LLM_MODEL_ID,
@@ -780,48 +840,6 @@ def build_agent_app(
                     write_md_file,
                     write_workspace_file,
                 )
-
-                def _graph_native_list_skills():
-                    from ..knowledge_graph.core.engine import (
-                        IntelligenceGraphEngine,
-                    )
-
-                    backend = IntelligenceGraphEngine.get_or_create().backend
-                    if backend is None:
-                        return []
-
-                    skills = []
-                    with suppress(Exception):
-                        prompts = backend.execute(
-                            "MATCH (p:Prompt) RETURN p.id AS id, p.name AS name, p.description AS descriptionription_text"
-                        )
-                        for p in prompts:
-                            skills.append(
-                                {
-                                    "id": p.get("id"),
-                                    "name": p.get("name"),
-                                    "description": p.get("description_text", ""),
-                                    "enabled": True,
-                                    "type": "prompt",
-                                }
-                            )
-                    with suppress(Exception):
-                        tools = backend.execute(
-                            "MATCH (t:Tool) RETURN t.id AS id, t.name AS name, t.description AS descriptionription_text, t.mcp_server AS server"
-                        )
-                        for t in tools:
-                            server_label = t.get("server", "mcp")
-                            desc_text = t.get("description_text", "")
-                            skills.append(
-                                {
-                                    "id": t.get("id"),
-                                    "name": t.get("name"),
-                                    "description": f"[{server_label}] {desc_text}",
-                                    "enabled": True,
-                                    "type": "tool",
-                                }
-                            )
-                    return sorted(skills, key=lambda x: x.get("name", "").lower())
 
                 helpers: dict[str, Any] = {
                     "agent_name": _name,
