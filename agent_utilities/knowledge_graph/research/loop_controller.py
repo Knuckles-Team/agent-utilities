@@ -68,8 +68,26 @@ def _run_coro(coro: Any) -> Any:
     async. When no loop is running we ``asyncio.run``; when one is (an async MCP
     handler) we run it on a worker thread with its own loop so we never reenter a
     running loop. (CONCEPT:AU-KG.research.research-intelligence-loop)
+
+    CONCEPT:AU-KG.compute.priority-class-propagation (D-au priority-tagging audit):
+    the worker-thread fallback below used to hand the coroutine to a bare
+    ``concurrent.futures.ThreadPoolExecutor`` — unlike ``asyncio.to_thread`` (see
+    ``core.graph_compute._AsyncFromSyncView.call``'s own note on this), a plain
+    ``Executor.submit()`` does NOT copy the calling thread's ``contextvars.Context``
+    into the new worker thread. Every caller of this function wraps it in
+    ``priority_scope(PriorityClass.BACKGROUND_INGESTION)`` (see
+    ``_run_intake_papers``), and the coroutine also needs the ambient
+    ``GraphSession`` (``core.session.current_session()``) every engine write
+    resolves per call — both are plain ``contextvars.ContextVar`` bindings, so
+    both were silently dropped for the whole coroutine whenever this fallback
+    branch fired (i.e. whenever a loop is already running, such as an async MCP
+    handler invoking the cycle). Capture the caller's ``Context`` explicitly and
+    run the coroutine inside it on the worker thread so priority/session
+    propagate on this branch exactly as they already do on the direct
+    ``asyncio.run`` branch above (whose ``Task`` copies the context for free).
     """
     import asyncio
+    import contextvars
 
     try:
         asyncio.get_running_loop()
@@ -77,8 +95,9 @@ def _run_coro(coro: Any) -> Any:
         return asyncio.run(coro)
     import concurrent.futures
 
+    ctx = contextvars.copy_context()
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-        return ex.submit(lambda: asyncio.run(coro)).result()
+        return ex.submit(ctx.run, asyncio.run, coro).result()
 
 
 class LoopController:
