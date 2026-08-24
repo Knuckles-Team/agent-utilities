@@ -20,6 +20,24 @@ from agent_utilities.orchestration import fleet_health
 from agent_utilities.security.brain_context import ActorContext, use_actor
 
 
+@pytest.fixture(autouse=True)
+def _isolated_fleet_supervision_cache():
+    """``runtime_health._check_fleet_supervision`` (exercised directly below,
+    e.g. ``test_unavailable_fleet_evidence_fails_readiness``) now serves a
+    process-wide TTL cache in front of ``collect_fleet_health`` (see
+    ``runtime_health.py``'s ``_FleetSupervisionCache`` -- added to stop the
+    readiness probe re-running the full-scan goal-registry query on every
+    10-second kubelet tick). That cache is a module-level singleton, so
+    without a reset here a cached verdict from an earlier test/module could
+    leak across test boundaries and mask THIS module's ``collect_fleet_health``
+    monkeypatches. Mirrors the equivalent fixture in
+    ``tests/unit/observability/test_runtime_health.py``.
+    """
+    runtime_health._FLEET_SUPERVISION_CACHE.invalidate()
+    yield
+    runtime_health._FLEET_SUPERVISION_CACHE.invalidate()
+
+
 @pytest.fixture
 def session_db(tmp_path, monkeypatch):
     """The swarm supervisory plane is an admin-only fleet-wide surface

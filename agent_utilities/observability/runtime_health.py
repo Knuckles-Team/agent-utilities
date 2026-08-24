@@ -100,6 +100,25 @@ _PROBE_TIMEOUT_S = 0.75
 # own internal bound is buggy or missing.
 _CHECK_WALL_TIMEOUT_S = 2.0
 
+# Per-check overrides for the wall-clock ceiling above. Every other check here
+# is a bounded TCP connect (``_PROBE_TIMEOUT_S`` = 0.75s), so the 2.0s default
+# is already generous for them -- tightening it per-check would only weaken
+# the "a hung probe is bounded" guarantee for no benefit.
+#
+# ``fleet_supervision`` is different: it is a real graph read, cached (see
+# ``_FleetSupervisionCache`` below) so it very rarely runs synchronously on
+# the hot path any more -- but when it DOES (process cold start, or the cache
+# has gone past ``_FLEET_SUPERVISION_MAX_STALENESS_S``), the observed real
+# cost of that scan on the live pod ranged 800ms-1.7s and peaked at 3.4s.
+# 2.0s made that peak a FALSE "unhealthy" -- the system was busy serving, not
+# down -- which is worse than no check at all: a probe that fails under
+# exactly the load it exists to report on gets a healthy pod pulled from
+# Service. 5.0s covers the observed peak with headroom while still bounding
+# a truly wedged check to a single-digit-second delay, not forever.
+_CHECK_TIMEOUT_OVERRIDES: dict[str, float] = {
+    "fleet_supervision": 5.0,
+}
+
 
 class HealthCheck(TypedDict, total=False):
     """One non-secret, bounded runtime dependency check."""
@@ -334,25 +353,63 @@ def set_readiness_authority(session: Any) -> None:
     global _READINESS_AUTHORITY
     with _READINESS_AUTHORITY_LOCK:
         _READINESS_AUTHORITY = session
+    # A new authority invalidates any snapshot computed under the OLD one --
+    # never let a cache entry outlive the identity it was read under.
+    _FLEET_SUPERVISION_CACHE.invalidate()
 
 
-def _check_fleet_supervision(cfg: Any) -> dict[str, Any]:  # noqa: ARG001 - uniform check signature
-    """Require truthful fleet evidence before the process is ready to serve.
+# --------------------------------------------------------------------------- #
+# fleet_supervision: cached, bounded-staleness readiness verdict
+#
+# Traced on the live pod: readinessProbe (periodSeconds=10) -> this check ->
+# collect_fleet_health() -> full-scan Cypher reads (unindexable tenant-scope
+# disjunction on the goal registry, plus session/domain aggregates and the
+# worker registry) averaging 800ms-1.7s and peaking at 3.4s. That made this
+# ONE check 45% of all slow-query log lines on the pod, forever, every 10s --
+# self-inflicted baseline load competing with every other request for the
+# same engine.
+#
+# A readiness probe answers "can this pod serve traffic right now" -- it does
+# not need a graph scan re-run on every single kubelet tick to answer that.
+# The cheapest query is the one you don't run, so this check now serves a
+# recently-computed verdict from an in-process cache with a TTL well above the
+# probe cadence, and refreshes it in the BACKGROUND (never blocking a probe
+# response on the scan) once the cache goes stale. Staleness is bounded and
+# visible: every response carries ``detail._cache`` (age/ttl/stale), and a
+# verdict is never served past ``_FLEET_SUPERVISION_MAX_STALENESS_S`` without
+# forcing a synchronous recompute -- a genuinely-down subsystem still surfaces
+# as unhealthy, just on a bounded delay instead of on every single tick.
+# --------------------------------------------------------------------------- #
 
-    This check consumes the same live collector as the fleet REST/MCP
-    endpoints.  It carries no USER scope -- readiness is a process control
-    decision, and authenticated fleet payloads still resolve the verified
-    actor/tenant at the gateway boundary -- but it is not scopeless: the
-    collector's goal-authority probe performs a real graph read, which
-    structurally requires a bound session.
+# > 2x the observed readinessProbe periodSeconds (10s): background refreshes
+# fire roughly every 3rd probe tick instead of every tick, cutting the actual
+# query rate ~3x while keeping detected-outage latency well inside what a k8s
+# readiness gate already tolerates.
+_FLEET_SUPERVISION_CACHE_TTL_S = 30.0
+# Hard ceiling on how old a served verdict may ever be. If the background
+# refresh thread dies, wedges, or is starved, a probe hitting this bound forces
+# an inline synchronous recompute rather than serve indefinitely-stale data --
+# this is what keeps the check honest, not just cheap.
+_FLEET_SUPERVISION_MAX_STALENESS_S = 120.0
+
+
+def _collect_fleet_supervision_check() -> dict[str, Any]:
+    """Uncached: one real read of the live fleet-supervision authority.
+
+    This is the expensive call this whole cache exists to rate-limit. It
+    carries no USER scope -- readiness is a process control decision, and
+    authenticated fleet payloads still resolve the verified actor/tenant at
+    the gateway boundary -- but it is not scopeless: the collector's
+    goal-authority probe performs a real graph read, which structurally
+    requires a bound session.
 
     Running it with no session at all made that read raise
     ``SessionRequiredError`` on every collection, which the collector recorded
-    as an ``unavailable`` goal authority.  Because this check is essential to
+    as an ``unavailable`` goal authority. Because this check is essential to
     :func:`is_overall_healthy`, readiness then returned 503 forever on any
     network transport and the pod never joined its Service -- reporting a
     dependency outage when the real condition was that the PROBE had no
-    identity.  Binding the process's own authority makes the probe measure the
+    identity. Binding the process's own authority makes the probe measure the
     authority instead of measuring its own caller.
     """
 
@@ -376,6 +433,145 @@ def _check_fleet_supervision(cfg: Any) -> dict[str, Any]:  # noqa: ARG001 - unif
         f"fleet supervisory evidence is {snapshot.evidence.status}",
         detail=detail,
     )
+
+
+class _FleetSupervisionCache:
+    """Stale-while-revalidate cache for one expensive, bounded readiness check.
+
+    - Cold (no entry yet), or older than ``max_staleness_s``: compute inline
+      and block the caller -- this is the ONLY path that can still take as
+      long as the underlying scan does.
+    - Fresh (age < ``ttl_s``): return the cached verdict immediately.
+    - Stale but under ``max_staleness_s``: return the cached verdict
+      immediately AND kick off exactly one background refresh (a second probe
+      arriving mid-refresh sees ``refreshing`` already set and just reuses the
+      stale entry -- no thundering herd against the engine).
+    """
+
+    def __init__(self, ttl_s: float, max_staleness_s: float) -> None:
+        self._ttl_s = ttl_s
+        self._max_staleness_s = max_staleness_s
+        self._lock = threading.Lock()
+        # Serializes every actual call into ``compute`` (inline AND
+        # background) so two callers racing a cold cache (e.g. the REST and
+        # MCP readiness routes both hit within the same process at pod
+        # startup) can never dogpile the engine with duplicate concurrent
+        # scans -- the second waiter re-checks freshness once it acquires
+        # this lock instead of unconditionally recomputing.
+        self._compute_lock = threading.Lock()
+        self._result: dict[str, Any] | None = None
+        self._computed_at: float | None = None
+        self._refreshing = False
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._result = None
+            self._computed_at = None
+
+    def _store(self, result: dict[str, Any]) -> None:
+        with self._lock:
+            self._result = result
+            self._computed_at = time.monotonic()
+            self._refreshing = False
+
+    def _refresh_in_background(self, compute: Callable[[], dict[str, Any]]) -> None:
+        def _run() -> None:
+            with self._compute_lock:
+                try:
+                    result = compute()
+                except Exception as exc:  # noqa: BLE001 - never let a wedged refresh crash silently or hide behind stale "ok" forever
+                    result = _unhealthy(
+                        "fleet_supervision",
+                        f"background refresh raised {type(exc).__name__}: {exc}",
+                    )
+            self._store(result)
+
+        threading.Thread(
+            target=_run, name="au-fleet-supervision-refresh", daemon=True
+        ).start()
+
+    def _get(self, compute: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+        now = time.monotonic()
+        with self._lock:
+            result = self._result
+            computed_at = self._computed_at
+            already_refreshing = self._refreshing
+            age = None if computed_at is None else now - computed_at
+            force_inline = result is None or (
+                age is not None and age >= self._max_staleness_s
+            )
+            should_start_refresh = (
+                not force_inline
+                and age is not None
+                and age >= self._ttl_s
+                and not already_refreshing
+            )
+            if should_start_refresh:
+                self._refreshing = True
+
+        if force_inline:
+            # Cold start, or so stale it is no longer a truthful readiness
+            # signal -- compute synchronously so a real, ongoing outage can
+            # never be masked by a wedged/absent background refresh. Guard
+            # with the compute lock and re-check freshness once acquired: a
+            # concurrent caller may have already refreshed the entry while
+            # this one was waiting, in which case reuse that instead of
+            # scanning a second time back-to-back.
+            with self._compute_lock:
+                recheck_now = time.monotonic()
+                with self._lock:
+                    result = self._result
+                    computed_at = self._computed_at
+                    recheck_age = (
+                        None if computed_at is None else recheck_now - computed_at
+                    )
+                    still_needs_compute = result is None or (
+                        recheck_age is not None and recheck_age >= self._max_staleness_s
+                    )
+                if still_needs_compute:
+                    result = compute()
+                    self._store(result)
+                    age = 0.0
+                else:
+                    age = recheck_age
+        elif should_start_refresh:
+            self._refresh_in_background(compute)
+
+        # Invariant: by this point `result` is never None -- either the
+        # `force_inline` branch above just computed and stored one, or it
+        # wasn't taken, which per `force_inline`'s own condition means the
+        # `self._result` read at the top of this call was already non-None.
+        assert result is not None, "fleet_supervision cache produced no result"
+        annotated = dict(result)
+        detail = dict(annotated.get("detail") or {})
+        detail["_cache"] = {
+            "age_s": round(age, 3) if age is not None else 0.0,
+            "ttl_s": self._ttl_s,
+            "max_staleness_s": self._max_staleness_s,
+            "stale": bool(age is not None and age >= self._ttl_s),
+        }
+        annotated["detail"] = detail
+        return annotated
+
+
+_FLEET_SUPERVISION_CACHE = _FleetSupervisionCache(
+    _FLEET_SUPERVISION_CACHE_TTL_S, _FLEET_SUPERVISION_MAX_STALENESS_S
+)
+
+
+def _check_fleet_supervision(cfg: Any) -> dict[str, Any]:  # noqa: ARG001 - uniform check signature
+    """Truthful fleet-supervision readiness, served from the bounded cache above.
+
+    See :func:`_collect_fleet_supervision_check` for what is actually read and
+    why a bound session is required, and the ``_FleetSupervisionCache``
+    docstring for the staleness contract. This is on the readinessProbe hot
+    path (kubelet, every ``periodSeconds``), so it must never be the thing
+    that makes the probe itself expensive -- a genuinely down dependency still
+    surfaces as ``unhealthy`` here, just discovered on a bounded cadence
+    instead of re-scanned on every tick.
+    """
+
+    return _FLEET_SUPERVISION_CACHE._get(_collect_fleet_supervision_check)
 
 
 def _check_kafka_bus(cfg: Any) -> dict[str, Any]:
@@ -632,18 +828,23 @@ _CHECKS: tuple[tuple[str, Callable[[Any], dict[str, Any]]], ...] = (
 )
 
 
-def _run_bounded(name: str, fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
+def _run_bounded(
+    name: str, fn: Callable[[], dict[str, Any]], *, timeout: float | None = None
+) -> dict[str, Any]:
     """Run one check on the shared pool; NEVER let it read as healthy on
-    failure or hang the caller past ``_CHECK_WALL_TIMEOUT_S``.
+    failure or hang the caller past its wall-clock bound.
+
+    ``timeout`` defaults to ``_CHECK_WALL_TIMEOUT_S``; pass an override (see
+    ``_CHECK_TIMEOUT_OVERRIDES``) for a check whose truthful worst case is
+    documented to exceed the generic default.
     """
+    bound = _CHECK_WALL_TIMEOUT_S if timeout is None else timeout
     started = time.monotonic()
     future: Future = _EXECUTOR.submit(fn)
     try:
-        result = future.result(timeout=_CHECK_WALL_TIMEOUT_S)
+        result = future.result(timeout=bound)
     except _FutureTimeoutError:
-        result = _unhealthy(
-            name, f"probe exceeded its {_CHECK_WALL_TIMEOUT_S:.1f}s bound"
-        )
+        result = _unhealthy(name, f"probe exceeded its {bound:.1f}s bound")
     except Exception as exc:
         # The one place a bug INSIDE a check function still cannot report
         # healthy — any exception here becomes an explicit "unhealthy", never
@@ -702,7 +903,10 @@ def collect_health() -> HealthReport:
     def _bind(fn: Callable[[Any], dict[str, Any]]) -> Callable[[], dict[str, Any]]:
         return lambda: fn(cfg)
 
-    checks = [_run_bounded(name, _bind(fn)) for name, fn in _CHECKS]
+    checks = [
+        _run_bounded(name, _bind(fn), timeout=_CHECK_TIMEOUT_OVERRIDES.get(name))
+        for name, fn in _CHECKS
+    ]
     overall = (
         "unhealthy" if any(c["status"] == "unhealthy" for c in checks) else "healthy"
     )
