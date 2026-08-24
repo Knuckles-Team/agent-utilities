@@ -151,3 +151,93 @@ def test_camel_case_web_url_is_location_redacted() -> None:
 
     assert clean == {"webUrl": "[REDACTED_LOCATION]"}
     assert report.detected_types == ("location_field",)
+
+
+def test_iban_shaped_structural_ids_survive_distinct_and_unmodified() -> None:
+    """Regression test for the IBAN/uuid4-hex collision.
+
+    ``dc0836cf29134aa2a38231c319e6497e`` and ``da90004e126c486abf4579b4646be2d0``
+    are deterministic, literal hex strings written directly into this test
+    (never ``uuid4()``, so this test can never flake) that both happen to
+    satisfy the free-text IBAN shape: two letters in [a-f], two digits, then
+    11-30 more alphanumeric groups. Before the ``_STRUCTURAL_ID_FIELDS``
+    exemption, `_sanitize_string` would collapse both to the literal
+    "[REDACTED_IBAN]", producing duplicate "id" values (a measured 5.37%
+    collision rate over 20,000 generated uuid4 hex ids).
+    """
+
+    first_id = "action_decision:dc0836cf29134aa2a38231c319e6497e"
+    second_id = "action_decision:da90004e126c486abf4579b4646be2d0"
+    assert first_id != second_id
+
+    payload = {
+        "nodes": [
+            {"id": first_id, "type": "action_decision"},
+            {"id": second_id, "type": "action_decision"},
+        ]
+    }
+
+    clean, report = sanitize_for_persistence(payload)
+
+    cleaned_ids = [node["id"] for node in clean["nodes"]]
+    assert cleaned_ids == [first_id, second_id]
+    assert cleaned_ids[0] != cleaned_ids[1]
+    assert "[REDACTED_" not in cleaned_ids[0]
+    assert "[REDACTED_" not in cleaned_ids[1]
+    assert "iban" not in report.detected_types
+
+
+def test_live_colliding_action_decision_ids_survive_distinct_and_intact() -> None:
+    """Exact reproduction of the live collision measured against
+    ``/api/enhanced/graph/nodes``: these two ``action_decision`` ids
+    collapsed into one duplicate ``occurrence:[REDACTED_IBAN]``-style key,
+    crashing the graph canvas and repointing edges in
+    ``get_graph_relationships``.
+    """
+
+    node_a = {"id": "action_decision:dc0836cf29134aa2a38231c319e6497e"}
+    node_b = {"id": "action_decision:da90004e126c486abf4579b4646be2d0"}
+
+    clean_a, _ = sanitize_for_persistence(node_a)
+    clean_b, _ = sanitize_for_persistence(node_b)
+
+    assert clean_a["id"] == "action_decision:dc0836cf29134aa2a38231c319e6497e"
+    assert clean_b["id"] == "action_decision:da90004e126c486abf4579b4646be2d0"
+    assert clean_a["id"] != clean_b["id"]
+
+
+def test_real_iban_in_free_text_field_is_still_redacted() -> None:
+    """The scoping fix must not weaken IBAN detection in genuine free text --
+    only exempt values stored directly under structural-identifier keys."""
+
+    real_iban = "GB29NWBK60161331926819"
+    clean, report = sanitize_for_persistence(
+        {
+            "description": f"Wire the refund to {real_iban} by Friday.",
+            "content": f"Account on file: {real_iban}",
+        }
+    )
+
+    assert real_iban not in clean["description"]
+    assert real_iban not in clean["content"]
+    assert "[REDACTED_IBAN]" in clean["description"]
+    assert "[REDACTED_IBAN]" in clean["content"]
+    assert "iban" in report.detected_types
+
+
+def test_relationship_source_and_target_ids_survive_unmodified() -> None:
+    """`get_graph_relationships`-shaped payloads must not have their edge
+    endpoints mangled by the free-text pattern pass."""
+
+    relationship = {
+        "source": "action_decision:dc0836cf29134aa2a38231c319e6497e",
+        "target": "action_decision:da90004e126c486abf4579b4646be2d0",
+        "type": "DERIVED_FROM",
+    }
+
+    clean, report = sanitize_for_persistence(relationship)
+
+    assert clean["source"] == "action_decision:dc0836cf29134aa2a38231c319e6497e"
+    assert clean["target"] == "action_decision:da90004e126c486abf4579b4646be2d0"
+    assert clean["source"] != clean["target"]
+    assert "iban" not in report.detected_types
