@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 from agent_utilities.gateway import registry_api
 from agent_utilities.knowledge_graph.core.session import (
@@ -954,3 +957,164 @@ def test_missing_graph_session_is_denied(monkeypatch):
 
     assert response.status_code == 403
     assert response.json()["detail"] == "registry access denied"
+
+
+# --- Event-loop offload (DEFECT A) ---
+#
+# `_list_kind` used to call `_authorized_count`/`_authorized_page` as plain
+# synchronous calls with no `run_in_executor`/`to_thread` offload anywhere,
+# so a slow engine RPC stalled the *entire* ASGI process, not just the one
+# request, and had no deadline at all. These tests exercise the fix
+# (`registry_api._offload_catalog_call`, `asyncio.wait_for(asyncio.to_thread(...))`)
+# directly against a fake engine whose `sql_exec` blocks synchronously.
+
+
+def _direct_authority(actor_id: str = "actor-a", tenant_id: str = "tenant-a"):
+    """Build a bare actor/session pair for a direct (non-TestClient) coroutine
+    call, mirroring `_authority_app`'s middleware setup without the ASGI
+    plumbing -- needed so a test can `await` `_list_kind` concurrently with
+    another coroutine on the *same* event loop and observe whether the loop
+    stayed responsive."""
+
+    actor = ActorContext(
+        actor_id=actor_id,
+        actor_type=ActorType.AUTOMATED_SERVICE,
+        roles=("registry:read",),
+        tenant_id=tenant_id,
+        authenticated=True,
+    )
+    session = GraphSession(
+        actor=actor,
+        tenant=tenant_id,
+        scopes=frozenset({"kg:read"}),
+        graph=tenant_id,
+        policy_version="test",
+        audience="test",
+    )
+    return actor, session
+
+
+async def test_list_kind_offloads_the_blocking_engine_call_off_the_event_loop(
+    monkeypatch,
+):
+    """A concurrently scheduled coroutine must keep making progress *while*
+    `_list_kind`'s catalog SQL call is in flight, proving the blocking engine
+    RPC no longer runs inline on the event loop.
+
+    Before the fix, `_authorized_count`/`_authorized_page` ran synchronously
+    with no `await` in between, so once the event loop picked `_list_kind` to
+    run it would not yield back until both catalog calls finished -- the
+    heartbeat coroutine below would then show one large gap spanning the
+    whole blocking window instead of steady small gaps throughout it.
+    """
+
+    engine = _FakeEngine(_rows())
+    real_sql_exec = engine.graph_compute.sql_exec
+
+    def slow_sql_exec(statement: str):
+        time.sleep(0.3)
+        return real_sql_exec(statement)
+
+    engine.graph_compute.sql_exec = slow_sql_exec
+
+    actor, session = _direct_authority()
+    monkeypatch.setattr(registry_api, "_get_catalog_engine", lambda: engine)
+    monkeypatch.setattr(
+        registry_api,
+        "_resolve_current_discovery_grants",
+        lambda actor: (_grant_digest(actor.actor_id, actor.tenant_id),),
+    )
+
+    request = Request({"type": "http", "query_string": b"", "headers": []})
+    ticks: list[float] = []
+
+    async def heartbeat() -> None:
+        start = time.monotonic()
+        for _ in range(60):
+            await asyncio.sleep(0.02)
+            ticks.append(time.monotonic() - start)
+
+    with use_actor(actor), use_session(session):
+        result, _ = await asyncio.gather(
+            registry_api._list_kind(
+                request, kind="servers", model=registry_api.RegistryServer
+            ),
+            heartbeat(),
+        )
+
+    assert isinstance(result, registry_api.RegistryPage)
+    assert result.status == "ok"
+    # `_list_kind` makes two sequential offloaded calls (count, then page) of
+    # 0.3s each -- ~0.6s of blocking work in total. The heartbeat must have
+    # kept ticking at its own ~0.02s cadence throughout that window: no gap
+    # between consecutive ticks anywhere near the 0.3s a single blocked call
+    # would produce if it still ran inline on the loop.
+    assert len(ticks) >= 20, ticks
+    gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
+    assert max(gaps) < 0.2, gaps
+
+
+def test_list_kind_deadline_breach_fails_closed_and_bounded(monkeypatch):
+    """A genuinely hung engine call must fail this one request quickly and
+    cleanly -- not hang the request (or the ASGI process) indefinitely.
+    Regression guard for DEFECT A's "no deadline bound at all" finding."""
+
+    engine = _FakeEngine(_rows())
+    real_sql_exec = engine.graph_compute.sql_exec
+
+    def hung_sql_exec(statement: str):
+        time.sleep(2.0)
+        return real_sql_exec(statement)
+
+    engine.graph_compute.sql_exec = hung_sql_exec
+    monkeypatch.setattr(registry_api, "_CATALOG_READ_TIMEOUT_S", 0.2)
+    client = _authority_app(monkeypatch, engine=engine)
+
+    # `time.sleep(2.0)` runs in a worker thread that `wait_for` abandons
+    # (rather than kills) once the deadline fires -- the OS thread keeps
+    # running in the background regardless, it just no longer holds up the
+    # request. Used outside a `with` block, Starlette's TestClient tears its
+    # portal down (and drains that stray executor thread) *after every
+    # single call*, which would fold that background 2s into this test's
+    # wall-clock measurement and defeat the point of the assertion. Keeping
+    # the portal open across the call measures what actually matters: how
+    # long the request itself took to come back.
+    with client:
+        start = time.monotonic()
+        response = client.get("/api/registry/servers")
+        elapsed = time.monotonic() - start
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "status": "unavailable",
+        "reason": "catalog_unavailable",
+    }
+    # Bounded by the (patched) deadline, not by the 2s hang.
+    assert elapsed < 1.5, elapsed
+
+
+def test_success_path_response_shape_is_unchanged_by_the_offload(monkeypatch):
+    """Pin the exact 200 envelope for a known page so the offload change is
+    provably byte-identical on the success path: same rows, same shape."""
+
+    engine = _FakeEngine(_rows())
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get("/api/registry/servers", params={"q": "alpha"})
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "status": "ok",
+        "kind": "servers",
+        "items": [
+            {
+                "id": "mcp_server_alpha",
+                "name": "alpha",
+                "transport": "http",
+                "url": "",
+                "enabled": True,
+            }
+        ],
+        "count": 1,
+        "next_cursor": None,
+    }
