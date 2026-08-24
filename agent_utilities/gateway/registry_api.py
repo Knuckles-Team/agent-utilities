@@ -13,6 +13,7 @@ CONCEPT:AU-OS.state.unified-durable-state-externalization
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable, Mapping
@@ -42,6 +43,12 @@ _MAX_QUERY_BYTES = 128
 _MAX_CATALOG_ROWS = 10_000
 _MAX_CURSOR_BYTES = 4096
 _CURSOR_TTL_SECONDS = 900.0
+# Bound on one blocking catalog SQL call (unix-socket engine RPC), offloaded
+# to a worker thread via ``_offload_catalog_call``. 30s comfortably covers the
+# measured queueing-driven latency of a single call under load (observed up
+# to ~11.7s) while still failing a genuinely hung engine call closed instead
+# of hanging the request indefinitely.
+_CATALOG_READ_TIMEOUT_S = 30.0
 
 registry_router = APIRouter(tags=["registry"])
 
@@ -318,6 +325,34 @@ def _get_catalog_engine() -> Any:
     from agent_utilities.mcp.kg_server import _get_engine
 
     return _get_engine()
+
+
+async def _offload_catalog_call(
+    fn: Callable[..., Any], /, *args: Any, **kwargs: Any
+) -> Any:
+    """Run one blocking catalog SQL call off the ASGI event loop, bounded by
+    ``_CATALOG_READ_TIMEOUT_S``.
+
+    ``_authorized_count``/``_authorized_page``/``_authorized_item`` each make
+    a synchronous unix-socket engine RPC. Calling one of them directly from
+    an ``async def`` route handler blocks the single gateway event loop for
+    the RPC's full duration: one slow registry read then stalls *every*
+    other in-flight request on the process, not just this one. This mirrors
+    the dispatch-isolation pattern already used for engine RPCs elsewhere in
+    this system (``asyncio.wait_for(asyncio.to_thread(...))`` around
+    ``agent_utilities.mcp.kg_server``'s tool dispatch,
+    CONCEPT:AU-ECO.mcp.gateway-dispatch-isolation): run the blocking call on
+    a worker thread so the loop stays schedulable, and bound it with a
+    deadline so a hung engine call fails this one request cleanly instead of
+    hanging indefinitely. A deadline breach surfaces as a plain
+    ``TimeoutError``, which the existing catch-all ``except Exception`` in
+    ``_list_kind``/``_get_kind`` already maps to the same explicit
+    ``catalog_unavailable`` 503 response used for any other catalog failure
+    -- no separate handling is required at the call sites.
+    """
+    return await asyncio.wait_for(
+        asyncio.to_thread(fn, *args, **kwargs), timeout=_CATALOG_READ_TIMEOUT_S
+    )
 
 
 def _resolve_current_discovery_grants(actor: Any) -> tuple[str, ...]:
@@ -869,7 +904,8 @@ async def _list_kind(
     spec = _KIND_SPECS[kind]
     engine = _get_catalog_engine()
     try:
-        total = _authorized_count(
+        total = await _offload_catalog_call(
+            _authorized_count,
             kind,
             tenant=tenant,
             principal=principal,
@@ -877,7 +913,8 @@ async def _list_kind(
             query=query,
             engine=engine,
         )
-        rows = _authorized_page(
+        rows = await _offload_catalog_call(
+            _authorized_page,
             kind,
             tenant=tenant,
             principal=principal,
@@ -945,7 +982,8 @@ async def _get_kind(
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail="registry access denied") from exc
     try:
-        row = _authorized_item(
+        row = await _offload_catalog_call(
+            _authorized_item,
             kind,
             tenant=tenant,
             principal=principal,
