@@ -24,6 +24,11 @@ Covers:
   refused outright, and nothing is written — the actual root cause of the
   live incident (a caller omitting `existing_roles`, not a bug in the merge
   math itself).
+- A principal admitting ITSELF (`agent_id == admin_authority.signer_id`,
+  `agent-webui`'s `ensure_tenant_admission` shape) is skipped outright, even
+  with `existing_roles` unset -- proven against the exact live incident data
+  (a principal already holding `control:system` and `tenant:homelab` keeps
+  both after a self-admission pass).
 """
 
 from __future__ import annotations
@@ -177,6 +182,55 @@ def test_admitting_a_principal_with_unknown_existing_roles_fails_loudly() -> Non
         "an unknown prior role set must never reach register_identity — "
         "fail closed, never write a possibly-reduced set"
     )
+
+
+def test_self_admission_is_skipped_and_never_drops_the_admitting_principals_own_roles() -> (
+    None
+):
+    """The exact incident, reproduced and proven fixed: graph-os's own
+    principal (`5102c7f9-...` in the live incident) already carries BOTH
+    `control:system` (which itself carries `security:admin`) and
+    `tenant:homelab`. `agent-webui`'s `ensure_tenant_admission` then admits
+    that SAME principal into its own tenant, signing as itself, exactly the
+    way `TenantPrincipal(agent_id=agent_id)` is constructed in production —
+    no `existing_roles` supplied. Before this fix that silently re-registered
+    `roles=['tenant:homelab']` only, dropping `control:system` and bricking
+    every future admin-gated admission call. Now: no exception, no
+    `register_identity` call, and the principal's pre-existing roles
+    (established by a wholly separate admission pass this module has no way
+    to read back) are left completely untouched."""
+
+    client = tra.FixtureEngineIdentityClient()
+    principal_id = "5102c7f9-f264-4732-932f-f49b1bebce09"
+    # Simulates system_rbac_admission having already granted control:system
+    # (and some earlier pass having granted tenant:homelab) directly against
+    # the engine -- this module never wrote it and cannot read it back.
+    client.identities[principal_id] = {
+        "role": "Agent",
+        "teams": [],
+        "roles": ["control:system", "tenant:homelab"],
+    }
+    # The engine only accepts signer == the admitted principal's own key, so
+    # a principal admitting itself signs as itself -- exactly the shape
+    # `resolve_admission_authority()` produces for `ensure_tenant_admission`.
+    authority = _authority(principal_id)
+
+    result = tra.provision_tenant_access(
+        client,
+        "homelab",
+        [tra.TenantPrincipal(agent_id=principal_id)],  # no existing_roles
+        admin_authority=authority,
+    )
+
+    assert result.all_admitted is True
+    [outcome] = result.outcomes
+    assert outcome.already_held is True
+    assert client.calls == [], "self-admission must never call register_identity"
+    # The whole point: control:system (and security:admin with it) survives.
+    assert client.identities[principal_id]["roles"] == [
+        "control:system",
+        "tenant:homelab",
+    ]
 
 
 def test_system_role_is_refused() -> None:
