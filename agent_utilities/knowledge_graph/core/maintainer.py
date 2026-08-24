@@ -904,9 +904,7 @@ class GraphMaintainer:
                         "batch_size": _TRACE_RETENTION_BATCH_SIZE,
                     },
                 )
-                selected_rows = (
-                    selected if isinstance(selected, list) else [selected]
-                )
+                selected_rows = selected if isinstance(selected, list) else [selected]
                 ids = [
                     row["id"]
                     for row in selected_rows
