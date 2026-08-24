@@ -965,14 +965,105 @@ def _make_tool_endpoint(tool_name: str):
     return _handler
 
 
+#: The ``graph_query`` MCP tool's own documented parameters (KG-2.134 /
+#: ``agent_utilities/mcp/tools/query_tools.py``'s ``graph_query`` signature).
+#: Kept as an explicit allowlist so this REST twin never blind-splats an
+#: arbitrary request body into ``_execute_tool`` (LANE 9 / U-74 follow-up):
+#: an unrecognized field becomes an immediate, clean 4xx here instead of
+#: reaching ``_execute_tool`` at all.
+_GRAPH_QUERY_TOOL_FIELDS = frozenset(
+    {
+        "as_of",
+        "connection",
+        "cypher",
+        "graph",
+        "include_epistemic",
+        "params",
+        "reference_id",
+        "scope",
+    }
+)
+
+
 async def graph_query_endpoint(request: Request) -> JSONResponse:
+    """REST twin of the ``graph_query`` MCP tool.
+
+    LANE 9 fix: the tool's real parameter is ``cypher`` (see
+    ``_GRAPH_QUERY_TOOL_FIELDS`` / the ``graph_query`` tool signature), but a
+    plausible, naturally-expected wire name for "the query string" is
+    ``query`` — and that name is not a caller mistake in this codebase: it is
+    the genuine field name of the *different*, already-correct
+    ``POST /api/graph/execute_cypher`` route (agent-webui's
+    ``execute_cypher``, whose target ``QueryMixin.query_cypher`` really does
+    take a ``query`` kwarg — see
+    ``agent_utilities/knowledge_graph/orchestration/engine_query.py``), which
+    ``CypherReplView.tsx``/``TemporalGraphView.tsx``/``GraphView.tsx`` all
+    call. To stay compatible with a client that assumes wire-name parity
+    across these two Cypher-shaped routes, ``query`` is accepted here as an
+    alias for ``cypher`` — mapping at this boundary, rather than renaming the
+    tool's own ``cypher`` parameter (which every existing internal caller of
+    the ``graph_query`` MCP tool relies on) or forcing every REST client onto
+    one spelling.
+
+    Precedence when both are supplied: identical values collapse to one
+    (no ambiguity); different values are a client error returned as a
+    deterministic 4xx rather than silently preferring either field.
+
+    This endpoint does not forward the raw request body into
+    ``_execute_tool`` — only ``_GRAPH_QUERY_TOOL_FIELDS`` (plus the ``query``
+    alias) are ever passed through, so a genuinely unknown field fails fast
+    as a clean 4xx here instead of reaching the tool dispatch (and, on a
+    build predating the ``_execute_tool``-internal
+    ``_validate_tool_kwargs_against_signature`` guard, the authority/session
+    bootstrap that precedes it) only to 500 later.
+    """
     try:
         body = await request.json()
     except Exception:
         body = {}
+    if not isinstance(body, dict):
+        return JSONResponse(
+            {"status": "error", "message": "request body must be a JSON object"},
+            status_code=400,
+        )
+
+    query_val = body.get("query")
+    cypher_val = body.get("cypher")
+    if query_val is not None and cypher_val is not None and query_val != cypher_val:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": (
+                    "both 'query' and 'cypher' were supplied with different "
+                    "values; send exactly one (or identical values in both)."
+                ),
+            },
+            status_code=400,
+        )
+
+    unknown = sorted(set(body) - _GRAPH_QUERY_TOOL_FIELDS - {"query"})
+    if unknown:
+        return JSONResponse(
+            {
+                "status": "error",
+                "message": f"Unsupported field(s): {', '.join(unknown)}.",
+            },
+            status_code=400,
+        )
+
+    kwargs = {k: v for k, v in body.items() if k in _GRAPH_QUERY_TOOL_FIELDS}
+    if "cypher" not in kwargs and query_val is not None:
+        kwargs["cypher"] = query_val
+
     try:
-        res = await _execute_tool("graph_query", **body)
+        res = await _execute_tool("graph_query", **kwargs)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # Defense-in-depth: `_GRAPH_QUERY_TOOL_FIELDS` is kept in sync with
+        # the tool's real signature above, so this should be unreachable —
+        # but if it ever drifts, still surface the client-caused 4xx rather
+        # than the generic 500 below (U-74).
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -985,6 +1076,18 @@ async def graph_search_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_search", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # U-74: same deterministic-4xx treatment as `_make_tool_endpoint` —
+        # this hand-written endpoint predates that factory and was never
+        # updated to catch this exception subclass specially, so a caller
+        # field the `graph_search` tool doesn't accept fell through to the
+        # generic 500 below instead. `graph_search`'s own wire field names
+        # (`query`, `mode`, `top_k`, ...) already match its documented tool
+        # parameters 1:1 — see `graph_search`'s signature in
+        # `agent_utilities/mcp/tools/query_tools.py` — so unlike
+        # `graph_query`/`cypher` there is no latent name mismatch here; only
+        # the missing status-code mapping needed fixing.
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -997,6 +1100,9 @@ async def graph_write_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_write", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # U-74, same class of fix as `graph_search_endpoint` above.
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -1009,6 +1115,9 @@ async def graph_ingest_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_ingest", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # U-74, same class of fix as `graph_search_endpoint` above.
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -1021,6 +1130,9 @@ async def graph_analyze_endpoint(request: Request) -> JSONResponse:
     try:
         res = await _execute_tool("graph_analyze", **body)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        # U-74, same class of fix as `graph_search_endpoint` above.
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -1201,6 +1313,12 @@ def _make_action_endpoint(tool_name: str):
         try:
             res = await _execute_tool(tool_name, **body)
             return JSONResponse({"status": "success", "result": safe_json_load(res)})
+        except UnsupportedToolFieldError as e:
+            # U-74, same class of fix as `graph_search_endpoint` above: this
+            # factory blind-splats the body the same way, so any tool it
+            # backs (graph_code/research/evaluate/explain/observe) shared the
+            # missing 4xx mapping.
+            return _external_error_response(e, status_code=400, code="invalid_request")
         except Exception as e:
             return _external_error_response(e)
 
