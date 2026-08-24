@@ -31,7 +31,12 @@ ADMITTING_PRINCIPAL = "graph-os:process"
 
 
 def _principal_manifest() -> list[tra.TenantPrincipal]:
-    return [tra.TenantPrincipal(agent_id="webui-user-1", role="Agent")]
+    # existing_roles=() confirms "known fresh" -- these tests exercise the
+    # provisioning round trip, not the unknown-existing_roles fail-loud path
+    # (see test_tenant_rbac_admission.py for that).
+    return [
+        tra.TenantPrincipal(agent_id="webui-user-1", role="Agent", existing_roles=())
+    ]
 
 
 @contextlib.contextmanager

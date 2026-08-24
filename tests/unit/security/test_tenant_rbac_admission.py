@@ -20,6 +20,10 @@ Covers:
 - `System` is refused as a `TenantPrincipal.role` — this module must never be
   used to grant blanket RBAC bypass.
 - A failed admission RPC is never swallowed.
+- A principal whose `existing_roles` is unknown (`None`, the default) is
+  refused outright, and nothing is written — the actual root cause of the
+  live incident (a caller omitting `existing_roles`, not a bug in the merge
+  math itself).
 """
 
 from __future__ import annotations
@@ -51,7 +55,9 @@ def test_tenant_role_name_rejects_empty_slug() -> None:
 
 def test_admitting_a_fresh_principal_grants_exactly_the_tenant_role() -> None:
     client = tra.FixtureEngineIdentityClient()
-    principal = tra.TenantPrincipal(agent_id="webui-user-1", role="Agent")
+    principal = tra.TenantPrincipal(
+        agent_id="webui-user-1", role="Agent", existing_roles=()
+    )
 
     result = tra.provision_tenant_access(
         client,
@@ -102,9 +108,9 @@ def test_multiple_principals_sharing_one_tenant_are_all_admitted() -> None:
 
     client = tra.FixtureEngineIdentityClient()
     principals = [
-        tra.TenantPrincipal(agent_id="webui-user-1"),
-        tra.TenantPrincipal(agent_id="webui-user-2"),
-        tra.TenantPrincipal(agent_id="webui-user-3"),
+        tra.TenantPrincipal(agent_id="webui-user-1", existing_roles=()),
+        tra.TenantPrincipal(agent_id="webui-user-2", existing_roles=()),
+        tra.TenantPrincipal(agent_id="webui-user-3", existing_roles=()),
     ]
 
     result = tra.provision_tenant_access(
@@ -122,7 +128,7 @@ def test_multiple_principals_sharing_one_tenant_are_all_admitted() -> None:
 
 def test_admission_is_idempotent_and_skips_a_redundant_register_call() -> None:
     client = tra.FixtureEngineIdentityClient()
-    principal = tra.TenantPrincipal(agent_id="webui-user-1")
+    principal = tra.TenantPrincipal(agent_id="webui-user-1", existing_roles=())
     authority = _authority("provisioner:deploy")
 
     tra.provision_tenant_access(
@@ -142,6 +148,34 @@ def test_admission_is_idempotent_and_skips_a_redundant_register_call() -> None:
     assert result.outcomes[0].already_held is True
     assert len(client.calls) == register_calls_after_first, (
         "an already-held tenant role must not trigger a second register_identity call"
+    )
+
+
+def test_admitting_a_principal_with_unknown_existing_roles_fails_loudly() -> None:
+    """The regression this module's ``existing_roles`` field ALREADY protected
+    against on paper but not in practice: a caller (e.g. ``agent-webui``'s
+    ``ensure_tenant_admission``) that omits ``existing_roles`` entirely used
+    to fall through to an empty-tuple default and silently register only the
+    tenant role — dropping whatever else the principal held (this is the
+    live incident: it dropped ``control:system`` off graph-os's own
+    principal). It must now fail loudly and write nothing instead."""
+
+    client = tra.FixtureEngineIdentityClient()
+    principal = tra.TenantPrincipal(agent_id="webui-user-1")  # existing_roles unset
+
+    assert principal.existing_roles is None
+
+    with pytest.raises(tra.TenantAdmissionError, match="existing_roles is unknown"):
+        tra.provision_tenant_access(
+            client,
+            "homelab",
+            [principal],
+            admin_authority=_authority("provisioner:deploy"),
+        )
+
+    assert client.calls == [], (
+        "an unknown prior role set must never reach register_identity — "
+        "fail closed, never write a possibly-reduced set"
     )
 
 
@@ -171,7 +205,7 @@ def test_a_failed_admission_rpc_is_never_swallowed() -> None:
         tra.provision_tenant_access(
             FailingClient(),  # type: ignore[arg-type]
             "homelab",
-            [tra.TenantPrincipal(agent_id="webui-user-1")],
+            [tra.TenantPrincipal(agent_id="webui-user-1", existing_roles=())],
             admin_authority=_authority("provisioner:deploy"),
         )
 
