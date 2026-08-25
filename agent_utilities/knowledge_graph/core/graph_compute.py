@@ -10,6 +10,8 @@ import json
 import logging
 import os
 import re
+import shutil
+import tempfile
 import threading
 import time
 from collections import deque
@@ -46,6 +48,11 @@ _PR_SET_PDEATHSIG = 1
 # daemon and launch a competing writer.
 _ENGINE_STARTUP_TIMEOUT_SECS = 30.0
 _ENGINE_STARTUP_POLL_SECS = 0.1
+# Bound on how much of a spawned engine's own startup diagnostics is surfaced
+# when it fails to come up (BUG-PE-052).  Only the child's STDERR is captured;
+# the engine writes fatal startup errors there and nothing else (its `tracing`
+# fmt subscriber targets stdout), so the capture is bounded by construction.
+_ENGINE_STARTUP_CAPTURE_BYTES = 8 * 1024
 
 # Children spawned in *coupled* mode (the embedded/tiny path) so the embedded
 # engine dies with this process. The parent-death signal (Linux) is the primary
@@ -264,13 +271,94 @@ def _engine_child_environment() -> dict[str, str]:
     return inherited
 
 
-def _resolve_engine_path_ref(reference: str) -> str:
-    """Resolve one runtime-only directory reference without logging its value."""
+def _log_engine_startup_failure(capture: Any) -> None:
+    """Surface a failed engine child's own startup diagnostics, bounded.
+
+    Autostart used to send the child's stdout AND stderr to ``DEVNULL``
+    (BUG-PE-052), so an engine that died at startup left the operator with only
+    ``exited during startup (status 1)`` and no way to learn the real cause
+    (e.g. ``error: failed to open durable graph store: ...``) short of re-running
+    the binary by hand.  In the 3-container topology that text reaches the
+    container log from the engine's own process, so discarding it is an
+    observability regression under the collapse.
+
+    Only the child's STDERR is captured: the engine writes every fatal startup
+    diagnostic there with ``eprintln!`` and installs its ``tracing`` fmt
+    subscriber on STDOUT, which stays ``DEVNULL``.  The capture therefore cannot
+    accumulate a running engine's INFO stream -- it holds a few lines emitted
+    immediately before ``exit()``.  Only the last
+    ``_ENGINE_STARTUP_CAPTURE_BYTES`` are read, and the text is emitted through
+    this module's normal logger so the process-wide log-privacy boundary
+    (``agent_utilities.core.log_privacy``) redacts paths, endpoints, host:port
+    pairs and caller identifiers out of it exactly as it does for every other
+    record this module emits.
+    """
 
     try:
-        from agent_utilities.security.secrets_client import create_secrets_client
+        capture.seek(0, os.SEEK_END)
+        size = capture.tell()
+        capture.seek(max(0, size - _ENGINE_STARTUP_CAPTURE_BYTES))
+        payload = capture.read()
+    except Exception:  # noqa: BLE001 - diagnostics must never mask the failure
+        return
+    if isinstance(payload, bytes):
+        payload = payload.decode("utf-8", errors="replace")
+    startup_output = str(payload or "").strip()
+    if not startup_output:
+        return
+    logger.error(
+        "The local epistemic-graph process failed at startup; its own "
+        "diagnostic output follows: %s",
+        startup_output,
+    )
 
-        value = create_secrets_client().resolve_ref(reference)
+
+def _is_graph_already_exists_error(error: BaseException, graph_name: str) -> bool:
+    """Whether ``error`` is the engine's "this graph already exists" rejection.
+
+    The engine exposes no typed exception for a duplicate create: both the
+    served dispatcher (``epistemic-graph/src/server/dispatch.rs``) and the core
+    registry (``epistemic-graph/crates/eg-core/src/registry.rs``) reject it with
+    the one literal message ``Graph '<name>' already exists``, which the
+    generated client re-raises verbatim as a plain ``RuntimeError``.  Matching
+    that whole sentence -- graph name included -- is therefore the narrowest
+    available test: no other engine failure produces it, so nothing else can be
+    mistaken for success.
+    """
+
+    return f"Graph '{graph_name}' already exists" in str(error)
+
+
+def _resolve_engine_path_ref(reference: str) -> str:
+    """Resolve one runtime-only directory reference without logging its value.
+
+    Dispatches on the reference SCHEME first, exactly as
+    :func:`agent_utilities.security.cli_secrets.resolve_runtime_secret_reference`
+    already does.  ``env://VAR`` is answered from this process's settings and
+    needs no engine at all; only a store-backed scheme (``vault://`` /
+    ``secret://``) falls through to the engine-backed secrets client.
+
+    Resolving every scheme through that client was circular under local
+    autostart (BUG-PE-050): ``create_secrets_client()`` opens ``__secrets__`` on
+    the very engine this call runs while spawning, so with the transport breaker
+    open it raised and aborted the spawn before the engine could exist.  An
+    ``env://`` reference is the one shape autostart configures, and it never
+    needed the engine.
+
+    Neither branch logs the reference or the resolved value, and the caller's
+    ``_engine_child_environment`` narrowing is untouched: this returns the value
+    to exactly one caller, which places it in the private child environment.
+    """
+
+    rendered_reference = str(reference or "").strip()
+    scheme, separator, target = rendered_reference.partition("://")
+    try:
+        if separator and scheme == "env":
+            value: Any = setting(target)
+        else:
+            from agent_utilities.security.secrets_client import create_secrets_client
+
+            value = create_secrets_client().resolve_ref(rendered_reference)
         if isinstance(value, bytes):
             rendered = value.decode("utf-8")
         else:
@@ -1979,7 +2067,20 @@ class GraphComputeEngine:
             if os.name == "nt"
             else "epistemic-graph-server"
         )
-        server_path = str(Path(sys.executable).parent / _server_exe)
+        # Interpreter adjacency alone is wrong outside a venv (BUG-PE-051): the
+        # packaged image runs `/usr/bin/python3` while maturin installed the
+        # binary on PATH at `/usr/local/bin`, so the adjacent guess did not
+        # exist.  Adjacency still WINS when it resolves, because a build sitting
+        # in this interpreter's own environment is the more specific match for
+        # the wheel actually imported -- PATH may point at an unrelated system
+        # engine of a different version.  PATH is the fallback.
+        # `shutil.which` applies PATHEXT on Windows, and `_server_exe` already
+        # carries the `.exe` there, so both halves keep the Windows contract.
+        adjacent_server = Path(sys.executable).parent / _server_exe
+        if adjacent_server.exists():
+            server_path = str(adjacent_server)
+        else:
+            server_path = shutil.which(_server_exe) or str(adjacent_server)
         cmd = _build_engine_transport_argv(server_path, sock, connect_kwargs)
         persist_dir = _resolve_engine_persist_dir()
         if persist_dir:
@@ -2136,6 +2237,11 @@ class GraphComputeEngine:
             config
         )
         child_env["GRAPH_SERVICE_AUTH_SECRET"] = auth_secret
+        # Bounded startup-diagnostics capture (BUG-PE-052): see
+        # `_log_engine_startup_failure` for why only stderr is redirected and
+        # why that cannot grow. This handle is closed as soon as readiness is
+        # decided; the child keeps its own descriptor.
+        startup_capture = tempfile.TemporaryFile()  # noqa: SIM115
         if coupled:
             # Embedded/tiny path: the engine's lifetime is tied to ours. Do NOT
             # start a new session (that would detach it); instead arm the
@@ -2149,7 +2255,7 @@ class GraphComputeEngine:
             # (the documented cross-platform coupling mechanism).
             coupled_kwargs: dict[str, Any] = {
                 "stdout": subprocess.DEVNULL,
-                "stderr": subprocess.DEVNULL,
+                "stderr": startup_capture,
                 "env": child_env,
             }
             if os.name == "posix":
@@ -2169,7 +2275,7 @@ class GraphComputeEngine:
             # detaches the child from the launcher's console/job instead.
             detach_kwargs: dict[str, Any] = {
                 "stdout": subprocess.DEVNULL,
-                "stderr": subprocess.DEVNULL,
+                "stderr": startup_capture,
                 "env": child_env,
             }
             if os.name == "posix":
@@ -2199,9 +2305,11 @@ class GraphComputeEngine:
                 if coupled:
                     with contextlib.suppress(ValueError):
                         _coupled_children.remove(child)
+                _log_engine_startup_failure(startup_capture)
+                startup_capture.close()
                 raise ConnectionError(
                     "The local epistemic-graph process exited during startup "
-                    f"(status {status})."
+                    f"(status {status}); its own diagnostic output was logged."
                 )
             try:
                 connected = SyncEpistemicGraphClient.connect(**connect_kwargs)
@@ -2209,6 +2317,7 @@ class GraphComputeEngine:
                     connected,
                     connect_kwargs,
                 )
+                startup_capture.close()
                 return connected
             except Exception as exc:  # noqa: BLE001 - bounded readiness probe
                 last_error = exc
@@ -2223,6 +2332,8 @@ class GraphComputeEngine:
                 if coupled:
                     with contextlib.suppress(ValueError):
                         _coupled_children.remove(child)
+                _log_engine_startup_failure(startup_capture)
+                startup_capture.close()
                 raise ConnectionError(
                     "The local epistemic-graph process did not become ready "
                     f"within {_ENGINE_STARTUP_TIMEOUT_SECS:g} seconds."
@@ -2265,10 +2376,23 @@ class GraphComputeEngine:
                 return
             try:
                 client.tenants.create(graph_name, "Agent")
-            except Exception:
-                # Another authorized local process may win the create race.  A
-                # fresh authoritative list is the only accepted reconciliation;
-                # otherwise preserve the original fail-closed exception.
+            except Exception as exc:
+                # PRIMARY reconciliation (BUG-PE-049): this seam's contract is
+                # that the graph EXISTS once it returns, so the engine's own
+                # "already exists" rejection IS that guarantee being met, not a
+                # failure.  It has to be primary because ``tenants.list()`` is
+                # NOT authoritative here: against an existing production-shaped
+                # store the engine rejects the create while this bootstrap
+                # context's list omits the graph, so the previous list-only
+                # reconciliation let a real "already exists" escape and killed
+                # boot.  (Why the list under-reports is an ownership/visibility
+                # question of its own and is deliberately not addressed here.)
+                if _is_graph_already_exists_error(exc, graph_name):
+                    return
+                # SECONDARY: a create race lost to another authorized local
+                # process may still surface as some other rejection; a fresh
+                # list can settle that one.  Anything else stays fail-closed and
+                # propagates exactly as before.
                 if graph_name in _listed_names():
                     return
                 raise
