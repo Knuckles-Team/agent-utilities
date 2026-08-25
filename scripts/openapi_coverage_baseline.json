@@ -1,7 +1,6 @@
 {
   "_comment": "OpenAPI coverage ratchet baseline (scripts/check_openapi_coverage.py). Frozen backlog of routes mounted on the production app but absent from its generated OpenAPI spec (the raw-Starlette-add_route bug), and documented operations missing a summary or description. Burn down toward empty as the parallel gateway/registry_api schema lanes land. New entries beyond this baseline fail the gate. Refresh with --update-baseline only after genuinely fixing or deliberately accepting a new backlog item, never to silence a regression.",
   "undocumented_routes": [
-    "DELETE /api/graph/write/edge",
     "DELETE /api/graph/write/node/{node_id}",
     "DELETE /api/sessions/{session_id}",
     "GET /api/connector/sources",
@@ -170,15 +169,9 @@
     "POST /api/graph/traces",
     "POST /api/graph/viz",
     "POST /api/graph/workflows",
-    "POST /api/graph/write",
-    "POST /api/graph/write/bulk",
-    "POST /api/graph/write/chat",
-    "POST /api/graph/write/edge",
-    "POST /api/graph/write/execution",
     "POST /api/graph/write/external",
     "POST /api/graph/write/memory",
     "POST /api/graph/write/memory/recall",
-    "POST /api/graph/write/node",
     "POST /api/graph/write/sdd",
     "POST /api/graph/writeback",
     "POST /api/graphlearn/fit",

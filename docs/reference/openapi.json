@@ -405,6 +405,49 @@
         "title": "EditorSelectionContext",
         "type": "object"
       },
+      "GraphToolResponse": {
+        "additionalProperties": false,
+        "description": "The uniform success envelope every route in this module returns.\n\nBuilt by ``kg_server.py`` as\n``JSONResponse({\"status\": \"success\", \"result\": safe_json_load(res)})``\nimmediately after each route's ``_execute_tool(...)`` call succeeds. A\nfailed call never reaches this shape \u2014 it returns a differently-shaped\nerror JSON body (built by ``_external_error_response``/\n``public_error_payload``) with a non-2xx status code instead, so this\nmodel documents the success case only.\n\n``result`` is genuinely free-form and deliberately typed ``Any`` rather\nthan given an invented structure: most of the underlying ``graph_write``/\n``graph_ingest`` tool actions return a plain human-readable string (e.g.\n``\"Node n1 added.\"``, ``\"Edge a -> b deleted.\"``), while others return a\nJSON-encoded object whose keys vary by internal branch (e.g.\n``bulk_ingest``'s ``noop``/``change_envelope``/``batch_update`` modes each\ncarry a different key set; ``job_status`` returns a status line followed\nby a pretty-printed JSON metrics block, which ``safe_json_load`` leaves as\na plain string since the whole thing is not valid JSON). Treat ``result``\nas route- and action-specific free text/JSON to inspect at read time, not\nas a typed contract.",
+        "examples": [
+          {
+            "result": "Node n1 added.",
+            "status": "success"
+          },
+          {
+            "result": {
+              "action": "bulk_ingest",
+              "applied_ops": 4,
+              "chunk_sizes": [
+                4
+              ],
+              "chunks": 1,
+              "edges_ingested": 1,
+              "mode": "batch_update",
+              "nodes_ingested": 3,
+              "upsert": true
+            },
+            "status": "success"
+          }
+        ],
+        "properties": {
+          "result": {
+            "description": "The underlying graph-os tool's return value, JSON-decoded when it was a JSON-parseable string and passed through unchanged otherwise (``safe_json_load``). Shape varies by route and, for the action-routed base endpoints, by the caller's own ``action`` \u2014 see this route's tool implementation in ``agent_utilities/mcp/tools/write_ingest_tools.py`` for the exact shape a given action produces.",
+            "title": "Result"
+          },
+          "status": {
+            "const": "success",
+            "description": "Always 'success' on this envelope. A failed tool call or malformed request produces a separate error-shaped JSON body with a non-2xx HTTP status instead of this model.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "result"
+        ],
+        "title": "GraphToolResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -7474,6 +7517,605 @@
           }
         },
         "summary": "Run Workflow"
+      }
+    },
+    "/api/graph/write": {
+      "delete": {
+        "description": "Deletes one edge identified by source_id/target_id/rel_type. Equivalent to POST /graph/write with action='delete_edge'; kept as a dedicated DELETE verb on the same collapsed path so a REST-verb-first caller does not lose the capability the removed DELETE /graph/write/edge granular route had.",
+        "operationId": "graph_write_delete_edge_endpoint_api_graph_write_delete",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Request body for ``DELETE /graph/write/edge``\n(``graph_write_delete_edge_endpoint``, action='delete_edge').\n\nSame path as ``POST /graph/write/edge`` (``GraphWriteEdgeRequest``) but a\ndifferent body: no 'properties' field, since the handler never reads one\nfor a delete.",
+                "properties": {
+                  "rel_type": {
+                    "description": "The edge's relationship type.",
+                    "minLength": 1,
+                    "title": "Rel Type",
+                    "type": "string"
+                  },
+                  "source_id": {
+                    "description": "The edge's source node id.",
+                    "minLength": 1,
+                    "title": "Source Id",
+                    "type": "string"
+                  },
+                  "target_id": {
+                    "description": "The edge's target node id.",
+                    "minLength": 1,
+                    "title": "Target Id",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "source_id",
+                  "target_id",
+                  "rel_type"
+                ],
+                "title": "GraphWriteEdgeDeleteRequest",
+                "type": "object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphToolResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Delete an edge (graph_write action=delete_edge)"
+      },
+      "post": {
+        "description": "Collapsed, action-routed graph_write endpoint. Validates the body against a discriminated union on 'action' covering add_node, add_edge, delete_edge, bulk_ingest, log_chat, register_execution (formerly separate granular routes under /graph/write/{node,edge,bulk,chat,execution}, now removed), plus every other graph_write action (delete_node, register_external_graph, compare_and_set, store_memory, recall_memory, recall_media, submit_sdd, check_loop). See the GraphWriteAction union's member models for the exact per-action request shape.",
+        "operationId": "graph_write_endpoint_api_graph_write_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$defs": {
+                  "_AddEdgeAction": {
+                    "description": "``POST /graph/write``, ``action='add_edge'`` \u2014 replaces\n``POST /graph/write/edge``.",
+                    "properties": {
+                      "action": {
+                        "const": "add_edge",
+                        "description": "Fixed discriminator for this variant: 'add_edge'.",
+                        "title": "Action",
+                        "type": "string"
+                      },
+                      "connection": {
+                        "default": "",
+                        "description": "Named backend connection to write to (default = primary). Use a registered connection name, or 'all'/a comma-separated list to mirror the same write to several backends. Applies to every action (resolved generically before the action-specific dispatch) \u2014 not just bulk_ingest, which is all the granular routes ever exposed this on.",
+                        "title": "Connection",
+                        "type": "string"
+                      },
+                      "graph": {
+                        "default": "",
+                        "description": "Explicit physical engine graph to write to, independent of 'connection'. Empty = the caller's own bound graph. Requires exactly one resolved 'connection' \u2014 never combinable with connection='all'/a list. Applies to every action, not just bulk_ingest.",
+                        "title": "Graph",
+                        "type": "string"
+                      },
+                      "properties": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ],
+                        "description": "JSON object of edge properties, OR an already-JSON-encoded string (both accepted).",
+                        "title": "Properties"
+                      },
+                      "rel_type": {
+                        "description": "The edge's relationship type.",
+                        "minLength": 1,
+                        "title": "Rel Type",
+                        "type": "string"
+                      },
+                      "source_id": {
+                        "description": "The edge's source node id.",
+                        "minLength": 1,
+                        "title": "Source Id",
+                        "type": "string"
+                      },
+                      "target_id": {
+                        "description": "The edge's target node id.",
+                        "minLength": 1,
+                        "title": "Target Id",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "source_id",
+                      "target_id",
+                      "rel_type",
+                      "action"
+                    ],
+                    "title": "_AddEdgeAction",
+                    "type": "object"
+                  },
+                  "_AddNodeAction": {
+                    "description": "``POST /graph/write``, ``action='add_node'`` \u2014 replaces\n``POST /graph/write/node``.",
+                    "properties": {
+                      "action": {
+                        "const": "add_node",
+                        "description": "Fixed discriminator for this variant: 'add_node'.",
+                        "title": "Action",
+                        "type": "string"
+                      },
+                      "connection": {
+                        "default": "",
+                        "description": "Named backend connection to write to (default = primary). Use a registered connection name, or 'all'/a comma-separated list to mirror the same write to several backends. Applies to every action (resolved generically before the action-specific dispatch) \u2014 not just bulk_ingest, which is all the granular routes ever exposed this on.",
+                        "title": "Connection",
+                        "type": "string"
+                      },
+                      "graph": {
+                        "default": "",
+                        "description": "Explicit physical engine graph to write to, independent of 'connection'. Empty = the caller's own bound graph. Requires exactly one resolved 'connection' \u2014 never combinable with connection='all'/a list. Applies to every action, not just bulk_ingest.",
+                        "title": "Graph",
+                        "type": "string"
+                      },
+                      "node_id": {
+                        "description": "The unique identifier for the node. Forwarded to the tool as 'node_id', not 'id'.",
+                        "examples": [
+                          "n1"
+                        ],
+                        "minLength": 1,
+                        "title": "Node Id",
+                        "type": "string"
+                      },
+                      "node_type": {
+                        "description": "The type/label of the node.",
+                        "examples": [
+                          "Concept"
+                        ],
+                        "minLength": 1,
+                        "title": "Node Type",
+                        "type": "string"
+                      },
+                      "properties": {
+                        "anyOf": [
+                          {
+                            "additionalProperties": true,
+                            "type": "object"
+                          },
+                          {
+                            "type": "string"
+                          }
+                        ],
+                        "description": "JSON object of node properties, OR an already-JSON-encoded string (both accepted; forwarded to the graph_write tool as a JSON-encoded string either way \u2014 the base /graph/write route has historically taken a raw pre-encoded string here, so both forms are supported for compatibility).",
+                        "examples": [
+                          {
+                            "label": "example"
+                          }
+                        ],
+                        "title": "Properties"
+                      }
+                    },
+                    "required": [
+                      "node_id",
+                      "node_type",
+                      "action"
+                    ],
+                    "title": "_AddNodeAction",
+                    "type": "object"
+                  },
+                  "_BulkIngestAction": {
+                    "description": "``POST /graph/write``, ``action='bulk_ingest'`` \u2014 replaces\n``POST /graph/write/bulk``.\n\nREGRESSION FIX: the deleted granular route forwarded ONLY ``nodes``,\nsilently discarding ``idempotency_key``/``evidence``/``upsert``/\n``connection``/``graph`` and always taking the non-idempotent\n``BatchUpdate(upsert=True)`` path. This variant forwards all of them.",
+                    "properties": {
+                      "action": {
+                        "const": "bulk_ingest",
+                        "description": "Fixed discriminator for this variant: 'bulk_ingest'.",
+                        "title": "Action",
+                        "type": "string"
+                      },
+                      "connection": {
+                        "default": "",
+                        "description": "Named backend connection to write to (default = primary). Use a registered connection name, or 'all'/a comma-separated list to mirror the same write to several backends. Applies to every action (resolved generically before the action-specific dispatch) \u2014 not just bulk_ingest, which is all the granular routes ever exposed this on.",
+                        "title": "Connection",
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "description": "Evidence records ({'object_id','modality','locus','content_digest'}) attached to the first node in 'nodes'. Non-empty routes the batch onto ApplyChangeEnvelopes instead of the lighter BatchUpdate path.",
+                        "items": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "title": "Evidence",
+                        "type": "array"
+                      },
+                      "graph": {
+                        "default": "",
+                        "description": "Explicit physical engine graph to write to, independent of 'connection'. Empty = the caller's own bound graph. Requires exactly one resolved 'connection' \u2014 never combinable with connection='all'/a list. Applies to every action, not just bulk_ingest.",
+                        "title": "Graph",
+                        "type": "string"
+                      },
+                      "idempotency_key": {
+                        "default": "",
+                        "description": "Caller-owned idempotency key for this exact batch. Non-empty (or a non-empty 'evidence') routes the batch onto the engine's durably-idempotent ApplyChangeEnvelopes path, scoped by (tenant, graph, idempotency_key) \u2014 a replay reports 'status':'skipped', never silently re-reported as fresh success. Empty uses the lighter BatchUpdate path, which has no per-call idempotency key.",
+                        "title": "Idempotency Key",
+                        "type": "string"
+                      },
+                      "nodes": {
+                        "description": "List of node and/or edge objects to commit atomically in one engine transaction. A node element is {'id','type','properties'} (or {'kind':'node',...} explicitly); an edge element is {'kind':'edge','source_id','target_id','rel_type','properties'} \u2014 'source_id'+'target_id' alone also infers kind='edge'. An empty list is a valid no-op (the response reports mode='noop').",
+                        "examples": [
+                          [
+                            {
+                              "id": "n1",
+                              "properties": {
+                                "label": "a"
+                              },
+                              "type": "Concept"
+                            },
+                            {
+                              "kind": "edge",
+                              "rel_type": "RELATES_TO",
+                              "source_id": "n1",
+                              "target_id": "n2"
+                            }
+                          ]
+                        ],
+                        "items": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "title": "Nodes",
+                        "type": "array"
+                      },
+                      "upsert": {
+                        "default": true,
+                        "description": "On the BatchUpdate (light) path only: True (default) MERGEs onto an existing id (idempotent); False INSERTs (a repeated edge becomes an additional parallel edge rather than replacing the prior one).",
+                        "title": "Upsert",
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ],
+                    "title": "_BulkIngestAction",
+                    "type": "object"
+                  },
+                  "_DeleteEdgeAction": {
+                    "description": "``action='delete_edge'`` \u2014 reachable via ``POST /graph/write`` (this\nvariant) AND via ``DELETE /graph/write``\n(``graph_write_delete_edge_endpoint`` below, which validates the same\n``GraphWriteEdgeDeleteRequest`` shape and hard-codes this action) \u2014\nreplaces ``DELETE /graph/write/edge``. Both are kept so neither an\naction-field-first caller nor a REST-verb-first caller loses the\ncapability.",
+                    "properties": {
+                      "action": {
+                        "const": "delete_edge",
+                        "description": "Fixed discriminator for this variant: 'delete_edge'.",
+                        "title": "Action",
+                        "type": "string"
+                      },
+                      "connection": {
+                        "default": "",
+                        "description": "Named backend connection to write to (default = primary). Use a registered connection name, or 'all'/a comma-separated list to mirror the same write to several backends. Applies to every action (resolved generically before the action-specific dispatch) \u2014 not just bulk_ingest, which is all the granular routes ever exposed this on.",
+                        "title": "Connection",
+                        "type": "string"
+                      },
+                      "graph": {
+                        "default": "",
+                        "description": "Explicit physical engine graph to write to, independent of 'connection'. Empty = the caller's own bound graph. Requires exactly one resolved 'connection' \u2014 never combinable with connection='all'/a list. Applies to every action, not just bulk_ingest.",
+                        "title": "Graph",
+                        "type": "string"
+                      },
+                      "rel_type": {
+                        "description": "The edge's relationship type.",
+                        "minLength": 1,
+                        "title": "Rel Type",
+                        "type": "string"
+                      },
+                      "source_id": {
+                        "description": "The edge's source node id.",
+                        "minLength": 1,
+                        "title": "Source Id",
+                        "type": "string"
+                      },
+                      "target_id": {
+                        "description": "The edge's target node id.",
+                        "minLength": 1,
+                        "title": "Target Id",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "source_id",
+                      "target_id",
+                      "rel_type",
+                      "action"
+                    ],
+                    "title": "_DeleteEdgeAction",
+                    "type": "object"
+                  },
+                  "_LogChatAction": {
+                    "description": "``POST /graph/write``, ``action='log_chat'`` \u2014 replaces\n``POST /graph/write/chat``.",
+                    "properties": {
+                      "action": {
+                        "const": "log_chat",
+                        "description": "Fixed discriminator for this variant: 'log_chat'.",
+                        "title": "Action",
+                        "type": "string"
+                      },
+                      "agent_id": {
+                        "default": "",
+                        "description": "ID of the agent logging the chat.",
+                        "title": "Agent Id",
+                        "type": "string"
+                      },
+                      "connection": {
+                        "default": "",
+                        "description": "Named backend connection to write to (default = primary). Use a registered connection name, or 'all'/a comma-separated list to mirror the same write to several backends. Applies to every action (resolved generically before the action-specific dispatch) \u2014 not just bulk_ingest, which is all the granular routes ever exposed this on.",
+                        "title": "Connection",
+                        "type": "string"
+                      },
+                      "content": {
+                        "default": "",
+                        "description": "The chat content to log. Forwarded to the graph_write tool as its 'properties' parameter \u2014 this route renames it on the wire for readability.",
+                        "title": "Content",
+                        "type": "string"
+                      },
+                      "graph": {
+                        "default": "",
+                        "description": "Explicit physical engine graph to write to, independent of 'connection'. Empty = the caller's own bound graph. Requires exactly one resolved 'connection' \u2014 never combinable with connection='all'/a list. Applies to every action, not just bulk_ingest.",
+                        "title": "Graph",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ],
+                    "title": "_LogChatAction",
+                    "type": "object"
+                  },
+                  "_OtherGraphWriteAction": {
+                    "additionalProperties": true,
+                    "description": "``POST /graph/write`` for every action never given its own granular\nroute: ``delete_node``, ``register_external_graph``,\n``compare_and_set``, ``store_memory``, ``recall_memory``,\n``recall_media``, ``submit_sdd``, ``check_loop``. ``GraphWriteRequest``\nitself (imported, not redefined) already declares every field these\nactions read, with ``extra='allow'`` full passthrough \u2014 this subclass\nonly narrows ``action`` to a Literal of those eight values so the\ndiscriminated union can tag-match it.",
+                    "examples": [
+                      {
+                        "action": "add_node",
+                        "node_id": "n1",
+                        "node_type": "Concept",
+                        "properties": "{\"label\": \"example\"}"
+                      },
+                      {
+                        "action": "compare_and_set",
+                        "conditions": {
+                          "status": "pending"
+                        },
+                        "node_id": "n1",
+                        "updates": {
+                          "owner": "agent-7",
+                          "status": "claimed"
+                        }
+                      }
+                    ],
+                    "properties": {
+                      "action": {
+                        "description": "One of: delete_node, register_external_graph, compare_and_set, store_memory, recall_memory, recall_media, submit_sdd, check_loop. See GraphWriteRequest's own field docs for which fields each of these reads.",
+                        "enum": [
+                          "delete_node",
+                          "register_external_graph",
+                          "compare_and_set",
+                          "store_memory",
+                          "recall_memory",
+                          "recall_media",
+                          "submit_sdd",
+                          "check_loop"
+                        ],
+                        "title": "Action",
+                        "type": "string"
+                      },
+                      "agent_id": {
+                        "default": "",
+                        "description": "ID of the agent performing the action.",
+                        "title": "Agent Id",
+                        "type": "string"
+                      },
+                      "conditions": {
+                        "additionalProperties": true,
+                        "description": "For action='compare_and_set': field to expected-value the node must currently match for 'updates' to apply (a missing field reads as null), e.g. {'status': 'pending'}.",
+                        "title": "Conditions",
+                        "type": "object"
+                      },
+                      "connection": {
+                        "default": "",
+                        "description": "Named backend connection to write to (default = primary). Use a registered connection name, or 'all'/a comma-separated list to mirror the same write to several backends. Selects WHICH BACKEND, never which physical graph \u2014 see 'graph'.",
+                        "title": "Connection",
+                        "type": "string"
+                      },
+                      "endpoint_url": {
+                        "default": "",
+                        "description": "External graph endpoint URL. Required for register_external_graph.",
+                        "title": "Endpoint Url",
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "default": "[]",
+                        "description": "For action='bulk_ingest': JSON-encoded STRING list of evidence records ({'object_id','modality','locus','content_digest'}) attached to the first node in 'nodes'. Non-empty routes the batch onto ApplyChangeEnvelopes instead of the lighter BatchUpdate path.",
+                        "title": "Evidence",
+                        "type": "string"
+                      },
+                      "graph": {
+                        "default": "",
+                        "description": "Explicit physical engine graph to write to, independent of 'connection'. Empty = the caller's own bound graph. Requires exactly one resolved 'connection' \u2014 never combinable with connection='all'/a list. An unknown graph is a typed error, never a silent fallback.",
+                        "title": "Graph",
+                        "type": "string"
+                      },
+                      "graph_type": {
+                        "default": "",
+                        "description": "External graph kind for register_external_graph, e.g. 'sparql' or 'graphql'.",
+                        "title": "Graph Type",
+                        "type": "string"
+                      },
+                      "idempotency_key": {
+                        "default": "",
+                        "description": "For action='bulk_ingest': a caller-owned idempotency key for this exact batch. Non-empty (or a non-empty 'evidence') routes the batch onto the engine's durably-idempotent ApplyChangeEnvelopes path, scoped by (tenant, graph, idempotency_key) \u2014 a replay reports 'status':'skipped', never silently re-reported as fresh success. Empty uses the lighter BatchUpdate path, which has no per-call idempotency key.",
+                        "title": "Idempotency Key",
+                        "type": "string"
+                      },
+                      "node_id": {
+                        "default": "",
+                        "description": "The node's unique identifier. Required (non-empty) for add_node, delete_node, and compare_and_set.",
+                        "title": "Node Id",
+                        "type": "string"
+                      },
+                      "node_type": {
+                        "default": "",
+                        "description": "The node's type/label. Required (non-empty) for add_node; for delete_node, either node_id or node_type must be set (a node_type with no node_id performs a predicate delete of every node of that type).",
+                        "title": "Node Type",
+                        "type": "string"
+                      },
+                      "nodes": {
+                        "default": "[]",
+                        "description": "JSON-ENCODED STRING (not a nested list) list of node/edge objects for action='bulk_ingest'. Each element is either {'id','type','properties'} (or {'kind':'node',...} explicitly), or {'kind':'edge','source_id','target_id','rel_type','properties'} \u2014 'source_id'+'target_id' alone also infers kind='edge'. Committed atomically in one engine transaction (chunked at documented engine bounds; never silently dropped \u2014 the response reports 'chunks').",
+                        "title": "Nodes",
+                        "type": "string"
+                      },
+                      "properties": {
+                        "default": "{}",
+                        "description": "JSON-ENCODED STRING (not a nested object) of node/edge properties for add_node/add_edge. For store_memory/recall_memory/log_chat/submit_sdd this instead carries RAW content/query text, not JSON.",
+                        "title": "Properties",
+                        "type": "string"
+                      },
+                      "rel_type": {
+                        "default": "",
+                        "description": "Edge relationship type. Required for add_edge/delete_edge.",
+                        "title": "Rel Type",
+                        "type": "string"
+                      },
+                      "source_id": {
+                        "default": "",
+                        "description": "Edge source node id. Required for add_edge/delete_edge.",
+                        "title": "Source Id",
+                        "type": "string"
+                      },
+                      "target_id": {
+                        "default": "",
+                        "description": "Edge target node id. Required for add_edge/delete_edge.",
+                        "title": "Target Id",
+                        "type": "string"
+                      },
+                      "updates": {
+                        "additionalProperties": true,
+                        "description": "For action='compare_and_set': field to new-value to merge into the node ONLY when every condition in 'conditions' matches, e.g. {'status': 'claimed', 'owner': 'agent-7'}.",
+                        "title": "Updates",
+                        "type": "object"
+                      },
+                      "upsert": {
+                        "default": true,
+                        "description": "For action='bulk_ingest' on the BatchUpdate (light) path: True (default) MERGEs onto an existing id (idempotent); False INSERTs (a repeated edge becomes an additional parallel edge rather than replacing the prior one).",
+                        "title": "Upsert",
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ],
+                    "title": "_OtherGraphWriteAction",
+                    "type": "object"
+                  },
+                  "_RegisterExecutionAction": {
+                    "description": "``POST /graph/write``, ``action='register_execution'`` \u2014 replaces\n``POST /graph/write/execution``.",
+                    "properties": {
+                      "action": {
+                        "const": "register_execution",
+                        "description": "Fixed discriminator for this variant: 'register_execution'.",
+                        "title": "Action",
+                        "type": "string"
+                      },
+                      "agent_id": {
+                        "default": "",
+                        "description": "ID of the agent whose execution is being registered.",
+                        "title": "Agent Id",
+                        "type": "string"
+                      },
+                      "connection": {
+                        "default": "",
+                        "description": "Named backend connection to write to (default = primary). Use a registered connection name, or 'all'/a comma-separated list to mirror the same write to several backends. Applies to every action (resolved generically before the action-specific dispatch) \u2014 not just bulk_ingest, which is all the granular routes ever exposed this on.",
+                        "title": "Connection",
+                        "type": "string"
+                      },
+                      "graph": {
+                        "default": "",
+                        "description": "Explicit physical engine graph to write to, independent of 'connection'. Empty = the caller's own bound graph. Requires exactly one resolved 'connection' \u2014 never combinable with connection='all'/a list. Applies to every action, not just bulk_ingest.",
+                        "title": "Graph",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "action"
+                    ],
+                    "title": "_RegisterExecutionAction",
+                    "type": "object"
+                  }
+                },
+                "discriminator": {
+                  "mapping": {
+                    "add_edge": "#/$defs/_AddEdgeAction",
+                    "add_node": "#/$defs/_AddNodeAction",
+                    "bulk_ingest": "#/$defs/_BulkIngestAction",
+                    "check_loop": "#/$defs/_OtherGraphWriteAction",
+                    "compare_and_set": "#/$defs/_OtherGraphWriteAction",
+                    "delete_edge": "#/$defs/_DeleteEdgeAction",
+                    "delete_node": "#/$defs/_OtherGraphWriteAction",
+                    "log_chat": "#/$defs/_LogChatAction",
+                    "recall_media": "#/$defs/_OtherGraphWriteAction",
+                    "recall_memory": "#/$defs/_OtherGraphWriteAction",
+                    "register_execution": "#/$defs/_RegisterExecutionAction",
+                    "register_external_graph": "#/$defs/_OtherGraphWriteAction",
+                    "store_memory": "#/$defs/_OtherGraphWriteAction",
+                    "submit_sdd": "#/$defs/_OtherGraphWriteAction"
+                  },
+                  "propertyName": "action"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/_AddNodeAction"
+                  },
+                  {
+                    "$ref": "#/$defs/_AddEdgeAction"
+                  },
+                  {
+                    "$ref": "#/$defs/_DeleteEdgeAction"
+                  },
+                  {
+                    "$ref": "#/$defs/_BulkIngestAction"
+                  },
+                  {
+                    "$ref": "#/$defs/_LogChatAction"
+                  },
+                  {
+                    "$ref": "#/$defs/_RegisterExecutionAction"
+                  },
+                  {
+                    "$ref": "#/$defs/_OtherGraphWriteAction"
+                  }
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphToolResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Write a node/edge or run another graph_write action"
       }
     },
     "/api/oauth/callback": {

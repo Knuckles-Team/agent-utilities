@@ -242,18 +242,21 @@ async def test_get_tools_endpoint_does_not_block_event_loop(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_graph_write_node_endpoint_uses_node_id_field(monkeypatch):
-    """DEFECT C: `graph_write_node_endpoint` used to call `_execute_tool`
-    with `id=` but the `graph_write` tool declares the parameter as
-    `node_id` -- every call failed closed with
-    `UnsupportedToolFieldError: Tool 'graph_write' does not accept field(s):
-    id` (confirmed live in the pod logs). This exercises the endpoint
-    against the REAL `_execute_tool`/tool-registry validation path (not a
-    mock of `_execute_tool` itself) so a reintroduced `id=` would fail this
-    test with `UnsupportedToolFieldError` surfaced as a 400, not a 200.
+    """DEFECT C: the collapsed `POST /graph/write` (action='add_node')
+    dispatch used to call `_execute_tool` with `id=` but the `graph_write`
+    tool declares the parameter as `node_id` -- every call failed closed
+    with `UnsupportedToolFieldError: Tool 'graph_write' does not accept
+    field(s): id` (confirmed live in the pod logs). This exercises the
+    endpoint against the REAL `_execute_tool`/tool-registry validation path
+    (not a mock of `_execute_tool` itself) so a reintroduced `id=` would
+    fail this test with `UnsupportedToolFieldError` surfaced as a 400, not a
+    200. (Regression carried forward from the deleted granular
+    `graph_write_node_endpoint`/`POST /graph/write/node` route during the
+    collapse-graph-write consolidation.)
     """
     from starlette.requests import Request
 
-    from agent_utilities.mcp.kg_server import graph_write_node_endpoint
+    from agent_utilities.mcp.kg_server import graph_write_endpoint
 
     captured: dict[str, Any] = {}
 
@@ -271,7 +274,8 @@ async def test_graph_write_node_endpoint_uses_node_id_field(monkeypatch):
     monkeypatch.setattr(kg_server, "_execute_tool", _fake_execute_tool)
 
     body = (
-        b'{"node_id": "agent-1", "node_type": "Agent", "properties": {"name": "Test"}}'
+        b'{"action": "add_node", "node_id": "agent-1", "node_type": "Agent", '
+        b'"properties": {"name": "Test"}}'
     )
 
     async def _receive():
@@ -281,13 +285,13 @@ async def test_graph_write_node_endpoint_uses_node_id_field(monkeypatch):
         {
             "type": "http",
             "method": "POST",
-            "path": "/graph/write/node",
+            "path": "/graph/write",
             "headers": [(b"content-type", b"application/json")],
         },
         receive=_receive,
     )
 
-    response = await graph_write_node_endpoint(request)
+    response = await graph_write_endpoint(request)
 
     assert response.status_code == 200
     assert captured["tool_name"] == "graph_write"
