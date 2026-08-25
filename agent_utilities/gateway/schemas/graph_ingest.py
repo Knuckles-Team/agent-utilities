@@ -65,18 +65,19 @@ each):
   Modeled as ``sources``/``agent_card_path`` (the wire names), with a note on
   the underlying mapping.
 
-KNOWN DATA-LOSS GAP (reported, not fixed here — out of this lane's scope,
-which may not edit ``kg_server.py``): ``graph_write_bulk_endpoint`` forwards
-only ``nodes`` to ``graph_write(action="bulk_ingest", ...)``. The underlying
-tool also accepts ``idempotency_key``, ``evidence``, ``upsert``, ``connection``,
-and ``graph`` for this same action (see the tool's own docstring), but the
-granular ``/graph/write/bulk`` route never reads or forwards them — a caller
-sending an idempotency key or explicit evidence on this route gets it
-silently discarded server-side, always taking the non-idempotent
-``BatchUpdate`` (light) path with ``upsert=True``. Callers who need those
-options must use the base ``POST /graph/write`` (``action="bulk_ingest"``)
-endpoint instead, whose model (``GraphWriteRequest``) does carry them. This
-is documented on ``GraphWriteBulkRequest`` below.
+FIXED, NOT A LIVE GAP (history, so the same shape doesn't get "discovered"
+again): the granular ``graph_write_bulk_endpoint`` (``POST
+/graph/write/bulk``) used to forward only ``nodes`` to
+``graph_write(action="bulk_ingest", ...)``, silently discarding
+``idempotency_key``/``evidence``/``upsert``/``connection``/``graph`` and
+always taking the non-idempotent ``BatchUpdate`` (light) path with
+``upsert=True``. That route no longer exists: ``kg_server.py``'s six-way
+granular-route consolidation (see its ``GraphWriteAction`` union) deleted
+``graph_write_bulk_endpoint`` and replaced it with ``POST /graph/write``,
+``action='bulk_ingest'`` (``_BulkIngestAction``, which extends
+``GraphWriteBulkRequest`` below and forwards every field). Callers use that
+route today; ``GraphWriteBulkRequest`` now exists only as
+``_BulkIngestAction``'s base class, not as a route model in its own right.
 
 TWO ROUTES IN SCOPE HAVE NO REQUEST MODEL BY DESIGN: ``GET /graph/ingest/jobs``
 (``graph_ingest_jobs_endpoint``) and ``GET /graph/ingest/job/{job_id}``
@@ -594,19 +595,20 @@ class GraphWriteEdgeDeleteRequest(BaseModel):
 
 
 class GraphWriteBulkRequest(BaseModel):
-    """Request body for ``POST /graph/write/bulk`` (``graph_write_bulk_endpoint``,
-    action='bulk_ingest').
+    """Field set shared by the (deleted) granular ``POST /graph/write/bulk``
+    route and its replacement, ``POST /graph/write`` action='bulk_ingest'
+    (``_BulkIngestAction`` in ``kg_server.py``, which subclasses this model).
 
-    KNOWN GAP: this route forwards ONLY ``nodes`` to the underlying
-    ``graph_write`` tool call — ``idempotency_key``, ``evidence``, ``upsert``,
-    ``connection``, and ``graph`` (all of which the tool accepts for
-    action='bulk_ingest') are not read by this handler at all, so sending
-    them here has no effect; the write always takes the non-idempotent
-    BatchUpdate (light) path with ``upsert=True``. Callers who need those
-    options must use ``POST /graph/write`` with ``action="bulk_ingest"``
-    instead (``GraphWriteRequest``), whose model carries them. Reported as a
-    finding rather than fixed here — this lane may not edit
-    ``kg_server.py``.
+    HISTORY: the granular ``graph_write_bulk_endpoint`` this class originally
+    modeled forwarded ONLY ``nodes`` to the underlying ``graph_write`` tool
+    call, silently dropping ``idempotency_key``/``evidence``/``upsert``/
+    ``connection``/``graph`` and always taking the non-idempotent
+    ``BatchUpdate`` (light) path with ``upsert=True`` — a real data-loss/
+    double-write risk. That route no longer exists: ``kg_server.py``'s
+    granular-route consolidation deleted it and ``_BulkIngestAction``
+    forwards all of those fields instead. This base class itself only ever
+    declared ``nodes``; the fields the old route dropped were never on it,
+    so nothing here needed to change.
     """
 
     model_config = ConfigDict(extra="ignore")

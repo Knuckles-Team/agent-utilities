@@ -31,9 +31,10 @@ state machine — never a second lifecycle. A denied gate never blocks the
 read-only analysis itself; it only adds a ``claim_denied`` note. See
 :func:`_propose_ops_causal_claim`.
 
-W2.7 (CONCEPT:AU-AHE.harness.unified-promotion-gate, program issue register
-B3 — "ungoverned materialize_claims writes raw :Claims with no
-flywheel/ActionPolicy"): the OLDER ``materialize_claims`` default-on path
+W2.7 (CONCEPT:AU-AHE.harness.unified-promotion-gate — "ungoverned
+materialize_claims writes raw :Claims with no flywheel/ActionPolicy"; no
+tracking issue exists for this item, "program issue register B3" is not a
+real artifact): the OLDER ``materialize_claims`` default-on path
 (one Claim per above-floor ranked candidate, not just the top one) got the
 SAME governance closed here — see :func:`_materialize_root_cause_claims`.
 Every persisted claim is now proposed through the SAME ``ClaimFlywheel`` AND
