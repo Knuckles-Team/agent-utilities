@@ -145,6 +145,7 @@ nav:
       - Universal External Graph Connectors: architecture/universal-external-graph-connectors.md
       - Runtime Configuration Catalog (generated): reference/runtime-configuration.md
       - Documentation Catalog (generated): reference/documentation-catalog.md
+      - API Reference (generated): reference/api.md
       - Metrics Reference: reference/metrics.md
       - Historical Hardening Audit (non-authoritative): architecture/epistemic-os-hardening.md
       - Capacity Model: scaling/capacity_model.md
