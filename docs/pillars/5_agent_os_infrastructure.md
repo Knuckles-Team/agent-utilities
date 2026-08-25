@@ -98,7 +98,7 @@ The **Gateway** provides a Homepage-style service dashboard for Agent-OS. It is 
 | **Config Manager** | `gateway/config.py` | YAML service layout + auto-discovery from `mcp_config.json` |
 | **Aggregator** | `gateway/aggregator.py` | Async parallel data fetching via `ThreadPoolExecutor` |
 | **Dashboard Router** | `gateway/api.py` | REST endpoints: `/layout`, `/data`, `/widgets`, `/health`, `/discover` |
-| **WebSocket Manager** | `gateway/ws.py` | Real-time streaming at `/ws/dashboard` |
+| **WebSocket Manager** | agent-webui `server.py`'s `_dashboard_ws` | Real-time streaming at `/ws/dashboard` — inline in agent-webui, `kg:admin`-gated by `WebUIAuthorizationMiddleware`; **not** `gateway/ws.py` (unused dead code, removed by BUG-PE-006) |
 | **Widget Modules** | `gateway/widgets/*.py` | 50 service-specific implementations (Portainer, GitLab, Jellyfin, etc.) |
 
 ### Integration Architecture
