@@ -1385,12 +1385,32 @@ async def graph_search_endpoint(request: Request) -> JSONResponse:
 
 
 async def graph_write_endpoint(request: Request) -> JSONResponse:
+    """POST /graph/write — collapsed, typed dispatch for every ``graph_write``
+    action. Covers the six actions that used to have their own granular
+    routes (``add_node``, ``add_edge``, ``delete_edge``, ``bulk_ingest``,
+    ``log_chat``, ``register_execution`` — formerly
+    ``/graph/write/{node,edge,bulk,chat,execution}``) plus every other
+    action the tool accepts (``delete_node``, ``register_external_graph``,
+    ``compare_and_set``, ``store_memory``, ``recall_memory``,
+    ``recall_media``, ``submit_sdd``, ``check_loop``) — see
+    ``GraphWriteAction`` below for the full discriminated union. The body is
+    validated against that union instead of forwarded blind (``**body``), so
+    an unrecognized/malformed ``action`` is a clean 400, never a 500, and
+    FastAPI documents every action's real shape (mounted via
+    ``add_api_route(..., response_model=GraphToolResponse)`` in
+    ``_mount_rest_routes``, not the raw Starlette ``add_route`` most other
+    handlers in this file still use).
+    """
     try:
         body = await request.json()
     except Exception:
         body = {}
     try:
-        res = await _execute_tool("graph_write", **body)
+        action_model = _GRAPH_WRITE_ACTION_ADAPTER.validate_python(body)
+    except ValidationError as e:
+        return _external_error_response(e, status_code=400, code="invalid_request")
+    try:
+        res = await _dispatch_graph_write_action(action_model)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except UnsupportedToolFieldError as e:
         # U-74, same class of fix as `graph_search_endpoint` above.
@@ -1756,38 +1776,351 @@ async def graph_search_dci_endpoint(request: Request) -> JSONResponse:
         return _external_error_response(e)
 
 
-# 3. Granular Graph Write endpoints
-async def graph_write_node_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        # BUG (kgserver-blocking DEFECT C): the ``graph_write`` tool declares
-        # this parameter as ``node_id`` (see ``write_ingest_tools.graph_write``'s
-        # signature), not ``id`` — the mismatch made every call fail closed with
-        # ``UnsupportedToolFieldError: Tool 'graph_write' does not accept
-        # field(s): id`` (confirmed live in the pod logs). Pass ``node_id=``.
-        res = await _execute_tool(
+# 3. Collapsed Graph Write endpoint (POST + DELETE /graph/write)
+#
+# CONSOLIDATION: this used to be six separate granular routes — POST
+# /graph/write/node, POST/DELETE /graph/write/edge, POST /graph/write/bulk,
+# POST /graph/write/chat, POST /graph/write/execution — each a thin
+# hand-written Starlette handler reading a handful of ``body.get`` keys.
+# Collapsed into the SAME action-routed ``POST /graph/write`` the base
+# endpoint already exposed (plus a ``DELETE /graph/write`` twin for
+# ``delete_edge`` — see ``graph_write_delete_edge_endpoint`` below), now
+# dispatched through a real Pydantic discriminated union
+# (``GraphWriteAction``) instead of ``**body`` passthrough, so every action
+# gets its own validated shape AND FastAPI documents it.
+#
+# The six "primary" variants below (``_AddNodeAction`` ..
+# ``_RegisterExecutionAction``) extend the already-merged per-route models in
+# ``agent_utilities.gateway.schemas.graph_ingest`` (imported, not redefined)
+# — each adds the ``action`` discriminator plus ``connection``/``graph``,
+# which the granular routes never forwarded even though ``graph_write``
+# resolves them generically for EVERY action (``_resolve_target_engines``/
+# ``bound_to_graph`` run before the action dispatch, not just for
+# ``bulk_ingest``). ``_BulkIngestAction`` additionally restores
+# ``idempotency_key``/``evidence``/``upsert`` — the real defect this
+# consolidation fixes: the deleted ``graph_write_bulk_endpoint`` forwarded
+# ONLY ``nodes``, always taking the non-idempotent ``BatchUpdate``
+# (``upsert=True``) path even when a caller supplied an idempotency key, so a
+# retried bulk write could double-write.
+#
+# ``_OtherGraphWriteAction`` is the 7th union member and covers every action
+# that never had its own granular route (``delete_node``,
+# ``register_external_graph``, ``compare_and_set``, ``store_memory``,
+# ``recall_memory``, ``recall_media``, ``submit_sdd``, ``check_loop``) — it
+# IS ``GraphWriteRequest`` itself (imported, not redefined; the already
+# merged, ``extra="allow"``, full-passthrough model), with ``action``
+# narrowed to a Literal of exactly those eight values (Pydantic discriminated
+# unions support several tag values mapping to one member). This preserves
+# the pre-consolidation base route's full action vocabulary byte-for-byte
+# instead of silently dropping it down to only the six actions collapsed
+# here.
+from typing import Annotated, Literal
+
+from pydantic import Field, TypeAdapter, ValidationError, field_validator
+
+from agent_utilities.gateway.schemas.graph_ingest import (
+    GraphToolResponse,
+    GraphWriteBulkRequest,
+    GraphWriteChatRequest,
+    GraphWriteEdgeDeleteRequest,
+    GraphWriteEdgeRequest,
+    GraphWriteExecutionRequest,
+    GraphWriteNodeRequest,
+    GraphWriteRequest,
+)
+
+_CONNECTION_FIELD_DESCRIPTION = (
+    "Named backend connection to write to (default = primary). Use a "
+    "registered connection name, or 'all'/a comma-separated list to mirror "
+    "the same write to several backends. Applies to every action (resolved "
+    "generically before the action-specific dispatch) — not just "
+    "bulk_ingest, which is all the granular routes ever exposed this on."
+)
+_GRAPH_FIELD_DESCRIPTION = (
+    "Explicit physical engine graph to write to, independent of "
+    "'connection'. Empty = the caller's own bound graph. Requires exactly "
+    "one resolved 'connection' — never combinable with connection='all'/a "
+    "list. Applies to every action, not just bulk_ingest."
+)
+
+
+def _coerce_properties_str_to_dict(v: Any) -> Any:
+    """``mode="before"`` validator shared by ``_AddNodeAction``/
+    ``_AddEdgeAction``: accept an already-JSON-encoded string for
+    ``properties`` (the shape the base ``/graph/write`` route has
+    historically taken there — see ``test_tiny_profile_serves_kg_over_
+    gateway_with_zero_containers``) IN ADDITION to a plain JSON object,
+    without widening the field's declared type away from the inherited
+    ``dict[str, Any]`` (a wider ``dict | str`` annotation here would violate
+    Liskov substitution against ``GraphWriteNodeRequest``/
+    ``GraphWriteEdgeRequest``'s own ``properties: dict[str, Any]``, which
+    mypy correctly rejects). An empty string normalizes to ``{}``; any other
+    string is JSON-decoded (a non-dict/invalid JSON string is a clean 400 via
+    the surrounding discriminated-union validation, not a silent pass).
+    """
+    if isinstance(v, str):
+        return json.loads(v) if v.strip() else {}
+    return v
+
+
+class _AddNodeAction(GraphWriteNodeRequest):
+    """``POST /graph/write``, ``action='add_node'`` — replaces
+    ``POST /graph/write/node``.
+    """
+
+    action: Literal["add_node"] = Field(
+        description="Fixed discriminator for this variant: 'add_node'."
+    )
+    properties: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "JSON object of node properties, OR an already-JSON-encoded "
+            "string (both accepted; forwarded to the graph_write tool as a "
+            "JSON-encoded string either way — the base /graph/write route "
+            "has historically taken a raw pre-encoded string here, so both "
+            "forms are supported for compatibility)."
+        ),
+        json_schema_extra={"examples": [{"label": "example"}]},
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+    _coerce_properties = field_validator("properties", mode="before")(
+        _coerce_properties_str_to_dict
+    )
+
+
+class _AddEdgeAction(GraphWriteEdgeRequest):
+    """``POST /graph/write``, ``action='add_edge'`` — replaces
+    ``POST /graph/write/edge``.
+    """
+
+    action: Literal["add_edge"] = Field(
+        description="Fixed discriminator for this variant: 'add_edge'."
+    )
+    properties: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "JSON object of edge properties, OR an already-JSON-encoded "
+            "string (both accepted)."
+        ),
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+    _coerce_properties = field_validator("properties", mode="before")(
+        _coerce_properties_str_to_dict
+    )
+
+
+class _DeleteEdgeAction(GraphWriteEdgeDeleteRequest):
+    """``action='delete_edge'`` — reachable via ``POST /graph/write`` (this
+    variant) AND via ``DELETE /graph/write``
+    (``graph_write_delete_edge_endpoint`` below, which validates the same
+    ``GraphWriteEdgeDeleteRequest`` shape and hard-codes this action) —
+    replaces ``DELETE /graph/write/edge``. Both are kept so neither an
+    action-field-first caller nor a REST-verb-first caller loses the
+    capability.
+    """
+
+    action: Literal["delete_edge"] = Field(
+        description="Fixed discriminator for this variant: 'delete_edge'."
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+
+class _BulkIngestAction(GraphWriteBulkRequest):
+    """``POST /graph/write``, ``action='bulk_ingest'`` — replaces
+    ``POST /graph/write/bulk``.
+
+    REGRESSION FIX: the deleted granular route forwarded ONLY ``nodes``,
+    silently discarding ``idempotency_key``/``evidence``/``upsert``/
+    ``connection``/``graph`` and always taking the non-idempotent
+    ``BatchUpdate(upsert=True)`` path. This variant forwards all of them.
+    """
+
+    action: Literal["bulk_ingest"] = Field(
+        description="Fixed discriminator for this variant: 'bulk_ingest'."
+    )
+    idempotency_key: str = Field(
+        default="",
+        description=(
+            "Caller-owned idempotency key for this exact batch. Non-empty "
+            "(or a non-empty 'evidence') routes the batch onto the engine's "
+            "durably-idempotent ApplyChangeEnvelopes path, scoped by "
+            "(tenant, graph, idempotency_key) — a replay reports "
+            "'status':'skipped', never silently re-reported as fresh "
+            "success. Empty uses the lighter BatchUpdate path, which has no "
+            "per-call idempotency key."
+        ),
+    )
+    evidence: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "Evidence records ({'object_id','modality','locus',"
+            "'content_digest'}) attached to the first node in 'nodes'. "
+            "Non-empty routes the batch onto ApplyChangeEnvelopes instead "
+            "of the lighter BatchUpdate path."
+        ),
+    )
+    upsert: bool = Field(
+        default=True,
+        description=(
+            "On the BatchUpdate (light) path only: True (default) MERGEs "
+            "onto an existing id (idempotent); False INSERTs (a repeated "
+            "edge becomes an additional parallel edge rather than "
+            "replacing the prior one)."
+        ),
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+
+class _LogChatAction(GraphWriteChatRequest):
+    """``POST /graph/write``, ``action='log_chat'`` — replaces
+    ``POST /graph/write/chat``.
+    """
+
+    action: Literal["log_chat"] = Field(
+        description="Fixed discriminator for this variant: 'log_chat'."
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+
+class _RegisterExecutionAction(GraphWriteExecutionRequest):
+    """``POST /graph/write``, ``action='register_execution'`` — replaces
+    ``POST /graph/write/execution``.
+    """
+
+    action: Literal["register_execution"] = Field(
+        description="Fixed discriminator for this variant: 'register_execution'."
+    )
+    connection: str = Field(default="", description=_CONNECTION_FIELD_DESCRIPTION)
+    graph: str = Field(default="", description=_GRAPH_FIELD_DESCRIPTION)
+
+
+class _OtherGraphWriteAction(GraphWriteRequest):
+    """``POST /graph/write`` for every action never given its own granular
+    route: ``delete_node``, ``register_external_graph``,
+    ``compare_and_set``, ``store_memory``, ``recall_memory``,
+    ``recall_media``, ``submit_sdd``, ``check_loop``. ``GraphWriteRequest``
+    itself (imported, not redefined) already declares every field these
+    actions read, with ``extra='allow'`` full passthrough — this subclass
+    only narrows ``action`` to a Literal of those eight values so the
+    discriminated union can tag-match it.
+    """
+
+    action: Literal[
+        "delete_node",
+        "register_external_graph",
+        "compare_and_set",
+        "store_memory",
+        "recall_memory",
+        "recall_media",
+        "submit_sdd",
+        "check_loop",
+    ] = Field(
+        description=(
+            "One of: delete_node, register_external_graph, compare_and_set, "
+            "store_memory, recall_memory, recall_media, submit_sdd, "
+            "check_loop. See GraphWriteRequest's own field docs for which "
+            "fields each of these reads."
+        )
+    )
+
+
+GraphWriteAction = Annotated[
+    _AddNodeAction
+    | _AddEdgeAction
+    | _DeleteEdgeAction
+    | _BulkIngestAction
+    | _LogChatAction
+    | _RegisterExecutionAction
+    | _OtherGraphWriteAction,
+    Field(discriminator="action"),
+]
+
+_GRAPH_WRITE_ACTION_ADAPTER: TypeAdapter[Any] = TypeAdapter(GraphWriteAction)
+
+
+async def _dispatch_graph_write_action(action_model: Any) -> Any:
+    """Invoke ``_execute_tool("graph_write", ...)`` for one validated
+    ``GraphWriteAction``. The six explicit branches mirror, field-for-field,
+    what the now-deleted granular ``/graph/write/*`` routes used to forward
+    (plus ``connection``/``graph``, and the ``bulk_ingest`` defect fix — see
+    the class docstrings above); ``_OtherGraphWriteAction`` forwards its
+    full body exactly as the pre-consolidation ``**body`` passthrough did.
+    """
+    if isinstance(action_model, _AddNodeAction):
+        return await _execute_tool(
             "graph_write",
             action="add_node",
-            node_id=body.get("node_id", ""),
-            node_type=body.get("node_type", ""),
-            properties=_to_json_str(body.get("properties", {})),
+            node_id=action_model.node_id,
+            node_type=action_model.node_type,
+            properties=_to_json_str(action_model.properties),
+            connection=action_model.connection,
+            graph=action_model.graph,
         )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except UnsupportedToolFieldError as e:
-        # U-74, same class of fix as `graph_query_endpoint` above: a
-        # caller-side/field-name mistake is a clean 4xx, not a 500.
-        return _external_error_response(e, status_code=400, code="invalid_request")
-    except Exception as e:
-        return _external_error_response(e)
+    if isinstance(action_model, _AddEdgeAction):
+        return await _execute_tool(
+            "graph_write",
+            action="add_edge",
+            source_id=action_model.source_id,
+            target_id=action_model.target_id,
+            rel_type=action_model.rel_type,
+            properties=_to_json_str(action_model.properties),
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    if isinstance(action_model, _DeleteEdgeAction):
+        return await _execute_tool(
+            "graph_write",
+            action="delete_edge",
+            source_id=action_model.source_id,
+            target_id=action_model.target_id,
+            rel_type=action_model.rel_type,
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    if isinstance(action_model, _BulkIngestAction):
+        return await _execute_tool(
+            "graph_write",
+            action="bulk_ingest",
+            nodes=_to_json_str(action_model.nodes),
+            idempotency_key=action_model.idempotency_key,
+            evidence=_to_json_str(action_model.evidence),
+            upsert=action_model.upsert,
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    if isinstance(action_model, _LogChatAction):
+        return await _execute_tool(
+            "graph_write",
+            action="log_chat",
+            agent_id=action_model.agent_id,
+            properties=action_model.content,
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    if isinstance(action_model, _RegisterExecutionAction):
+        return await _execute_tool(
+            "graph_write",
+            action="register_execution",
+            agent_id=action_model.agent_id,
+            connection=action_model.connection,
+            graph=action_model.graph,
+        )
+    # _OtherGraphWriteAction: full passthrough parity with the
+    # pre-consolidation **body forwarding.
+    return await _execute_tool("graph_write", **action_model.model_dump())
 
 
 async def graph_write_delete_node_endpoint(request: Request) -> JSONResponse:
     try:
         node_id = request.path_params.get("node_id", "")
-        # Same DEFECT C field-name bug as `graph_write_node_endpoint` above:
+        # Same DEFECT C field-name bug as `_AddNodeAction`'s dispatch above:
         # the tool parameter is ``node_id``, not ``id``.
         res = await _execute_tool("graph_write", action="delete_node", node_id=node_id)
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
@@ -1797,39 +2130,31 @@ async def graph_write_delete_node_endpoint(request: Request) -> JSONResponse:
         return _external_error_response(e)
 
 
-async def graph_write_edge_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="add_edge",
-            source_id=body.get("source_id", ""),
-            target_id=body.get("target_id", ""),
-            rel_type=body.get("rel_type", ""),
-            properties=_to_json_str(body.get("properties", {})),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
 async def graph_write_delete_edge_endpoint(request: Request) -> JSONResponse:
+    """DELETE /graph/write — action='delete_edge' (replaces
+    DELETE /graph/write/edge). Kept as a dedicated DELETE handler on the
+    collapsed base path — see ``_DeleteEdgeAction``'s docstring above for
+    why ``action='delete_edge'`` is ALSO reachable via POST.
+    """
     try:
         body = await request.json()
     except Exception:
         body = {}
+    try:
+        payload = GraphWriteEdgeDeleteRequest.model_validate(body or {})
+    except ValidationError as e:
+        return _external_error_response(e, status_code=400, code="invalid_request")
     try:
         res = await _execute_tool(
             "graph_write",
             action="delete_edge",
-            source_id=body.get("source_id", ""),
-            target_id=body.get("target_id", ""),
-            rel_type=body.get("rel_type", ""),
+            source_id=payload.source_id,
+            target_id=payload.target_id,
+            rel_type=payload.rel_type,
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
+    except UnsupportedToolFieldError as e:
+        return _external_error_response(e, status_code=400, code="invalid_request")
     except Exception as e:
         return _external_error_response(e)
 
@@ -1845,22 +2170,6 @@ async def graph_write_external_endpoint(request: Request) -> JSONResponse:
             action="register_external_graph",
             endpoint_url=body.get("endpoint_url", ""),
             graph_type=body.get("graph_type", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_write_bulk_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="bulk_ingest",
-            nodes=_to_json_str(body.get("nodes", [])),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
@@ -1962,23 +2271,6 @@ async def graph_ontology_import_stardog_endpoint(request: Request) -> JSONRespon
         return _external_error_response(e)
 
 
-async def graph_write_chat_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="log_chat",
-            agent_id=body.get("agent_id", ""),
-            properties=body.get("content", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
 async def graph_write_sdd_endpoint(request: Request) -> JSONResponse:
     try:
         body = await request.json()
@@ -1990,22 +2282,6 @@ async def graph_write_sdd_endpoint(request: Request) -> JSONResponse:
             action="submit_sdd",
             agent_id=body.get("agent_id", ""),
             properties=body.get("content", ""),
-        )
-        return JSONResponse({"status": "success", "result": safe_json_load(res)})
-    except Exception as e:
-        return _external_error_response(e)
-
-
-async def graph_write_execution_endpoint(request: Request) -> JSONResponse:
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    try:
-        res = await _execute_tool(
-            "graph_write",
-            action="register_execution",
-            agent_id=body.get("agent_id", ""),
         )
         return JSONResponse({"status": "success", "result": safe_json_load(res)})
     except Exception as e:
@@ -5068,6 +5344,59 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     def route(path: str, handler, methods: list[str]) -> None:
         app.add_route(prefix + path, handler, methods=methods)
 
+    def route_typed(
+        path: str,
+        handler,
+        methods: list[str],
+        *,
+        response_model: type,
+        summary: str,
+        description: str,
+        request_model: type | Any,
+    ) -> None:
+        """Like ``route()`` but mounted via FastAPI's
+        ``add_api_route(..., response_model=...)`` when ``app`` supports it
+        (every production caller — see ``build_agent_app``) so the route is
+        visible to ``app.openapi()``. ``scripts/check_openapi_coverage.py``
+        measures exactly this gap for every OTHER route in this file, which
+        still uses the raw ``route()``/``add_route`` helper above; this is
+        the first route in ``_mount_rest_routes`` to close it. Falls back to
+        the plain Starlette ``add_route`` for a bare-Starlette/test-double
+        ``app`` that only implements ``add_route`` (mirrors the existing
+        ``add_api_route``-vs-``add_route`` guard in
+        ``agent_utilities.gateway.graph_api.register_graph_routes``'s
+        ``/metrics`` mount) — undocumented in that fallback case, but still
+        callable.
+
+        ``request_model`` may be a ``BaseModel`` subclass or a typing
+        construct (e.g. an ``Annotated[Union[...], Field(discriminator=...)]``
+        alias) — the handler itself parses the body manually (so a
+        malformed/unrecognized ``action`` is a controlled 400, not FastAPI's
+        default 422), so this only feeds ``openapi_extra`` a real JSON Schema
+        for documentation; it does not change request parsing.
+        """
+        if not hasattr(app, "add_api_route"):
+            app.add_route(prefix + path, handler, methods=methods)
+            return
+        if hasattr(request_model, "model_json_schema"):
+            body_schema = request_model.model_json_schema()
+        else:
+            body_schema = TypeAdapter(request_model).json_schema()
+        app.add_api_route(
+            prefix + path,
+            handler,
+            methods=methods,
+            response_model=response_model,
+            summary=summary,
+            description=description,
+            openapi_extra={
+                "requestBody": {
+                    "required": True,
+                    "content": {"application/json": {"schema": body_schema}},
+                }
+            },
+        )
+
     # ── Sessions & goals (durable Starlette handlers in core.sessions) ──
     route("/sessions", get_all_sessions, ["GET"])
     route("/sessions/{session_id}", get_session_details, ["GET"])
@@ -5086,7 +5415,44 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     # ── Bilateral graph execution (action-routed) ──
     route("/graph/query", graph_query_endpoint, ["POST"])
     route("/graph/search", graph_search_endpoint, ["POST"])
-    route("/graph/write", graph_write_endpoint, ["POST"])
+    # Collapsed, typed graph_write dispatch (CONSOLIDATION: see the
+    # `GraphWriteAction` discriminated union above graph_write_endpoint's
+    # definition) — the first FastAPI-documented route in this file.
+    route_typed(
+        "/graph/write",
+        graph_write_endpoint,
+        ["POST"],
+        response_model=GraphToolResponse,
+        summary="Write a node/edge or run another graph_write action",
+        description=(
+            "Collapsed, action-routed graph_write endpoint. Validates the "
+            "body against a discriminated union on 'action' covering "
+            "add_node, add_edge, delete_edge, bulk_ingest, log_chat, "
+            "register_execution (formerly separate granular routes under "
+            "/graph/write/{node,edge,bulk,chat,execution}, now removed), "
+            "plus every other graph_write action (delete_node, "
+            "register_external_graph, compare_and_set, store_memory, "
+            "recall_memory, recall_media, submit_sdd, check_loop). See the "
+            "GraphWriteAction union's member models for the exact per-action "
+            "request shape."
+        ),
+        request_model=GraphWriteAction,
+    )
+    route_typed(
+        "/graph/write",
+        graph_write_delete_edge_endpoint,
+        ["DELETE"],
+        response_model=GraphToolResponse,
+        summary="Delete an edge (graph_write action=delete_edge)",
+        description=(
+            "Deletes one edge identified by source_id/target_id/rel_type. "
+            "Equivalent to POST /graph/write with action='delete_edge'; "
+            "kept as a dedicated DELETE verb on the same collapsed path so "
+            "a REST-verb-first caller does not lose the capability the "
+            "removed DELETE /graph/write/edge granular route had."
+        ),
+        request_model=GraphWriteEdgeDeleteRequest,
+    )
     route("/graph/ingest", graph_ingest_endpoint, ["POST"])
     route("/graph/analyze", graph_analyze_endpoint, ["POST"])
     route("/graph/code", graph_code_endpoint, ["POST"])
@@ -5107,13 +5473,10 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
     route("/graph/search/discover", graph_search_discover_endpoint, ["POST"])
     route("/graph/search/dci", graph_search_dci_endpoint, ["POST"])
 
-    # ── Granular write ──
-    route("/graph/write/node", graph_write_node_endpoint, ["POST"])
+    # ── Granular write (out of this consolidation's scope — see kg_server.py's
+    # collapsed-write comment block above graph_write_endpoint) ──
     route("/graph/write/node/{node_id}", graph_write_delete_node_endpoint, ["DELETE"])
-    route("/graph/write/edge", graph_write_edge_endpoint, ["POST"])
-    route("/graph/write/edge", graph_write_delete_edge_endpoint, ["DELETE"])
     route("/graph/write/external", graph_write_external_endpoint, ["POST"])
-    route("/graph/write/bulk", graph_write_bulk_endpoint, ["POST"])
     route("/graph/write/memory", graph_write_memory_endpoint, ["POST"])
     route("/graph/write/memory/recall", graph_write_memory_recall_endpoint, ["POST"])
     # CONCEPT:AU-KG.ontology.federation-runtime — federation: explicit twin for ontology package-sync.
@@ -5133,9 +5496,7 @@ def _mount_rest_routes(app, prefix: str = "") -> None:
         graph_ontology_import_stardog_endpoint,
         ["POST"],
     )
-    route("/graph/write/chat", graph_write_chat_endpoint, ["POST"])
     route("/graph/write/sdd", graph_write_sdd_endpoint, ["POST"])
-    route("/graph/write/execution", graph_write_execution_endpoint, ["POST"])
 
     # ── Granular ingest ──
     route("/graph/ingest/submit", graph_ingest_submit_endpoint, ["POST"])

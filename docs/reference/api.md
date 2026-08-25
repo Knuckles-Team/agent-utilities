@@ -2,11 +2,11 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/generate_openapi.py --write`. Source: the served app's own `app.openapi()`, projected from `agent_webui.server.create_agent_web_app` exactly as production builds it — not hand-copied.
 
-This is the generated reference for **Agent Web Dashboard** (OpenAPI 3.1.0) — 191 paths, 213 operations, 213 with a summary. The running server's own interactive `/docs` (Swagger UI) and `/redoc` pages reflect the identical document live; this page is the static, diffable snapshot checked into docs so it cannot silently drift from the code that generates it.
+This is the generated reference for **Agent Web Dashboard** (OpenAPI 3.1.0) — 192 paths, 215 operations, 215 with a summary. The running server's own interactive `/docs` (Swagger UI) and `/redoc` pages reflect the identical document live; this page is the static, diffable snapshot checked into docs so it cannot silently drift from the code that generates it.
 
 ## Coverage note
 
-**This reference does not yet cover the whole live API.** 245 route(s) across 31 mounted path prefix(es) below are served by the app but carry no OpenAPI schema, so `app.openapi()` — and therefore this page — cannot see them:
+**This reference does not yet cover the whole live API.** 238 route(s) across 31 mounted path prefix(es) below are served by the app but carry no OpenAPI schema, so `app.openapi()` — and therefore this page — cannot see them:
 
 `/api/audit`, `/api/chat`, `/api/compliance`, `/api/concept`, `/api/configure`, `/api/connector`, `/api/data`, `/api/document`, `/api/engine`, `/api/epistemic`, `/api/fleet`, `/api/goals`, `/api/graph`, `/api/graphlearn`, `/api/health`, `/api/incident`, `/api/intent`, `/api/media`, `/api/mining`, `/api/object`, `/api/ontology`, `/api/ops`, `/api/pipeline`, `/api/quant`, `/api/research`, `/api/sessions`, `/api/source`, `/api/sparql`, `/api/spec`, `/api/tools`, `/api/usage`
 
@@ -20,6 +20,7 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 |---|---|
 | `/api/dashboard` | 15 |
 | `/api/enhanced` | 149 |
+| `/api/graph` | 2 |
 | `/api/oauth` | 1 |
 | `/api/objects` | 4 |
 | `/api/ontology` | 23 |
@@ -195,6 +196,8 @@ The full spec (not just this rendering of it) is published at [`openapi.json`](o
 | POST | `/api/enhanced/workflows` | Save Workflow |
 | GET | `/api/enhanced/workflows/capabilities` | Workflow Capabilities |
 | POST | `/api/enhanced/workflows/{wid}/run` | Run Workflow |
+| DELETE | `/api/graph/write` | Delete an edge (graph_write action=delete_edge) |
+| POST | `/api/graph/write` | Write a node/edge or run another graph_write action |
 | GET | `/api/oauth/callback` | Oauth Callback |
 | GET | `/api/objects/{object_id}` | Get Object |
 | GET | `/api/objects/{object_id}/as-of` | Get Object As Of |
