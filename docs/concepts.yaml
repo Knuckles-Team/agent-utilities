@@ -1244,6 +1244,7 @@ concepts:
   pillar: AU-ECO
   status: live
   code_paths:
+  - agent_utilities/gateway/schemas/graph_core.py
   - agent_utilities/knowledge_graph/ontology/__init__.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -2534,6 +2535,7 @@ concepts:
   pillar: AU-KG
   status: live
   code_paths:
+  - agent_utilities/gateway/schemas/graph_core.py
   - agent_utilities/knowledge_graph/core/engine_tasks.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -9339,6 +9341,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/deployment/doctor.py
+  - agent_utilities/gateway/schemas/graph_core.py
   - agent_utilities/mcp/kg_server.py
   - agent_utilities/security/secrets_client.py
   doc: the vault-first routine genesis/deployment uses so an
