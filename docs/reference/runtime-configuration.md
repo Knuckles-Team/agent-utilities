@@ -2,7 +2,7 @@
 
 > **GENERATED — do not edit by hand.** Run `python scripts/docs_contract.py --write`. Defaults come from the `AgentConfig` schema; secret values are never rendered.
 
-572 typed fields · 368 runtime-only call-site inputs.
+572 typed fields · 372 runtime-only call-site inputs.
 
 ```mermaid
 flowchart LR
@@ -852,7 +852,11 @@ These keys are discovered from literal `config.setting(...)` calls but are not d
 | `GRAPH_SCHEMA_AUDIT_VERBOSE` | 1 |
 | `GRAPH_SERVICE_CONNECT_TIMEOUT` | 1 |
 | `GRAPH_SERVICE_HEAVY_RPC_TIMEOUT` | 1 |
+| `GRAPH_SERVICE_METRICS_ADDR` | 1 |
 | `GRAPH_SERVICE_PERSIST_DIR` | 1 |
+| `GRAPH_SERVICE_TCP_ADDR` | 1 |
+| `GRAPH_SERVICE_TLS_CERT` | 1 |
+| `GRAPH_SERVICE_TLS_KEY` | 1 |
 | `GRAPH_SERVICE_WRITE_TIMEOUT` | 1 |
 | `HERMES_HOME` | 1 |
 | `HF_HOME` | 1 |

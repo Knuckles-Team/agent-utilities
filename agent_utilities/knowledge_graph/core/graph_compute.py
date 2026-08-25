@@ -1411,6 +1411,87 @@ def _query_unified_accepts_reorder_kwarg(unified_method: Any) -> bool:
         return False
 
 
+def _build_engine_transport_argv(
+    server_path: str,
+    sock: str | None,
+    connect_kwargs: Mapping[str, Any],
+) -> list[str]:
+    """Build the transport argv for an auto-started ``epistemic-graph-server``.
+
+    Pure and side-effect-free so the exact argv is directly unit-testable.
+    ``--socket-path`` and ``--tcp-addr`` are INDEPENDENT, not mutually
+    exclusive: a UDS-connecting client (the common case — ``sock`` truthy) can
+    also arm a second, TCP(+TLS) listener via ``GRAPH_SERVICE_TCP_ADDR`` for
+    consumers that dial the engine directly over the network (e.g. a
+    Service-fronted single-container topology) rather than through this
+    process's own connection. When ``sock`` is unset, ``connect_kwargs``'s
+    ``tcp_addr`` still wins over the setting — Windows' zero-config transport
+    is loopback TCP, and passing that address explicitly also makes an
+    operator-selected local loopback port deterministic on every platform.
+    Every flag here is optional and omitted when unset, so a caller that sets
+    none of these new settings gets byte-identical argv to before.
+    """
+    cmd = [server_path]
+    if sock:
+        cmd += ["--socket-path", str(sock)]
+    tcp_addr = connect_kwargs.get("tcp_addr") or setting("GRAPH_SERVICE_TCP_ADDR")
+    if tcp_addr:
+        cmd += ["--tcp-addr", str(tcp_addr)]
+    tls_cert = setting("GRAPH_SERVICE_TLS_CERT")
+    if tls_cert:
+        cmd += ["--tcp-tls-cert", str(tls_cert)]
+    tls_key = setting("GRAPH_SERVICE_TLS_KEY")
+    if tls_key:
+        cmd += ["--tcp-tls-key", str(tls_key)]
+    metrics_addr = setting("GRAPH_SERVICE_METRICS_ADDR")
+    if metrics_addr:
+        cmd += ["--metrics-addr", str(metrics_addr)]
+    return cmd
+
+
+def _resolve_engine_persist_dir() -> str | None:
+    """Resolve the auto-started engine's ``--persist-dir`` (BUG-PE-003).
+
+    Durable by default (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9):
+    snapshot the graphs to disk so an auto-spawned engine warm-restarts from
+    the last checkpoint instead of starting empty. pggraph stays the durable
+    system-of-record; this is the fast local cache.
+
+    ``GRAPH_SERVICE_PERSIST_DIR`` unset is a legitimate, convenient default for
+    laptop/dev use — but the implicit fallback path resolves under
+    ``AGENT_UTILITIES_DATA_DIR``, which in a container is routinely an
+    ephemeral ``emptyDir``. Silently choosing that path means a restart
+    discards the durable graph with no error and no warning. This must never
+    happen silently, so the fallback always logs a WARNING event naming that
+    the persist directory was NOT explicitly configured. The literal path is
+    still passed to ``%s`` here — it is this package's process-wide log
+    privacy boundary (``agent_utilities.core.log_privacy``, installed in
+    ``agent_utilities/__init__.py``) that redacts filesystem locations from
+    every ``agent_utilities.*`` record before it is emitted, the same as any
+    other path logged in this module. That is what makes the resolved path
+    itself invisible in the rendered log line; the WARNING event is what
+    makes the fallback unmistakable.
+    """
+    persist_dir = setting("GRAPH_SERVICE_PERSIST_DIR")
+    if persist_dir is not None:
+        return persist_dir or None
+    try:
+        from agent_utilities.core.paths import data_dir
+
+        persist_dir = str(data_dir() / "graph_snapshots")
+    except Exception:
+        return None
+    logger.warning(
+        "GRAPH_SERVICE_PERSIST_DIR is not set; auto-starting the engine with "
+        "an IMPLICIT persist dir resolved under AGENT_UTILITIES_DATA_DIR. If "
+        "that location is not durable storage (e.g. a container emptyDir), "
+        "graph data will be silently DISCARDED on the next restart. Set "
+        "GRAPH_SERVICE_PERSIST_DIR explicitly to make this a deliberate "
+        "choice and silence this warning."
+    )
+    return persist_dir
+
+
 class GraphComputeEngine:
     """Graph compute engine backed by the epistemic-graph Tokio service.
 
@@ -1899,26 +1980,8 @@ class GraphComputeEngine:
             else "epistemic-graph-server"
         )
         server_path = str(Path(sys.executable).parent / _server_exe)
-        cmd = [server_path]
-        if sock:
-            cmd += ["--socket-path", str(sock)]
-        elif connect_kwargs.get("tcp_addr"):
-            # Windows' zero-config transport is loopback TCP. Passing the
-            # address explicitly also makes an operator-selected local
-            # loopback port deterministic on every platform.
-            cmd += ["--tcp-addr", str(connect_kwargs["tcp_addr"])]
-        # Durable by default (CONCEPT:EG-KG.storage.nonblocking-checkpoint / OS-5.9): snapshot the graphs to disk
-        # so an auto-spawned engine warm-restarts from the last checkpoint instead
-        # of starting empty. pggraph stays the durable system-of-record; this is
-        # the fast local cache.
-        persist_dir = setting("GRAPH_SERVICE_PERSIST_DIR")
-        if persist_dir is None:
-            try:
-                from agent_utilities.core.paths import data_dir
-
-                persist_dir = str(data_dir() / "graph_snapshots")
-            except Exception:
-                persist_dir = None
+        cmd = _build_engine_transport_argv(server_path, sock, connect_kwargs)
+        persist_dir = _resolve_engine_persist_dir()
         if persist_dir:
             cmd += ["--persist-dir", persist_dir]
         # Reference-counted supervision (CONCEPT:AU-OS.deployment.engine-resolver-auto-provision): a DETACHED engine that
