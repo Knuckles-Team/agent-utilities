@@ -10,6 +10,10 @@ Covers:
 
 from __future__ import annotations
 
+import contextvars
+import threading
+import time
+
 import pytest
 
 from agent_utilities.knowledge_graph.core import tenant_sharing as ts
@@ -250,6 +254,63 @@ def test_read_union_applies_commons_catalog_restriction_to_commons_rows():
         "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
     )
     assert [r["id"] for r in rows] == ["tool-1"]
+
+
+def test_read_union_concurrent_tenant_wins_regardless_of_completion_order():
+    """BUG-PE-019: read_union fans per-graph executor calls out concurrently
+    (``_READ_UNION_MAX_WORKERS``). Concurrency must never disturb the
+    documented "tenant rows win on a duplicate id" precedence, so prove it
+    holds even when the COMMONS executor call finishes strictly before the
+    tenant graph's -- a race a naive completion-order merge would only get
+    wrong under exactly this ordering."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    tenant_started = threading.Event()
+
+    def executor(graph, cypher, params):
+        if graph == "kg":  # commons: wait for the tenant call to start, then
+            # answer immediately -- its future resolves first.
+            assert tenant_started.wait(timeout=5)
+            return [{"id": "n1", "src": "commons", "node_type": "Tool"}]
+        # tenant graph: signal commons, then keep "working" so its own
+        # future resolves strictly after commons's already has.
+        tenant_started.set()
+        time.sleep(0.2)
+        return [{"id": "n1", "src": "org"}]
+
+    rows = ts.read_union(
+        "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
+    )
+    by_id = {r["id"]: r["src"] for r in rows}
+    assert by_id == {"n1": "org"}  # tenant wins even though commons finished first
+
+
+def test_read_union_concurrent_fanout_propagates_ambient_context():
+    """``contextvars.copy_context()`` per submission is load-bearing, not
+    decoration: a caller's ``executor`` (e.g. agent-webui's
+    ``_graph_union_executor``) typically reads an ambient
+    ``current_session()``/``use_session()`` ``ContextVar`` pair to retarget
+    per graph. A bare ``ThreadPoolExecutor.submit`` would hand the worker
+    thread a FRESH context with no ambient state, silently breaking every
+    graph but whichever one happens to share the caller's own thread."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    probe: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+        "probe", default=None
+    )
+    seen: dict[str, str | None] = {}
+
+    def executor(graph, cypher, params):
+        seen[graph] = probe.get()
+        return []
+
+    token = probe.set("ambient-value")
+    try:
+        ts.read_union(
+            "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
+        )
+    finally:
+        probe.reset(token)
+
+    assert seen == {"tenant__acme__kg": "ambient-value", "kg": "ambient-value"}
 
 
 # --- sharing transitions ---------------------------------------------------
