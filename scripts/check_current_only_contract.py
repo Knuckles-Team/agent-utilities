@@ -80,7 +80,13 @@ RETIRED_IDENTIFIERS: tuple[str, ...] = (
     "ENGINE_" + "ENDPOINT",
     "EPISTEMIC_GRAPH_" + "AUTOSTART",
     "GRAPH_SERVICE_" + "SOCKET",
-    "GRAPH_SERVICE_TCP_" + "ADDR",
+    # NOT "GRAPH_SERVICE_TCP_ADDR" -- 2026-08-25: commit 2e399171e legitimately
+    # reactivated this exact name for a new, unrelated meaning (the
+    # auto-started engine child's own --tcp-addr flag; see the matching
+    # removal + comment in agent_utilities/core/config.py's
+    # _RETIRED_CONFIGURATION_KEYS). Re-adding it here would fail this gate on
+    # every live reference in graph_compute.py/.env.example/runtime-
+    # configuration.md.
     "GRAPH_" + "BACKEND",
     "GRAPH_" + "AUTHORITY",
     "A2A_BROKER_" + "URL",
@@ -450,16 +456,6 @@ ACCEPTED_RESIDUALS: tuple[AcceptedResidual, ...] = (
     AcceptedResidual(
         relative="docs/operations/phase10-cutover-runbook.md",
         needle="ENGINE_" + "ENDPOINT",
-        owner="GOC-59",
-        reason=(
-            "Same runbook, same drifted-twin evidence as the retired engine-"
-            "mode key above; see the file's own 2026-08-09 accepted-residual "
-            "banner."
-        ),
-    ),
-    AcceptedResidual(
-        relative="docs/operations/phase10-cutover-runbook.md",
-        needle="GRAPH_SERVICE_TCP_" + "ADDR",
         owner="GOC-59",
         reason=(
             "Same runbook, same drifted-twin evidence as the retired engine-"
