@@ -482,19 +482,40 @@ def read_union(
     duplicate ids; commons rows fill in the rest. A per-graph failure is logged
     and skipped — a missing commons graph degrades to org-only, never an error.
 
-    Rows read from the commons graph are additionally passed through
-    :func:`filter_commons_catalog` (GOC-61, 2026-08-09 owner ruling) before
-    merging, so a caller of this primitive gets the cross-tenant commons READ
-    restriction for free instead of every ``read_union`` caller having to
-    remember to apply it separately — the same defence-in-depth
-    :func:`~agent_utilities.knowledge_graph.orchestration.engine_query.QueryMixin.query_cypher`
-    already applies at its own Cypher chokepoint. ``executor`` must therefore
-    return Cypher-shaped node rows (a nested properties dict, or the row
-    itself, carrying ``node_type``/``tenant_id``) for the commons leg — a
-    caller whose executor speaks a different row shape entirely (e.g. SPARQL
-    bindings, which carry no Cypher ``node_type``) would have every commons
-    row dropped by the fail-closed classifier below and should not reuse this
-    function for that leg.
+    The commons leg gets the cross-tenant commons READ restriction (GOC-61,
+    2026-08-09 owner ruling) for free — a caller of this primitive does not
+    have to remember to apply it separately. Two layers, both always run:
+
+    1. Query-level PUSHDOWN: :func:`apply_commons_catalog_restriction` is
+       tried against ``cypher`` for the commons graph, and when it changes
+       the query text the modified ``(cypher, params)`` is what actually
+       runs, narrowing the result at the source.
+    2. Row-level classification: every row returned — pushed down or not —
+       still goes through :func:`filter_commons_catalog`. A row that DOES
+       carry a classifiable ``node_type`` is always judged by it (kept only
+       if catalog-shareable or the reader's own tenant) regardless of
+       whether pushdown ran — defense in depth against an ``executor`` that
+       does not actually honor the pushed-down query text it was handed.
+
+    Layer 2 only changes behaviour for a row it cannot classify at all (no
+    ``node_type`` — a *projecting* query like ``RETURN t.id AS id`` or
+    ``RETURN labels(n) AS labels, count(n) AS count`` returns exactly that
+    shape even for a catalog-shareable node): such a row is kept when layer 1
+    demonstrably narrowed the query for this call (``trust_pushdown``), and
+    dropped (fail closed, the pre-existing behaviour) otherwise — e.g. when
+    the query has no ``MATCH``/``RETURN`` site or no bound node variable to
+    scope, or any other :func:`apply_commons_catalog_restriction` failure
+    (best-effort, must never fail OPEN). A WHERE predicate applied twice is
+    idempotent, so layer 1 stacks harmlessly with a caller's own pushdown
+    (e.g. agent-webui's ``_graph_union_executor``, which does the identical
+    pushdown-then-row-fallback dance at its own layer). ``executor`` must
+    therefore return Cypher-shaped node rows (a nested properties dict, or
+    the row itself, carrying ``node_type``/``tenant_id``) for the commons
+    leg whenever pushdown does not apply to a given query — a caller whose
+    executor speaks a different row shape entirely (e.g. SPARQL bindings,
+    which carry no Cypher ``node_type``) would have every such commons row
+    dropped by the fail-closed classifier and should not reuse this function
+    for that leg.
 
     CONCURRENT, BOUNDED (``_READ_UNION_MAX_WORKERS``, BUG-PE-019): each
     graph's ``executor`` call is independent, so running them one at a time
@@ -516,8 +537,36 @@ def read_union(
     graphs = accessible_graphs(actor, config)
 
     def _one(graph: str) -> list[dict[str, Any]]:
-        rows = executor(graph, cypher, params or {}) or []
-        return filter_commons_catalog(rows, actor, graph, config)
+        exec_cypher, exec_params = cypher, dict(params or {})
+        pushed_down = False
+        try:
+            candidate_cypher, extra_params = apply_commons_catalog_restriction(
+                cypher, actor, graph, config=config
+            )
+        except Exception as exc:  # noqa: BLE001 — pushdown is best-effort; the row-level fallback below is the safety net and must never fail open
+            logger.debug(
+                "read_union: commons catalog pushdown unavailable for graph %s: %s",
+                graph,
+                exc,
+            )
+        else:
+            if candidate_cypher != cypher:
+                exec_cypher = candidate_cypher
+                exec_params.update(extra_params)
+                pushed_down = True
+        rows = executor(graph, exec_cypher, exec_params) or []
+        # Always run the row-level classifier — it still fail-closed-drops
+        # any row that DOES carry a classifiable node_type and isn't
+        # shareable/the reader's own tenant, pushdown or not (defense in
+        # depth against an executor that doesn't actually honor the pushed
+        # -down query text). `trust_pushdown` only changes what happens to a
+        # row the classifier cannot read a node_type from at all — e.g. a
+        # projecting query's row — trusting that the query itself already
+        # excluded non-shareable rows when the query text was demonstrably
+        # narrowed for this call.
+        return filter_commons_catalog(
+            rows, actor, graph, config, trust_pushdown=pushed_down
+        )
 
     rows_by_graph: dict[str, list[dict[str, Any]]] = {}
     if len(graphs) <= 1:
@@ -1047,6 +1096,8 @@ def filter_commons_catalog(
     actor: ActorContext | None,
     graph_name: str | None,
     config: Any = None,
+    *,
+    trust_pushdown: bool = False,
 ) -> list[dict[str, Any]]:
     """Cross-tenant commons READ restriction (2026-08-09 owner ruling), Python-side.
 
@@ -1062,7 +1113,29 @@ def filter_commons_catalog(
     Fails CLOSED, unlike :func:`filter_visible`: a row this function cannot
     classify (no ``node_type``, no ``tenant_id``, and not the reader's own)
     is DROPPED, not kept — this is the deny-by-default half of the 2026-08-09
-    ruling, so an unclassified/novel type must not leak by omission.
+    ruling, so an unclassified/novel type must not leak by omission. A row
+    that DOES carry a ``node_type`` is always classified and, if not
+    catalog-shareable and not the reader's own tenant, always dropped —
+    ``trust_pushdown`` never overrides that; it changes ONLY the unclassifiable
+    case.
+
+    ``trust_pushdown``: set by :func:`read_union` when the query actually run
+    for this graph was already narrowed by
+    :func:`apply_commons_catalog_restriction` (its text differs from the
+    caller's original ``cypher``). A *projecting* query (``RETURN t.id AS
+    id``) returns rows with no ``node_type`` column at all even for a
+    catalog-shareable node — genuinely unclassifiable, not merely a novel
+    type — so this function cannot, and must not try to, judge it row-by-row;
+    the restriction was instead already enforced by the query text itself
+    before these rows ever came back. In that situation ONLY, an
+    unclassifiable row (no ``node_type``, and not matched by the reader's own
+    ``tenant_id``) is kept rather than dropped. This still requires the
+    caller's ``executor`` to actually honor the ``cypher``/``params`` it was
+    handed (``read_union``'s own documented contract) — an executor that
+    silently ignores the pushed-down query text and returns unrestricted
+    projected rows would defeat this, exactly the residual risk a caller
+    substituting a non-conforming ``executor`` accepts; every row that DOES
+    carry classifiable data is unaffected and stays fail-closed regardless.
     """
     if not _is_commons_graph_name(graph_name, config):
         return rows
@@ -1080,8 +1153,16 @@ def filter_commons_catalog(
         row_tenant = str(props.get(TENANT_KEY) or "")
         if reader_tenant and row_tenant and row_tenant == reader_tenant:
             out.append(row)
-        # else: not catalog-shareable and not the reader's own tenant's data
-        # -> dropped (fail closed; this is the point of the restriction).
+            continue
+        if not node_type and trust_pushdown:
+            # Genuinely unclassifiable (no node_type at all, so this is not
+            # "classified and not shareable") AND the query itself was
+            # already narrowed for this graph -- keep rather than drop.
+            out.append(row)
+            continue
+        # else: dropped (fail closed) -- either classified and not
+        # catalog-shareable/not the reader's own tenant's data, or
+        # unclassifiable with no proof the query already scoped it out.
     return out
 
 

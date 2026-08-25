@@ -256,6 +256,74 @@ def test_read_union_applies_commons_catalog_restriction_to_commons_rows():
     assert [r["id"] for r in rows] == ["tool-1"]
 
 
+def test_read_union_projecting_query_returns_commons_rows():
+    """Regression: a PROJECTING Cypher query (``RETURN t.id AS id, t.name AS
+    name``) returns rows with no ``node_type`` column at all, even for a
+    catalog-shareable commons node -- the exact shape
+    ``/ontology/object-types`` uses (``RETURN labels(n) AS labels, count(n)
+    AS count``, BUG-PE-026). Before the query-level pushdown fix, ``read_union``
+    ran every commons row through the row-level fail-closed classifier
+    unconditionally; a projected row can never satisfy it (no ``node_type``
+    to classify), so every commons row was silently dropped. Constraint (a):
+    a projecting query must still surface commons rows."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    data = {
+        "tenant__acme__kg": [],
+        "kg": [{"id": "t1", "name": "Tool-A"}],  # no node_type -- a projection
+    }
+
+    def executor(graph, cypher, params):
+        return data.get(graph, [])
+
+    rows = ts.read_union(
+        "MATCH (t:Tool) RETURN t.id as id, t.name as name",
+        {},
+        executor,
+        _user("alice", "acme"),
+        config=cfg,
+    )
+    assert [r["id"] for r in rows] == ["t1"]
+
+
+def test_read_union_projecting_query_still_denies_non_shareable_foreign_row():
+    """Constraint (b), proved alongside constraint (a): trusting the query
+    -level pushdown for a row the classifier CANNOT read a ``node_type``
+    from (see the projecting-query test above) must never widen into
+    trusting it for a row that DOES carry a classifiable ``node_type`` --
+    that row is always judged by :func:`filter_commons_catalog`'s ordinary
+    fail-closed rule regardless of whether pushdown ran, so a non-catalog
+    row stamped with another tenant's id is still denied even in a query
+    shape that triggers pushdown."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    data = {
+        "tenant__acme__kg": [],
+        "kg": [
+            # Unclassifiable projection of a catalog-shareable node -> kept.
+            {"id": "t1", "name": "Tool-A"},
+            # Classifiable, not catalog-shareable, another tenant's data ->
+            # dropped, even though this query triggers pushdown too.
+            {
+                "id": "wi-1",
+                "name": "someone else's item",
+                "node_type": "WorkItem",
+                "tenant_id": "other-tenant",
+            },
+        ],
+    }
+
+    def executor(graph, cypher, params):
+        return data.get(graph, [])
+
+    rows = ts.read_union(
+        "MATCH (n) RETURN n.id as id, n.name as name",
+        {},
+        executor,
+        _user("alice", "acme"),
+        config=cfg,
+    )
+    assert [r["id"] for r in rows] == ["t1"]
+
+
 def test_read_union_concurrent_tenant_wins_regardless_of_completion_order():
     """BUG-PE-019: read_union fans per-graph executor calls out concurrently
     (``_READ_UNION_MAX_WORKERS``). Concurrency must never disturb the
