@@ -611,64 +611,168 @@ class BrowserLoginError(RuntimeError):
     pass
 
 
+_BROWSER_UA = "dual-principal-validation/1"
+_REDIRECT_CODES = (301, 302, 303, 307, 308)
+
+
+def _kc_page_diagnosis(html: str) -> str:
+    """Summarize whatever page Keycloak actually served, for error messages
+    that tell you WHY, not just the HTTP status: page title plus any
+    kc-feedback/alert text (Keycloak renders login errors, "update your
+    password" required-action pages, and consent screens all through the
+    same kc-feedback-text/alert-error markup)."""
+    title = re.search(r"<title>([^<]*)</title>", html)
+    feedback = re.findall(
+        r'class="[^"]*(?:kc-feedback-text|alert-[a-z]+)[^"]*"[^>]*>\s*([^<]+)', html
+    )
+    bits = []
+    if title:
+        bits.append(f"title={title.group(1).strip()!r}")
+    cleaned_feedback = [f.strip() for f in feedback if f.strip()]
+    if cleaned_feedback:
+        bits.append(f"feedback={cleaned_feedback!r}")
+    if not bits:
+        bits.append(f"head={html[:300]!r}")
+    return ", ".join(bits)
+
+
+def _open_no_raise(
+    opener: urllib.request.OpenerDirector,
+    url: str,
+    *,
+    method: str = "GET",
+    data: bytes | None = None,
+    headers: dict[str, str] | None = None,
+) -> tuple[int, Any, bytes, str]:
+    """Open ``url`` and return ``(status, headers, body, url)`` WITHOUT
+    raising on a non-2xx status -- ``urllib`` raises ``HTTPError`` for those,
+    which is indistinguishable from a real transport failure unless the
+    caller unwraps it, and doing that unwrap ad hoc at every call site is how
+    the previous version of this function ended up reporting an unrelated
+    downstream 404 as "the login form POST failed". Only genuine transport
+    failures (DNS, TLS, connection reset, timeout) raise here."""
+    req = urllib.request.Request(
+        url, data=data, method=method, headers=headers or {}
+    )
+    try:
+        resp = opener.open(req, timeout=DEFAULT_TIMEOUT_S)
+        return resp.status, resp.headers, resp.read(), resp.geturl()
+    except urllib.error.HTTPError as exc:
+        return exc.code, exc.headers, exc.read(), url
+    except (urllib.error.URLError, OSError, TimeoutError) as exc:
+        raise BrowserLoginError(f"{method} {url} failed: {exc}") from exc
+
+
 def browser_login(
     base_url: str, username: str, password: str, ctx: ssl.SSLContext
 ) -> http.cookiejar.CookieJar:
     """Drive the REAL authorization-code + PKCE flow a human's browser takes:
     GET /auth/login (redirects through Keycloak to its login page), POST the
-    credentials to the login form's own action URL, and land back on
-    /auth/callback which seals the session into au_session* cookies. Returns
+    credentials to the login form's own action URL, and land on
+    /auth/callback, which seals the session into au_session* cookies. Returns
     the populated cookiejar -- every subsequent request made through an
     opener built with this cookiejar IS the human's authenticated browser
     session, exercising OIDCBrowserSessionMiddleware exactly as a real
-    sign-in does."""
-    cj = http.cookiejar.CookieJar()
-    opener = build_opener(ctx, cookiejar=cj, follow_redirects=True)
+    sign-in does.
 
-    req = urllib.request.Request(
-        base_url.rstrip("/") + "/auth/login?next=/",
-        headers={"User-Agent": "dual-principal-validation/1"},
-    )
-    try:
-        resp = opener.open(req, timeout=DEFAULT_TIMEOUT_S)
-        html = resp.read().decode("utf-8", "replace")
-    except (urllib.error.URLError, OSError, TimeoutError) as exc:
-        raise BrowserLoginError(f"GET /auth/login failed: {exc}") from exc
+    Redirects are walked MANUALLY and STOP at /auth/callback -- this
+    function never follows the callback's own onward redirect to whatever
+    the app's post-login landing route (``next``, typically ``/``) does.
+    That landing route is application content unrelated to whether sign-in
+    itself succeeded (confirmed live 2026-08-25: GET https://au.arpa/
+    returns 404 JSON even for a freshly authenticated session, while
+    GET /api/health on the same session returns 200 -- a real, separate
+    app-routing quirk, not a login failure). Chasing further than
+    /auth/callback made a working login look like a broken one."""
+    cj = http.cookiejar.CookieJar()
+    opener = build_opener(ctx, cookiejar=cj, follow_redirects=False)
+    headers = {"User-Agent": _BROWSER_UA}
+
+    # Hop 1: GET /auth/login -- walk the au.arpa -> keycloak.arpa redirect(s)
+    # by hand (bounded) so a non-redirect, non-200 response anywhere in that
+    # chain is diagnosed instead of silently mis-attributed to a later step.
+    url = base_url.rstrip("/") + "/auth/login?next=/"
+    status, resp_headers, body, url = _open_no_raise(opener, url, headers=headers)
+    hops = 0
+    while status in _REDIRECT_CODES and hops < 5:
+        location = resp_headers.get("Location")
+        if not location:
+            raise BrowserLoginError(
+                f"GET {url} returned {status} with no Location header"
+            )
+        url = urllib.parse.urljoin(url, location)
+        status, resp_headers, body, url = _open_no_raise(opener, url, headers=headers)
+        hops += 1
+    html = body.decode("utf-8", "replace")
+    if status != 200:
+        raise BrowserLoginError(
+            f"GET /auth/login did not land on the Keycloak login page -- got "
+            f"{status} at {url!r} ({_kc_page_diagnosis(html)})"
+        )
 
     match = re.search(r'<form[^>]+id="kc-form-login"[^>]+action="([^"]+)"', html)
     if not match:
         raise BrowserLoginError(
-            "Keycloak login form not found in the /auth/login redirect target -- "
-            "the OIDC flow, the client's standardFlowEnabled, or the realm's login "
-            "theme may be misconfigured. Response head: " + html[:300]
+            "Keycloak did not serve the ordinary login form at "
+            f"{url!r} ({_kc_page_diagnosis(html)}) -- this is the signature of "
+            "a pending required action (e.g. Update Password/Verify Email), a "
+            "consent screen, or a login-theme/standardFlowEnabled "
+            "misconfiguration; check the probe user's requiredActions"
         )
     action = match.group(1).replace("&amp;", "&")
 
+    # Hop 2: POST credentials to the login form's own action URL. On
+    # success Keycloak returns a redirect straight to /auth/callback; on
+    # failure it re-renders the SAME login page with kc-feedback text
+    # (wrong password, disabled account, ...) -- report that text, not a
+    # generic status.
     form_data = urllib.parse.urlencode(
         {"username": username, "password": password}
     ).encode()
-    req2 = urllib.request.Request(
-        action,
-        data=form_data,
-        method="POST",
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            "User-Agent": "dual-principal-validation/1",
-        },
+    post_headers = {
+        **headers,
+        "Content-Type": "application/x-www-form-urlencoded",
+    }
+    status, resp_headers, body, url = _open_no_raise(
+        opener, action, method="POST", data=form_data, headers=post_headers
     )
-    try:
-        resp2 = opener.open(req2, timeout=DEFAULT_TIMEOUT_S)
-        final_url = resp2.geturl()
-        resp2.read()
-    except (urllib.error.URLError, OSError, TimeoutError) as exc:
-        raise BrowserLoginError(f"login form POST failed: {exc}") from exc
+    if status not in _REDIRECT_CODES:
+        html = body.decode("utf-8", "replace")
+        raise BrowserLoginError(
+            f"login form POST to {action!r} did not redirect -- got {status} "
+            f"({_kc_page_diagnosis(html)}); this is the signature of bad "
+            "credentials, a disabled/locked account, or a required action "
+            "Keycloak is now demanding"
+        )
+    callback_location = resp_headers.get("Location")
+    if not callback_location or "/auth/callback" not in callback_location:
+        raise BrowserLoginError(
+            f"login form POST redirected to {callback_location!r}, expected "
+            "the app's /auth/callback -- check redirect_uri registration on "
+            "the agent-webui OIDC client"
+        )
+
+    # Hop 3: GET /auth/callback -- this is the request that seals the
+    # session into au_session* cookies. It in turn redirects to `next`
+    # (the app's landing route); that redirect is deliberately NOT
+    # followed -- see the docstring.
+    callback_url = urllib.parse.urljoin(action, callback_location)
+    status, resp_headers, body, callback_url = _open_no_raise(
+        opener, callback_url, headers=headers
+    )
+    if status not in _REDIRECT_CODES:
+        html = body.decode("utf-8", "replace")
+        raise BrowserLoginError(
+            f"GET /auth/callback returned {status} instead of redirecting -- "
+            f"session was not established (body head: {html[:300]!r})"
+        )
 
     if not any(cookie.name == "au_session0" for cookie in cj):
         raise BrowserLoginError(
-            "browser flow completed (landed on "
-            f"{final_url!r}) but no au_session* cookie was set -- sign-in did "
-            "not actually complete; check the probe user's credentials/roles "
-            "and the WEBUI_OIDC_* configuration"
+            f"/auth/callback redirected (to {resp_headers.get('Location')!r}) "
+            "but no au_session* cookie was set -- sign-in did not actually "
+            "complete; check the probe user's credentials/roles and the "
+            "WEBUI_OIDC_* configuration"
         )
     return cj
 
