@@ -468,7 +468,22 @@ def read_union(
     named graph. The actor's own (org) graph is queried first so its rows win on
     duplicate ids; commons rows fill in the rest. A per-graph failure is logged
     and skipped — a missing commons graph degrades to org-only, never an error.
+
+    Rows read from the commons graph are additionally passed through
+    :func:`filter_commons_catalog` (GOC-61, 2026-08-09 owner ruling) before
+    merging, so a caller of this primitive gets the cross-tenant commons READ
+    restriction for free instead of every ``read_union`` caller having to
+    remember to apply it separately — the same defence-in-depth
+    :func:`~agent_utilities.knowledge_graph.orchestration.engine_query.QueryMixin.query_cypher`
+    already applies at its own Cypher chokepoint. ``executor`` must therefore
+    return Cypher-shaped node rows (a nested properties dict, or the row
+    itself, carrying ``node_type``/``tenant_id``) for the commons leg — a
+    caller whose executor speaks a different row shape entirely (e.g. SPARQL
+    bindings, which carry no Cypher ``node_type``) would have every commons
+    row dropped by the fail-closed classifier below and should not reuse this
+    function for that leg.
     """
+    actor = _require_actor(actor)
     seen: set[str] = set()
     merged: list[dict[str, Any]] = []
     for graph in accessible_graphs(actor, config):
@@ -477,6 +492,7 @@ def read_union(
         except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
             logger.debug("read_union: graph %s unavailable: %s", graph, exc)
             continue
+        rows = filter_commons_catalog(rows, actor, graph, config)
         for row in rows:
             nid = _row_id(row, id_keys)
             if nid is None:

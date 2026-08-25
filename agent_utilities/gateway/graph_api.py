@@ -63,9 +63,12 @@ def _mount_sparql_route(app, prefix: str = "/api") -> None:
     from starlette.responses import JSONResponse
 
     async def sparql_endpoint(request: Request) -> JSONResponse:
-        from agent_utilities.knowledge_graph.core.session import resolve_session
+        from agent_utilities.knowledge_graph.core.session import (
+            resolve_session,
+            use_session,
+        )
 
-        resolve_session(required_scope="kg:read")
+        session = resolve_session(required_scope="kg:read")
         # Query from ?query= (GET) or JSON body {"query": ...} / raw body (POST).
         query = request.query_params.get("query")
         if not query and request.method == "POST":
@@ -87,8 +90,35 @@ def _mount_sparql_route(app, prefix: str = "/api") -> None:
                 },
                 status_code=503,
             )
+
         try:
-            bindings = bridge.query_sparql(query)
+            # ``bridge.query_sparql`` targets whatever named graph the AMBIENT
+            # session is pinned to (OWLBridge -> GraphComputeEngine.sparql ->
+            # the session-routed engine client) -- retarget per graph the
+            # actor may read (GOC-61: org graph(s) then commons, same
+            # ``accessible_graphs`` ordering ``tenant_sharing.read_union``
+            # uses for Cypher) so a SPARQL query issued under a tenant-pinned
+            # session still sees the commons graph. ``read_union`` itself is
+            # NOT reused here: it additionally applies the Cypher-shaped
+            # ``filter_commons_catalog`` node-type restriction to commons
+            # rows, which would drop every SPARQL binding (a binding carries
+            # no Cypher ``node_type``) -- see its docstring.
+            from agent_utilities.knowledge_graph.core.tenant_sharing import (
+                accessible_graphs,
+            )
+
+            bindings: list[dict[str, Any]] = []
+            for graph_name in accessible_graphs(session.actor):
+                try:
+                    with use_session(session.with_graph(graph_name)):
+                        bindings.extend(bridge.query_sparql(query))
+                except Exception as exc:  # noqa: BLE001 — one graph down ≠ whole read down
+                    logger.debug(
+                        "sparql union: graph %s unavailable (%s)",
+                        graph_name,
+                        type(exc).__name__,
+                    )
+                    continue
             # W3C SPARQL-JSON-ish envelope (vars derived from the first binding).
             varnames = list(bindings[0].keys()) if bindings else []
             return JSONResponse(

@@ -191,9 +191,15 @@ def test_accessible_graphs_tenantless_is_rejected():
 
 def test_read_union_dedups_org_wins():
     cfg = type("C", (), {"kg_default_graph": "kg"})()
+    # Commons rows must be catalog-shareable node types (or the reader's own
+    # tenant's data) to survive read_union's ``filter_commons_catalog`` pass
+    # below -- org rows are never subject to that commons-only restriction.
     data = {
         "tenant__acme__kg": [{"id": "n1", "src": "org"}, {"id": "n2", "src": "org"}],
-        "kg": [{"id": "n1", "src": "commons"}, {"id": "n3", "src": "commons"}],
+        "kg": [
+            {"id": "n1", "src": "commons", "node_type": "Tool"},
+            {"id": "n3", "src": "commons", "node_type": "Tool"},
+        ],
     }
 
     def executor(graph, cypher, params):
@@ -218,6 +224,32 @@ def test_read_union_tolerates_missing_commons():
         "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
     )
     assert [r["id"] for r in rows] == ["n1"]  # degrades to org-only
+
+
+def test_read_union_applies_commons_catalog_restriction_to_commons_rows():
+    """GOC-61: read_union must not hand a cross-tenant reader a commons row
+    that ``filter_commons_catalog`` would otherwise reject -- a non-catalog
+    node type stamped with another tenant's id must not leak through the
+    union merge just because it came back from the executor."""
+    cfg = type("C", (), {"kg_default_graph": "kg"})()
+    data = {
+        "tenant__acme__kg": [],
+        "kg": [
+            # Catalog-shareable type: visible to every tenant.
+            {"id": "tool-1", "node_type": "Tool"},
+            # Not catalog-shareable and owned by a DIFFERENT tenant: must be
+            # dropped for a bob (tenant=acme) reader.
+            {"id": "wi-1", "node_type": "WorkItem", "tenant_id": "other-tenant"},
+        ],
+    }
+
+    def executor(graph, cypher, params):
+        return data.get(graph, [])
+
+    rows = ts.read_union(
+        "MATCH (n) RETURN n", {}, executor, _user("alice", "acme"), config=cfg
+    )
+    assert [r["id"] for r in rows] == ["tool-1"]
 
 
 # --- sharing transitions ---------------------------------------------------
