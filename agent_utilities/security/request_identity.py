@@ -598,8 +598,18 @@ def acquire_process_identity_token(config: Any = None) -> str:
 
             assert oauth2 is not None  # guaranteed by the XOR check above
             token = build_provider_from_config(oauth2).get_token()
-    except Exception:
-        raise RuntimeError("Graph process identity acquisition failed") from None
+    except Exception as exc:
+        # BUG-PE-028: was `from None`, discarding the real cause (a
+        # transport/TLS/secret-lookup failure) entirely -- a
+        # CERTIFICATE_VERIFY_FAILED once surfaced as this opaque message
+        # with no way to find the actual root cause short of monkeypatching
+        # `requests.post`. Every caller of this function is internal
+        # server-side bootstrap code (gateway/messaging daemons, ingest
+        # worker, MCP servers -- never an external/untrusted consumer), so
+        # chaining the cause is safe: the OUTER message stays sanitised
+        # (never echoes secret/token material), while `__cause__` keeps the
+        # real exception available to server-side logs/tracebacks.
+        raise RuntimeError("Graph process identity acquisition failed") from exc
     if (
         not isinstance(token, str)
         or not token

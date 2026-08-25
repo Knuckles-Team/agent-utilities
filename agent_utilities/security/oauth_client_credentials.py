@@ -594,8 +594,19 @@ class OAuthClientCredentialsProvider:
             )
             resp.raise_for_status()
             payload = resp.json()
-        except (httpx.HTTPError, UnicodeError, ValueError, TypeError):
-            raise RuntimeError("OAuth2 token request failed") from None
+        except (httpx.HTTPError, UnicodeError, ValueError, TypeError) as exc:
+            # BUG-PE-028: was `from None`, discarding the real cause. A
+            # CERTIFICATE_VERIFY_FAILED once surfaced as this opaque message
+            # with no way to find the actual root cause short of
+            # monkeypatching `requests.post`. Every caller of `get_token()`
+            # uses the result to build an outbound Authorization header
+            # (model routing, embeddings, the graph process identity path in
+            # `request_identity.py`) -- never returns it to an
+            # external/untrusted consumer -- so chaining the cause is safe:
+            # the OUTER message stays sanitised (never echoes the response
+            # body/token material), while `__cause__` keeps the real
+            # transport exception available to server-side logs/tracebacks.
+            raise RuntimeError("OAuth2 token request failed") from exc
         if not isinstance(payload, dict) or "access_token" not in payload:
             # Never echo the response body — it may itself carry token-adjacent material.
             raise ValueError("OAuth2 token response is missing access_token")
