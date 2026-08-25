@@ -15,6 +15,7 @@ from starlette.requests import Request
 from agent_utilities.gateway import registry_api
 from agent_utilities.knowledge_graph.core.session import (
     GraphSession,
+    current_session,
     suspend_session,
     use_session,
 )
@@ -482,6 +483,49 @@ def test_registry_reads_native_catalog_with_tenant_and_principal_predicate(monke
         assert "strpos(LOWER(name), LOWER('alpha')) > 0" in statement
     assert "LIMIT" in statements[-1]  # page read carries a LIMIT
     assert "tenant-b" not in response.text
+
+
+def test_catalog_sql_runs_under_the_fixed_catalog_service_identity(monkeypatch):
+    """D-catalog-503-human root-cause regression.
+
+    The engine's native ``Method::Sql`` RPC opens an OWNER-SCOPED catalog
+    keyed by whichever verified actor issues the call (see
+    ``_catalog_service_session``'s docstring) -- so if the RPC ran under the
+    REQUESTING actor's own session, a distinct actor from whoever wrote the
+    fleet catalog tables would always get "table not found", exactly the
+    live 503 this fix closes. Prove ``_require_sql_exec``'s wrapper actually
+    swaps the ambient session for the duration of the SQL call rather than
+    handing the caller's own actor through: the SAME query text still gets
+    the caller's tenant/principal predicate (authorization is unaffected),
+    but the identity ``sql_exec`` observes as ambient must differ from the
+    HTTP caller's own actor id.
+    """
+    engine = _FakeEngine(_rows())
+    observed_actor_ids: list[str] = []
+    real_sql_exec = engine.graph_compute.sql_exec
+
+    def _recording_sql_exec(statement: str):
+        session = current_session()
+        observed_actor_ids.append(session.actor.actor_id if session else "")
+        return real_sql_exec(statement)
+
+    monkeypatch.setattr(engine.graph_compute, "sql_exec", _recording_sql_exec)
+    client = _authority_app(monkeypatch, engine=engine, actor_id="actor-a")
+
+    response = client.get("/api/registry/servers")
+
+    assert response.status_code == 200, response.text
+    assert observed_actor_ids, "sql_exec was never called"
+    assert all(actor_id != "actor-a" for actor_id in observed_actor_ids), (
+        "the catalog SQL RPC ran under the caller's own session "
+        f"({observed_actor_ids!r}) instead of the fixed catalog-service "
+        "identity -- this is the exact owner-scoped-catalog 503 the fix "
+        "closes"
+    )
+    # The row-level WHERE predicate is still the REAL caller's tenant/actor
+    # -- only the RPC-executing identity changed, never the authorization
+    # boundary.
+    assert "tenant_id = 'tenant-a'" in engine.graph_compute.statements[-1]
 
 
 def test_discovery_is_principal_scoped_and_error_is_classified(monkeypatch):
