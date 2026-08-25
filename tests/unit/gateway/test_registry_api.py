@@ -550,6 +550,164 @@ def test_local_visibility_does_not_broaden_oauth_principal_isolation(monkeypatch
     assert "only-a" not in response_b.text
 
 
+# --- Generic per-kind fleet-public / user-scoped coverage -----------------
+#
+# The two tests above (`test_local_discovery_is_tenant_readable_without_oauth_grant`,
+# `test_local_visibility_does_not_broaden_oauth_principal_isolation`) prove the
+# public-fleet-row / private-OAuth-row design only for `tools`. Every kind that
+# carries the `discovery_*` columns (`discoveries`, `tools`, `prompts`,
+# `resources`, `skills`) shares the identical `_build_where` predicate, so the
+# same two properties must hold for each of them individually — this is the
+# harness/fleet-catalog tenant-public directive (AUTHZ LANE A): a `kg:read`
+# principal with no discovery grant must see every fleet-ingested (tenant_local)
+# row, and cross-principal isolation of OAuth-bound discovery rows must not be
+# broadened by that public visibility.
+
+_DISCOVERY_SCOPED_KINDS = ("discoveries", "tools", "prompts", "resources", "skills")
+
+
+def _generic_row(
+    kind: str, *, suffix: str, authority: str, principal: str, grant: str
+) -> dict[str, Any]:
+    """Build one row shaped for ``kind``'s table, using only real columns."""
+
+    spec = registry_api._KIND_SPECS[kind]
+    template = {
+        "id": f"{kind}_{suffix}",
+        "tenant_id": "tenant-a",
+        "server_id": "mcp_server_alpha",
+        "server_name": f"{kind}-{suffix}",
+        "name": f"{kind}-{suffix}",
+        "description": "",
+        "uri": "",
+        "skill_type": "",
+        "classification": "",
+        "provider": "",
+        "mcp_server": "",
+        "enabled": True,
+        "transport": "http",
+        "url": "",
+        "schema_digest": "",
+        "tool_mode": "verbose",
+        "mime_type": "",
+        "resource_kind": "",
+        "reachable": True,
+        "last_error": "",
+        "tool_count": 0,
+        "skill_count": 0,
+        "prompt_count": 0,
+        "resource_count": 0,
+        "observed_at": "2026-08-18T00:00:00Z",
+        "discovery_authority_kind": authority,
+        "discovery_principal": principal,
+        "discovery_grant_digest": grant,
+    }
+    return {column: template[column] for column in spec.columns}
+
+
+def _fleet_and_user_scoped_rows(kind: str) -> tuple[str, list[dict[str, Any]]]:
+    """One tenant_local (fleet) row plus one oauth_grant row per test actor."""
+
+    spec = registry_api._KIND_SPECS[kind]
+    grant_a = _grant_digest("actor-a")
+    grant_b = _grant_digest("actor-b")
+    rows = [
+        _generic_row(
+            kind, suffix="local", authority="tenant_local", principal="", grant=""
+        ),
+        _generic_row(
+            kind,
+            suffix="a",
+            authority="oauth_grant",
+            principal="actor-a",
+            grant=grant_a,
+        ),
+        _generic_row(
+            kind,
+            suffix="b",
+            authority="oauth_grant",
+            principal="actor-b",
+            grant=grant_b,
+        ),
+    ]
+    return spec.table, rows
+
+
+@pytest.mark.parametrize("kind", _DISCOVERY_SCOPED_KINDS)
+def test_fleet_rows_are_tenant_public_for_every_discovery_scoped_kind(
+    monkeypatch, kind
+):
+    """kg:read with NO discovery grants still sees every fleet (tenant_local)
+    row — the bug this lane fixes, proven for each affected kind, not just
+    ``tools``."""
+
+    table, rows = _fleet_and_user_scoped_rows(kind)
+    engine = _FakeEngine({table: rows})
+    client = _authority_app(monkeypatch, engine=engine)
+    monkeypatch.setattr(
+        registry_api, "_resolve_current_discovery_grants", lambda _actor: ()
+    )
+
+    response = client.get(f"/api/registry/{kind}")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["count"] == 1
+    names = {item.get("name") or item.get("server_name") for item in body["items"]}
+    assert names == {f"{kind}-local"}
+    statement = engine.graph_compute.statements[-1]
+    assert "discovery_authority_kind = 'tenant_local'" in statement
+    assert "discovery_grant_digest IN (" not in statement
+    assert "actor-a" not in response.text
+    assert "actor-b" not in response.text
+
+
+@pytest.mark.parametrize("kind", _DISCOVERY_SCOPED_KINDS)
+def test_cross_principal_isolation_holds_alongside_public_fleet_rows(monkeypatch, kind):
+    """The load-bearing security test: making fleet rows tenant-public must
+    NOT leak one principal's OAuth-bound discovery rows to another principal,
+    for every affected kind — not just ``tools``."""
+
+    table, rows = _fleet_and_user_scoped_rows(kind)
+    engine = _FakeEngine({table: rows})
+
+    client_a = _authority_app(monkeypatch, engine=engine, actor_id="actor-a")
+    response_a = client_a.get(f"/api/registry/{kind}")
+    assert response_a.status_code == 200, response_a.text
+    names_a = {
+        item.get("name") or item.get("server_name")
+        for item in response_a.json()["items"]
+    }
+    assert names_a == {f"{kind}-local", f"{kind}-a"}
+    assert f"{kind}-b" not in response_a.text
+
+    client_b = _authority_app(monkeypatch, engine=engine, actor_id="actor-b")
+    response_b = client_b.get(f"/api/registry/{kind}")
+    assert response_b.status_code == 200, response_b.text
+    names_b = {
+        item.get("name") or item.get("server_name")
+        for item in response_b.json()["items"]
+    }
+    assert names_b == {f"{kind}-local", f"{kind}-b"}
+    assert f"{kind}-a" not in response_b.text
+
+
+def test_servers_kind_has_no_discovery_predicate_regression(monkeypatch):
+    """Regression guard: ``servers`` had no ``principal``/``grant`` columns
+    before this lane and must not gain one — it was already tenant-public."""
+
+    engine = _FakeEngine(_rows())
+    client = _authority_app(monkeypatch, engine=engine)
+
+    response = client.get("/api/registry/servers")
+
+    assert response.status_code == 200, response.text
+    statement = engine.graph_compute.statements[-1]
+    assert "discovery_" not in statement
+    assert "principal" not in statement
+    assert "grant" not in statement
+
+
 def test_registry_predicate_accepts_only_current_grants_for_one_principal(monkeypatch):
     rows = _rows()
     grant_a = _grant_digest("actor-a")
