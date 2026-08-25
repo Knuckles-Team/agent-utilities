@@ -44,7 +44,6 @@ def test_dispatch_lease_config_is_bounded_by_recovery_objective():
         "EPISTEMIC_GRAPH_" + "AUTOSTART",
         "EPISTEMIC_GRAPH_" + "ENCRYPTION_KEY",
         "GRAPH_SERVICE_" + "SOCKET",
-        "GRAPH_SERVICE_TCP_" + "ADDR",
         "GRAPH_DIRECT_" + "EXECUTION",
         "GRAPH_" + "BACKEND",
         "GRAPH_" + "AUTHORITY",
@@ -60,6 +59,25 @@ def test_agent_config_rejects_retired_configuration_keys(key, monkeypatch):
     monkeypatch.setenv(key, "retired")
     with pytest.raises(ValueError, match="retired durable configuration"):
         AgentConfig()
+
+
+def test_graph_service_tcp_addr_is_a_live_setting_not_a_retired_key(monkeypatch):
+    """Regression for the 2026-08-25 graph-os single-container collapse outage.
+
+    ``GRAPH_SERVICE_TCP_ADDR`` was retired for an old meaning, then commit
+    2e399171e reactivated the identical name for a new one -- the auto-started
+    engine child's own ``--tcp-addr`` transport flag, read via
+    ``setting("GRAPH_SERVICE_TCP_ADDR")`` in
+    ``agent_utilities.knowledge_graph.core.graph_compute``
+    (``_build_engine_transport_argv``) -- without removing the old retirement
+    entry. Any process whose environment carried BOTH agent_utilities and
+    this var (true only once a topology puts them in one process/container)
+    crash-looped at import time on "retired durable configuration key(s) are
+    not accepted: GRAPH_SERVICE_TCP_ADDR". Must merely construct without
+    raising; the var carries no modeled field, so there is no value to assert.
+    """
+    monkeypatch.setenv("GRAPH_SERVICE_TCP_ADDR", "0.0.0.0:9100")
+    AgentConfig()
 
 
 def test_agent_config_has_no_graph_authority_selector_fields():

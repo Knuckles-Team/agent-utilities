@@ -173,6 +173,17 @@ _RETIRED_CERTIFICATION_FAULT_KEYS = frozenset(
     for operation in ("ACTION", "PROBE")
     for scenario in PRODUCTION_CERTIFICATION_SCENARIOS
 )
+# 2026-08-25 production outage: ``GRAPH_SERVICE_TCP_ADDR`` was retired here
+# for an old, dead meaning, then commit 2e399171e legitimately reactivated
+# the SAME name (unrelated new meaning: the auto-started engine child's own
+# ``--tcp-addr`` transport flag, read via ``setting()`` in
+# ``graph_compute.py:_build_engine_transport_argv``) without removing it from
+# this set. The two disagreed: one module now expects the var in the process
+# environment, this one still hard-rejects its mere presence there --
+# reachable the instant a deployment topology (the single-container graph-os
+# collapse) puts both in the same process. Do not re-add this literal name
+# here without first confirming it is not also a live ``setting()`` read
+# elsewhere (``grep -rn` for the exact spelling across ``agent_utilities/``).
 _RETIRED_CONFIGURATION_KEYS = (
     frozenset(
         {
@@ -181,7 +192,6 @@ _RETIRED_CONFIGURATION_KEYS = (
             "EPISTEMIC_GRAPH_" + "AUTOSTART",
             "EPISTEMIC_GRAPH_" + "ENCRYPTION_KEY",
             "GRAPH_SERVICE_" + "SOCKET",
-            "GRAPH_SERVICE_TCP_" + "ADDR",
             "GRAPH_DIRECT_" + "EXECUTION",
             "GRAPH_" + "BACKEND",
             "GRAPH_" + "AUTHORITY",
@@ -935,10 +945,24 @@ def _validate_xdg_configuration_schema(data: Mapping[str, Any]) -> None:
         candidate.assert_production_safe(profile=candidate.app_profile)
     except Exception as exc:
         # A value-free exception is the correct external boundary, but logging
-        # only ``ValidationError`` made a live crash-loop impossible to diagnose.
-        # Pydantic's location and error-code fields contain schema coordinates,
-        # not the rejected input. Never include ``input``, ``ctx``, messages, the
-        # source path, or configuration values here.
+        # only ``ValidationError`` made a live crash-loop impossible to diagnose
+        # (2026-08-25 outage: the loc-only log line read
+        # "(value-free issues=[{'location': '', 'type': 'value_error'}])" for
+        # every root-level ``@model_validator(mode="before")`` rejection --
+        # ``loc`` is empty and ``type`` is always the generic "value_error" for
+        # that whole error class, so the log carried zero information about
+        # *which* constraint fired). Pydantic's ``msg`` field is a separate,
+        # human-authored description of the failed constraint -- it is NOT the
+        # rejected input (that is the distinct ``input`` field, excluded below
+        # via ``include_input=False`` and verified never to appear here by
+        # ``test_xdg_schema_rejection_logs_only_value_free_coordinates``) --
+        # so including it closes the gap without adding a value-leak risk.
+        # Still never include ``input``, ``ctx``, ``url``, the source path, or
+        # configuration values here, and never chain ``exc`` onto the raised
+        # ``ConfigurationSourceError`` below -- pydantic's default
+        # ``ValidationError.__str__()`` DOES embed ``input_value=...``, so a
+        # chained cause would print the rejected document to any bare
+        # ``logger.exception()``/unhandled-traceback path reached by a caller.
         errors = getattr(exc, "errors", None)
         issues: list[dict[str, str]] = []
         if callable(errors):
@@ -954,6 +978,7 @@ def _validate_xdg_configuration_schema(data: Mapping[str, Any]) -> None:
                                 str(part) for part in item.get("loc", ())
                             ),
                             "type": str(item.get("type", type(exc).__name__)),
+                            "message": str(item.get("msg", ""))[:300],
                         }
                     )
             except Exception:  # noqa: BLE001 - diagnostics never mask rejection
@@ -962,7 +987,7 @@ def _validate_xdg_configuration_schema(data: Mapping[str, Any]) -> None:
             import logging
 
             logging.getLogger(__name__).error(
-                "XDG configuration schema rejected (value-free issues=%s)",
+                "XDG configuration schema rejected (issues=%s)",
                 issues[:20],
             )
         raise ConfigurationSourceError("xdg", type(exc).__name__) from None
