@@ -304,6 +304,31 @@ def _open_flywheel_gap(
     return None
 
 
+def _run_retention(engine: Any, report: dict[str, Any]) -> None:
+    """Run the ``:RuntimeSignal`` retention sweep and RECORD its outcome in ``report``.
+
+    Retention is the population's only growth bound, so its failure is a defect that
+    must be visible. The previous code called the sweep inside a
+    ``contextlib.suppress(Exception)`` and never looked at the result — a broken sweep
+    was indistinguishable from a working one for the population's entire lifetime. Here
+    the failure is logged at ERROR and carried out in ``report["retention_error"]`` for
+    whatever reads the tick's summary; the pass itself still completes (an unanalyzed
+    tick would only compound the problem), but it no longer reports success it did not
+    achieve.
+    """
+    try:
+        pruned = runtime_signals.prune_old_runtime_signals(
+            engine, retention_s=_RETENTION_S
+        )
+    except runtime_signals.RuntimeSignalRetentionError as e:
+        report["retention_error"] = str(e)
+        logger.error("[runtime-reliability] retention did not run: %s", e)
+        return
+    report["pruned"] = pruned.deleted
+    if pruned.dry_run:
+        report["retention_dry_run_expired"] = pruned.expired
+
+
 def runtime_reliability_analyzer(engine: Any) -> dict[str, Any]:
     """One detect→gap pass over recent ``:RuntimeSignal`` events (background-priority tick).
 
@@ -320,6 +345,8 @@ def runtime_reliability_analyzer(engine: Any) -> dict[str, Any]:
         "gaps_opened": 0,
         "recommendations": 0,
         "heals": 0,
+        "pruned": 0,
+        "retention_error": None,
     }
     if engine is None:
         return report
@@ -334,7 +361,14 @@ def runtime_reliability_analyzer(engine: Any) -> dict[str, Any]:
         logger.debug("runtime-reliability: drain/persist failed: %s", e)
         drained = []
 
-    # 2) Read the window (falls back to just this tick's drained batch if the read is
+    # 2) Retention. It runs HERE — before any early return — because it is the only
+    #    bound on the :RuntimeSignal population's growth and must not be conditional on
+    #    there being something to analyze this tick. It used to be step 5, after a
+    #    `if not recent: return report` guard, so a quiet window skipped it entirely.
+    #    A failure is reported, never swallowed (`prune_old_runtime_signals` raises).
+    _run_retention(engine, report)
+
+    # 3) Read the window (falls back to just this tick's drained batch if the read is
     #    unavailable, so a single-tick burst is still analyzable without a working read).
     recent = runtime_signals.read_recent_runtime_signals(engine, window_s=_WINDOW_S)
     if not recent:
@@ -343,7 +377,7 @@ def runtime_reliability_analyzer(engine: Any) -> dict[str, Any]:
     if not recent:
         return report
 
-    # 3) Aggregate + dedupe against currently-open gaps.
+    # 4) Aggregate + dedupe against currently-open gaps.
     aggregates = _aggregate(recent)
     try:
         open_ids = {str(g.get("id")) for g in open_gaps(engine) if g.get("id")}
@@ -362,13 +396,10 @@ def runtime_reliability_analyzer(engine: Any) -> dict[str, Any]:
         if _open_flywheel_gap(engine, agg, open_ids) is not None:
             report["gaps_opened"] += 1
 
-    # 4) Known-class reconciliation (recommendation-only or already-safe).
+    # 5) Known-class reconciliation (recommendation-only or already-safe).
     healed = runtime_reconciler(engine, recognized, open_ids=open_ids)
     report["recommendations"] = healed.get("recommendations", 0)
     report["heals"] = healed.get("heals", 0)
-
-    # 5) Best-effort bound on KG accumulation.
-    runtime_signals.prune_old_runtime_signals(engine, retention_s=_RETENTION_S)
     return report
 
 

@@ -2911,6 +2911,17 @@ class TaskManagerMixin(GraphEngineProtocol):
             from ..research.runtime_reliability import runtime_reliability_analyzer
 
             report = runtime_reliability_analyzer(self)
+            if report.get("retention_error"):
+                # The :RuntimeSignal retention sweep is the ONLY bound on that
+                # population's growth, and it was silently broken from the day it
+                # was written (a DETACH DELETE issued through the read-only Cypher
+                # surface, wrapped in `contextlib.suppress`). Surface its failure at
+                # ERROR from the tick itself so a regression is visible in the pod
+                # log rather than inferable only from an unexplained node count.
+                logger.error(
+                    "Runtime reliability: :RuntimeSignal retention did NOT run — %s",
+                    report.get("retention_error"),
+                )
             if report.get("patterns"):
                 logger.info(
                     "Runtime reliability: scanned=%s patterns=%s gaps=%s "

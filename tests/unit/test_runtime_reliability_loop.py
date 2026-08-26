@@ -35,7 +35,8 @@ class MockEngine:
     """In-memory KG double honoring exactly the surface the loop uses:
     ``add_node`` (persist :RuntimeSignal + submit_gap) and the label-scan / id-lookup /
     DETACH-DELETE cyphers ``read_recent_runtime_signals`` / ``open_gaps`` / ``get_gap`` /
-    ``prune_old_runtime_signals`` issue. Backend-agnostic, like the real engine."""
+    ``prune_old_runtime_signals`` (SELECT page + DELETE-by-ids) issue.
+    Backend-agnostic, like the real engine."""
 
     def __init__(self) -> None:
         self.nodes: dict[str, dict[str, Any]] = {}
@@ -49,26 +50,37 @@ class MockEngine:
     def add_edge(self, src: str, dst: str, rel_type: str, properties=None) -> None:
         self.edges.append((src, dst, rel_type))
 
+    def _expired_signals(self, cutoff: float) -> list[str]:
+        return [
+            nid
+            for nid, v in self.nodes.items()
+            if v.get("type") == "RuntimeSignal" and float(v.get("ts", 0.0)) < cutoff
+        ]
+
     def query_cypher(self, query: str, params: dict | None = None) -> list[dict]:
         params = params or {}
         if "WHERE n.id = $id" in query:  # get_gap
             node = self.nodes.get(params.get("id"))
             return [{"n": dict(node)}] if node else []
-        if "DETACH DELETE" in query:  # prune_old_runtime_signals
-            cutoff = params.get("cutoff", 0.0)
-            drop = [
-                nid
-                for nid, v in self.nodes.items()
-                if v.get("type") == "RuntimeSignal" and float(v.get("ts", 0.0)) < cutoff
-            ]
-            for nid in drop:
-                del self.nodes[nid]
+        if "RETURN count(n) AS expired" in query:  # count_expired_runtime_signals
+            return [{"expired": len(self._expired_signals(params.get("cutoff", 0.0)))}]
+        if "RETURN n.id AS id" in query:  # retention SELECT page
+            expired = self._expired_signals(params.get("cutoff", 0.0))
+            limit = int(params.get("batch_size") or len(expired))
+            return [{"id": nid} for nid in expired[:limit]]
+        if "WHERE n.id IN $ids DETACH DELETE n" in query:  # retention DELETE page
+            for nid in params.get("ids") or []:
+                self.nodes.pop(nid, None)
             return []
-        m = re.search(r"MATCH \(n:(\w+)\) RETURN n", query)  # label scan
-        if m:
+        m = re.search(r"MATCH \(n:(\w+)\)", query)  # label scan
+        if m and "RETURN n" in query:
             label = m.group(1)
+            cutoff = params.get("cutoff")
             return [
-                {"n": dict(v)} for v in self.nodes.values() if v.get("type") == label
+                {"n": dict(v)}
+                for v in self.nodes.values()
+                if v.get("type") == label
+                and (cutoff is None or float(v.get("ts", 0.0)) >= float(cutoff))
             ]
         return []
 
@@ -304,3 +316,213 @@ def test_engine_breaker_fast_call_emits_nothing():
 
     _observe_latency("nodes.get", 0.01, "uds:///engine")  # below threshold
     assert runtime_signals.buffered_runtime_signals() == []
+
+
+# ── 4) retention: it runs, it removes expired rows, and its FAILURE surfaces ──
+#
+# The :RuntimeSignal population is telemetry with no edges, and retention is its only
+# growth bound. It was structurally broken from the day it was written: an unbatched
+# `DETACH DELETE` issued through `engine.query_cypher` — the READ chokepoint, which
+# always sends the engine wire `mode="read"` and is rejected before execution because
+# `eg_query::classify_cypher` classifies a DELETE as a Write — wrapped in
+# `contextlib.suppress(Exception)` that discarded the rejection. A nominal 2-hour TTL
+# therefore accumulated an unbounded population while reporting nothing. These tests pin
+# the three properties that were missing.
+
+
+def _persist_signal_at(engine: MockEngine, *, ts: float, subject: str = "op") -> str:
+    """Persist ONE :RuntimeSignal with an explicit ts (bypasses the hot-path buffer)."""
+    signal = runtime_signals._build_signal(
+        runtime_signals.KIND_ENGINE_LATENCY, subject, None, "warning"
+    )
+    signal["ts"] = ts
+    runtime_signals.persist_runtime_signals(engine, [signal])
+    return subject
+
+
+def test_retention_removes_expired_rows_and_keeps_fresh_ones():
+    engine = MockEngine()
+    now = runtime_signals._now()
+    _persist_signal_at(engine, ts=now - 10_000.0, subject="stale")
+    _persist_signal_at(engine, ts=now - 10.0, subject="fresh")
+    assert len(engine.signal_nodes()) == 2
+
+    report = runtime_signals.prune_old_runtime_signals(
+        engine, retention_s=7200.0, delete=True
+    )
+
+    assert report.deleted == 1
+    assert report.dry_run is False
+    remaining = engine.signal_nodes()
+    assert [n["subject"] for n in remaining] == ["fresh"]
+
+
+def test_retention_dry_run_counts_but_deletes_nothing():
+    """The shipped default is a dry run — it reports the backlog, it does not drop it."""
+    engine = MockEngine()
+    now = runtime_signals._now()
+    for i in range(3):
+        _persist_signal_at(engine, ts=now - 10_000.0, subject=f"stale-{i}")
+
+    report = runtime_signals.prune_old_runtime_signals(engine, retention_s=7200.0)
+
+    assert report.dry_run is True
+    assert report.deleted == 0
+    assert report.expired == 3
+    assert len(engine.signal_nodes()) == 3
+
+
+def test_retention_is_batched_not_one_rpc_per_node(monkeypatch):
+    """Retention must never scale RPCs with row count — 2 per page, not 1 per node."""
+    engine = MockEngine()
+    now = runtime_signals._now()
+    for i in range(25):
+        _persist_signal_at(engine, ts=now - 10_000.0, subject=f"stale-{i}")
+
+    calls: list[str] = []
+    inner = engine.query_cypher
+
+    def counting(query: str, params: dict | None = None):
+        calls.append(query)
+        return inner(query, params)
+
+    monkeypatch.setattr(engine, "query_cypher", counting)
+    monkeypatch.setattr(runtime_signals, "_RETENTION_BATCH_SIZE", 10)
+
+    report = runtime_signals.prune_old_runtime_signals(
+        engine, retention_s=7200.0, delete=True
+    )
+
+    assert report.deleted == 25
+    # 3 pages × (1 SELECT + 1 DELETE) = 6; the count is a function of PAGES, not rows.
+    assert len(calls) == 6, calls
+
+
+def test_retention_failure_raises_instead_of_being_suppressed():
+    """A retention failure must be loud. It used to be `contextlib.suppress(Exception)`."""
+
+    class RefusingEngine(MockEngine):
+        def query_cypher(self, query: str, params: dict | None = None):
+            if "RETURN n.id AS id" in query:
+                raise RuntimeError(
+                    "Cypher error: declared mode does not match the parsed statement"
+                )
+            return super().query_cypher(query, params)
+
+    with pytest.raises(runtime_signals.RuntimeSignalRetentionError) as excinfo:
+        runtime_signals.prune_old_runtime_signals(
+            RefusingEngine(), retention_s=7200.0, delete=True
+        )
+    # The CAUSE survives — the whole point of not suppressing it.
+    assert "declared mode" in str(excinfo.value)
+
+
+def test_retention_failure_surfaces_in_the_analyzer_report(caplog):
+    """The tick reports the failure rather than a silent, falsely-successful pass."""
+
+    def _boom(*_a, **_k):
+        raise runtime_signals.RuntimeSignalRetentionError("retention surface missing")
+
+    engine = MockEngine()
+    import agent_utilities.knowledge_graph.research.runtime_reliability as rr
+
+    original = runtime_signals.prune_old_runtime_signals
+    try:
+        runtime_signals.prune_old_runtime_signals = _boom  # type: ignore[assignment]
+        with caplog.at_level("ERROR", logger=rr.logger.name):
+            report = runtime_reliability_analyzer(engine)
+    finally:
+        runtime_signals.prune_old_runtime_signals = original  # type: ignore[assignment]
+
+    assert report["retention_error"] == "retention surface missing"
+    assert any("retention did not run" in r.message for r in caplog.records)
+
+
+def test_retention_runs_even_when_the_window_is_empty():
+    """It used to be step 5, behind `if not recent: return report` — a quiet window
+    skipped retention entirely, so the emptier the window the less retention ran."""
+    engine = MockEngine()
+    now = runtime_signals._now()
+    _persist_signal_at(engine, ts=now - 10_000.0, subject="stale")
+    assert runtime_signals.read_recent_runtime_signals(engine, window_s=900) == []
+
+    report = runtime_reliability_analyzer(engine)
+
+    assert report["scanned"] == 0  # nothing to analyze this tick …
+    assert report["retention_error"] is None  # … but retention still ran.
+    assert report["retention_dry_run_expired"] == 1
+
+
+def test_window_read_pushes_the_cutoff_into_the_query():
+    """The window predicate must reach the engine, not just Python.
+
+    An unordered whole-label scan capped by LIMIT could return `limit` rows that were
+    ALL outside the window once the population outgrew the cap — Python discarded every
+    one, the pass saw an empty window, and (before the fix above) returned before
+    retention. The bigger the population, the less likely retention was to run.
+    """
+    engine = MockEngine()
+    seen: list[dict | None] = []
+    inner = engine.query_cypher
+
+    def capture(query: str, params: dict | None = None):
+        if "RETURN n LIMIT" in query:
+            seen.append(params)
+        return inner(query, params)
+
+    engine.query_cypher = capture  # type: ignore[method-assign]
+    runtime_signals.read_recent_runtime_signals(engine, window_s=900)
+
+    assert seen, "window read issued no label scan"
+    assert "$cutoff" not in str(seen[0])
+    assert isinstance(seen[0], dict) and "cutoff" in seen[0]
+
+
+# ── 5) the persist path stays within its RPC budget ──────────────────────────
+
+
+def test_persist_uses_one_batch_rpc_for_the_whole_drain():
+    """The engine has ~1s of fixed overhead per call and this is a high-volume writer.
+
+    The per-signal `engine.add_node` loop this replaced issued ONE RPC PER NODE (each
+    `add_node` is itself a one-operation BatchUpdate round-trip), so a full 512-deep
+    drain could cost ~512s of engine time on a tick scheduled every 180s. The batch is
+    O(1) RPCs regardless of drain depth.
+    """
+
+    class BatchingEngine(MockEngine):
+        def __init__(self) -> None:
+            super().__init__()
+            self.batches: list[list[dict]] = []
+            self.add_node_calls = 0
+
+        def batch_typed_mutations(self, mutations: list[dict]) -> bool:
+            self.batches.append(list(mutations))
+            for m in mutations:
+                self.add_node(m["id"], m["node_type"], m["properties"])
+            return True
+
+        def add_node(self, node_id, node_type, properties=None):
+            self.add_node_calls += 1
+            super().add_node(node_id, node_type, properties)
+
+    engine = BatchingEngine()
+    _emit(runtime_signals.KIND_ENGINE_LATENCY, "nodes.get", 128, duration_s=1.4)
+    written = runtime_signals.persist_runtime_signals(
+        engine, runtime_signals.drain_buffered_signals()
+    )
+
+    assert written == 128
+    assert len(engine.batches) == 1, "the drain must cost ONE batch RPC, not 128"
+    assert len(engine.batches[0]) == 128
+
+
+def test_persist_falls_back_to_per_node_without_batch_capability():
+    """A backend with no native typed-batch capability must still persist."""
+    engine = MockEngine()  # no batch_typed_mutations
+    _emit(runtime_signals.KIND_ENGINE_LATENCY, "nodes.get", 3, duration_s=1.4)
+    written = runtime_signals.persist_runtime_signals(
+        engine, runtime_signals.drain_buffered_signals()
+    )
+    assert written == 3
+    assert len(engine.signal_nodes()) == 3

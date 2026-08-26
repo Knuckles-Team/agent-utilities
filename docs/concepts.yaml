@@ -2798,6 +2798,7 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/backends/brain_guarded_backend.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/tenant_registry.py
   - agent_utilities/knowledge_graph/core/tenant_sharing.py
   - agent_utilities/knowledge_graph/orchestration/engine_query.py
   - agent_utilities/mcp/tools/ontology_tools.py
@@ -9765,6 +9766,7 @@ concepts:
   - agent_utilities/gateway/graph_api.py
   - agent_utilities/knowledge_graph/__main__.py
   - agent_utilities/knowledge_graph/core/graph_compute.py
+  - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/ingest_worker.py
   - agent_utilities/knowledge_graph/ingestion/__main__.py
   - agent_utilities/knowledge_graph/memory/cli.py
