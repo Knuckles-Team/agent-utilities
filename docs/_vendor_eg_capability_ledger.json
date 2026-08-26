@@ -1,7 +1,18 @@
 {
-  "cached_at": "2026-08-17T13:26:40Z",
-  "row_count": 390,
+  "cached_at": "2026-08-26T12:41:44Z",
+  "row_count": 401,
   "rows": {
+    "AcquireCapacity": {
+      "audited": "true",
+      "authz_action": "capacity:lease",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "AcquireCapacity",
+      "mutates": "true",
+      "note": "atomic multi-dimensional capacity admission with epoch/fence ownership",
+      "txn_participation": "Atomic"
+    },
     "AddEdge": {
       "audited": "true",
       "authz_action": "edge:write",
@@ -419,6 +430,17 @@
       "mutates": "true",
       "note": "pending cancellation never steals an active lease",
       "txn_participation": "Atomic"
+    },
+    "CapacityStatus": {
+      "audited": "false",
+      "authz_action": "capacity:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "CapacityStatus",
+      "mutates": "false",
+      "note": "exact tenant-scoped native capacity status",
+      "txn_participation": "Snapshot"
     },
     "CasWorkItemMetadata": {
       "audited": "true",
@@ -2180,6 +2202,17 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "GetIdentity": {
+      "audited": "false",
+      "authz_action": "security:admin",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "GetIdentity",
+      "mutates": "false",
+      "note": "identity read-back closing the RegisterIdentity blind-upsert gap: None means unregistered/unknown, Some(identity) with empty roles means registered-and-confirmed-empty -- gated security:admin like RegisterIdentity/RbacAdmin so it grants no caller new privilege",
+      "txn_participation": "Snapshot"
+    },
     "GetLedger": {
       "audited": "false",
       "authz_action": "ledger:read",
@@ -3095,13 +3128,13 @@
     },
     "PlacementRoute": {
       "audited": "false",
-      "authz_action": "admin:cluster-read",
+      "authz_action": "cluster:placement-read",
       "durability": "None",
       "emits_cdc": "false",
       "idempotent": "true",
       "method": "PlacementRoute",
       "mutates": "false",
-      "note": "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader",
+      "note": "engine-authoritative complete route; single-node returns authoritative unplaced group 0/epoch 0, while clustered routing requires a live MultiRaft control leader; GOC-15/BUG-030 narrowed off admin:cluster-read (2026-08-17) -- ordinary kg:read/kg:write routes their OWN tenant, handlers::placement::handle_route requires kg:admin for any other tenant's route",
       "txn_participation": "Snapshot"
     },
     "PlanMatViewDefine": {
@@ -3302,6 +3335,17 @@
       "note": "",
       "txn_participation": "Snapshot"
     },
+    "ReclaimExpiredCapacity": {
+      "audited": "true",
+      "authz_action": "capacity:lease",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ReclaimExpiredCapacity",
+      "mutates": "true",
+      "note": "bounded expiry reclaim with native aggregate accounting",
+      "txn_participation": "Atomic"
+    },
     "ReclaimWorkItemResources": {
       "audited": "true",
       "authz_action": "resource:reserve",
@@ -3334,6 +3378,17 @@
       "mutates": "true",
       "note": "state-backed MutationBatch commits the merged image",
       "txn_participation": "Saga"
+    },
+    "ReconcileCapacity": {
+      "audited": "false",
+      "authz_action": "capacity:read",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ReconcileCapacity",
+      "mutates": "false",
+      "note": "bounded native cells/leases reconciliation page",
+      "txn_participation": "Snapshot"
     },
     "RefreshMatView": {
       "audited": "false",
@@ -3423,6 +3478,17 @@
       "note": "",
       "txn_participation": "Atomic"
     },
+    "ReleaseCapacity": {
+      "audited": "true",
+      "authz_action": "capacity:lease",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ReleaseCapacity",
+      "mutates": "true",
+      "note": "bounded all-or-nothing lease release",
+      "txn_participation": "Atomic"
+    },
     "ReleaseWorkItemResources": {
       "audited": "true",
       "authz_action": "resource:reserve",
@@ -3465,6 +3531,17 @@
       "method": "RemoveTriples",
       "mutates": "true",
       "note": "",
+      "txn_participation": "Atomic"
+    },
+    "RenewCapacity": {
+      "audited": "true",
+      "authz_action": "capacity:lease",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "RenewCapacity",
+      "mutates": "true",
+      "note": "bounded all-or-nothing lease renewal",
       "txn_participation": "Atomic"
     },
     "RenewDevelopmentLane": {
@@ -3575,6 +3652,17 @@
       "method": "ResourceStats",
       "mutates": "false",
       "note": "",
+      "txn_participation": "None"
+    },
+    "ResourceStatsPage": {
+      "audited": "false",
+      "authz_action": "service:control",
+      "durability": "None",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "ResourceStatsPage",
+      "mutates": "false",
+      "note": "bounded ACL-filtered keyset page; summary suppresses detail arrays",
       "txn_participation": "None"
     },
     "Restore": {
@@ -3862,6 +3950,28 @@
       "mutates": "false",
       "note": "",
       "txn_participation": "Snapshot"
+    },
+    "SubmitWorkItem": {
+      "audited": "true",
+      "authz_action": "work:submit",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "SubmitWorkItem",
+      "mutates": "true",
+      "note": "native tenant-scoped WorkItem command-log admission and outbox commit",
+      "txn_participation": "Atomic"
+    },
+    "SubmitWorkItems": {
+      "audited": "true",
+      "authz_action": "work:submit",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "SubmitWorkItems",
+      "mutates": "true",
+      "note": "bounded all-or-nothing WorkItem admission batch",
+      "txn_participation": "Atomic"
     },
     "SummariesAtLevel": {
       "audited": "false",
@@ -4214,6 +4324,17 @@
       "mutates": "false",
       "note": "",
       "txn_participation": "Snapshot"
+    },
+    "UpdateCapacityCell": {
+      "audited": "true",
+      "authz_action": "capacity:admin",
+      "durability": "GraphRedb",
+      "emits_cdc": "false",
+      "idempotent": "true",
+      "method": "UpdateCapacityCell",
+      "mutates": "true",
+      "note": "controller epoch CAS for resource dimension/capacity policy",
+      "txn_participation": "Atomic"
     },
     "UpdateDevelopmentLaneQuota": {
       "audited": "true",

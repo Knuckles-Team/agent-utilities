@@ -2418,19 +2418,59 @@ def register_ontology_tools(mcp):
 
     @mcp.tool(
         name="graph_share",
-        description="Share a private node (CONCEPT:AU-KG.compute.data-is-private-its). Data is private-to-its-owner by default; this is the explicit promotion path. action='org' shares with the owner's org (in-place), 'commons' promotes a copy into the shared cross-org commons graph (share by WHERE placed), 'mark' attaches a mandatory marking (share by HOW placed), 'private' restricts it back. Actor/owner is the ambient identity — never caller-supplied.",
+        description="Share a private node (CONCEPT:AU-KG.compute.data-is-private-its). Data is private-to-its-owner by default; this is the explicit promotion path. action='org' shares with the owner's org (in-place), 'commons' promotes a copy into the shared cross-org commons graph (share by WHERE placed), 'mark' attaches a mandatory marking (share by HOW placed), 'private' restricts it back. Tenant HIERARCHY (share by WHO you inherit from): action='set_parent' durably records tenant_id's parent so `accessible_graphs()` returns a real multi-level overlay chain (most-specific tenant first, commons always last), 'clear_parent' detaches it, 'hierarchy' reads the registered chain. set_parent/clear_parent require the explicit 'kg:admin' capability. Actor/owner is the ambient identity — never caller-supplied.",
         tags=["graph-os", "tenancy"],
     )
     def graph_share(
         action: str = Field(
             default="org",
-            description="'org' share with my org | 'commons' promote to the shared commons graph | 'mark' attach a marking | 'private' restrict back to me.",
+            description="'org' share with my org | 'commons' promote to the shared commons graph | 'mark' attach a marking | 'private' restrict back to me | 'set_parent'/'clear_parent'/'hierarchy' manage the durable tenant hierarchy (kg:admin for the two writes).",
         ),
         node_id: str = Field(default="", description="Id of the node to share."),
         marking: str = Field(default="", description="Marking name (action='mark')."),
+        tenant_id: str = Field(
+            default="",
+            description="Tenant whose parent is being set/cleared/read (action='set_parent'|'clear_parent'|'hierarchy'). Defaults to the ambient actor's tenant for 'hierarchy'.",
+        ),
+        parent_tenant_id: str = Field(
+            default="",
+            description="Parent tenant to record (action='set_parent'). Refused on a cycle or past MAX_TENANT_DEPTH.",
+        ),
     ) -> str:
-        """Explicit, private-by-default sharing for the AMBIENT actor (KG-2.60)."""
+        """Explicit, private-by-default sharing for the AMBIENT actor (KG-2.60).
+
+        The tenant-hierarchy actions are the production write path into
+        :mod:`agent_utilities.knowledge_graph.core.tenant_registry` — the durable
+        ``__control__`` registry that
+        :func:`~agent_utilities.knowledge_graph.core.tenant_sharing.accessible_graphs`
+        reads on every request to build its precedence chain.
+        """
+        import dataclasses
+
+        from agent_utilities.knowledge_graph.core import tenant_registry as _tr
         from agent_utilities.knowledge_graph.core import tenant_sharing as _ts
+
+        if action in ("set_parent", "clear_parent", "hierarchy"):
+            try:
+                if action == "set_parent":
+                    return json.dumps(
+                        dataclasses.asdict(_tr.set_parent(tenant_id, parent_tenant_id))
+                    )
+                if action == "clear_parent":
+                    return json.dumps(dataclasses.asdict(_tr.clear_parent(tenant_id)))
+                from agent_utilities.security.brain_context import current_actor
+
+                target = tenant_id or getattr(current_actor(), "tenant_id", "")
+                return json.dumps(
+                    {
+                        "tenant_id": target,
+                        "parent_tenant_id": _tr.parent_of(target) or "",
+                        "ancestors": _tr.ancestor_chain(target),
+                        "max_depth": _tr.MAX_TENANT_DEPTH,
+                    }
+                )
+            except Exception as e:  # noqa: BLE001
+                return public_error_json(e)
 
         if not node_id:
             return json.dumps({"error": "node_id is required"})

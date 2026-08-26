@@ -75,6 +75,49 @@ ml_team = brain.tenancy.create_tenant(
 
 ---
 
+## Durable Hierarchy (what `accessible_graphs()` actually reads)
+
+`TenancyManager`'s tree above is **in-memory and resets with the process**. The
+hierarchy that the request path actually consults lives in
+`agent_utilities.knowledge_graph.core.tenant_registry` — one `:TenantHierarchy`
+node per tenant in the tenant-shared `__control__` graph, so it survives a
+restart and is identical for every replica reading the same engine.
+
+```python
+from agent_utilities.knowledge_graph.core import tenant_registry
+
+# kg:admin only. Refuses a self-parent, a cycle, and anything past MAX_TENANT_DEPTH.
+tenant_registry.set_parent("engineering", "acme")
+tenant_registry.set_parent("acme", "holdings")
+
+tenant_registry.ancestor_chain("engineering")   # ['acme', 'holdings']
+```
+
+Or over MCP/REST (`graph_share` / `POST /graph/share`):
+
+```
+graph_share(action="set_parent", tenant_id="engineering", parent_tenant_id="acme")
+graph_share(action="hierarchy", tenant_id="engineering")
+```
+
+`tenant_sharing.accessible_graphs()` then returns the real precedence chain —
+most-specific tenant first, ancestors nearest-first, **commons always last**:
+
+```
+['tenant__engineering__kg', 'tenant__acme__kg', 'tenant__holdings__kg', 'kg']
+```
+
+`read_union()` resolves a duplicate node id first-in-chain-wins over exactly
+that list, so a child tenant's row overrides its parent's, which overrides
+commons. Depth is capped at `MAX_TENANT_DEPTH` (4 — a tenant plus 3 ancestors)
+because every accessible graph costs another per-graph query on the read hot
+path; 5 graphs still fits one `read_union` fan-out wave.
+
+Cross-graph edges are structurally impossible in the engine, so this hierarchy
+is a **read-time projection**, never a storage property.
+
+---
+
 ## Adding Members
 
 Both humans and AIs join tenants with specific roles:
