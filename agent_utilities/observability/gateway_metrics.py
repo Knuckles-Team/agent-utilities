@@ -1193,22 +1193,33 @@ def _engine_metrics_status_line(ok: bool) -> bytes:
     )
 
 
-async def metrics_endpoint() -> Any:
-    """``GET /metrics`` handler for FastAPI ``add_api_route`` (no params).
+async def render_metrics_with_engine() -> tuple[bytes, str]:
+    """Like :func:`render_metrics`, plus the embedded engine's own exposition.
 
-    Merges the Python gateway's own Prometheus exposition with the embedded
-    epistemic-graph engine's (fetched from its loopback listener — see
-    :data:`_ENGINE_METRICS_URL`). The gateway's own metrics are ALWAYS served
-    in full; if the engine fetch fails, ``graph_os_engine_metrics_up`` reports
-    0 and a comment explains why, rather than the scrape silently coming back
+    Shared by every ``/metrics`` handler in this deployment (the gateway's
+    own :func:`metrics_endpoint` AND ``server_factory``'s bearer-gated
+    ``custom_route`` — the one actually live on the collapsed single-container
+    graph-os pod, since that process never mounts the REST gateway). The
+    gateway's own metrics are ALWAYS served in full; if the engine fetch
+    fails, ``graph_os_engine_metrics_up`` reports 0 and a comment explains
+    why, rather than the scrape silently coming back
     partial-but-presented-as-complete.
     """
-    from starlette.responses import Response
-
     body, content_type = render_metrics()
     engine_body, engine_ok = await _fetch_engine_metrics()
     merged = body + b"\n" + _engine_metrics_status_line(engine_ok) + b"\n" + engine_body
-    return Response(content=merged, media_type=content_type)
+    return merged, content_type
+
+
+async def metrics_endpoint() -> Any:
+    """``GET /metrics`` handler for FastAPI ``add_api_route`` (no params).
+
+    See :func:`render_metrics_with_engine` for what gets merged in.
+    """
+    from starlette.responses import Response
+
+    body, content_type = await render_metrics_with_engine()
+    return Response(content=body, media_type=content_type)
 
 
 async def metrics_asgi_endpoint(request: Any) -> Any:  # noqa: ARG001

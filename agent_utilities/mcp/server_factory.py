@@ -1691,8 +1691,17 @@ def create_mcp_server(
         from starlette.responses import JSONResponse as _JSONResponse
         from starlette.responses import Response as _Response
 
+        # render_metrics_with_engine() merges the Python gateway's own
+        # Prometheus exposition with the embedded epistemic-graph engine's
+        # (fetched from its loopback-only listener — the engine refuses any
+        # non-loopback auxiliary listener outright, so this process is the
+        # only thing that CAN re-serve it). This is the live /metrics path
+        # for the collapsed single-container graph-os pod: this FastMCP
+        # process never mounts the REST gateway's own /metrics
+        # (agent_utilities.gateway.graph_api.register_graph_routes), so this
+        # custom_route is the only exposition actually served.
         from agent_utilities.observability.gateway_metrics import (
-            render_metrics as _render_metrics,
+            render_metrics_with_engine as _render_metrics_with_engine,
         )
 
         if not remote_network or metrics_token is not None:
@@ -1718,7 +1727,7 @@ def create_mcp_server(
                                 "Cache-Control": "no-store",
                             },
                         )
-                body, content_type = _render_metrics()
+                body, content_type = await _render_metrics_with_engine()
                 return _Response(
                     content=body,
                     media_type=content_type,

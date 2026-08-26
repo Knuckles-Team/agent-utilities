@@ -221,6 +221,40 @@ class TestMetricsRouteReachable:
         assert status == 200
         assert b"agent_utilities_" in body
 
+    @pytest.mark.asyncio
+    async def test_authenticated_metrics_merges_engine_exposition(self, monkeypatch):
+        """The bearer-gated /metrics — the live path on the collapsed
+        single-container graph-os pod — must carry the embedded engine's own
+        series too, plus an explicit up/down signal (never a silently
+        partial scrape). Exercised with a REAL engine fetch monkeypatched to
+        a controlled result, since nothing at 127.0.0.1:9101 is guaranteed in
+        the test sandbox."""
+        from agent_utilities.observability import gateway_metrics as gm_mod
+
+        async def fake_fetch():
+            return b"epistemic_graph_wiring_probe 7\n", True
+
+        monkeypatch.setattr(gm_mod, "_fetch_engine_metrics", fake_fetch)
+
+        token = "y" * 48
+        monkeypatch.setenv("WIRING_TEST_METRICS_TOKEN_2", token)
+        mcp = _build_server(
+            monkeypatch,
+            _NETWORK_ARGV,
+            metrics_ref="env://WIRING_TEST_METRICS_TOKEN_2",
+        )
+        app = mcp.http_app()
+
+        status, _h, body = await _asgi_get(
+            app,
+            "/metrics",
+            headers=[(b"authorization", f"Bearer {token}".encode())],
+        )
+        assert status == 200
+        assert b"agent_utilities_" in body
+        assert b"graph_os_engine_metrics_up 1" in body
+        assert b"epistemic_graph_wiring_probe 7" in body
+
 
 # ---------------------------------------------------------------------------
 # 2. Delegation metrics move when a delegation actually runs
