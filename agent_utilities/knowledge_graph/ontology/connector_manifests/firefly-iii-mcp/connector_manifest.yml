@@ -340,7 +340,7 @@ sync:
     doc_type: transaction
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-21T04:30:39Z'
+  generated_at: '2026-08-26T13:42:55Z'
   source_artifacts:
   - firefly_iii_mcp/connectors/mcp_source_presets.json
   - firefly_iii_mcp/connectors/tool_schema_fingerprints.json
@@ -353,7 +353,7 @@ provenance:
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
+  source_commit: 70c8ae7b3bf96630cb0a68ad3fdf262990f4e3ef
 policy:
   pii_fields: {}
   tenant_boundary: null

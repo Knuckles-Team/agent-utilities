@@ -35,56 +35,22 @@ class TestVerifyFreeze:
         monkeypatch.setattr(
             orch, "_git", lambda *a: "" if a[0] == "status" else "abc123"
         )
-        problems = orch.verify_freeze(frozen_sha="abc123", expected_lock_digest=None)
+        problems = orch.verify_freeze(frozen_sha="abc123")
         assert problems == []
 
     def test_dirty_tree_is_a_problem(self, monkeypatch):
         monkeypatch.setattr(
             orch, "_git", lambda *a: "M some/file.py" if a[0] == "status" else "abc123"
         )
-        problems = orch.verify_freeze(frozen_sha=None, expected_lock_digest=None)
+        problems = orch.verify_freeze(frozen_sha=None)
         assert any("not clean" in p for p in problems)
 
     def test_sha_mismatch_is_a_problem(self, monkeypatch):
         monkeypatch.setattr(
             orch, "_git", lambda *a: "" if a[0] == "status" else "def456"
         )
-        problems = orch.verify_freeze(frozen_sha="abc123", expected_lock_digest=None)
+        problems = orch.verify_freeze(frozen_sha="abc123")
         assert any("!= expected frozen commit" in p for p in problems)
-
-    def test_dependency_lock_drift_is_a_problem(self, monkeypatch):
-        monkeypatch.setattr(
-            orch, "_git", lambda *a: "" if a[0] == "status" else "abc123"
-        )
-        monkeypatch.setattr(
-            "agent_utilities.knowledge_graph.ontology.ontology_integrity.dependency_lock_digest",
-            lambda: "f" * 64,
-        )
-        problems = orch.verify_freeze(
-            frozen_sha="abc123", expected_lock_digest="0" * 64
-        )
-        assert any("dependency lock moved" in p for p in problems)
-
-    def test_unreadable_lock_is_a_problem_not_a_crash(self, monkeypatch):
-        from agent_utilities.knowledge_graph.ontology import ontology_integrity
-
-        monkeypatch.setattr(
-            orch, "_git", lambda *a: "" if a[0] == "status" else "abc123"
-        )
-
-        def _raise():
-            raise ontology_integrity.ReleaseSigningError(
-                "dependency lock is unreadable"
-            )
-
-        monkeypatch.setattr(
-            "agent_utilities.knowledge_graph.ontology.ontology_integrity.dependency_lock_digest",
-            _raise,
-        )
-        problems = orch.verify_freeze(
-            frozen_sha="abc123", expected_lock_digest="0" * 64
-        )
-        assert any("could not be read" in p for p in problems)
 
 
 class TestVerifyBuiltArtifact:

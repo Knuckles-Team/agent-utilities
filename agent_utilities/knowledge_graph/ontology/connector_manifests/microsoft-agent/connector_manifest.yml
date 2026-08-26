@@ -135,7 +135,7 @@ sync:
     doc_type: microsoft-person-reference
 provenance:
   generated_by: scripts/generate_connector_manifests.py
-  generated_at: '2026-08-21T04:30:39Z'
+  generated_at: '2026-08-26T13:42:55Z'
   source_artifacts:
   - microsoft_agent/connectors/mcp_source_presets.json
   - microsoft_agent/connectors/tool_schema_fingerprints.json
@@ -148,7 +148,7 @@ provenance:
   signature_algorithm: none
   signing_public_key: ''
   signature: null
-  dependency_lock_digest: d9a7a8eafa985d82a117af04bd873825c6ee2cae172ea813fdad13e2db9df1fd
+  source_commit: e8ab8a0684168e55f21a43a6a25308b0abe9e12a
 policy:
   pii_fields: {}
   tenant_boundary: null

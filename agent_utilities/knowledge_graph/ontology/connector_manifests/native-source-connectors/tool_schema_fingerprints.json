@@ -1,14 +1,16 @@
 {
   "format": "agent-utilities-local-module-closure-v1",
   "sources": {
-    "ard": "d2d791fc24bcadf3778bcbf505ddf1e5d8229c8e2d4409bb908414a01b02069a",
-    "database": "c2b57e00963067189c36e3b77281e8a0db17b54913211e6afd8e6c186cfb5eb5",
-    "external_graph": "4d3017446de6e06003508225e66afddadd5f01847cf0612cc17f5f96b015e1c3",
-    "filesystem": "20bc8323c8122cfd74f13a9e81ed9b9e5db2a7616eec1fa1c30a71041c650132",
-    "graphql_document": "582483719fd1a0ee829702d8ba6e52746fa301f41c8a17429cc88f0cc4fe4f5e",
-    "reader": "7f8dc9d8c4933cf5ebe8422f97f09dc0b3439015cc864e8d719626eb89baa2f0",
-    "rest": "43c8f8a9452ab8409923c7db411e7d1cea537d6f35d60a0dbf8b5de4793ff2c6",
-    "rss": "54bb5869e96a8b78f2970c9985b5f940600739af776c6c96071b3ad7d0e0a935",
-    "web": "eee1293429d5da77319b04736f3ee1c40b88f8beea0aec6aca303eff0c4bfe91"
+    "ard": "3afd6dd7fb342d95a4ac36d0bfb6bc822a955f0961ccaf5f36ef56760f1c2482",
+    "arxiv": "7d7d45480173b10bf0fff3396dc18c3ed55535c6c2606b7963c4c1495f94f7f3",
+    "database": "3aa6222d895f622b45659d3b79c2c1a51e240a4aef43feb4f88ce006de8b9038",
+    "external_graph": "3975f507419e9aed930902b8d0f688a46b2930bcb11c1fb3d7a0e8a4f2158f44",
+    "filesystem": "9c2dadfaecaec7db8c41ec2b605cd22a002b4c902aeaf2748a58916b9ddbda80",
+    "git_markdown": "268a11b43f8a44af8fe82cdcf2601a15d5b0b7888c80add9ada49dd49e64e6a2",
+    "graphql_document": "4f9895a51c5d146379344dd248dd0837d5a28c0ad57e047cb879a967c513f740",
+    "reader": "8bd14898a646dfb8e6b9c80ec7b6e8c0140d84efd13b3668218a168be2efffe4",
+    "rest": "1f6643fb0ce57c5c520efcc9eea856d30e9b18ad9413d8242ddc6ccda9c372a8",
+    "rss": "a6988905ae6e5d9ebc01c8a4dea5fb08f632f036c5f4a8dd4ff00d1749ba07be",
+    "web": "3dde921c16a1253bf8a32d6710ca747e81064ff00fe9c26bf42c2907adcc233e"
   }
 }

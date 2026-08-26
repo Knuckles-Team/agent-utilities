@@ -18,7 +18,6 @@ crash or a silent pass:
   1. one-bit source change  -- a native connector's own code changes after signing
   2. schema change          -- a resource/field mapping changes after signing
   3. alias change            -- a sync preset's `server` alias changes after signing
-  4. dependency-lock drift   -- the frozen `uv.lock` moves after signing
 
 No real key material, real OpenBao access, or the real bundled fleet manifests are
 touched by any test here.
@@ -51,7 +50,6 @@ from agent_utilities.knowledge_graph.ontology.ontology_integrity import (
     ReleaseSigningError,
     canonical_hash,
     canonical_manifest_hash,
-    dependency_lock_digest,
 )
 
 _WIDGET_SCHEMA_SHA256 = "1" * 64
@@ -104,12 +102,11 @@ def _write_signed_widget_manifest(
     *,
     fields: dict[str, str] | None = None,
     server: str = "widget-mcp",
-    dependency_lock: str | None = None,
 ) -> Path:
     """A freshly generated, correctly signed manifest for a throwaway ``widget-mcp``
     connector — parameterised so each test can vary exactly the one dimension it is
-    proving the gate catches (schema fields, sync-preset server alias, or the pinned
-    dependency-lock digest), while everything else is generated genuinely correctly.
+    proving the gate catches (schema fields or sync-preset server alias), while
+    everything else is generated genuinely correctly.
     """
     (root / pkg).mkdir(parents=True)
     manifest = ConnectorManifest(
@@ -157,7 +154,6 @@ def _write_signed_widget_manifest(
                 signer=signer.signer_id,
                 signature_algorithm=signer.algorithm,
                 signing_public_key=signer.public_key,
-                dependency_lock_digest=dependency_lock,
             )
         }
     )
@@ -315,115 +311,3 @@ def test_alias_change_blocks_activation(tmp_path: Path, monkeypatch) -> None:
     assert result["checked"] is True
     assert result["ok"] is False
     assert any("[signature]" in v for v in result["violations"]), result["violations"]
-
-
-# ---------------------------------------------------------------------------
-# 4. Dependency-lock drift (the frozen ``uv.lock`` moves after signing)
-# ---------------------------------------------------------------------------
-
-
-def test_dependency_lock_drift_blocks_activation(tmp_path: Path, monkeypatch) -> None:
-    """A manifest signed against a specific frozen ``uv.lock`` must refuse to
-    activate once the live lock disagrees — the GOC-84/GOC-16-named "dependency-lock
-    drift" case, which neither the manifest's own schema hash nor its signature
-    alone can see (both are internally self-consistent; only a live-vs-pinned lock
-    comparison catches this).
-    """
-    frozen_digest = dependency_lock_digest()
-    _write_signed_widget_manifest(tmp_path, "widget-mcp", dependency_lock=frozen_digest)
-    _install_widget_provider(monkeypatch)
-
-    clean = gate.precheck_source("widget", agents_root=tmp_path)
-    assert clean["ok"] is True, clean["violations"]
-
-    def _drifted_digest(*_args, **_kwargs):
-        # A dependency version bump (or add/remove) after the manifest was signed —
-        # simulated without touching the real repo's uv.lock.
-        return "f" * 64 if frozen_digest != "f" * 64 else "0" * 64
-
-    monkeypatch.setattr(
-        "agent_utilities.knowledge_graph.ontology.ontology_integrity.dependency_lock_digest",
-        _drifted_digest,
-    )
-
-    result = gate.precheck_source("widget", agents_root=tmp_path)
-
-    assert result["checked"] is True
-    assert result["ok"] is False
-    assert any(
-        "[dependency-lock]" in v and "drifted since this manifest was generated" in v
-        for v in result["violations"]
-    ), result["violations"]
-
-
-def test_dependency_lock_digest_is_stable_and_sensitive_to_real_drift(
-    tmp_path: Path,
-) -> None:
-    """Sanity-checks :func:`dependency_lock_digest` itself: stable across re-parses
-    of the identical lock, and genuinely different when a pinned version moves —
-    independent of the gate wiring the other tests exercise.
-    """
-    lock = tmp_path / "uv.lock"
-    lock.write_text(
-        '[[package]]\nname = "widget"\nversion = "1.0.0"\n\n'
-        '[[package]]\nname = "gadget"\nversion = "2.3.1"\n',
-        encoding="utf-8",
-    )
-    first = dependency_lock_digest(lock)
-    second = dependency_lock_digest(lock)
-    assert first == second
-
-    lock.write_text(
-        '[[package]]\nname = "widget"\nversion = "1.0.1"\n\n'
-        '[[package]]\nname = "gadget"\nversion = "2.3.1"\n',
-        encoding="utf-8",
-    )
-    drifted = dependency_lock_digest(lock)
-    assert drifted != first
-
-
-def test_dependency_lock_digest_accepts_editable_workspace_members_without_a_version(
-    tmp_path: Path,
-) -> None:
-    """BUG-234 re-verification regression: this repo's OWN ``uv.lock`` has exactly
-    this shape (``agent-utilities`` and its ``epistemic-graph`` workspace sibling
-    are ``source = { editable = "..." }`` with no ``version`` key — legitimate uv
-    schema for a workspace-local package, not a corrupt lock) and, before this fix,
-    :func:`dependency_lock_digest` raised :class:`ReleaseSigningError` unconditionally
-    the moment it was exercised against the real lock — an additional real blocker
-    on top of the operator-held signing key BUG-234 otherwise names.
-    """
-    lock = tmp_path / "uv.lock"
-    lock.write_text(
-        '[[package]]\nname = "widget"\nversion = "1.0.0"\n\n'
-        '[[package]]\nname = "agent-utilities"\nsource = { editable = "." }\n',
-        encoding="utf-8",
-    )
-    digest = dependency_lock_digest(lock)
-    assert len(digest) == 64
-
-    # Still sensitive to a genuine change in which editable member is present.
-    lock.write_text(
-        '[[package]]\nname = "widget"\nversion = "1.0.0"\n\n'
-        '[[package]]\nname = "agent-utilities"\n'
-        'source = { editable = ".uv-workspace-siblings/agent-utilities" }\n',
-        encoding="utf-8",
-    )
-    moved = dependency_lock_digest(lock)
-    assert moved != digest
-
-
-def test_dependency_lock_digest_still_fails_closed_on_a_genuinely_missing_version(
-    tmp_path: Path,
-) -> None:
-    """The editable-package carve-out must not become a blanket "version optional"
-    rule: a registry-sourced (or source-less) package with no version is still a
-    genuinely invalid lock entry and must still raise.
-    """
-    lock = tmp_path / "uv.lock"
-    lock.write_text(
-        '[[package]]\nname = "widget"\nsource = { registry = "https://pypi.org/simple" }\n',
-        encoding="utf-8",
-    )
-    with pytest.raises(ReleaseSigningError):
-        dependency_lock_digest(lock)

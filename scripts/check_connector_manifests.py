@@ -60,8 +60,8 @@ def check_one(path: Path, *, verbose: bool = False) -> list[str]:
     # lives in this git repository, which already supplies content integrity
     # and authorship. What this gate still enforces is the part git does NOT:
     # that the manifest's recorded `provenance.integrity.hash` matches the
-    # ontology it actually compiles to, and that its `dependency_lock_digest`
-    # is current. `require_signature` itself is retained (and still proven by
+    # ontology it actually compiles to. `require_signature` itself is retained
+    # (and still proven by
     # `test_connector_manifest_gate.py`) for artifacts that DO leave this
     # repository via `release_signer_for_publication`.
     #

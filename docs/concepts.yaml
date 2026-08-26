@@ -5267,7 +5267,6 @@ concepts:
   code_paths:
   - agent_utilities/knowledge_graph/core/source_sync.py
   - agent_utilities/knowledge_graph/ontology/connector_manifest_gate.py
-  - agent_utilities/knowledge_graph/ontology/ontology_integrity.py
   doc: this module is the
 - id: AU-KG.ontology.connector-manifest-schema
   name: the LeanIX
