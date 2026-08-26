@@ -3,6 +3,7 @@ import base64
 import contextlib
 import json
 import logging
+import math
 import random
 import re
 import threading
@@ -405,6 +406,25 @@ _ADMISSION_RETRY_MIN_SECS = 5.0
 _ADMISSION_RETRY_MAX_SECS = 15.0
 
 
+#: Largest exponent ``_idle_backoff_seconds`` will ever raise 2 to, computed
+#: from the actual floor/cap so it stays correct if either constant changes.
+#: ``exponent`` must be clamped BEFORE exponentiating, not just the result:
+#: ``2**exponent`` is plain Python arbitrary-precision int arithmetic (both
+#: operands are ints), and multiplying that int by the float
+#: ``_IDLE_BACKOFF_FLOOR_SECS`` forces a float conversion of the WHOLE huge
+#: int before ``min()`` ever gets a chance to cap it. A worker idle long
+#: enough for ``miss_streak`` to exceed ~1030 made ``2**exponent`` exceed
+#: float's ~1.8e308 max, raising ``OverflowError: int too large to convert
+#: to float`` — and because that raise happened on every single poll (the
+#: caller's except-and-continue loop never resets ``miss_streak``, and the
+#: raise happens before ``time.sleep`` runs), it became a tight, unthrottled
+#: error loop logging "TaskManager worker error: int too large to convert to
+#: float" on every claim-path poll, forever.
+_IDLE_BACKOFF_MAX_EXPONENT = max(
+    0, math.ceil(math.log2(_IDLE_BACKOFF_CAP_SECS / _IDLE_BACKOFF_FLOOR_SECS)) + 1
+)
+
+
 def _idle_backoff_seconds(miss_streak: int) -> float:
     """Bounded exponential idle-poll backoff with positive jitter (U-65/BUG-111).
 
@@ -413,8 +433,14 @@ def _idle_backoff_seconds(miss_streak: int) -> float:
     additional miss, capped at :data:`_IDLE_BACKOFF_CAP_SECS`; jitter in
     ``[0, base * _IDLE_BACKOFF_JITTER_FRACTION]`` is added on top so workers
     that happened to go idle at the same instant do not keep waking together.
+
+    ``miss_streak`` is caller-supplied and unbounded (a worker can legitimately
+    stay idle for hours), so the exponent is clamped to
+    :data:`_IDLE_BACKOFF_MAX_EXPONENT` BEFORE exponentiating — see that
+    constant's docstring for why clamping only the result is not enough.
     """
     exponent = max(0, int(miss_streak) - 1)
+    exponent = min(exponent, _IDLE_BACKOFF_MAX_EXPONENT)
     base = min(_IDLE_BACKOFF_CAP_SECS, _IDLE_BACKOFF_FLOOR_SECS * (2**exponent))
     # nosec B311 - scheduling jitter to desynchronize idle workers (U-65), not a
     # security/cryptographic use; a CSPRNG would be slower for no benefit here.

@@ -1075,6 +1075,24 @@ def test_idle_backoff_grows_exponentially_and_caps(monkeypatch):
     assert _idle_backoff_seconds(20) == 15.0  # still capped
 
 
+def test_idle_backoff_never_overflows_on_a_long_idle_streak(monkeypatch):
+    """Production symptom: ``TaskManager worker error: int too large to
+    convert to float`` fired ~every 5s on the ``work_items.claim`` path,
+    6,027 times in one window and still firing. Root cause: ``2**exponent``
+    is unbounded Python int arithmetic, and multiplying that int by the
+    float floor forces a float conversion of the WHOLE value before
+    ``min()`` ever caps it -- so a worker idle long enough for
+    ``miss_streak`` to exceed ~1030 raised ``OverflowError: int too large to
+    convert to float`` on every single poll, with no backoff at all (the
+    raise happens before ``time.sleep``), which is why it fired in a tight
+    loop rather than throttling. The exponent must be clamped BEFORE
+    exponentiating, for any miss_streak, not just ones the pre-fix code
+    happened to handle."""
+    monkeypatch.setattr("random.uniform", lambda lo, hi: lo)  # freeze jitter at 0
+    for miss_streak in (1030, 2000, 10_000, 1_000_000):
+        assert _idle_backoff_seconds(miss_streak) == 15.0  # capped, never raises
+
+
 def test_idle_backoff_adds_positive_jitter_so_workers_desynchronize():
     """U-65/BUG-111: fixed-cadence polling synchronized every idle worker onto
     the same wake time. Repeated calls at the same streak must not all return
