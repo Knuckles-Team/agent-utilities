@@ -528,8 +528,36 @@ repos:
     always_run: true
   - id: check-bumpversion
     name: validate bumpversion config
+    # bump2version is installed per-user (pipx/`pip install --user`), typically
+    # under `~/.local/bin`, NOT into this repo's project venv -- so a plain
+    # `bump2version ...` here silently depends on the CALLER's PATH already
+    # containing that directory. A systemd unit or CI runner with a minimal/
+    # stripped PATH= (no `~/.local/bin`) then fails this hook with a bare
+    # shell "command not found" / exit 127, which reads as a config or
+    # version-bump defect rather than what it actually is: a missing-tool
+    # environment fact (see AGENTS.md's "environment facts masquerade as
+    # code defects" pattern -- the same class of false verdict as a stripped
+    # PATH losing `cargo`). Resolve robustly across the places it's actually
+    # installed instead of trusting bare PATH, and if it genuinely cannot be
+    # found anywhere, say so explicitly instead of letting the shell's raw
+    # "command not found" stand in for the diagnosis.
     entry: |-
-      bash -c 'if [ -f ".bumpversion.cfg" ]; then bump2version patch --dry-run --allow-dirty; fi'
+      bash -c '
+        if [ ! -f ".bumpversion.cfg" ]; then exit 0; fi
+        bump2version_bin=""
+        for candidate in bump2version "$HOME/.local/bin/bump2version" "$HOME/.local/pipx/venvs/bump2version/bin/bump2version"; do
+          if command -v "$candidate" >/dev/null 2>&1; then
+            bump2version_bin="$candidate"
+            break
+          fi
+        done
+        if [ -z "$bump2version_bin" ]; then
+          echo "check-bumpversion: bump2version is not on PATH and was not found under \$HOME/.local/bin or \$HOME/.local/pipx (checked: PATH, \$HOME/.local/bin, \$HOME/.local/pipx/venvs/bump2version/bin)." >&2
+          echo "This is a MISSING TOOL, not a version-bump config defect: install it (\`pipx install bump2version\` or \`pip install --user bump2version\`), or make sure \$HOME/.local/bin is on PATH for whatever is running this hook (a systemd unit / CI runner with a minimal PATH= is the usual cause)." >&2
+          exit 127
+        fi
+        "$bump2version_bin" patch --dry-run --allow-dirty
+      '
     language: system
     pass_filenames: false
     always_run: true
