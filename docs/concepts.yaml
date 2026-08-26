@@ -2,7 +2,7 @@
 # Single source of truth for canonical concepts, derived from
 # CONCEPT:<ID> markers in agent_utilities/ (*.py, *.rs).
 generated_by: scripts/build_concepts_yaml.py
-total_concepts: 1225
+total_concepts: 1226
 total_pillars: 9
 pillars:
 - AU-AHE
@@ -3930,6 +3930,15 @@ concepts:
   - agent_utilities/mcp/tools/job_tools.py
   - agent_utilities/models/knowledge_graph.py
   doc: never a silent aggregate-only
+- id: AU-KG.ingest.debezium-changeenvelope
+  name: env feature flag gating the
+  pillar: AU-KG
+  status: live
+  code_paths:
+  - agent_utilities/knowledge_graph/ingestion/debezium_envelope.py
+  - agent_utilities/knowledge_graph/streams/kafka_adapter.py
+  - agent_utilities/mcp/tools/write_ingest_tools.py
+  doc: env feature flag gating the
 - id: AU-KG.ingest.decoupled-kg-ingest-consumer
   name: Decoupled kg-ingest consumer group with idempotent at-least-once task claims
   pillar: AU-KG
@@ -4348,6 +4357,7 @@ concepts:
   status: live
   code_paths:
   - agent_utilities/knowledge_graph/extraction/second_brain_sync.py
+  - agent_utilities/knowledge_graph/ingestion/debezium_envelope.py
   - agent_utilities/knowledge_graph/ontology/connector_manifest.py
   - agent_utilities/messaging/backfill.py
   - agent_utilities/protocols/source_connectors/connectors/__init__.py
