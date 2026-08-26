@@ -22,6 +22,7 @@ no-collision contract) without depending on the Rust wheel.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import socket
 import sys
@@ -203,8 +204,14 @@ def test_loopback_tcp_resolves_local_autostart(monkeypatch):
     assert resolved.autostart_allowed is True
 
 
-def test_autostart_passes_loopback_tcp_address(monkeypatch):
-    """The spawned server must bind the same loopback address as its client."""
+def _spawn_autostart(monkeypatch, config):
+    """Drive ``_autostart_engine`` with a fake ``subprocess`` and report the spawn.
+
+    Returns ``(commands, environments, retained_environments)`` — the argv, a
+    SNAPSHOT of the child environment as ``Popen`` saw it, and the live dict the
+    launcher keeps a reference to (so a caller can assert the material was
+    scrubbed from it after the spawn).
+    """
     from epistemic_graph.client import SyncEpistemicGraphClient
 
     from agent_utilities.knowledge_graph.core import graph_compute as gc
@@ -242,11 +249,7 @@ def test_autostart_passes_loopback_tcp_address(monkeypatch):
         },
         None,
         "test-secret",
-        SimpleNamespace(
-            epistemic_graph_max_resident_graphs=1024,
-            epistemic_graph_lazy_open_page_size=4096,
-            epistemic_graph_max_nodes_per_graph=250_000,
-        ),
+        config,
         fake_subprocess,
         sys,
         SimpleNamespace(sleep=lambda _seconds: None, monotonic=time.monotonic),
@@ -257,6 +260,42 @@ def test_autostart_passes_loopback_tcp_address(monkeypatch):
 
     assert result == "connected"
     assert commands
+    return commands, environments, retained_environments
+
+
+def _autostart_config(**overrides):
+    base = {
+        "epistemic_graph_max_resident_graphs": 1024,
+        "epistemic_graph_lazy_open_page_size": 4096,
+        "epistemic_graph_max_nodes_per_graph": 250_000,
+        "app_profile": "dev",
+        "deployment_profile": "tiny",
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def test_autostart_passes_loopback_tcp_address(monkeypatch):
+    """The spawned server must bind the same loopback address as its client.
+
+    Also pins the CONFIGURED-key-reference path: with
+    ``epistemic_graph_encryption_key_ref`` set, the resolved material reaches
+    the child environment and only the child environment.
+    """
+    from agent_utilities.security import cli_secrets
+
+    monkeypatch.setattr(
+        cli_secrets,
+        "resolve_runtime_secret_reference",
+        lambda _reference: "resolved-engine-encryption-key-material-0001",
+    )
+
+    commands, environments, retained_environments = _spawn_autostart(
+        monkeypatch,
+        _autostart_config(
+            epistemic_graph_encryption_key_ref="env://TEST_ENGINE_DATA_KEY"
+        ),
+    )
     tcp_index = commands[0].index("--tcp-addr")
     assert commands[0][tcp_index : tcp_index + 2] == [
         "--tcp-addr",
@@ -276,11 +315,71 @@ def test_autostart_passes_loopback_tcp_address(monkeypatch):
     assert environments[0]["EPISTEMIC_GRAPH_MAX_MSGPACK_ITEMS"] == "1000000"
     assert (
         environments[0]["EPISTEMIC_GRAPH_ENCRYPTION_KEY"]
-        == "test-engine-encryption-key-material-0001"
+        == "resolved-engine-encryption-key-material-0001"
     )
     assert "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF" not in environments[0]
     assert "EPISTEMIC_GRAPH_ENCRYPTION_KEY" not in retained_environments[0]
     assert "UNRELATED_PROVIDER_API_KEY" not in environments[0]
+
+
+def test_autostart_omits_the_encryption_key_when_no_reference_is_configured(
+    monkeypatch, caplog
+):
+    """No ``..._KEY_REF`` -> the child gets NO encryption key at all.
+
+    Encryption-at-rest is opt-in. Passing a minted key regardless is what would
+    seal an existing plaintext durable store under a key that lives in an
+    ephemeral data dir -- unopenable after the next restart. Absence of the
+    variable is the contract, not an empty string: the ambient value set by
+    ``_spawn_autostart`` must not leak through either.
+    """
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    with caplog.at_level(logging.INFO, logger=gc.__name__):
+        _commands, environments, _retained = _spawn_autostart(
+            monkeypatch, _autostart_config(epistemic_graph_encryption_key_ref=None)
+        )
+
+    assert "EPISTEMIC_GRAPH_ENCRYPTION_KEY" not in environments[0]
+    assert "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF" not in environments[0]
+    # The other engine settings still arrive, so this is an omission, not a
+    # collapsed child environment.
+    assert environments[0]["GRAPH_SERVICE_AUTH_SECRET"] == "test-secret"
+
+    notices = [
+        record
+        for record in caplog.records
+        if "EPISTEMIC_GRAPH_ENCRYPTION_KEY_REF" in record.getMessage()
+    ]
+    assert len(notices) == 1
+    assert notices[0].levelno == logging.INFO
+    message = notices[0].getMessage()
+    assert "encryption-at-rest is NOT configured" in message
+    # Static text only -- log_privacy would redact any interpolated path, so the
+    # SETTING NAMES have to carry the meaning.
+    assert "/" not in message
+
+
+def test_autostart_encryption_key_still_fails_closed_outside_dev_tiny(monkeypatch):
+    """Omitting the key must not become a silent downgrade in production."""
+    from agent_utilities.knowledge_graph.core import graph_compute as gc
+
+    with pytest.raises(RuntimeError, match="reference is required"):
+        gc._autostart_engine_encryption_key(
+            SimpleNamespace(
+                epistemic_graph_encryption_key_ref=None,
+                app_profile="production",
+                deployment_profile="tiny",
+            )
+        )
+    with pytest.raises(RuntimeError, match="reference is required"):
+        gc._autostart_engine_encryption_key(
+            SimpleNamespace(
+                epistemic_graph_encryption_key_ref=None,
+                app_profile="dev",
+                deployment_profile="enterprise",
+            )
+        )
 
 
 def test_engine_encryption_reference_resolves_only_for_child(monkeypatch):

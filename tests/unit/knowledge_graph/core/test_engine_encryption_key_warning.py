@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from agent_utilities.knowledge_graph.core import graph_compute as gc
 
 
@@ -95,3 +97,46 @@ class TestEnginePersistDirHoldsData:
             gc, "_resolve_engine_persist_dir", lambda: str(tmp_path / "nope")
         )
         assert gc._engine_persist_dir_holds_data() is False
+
+    def test_none_when_the_directory_is_unreadable(self, tmp_path, monkeypatch) -> None:
+        """Unreadable is NOT empty -- the bug this probe used to have.
+
+        A bare ``except Exception: return False`` reported the populated,
+        not-mounted production store as empty, so the caller emitted the mild
+        warning on the very check meant to catch minting a key over live data.
+        """
+        unreadable = tmp_path / "unreadable"
+        unreadable.mkdir(mode=0o000)
+        monkeypatch.setattr(gc, "_resolve_engine_persist_dir", lambda: str(unreadable))
+        try:
+            if gc._engine_persist_dir_holds_data() is False:
+                pytest.skip("running as a user that can read a 0o000 directory")
+            assert gc._engine_persist_dir_holds_data() is None
+        finally:
+            unreadable.chmod(0o700)
+
+    def test_none_when_the_persist_dir_cannot_be_resolved(self, monkeypatch) -> None:
+        def _boom() -> str:
+            raise OSError("cannot resolve")
+
+        monkeypatch.setattr(gc, "_resolve_engine_persist_dir", _boom)
+        assert gc._engine_persist_dir_holds_data() is None
+
+
+class TestUndeterminedPersistDirEscalatesTheMessage:
+    def test_minting_when_the_store_is_unreadable_says_so(
+        self, monkeypatch, tmp_path, caplog
+    ) -> None:
+        monkeypatch.setenv("AGENT_UTILITIES_DATA_DIR", str(tmp_path / "data"))
+        monkeypatch.setenv("GRAPH_SERVICE_PERSIST_DIR", str(tmp_path / "snapshots"))
+        monkeypatch.setattr(gc, "_engine_persist_dir_holds_data", lambda: None)
+
+        with caplog.at_level(logging.WARNING, logger=gc.__name__):
+            gc._load_or_create_engine_encryption_key()
+
+        warnings = _key_warnings(caplog)
+        assert len(warnings) == 1
+        message = warnings[0].getMessage()
+        assert "COULD NOT BE DETERMINED" in message
+        assert "ALREADY HOLDS DATA" not in message
+        assert "/" not in message
