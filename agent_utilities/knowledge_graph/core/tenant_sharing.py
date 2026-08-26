@@ -148,10 +148,20 @@ def accessible_graphs(
 ) -> list[str]:
     """Ordered, de-duplicated graphs an actor may read: org (+ancestors) then commons.
 
-    The org graph comes first (most-specific, where the actor's writes land);
-    the commons graph is always appended last. Org *ancestor* graphs (org→user
-    hierarchies registered in the CompanyBrain ``TenancyManager``) are included
-    between the two so a user inherits read access up the tenant tree.
+    This is the overlay/underlay precedence chain, most-specific first: the org
+    graph comes first (where the actor's writes land), then its ancestors
+    nearest-first, and the commons graph is ALWAYS appended last (GOC-61,
+    2026-08-09 — the commons/tenant split is intentional and its position in this
+    ordering is deliberate). :func:`read_union` resolves duplicate ids
+    first-in-chain-wins over exactly this list, so the nearest tenant overrides
+    an ancestor and any tenant overrides commons.
+
+    Ancestors come from :mod:`.tenant_registry`, the DURABLE ``__control__``
+    registry — so a hierarchy registered once survives every process restart.
+    The chain is bounded by ``tenant_registry.MAX_TENANT_DEPTH`` (4), i.e. at
+    most 5 graphs including commons: this list is on the read hot path and each
+    entry costs ``read_union`` another per-graph query on top of the engine's
+    ~1s fixed RPC overhead.
     """
     actor = _require_actor(actor)
     base = default_graph_name(config)
@@ -170,7 +180,31 @@ def accessible_graphs(
 
 
 def _ancestor_tenants(tenant_id: str) -> list[str]:
-    """Best-effort org→user ancestor chain from the CompanyBrain tenancy tree."""
+    """Ordered org→user ancestor chain, nearest parent first.
+
+    The DURABLE :mod:`.tenant_registry` is authoritative: it survives a process
+    restart, so a chain registered by an admin is still there for the next
+    request (and for every other replica reading the same engine). Before it
+    existed, this walked ``TenancyManager``'s in-memory dict, which every
+    process reset — so the chain was always empty and hierarchy could never
+    exist in practice.
+
+    The in-memory ``TenancyManager`` tree remains a FALLBACK for a process that
+    built a tree locally without registering it (tests, embedded single-process
+    use). Both legs are bounded by ``tenant_registry.MAX_TENANT_DEPTH`` and both
+    degrade to ``[]`` (flat tenancy) rather than raising — ``accessible_graphs``
+    is on the read hot path and must never fail because the control plane is
+    briefly unreachable.
+    """
+    from . import tenant_registry
+
+    try:
+        durable = tenant_registry.ancestor_chain(tenant_id)
+    except Exception as exc:  # noqa: BLE001 — flat tenancy is a fine default
+        logger.debug("durable ancestor lookup skipped for %s: %s", tenant_id, exc)
+        durable = []
+    if durable:
+        return durable
     try:
         from .company_brain_runtime import get_company_brain
 
@@ -179,7 +213,9 @@ def _ancestor_tenants(tenant_id: str) -> list[str]:
         # its private helper when present, else nothing (flat tenancy).
         walk = getattr(brain.tenancy, "_get_ancestor_tenants", None)
         if callable(walk):
-            return list(walk(tenant_id))
+            # Bound the in-memory leg by the SAME depth cap as the durable one:
+            # every extra ancestor is another per-graph query in ``read_union``.
+            return list(walk(tenant_id))[: tenant_registry.MAX_TENANT_DEPTH - 1]
     except Exception as exc:  # noqa: BLE001 — flat tenancy is a fine default
         logger.debug("ancestor lookup skipped for %s: %s", tenant_id, exc)
     return []
@@ -526,11 +562,12 @@ def push_down_visibility(
 
 
 # Bound on concurrent per-graph fan-out, below. ``accessible_graphs`` is small
-# today (tenant graph + commons = 2) and stays small (ordered, de-duplicated;
-# ancestor chains are short in practice) — this cap just keeps a pathological
-# tenancy tree from spawning an unbounded thread pool, matching "must not
-# degrade linearly if ancestor tenants are added" without over-provisioning
-# for a case that doesn't exist. Mirrors agent-webui's
+# by construction: a flat tenant is 2 graphs (tenant + commons) and
+# ``tenant_registry.MAX_TENANT_DEPTH`` caps a registered hierarchy at 5
+# (tenant + 3 ancestors + commons). Both fit inside ONE pool wave of this cap,
+# which is the whole point — a deeper chain would otherwise multiply every
+# read's wall clock by the engine's ~1s fixed RPC overhead instead of
+# overlapping it. Mirrors agent-webui's
 # ``api_extensions._rows_per_accessible_graph``/``_READ_UNION_MAX_WORKERS``
 # (BUG-PE-019) so the two independent fan-outs over the same primitive share
 # one shape rather than inventing a second.

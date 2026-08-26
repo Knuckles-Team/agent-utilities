@@ -749,8 +749,26 @@ class OWLBridge:
         # so claim-grounding chains/inverses materialise even without a schema pack,
         # then union any pack-declared object-properties on top.
         self._pack_transitive = set(ARA_TRANSITIVE_EDGES)
-        self._pack_symmetric = set()
+        self._pack_symmetric: set[str] = set()
         self._pack_inverse = {**ARA_INVERSE_EDGES, **HARNESS_INVERSE_EDGES}
+        # CONCEPT:AU-KG.ontology.ontology-driven-reasoning — union the axioms the
+        # BUNDLED ``ontology*.ttl`` library actually declares (18
+        # owl:TransitiveProperty, 8 owl:SymmetricProperty, 29 owl:inverseOf).
+        # Without this the sets above are the whole ontology every production
+        # call site reasons with — literally one axiom, ``grounded_in``, because
+        # no caller passes ``schema_pack`` — which is why the graph contained
+        # zero ``inferred = true`` edges. Best-effort and cached: a missing
+        # rdflib or an unparseable module degrades to the constants above.
+        try:
+            from ..ontology.axioms import closure_sets
+
+            ontology_transitive, ontology_symmetric, ontology_inverse = closure_sets()
+            self._pack_transitive |= ontology_transitive
+            self._pack_symmetric |= ontology_symmetric
+            for left, right in ontology_inverse:
+                self._pack_inverse.setdefault(left, right)
+        except Exception as exc:  # noqa: BLE001 — reasoning degrades, never breaks its caller
+            logger.debug("bundled ontology axioms unavailable: %s", exc)
         if schema_pack is not None and getattr(
             schema_pack, "owl_object_properties", None
         ):
@@ -882,9 +900,13 @@ class OWLBridge:
                 }
             )
 
-        # Pack-declared inverse closure -- the engine reasoner does not materialize
-        # owl:inverseOf, so emit it here so both paths agree (CONCEPT:AU-KG.ontology.pack-owl-closure).
-        inferences.extend(self._inverse_inferences())
+        # The engine's OwlReason is a CLASSIFIER: it returns class memberships and
+        # subclass entailments and materialises no object-property closure at all
+        # (no owl:inverseOf, no transitivity, no symmetry). Add the declared
+        # property closure here so the engine path and the Python last-resort agree
+        # (CONCEPT:AU-KG.ontology.pack-owl-closure) — before this, the branch that
+        # actually runs in production produced no property inferences whatsoever.
+        inferences.extend(self._property_closure_inferences())
 
         return inferences
 
@@ -908,13 +930,22 @@ class OWLBridge:
             lines.append(f"au:{prop} a owl:SymmetricProperty .")
         return "\n".join(lines) + "\n"
 
-    def _python_reasoning(self) -> list[dict[str, Any]]:
-        """Python fallback — RDFS+ reasoning on the in-memory networkx graph.
+    def _property_closure_inferences(self) -> list[dict[str, Any]]:
+        """Transitive + symmetric + inverse closure over the live graph's edges.
 
-        Performs simple transitive closure (e.g. part_of, depends_on) and
-        symmetric closures (e.g. related_concept) without calling the heavy DL reasoner.
+        CONCEPT:AU-KG.ontology.ontology-driven-reasoning — the object-property
+        characteristics the ontology declares (``owl:TransitiveProperty``,
+        ``owl:SymmetricProperty``, ``owl:inverseOf``) are what turn a sparse
+        graph into a navigable one, and NOTHING else in the system materialises
+        them: the engine's ``owl_reason`` is a *classifier* — it returns class
+        memberships and subclass entailments, not property closure — so this ran
+        only in the Python last-resort branch, i.e. only when no engine was
+        reachable at all. In production the engine is always reachable, which is
+        exactly why the graph held zero transitive/symmetric inferences.
+
+        Now shared by BOTH reasoning paths (one implementation, two callers)
+        rather than living inside the fallback that never executes.
         """
-        inferences = []
         transitive_props = {
             "part_of",
             "depends_on",
@@ -930,20 +961,26 @@ class OWLBridge:
             "broad_match",
             "similar_to",  # model-free code similarity (CONCEPT:EG-KG.compute.model-free-similar-code)
         }
-        # Union pack-declared object-property characteristics (CONCEPT:AU-KG.ontology.pack-owl-closure).
+        # Union pack- AND ontology-declared object-property characteristics
+        # (CONCEPT:AU-KG.ontology.pack-owl-closure).
         transitive_props |= self._pack_transitive
         symmetric_props |= self._pack_symmetric
 
-        # Pack-declared inverse closure: for every A -rel-> B, emit B -inverse-> A.
-        inferences.extend(self._inverse_inferences())
+        # Casefolded comparison — see :meth:`_inverse_inferences` for why: every
+        # durable edge type is UPPER_SNAKE, every declaration set is not.
+        transitive_props = {str(name).casefold() for name in transitive_props}
+        symmetric_props = {str(name).casefold() for name in symmetric_props}
+
+        inferences: list[dict[str, Any]] = list(self._inverse_inferences())
 
         for u, v, data in self.graph.edges(data=True):
             rel = data.get("relationship")
             if not rel:
                 continue
+            folded = str(rel).casefold()
 
             # Symmetric closure
-            if rel in symmetric_props:
+            if folded in symmetric_props:
                 if not self.graph.has_edge(v, u) or not any(
                     e.get("relationship") == rel
                     for e in self.graph.get_edge_data(v, u, default={}).values()
@@ -958,7 +995,7 @@ class OWLBridge:
                     )
 
             # Transitive closure (1-hop)
-            if rel in transitive_props:
+            if folded in transitive_props:
                 for w in self.graph.successors(v):
                     edge_data_dict = self.graph.get_edge_data(v, w, default={})
                     for w_data in edge_data_dict.values():
@@ -980,6 +1017,15 @@ class OWLBridge:
 
         return inferences
 
+    def _python_reasoning(self) -> list[dict[str, Any]]:
+        """Python last-resort — RDFS+ reasoning on the in-memory graph.
+
+        Reached only when no engine reasoner is available; the property closure
+        it performs is :meth:`_property_closure_inferences`, which the engine
+        path now runs too.
+        """
+        return self._property_closure_inferences()
+
     def _inverse_inferences(self) -> list[dict[str, Any]]:
         """Emit inverse-edge facts for pack-declared ``owl:inverseOf`` properties.
 
@@ -989,10 +1035,19 @@ class OWLBridge:
         """
         if not self._pack_inverse:
             return []
+        # CONCEPT:AU-KG.ontology.ontology-driven-reasoning — match CASEFOLDED.
+        # ``IntelligenceGraphEngine.link_nodes`` upper-cases every ``rel_type``
+        # before writing, while these declaration sets are keyed by the
+        # ontology's own local names; a case-sensitive lookup therefore never
+        # matched a single durable edge, and the closure silently produced
+        # nothing on a graph that did contain closable relations.
+        folded_inverse = {
+            str(key).casefold(): value for key, value in self._pack_inverse.items()
+        }
         out: list[dict[str, Any]] = []
         for u, v, data in self.graph.edges(data=True):
             rel = data.get("relationship")
-            inv = self._pack_inverse.get(rel) if rel else None
+            inv = folded_inverse.get(str(rel).casefold()) if rel else None
             if not inv:
                 continue
             existing = self.graph.get_edge_data(v, u, default={})
@@ -1111,14 +1166,23 @@ class OWLBridge:
                 subject = subject_match
                 obj = obj_match
 
-            # Check if this exact edge already exists
-            existing_edges = self.graph.get_edge_data(subject, obj)
-            if existing_edges:
-                already_exists = any(
-                    e.get("relationship") == predicate for e in existing_edges.values()
-                )
-                if already_exists:
-                    continue
+            # NEVER overwrite an existing relation with an inferred one.
+            # CONCEPT:AU-KG.ontology.ontology-driven-reasoning — the native graph
+            # stores at most ONE edge per ordered node pair (measured: an
+            # ``upsert_edge`` over an existing pair REPLACES its relationship
+            # type outright), and ``GraphComputeEngine.add_edge`` implements the
+            # write as remove-then-add. The previous guard only skipped when the
+            # SAME relationship already existed, so downfeeding a derived
+            # relation onto an already-connected pair silently destroyed the
+            # ASSERTED edge — e.g. an asserted ``a -PART_OF-> b`` became
+            # ``a -DEPENDS_ON-> b`` the moment the ontology's
+            # ``PART_OF rdfs:subPropertyOf DEPENDS_ON`` axiom was honoured.
+            # Inference may only ever CONNECT previously unconnected pairs here;
+            # that is also where its value is (transitive closure derives new
+            # pairs). A derived relation between an already-connected pair is
+            # dropped rather than allowed to overwrite evidence.
+            if self.graph.get_edge_data(subject, obj):
+                continue
 
             # Add inferred edge
             self.graph.add_edge(

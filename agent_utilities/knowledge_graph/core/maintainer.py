@@ -1540,7 +1540,12 @@ class GraphMaintainer:
         try:
             from pathlib import Path
 
-            ontology_path = str(Path(__file__).parent / "ontology.ttl")
+            # The canonical TBox lives in the ``knowledge_graph`` package root
+            # (alongside the other 28 ``ontology_*.ttl`` modules), NOT in
+            # ``knowledge_graph/core/``. Resolving it relative to this file made
+            # every call return ``{"status": "skipped"}`` — the reasoner was
+            # dead by missing file (CONCEPT:AU-KG.ontology.ontology-driven-reasoning).
+            ontology_path = str(Path(__file__).parent.parent / "ontology.ttl")
             if not Path(ontology_path).exists():
                 return {"status": "skipped", "reason": "ontology.ttl not found"}
 

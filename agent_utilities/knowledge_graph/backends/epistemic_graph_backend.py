@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from agent_utilities.models.knowledge_graph import (
@@ -478,19 +479,78 @@ class EpistemicGraphBackend(GraphBackend):
         node_type = str(properties.get("node_type") or label).strip()
         if not node_type:
             raise ValueError("node_type is required")
-        self._graph.batch_update(
-            [
-                {
-                    "op": "upsert_node",
-                    "id": node_id,
-                    "properties": {
-                        **properties,
-                        "id": node_id,
-                        "node_type": node_type,
-                    },
-                }
-            ]
+        row = {**properties, "id": node_id, "node_type": node_type}
+        operations: list[dict[str, Any]] = [
+            {"op": "upsert_node", "id": node_id, "properties": row}
+        ]
+        operations.extend(self._projected_operations(node_id, row))
+        self._graph.batch_update(operations)
+
+    def _projected_operations(
+        self, node_id: str, row: Mapping[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Edges (and their endpoints) this node's own properties already encode.
+
+        CONCEPT:AU-KG.enrichment.relation-projection — materialise the edges a
+        node's own properties already encode, at the durable node-write
+        chokepoint. This method IS that chokepoint for every writer reaching the
+        graph through
+        ``IntelligenceGraphEngine.add_node``/``_upsert_node`` AND for the
+        control-plane ``WorkItem`` path that bypasses ``_upsert_node`` and calls
+        this backend directly (``engine_tasks.py:1001``). Projecting here rather
+        than at each writer is the "enforce at the chokepoint, not one entrypoint"
+        rule: ``persist_runtime_signals``, ``WorkItem`` submission and
+        ``ingest_concepts`` each wrote property-only nodes precisely because
+        enrichment was an opt-in property of a different entrypoint.
+
+        Cost: the derived rows ride inside the SAME ``BatchUpdate`` RPC as the node
+        itself, so a projecting write costs no extra round trip. A node type with
+        no rule short-circuits on one dict lookup, which is every high-volume type.
+        The one exception is a REFERENCE property (``WorkItem.depends_on``) whose
+        targets this projection did not write: those need one batched
+        ``has_batch`` existence call, because the engine rejects the whole batch
+        when an edge endpoint is missing. That call happens only for a node that
+        actually carries such a property.
+        """
+        from ..enrichment.relation_projection import (
+            project_relations,
+            projects_anything,
         )
+
+        if not projects_anything(row.get("node_type")):
+            return []
+        projected = project_relations(node_id, row)
+        if not projected:
+            return []
+
+        operations: list[dict[str, Any]] = [
+            {"op": "upsert_node", "id": identifier, "properties": properties}
+            for identifier, properties in projected.nodes
+        ]
+        edges = list(projected.edges)
+        if projected.candidate_edges:
+            targets = sorted({target for _, target, _ in projected.candidate_edges})
+            try:
+                present = self._graph.has_batch(targets)
+            except Exception as exc:  # noqa: BLE001 — an unverifiable reference is dropped, never a failed node write
+                logger.debug("relation projection: endpoint check failed: %s", exc)
+                present = {}
+            edges.extend(
+                edge for edge in projected.candidate_edges if present.get(edge[1])
+            )
+        operations.extend(
+            {
+                "op": "upsert_edge",
+                "source": source,
+                "target": target,
+                "properties": {
+                    "relationship": relationship,
+                    "projected_from": "node_property",
+                },
+            }
+            for source, target, relationship in edges
+        )
+        return operations
 
     def add_edge(
         self,
