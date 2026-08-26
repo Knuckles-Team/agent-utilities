@@ -48,6 +48,7 @@ __all__ = [
     "GraphSession",
     "SessionExpiredError",
     "SessionRequiredError",
+    "control_session_scope",
     "current_session",
     "graph_session_required",
     "resolve_session",
@@ -526,3 +527,42 @@ def use_session(session: GraphSession) -> Iterator[GraphSession]:
         yield session
     finally:
         _current.reset(token)
+
+
+@contextmanager
+def control_session_scope(backend: Any) -> Iterator[None]:
+    """Retarget the ambient verified ``GraphSession`` onto ``backend``'s own
+    graph for the duration of one control-plane read/write, then restore the
+    caller's original scope.
+
+    A *graph-scoped view* (e.g. ``EpistemicGraphBackend.for_graph(...)``)
+    pins its RPCs to a fixed graph. The ambient session a caller is running
+    under is bound to whatever graph it actually operates on (a tenant graph,
+    a codebase-ingest graph, ...) — not necessarily the fixed graph the view
+    targets. ``graph_compute._send_routed`` rejects any RPC where a
+    fixed-graph view's target graph disagrees with the ambient session's
+    graph (``PermissionError: "A graph-scoped view cannot retarget the
+    verified GraphSession"``), so calling a graph-scoped view without first
+    retargeting the session fails for every caller regardless of privilege
+    (BUG-295).
+
+    This is the ONE sanctioned place for the ``with_graph`` + ``use_session``
+    narrowing pattern — every fixed-graph control-plane call site should call
+    this rather than reimplementing it locally. Reads the target graph off
+    the backend itself (``graph_name``) rather than hardcoding a literal, so
+    it works for ``__control__`` or any other fixed-graph view. Only the
+    ``graph`` field of the ambient session is retargeted — actor/tenant/
+    scopes are untouched, so authorization is unchanged. A ``None`` ambient
+    session (an unauthenticated bootstrap context) or a session already
+    scoped to the resolved target graph is a no-op.
+    """
+    ambient = current_session()
+    if ambient is None:
+        yield
+        return
+    target_graph = getattr(backend, "graph_name", None)
+    if not target_graph or ambient.graph == target_graph:
+        yield
+        return
+    with use_session(ambient.with_graph(target_graph)):
+        yield

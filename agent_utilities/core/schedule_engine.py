@@ -190,25 +190,20 @@ def _control_session_scope(backend: Any) -> Any:
     uses for the identical shape of problem —
     ``TaskManagerMixin._control_session_scope`` /
     ``_ControlPlaneWorkItemEngine._control_session_scope``
-    (``knowledge_graph/core/engine_tasks.py``): read the target graph off the
-    backend itself (``graph_name``) rather than hardcoding the
-    ``__control__`` literal, and retarget only the ``graph`` field of the
-    ambient session (actor/tenant/scopes are untouched, so authorization is
-    unchanged) for the scope of the call. No ambient session (an
-    unauthenticated bootstrap context) or a session already scoped to the
-    resolved control graph is a no-op.
+    (``knowledge_graph/core/engine_tasks.py``). The pattern itself now lives
+    in exactly one place, ``knowledge_graph.core.session.control_session_scope``
+    (BUG-295's fix, generalized so other callers — e.g.
+    ``knowledge_graph/core/tenant_registry.py`` — reuse it instead of
+    reimplementing it): read the target graph off the backend itself
+    (``graph_name``) rather than hardcoding the ``__control__`` literal, and
+    retarget only the ``graph`` field of the ambient session (actor/tenant/
+    scopes are untouched, so authorization is unchanged) for the scope of
+    the call. No ambient session (an unauthenticated bootstrap context) or a
+    session already scoped to the resolved control graph is a no-op.
     """
-    from ..knowledge_graph.core.session import current_session, use_session
+    from ..knowledge_graph.core.session import control_session_scope
 
-    ambient = current_session()
-    if ambient is None:
-        yield
-        return
-    target_graph = getattr(backend, "graph_name", None)
-    if not target_graph or ambient.graph == target_graph:
-        yield
-        return
-    with use_session(ambient.with_graph(target_graph)):
+    with control_session_scope(backend):
         yield
 
 

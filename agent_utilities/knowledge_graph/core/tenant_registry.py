@@ -167,8 +167,22 @@ def _control_backend() -> Any:
 
 
 def _load_snapshot() -> dict[str, str]:
-    """One label-indexed read of every registry record → ``{tenant: parent}``."""
-    rows = _control_backend().nodes_by_label(TENANT_HIERARCHY_LABEL) or []
+    """One label-indexed read of every registry record → ``{tenant: parent}``.
+
+    ``_control_backend()`` is a *graph-scoped view* pinned to ``__control__``.
+    The ambient session a caller runs under is bound to whatever graph it
+    actually operates on, not necessarily ``__control__`` — calling the view
+    without first retargeting the session raises ``PermissionError: "A
+    graph-scoped view cannot retarget the verified GraphSession"`` for every
+    caller regardless of privilege (BUG-295; see
+    ``core.schedule_engine._control_session_scope`` /
+    ``knowledge_graph.core.session.control_session_scope``, the shared fix).
+    """
+    from .session import control_session_scope
+
+    backend = _control_backend()
+    with control_session_scope(backend):
+        rows = backend.nodes_by_label(TENANT_HIERARCHY_LABEL) or []
     mapping: dict[str, str] = {}
     for node_id, props in rows:
         props = props if isinstance(props, dict) else {}
@@ -188,7 +202,12 @@ def _hierarchy_snapshot(*, refresh: bool = False) -> dict[str, str]:
     A read failure (engine down, ``__control__`` unreachable, no session) is
     reported as an EMPTY map — flat tenancy, today's behaviour — and cached for
     the same TTL so a broken engine costs one attempt per window, not one per
-    read.
+    read. Degrading is logged at WARNING (not DEBUG): silent degradation here
+    is exactly what let ``_control_backend()`` fail its ``PermissionError`` on
+    every single caller, including ``kg:admin``, for the entire time the
+    registry has existed (BUG-295-class retarget bug) without a single record
+    surfacing anywhere — zero ``:TenantHierarchy`` nodes were ever written and
+    nobody noticed because reads just quietly fell back to flat tenancy.
     """
     global _snapshot, _snapshot_at
     now = time.monotonic()
@@ -202,7 +221,13 @@ def _hierarchy_snapshot(*, refresh: bool = False) -> dict[str, str]:
     try:
         loaded = _load_snapshot()
     except Exception as exc:  # noqa: BLE001 — flat tenancy is a correct degrade
-        logger.debug("tenant hierarchy registry unavailable: %s", exc)
+        logger.warning(
+            "tenant hierarchy registry unavailable, degrading to flat tenancy "
+            "for %.0fs: %s",
+            _CACHE_TTL_SECONDS,
+            exc,
+            exc_info=True,
+        )
         loaded = {}
     finally:
         _loading.reset(token)
@@ -351,14 +376,18 @@ def set_parent(
             f"fan-out in read_union"
         )
 
-    _control_backend().add_node(
-        registry_node_id(tenant),
-        node_type=TENANT_HIERARCHY_LABEL,
-        tenant_id=tenant,
-        parent_tenant_id=parent,
-        registered_by=str(getattr(resolved, "actor_id", "") or ""),
-        registered_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    )
+    from .session import control_session_scope
+
+    backend = _control_backend()
+    with control_session_scope(backend):
+        backend.add_node(
+            registry_node_id(tenant),
+            node_type=TENANT_HIERARCHY_LABEL,
+            tenant_id=tenant,
+            parent_tenant_id=parent,
+            registered_by=str(getattr(resolved, "actor_id", "") or ""),
+            registered_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
     invalidate_cache()
     logger.info(
         "tenant hierarchy: %s -> parent %s (by %s)",
@@ -371,14 +400,18 @@ def set_parent(
 
 def clear_parent(tenant_id: str, actor: Any = None) -> TenantParent:
     """Detach ``tenant_id`` from its parent (it becomes a root). ``kg:admin``."""
+    from .session import control_session_scope
+
     _require_admin(actor)
     tenant = _valid(tenant_id)
-    _control_backend().add_node(
-        registry_node_id(tenant),
-        node_type=TENANT_HIERARCHY_LABEL,
-        tenant_id=tenant,
-        parent_tenant_id="",
-        registered_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    )
+    backend = _control_backend()
+    with control_session_scope(backend):
+        backend.add_node(
+            registry_node_id(tenant),
+            node_type=TENANT_HIERARCHY_LABEL,
+            tenant_id=tenant,
+            parent_tenant_id="",
+            registered_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
     invalidate_cache()
     return TenantParent(tenant_id=tenant, parent_tenant_id="", depth=1)
