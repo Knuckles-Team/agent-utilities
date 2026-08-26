@@ -53,6 +53,54 @@ _HTTP_METHODS = frozenset(
 
 _WRITE_CMD = "`python scripts/generate_openapi.py --write`"
 
+# Sanity floor, not a coverage target. `agent_webui.server.create_agent_web_app`
+# mounts several distinct optional/mandatory route groups (the service
+# dashboard API, the canonical Knowledge Graph REST surface via
+# `register_graph_routes`, ...) behind their own import/registration guards.
+# A guard that fails soft still returns a *working* app -- just one missing
+# an entire surface -- so `build_app()` here can succeed and `app.openapi()`
+# can return a well-formed, syntactically valid spec that is nonetheless
+# missing 50+ paths. That happened for real: a single shared
+# `except ImportError` used to wrap both the optional dashboard import and
+# the mandatory canonical KG REST registration in `create_agent_web_app`, so
+# any ImportError in the dashboard import alone silently dropped
+# `/api/registry/*` (12), `/api/ontology/*` (22), `/api/research/*` (7), and
+# `/api/dashboard/*` (14) from the generated spec -- 55+ paths -- while this
+# script still printed "Wrote ..." and exited 0. The committed spec normally
+# carries ~190 paths; this floor sits comfortably above what remains after
+# that specific truncation (~136) with headroom for ordinary path churn, so
+# it fails on a dropped *surface*, not a dropped *route*.
+_MIN_EXPECTED_PATHS = 150
+
+
+class IncompleteSurfaceError(RuntimeError):
+    """The built app's OpenAPI spec falls below the sanity floor.
+
+    Raised instead of silently writing/checking a truncated spec -- see
+    ``_MIN_EXPECTED_PATHS``.
+    """
+
+
+def _assert_surface_complete(spec: dict[str, Any]) -> None:
+    """Fail closed if ``spec`` looks like a mounted surface went missing.
+
+    Called on every ``--write`` and every ``--check`` (both funnel through
+    ``_expected()``) so a truncated spec can never be committed as
+    documentation nor silently pass validation.
+    """
+    path_count = len(spec.get("paths", {}))
+    if path_count < _MIN_EXPECTED_PATHS:
+        raise IncompleteSurfaceError(
+            f"Refusing to use an OpenAPI spec with only {path_count} path(s) "
+            f"(expected at least {_MIN_EXPECTED_PATHS}). This means a "
+            "mounted API surface (the service dashboard API, the canonical "
+            "KG REST surface, ...) failed to register on the built app -- "
+            "not that the documented API legitimately shrank. Check "
+            "agent_webui.server logs / build_app() output for a dashboard "
+            "'not available' message or a canonical KG REST surface "
+            "RuntimeError, fix the underlying mount failure, and rerun."
+        )
+
 
 def build_app() -> Any:
     """Construct the Agent Web Dashboard FastAPI app the way production does.
@@ -244,6 +292,7 @@ def render_page(
 
 def _expected() -> dict[Path, str]:
     spec = openapi_spec()
+    _assert_surface_complete(spec)
     app = build_app()
     schemaless_count, schemaless_prefixes = schemaless_routes(app, spec)
     return {
@@ -282,13 +331,24 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    if args.write:
-        write()
-        if not args.check:
-            print(f"Wrote {SPEC_PATH.relative_to(ROOT)} and {PAGE_PATH.relative_to(ROOT)}.")
-            return 0
+    try:
+        if args.write:
+            write()
+            if not args.check:
+                print(
+                    f"Wrote {SPEC_PATH.relative_to(ROOT)} and {PAGE_PATH.relative_to(ROOT)}."
+                )
+                return 0
 
-    errors = check()
+        errors = check()
+    except IncompleteSurfaceError as exc:
+        print(
+            "OpenAPI reference contract FAILED (refusing to write/check a "
+            "truncated spec):"
+        )
+        print(f"  - {exc}")
+        return 1
+
     if errors:
         print("OpenAPI reference contract FAILED:")
         for error in errors:
