@@ -200,6 +200,14 @@ class TenancyManager:
     trees, and query-time tenant filtering. Supports humans, AI agents,
     and hybrid teams as tenant members.
 
+    **The tenant tree here is IN-MEMORY and resets with the process.** For a
+    hierarchy that survives a restart — and that
+    :func:`~.tenant_sharing.accessible_graphs` actually reads on the request
+    path — register the parent edge durably with
+    :func:`.tenant_registry.set_parent` (persisted in the tenant-shared
+    ``__control__`` graph, ``kg:admin`` only). This manager stays the
+    single-process fallback.
+
     Example::
 
         tm = TenancyManager()
