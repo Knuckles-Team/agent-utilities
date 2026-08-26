@@ -58,7 +58,8 @@ import json
 import logging
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any
 
@@ -393,6 +394,48 @@ def _privacy_safe(text: str) -> str:
 
     safe, _privacy = PersistencePrivacyGuard().sanitize_text(str(text or ""))
     return safe
+
+
+@contextmanager
+def _fresh_write_authority() -> Iterator[None]:
+    """Re-mint this process's verified write authority for the write phase.
+
+    CONCEPT:AU-OS.identity.authenticated-identity-enforcement. The fleet
+    probe is minutes-long network work across the whole fleet, and the
+    bearer JWT behind a :class:`~.session.GraphSession` has a Keycloak
+    access-token lifetime measured in minutes. A sync that bound its session
+    BEFORE the probe therefore routinely reaches the write phase holding an
+    already-EXPIRED authority — measured live 2026-08-26: the probe
+    succeeded for all 66 servers, then every single write failed
+    (11,032 KG rows rejected with ``SessionExpiredError`` and the relational
+    catalog write skipped with "Verified graph authority has expired").
+
+    ``suspend_session()`` first, for exactly the reason
+    ``gateway/registry_api._catalog_service_session`` documents: a bare
+    :func:`~...security.request_identity.system_write_session` call PREFERS
+    an already-bound ambient session, so without suspending it would hand
+    back the very expired session this is replacing. Best-effort — if the
+    authority cannot be re-minted, the block still runs under whatever was
+    already bound, exactly as before.
+    """
+    from ...security.brain_context import use_actor
+    from ...security.request_identity import system_write_session
+    from .session import suspend_session, use_session
+
+    try:
+        with suspend_session():
+            session = system_write_session()
+    except Exception as exc:  # noqa: BLE001 — re-minting is best-effort
+        logger.warning(
+            "could not re-mint write authority before the fleet write (%s: %s); "
+            "continuing with the ambient session",
+            type(exc).__name__,
+            exc,
+        )
+        yield
+        return
+    with use_actor(session.actor), use_session(session):
+        yield
 
 
 def _write_fleet_relational(
@@ -994,18 +1037,22 @@ def _sync_fleet(
         try:
             # Broker authority is process-owned multiplexer state, never a
             # field in the caller-visible catalog.  The identity-bound lookup
-            # also rejects copied/spoofed catalog dictionaries.
-            mux._bind_local_discovery_bindings(catalog or {})
-            discovery_bindings = mux._take_discovery_bindings(catalog or {})
+            # also rejects copied/spoofed catalog dictionaries.  Minting a
+            # tenant-local binding reads the ambient session, which the probe
+            # above may have outlived -- see :func:`_fresh_write_authority`.
+            with _fresh_write_authority():
+                mux._bind_local_discovery_bindings(catalog or {})
+                discovery_bindings = mux._take_discovery_bindings(catalog or {})
         except Exception:  # noqa: BLE001 - private binding metadata is optional
             discovery_bindings = None
 
-    counts = _write_fleet_nodes(
-        engine,
-        catalog,
-        configs=configs,
-        discovery_bindings=discovery_bindings,
-    )
+    with _fresh_write_authority():
+        counts = _write_fleet_nodes(
+            engine,
+            catalog,
+            configs=configs,
+            discovery_bindings=discovery_bindings,
+        )
     return {
         "status": "ok",
         "source": "fleet",
