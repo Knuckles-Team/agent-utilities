@@ -1396,6 +1396,123 @@ def test_acl_projection_migration_adds_columns_to_an_already_deployed_step3_stor
     assert result["status"] == "ok"
 
 
+# The OTHER way a store legitimately arrives at the pre-ACL shape, and the
+# one the comment above ``_PRE_ACL_DDL`` wrongly assumed could not happen in
+# production: a store CREATED FRESH by the pre-ACL code version. Its
+# ``CREATE TABLE`` was the then-current DDL text, so ``mcp_servers`` is the
+# clean 9-column shape -- it never had the retired pre-NE-007
+# observed-discovery columns at all, and so matches neither
+# ``_LEGACY_SCHEMA_COLUMNS`` nor any forward accumulation from it.
+_FRESH_PRE_ACL_DDL: dict[str, str] = {
+    fct.TABLE_MCP_SERVERS: """CREATE TABLE IF NOT EXISTS mcp_servers (
+    id TEXT PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    transport TEXT NOT NULL,
+    url TEXT NOT NULL,
+    enabled BOOLEAN NOT NULL,
+    revision BIGINT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)""",
+    fct.TABLE_MCP_TOOLS: _PRE_ACL_DDL[fct.TABLE_MCP_TOOLS],
+    fct.TABLE_SKILLS: _PRE_ACL_DDL[fct.TABLE_SKILLS],
+}
+
+
+def test_fresh_created_pre_acl_store_is_migrated_not_reported_diverged():
+    """ROOT-CAUSE REGRESSION (measured live 2026-08-25 on graph-os).
+
+    ``_is_reachable_state`` modelled only "migrated up from the pre-NE-007
+    legacy shape", so a store whose ``mcp_servers`` was CREATED FRESH at
+    step 0003 -- today's shape minus step 0004's ACL columns, and without
+    the retired legacy observed-discovery columns -- matched nothing and was
+    declared diverged. ``ensure_fleet_catalog_tables`` then raised,
+    ``source_sync._write_fleet_relational`` caught it, and the ENTIRE
+    relational catalog write was silently skipped on every sync while the KG
+    node write succeeded -- the dashboard kept reading a months-stale
+    catalog. The fix must recognize this shape and migrate it forward.
+    """
+    eng = _FakeEngine()
+    gc = eng.graph_compute
+    for ddl in _FRESH_PRE_ACL_DDL.values():
+        gc.sql_exec(ddl)
+    for ddl in (
+        fct._DDL[fct.TABLE_MCP_SERVER_DISCOVERY],
+        fct._DDL[fct.TABLE_MCP_PROMPTS],
+        fct._DDL[fct.TABLE_MCP_RESOURCES],
+    ):
+        gc.sql_exec(ddl)
+
+    assert gc.columns[fct.TABLE_MCP_SERVERS] == {
+        "id",
+        "tenant_id",
+        "name",
+        "transport",
+        "url",
+        "enabled",
+        "revision",
+        "idempotency_key",
+        "updated_at",
+    }
+
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        ok = fct.ensure_fleet_catalog_tables(eng)
+    assert ok is True
+    assert {"acl_classification", "acl_owner_id", "acl_shared_scope"} <= gc.columns[
+        fct.TABLE_MCP_SERVERS
+    ]
+
+    # And the write that was being skipped now actually lands.
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        result = _write_fleet_catalog(eng, _server_catalog())
+    assert result["status"] == "ok"
+    assert result["tools_written"] == 1
+
+
+def test_unbound_unreachable_server_still_records_a_failure_observation():
+    """BUG-PE-056. A failed probe never gets a discovery binding (the
+    multiplexer mints one only for ``info["error"] is None``), so it used to
+    produce NO ``mcp_server_discovery`` row at all -- making "unavailable"
+    indistinguishable from "empty" to the dashboard, which reads
+    ``tool_count`` off that row. A failure observation exposes no discovered
+    capability, so it is recorded under the process-owned tenant-local
+    visibility contract with empty principal/grant fields. Derived rows
+    (tools/skills/prompts/resources) stay unwritten, exactly as before."""
+    eng = _FakeEngine()
+    catalog = _server_catalog(error="econnrefused: no route to host")
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        result = fct.write_fleet_catalog(eng, catalog, discovery_bindings=None)
+
+    assert result["status"] == "ok"
+    assert result["servers_unreachable"] == 1
+    assert result["discovery_written"] == 1
+    row = next(iter(eng.graph_compute.tables[fct.TABLE_MCP_SERVER_DISCOVERY].values()))
+    assert row["reachable"] is False
+    assert "econnrefused" in row["last_error"]
+    assert row["tenant_id"] == "tenant-a"
+    assert row["discovery_authority_kind"] == fct.DISCOVERY_AUTHORITY_TENANT_LOCAL
+    assert row["discovery_principal"] == ""
+    assert row["discovery_grant_digest"] == ""
+    # No unbound capability row was created as a side effect.
+    assert not eng.graph_compute.tables[fct.TABLE_MCP_TOOLS]
+    assert not eng.graph_compute.tables[fct.TABLE_SKILLS]
+
+
+def test_unbound_reachable_server_still_writes_no_derived_rows():
+    """The authority model is unchanged for a SUCCESSFUL probe with no
+    binding: no discovery row, no tool rows. BUG-PE-056's exception is
+    scoped strictly to a failure observation."""
+    eng = _FakeEngine()
+    with use_actor(_session("tenant-a").actor), use_session(_session("tenant-a")):
+        result = fct.write_fleet_catalog(
+            eng, _server_catalog(), discovery_bindings=None
+        )
+    assert result["discovery_written"] == 0
+    assert not eng.graph_compute.tables[fct.TABLE_MCP_SERVER_DISCOVERY]
+    assert not eng.graph_compute.tables[fct.TABLE_MCP_TOOLS]
+
+
 def test_diverged_schema_still_detected_with_the_new_acl_columns_present():
     """The divergence guard must still fire on a hand-modified store even
     after the schema's current shape grew to include the ACL-projection
