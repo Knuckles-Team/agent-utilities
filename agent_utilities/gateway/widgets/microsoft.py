@@ -33,7 +33,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from microsoft_agent.api_client import MicrosoftApi
+        from microsoft_agent.api_client import MicrosoftGraphApi as MicrosoftApi
 
         token = self._resolve_token(config)
         client = MicrosoftApi(token=token)

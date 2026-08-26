@@ -31,7 +31,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from openbao_mcp.api_client import OpenBaoApi
+        from openbao_mcp.api_client import Api as OpenBaoApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)

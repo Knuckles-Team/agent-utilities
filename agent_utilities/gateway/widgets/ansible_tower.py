@@ -36,7 +36,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from ansible_tower_mcp.api_client import AnsibleTowerApi
+        from ansible_tower_mcp.api_client import Api as AnsibleTowerApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)

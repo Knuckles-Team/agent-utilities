@@ -46,7 +46,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from caddy_mcp.api_client import CaddyApi
+        from caddy_mcp.api_client import Api as CaddyApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)

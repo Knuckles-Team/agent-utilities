@@ -133,7 +133,14 @@ def test_vector_db_imports_real_api_facade():
     from vector_mcp.vector_api import Api
 
     assert hasattr(Api, "list_collections")
-    client = Api()
+    # The PUBLISHED vector-mcp exposes a REMOTE REST client whose `base_url`
+    # is a REQUIRED positional argument -- this test previously constructed
+    # `Api()` with no arguments (correct only for the unpublished local
+    # sibling checkout's in-process facade) and never ran, because vector-mcp
+    # was not installed in any environment until the `gateway-widgets` extra
+    # declared it. Construct it the way `vector_db.Widget.fetch_data` now
+    # does, so this test and the widget cannot drift apart again.
+    client = Api(base_url=_UNREACHABLE_URL, token=None)
     assert client is not None
 
 

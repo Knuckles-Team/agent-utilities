@@ -328,6 +328,91 @@ browser = [
 # exec-over-ssh. Imported lazily by the driver; absent from lean core.
 computer-use = [
     "container-manager-mcp>=2.3.0"]
+# Gateway Service Dashboard widgets (agent_utilities/gateway/widgets/*.py,
+# CONCEPT:AU-OS.config.gateway-service-dashboard) each do an IN-PROCESS import of
+# their connector package's API client (e.g. `caddy.py`: `from caddy_mcp.api_client
+# import Api as CaddyApi`) rather than calling out over the network, so the
+# connector packages themselves must be installed wherever the dashboard runs.
+# None of these are declared as base dependencies (Configuration discipline: no
+# widget's connector is needed unless that specific service tile is configured),
+# so without this extra every configured widget logs
+# `ModuleNotFoundError: No module named '<connector>_mcp'` on every aggregator
+# cache-refresh cycle (`WidgetAggregator._cache_ttl`, gateway/aggregator.py) —
+# this extra is what makes the dashboard's connector imports actually resolve.
+# Floors are each connector's newest version actually PUBLISHED on PyPI today
+# (verified via the PyPI JSON API, not the ecosystem checkout under
+# agent-packages/agents/<name>, which for most of these has since moved ahead —
+# e.g. locally caddy-mcp is 2.1.0 but PyPI tops out at 1.0.1). A floor above what
+# is published would make this extra UNRESOLVABLE from PyPI (uv proved this: pinning
+# to the local container-manager-mcp version, 3.1.0, when only <=2.3.0 is published,
+# hard-fails `uv sync`/`pip install` — see the worked example in the fix's PR/commit
+# notes). Spot-checked (caddy/jellyfin/mattermost/openbao/technitium/twenty/mealie)
+# that the published floor version's `<pkg>.api_client` already exports the same
+# `Api` facade class the widgets now import — see the `Api as <Name>` alias fix in
+# the widget files below. None of the 33 pull torch/transformers/sentence-
+# transformers/CUDA (verified against each package's own `dependencies`), so this
+# stays dependency-discipline safe on the serving plane.
+#
+# NOT included: `ear_agent`, `sentry_mcp`, `zulip_agent` — the `ear.py`/`sentry.py`/
+# `zulip.py` widgets import these, but no such distribution exists locally or on
+# PyPI. `ear.py` already guards its import
+# (`except ImportError: return WidgetData(status="skipped", ...)`); `sentry.py` and
+# `zulip.py` do not and will keep flooding logs until those connectors are published.
+#
+# `container_manager.py`, `arr.py`, `vector_db.py`, `tunnel_manager.py`,
+# `atlassian.py`, `repository_manager.py` and `media_downloader.py` used to import a
+# `<pkg>.api_client` submodule those packages never shipped at any version — a second,
+# deeper bug a dependency declaration alone could not fix. That has since been fixed
+# separately (`fix(gateway): point 9 dashboard widgets at their real connector
+# clients`): each now imports its package's ACTUAL public entry point
+# (`container_manager_mcp.create_manager`, `arr_mcp.api.api_client_sonarr`,
+# `vector_mcp.vector_api`, `tunnel_manager.HostManager`,
+# `atlassian_agent.api.api_client_jira_cloud`, `repository_manager.repository_manager`,
+# `media_downloader.api_client`), so declaring their distributions here does make them
+# work rather than merely moving the ModuleNotFoundError one level deeper.
+#
+# `portainer-agent` IS declared below, but its newest PUBLISHED version (1.1.0) imports
+# `agent_utilities.http`, a module this package renamed to `agent_utilities.httpsupport`;
+# the local sibling checkout (2.1.0) already carries the fix but is unpublished. The
+# widget degrades safely through `BaseWidget._safe_fetch` meanwhile, and the floor
+# (`>=1.1.0`) picks the fix up automatically once 2.1.0 reaches PyPI. Asserted in
+# `tests/unit/gateway/test_gateway_widgets_extra.py::KNOWN_BROKEN` so the note cannot
+# outlive the defect.
+gateway-widgets = [
+    "ansible-tower-mcp>=2.0.1",
+    "arr-mcp>=2.1.0",
+    "atlassian-agent>=1.1.0",
+    "caddy-mcp>=1.0.1",
+    "container-manager-mcp>=2.3.0",
+    "documentdb-mcp>=1.0.1",
+    "erpnext-agent>=1.0.1",
+    "github-agent>=1.4.2",
+    "gitlab-api>=26.4.0",
+    "home-assistant-agent>=1.0.2",
+    "jellyfin-mcp>=1.0.1",
+    "keycloak-agent>=1.0.1",
+    "langfuse-agent>=1.0.1",
+    "listmonk-api>=1.0.1",
+    "mattermost-mcp>=1.0.1",
+    "mealie-mcp>=0.3.0",
+    "media-downloader>=3.0.1",
+    "microsoft-agent>=1.0.1",
+    "nextcloud-agent>=1.0.1",
+    "openbao-mcp>=1.0.1",
+    "owncast-agent>=1.0.1",
+    "plane-agent>=1.1.0",
+    "portainer-agent>=1.1.0",
+    "postiz-agent>=1.0.1",
+    "qbittorrent-agent>=1.0.1",
+    "repository-manager>=2.0.1",
+    "servicenow-api>=2.0.1",
+    "technitium-dns-mcp>=1.0.1",
+    "tunnel-manager>=2.1.0",
+    "twenty-mcp>=1.0.1",
+    "uptime-kuma-agent>=1.0.1",
+    "vector-mcp>=2.1.2",
+    "wger-agent>=1.0.1",
+]
 acp = [
     "pydantic-ai-harness[acp]>=0.14.0,<0.15.0",
 ]
@@ -506,7 +591,13 @@ serving = [
     # `hvac` is the only client that satisfies that on the serving plane, and it is a small
     # pure-Python HTTP client (no ML/native weight), so it belongs in `serving`, not a bespoke
     # second OpenBao client.
-    "agent-utilities[graphos,mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,ontology-guardrails]",
+    # gateway-widgets: the Gateway Service Dashboard (agent_utilities/gateway/widgets/*.py)
+    # ships as part of the serving plane and each widget does an in-process import of its
+    # connector package (see the `gateway-widgets` extra above for the full rationale) —
+    # without it here, every configured dashboard tile logs
+    # `ModuleNotFoundError: No module named '<connector>_mcp'` on every aggregator cache
+    # refresh in production.
+    "agent-utilities[graphos,mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,otel,agent-headless,rdf,logfire,langfuse,messaging-telegram,messaging-mattermost,vault,ontology-guardrails,gateway-widgets]",
 ]
 finance = [
     # NO torch / scikit-learn here: the torch-backed TradingLSTM walk-forward

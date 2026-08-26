@@ -31,7 +31,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from listmonk_api.api_client import ListmonkApi
+        from listmonk_api.api_client import ListmonkAPI as ListmonkApi
 
         url = self._resolve_url(config)
         username = self._resolve_env(config, "username", "admin")

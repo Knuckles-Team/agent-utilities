@@ -97,6 +97,51 @@ widget = reg.get_widget("portainer")  # Lazy-imports on first access
 | **Data & Research** | data_science, vector_db, documentdb, scholarx, audio_transcriber, ollama, clarity, jena, pulselink |
 | **Custom** | genius_agent, emerald_exchange, searxng |
 
+## Connector Dependencies (`gateway-widgets` extra)
+
+Most widgets talk to their service **in-process**, by importing that service's
+connector-package API client inside `fetch_data()` rather than calling out over
+plain HTTP — e.g. `caddy.py`: `from caddy_mcp.api_client import Api as CaddyApi`.
+None of those connector packages are base `agent-utilities` dependencies
+(Configuration discipline: a widget's connector is only needed if that specific
+service tile is configured), so they must be installed explicitly via the
+**`gateway-widgets`** optional-dependency group (`pyproject.toml`):
+
+```bash
+pip install "agent-utilities[gateway-widgets]"
+# or, as part of the serving plane (already included):
+pip install "agent-utilities[serving]"
+```
+
+Without it, every configured widget whose connector isn't installed logs
+`ModuleNotFoundError: No module named '<connector>_mcp'` (`code=dependency_unavailable`,
+`agent_utilities.gateway.widgets.base`) on **every** `WidgetAggregator` cache-refresh
+cycle (`_cache_ttl = 10.0` in `aggregator.py`, driven by the dashboard WebSocket's
+15s tick) — a continuous production log flood, not a one-time warning.
+
+**Not every widget needs a declared dependency**: `archivebox`, `data_science`,
+`emerald_exchange`, `genius_agent`, `google_workspace`, `legal_peripherals`, `lgtm`,
+`ollama`, `scholarx`, `searxng`, `stirlingpdf`, `systems_manager`, and `teleport`
+talk over plain HTTP (`self._http_client`) and have no in-process connector import.
+
+**Known gaps, not fixed by installing the extra:**
+
+- `sentry.py` and `zulip.py` import `sentry_mcp` / `zulip_agent`, distributions that
+  exist neither locally nor on PyPI. Both now guard the import and degrade to
+  `status="skipped"` (matching `ear.py`'s long-standing pattern) rather than
+  flooding the log, but they cannot report real data until those connectors ship.
+- `media_downloader.py` resolves, but `MediaDownloader` is a one-shot yt-dlp wrapper
+  with no queue or status surface to report, so it degrades the same way.
+- `portainer.py`'s `portainer-agent` resolves from PyPI, but the newest published
+  release (1.1.0) still imports the since-renamed `agent_utilities.http` (now
+  `agent_utilities.httpsupport`); the fix exists in the unpublished sibling
+  checkout (2.1.0+) but PyPI has nothing newer to pick up.
+
+Previously listed here as broken-beyond-the-extra — `container_manager`, `arr`,
+`vector_db`, `tunnel_manager`, `atlassian`, `repository_manager` — were pointed at
+their real connector entry points and now reach live data; see
+`tests/unit/gateway/test_widget_connector_imports.py`.
+
 ## Connector Coverage
 
 Every `agent-packages/agents/*` connector is either a live widget in the

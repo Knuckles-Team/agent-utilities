@@ -122,6 +122,13 @@ RUN set -eu; \
 #    dependency is already resolved+installed at BUILD time, so pod start no longer
 #    pip-installs anything).
 #
+#    NOTE: because this list is explicit rather than the `serving` umbrella, a NEW
+#    sub-extra added to `serving` in pyproject.toml is NOT picked up here automatically —
+#    it must be appended below too. `gateway-widgets` (the Gateway Service Dashboard's
+#    connector packages) is one such addition: without it the widgets' in-process
+#    `<pkg>.api_client` imports fail in THIS image, which is the one actually deployed
+#    (registry.arpa/graph-os-unified), even though `docker/Dockerfile` picks it up via
+#    `[serving]`.
 #    `serving`'s OWN sub-extras are listed explicitly here (mcp, feeds, embeddings-openai,
 #    neo4j, falkordb, auth, metrics, agent-headless [skills/pydantic-ai/pydantic-monty/
 #    fasta2a], logfire, messaging-telegram, messaging-mattermost) rather than the `serving`
@@ -196,7 +203,7 @@ RUN uv pip install --system --break-system-packages --no-cache \
         --no-sources \
         --override /tmp/overrides.txt \
         --find-links /tmp/wheels \
-        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,owl,logfire,messaging-telegram,messaging-mattermost,postgresql,acp]" \
+        -e "/opt/agent-utilities[mcp,feeds,embeddings-openai,neo4j,falkordb,auth,metrics,agent-headless,owl,logfire,messaging-telegram,messaging-mattermost,postgresql,acp,gateway-widgets]" \
         "/tmp/langfuse-agent-src" \
         "redis>=5.0.0" \
         "neo4j>=6.2.0" \

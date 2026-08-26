@@ -35,7 +35,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from qbittorrent_agent.api_client import QBittorrentApi
+        from qbittorrent_agent.api_client import QbittorrentApi as QBittorrentApi
 
         url = self._resolve_url(config)
         username = self._resolve_env(config, "username", "admin")

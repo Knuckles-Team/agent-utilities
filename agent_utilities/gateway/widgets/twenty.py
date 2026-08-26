@@ -27,7 +27,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from twenty_mcp.api_client import TwentyApi
+        from twenty_mcp.api_client import Api as TwentyApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)

@@ -41,7 +41,7 @@ class Widget(BaseWidget):
         ]
 
     def fetch_data(self, config: ServiceConfig) -> WidgetData:
-        from technitium_dns_mcp.api_client import TechnitiumDnsApi
+        from technitium_dns_mcp.api_client import Api as TechnitiumDnsApi
 
         url = self._resolve_url(config)
         token = self._resolve_token(config)
